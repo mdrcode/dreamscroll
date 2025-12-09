@@ -1,26 +1,79 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-    <title>Image Upload</title>
+    <title>Comprehension</title>
+    <style>
+        input[type="file"]::file-selector-button {
+            cursor: pointer;
+        }
+
+        input[type="file"] {
+            color: transparent;
+        }
+
+        input[type="file"]::-webkit-file-upload-button {
+            cursor: pointer;
+        }
+
+        .image-list-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .image-element-container {
+            min-width: 480px;
+            max-width: 70%;
+            width: 70%;
+            margin-bottom: 10px;
+            border: 1px solid #ccc;
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            gap: 20px;
+            padding: 10px;
+        }
+
+        .image-element {
+            max-width: 50%;
+            height: auto;
+        }
+
+        .image-metadata {
+            flex: 1;
+        }
+    </style>
 </head>
+
 <body>
-    <h1>Upload an Image for AI Analysis</h1>
-    <form action="/upload" method="post" enctype="multipart/form-data">
-        <input type="file" id="image" name="image" accept="image/*" required>
-        <br><br>
-        <input type="submit" value="Upload and Analyze">
-    </form>
+    <h1>Your Comprehension</h1>
+    <div id="submit-form-container">
+        <form action="/upload" method="post" enctype="multipart/form-data">
+            <input type="file" name="image" accept="image/*" required>
+            <div id="submit-btn-container">
+                <br>
+                <input type="submit" id="submit-btn" value="Upload and Analyze">
+            </div>
+        </form>
+    </div>
     <script>
-        document.getElementById('image').addEventListener('change', function() {
+        // If JS enabled, form will auto submit so can hide the explicit button
+        document.getElementById('submit-btn-container').style.display = 'none';
+        document.getElementById('image').addEventListener('change', function () {
             this.form.submit();
         });
     </script>
-    <h2>Recent Uploads</h2>
-    {% for image in images %}
-    <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px;">
-        <img src="/uploads/{{ image.filename }}" alt="Uploaded Image" style="max-width: 40%; height: auto; display: block; margin: 0 auto;">
-        <p style="text-align: center; margin-top: 10px;">Uploaded at: {{ image.timestamp }}</p>
+    <div class="image-list-container">
+        {% for i in images %}
+        <div class="image-element-container">
+            <img class="image-element" src="/uploads/{{ i.filename }}" alt="image {{i.filename}}">
+            <div class="image-metadata">
+                <p>{{ i.timestamp }}</p>
+            </div>
+        </div>
+        {% endfor %}
     </div>
-    {% endfor %}
 </body>
+
 </html>
