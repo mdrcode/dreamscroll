@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Image Upload</title>
+</head>
+<body>
+    <h1>Upload an Image for AI Analysis</h1>
+    <form action="/upload" method="post" enctype="multipart/form-data">
+        <input type="file" id="image" name="image" accept="image/*" required>
+        <br><br>
+        <input type="submit" value="Upload and Analyze">
+    </form>
+    <script>
+        document.getElementById('image').addEventListener('change', function() {
+            this.form.submit();
+        });
+    </script>
+    <h2>Recent Uploads</h2>
+    {% for image in images %}
+    <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px;">
+        <img src="/uploads/{{ image.filename }}" alt="Uploaded Image" style="max-width: 40%; height: auto; display: block; margin: 0 auto;">
+        <p style="text-align: center; margin-top: 10px;">Uploaded at: {{ image.timestamp }}</p>
+    </div>
+    {% endfor %}
+</body>
+</html>

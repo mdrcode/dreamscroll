@@ -1,26 +1,17 @@
 use chrono::{DateTime, Utc};
 use rocket::{fs::FileServer, get, http::ContentType, launch, post, response::Redirect, routes};
+use rocket_dyn_templates::{Template, context};
 use rocket_multipart_form_data::{
     MultipartFormData, MultipartFormDataField, MultipartFormDataOptions,
 };
+use serde::Serialize;
 use std::{fs, path::Path};
 use uuid::Uuid;
 
-fn make_timeline_html(images: &[(String, DateTime<Utc>)]) -> String {
-    let mut html = String::new();
-    for (filename, datetime) in images {
-        html.push_str(&format!(
-            r#"
-            <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px;">
-                <img src="/uploads/{}" alt="Uploaded Image" style="max-width: 40%; height: auto; display: block; margin: 0 auto;">
-                <p style="text-align: center; margin-top: 10px;">Uploaded at: {}</p>
-            </div>
-            "#,
-            filename,
-            datetime.format("%Y-%m-%d %H:%M:%S UTC")
-        ));
-    }
-    html
+#[derive(Serialize)]
+struct ImageInfo {
+    filename: String,
+    timestamp: String,
 }
 
 fn collect_images() -> Vec<(String, DateTime<Utc>)> {
@@ -45,50 +36,29 @@ fn collect_images() -> Vec<(String, DateTime<Utc>)> {
 fn rocket() -> rocket::Rocket<rocket::Build> {
     fs::create_dir_all("uploads").unwrap();
     rocket::build()
+        .attach(Template::fairing())
         .mount("/", routes![index, upload])
         .mount("/uploads", FileServer::from("uploads"))
 }
 
 #[get("/")]
-fn index() -> (ContentType, String) {
+fn index() -> Template {
     // Collect all uploaded images with timestamps
     let mut images = collect_images();
 
     // Sort by timestamp descending (most recent first)
     images.sort_by(|a, b| b.1.cmp(&a.1));
 
-    // Generate HTML for timeline
-    let images_html = make_timeline_html(&images);
+    // Convert to ImageInfo structs for template
+    let image_infos: Vec<ImageInfo> = images
+        .iter()
+        .map(|(filename, datetime)| ImageInfo {
+            filename: filename.clone(),
+            timestamp: datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string(),
+        })
+        .collect();
 
-    (
-        ContentType::HTML,
-        format!(
-            r#"
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>Image Upload</title>
-    </head>
-    <body>
-        <h1>Upload an Image for AI Analysis</h1>
-        <form action="/upload" method="post" enctype="multipart/form-data">
-            <input type="file" id="image" name="image" accept="image/*" required>
-            <br><br>
-            <input type="submit" value="Upload and Analyze">
-        </form>
-        <script>
-            document.getElementById('image').addEventListener('change', function() {{
-                this.form.submit();
-            }});
-        </script>
-        <h2>Recent Uploads</h2>
-        {}
-    </body>
-    </html>
-    "#,
-            images_html
-        ),
-    )
+    Template::render("index", context! { images: image_infos })
 }
 
 #[post("/upload", data = "<data>")]
