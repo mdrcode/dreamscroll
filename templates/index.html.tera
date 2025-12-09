@@ -4,15 +4,17 @@
 <head>
     <title>Comprehension</title>
     <style>
-        input[type="file"]::file-selector-button {
-            cursor: pointer;
+        .page-title {
+            margin-bottom: 5px;
         }
 
-        input[type="file"] {
+        .file-picker {
             color: transparent;
+            width: fit-content;
         }
 
-        input[type="file"]::-webkit-file-upload-button {
+        .file-picker::file-selector-button,
+        .file-picker::-webkit-file-upload-button {
             cursor: pointer;
         }
 
@@ -20,6 +22,7 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            margin-top: 20px;
         }
 
         .image-element-container {
@@ -30,8 +33,7 @@
             border: 1px solid #ccc;
             display: flex;
             flex-direction: row;
-            align-items: center;
-            gap: 20px;
+            gap: 10px;
             padding: 10px;
         }
 
@@ -42,34 +44,40 @@
 
         .image-metadata {
             flex: 1;
+            padding-left: 10px;
         }
     </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            document.getElementById('image-file-picker').addEventListener('change', function () {
+                this.form.submit();
+            });
+
+            // If JS enabled, form will auto submit (as above) so can hide explicit button
+            document.getElementById('submit-btn-container').style.display = 'none';
+        });
+    </script>
 </head>
 
 <body>
-    <h1>Your Comprehension</h1>
+    <h1 class="page-title">Comprehension</h1>
     <div id="submit-form-container">
         <form action="/upload" method="post" enctype="multipart/form-data">
-            <input type="file" name="image" accept="image/*" required>
+            <input type="file" name="image" id="image-file-picker" class="file-picker" accept="image/*" required>
             <div id="submit-btn-container">
                 <br>
                 <input type="submit" id="submit-btn" value="Upload and Analyze">
             </div>
+            <br>
         </form>
     </div>
-    <script>
-        // If JS enabled, form will auto submit so can hide the explicit button
-        document.getElementById('submit-btn-container').style.display = 'none';
-        document.getElementById('image').addEventListener('change', function () {
-            this.form.submit();
-        });
-    </script>
+
     <div class="image-list-container">
         {% for i in images %}
         <div class="image-element-container">
             <img class="image-element" src="/uploads/{{ i.filename }}" alt="image {{i.filename}}">
             <div class="image-metadata">
-                <p>{{ i.timestamp }}</p>
+                {{ i.timestamp }}
             </div>
         </div>
         {% endfor %}
