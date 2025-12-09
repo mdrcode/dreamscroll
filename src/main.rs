@@ -1,22 +1,29 @@
 use chrono::{DateTime, Utc};
-use rocket::{fs::FileServer, get, http::ContentType, launch, post, routes};
+use rocket::{fs::FileServer, get, http::ContentType, launch, post, response::Redirect, routes};
 use rocket_multipart_form_data::{
     MultipartFormData, MultipartFormDataField, MultipartFormDataOptions,
 };
 use std::{fs, path::Path};
 use uuid::Uuid;
 
-#[launch]
-fn rocket() -> rocket::Rocket<rocket::Build> {
-    fs::create_dir_all("uploads").unwrap();
-    rocket::build()
-        .mount("/", routes![index, upload])
-        .mount("/uploads", FileServer::from("uploads"))
+fn make_timeline_html(images: &[(String, DateTime<Utc>)]) -> String {
+    let mut html = String::new();
+    for (filename, datetime) in images {
+        html.push_str(&format!(
+            r#"
+            <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px;">
+                <img src="/uploads/{}" alt="Uploaded Image" style="max-width: 40%; height: auto; display: block; margin: 0 auto;">
+                <p style="text-align: center; margin-top: 10px;">Uploaded at: {}</p>
+            </div>
+            "#,
+            filename,
+            datetime.format("%Y-%m-%d %H:%M:%S UTC")
+        ));
+    }
+    html
 }
 
-#[get("/")]
-fn index() -> (ContentType, String) {
-    // Collect all uploaded images with timestamps
+fn collect_images() -> Vec<(String, DateTime<Utc>)> {
     let mut images = Vec::new();
     if let Ok(mut entries) = std::fs::read_dir("uploads") {
         while let Some(entry_result) = entries.next() {
@@ -31,24 +38,27 @@ fn index() -> (ContentType, String) {
             }
         }
     }
+    images
+}
+
+#[launch]
+fn rocket() -> rocket::Rocket<rocket::Build> {
+    fs::create_dir_all("uploads").unwrap();
+    rocket::build()
+        .mount("/", routes![index, upload])
+        .mount("/uploads", FileServer::from("uploads"))
+}
+
+#[get("/")]
+fn index() -> (ContentType, String) {
+    // Collect all uploaded images with timestamps
+    let mut images = collect_images();
 
     // Sort by timestamp descending (most recent first)
     images.sort_by(|a, b| b.1.cmp(&a.1));
 
     // Generate HTML for timeline
-    let mut images_html = String::new();
-    for (filename, datetime) in images {
-        images_html.push_str(&format!(
-            r#"
-            <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px;">
-                <img src="/uploads/{}" alt="Uploaded Image" style="max-width: 40%; height: auto; display: block; margin: 0 auto;">
-                <p style="text-align: center; margin-top: 10px;">Uploaded at: {}</p>
-            </div>
-            "#,
-            filename,
-            datetime.format("%Y-%m-%d %H:%M:%S UTC")
-        ));
-    }
+    let images_html = make_timeline_html(&images);
 
     (
         ContentType::HTML,
@@ -62,10 +72,15 @@ fn index() -> (ContentType, String) {
     <body>
         <h1>Upload an Image for AI Analysis</h1>
         <form action="/upload" method="post" enctype="multipart/form-data">
-            <input type="file" name="image" accept="image/*" required>
+            <input type="file" id="image" name="image" accept="image/*" required>
             <br><br>
             <input type="submit" value="Upload and Analyze">
         </form>
+        <script>
+            document.getElementById('image').addEventListener('change', function() {{
+                this.form.submit();
+            }});
+        </script>
         <h2>Recent Uploads</h2>
         {}
     </body>
@@ -80,7 +95,7 @@ fn index() -> (ContentType, String) {
 async fn upload(
     content_type: &ContentType,
     data: rocket::data::Data<'_>,
-) -> Result<(ContentType, String), rocket::http::Status> {
+) -> Result<Redirect, rocket::http::Status> {
     let options = MultipartFormDataOptions::with_multipart_form_data_fields(vec![
         MultipartFormDataField::file("image").size_limit(10 * 1024 * 1024), // 10MB limit
     ]);
@@ -114,55 +129,6 @@ async fn upload(
         return Err(rocket::http::Status::InternalServerError);
     }
 
-    // Collect all uploaded images with timestamps
-    let mut images = Vec::new();
-    if let Ok(mut entries) = tokio::fs::read_dir("uploads").await {
-        while let Ok(Some(entry)) = entries.next_entry().await {
-            if let Ok(metadata) = entry.metadata().await {
-                if let Ok(mtime) = metadata.modified() {
-                    let datetime: DateTime<Utc> = mtime.into();
-                    let filename = entry.file_name().to_string_lossy().to_string();
-                    images.push((filename, datetime));
-                }
-            }
-        }
-    }
-
-    // Sort by timestamp descending (most recent first)
-    images.sort_by(|a, b| b.1.cmp(&a.1));
-
-    // Generate HTML for timeline
-    let mut images_html = String::new();
-    for (filename, datetime) in images {
-        images_html.push_str(&format!(
-            r#"
-            <div style="margin-bottom: 20px; border: 1px solid #ccc; padding: 10px;">
-                <img src="/uploads/{}" alt="Uploaded Image" style="max-width: 40%; height: auto; display: block; margin: 0 auto;">
-                <p style="text-align: center; margin-top: 10px;">Uploaded at: {}</p>
-            </div>
-            "#,
-            filename,
-            datetime.format("%Y-%m-%d %H:%M:%S UTC")
-        ));
-    }
-
-    Ok((
-        ContentType::HTML,
-        format!(
-            r#"
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Image Timeline</title>
-        </head>
-        <body>
-            <h1>Image Timeline</h1>
-            <p><a href="/">Upload another image</a></p>
-            {}
-        </body>
-        </html>
-        "#,
-            images_html
-        ),
-    ))
+    // Redirect to home page to show the timeline
+    Ok(Redirect::to("/"))
 }
