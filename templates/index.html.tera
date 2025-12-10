@@ -176,7 +176,7 @@
         </div>
 
         <div id="drop-zone-row">
-            Drop image here to upload
+            Drop image anywhere to upload
         </div>
 
         {% for i in images %}
