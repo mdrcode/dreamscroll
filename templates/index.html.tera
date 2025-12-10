@@ -25,7 +25,7 @@
             display: flex;
             flex-direction: row;
             justify-content: space-between;
-            /* due to .image-row padding */
+            /* due to padding in .image-row below... */
             width: calc(100% + 20px);
             margin-top: 12px;
             margin-bottom: 20px;
@@ -37,21 +37,40 @@
             line-height: 1.0;
         }
 
-        #upload-form {
+        #file-upload-form {
             display: flex;
             flex-direction: column;
             align-items: flex-start;
         }
 
-        #image-file-picker-label {
+        #file-picker-label {
             border: 1px solid #ddd;
             border-radius: 12px;
             padding: 4px 8px;
             cursor: pointer;
         }
 
-        #image-file-picker-label:hover {
+        #file-picker-label:hover {
             border-color: #999;
+        }
+
+        #drop-zone-row {
+            display: none;
+            width: 100%;
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            text-align: center;
+            background-color: #f9f9f9;
+            color: #666;
+            font-size: 18px;
+            padding: 20px 0;
+            margin-bottom: 20px;
+        }
+
+        #drop-zone.drag-over {
+            display: block;
+            border-color: #999;
+            background-color: #f0f0f0;
         }
 
         .image-row {
@@ -89,12 +108,53 @@
     </style>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            document.getElementById('image-file-picker').addEventListener('change', function () {
+            const filePicker = document.getElementById('file-picker');
+            const uploadForm = document.getElementById('file-upload-form');
+            const dropZone = document.getElementById('drop-zone-row');
+
+            filePicker.addEventListener('change', function () {
                 this.form.submit();
             });
 
             // If JS enabled, form will auto submit (as above) so can hide explicit button
             document.getElementById('submit-btn-container').style.display = 'none';
+
+            // Drag and drop functionality
+            ['dragenter', 'dragover'].forEach(eventName => {
+                document.body.addEventListener(eventName, function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    dropZone.style.display = 'block';
+                    dropZone.classList.add('drag-over');
+                });
+            });
+
+            ['dragleave', 'dragend'].forEach(eventName => {
+                document.body.addEventListener(eventName, function (e) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    // Only hide if we're leaving the body entirely
+                    if (e.target === document.body) {
+                        dropZone.style.display = 'none';
+                        dropZone.classList.remove('drag-over');
+                    }
+                });
+            });
+
+            document.body.addEventListener('drop', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                dropZone.style.display = 'none';
+                dropZone.classList.remove('drag-over');
+
+                const files = e.dataTransfer.files;
+                if (files.length > 0 && files[0].type.startsWith('image/')) {
+                    const dataTransfer = new DataTransfer();
+                    dataTransfer.items.add(files[0]);
+                    filePicker.files = dataTransfer.files;
+                    uploadForm.submit();
+                }
+            });
         });
     </script>
 </head>
@@ -105,14 +165,18 @@
         <div id="header-row">
             <h1 id="page-title">Comprehension</h1>
 
-            <form id="upload-form" action="/upload" method="post" enctype="multipart/form-data">
-                <input id="image-file-picker" type="file" name="image" accept="image/*" style="display: none;" required>
-                <label id="image-file-picker-label" for="image-file-picker">Upload ⇧</label>
+            <form id="file-upload-form" action="/upload" method="post" enctype="multipart/form-data">
+                <input id="file-picker" type="file" name="image" accept="image/*" style="display: none;" required>
+                <label id="file-picker-label" for="file-picker">Upload ⇧</label>
                 <div id="submit-btn-container">
                     <br>
-                    <input type="submit" id="submit-btn" value="Submit">
+                    <input id="submit-btn" type="submit" value="Submit">
                 </div>
             </form>
+        </div>
+
+        <div id="drop-zone-row">
+            Drop image here to upload
         </div>
 
         {% for i in images %}
