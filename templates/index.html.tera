@@ -41,7 +41,17 @@
             display: flex;
             flex-direction: column;
             align-items: flex-start;
-            margin-top: 5px;
+        }
+
+        #image-file-picker-label {
+            border: 1px solid #ddd;
+            border-radius: 12px;
+            padding: 4px 8px;
+            cursor: pointer;
+        }
+
+        #image-file-picker-label:hover {
+            border-color: #999;
         }
 
         .image-row {
