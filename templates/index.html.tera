@@ -133,11 +133,8 @@
                 document.body.addEventListener(eventName, function (e) {
                     e.preventDefault();
                     e.stopPropagation();
-                    // Only hide if we're leaving the body entirely
-                    if (e.target === document.body) {
-                        dropZone.style.display = 'none';
-                        dropZone.classList.remove('drag-over');
-                    }
+                    dropZone.style.display = 'none';
+                    dropZone.classList.remove('drag-over');
                 });
             });
 
