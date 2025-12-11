@@ -1,10 +1,10 @@
 [package]
-name = "transitive"
+name = "dreamspot"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "transitive"
+name = "dreamspot"
 path = "src/lib.rs"
 
 [[bin]]

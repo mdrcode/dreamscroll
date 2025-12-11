@@ -316,6 +316,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "dreamspot"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "chrono",
+ "rocket",
+ "rocket-multipart-form-data",
+ "rocket_dyn_templates",
+ "serde",
+ "serde_json",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "either"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1836,21 +1851,6 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
-]
-
-[[package]]
-name = "transitive"
-version = "0.1.0"
-dependencies = [
- "base64",
- "chrono",
- "rocket",
- "rocket-multipart-form-data",
- "rocket_dyn_templates",
- "serde",
- "serde_json",
- "tokio",
- "uuid",
 ]
 
 [[package]]

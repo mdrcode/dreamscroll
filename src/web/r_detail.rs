@@ -1,4 +1,4 @@
-use crate::core::{collect_images, ImageInfo};
+use crate::core::collect_images;
 use rocket::get;
 use rocket_dyn_templates::{Template, context};
 
