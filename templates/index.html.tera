@@ -82,6 +82,13 @@
             gap: 10px;
             padding: 10px;
             margin-bottom: 10px;
+            cursor: pointer;
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+        }
+
+        .image-row:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
 
         .image-actual-wrapper {
@@ -177,16 +184,18 @@
         </div>
 
         {% for i in images %}
-        <div class="image-row">
-            <div class="image-actual-wrapper">
-                <img class="image-actual" src="/uploads/{{ i.filename }}" alt="image {{i.filename}}">
-            </div>
-            <div class="image-metadata-wrapper">
-                <div class="image-metadata">
-                    {{ i.timestamp }}
+        <a href="/detail/{{ i.filename }}" style="text-decoration: none; color: inherit;">
+            <div class="image-row">
+                <div class="image-actual-wrapper">
+                    <img class="image-actual" src="/uploads/{{ i.filename }}" alt="image {{i.filename}}">
+                </div>
+                <div class="image-metadata-wrapper">
+                    <div class="image-metadata">
+                        {{ i.timestamp }}
+                    </div>
                 </div>
             </div>
-        </div>
+        </a>
         {% endfor %}
     </div>
 </body>

@@ -1,3 +1,4 @@
+use crate::web::r_detail::detail;
 use crate::web::r_index::index;
 use crate::web::r_upload::upload;
 use rocket::{
@@ -11,6 +12,6 @@ pub fn build_rocket() -> rocket::Rocket<rocket::Build> {
     fs::create_dir_all("uploads").unwrap();
     rocket::build()
         .attach(Template::fairing())
-        .mount("/", routes![index, upload])
+        .mount("/", routes![index, detail, upload])
         .mount("/uploads", FileServer::from(relative!("uploads")))
 }
