@@ -7,7 +7,7 @@ pub struct ImageInfo {
     pub timestamp: String,
 }
 
-pub fn collect_images() -> Vec<(String, DateTime<Utc>)> {
+pub fn collect_images() -> Vec<ImageInfo> {
     let mut images = Vec::new();
     if let Ok(mut entries) = std::fs::read_dir("uploads") {
         while let Some(entry_result) = entries.next() {
@@ -16,7 +16,11 @@ pub fn collect_images() -> Vec<(String, DateTime<Utc>)> {
                     if let Ok(mtime) = metadata.modified() {
                         let datetime: DateTime<Utc> = mtime.into();
                         let filename = entry.file_name().to_string_lossy().to_string();
-                        images.push((filename, datetime));
+                        let timestamp = datetime.format("%Y-%m-%d %H:%M:%S UTC").to_string();
+                        images.push(ImageInfo {
+                            filename,
+                            timestamp,
+                        });
                     }
                 }
             }

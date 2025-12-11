@@ -1,6 +1,9 @@
 use crate::web::r_index::index;
 use crate::web::r_upload::upload;
-use rocket::{fs::FileServer, routes};
+use rocket::{
+    fs::{FileServer, relative},
+    routes,
+};
 use rocket_dyn_templates::Template;
 use std::fs;
 
@@ -9,5 +12,5 @@ pub fn build_rocket() -> rocket::Rocket<rocket::Build> {
     rocket::build()
         .attach(Template::fairing())
         .mount("/", routes![index, upload])
-        .mount("/uploads", FileServer::from("uploads"))
+        .mount("/uploads", FileServer::from(relative!("uploads")))
 }
