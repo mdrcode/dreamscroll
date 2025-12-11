@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>{{ image.filename }} - Comprehension</title>
+    <title>dreamspotting - {{ image.filename }}</title>
     <style>
         body {
             display: flex;
@@ -82,7 +82,7 @@
 <body>
     <div id="page-content-container">
         <div class="back-link">
-            <a href="/">← Back to timeline</a>
+            <a href="/">← Back</a>
         </div>
 
         <div class="detail-container">

@@ -57,14 +57,16 @@
         #drop-zone-row {
             display: none;
             width: 100%;
-            border: 2px dashed #ccc;
-            border-radius: 8px;
             text-align: center;
+            font-size: 18px;
             background-color: #f9f9f9;
             color: #666;
-            font-size: 18px;
+
             padding: 20px 0;
             margin-bottom: 20px;
+
+            border: 2px dashed #ccc;
+            border-radius: 8px;
         }
 
         #drop-zone.drag-over {
@@ -82,12 +84,7 @@
             gap: 10px;
             padding: 10px;
             margin-bottom: 10px;
-            cursor: pointer;
-            transition: transform 0.1s ease, box-shadow 0.1s ease;
-        }
 
-        .image-row:hover {
-            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
         }
 
         .image-actual-wrapper {
@@ -102,6 +99,13 @@
             height: auto;
             max-height: 540px;
             object-fit: contain;
+
+            cursor: pointer;
+            transition: transform 0.1s ease, box-shadow 0.1s ease;
+        }
+
+        .image-actual:hover {
+            box-shadow: 0 6px 10px rgba(0, 0, 0, 0.1);
         }
 
         .image-metadata-wrapper {
@@ -183,18 +187,19 @@
         </div>
 
         {% for i in images %}
-        <a href="/detail/{{ i.filename }}" style="text-decoration: none; color: inherit;">
-            <div class="image-row">
-                <div class="image-actual-wrapper">
+
+        <div class="image-row">
+            <div class="image-actual-wrapper">
+                <a href="/detail/{{ i.filename }}" style="text-decoration: none; color: inherit;">
                     <img class="image-actual" src="/uploads/{{ i.filename }}" alt="image {{i.filename}}">
-                </div>
-                <div class="image-metadata-wrapper">
-                    <div class="image-metadata">
-                        {{ i.timestamp }}
-                    </div>
+                </a>
+            </div>
+            <div class="image-metadata-wrapper">
+                <div class="image-metadata">
+                    {{ i.timestamp }}
                 </div>
             </div>
-        </a>
+        </div>
         {% endfor %}
     </div>
 </body>
