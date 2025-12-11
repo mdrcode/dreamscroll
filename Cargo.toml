@@ -3,13 +3,25 @@ name = "transitive"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "transitive"
+path = "src/lib.rs"
+
+[[bin]]
+name = "web"
+path = "src/bin/main_web.rs"
+
+[[bin]]
+name = "worker"
+path = "src/bin/main_worker.rs"
+
 [dependencies]
+base64 = "0.21"
+chrono = { version = "0.4", features = ["serde"] }
 rocket = "0.5.0"
 rocket-multipart-form-data = "0.10.0"
 rocket_dyn_templates = { version = "0.1.0", features = ["tera"] }
-tokio = { version = "1", features = ["full"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-base64 = "0.21"
+tokio = { version = "1", features = ["full"] }
 uuid = { version = "1.0", features = ["v4"] }
-chrono = { version = "0.4", features = ["serde"] }
