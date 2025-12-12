@@ -1,6 +1,6 @@
-use crate::web::r_detail::detail;
-use crate::web::r_index::index;
-use crate::web::r_upload::upload;
+use crate::webui::r_detail::detail;
+use crate::webui::r_index::index;
+use crate::webui::r_upload::upload;
 use rocket::{
     fs::{FileServer, relative},
     routes,

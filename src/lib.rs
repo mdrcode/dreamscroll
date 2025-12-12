@@ -1,3 +1,3 @@
 pub mod core;
-pub mod web;
+pub mod webui;
 pub mod worker;
