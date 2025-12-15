@@ -1,4 +1,4 @@
-use dreamspot::db::{DbConfig, setup_database};
+use dreamspot::db::{DbConfig, db_connect, db_prepare, db_run_migrations};
 
 #[rocket::launch]
 async fn rocket() -> rocket::Rocket<rocket::Build> {
@@ -6,9 +6,11 @@ async fn rocket() -> rocket::Rocket<rocket::Build> {
         path: "localdev/dreamspot.db".to_string(),
     };
 
-    let db_ctx = setup_database(db_config)
-        .await
-        .expect("Failed to initialize database");
+    db_prepare(&db_config).await.unwrap();
 
-    dreamspot::webui::builder::build_rocket(db_ctx)
+    let db_context = db_connect(db_config).await.unwrap();
+
+    db_run_migrations(&db_context).await.unwrap();
+
+    dreamspot::webui::builder::build_rocket(db_context)
 }

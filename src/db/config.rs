@@ -6,6 +6,21 @@ pub enum DbBackend {
     Postgres,
 }
 
+pub struct DbContext {
+    pub conn: DatabaseConnection,
+    pub config: DbConfig,
+}
+
+impl DbContext {
+    pub fn new(conn: DatabaseConnection, config: DbConfig) -> Self {
+        Self { conn, config }
+    }
+
+    pub fn backend(&self) -> DbBackend {
+        self.config.backend()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum DbConfig {
     SqliteFile {
@@ -46,21 +61,5 @@ impl DbConfig {
             DbConfig::SqliteFile { .. } | DbConfig::SqliteMemory => DbBackend::Sqlite,
             DbConfig::Postgres { .. } => DbBackend::Postgres,
         }
-    }
-}
-
-/// Database context holding connection and config
-pub struct DbContext {
-    pub conn: DatabaseConnection,
-    pub config: DbConfig,
-}
-
-impl DbContext {
-    pub fn new(conn: DatabaseConnection, config: DbConfig) -> Self {
-        Self { conn, config }
-    }
-
-    pub fn backend(&self) -> DbBackend {
-        self.config.backend()
     }
 }
