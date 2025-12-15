@@ -1,4 +1,4 @@
-use crate::db::DbContext;
+use crate::db::DbHandle;
 use crate::webui::r_detail::detail;
 use crate::webui::r_index::index;
 use crate::webui::r_upload::upload;
@@ -9,10 +9,10 @@ use rocket::{
 use rocket_dyn_templates::Template;
 use std::fs;
 
-pub fn build_rocket(db_ctx: DbContext) -> rocket::Rocket<rocket::Build> {
+pub fn build_rocket(db_handle: DbHandle) -> rocket::Rocket<rocket::Build> {
     fs::create_dir_all("uploads").unwrap();
     rocket::build()
-        .manage(db_ctx)
+        .manage(db_handle)
         .attach(Template::fairing())
         .mount("/", routes![index, detail, upload])
         .mount("/uploads", FileServer::from(relative!("uploads")))

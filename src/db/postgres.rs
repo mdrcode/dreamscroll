@@ -1,6 +1,6 @@
 use sea_orm::{ConnectionTrait, DbErr, Statement};
 
-pub async fn run_migrations_postgres(db: &impl ConnectionTrait) -> Result<(), DbErr> {
+pub async fn run_migrations(db: &impl ConnectionTrait) -> Result<(), DbErr> {
     // Create captures table
     db.execute(Statement::from_string(
         sea_orm::DatabaseBackend::Postgres,

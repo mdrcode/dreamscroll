@@ -1,7 +1,7 @@
 mod config;
-mod core;
-mod postgressql;
+mod helper;
+mod postgres;
 mod sqlite;
 
-pub use config::{DbBackend, DbConfig, DbContext};
-pub use core::{db_connect, db_prepare, db_run_migrations};
+pub use config::{DbBackend, DbConfig, DbHandle};
+pub use helper::{connect, run_migrations};

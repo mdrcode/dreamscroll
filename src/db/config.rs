@@ -6,25 +6,26 @@ pub enum DbBackend {
     Postgres,
 }
 
-pub struct DbContext {
-    pub conn: DatabaseConnection,
+pub struct DbHandle {
+    pub backend: DbBackend,
     pub config: DbConfig,
+    pub conn: DatabaseConnection,
 }
 
-impl DbContext {
+impl DbHandle {
     pub fn new(conn: DatabaseConnection, config: DbConfig) -> Self {
-        Self { conn, config }
-    }
-
-    pub fn backend(&self) -> DbBackend {
-        self.config.backend()
+        Self {
+            backend: config.backend(),
+            config,
+            conn,
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum DbConfig {
     SqliteFile {
-        path: String, // should file.db NOT sqlite://file.db
+        path: String, // should be "/dir1/file.db" NOT "sqlite://dir1/file.db"
     },
     SqliteMemory,
     Postgres {
@@ -37,10 +38,10 @@ pub enum DbConfig {
 }
 
 impl DbConfig {
-    /// Convert config to database URL string
     pub fn to_url(&self) -> String {
         match self {
-            DbConfig::SqliteFile { path } => format!("sqlite://{}", path),
+            // ?mode=rwc ensures the database file is created if it doesn't exist
+            DbConfig::SqliteFile { path } => format!("sqlite://{}?mode=rwc", path),
             DbConfig::SqliteMemory => "sqlite::memory:".to_string(),
             DbConfig::Postgres {
                 host,
@@ -55,10 +56,10 @@ impl DbConfig {
         }
     }
 
-    /// Get the database backend type
     pub fn backend(&self) -> DbBackend {
         match self {
-            DbConfig::SqliteFile { .. } | DbConfig::SqliteMemory => DbBackend::Sqlite,
+            DbConfig::SqliteFile { .. } => DbBackend::Sqlite,
+            DbConfig::SqliteMemory => DbBackend::Sqlite,
             DbConfig::Postgres { .. } => DbBackend::Postgres,
         }
     }

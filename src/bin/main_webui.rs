@@ -1,16 +1,14 @@
-use dreamspot::db::{DbConfig, db_connect, db_prepare, db_run_migrations};
+use dreamspot::db;
 
 #[rocket::launch]
 async fn rocket() -> rocket::Rocket<rocket::Build> {
-    let db_config = DbConfig::SqliteFile {
+    let db_config = db::DbConfig::SqliteFile {
         path: "localdev/dreamspot.db".to_string(),
     };
 
-    db_prepare(&db_config).await.unwrap();
+    let db_handle = db::connect(db_config).await.unwrap();
 
-    let db_context = db_connect(db_config).await.unwrap();
+    db::run_migrations(&db_handle).await.unwrap();
 
-    db_run_migrations(&db_context).await.unwrap();
-
-    dreamspot::webui::builder::build_rocket(db_context)
+    dreamspot::webui::builder::build_rocket(db_handle)
 }
