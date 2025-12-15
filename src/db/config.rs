@@ -1,13 +1,13 @@
 use sea_orm::DatabaseConnection;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DatabaseBackend {
+pub enum DbBackend {
     Sqlite,
     Postgres,
 }
 
 #[derive(Debug, Clone)]
-pub enum DatabaseConfig {
+pub enum DbConfig {
     SqliteFile {
         path: String, // should file.db NOT sqlite://file.db
     },
@@ -21,13 +21,13 @@ pub enum DatabaseConfig {
     },
 }
 
-impl DatabaseConfig {
+impl DbConfig {
     /// Convert config to database URL string
     pub fn to_url(&self) -> String {
         match self {
-            DatabaseConfig::SqliteFile { path } => format!("sqlite://{}", path),
-            DatabaseConfig::SqliteMemory => "sqlite::memory:".to_string(),
-            DatabaseConfig::Postgres {
+            DbConfig::SqliteFile { path } => format!("sqlite://{}", path),
+            DbConfig::SqliteMemory => "sqlite::memory:".to_string(),
+            DbConfig::Postgres {
                 host,
                 port,
                 database,
@@ -41,12 +41,10 @@ impl DatabaseConfig {
     }
 
     /// Get the database backend type
-    pub fn backend(&self) -> DatabaseBackend {
+    pub fn backend(&self) -> DbBackend {
         match self {
-            DatabaseConfig::SqliteFile { .. } | DatabaseConfig::SqliteMemory => {
-                DatabaseBackend::Sqlite
-            }
-            DatabaseConfig::Postgres { .. } => DatabaseBackend::Postgres,
+            DbConfig::SqliteFile { .. } | DbConfig::SqliteMemory => DbBackend::Sqlite,
+            DbConfig::Postgres { .. } => DbBackend::Postgres,
         }
     }
 }
@@ -54,15 +52,15 @@ impl DatabaseConfig {
 /// Database context holding connection and config
 pub struct DbContext {
     pub conn: DatabaseConnection,
-    pub config: DatabaseConfig,
+    pub config: DbConfig,
 }
 
 impl DbContext {
-    pub fn new(conn: DatabaseConnection, config: DatabaseConfig) -> Self {
+    pub fn new(conn: DatabaseConnection, config: DbConfig) -> Self {
         Self { conn, config }
     }
 
-    pub fn backend(&self) -> DatabaseBackend {
+    pub fn backend(&self) -> DbBackend {
         self.config.backend()
     }
 }
