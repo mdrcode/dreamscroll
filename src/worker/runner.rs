@@ -1,4 +1,4 @@
-use crate::core::collect_images;
+use crate::common::collect_images;
 
 pub async fn main_loop() {
     println!("Worker process starting...");
