@@ -13,13 +13,19 @@ async fn main() {
 
     let cancel_token = CancellationToken::new();
 
-    let web = dreamspot::webui::build_rocket_web(db);
+    let web_axum_router = dreamspot::webui::build_axum_router(db);
     let web_cancel = cancel_token.clone();
     let h_web = tokio::spawn(async move {
-        tokio::select! {
-            _ = web_cancel.cancelled() => {}
-            _ = web.launch() => {}
-        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:8000")
+            .await
+            .unwrap();
+        println!("Server listening on http://127.0.0.1:8000");
+        axum::serve(listener, web_axum_router)
+            .with_graceful_shutdown(async move {
+                web_cancel.cancelled().await;
+            })
+            .await
+            .unwrap();
     });
 
     let worker_cancel = cancel_token.clone();
@@ -31,6 +37,7 @@ async fn main() {
     });
 
     tokio::signal::ctrl_c().await.unwrap();
+    println!("Shutting down...");
     cancel_token.cancel();
     let _ = tokio::join!(h_web, h_worker);
 }

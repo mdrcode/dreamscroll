@@ -1,53 +1,46 @@
-use rocket::{
-    http::{self, ContentType},
-    post,
-    response::Redirect,
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Redirect, Response},
 };
-use rocket_multipart_form_data::{
-    MultipartFormData, MultipartFormDataField, MultipartFormDataOptions,
-};
+use axum_extra::extract::Multipart;
 use std::path::Path;
 use uuid::Uuid;
 
-#[post("/upload", data = "<data>")]
-pub async fn upload(
-    content_type: &ContentType,
-    data: rocket::data::Data<'_>,
-) -> Result<Redirect, http::Status> {
-    let options = MultipartFormDataOptions::with_multipart_form_data_fields(vec![
-        MultipartFormDataField::file("image").size_limit(10 * 1024 * 1024), // 10MB limit
-    ]);
+pub async fn upload(mut multipart: Multipart) -> Response {
+    while let Ok(Some(field)) = multipart.next_field().await {
+        let name = field.name().unwrap_or("").to_string();
+        if name != "image" {
+            continue;
+        }
 
-    let multipart_form_data = match MultipartFormData::parse(content_type, data, options).await {
-        Ok(data) => data,
-        Err(_) => return Err(http::Status::BadRequest),
-    };
+        let data = match field.bytes().await {
+            Ok(bytes) => bytes,
+            Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+        };
 
-    let image_field = match multipart_form_data.files.get("image") {
-        Some(field) => field,
-        None => return Err(http::Status::BadRequest),
-    };
+        // Limit to 10MB
+        if data.len() > 10 * 1024 * 1024 {
+            return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+        }
 
-    let file = match image_field.get(0) {
-        Some(file) => file,
-        None => return Err(http::Status::BadRequest),
-    };
+        // Generate unique filename
+        let filename = format!("{}.jpg", Uuid::new_v4());
+        let upload_dir = "localdev/uploads";
+        let upload_path = Path::new(upload_dir).join(&filename);
 
-    // Generate unique filename
-    let filename = format!("{}.jpg", Uuid::new_v4());
-    let upload_dir = "localdev/uploads";
-    let upload_path = Path::new(upload_dir).join(&filename);
+        // Create uploads directory if it doesn't exist
+        if tokio::fs::create_dir_all(upload_dir).await.is_err() {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
 
-    // Create uploads directory if it doesn't exist
-    if let Err(_) = tokio::fs::create_dir_all(upload_dir).await {
-        return Err(http::Status::InternalServerError);
+        // Write the file to persistent storage
+        if tokio::fs::write(&upload_path, &data).await.is_err() {
+            return StatusCode::INTERNAL_SERVER_ERROR.into_response();
+        }
+
+        // Redirect to home page to show the timeline
+        return Redirect::to("/").into_response();
     }
 
-    // Copy the file to persistent storage
-    if let Err(_) = tokio::fs::copy(&file.path, &upload_path).await {
-        return Err(http::Status::InternalServerError);
-    }
-
-    // Redirect to home page to show the timeline
-    Ok(Redirect::to("/"))
+    StatusCode::BAD_REQUEST.into_response()
 }

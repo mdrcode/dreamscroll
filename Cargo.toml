@@ -17,14 +17,15 @@ name = "worker"
 path = "src/bin/main_worker.rs"
 
 [dependencies]
+axum = "0.8"
+axum-extra = { version = "0.10", features = ["multipart"] }
 base64 = "0.21"
 chrono = { version = "0.4", features = ["serde"] }
-rocket = "0.5.0"
-rocket-multipart-form-data = "0.10.0"
-rocket_dyn_templates = { version = "0.1.0", features = ["tera"] }
 sea-orm = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-native-tls", "macros"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+tera = "1.19"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7.17"
+tower-http = { version = "0.6", features = ["fs"] }
 uuid = { version = "1.0", features = ["v4"] }
