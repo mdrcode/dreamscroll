@@ -1,45 +1,36 @@
-use std::sync::Arc;
-
 use dreamspot::{db, worker};
+use std::sync::Arc;
+use tokio_util::sync::CancellationToken;
 
 #[tokio::main]
 async fn main() {
     let db_config = db::DbConfig::SqliteFile {
         path: "localdev/dreamspot.db".to_string(),
     };
-
     let db = db::connect(db_config).await.unwrap();
     let db = Arc::new(db);
-
     db::run_migrations(&db).await.unwrap();
 
-    let rocket = dreamspot::webui::build_rocket(db);
-    let h_rocket = tokio::spawn(async move {
-        println!(
-            "Spawning Rocket server on thread: {}...",
-            std::thread::current().name().unwrap_or("unknown")
-        );
-        let _ = rocket.launch().await;
+    let cancel_token = CancellationToken::new();
+
+    let web_rocket = dreamspot::webui::build_rocket(db);
+    let web_token = cancel_token.clone();
+    let h_web = tokio::spawn(async move {
+        tokio::select! {
+            _ = web_token.cancelled() => {}
+            _ = web_rocket.launch() => {}
+        }
     });
 
+    let worker_token = cancel_token.clone();
     let h_worker = tokio::spawn(async move {
-        println!(
-            "Spawning worker on thread: {}...",
-            std::thread::current().name().unwrap_or("unknown")
-        );
-        worker::main_loop().await;
+        tokio::select! {
+            _ = worker_token.cancelled() => {}
+            _ = worker::main_loop() => {}
+        }
     });
 
-    // Wait for CTRL-C
-    tokio::select! {
-        _ = tokio::signal::ctrl_c() => {
-            println!("\nReceived CTRL-C, shutting down...");
-        }
-        _ = h_rocket => {
-            println!("Rocket server stopped");
-        }
-        _ = h_worker => {
-            println!("Worker stopped");
-        }
-    }
+    tokio::signal::ctrl_c().await.unwrap();
+    cancel_token.cancel();
+    let _ = tokio::join!(h_web, h_worker);
 }
