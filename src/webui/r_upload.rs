@@ -1,4 +1,8 @@
-use rocket::{http::{self, ContentType}, post, response::Redirect};
+use rocket::{
+    http::{self, ContentType},
+    post,
+    response::Redirect,
+};
 use rocket_multipart_form_data::{
     MultipartFormData, MultipartFormDataField, MultipartFormDataOptions,
 };
@@ -31,10 +35,11 @@ pub async fn upload(
 
     // Generate unique filename
     let filename = format!("{}.jpg", Uuid::new_v4());
-    let upload_path = Path::new("uploads").join(&filename);
+    let upload_dir = "localdev/uploads";
+    let upload_path = Path::new(upload_dir).join(&filename);
 
     // Create uploads directory if it doesn't exist
-    if let Err(_) = tokio::fs::create_dir_all("uploads").await {
+    if let Err(_) = tokio::fs::create_dir_all(upload_dir).await {
         return Err(http::Status::InternalServerError);
     }
 

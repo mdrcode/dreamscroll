@@ -7,13 +7,13 @@ use rocket::{
     routes,
 };
 use rocket_dyn_templates::Template;
-use std::fs;
+use std::{fs, sync::Arc};
 
-pub fn build_rocket(db_handle: DbHandle) -> rocket::Rocket<rocket::Build> {
+pub fn build_rocket(db_handle: Arc<DbHandle>) -> rocket::Rocket<rocket::Build> {
     fs::create_dir_all("uploads").unwrap();
     rocket::build()
         .manage(db_handle)
         .attach(Template::fairing())
         .mount("/", routes![index, detail, upload])
-        .mount("/uploads", FileServer::from(relative!("uploads")))
+        .mount("/uploads", FileServer::from(relative!("localdev/uploads")))
 }

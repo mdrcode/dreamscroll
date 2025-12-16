@@ -9,7 +9,7 @@ pub struct ImageInfo {
 
 pub fn collect_images() -> Vec<ImageInfo> {
     let mut images = Vec::new();
-    if let Ok(mut entries) = std::fs::read_dir("uploads") {
+    if let Ok(mut entries) = std::fs::read_dir("localdev/uploads") {
         while let Some(entry_result) = entries.next() {
             if let Ok(entry) = entry_result {
                 if let Ok(metadata) = entry.metadata() {

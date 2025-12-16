@@ -8,8 +8,8 @@ name = "dreamspot"
 path = "src/lib.rs"
 
 [[bin]]
-name = "webui"
-path = "src/bin/main_webui.rs"
+name = "local"
+path = "src/bin/main_local.rs"
 
 [[bin]]
 name = "worker"
