@@ -2,14 +2,15 @@
 name = "dreamspot"
 version = "0.1.0"
 edition = "2024"
+default-run = "localdev"
 
 [lib]
 name = "dreamspot"
 path = "src/lib.rs"
 
 [[bin]]
-name = "local"
-path = "src/bin/main_local.rs"
+name = "localdev"
+path = "src/bin/main_localdev.rs"
 
 [[bin]]
 name = "worker"
