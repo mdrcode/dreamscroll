@@ -9,7 +9,7 @@ use rocket::{
 use rocket_dyn_templates::Template;
 use std::{fs, sync::Arc};
 
-pub fn build_rocket(db: Arc<DbHandle>) -> rocket::Rocket<rocket::Build> {
+pub fn build_rocket_web(db: Arc<DbHandle>) -> rocket::Rocket<rocket::Build> {
     fs::create_dir_all("uploads").unwrap();
     rocket::build()
         .manage(db)

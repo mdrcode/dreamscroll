@@ -13,19 +13,19 @@ async fn main() {
 
     let cancel_token = CancellationToken::new();
 
-    let web_rocket = dreamspot::webui::build_rocket(db);
-    let web_token = cancel_token.clone();
+    let web = dreamspot::webui::build_rocket_web(db);
+    let web_cancel = cancel_token.clone();
     let h_web = tokio::spawn(async move {
         tokio::select! {
-            _ = web_token.cancelled() => {}
-            _ = web_rocket.launch() => {}
+            _ = web_cancel.cancelled() => {}
+            _ = web.launch() => {}
         }
     });
 
-    let worker_token = cancel_token.clone();
+    let worker_cancel = cancel_token.clone();
     let h_worker = tokio::spawn(async move {
         tokio::select! {
-            _ = worker_token.cancelled() => {}
+            _ = worker_cancel.cancelled() => {}
             _ = worker::main_loop() => {}
         }
     });
