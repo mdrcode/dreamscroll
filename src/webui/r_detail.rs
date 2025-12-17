@@ -1,5 +1,5 @@
 use crate::common::collect_images;
-use crate::webui::WebAppState;
+use crate::webui::WebState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -8,10 +8,7 @@ use axum::{
 use std::sync::Arc;
 use tera::Context;
 
-pub async fn detail(
-    State(state): State<Arc<WebAppState>>,
-    Path(filename): Path<String>,
-) -> Response {
+pub async fn detail(State(state): State<Arc<WebState>>, Path(filename): Path<String>) -> Response {
     // Find the image with the matching filename
     let images = collect_images();
     let image = match images.into_iter().find(|img| img.filename == filename) {

@@ -1,10 +1,10 @@
 use crate::common::collect_images;
-use crate::webui::WebAppState;
+use crate::webui::WebState;
 use axum::{extract::State, response::Html};
 use std::sync::Arc;
 use tera::Context;
 
-pub async fn index(State(state): State<Arc<WebAppState>>) -> Html<String> {
+pub async fn index(State(state): State<Arc<WebState>>) -> Html<String> {
     // Collect all uploaded images with timestamps
     let mut images = collect_images();
 
