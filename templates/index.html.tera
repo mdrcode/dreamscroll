@@ -121,6 +121,7 @@
             const filePicker = document.getElementById('file-picker');
             const uploadForm = document.getElementById('file-upload-form');
             const dropZone = document.getElementById('drop-zone-row');
+            let dragCounter = 0;
 
             filePicker.addEventListener('change', function () {
                 this.form.submit();
@@ -130,27 +131,35 @@
             document.getElementById('submit-btn-container').style.display = 'none';
 
             // Drag and drop functionality
-            ['dragenter', 'dragover'].forEach(eventName => {
-                document.body.addEventListener(eventName, function (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
+            document.body.addEventListener('dragenter', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                dragCounter++;
+                if (dragCounter === 1) {
                     dropZone.style.display = 'block';
                     dropZone.classList.add('drag-over');
-                });
+                }
             });
 
-            ['dragleave', 'dragend'].forEach(eventName => {
-                document.body.addEventListener(eventName, function (e) {
-                    e.preventDefault();
-                    e.stopPropagation();
+            document.body.addEventListener('dragover', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            });
+
+            document.body.addEventListener('dragleave', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                dragCounter--;
+                if (dragCounter === 0) {
                     dropZone.style.display = 'none';
                     dropZone.classList.remove('drag-over');
-                });
+                }
             });
 
             document.body.addEventListener('drop', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
+                dragCounter = 0;
                 dropZone.style.display = 'none';
                 dropZone.classList.remove('drag-over');
 
