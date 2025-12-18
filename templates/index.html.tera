@@ -205,7 +205,7 @@
             </div>
             <div class="image-metadata-wrapper">
                 <div class="image-metadata">
-                    {{ i.timestamp }}
+                    {{ i.created_at }}
                 </div>
             </div>
         </div>

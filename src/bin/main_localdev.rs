@@ -8,8 +8,8 @@ async fn main() {
     let facility = make_facility(Environment::LocalDev);
 
     let db = db::connect(facility.db_config()).await.unwrap();
-    let db = Arc::new(db);
     db::run_migrations(&db).await.unwrap();
+    let db = Arc::new(db);
 
     let cancel_token = CancellationToken::new();
 

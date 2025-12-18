@@ -1,4 +1,4 @@
-use crate::common::collect_images;
+use crate::controller::collect_images_raw;
 use crate::webui::WebState;
 use axum::{
     extract::{Path, State},
@@ -10,7 +10,7 @@ use tera::Context;
 
 pub async fn detail(State(state): State<Arc<WebState>>, Path(filename): Path<String>) -> Response {
     // Find the image with the matching filename
-    let images = collect_images();
+    let images = collect_images_raw();
     let image = match images.into_iter().find(|img| img.filename == filename) {
         Some(img) => img,
         None => return StatusCode::NOT_FOUND.into_response(),
