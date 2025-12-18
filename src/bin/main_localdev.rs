@@ -1,7 +1,9 @@
-use dreamspot::{db, facility::*, webui, worker};
 use std::sync::Arc;
+
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
+
+use dreamspot::{db, facility::*, webui, worker};
 
 #[tokio::main]
 async fn main() {

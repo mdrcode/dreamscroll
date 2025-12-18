@@ -1,12 +1,14 @@
+use std::{fs, sync::Arc};
+
+use axum::extract::DefaultBodyLimit;
+use axum::{Router, routing::get, routing::post};
+use tera::Tera;
+use tower_http::services::ServeDir;
+
 use crate::webui::r_detail::detail;
 use crate::webui::r_index::index;
 use crate::webui::r_upload::upload;
 use crate::{db::DbHandle, facility::Facility};
-use axum::extract::DefaultBodyLimit;
-use axum::{Router, routing::get, routing::post};
-use std::{fs, sync::Arc};
-use tera::Tera;
-use tower_http::services::ServeDir;
 
 pub struct WebState {
     pub facility: Box<dyn Facility>,

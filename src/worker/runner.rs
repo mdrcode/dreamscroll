@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
+use sea_orm::EntityTrait;
+
 use crate::db;
 use crate::entity::capture;
 use crate::facility::Facility;
-use sea_orm::EntityTrait;
-use std::sync::Arc;
 
 pub async fn main_loop(db: Arc<db::DbHandle>, _: Box<dyn Facility>) {
     println!("Worker process starting...");

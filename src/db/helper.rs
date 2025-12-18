@@ -1,10 +1,11 @@
+use std::path::Path;
+
+use sea_orm::{Database, DbErr};
+
 use super::{
     config::{DbBackend, DbConfig, DbHandle},
     postgres, sqlite,
 };
-
-use sea_orm::{Database, DbErr};
-use std::path::Path;
 
 pub async fn connect(config: DbConfig) -> Result<DbHandle, DbErr> {
     // SqliteFile will not create parent directories automatically, so must do manually

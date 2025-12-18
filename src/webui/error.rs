@@ -3,7 +3,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-// Put this in a shared module like webui/error.rs
 pub struct AppError {
     status_code: StatusCode,
     error: anyhow::Error,
