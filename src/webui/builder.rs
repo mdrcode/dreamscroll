@@ -2,6 +2,7 @@ use crate::webui::r_detail::detail;
 use crate::webui::r_index::index;
 use crate::webui::r_upload::upload;
 use crate::{db::DbHandle, facility::Facility};
+use axum::extract::DefaultBodyLimit;
 use axum::{Router, routing::get, routing::post};
 use std::{fs, sync::Arc};
 use tera::Tera;
@@ -21,8 +22,9 @@ pub fn build_axum_router(db: Arc<DbHandle>, facility: Box<dyn Facility>) -> Rout
 
     Router::new()
         .route("/", get(index))
-        .route("/detail/{filename}", get(detail))
+        .route("/detail/{capture_id}", get(detail))
         .route("/upload", post(upload))
+        .layer(DefaultBodyLimit::max(5 * 1024 * 1024)) // 5 MB
         .nest_service("/uploads", ServeDir::new(state.facility.local_media_path()))
         .with_state(state)
 }

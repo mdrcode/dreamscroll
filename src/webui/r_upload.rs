@@ -5,7 +5,6 @@ use anyhow::anyhow;
 use axum::{
     body,
     extract::State,
-    http::StatusCode,
     response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::Multipart;
@@ -14,22 +13,26 @@ use sea_orm::{ActiveModelTrait, Set};
 use uuid::Uuid;
 
 use crate::entity::{capture, media};
-use crate::webui::WebState;
+use crate::webui::{WebState, prelude::*};
 
-pub async fn upload(State(state): State<Arc<WebState>>, multipart: Multipart) -> Response {
-    let (media_bytes, _) = match extract(multipart).await {
-        Ok(result) => result,
-        Err(_) => return StatusCode::BAD_REQUEST.into_response(),
+pub async fn upload(
+    State(state): State<Arc<WebState>>,
+    multipart: Multipart,
+) -> Result<Response, AppError> {
+    let media_bytes = match extract_bytes(multipart, "image").await? {
+        Some(bytes) => bytes,
+        None => {
+            return Err(AppError::bad_request(anyhow!(
+                "No image data found in upload."
+            )));
+        }
     };
 
-    if media_bytes.is_none() {
-        return StatusCode::BAD_REQUEST.into_response();
-    }
-    let media_bytes = media_bytes.unwrap();
-
-    // Limit to 10MB
-    if media_bytes.len() > 10 * 1024 * 1024 {
-        return StatusCode::PAYLOAD_TOO_LARGE.into_response();
+    // Limit to 5MB TODO currently this is already limited by axum body limit layer
+    if media_bytes.len() > 5 * 1024 * 1024 {
+        return Err(AppError::payload_too_large(anyhow!(
+            "File size exceeds limit."
+        )));
     }
 
     // Generate unique filename
@@ -39,22 +42,16 @@ pub async fn upload(State(state): State<Arc<WebState>>, multipart: Multipart) ->
     let upload_path = Path::new(&upload_dir).join(&filename);
 
     // Write the file to persistent storage
-    if tokio::fs::write(&upload_path, &media_bytes).await.is_err() {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-    }
+    tokio::fs::write(&upload_path, &media_bytes).await?;
 
     // Insert new capture record into the database
-
     let new_capture = capture::ActiveModel {
         uuid: Set(media_uuid.clone()),
         created_at: Set(Utc::now()),
         ..Default::default()
     };
 
-    let capture_result = match new_capture.insert(&state.db.conn).await {
-        Ok(result) => result,
-        Err(_) => return StatusCode::INTERNAL_SERVER_ERROR.into_response(),
-    };
+    let capture_result = new_capture.insert(&state.db.conn).await?;
 
     // Insert new media record linked to the capture
     let new_media = media::ActiveModel {
@@ -63,27 +60,23 @@ pub async fn upload(State(state): State<Arc<WebState>>, multipart: Multipart) ->
         ..Default::default()
     };
 
-    if new_media.insert(&state.db.conn).await.is_err() {
-        return StatusCode::INTERNAL_SERVER_ERROR.into_response();
-    }
+    new_media.insert(&state.db.conn).await?;
 
     // Redirect to home page to show the timeline
-    Redirect::to("/").into_response()
+    Ok(Redirect::to("/").into_response())
 }
 
-async fn extract(mut multipart: Multipart) -> anyhow::Result<(Option<body::Bytes>, String)> {
-    let mut image_bytes = None;
-
-    while let Ok(Some(field)) = multipart.next_field().await {
-        let field_name = field.name().unwrap_or("");
-
-        if field_name == "image" {
-            match field.bytes().await {
-                Ok(bytes) => image_bytes = Some(bytes),
-                Err(_) => return Err(anyhow!("Failed to read image bytes")),
-            };
+async fn extract_bytes(mut mp: Multipart, field: &str) -> anyhow::Result<Option<body::Bytes>> {
+    while let Ok(Some(f)) = mp.next_field().await {
+        if f.name().unwrap_or("") != field {
+            continue;
         }
+
+        match f.bytes().await {
+            Ok(bytes) => return Ok(Some(bytes)),
+            Err(e) => return Err(e.into()),
+        };
     }
 
-    Ok((image_bytes, "tuple dummy".to_string()))
+    Ok(None)
 }
