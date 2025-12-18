@@ -39,6 +39,8 @@ async fn main() {
         }
     });
 
+    let _ = webbrowser::open(&format!("http://{}", facility.ui_host_port()));
+
     tokio::signal::ctrl_c().await.unwrap();
     println!("Shutting down...");
     cancel_token.cancel();
