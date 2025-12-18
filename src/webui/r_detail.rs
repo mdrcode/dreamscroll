@@ -1,23 +1,32 @@
-use crate::controller::collect_images_raw;
-use crate::webui::WebState;
+use std::sync::Arc;
+
 use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{Html, IntoResponse, Response},
 };
-use std::sync::Arc;
+use sea_orm::entity::prelude::*;
 use tera::Context;
 
-pub async fn detail(State(state): State<Arc<WebState>>, Path(filename): Path<String>) -> Response {
-    // Find the image with the matching filename
-    let images = collect_images_raw();
-    let image = match images.into_iter().find(|img| img.filename == filename) {
-        Some(img) => img,
-        None => return StatusCode::NOT_FOUND.into_response(),
+use super::helper_structs::*;
+use crate::entity::{capture, media};
+use crate::webui::WebState;
+
+pub async fn detail(State(state): State<Arc<WebState>>, Path(capture_id): Path<i32>) -> Response {
+    let captures = capture::Entity::find_by_id(capture_id)
+        .find_with_related(media::Entity)
+        .all(&state.db.conn)
+        .await
+        .expect(&format!("Failed to fetch capture {} from db.", capture_id));
+
+    let capture_info = if let Some((capture, medias)) = captures.into_iter().next() {
+        CaptureInfo { capture, medias }
+    } else {
+        return StatusCode::NOT_FOUND.into_response();
     };
 
     let mut context = Context::new();
-    context.insert("image", &image);
+    context.insert("cm", &capture_info);
 
     let rendered = state
         .tera

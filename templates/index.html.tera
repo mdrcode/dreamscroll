@@ -195,17 +195,18 @@
             Drop image anywhere to upload
         </div>
 
-        {% for i in images %}
+        {% for cm in capture_medias %}
 
         <div class="image-row">
             <div class="image-actual-wrapper">
-                <a href="/detail/{{ i.filename }}" style="text-decoration: none; color: inherit;">
-                    <img class="image-actual" src="/uploads/{{ i.filename }}" alt="image {{i.filename}}">
+                <a href="/detail/{{ cm.capture.id }}" style="text-decoration: none; color: inherit;">
+                    <img class="image-actual" src="/uploads/{{ cm.medias[0].filename }}"
+                        alt="image {{ cm.medias[0].filename }}">
                 </a>
             </div>
             <div class="image-metadata-wrapper">
                 <div class="image-metadata">
-                    {{ i.created_at }}
+                    {{ cm.capture.created_at }}
                 </div>
             </div>
         </div>

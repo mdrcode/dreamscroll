@@ -1,5 +1,6 @@
-use crate::entity::{capture, media};
-use crate::webui::WebState;
+use std::path::Path;
+use std::sync::Arc;
+
 use anyhow::anyhow;
 use axum::{
     body,
@@ -10,9 +11,10 @@ use axum::{
 use axum_extra::extract::Multipart;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
-use std::path::Path;
-use std::sync::Arc;
 use uuid::Uuid;
+
+use crate::entity::{capture, media};
+use crate::webui::WebState;
 
 pub async fn upload(State(state): State<Arc<WebState>>, multipart: Multipart) -> Response {
     let (media_bytes, _) = match extract(multipart).await {

@@ -1,4 +1,3 @@
-pub mod controller;
 pub mod db;
 pub mod entity;
 pub mod facility;
