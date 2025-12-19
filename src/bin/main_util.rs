@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use argh::FromArgs;
+use chrono::Utc;
 use sea_orm::ActiveModelTrait;
 use sea_orm::Set;
 
@@ -28,72 +29,69 @@ struct PopulateArgs {
     directory: PathBuf,
 }
 
-const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"];
-
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let args: Args = argh::from_env();
 
     match args.command {
-        Command::Populate(populate_args) => {
-            if let Err(e) = run_populate(populate_args).await {
-                eprintln!("Error: {}", e);
-                std::process::exit(1);
-            }
-        }
+        Command::Populate(populate_args) => run_populate(populate_args).await?,
     }
+
+    Ok(())
 }
 
-async fn run_populate(args: PopulateArgs) -> Result<(), Box<dyn std::error::Error>> {
+async fn run_populate(args: PopulateArgs) -> anyhow::Result<()> {
+    const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif"];
+
     let dir = &args.directory;
 
     if !dir.is_dir() {
-        return Err(format!("'{}' is not a directory", dir.display()).into());
+        anyhow::bail!("'{}' is not a directory", dir.display());
     }
 
-    // Connect to the local dev database
+    let image_files: Vec<_> = std::fs::read_dir(dir)?
+        .filter_map(|entry| entry.ok())
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .filter(|path| {
+            path.extension()
+                .and_then(|e| e.to_str())
+                .map(|e| IMAGE_EXTENSIONS.contains(&e.to_lowercase().as_str()))
+                .unwrap_or(false)
+        })
+        .map(|path| {
+            path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap()
+                .to_string()
+        })
+        .collect();
+
+    // connect to the local dev database
     let facility = make_facility(Environment::LocalDev);
     let db_handle = db::connect(facility.db_config()).await?;
     db::run_migrations(&db_handle).await?;
 
     let mut count = 0;
 
-    for entry in std::fs::read_dir(dir)? {
-        let entry = entry?;
-        let path = entry.path();
-
-        if !path.is_file() {
-            continue;
-        }
-
-        let extension = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_lowercase());
-
-        let is_image = extension
-            .as_ref()
-            .map(|ext| IMAGE_EXTENSIONS.contains(&ext.as_str()))
-            .unwrap_or(false);
-
-        if !is_image {
-            continue;
-        }
-
-        let filename = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .ok_or("Invalid filename")?
-            .to_string();
-
-        let media = model::media::ActiveModel {
-            filename: Set(filename.clone()),
-            capture_id: Set(None),
+    for file_name in image_files {
+        let capture = model::capture::ActiveModel {
+            created_at: Set(Utc::now()),
             ..Default::default()
         };
+        let capture = capture.insert(&db_handle.conn).await?;
 
-        media.insert(&db_handle.conn).await?;
-        println!("Added: {}", filename);
+        let media = model::media::ActiveModel {
+            filename: Set(file_name.clone()),
+            capture_id: Set(Some(capture.id)),
+            ..Default::default()
+        };
+        let media = media.insert(&db_handle.conn).await?;
+
+        println!(
+            "Added capture({}) media({}) added with image: {}",
+            capture.id, media.id, file_name
+        );
         count += 1;
     }
 

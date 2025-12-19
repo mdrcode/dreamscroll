@@ -46,7 +46,6 @@ pub async fn upload(
 
     // Insert new capture record into the database
     let new_capture = capture::ActiveModel {
-        uuid: Set(media_uuid.clone()),
         created_at: Set(Utc::now()),
         ..Default::default()
     };

@@ -7,7 +7,6 @@ pub async fn run_migrations(db: &impl ConnectionTrait) -> Result<(), DbErr> {
         r#"
         CREATE TABLE IF NOT EXISTS captures (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            uuid TEXT UNIQUE NOT NULL,
             created_at TEXT NOT NULL
         )
         "#
@@ -21,8 +20,8 @@ pub async fn run_migrations(db: &impl ConnectionTrait) -> Result<(), DbErr> {
         r#"
         CREATE TABLE IF NOT EXISTS media (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            filename TEXT NOT NULL,
             capture_id INTEGER,
+            filename TEXT NOT NULL,
             FOREIGN KEY (capture_id) REFERENCES captures(id)
         )
         "#
