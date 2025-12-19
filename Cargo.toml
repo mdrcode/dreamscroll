@@ -16,8 +16,13 @@ path = "src/bin/main_localdev.rs"
 name = "worker"
 path = "src/bin/main_worker.rs"
 
+[[bin]]
+name = "dsutil"
+path = "src/bin/main_util.rs"
+
 [dependencies]
 anyhow = "1.0.100"
+argh = "0.1.13"
 axum = "0.8"
 axum-extra = { version = "0.10", features = ["multipart"] }
 base64 = "0.21"

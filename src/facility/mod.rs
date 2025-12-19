@@ -27,7 +27,7 @@ impl Clone for Box<dyn Facility> {
 }
 
 #[derive(Clone)]
-pub struct LocalDevFacility;
+struct LocalDevFacility;
 
 impl Facility for LocalDevFacility {
     fn db_config(&self) -> crate::db::DbConfig {
