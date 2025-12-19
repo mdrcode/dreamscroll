@@ -4,7 +4,7 @@ use axum::{extract::State, response::Html};
 use sea_orm::{QueryOrder, entity::prelude::*};
 use tera::Context;
 
-use crate::entity::{capture, media};
+use crate::model::{capture, media};
 use crate::webui::{WebState, prelude::*};
 
 pub async fn index(State(state): State<Arc<WebState>>) -> Html<String> {

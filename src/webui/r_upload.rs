@@ -12,7 +12,7 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 use uuid::Uuid;
 
-use crate::entity::{capture, media};
+use crate::model::{capture, media};
 use crate::webui::{WebState, prelude::*};
 
 pub async fn upload(

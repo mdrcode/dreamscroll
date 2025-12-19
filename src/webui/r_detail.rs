@@ -8,7 +8,7 @@ use axum::{
 use sea_orm::entity::prelude::*;
 use tera::Context;
 
-use crate::entity::{capture, media};
+use crate::model::{capture, media};
 use crate::webui::{WebState, prelude::*};
 
 pub async fn detail(State(state): State<Arc<WebState>>, Path(capture_id): Path<i32>) -> Response {

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::entity::*;
+use crate::model::*;
 
 // These are convenience structs for passing complex data to Tera templates.
 

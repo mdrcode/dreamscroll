@@ -3,7 +3,7 @@ use std::sync::Arc;
 use sea_orm::EntityTrait;
 
 use crate::db;
-use crate::entity::capture;
+use crate::model::capture;
 use crate::facility::Facility;
 
 pub async fn main_loop(db: Arc<db::DbHandle>, _: Box<dyn Facility>) {
