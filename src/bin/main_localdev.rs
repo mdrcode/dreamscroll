@@ -4,7 +4,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
 use dreamspot::db;
-use dreamspot::facility::*;
+use dreamspot::facility::{Environment, make_facility};
 use dreamspot::storage::{StorageProvider, make_storage};
 use dreamspot::webui;
 use dreamspot::worker;
