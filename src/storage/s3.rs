@@ -5,11 +5,7 @@ use super::{StorageId, StorageProvider};
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct S3StorageConfig {
-    bucket: String,
-    region: String,
-    access_key: String,
-    secret_key: String,
-    base_url: String,
+
 }
 
 #[allow(dead_code)]

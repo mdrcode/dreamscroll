@@ -2,11 +2,10 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 use chrono::Utc;
-use dreamspot::storage;
 use sea_orm::ActiveModelTrait;
 use sea_orm::Set;
 
-use dreamspot::{db, facility::*, model};
+use dreamspot::{config, db, model, storage};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll admin utility")]
@@ -63,12 +62,13 @@ async fn run_populate(args: PopulateArgs) -> anyhow::Result<()> {
         .map(|path| dir.join(&path))
         .collect();
 
+    let (db_config, storage_config) = config::make_local_dev();
+
     // connect to the local dev database and storage provider
-    let facility = make_facility(Environment::LocalDev);
-    let db_handle = db::connect(facility.db_config()).await?;
+    let db_handle = db::connect(db_config).await?;
     db::run_migrations(&db_handle).await?;
 
-    let storage = storage::make_storage(facility.storage_config());
+    let storage = storage::make(storage_config);
 
     let mut count = 0;
 

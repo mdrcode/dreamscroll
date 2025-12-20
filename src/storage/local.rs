@@ -4,37 +4,32 @@ use uuid::Uuid;
 
 use super::{StorageId, StorageProvider};
 
-#[derive(Debug, Clone)]
-pub struct LocalStorageConfig {
-    pub storage_path: String,
-    pub base_url: String,
-}
-
 pub struct LocalStorageProvider {
-    config: LocalStorageConfig,
+    storage_path: String,
 }
 
 impl LocalStorageProvider {
-    pub fn new(config: LocalStorageConfig) -> Self {
-        Self { config }
+    pub fn new(storage_path: String) -> Self {
+        std::fs::create_dir_all(&storage_path).unwrap();
+        Self { storage_path }
     }
 }
 
 impl StorageProvider for LocalStorageProvider {
     fn local_serving_path(&self) -> Option<String> {
-        Some(self.config.storage_path.clone())
+        Some(self.storage_path.clone())
     }
 
     fn store_from_bytes(&self, bytes: &[u8]) -> anyhow::Result<StorageId> {
         let uuid = Uuid::new_v4().to_string();
-        let upload_path = Path::new(&self.config.storage_path).join(uuid.as_str());
+        let upload_path = Path::new(&self.storage_path).join(uuid.as_str());
         std::fs::write(&upload_path, &bytes)?;
         Ok(uuid)
     }
 
     fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageId> {
         let uuid = Uuid::new_v4().to_string();
-        let upload_path = Path::new(&self.config.storage_path).join(uuid.as_str());
+        let upload_path = Path::new(&self.storage_path).join(uuid.as_str());
         std::fs::copy(path, &upload_path)?;
         Ok(uuid)
     }

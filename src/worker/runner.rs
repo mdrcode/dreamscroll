@@ -4,9 +4,8 @@ use sea_orm::EntityTrait;
 
 use crate::db;
 use crate::model::capture;
-use crate::facility::Facility;
 
-pub async fn main_loop(db: Arc<db::DbHandle>, _: Box<dyn Facility>) {
+pub async fn main_loop(db: Arc<db::DbHandle>) {
     println!("Worker process starting...");
 
     // Example: Process images periodically

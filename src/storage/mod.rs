@@ -7,8 +7,17 @@ pub type StorageId = String;
 
 #[derive(Debug, Clone)]
 pub enum StorageConfig {
-    Local { config: local::LocalStorageConfig },
-    S3 { config: s3::S3StorageConfig },
+    Local {
+        storage_path: String,
+        base_url: String,
+    },
+    S3 {
+        bucket: String,
+        region: String,
+        access_key: String,
+        secret_key: String,
+        base_url: String,
+    },
 }
 
 pub trait StorageProvider: Send + Sync {
@@ -20,11 +29,19 @@ pub trait StorageProvider: Send + Sync {
     fn make_url_for_id(&self, id: &StorageId) -> anyhow::Result<String>;
 }
 
-pub fn make_storage(config: StorageConfig) -> Box<dyn StorageProvider> {
+pub fn make(config: StorageConfig) -> Box<dyn StorageProvider> {
     match &config {
-        StorageConfig::Local { config } => {
-            Box::new(local::LocalStorageProvider::new(config.clone()))
-        }
-        StorageConfig::S3 { config } => Box::new(s3::S3StorageProvider::new(config.clone())),
+        StorageConfig::Local {
+            storage_path,
+            base_url: _,
+        } => Box::new(local::LocalStorageProvider::new(storage_path.clone())),
+
+        StorageConfig::S3 {
+            bucket: _,
+            region: _,
+            access_key: _,
+            secret_key: _,
+            base_url: _,
+        } => unimplemented!(),
     }
 }
