@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 use chrono::Utc;
+use dreamspot::storage;
 use sea_orm::ActiveModelTrait;
 use sea_orm::Set;
 
@@ -49,7 +50,7 @@ async fn run_populate(args: PopulateArgs) -> anyhow::Result<()> {
         anyhow::bail!("'{}' is not a directory", dir.display());
     }
 
-    let image_files: Vec<_> = std::fs::read_dir(dir)?
+    let image_paths: Vec<_> = std::fs::read_dir(dir)?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|path| path.is_file())
@@ -59,22 +60,21 @@ async fn run_populate(args: PopulateArgs) -> anyhow::Result<()> {
                 .map(|e| IMAGE_EXTENSIONS.contains(&e.to_lowercase().as_str()))
                 .unwrap_or(false)
         })
-        .map(|path| {
-            path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap()
-                .to_string()
-        })
+        .map(|path| dir.join(&path))
         .collect();
 
-    // connect to the local dev database
+    // connect to the local dev database and storage provider
     let facility = make_facility(Environment::LocalDev);
     let db_handle = db::connect(facility.db_config()).await?;
     db::run_migrations(&db_handle).await?;
 
+    let storage = storage::make_storage(facility.storage_config());
+
     let mut count = 0;
 
-    for file_name in image_files {
+    for img_path in image_paths {
+        let storage_id = storage.store_from_local_path(&img_path)?;
+
         let capture = model::capture::ActiveModel {
             created_at: Set(Utc::now()),
             ..Default::default()
@@ -82,19 +82,19 @@ async fn run_populate(args: PopulateArgs) -> anyhow::Result<()> {
         let capture = capture.insert(&db_handle.conn).await?;
 
         let media = model::media::ActiveModel {
-            filename: Set(file_name.clone()),
+            filename: Set(storage_id.clone()),
             capture_id: Set(Some(capture.id)),
             ..Default::default()
         };
         let media = media.insert(&db_handle.conn).await?;
 
         println!(
-            "Added capture({}) media({}) added with image: {}",
-            capture.id, media.id, file_name
+            "Added capture({}) media({}) with storage id: {}",
+            capture.id, media.id, storage_id
         );
         count += 1;
     }
 
-    println!("Successfully added {} images to the database", count);
+    println!("Successfully added {} images to the database.", count);
     Ok(())
 }

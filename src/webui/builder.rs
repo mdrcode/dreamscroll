@@ -1,32 +1,41 @@
-use std::{fs, sync::Arc};
+use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
 use axum::{Router, routing::get, routing::post};
 use tera::Tera;
 use tower_http::services::ServeDir;
 
+use crate::db::DbHandle;
+use crate::storage::StorageProvider;
 use crate::webui::r_detail::detail;
 use crate::webui::r_index::index;
 use crate::webui::r_upload::upload;
-use crate::{db::DbHandle, facility::Facility};
 
 pub struct WebState {
-    pub facility: Box<dyn Facility>,
     pub db: Arc<DbHandle>,
+    pub storage: Arc<dyn StorageProvider + Send + Sync>,
     pub tera: Tera,
 }
 
-pub fn build_axum_router(db: Arc<DbHandle>, facility: Box<dyn Facility>) -> Router {
-    fs::create_dir_all(facility.local_media_path()).unwrap();
-
+pub fn build_axum_router(
+    db: Arc<DbHandle>,
+    storage: Arc<dyn StorageProvider + Send + Sync>,
+) -> Router {
+    let local_serving_path_opt = storage.local_serving_path();
     let tera = Tera::new("templates/*.tera").expect("Failed to load templates");
-    let state = Arc::new(WebState { facility, db, tera });
+    let state = Arc::new(WebState { db, storage, tera });
 
-    Router::new()
+    let mut router = Router::new()
         .route("/", get(index))
         .route("/detail/{capture_id}", get(detail))
         .route("/upload", post(upload))
         .layer(DefaultBodyLimit::max(5 * 1024 * 1024)) // 5 MB
-        .nest_service("/uploads", ServeDir::new(state.facility.local_media_path()))
-        .with_state(state)
+        .with_state(state);
+
+    if let Some(ref path) = local_serving_path_opt {
+        // In some environments, we serve media directly from local storage
+        router = router.nest_service("/media", ServeDir::new(path));
+    }
+
+    router
 }

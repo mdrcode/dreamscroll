@@ -87,7 +87,7 @@
 
         <div class="detail-container">
             <div class="image-container">
-                <img src="/uploads/{{ cm.medias[0].filename }}" alt="{{ cm.medias[0].filename }}">
+                <img src="/media/{{ cm.medias[0].filename }}" alt="{{ cm.medias[0].filename }}">
             </div>
 
             <div class="metadata">

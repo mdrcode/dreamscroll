@@ -3,7 +3,11 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use dreamspot::{db, facility::*, webui, worker};
+use dreamspot::db;
+use dreamspot::facility::*;
+use dreamspot::storage::{StorageProvider, make_storage};
+use dreamspot::webui;
+use dreamspot::worker;
 
 #[tokio::main]
 async fn main() {
@@ -13,9 +17,12 @@ async fn main() {
     db::run_migrations(&db).await.unwrap();
     let db = Arc::new(db);
 
+    let storage = make_storage(facility.storage_config());
+    let storage: Arc<dyn StorageProvider> = Arc::from(storage);
+
     let cancel_token = CancellationToken::new();
 
-    let webui_router = webui::build_axum_router(db.clone(), facility.clone());
+    let webui_router = webui::build_axum_router(db.clone(), storage.clone());
     let webui_cancel = cancel_token.clone();
     let webui_fac = facility.clone();
     let h_webui = tokio::spawn(async move {

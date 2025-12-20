@@ -1,22 +1,24 @@
+use crate::storage::{self, StorageConfig};
+
 #[derive(Clone, Copy)]
 pub enum Environment {
-    UnitTest,
     LocalDev,
     Production,
+    UnitTest,
 }
 
 pub fn make_facility(env: Environment) -> Box<dyn Facility> {
     match env {
-        Environment::UnitTest => unimplemented!("UnitTest facility not implemented"),
         Environment::LocalDev => Box::new(LocalDevFacility {}),
         Environment::Production => unimplemented!("Production facility not implemented"),
+        Environment::UnitTest => unimplemented!("UnitTest facility not implemented"),
     }
 }
 
 pub trait Facility: Send + Sync {
     fn db_config(&self) -> crate::db::DbConfig;
+    fn storage_config(&self) -> StorageConfig;
     fn ui_host_port(&self) -> String;
-    fn local_media_path(&self) -> String; // TODO should be factored into a StorageConfig ...
     fn clone_box(&self) -> Box<dyn Facility>;
 }
 
@@ -36,12 +38,20 @@ impl Facility for LocalDevFacility {
         }
     }
 
-    fn ui_host_port(&self) -> String {
-        "127.0.0.1:8000".to_string()
+    fn storage_config(&self) -> storage::StorageConfig {
+        // ensure the local storage directory exists
+        std::fs::create_dir_all("localdev/media/").unwrap();
+
+        StorageConfig::Local {
+            config: storage::local::LocalStorageConfig {
+                storage_path: "localdev/media/".to_string(),
+                base_url: "http://localhost:8000/media/".to_string(),
+            },
+        }
     }
 
-    fn local_media_path(&self) -> String {
-        "localdev/uploads".to_string()
+    fn ui_host_port(&self) -> String {
+        "127.0.0.1:8000".to_string()
     }
 
     fn clone_box(&self) -> Box<dyn Facility> {

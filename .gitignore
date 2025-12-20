@@ -1,4 +1,4 @@
 .DS_Store
 /target
-/localdev/*.db
-/localdev/uploads
+/localdev/*
+!/localdev/readme.txt
