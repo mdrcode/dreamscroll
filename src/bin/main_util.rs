@@ -5,7 +5,7 @@ use chrono::Utc;
 use sea_orm::ActiveModelTrait;
 use sea_orm::Set;
 
-use dreamspot::{config, db, model, storage};
+use dreamspot::{config, database, model, storage};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll admin utility")]
@@ -65,8 +65,8 @@ async fn run_populate(args: PopulateArgs) -> anyhow::Result<()> {
     let (db_config, storage_config) = config::make_local_dev();
 
     // connect to the local dev database and storage provider
-    let db_handle = db::connect(db_config).await?;
-    db::run_migrations(&db_handle).await?;
+    let db = database::connect(db_config).await?;
+    database::run_migrations(&db).await?;
 
     let storage = storage::make(storage_config);
 
@@ -79,14 +79,14 @@ async fn run_populate(args: PopulateArgs) -> anyhow::Result<()> {
             created_at: Set(Utc::now()),
             ..Default::default()
         };
-        let capture = capture.insert(&db_handle.conn).await?;
+        let capture = capture.insert(&db.conn).await?;
 
         let media = model::media::ActiveModel {
             filename: Set(storage_id.clone()),
             capture_id: Set(Some(capture.id)),
             ..Default::default()
         };
-        let media = media.insert(&db_handle.conn).await?;
+        let media = media.insert(&db.conn).await?;
 
         println!(
             "Added capture({}) media({}) with storage id: {}",

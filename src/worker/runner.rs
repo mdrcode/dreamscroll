@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use sea_orm::EntityTrait;
 
-use crate::db;
+use crate::database;
 use crate::model::capture;
 
-pub async fn main_loop(db: Arc<db::DbHandle>) {
+pub async fn main_loop(db: Arc<database::DbHandle>) {
     println!("Worker process starting...");
 
     // Example: Process images periodically

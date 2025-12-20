@@ -1,5 +1,5 @@
 pub mod config;
-pub mod db;
+pub mod database;
 pub mod model;
 pub mod storage;
 pub mod webui;

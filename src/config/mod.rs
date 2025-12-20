@@ -1,7 +1,7 @@
-use crate::{db, storage};
+use crate::{database, storage};
 
-pub fn make_local_dev() -> (db::DbConfig, storage::StorageConfig) {
-    let db_config = db::DbConfig::SqliteFile {
+pub fn make_local_dev() -> (database::DbConfig, storage::StorageConfig) {
+    let db_config = database::DbConfig::SqliteFile {
         path: "localdev/dreamspot.db".to_string(),
     };
 

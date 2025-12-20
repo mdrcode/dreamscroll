@@ -5,7 +5,7 @@ use axum::{Router, routing::get, routing::post};
 use tera::Tera;
 use tower_http::services::ServeDir;
 
-use crate::db::DbHandle;
+use crate::database::DbHandle;
 use crate::storage::StorageProvider;
 use crate::webui::r_detail::detail;
 use crate::webui::r_index::index;

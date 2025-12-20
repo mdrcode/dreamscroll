@@ -8,6 +8,9 @@
 >   - [done: YYYY-MM-DD]
 > ```
 
+- [ ] Move the DB migrations into connect call?
+  - [added: 2025-12-20]
+
 - [ ] Extend the "body" of index.html to bottom of viewport always.
   - [added: 2025-12-19]
   - Currently when the timeline is empty (no images have been uploaded), the "body" of the HTML page is quite short vertically and so does not serve as a drag-and-drop target. You must drag the image to the very top of the page where the header is in order to trigger the drop behavior.
