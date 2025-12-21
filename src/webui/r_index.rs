@@ -8,14 +8,12 @@ use crate::model::{capture, media};
 use crate::webui::{WebState, prelude::*};
 
 pub async fn index(State(state): State<Arc<WebState>>) -> Html<String> {
-    let captures = capture::Entity::find()
+    let capture_medias = capture::Entity::find()
         .order_by(capture::Column::CreatedAt, sea_orm::Order::Desc)
         .find_with_related(media::Entity)
         .all(&state.db.conn)
         .await
-        .expect("Failed to capture fetches from db.");
-
-    let capture_medias = captures
+        .expect("Failed to fetch captures from db.")
         .into_iter()
         .map(|(capture, medias)| CaptureInfo { capture, medias })
         .collect::<Vec<_>>();

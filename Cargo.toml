@@ -26,6 +26,7 @@ argh = "0.1.13"
 axum = "0.8"
 axum-extra = { version = "0.10", features = ["multipart"] }
 base64 = "0.21"
+blake3 = "1.8.2"
 chrono = { version = "0.4", features = ["serde"] }
 sea-orm = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-native-tls", "macros"] }
 serde = { version = "1.0", features = ["derive"] }
