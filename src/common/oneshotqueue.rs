@@ -11,7 +11,7 @@ use std::sync::Mutex;
 /// # Example
 ///
 /// ```
-/// # use dreamspot::common::OneShotQueue;
+/// use dreamspot::common::OneShotQueue;
 ///
 /// let queue = OneShotQueue::new();
 /// queue.enqueue(1);
@@ -28,16 +28,16 @@ pub struct OneShotQueue<T: Clone + Debug + Eq + Hash> {
     inner: Mutex<OneShotQueueInner<T>>,
 }
 
+struct OneShotQueueInner<T: Clone + Debug + Eq + Hash> {
+    pending: VecDeque<T>,
+    status_map: HashMap<T, QueueStatus>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum QueueStatus {
     Pending,
     Reserved,
     Completed,
-}
-
-struct OneShotQueueInner<T: Clone + Debug + Eq + Hash> {
-    pending: VecDeque<T>,
-    status_map: HashMap<T, QueueStatus>,
 }
 
 impl<T: Clone + Debug + Eq + Hash> Default for OneShotQueue<T> {
@@ -66,17 +66,20 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
         false
     }
 
-    pub fn enqueue_iter<'a>(&self, items: impl IntoIterator<Item = &'a T>)
+    pub fn enqueue_iter<'a>(&self, items: impl IntoIterator<Item = &'a T>) -> usize
     where
         T: 'a,
     {
+        let mut count = 0;
         let mut inner = self.inner.lock().unwrap();
         for item in items {
             if !inner.status_map.contains_key(item) {
                 inner.status_map.insert(item.clone(), QueueStatus::Pending);
                 inner.pending.push_back(item.clone());
+                count += 1;
             }
         }
+        count
     }
 
     pub fn pop_next(&self) -> Option<T> {
@@ -85,7 +88,7 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
         let status = inner.status_map.get_mut(&next);
 
         if status.is_none() {
-            eprintln!("Inconsistent: {:?} popped but untracked in map", next);
+            tracing::warn!("Attempted to pop item {:?} but not in map", next);
             return None;
         }
 
@@ -96,7 +99,7 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
                 Some(next)
             }
             _ => {
-                eprintln!("Inconsistent: {:?} popped but already reserved", next);
+                tracing::warn!("Attempted to pop already reserved item {:?}", next);
                 None
             }
         }
@@ -107,7 +110,7 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
         let status = inner.status_map.get_mut(&item);
 
         if status.is_none() {
-            eprintln!("Inconsistent: attempted to complete unknown {:?}", item);
+            tracing::warn!("Attempted to complete unknown item {:?}", item);
             return false;
         }
 
@@ -118,11 +121,11 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
                 true
             }
             QueueStatus::Pending => {
-                eprintln!("Attempted to complete pending item {:?}", item);
+                tracing::warn!("Attempted to complete pending item {:?}", item);
                 false
             }
             QueueStatus::Completed => {
-                eprintln!("Attempted to complete already completed item {:?}", item);
+                tracing::warn!("Attempted to complete already completed item {:?}", item);
                 false
             }
         }

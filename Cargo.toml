@@ -13,12 +13,12 @@ name = "localdev"
 path = "src/bin/main_localdev.rs"
 
 [[bin]]
-name = "worker"
-path = "src/bin/main_worker.rs"
+name = "dsutil"
+path = "src/bin/main_dsutil.rs"
 
 [[bin]]
-name = "dsutil"
-path = "src/bin/main_util.rs"
+name = "worker"
+path = "src/bin/main_worker.rs"
 
 [dependencies]
 anyhow = "1.0.100"
@@ -36,5 +36,7 @@ tera = "1.19"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7.17"
 tower-http = { version = "0.6", features = ["fs"] }
+tracing = "0.1.44"
+tracing-subscriber = "0.3.22"
 uuid = { version = "1.0", features = ["v4"] }
 webbrowser = "1.0.6"
