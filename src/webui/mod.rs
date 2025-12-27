@@ -1,10 +1,8 @@
 mod builder;
 mod error;
-mod helper_structs;
 
 pub mod prelude {
     pub use super::error::*;
-    pub use super::helper_structs::*;
 }
 
 pub use builder::WebState;

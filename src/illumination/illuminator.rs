@@ -6,10 +6,13 @@ use sea_orm::{EntityTrait, QuerySelect};
 use crate::model::capture;
 use crate::{common, database};
 
-pub fn make(db: Arc<database::DbHandle>) -> Box<dyn Illuminator> {
+type Illumination = fn(capture_id: i32) -> String;
+
+pub fn make(db: Arc<database::DbHandle>, ill: Illumination) -> Box<dyn Illuminator> {
     Box::new(SimpleIlluminator {
         db,
         queue: Arc::new(common::OneShotQueue::new()),
+        illumination: ill,
     })
 }
 
@@ -21,17 +24,19 @@ pub trait Illuminator: Send + Sync {
 pub struct SimpleIlluminator {
     db: Arc<database::DbHandle>,
     queue: Arc<common::OneShotQueue<i32>>,
+    illumination: Illumination,
 }
 
 #[async_trait]
 impl Illuminator for SimpleIlluminator {
     async fn run(&self) -> anyhow::Result<()> {
         (0..2).for_each(|_| {
-            let worker = IlluminateWorker {
+            let t = IlluminationThread {
                 db: self.db.clone(),
                 queue: self.queue.clone(),
+                illumination: self.illumination,
             };
-            tokio::spawn(worker.run());
+            tokio::spawn(t.run());
         });
 
         loop {
@@ -52,16 +57,18 @@ impl Illuminator for SimpleIlluminator {
     }
 }
 
-struct IlluminateWorker {
+struct IlluminationThread {
     db: Arc<database::DbHandle>,
     queue: Arc<common::OneShotQueue<i32>>,
+    illumination: Illumination,
 }
 
-impl IlluminateWorker {
+impl IlluminationThread {
     // note this consumes self
     async fn run(self) {
         loop {
             if let Some(capture_id) = self.queue.pop_next() {
+                (self.illumination)(capture_id);
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                 self.queue.complete(capture_id);
                 println!("Worker thread illuminated capture ID {}", capture_id);
