@@ -24,17 +24,17 @@ async fn main() {
     let cancel_token = CancellationToken::new();
 
     let h_webui = {
-        let webui_router = webui::make_axum_router(db.clone(), storage.clone());
+        let router = webui::make_axum_router(db.clone(), storage.clone());
         let cancel = cancel_token.clone();
         let host_port = webui_host_port.clone();
         tokio::spawn(async move {
             let listener = TcpListener::bind(host_port).await.unwrap();
-            axum::serve(listener, webui_router)
+            axum::serve(listener, router)
                 .with_graceful_shutdown(async move {
                     cancel.cancelled().await;
                 })
                 .await
-                .unwrap();
+                .expect("Failed to serve Web UI.");
         })
     };
     println!("Web UI serving at http://{}", webui_host_port);

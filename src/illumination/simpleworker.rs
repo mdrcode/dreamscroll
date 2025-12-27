@@ -6,6 +6,7 @@ use sea_orm::{EntityTrait, QuerySelect};
 use super::{Illumination, IlluminationWorker};
 use crate::{common, database, model};
 
+#[derive(Clone)]
 pub struct SimpleWorker<I: Illumination + 'static> {
     pub db: Arc<database::DbHandle>,
     pub queue: Arc<common::OneShotQueue<i32>>,
@@ -15,12 +16,9 @@ pub struct SimpleWorker<I: Illumination + 'static> {
 #[async_trait]
 impl<I: Illumination + 'static> IlluminationWorker for SimpleWorker<I> {
     async fn run(&self) -> anyhow::Result<()> {
+        let arc_self = Arc::new(self.clone());
         (0..2).for_each(|_| {
-            let t = SimpleWorkerThread {
-                db: self.db.clone(),
-                queue: self.queue.clone(),
-                illumination: self.illumination.clone(),
-            };
+            let t = SimpleWorkerThread::new(Arc::clone(&arc_self));
             tokio::spawn(t.run());
         });
 
@@ -43,19 +41,25 @@ impl<I: Illumination + 'static> IlluminationWorker for SimpleWorker<I> {
 }
 
 struct SimpleWorkerThread<I: Illumination + 'static> {
-    db: Arc<database::DbHandle>,
-    queue: Arc<common::OneShotQueue<i32>>,
-    illumination: I,
+    parent_arc: Arc<SimpleWorker<I>>,
+}
+
+impl<I: Illumination + 'static> SimpleWorkerThread<I> {
+    pub fn new(parent_arc: Arc<SimpleWorker<I>>) -> Self {
+        Self { parent_arc }
+    }
 }
 
 impl<I: Illumination + 'static> SimpleWorkerThread<I> {
     // note this consumes self
     async fn run(self) {
+        let parent = &self.parent_arc;
+
         loop {
-            if let Some(capture_id) = self.queue.pop_next() {
-                self.illumination.illuminate(capture_id).await;
+            if let Some(capture_id) = parent.queue.pop_next() {
+                parent.illumination.illuminate(capture_id).await;
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
-                self.queue.complete(capture_id);
+                parent.queue.complete(capture_id);
             } else {
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
