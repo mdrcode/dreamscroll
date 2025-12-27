@@ -3,38 +3,24 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use sea_orm::{EntityTrait, QuerySelect};
 
+use super::{Illumination, Illuminator};
 use crate::model::capture;
 use crate::{common, database};
 
-type Illumination = fn(capture_id: i32) -> String;
-
-pub fn make(db: Arc<database::DbHandle>, ill: Illumination) -> Box<dyn Illuminator> {
-    Box::new(SimpleIlluminator {
-        db,
-        queue: Arc::new(common::OneShotQueue::new()),
-        illumination: ill,
-    })
+pub struct SimpleIlluminator<I: Illumination + 'static> {
+    pub db: Arc<database::DbHandle>,
+    pub queue: Arc<common::OneShotQueue<i32>>,
+    pub illumination: I,
 }
 
 #[async_trait]
-pub trait Illuminator: Send + Sync {
-    async fn run(&self) -> anyhow::Result<()>;
-}
-
-pub struct SimpleIlluminator {
-    db: Arc<database::DbHandle>,
-    queue: Arc<common::OneShotQueue<i32>>,
-    illumination: Illumination,
-}
-
-#[async_trait]
-impl Illuminator for SimpleIlluminator {
+impl<I: Illumination + 'static> Illuminator for SimpleIlluminator<I> {
     async fn run(&self) -> anyhow::Result<()> {
         (0..2).for_each(|_| {
-            let t = IlluminationThread {
+            let t = SimpleIlluminatorThread {
                 db: self.db.clone(),
                 queue: self.queue.clone(),
-                illumination: self.illumination,
+                illumination: self.illumination.clone(),
             };
             tokio::spawn(t.run());
         });
@@ -48,27 +34,31 @@ impl Illuminator for SimpleIlluminator {
                 .await
                 .expect("Failed to fetch capture IDs");
 
-            self.queue.enqueue_iter(&captures);
+            let enqueued = self.queue.enqueue_iter(&captures);
 
-            tracing::info!("Found {} captures in the database.", captures.len());
+            tracing::info!(
+                "Found {} total captures in db, enqueued {}.",
+                captures.len(),
+                enqueued
+            );
 
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }
     }
 }
 
-struct IlluminationThread {
+struct SimpleIlluminatorThread<I: Illumination + 'static> {
     db: Arc<database::DbHandle>,
     queue: Arc<common::OneShotQueue<i32>>,
-    illumination: Illumination,
+    illumination: I,
 }
 
-impl IlluminationThread {
+impl<I: Illumination + 'static> SimpleIlluminatorThread<I> {
     // note this consumes self
     async fn run(self) {
         loop {
             if let Some(capture_id) = self.queue.pop_next() {
-                (self.illumination)(capture_id);
+                self.illumination.illuminate(capture_id).await;
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                 self.queue.complete(capture_id);
                 println!("Worker thread illuminated capture ID {}", capture_id);
