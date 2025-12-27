@@ -33,7 +33,12 @@ impl Illuminator for SimpleIlluminator {
             let captures = capture::Entity::find()
                 .all(&self.db.conn)
                 .await
-                .expect("Failed to fetch captures");
+                .expect("Failed to fetch captures")
+                .into_iter()
+                .map(|c| c.id)
+                .collect::<Vec<i32>>();
+
+            self.queue.enqueue_iter(&captures);
 
             println!("Found {} captures in the database.", captures.len());
 

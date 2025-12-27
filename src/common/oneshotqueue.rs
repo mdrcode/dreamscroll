@@ -11,7 +11,7 @@ use std::sync::Mutex;
 /// # Example
 ///
 /// ```
-/// use oneshotqueue::OneShotQueue;
+/// # use dreamspot::common::OneShotQueue;
 ///
 /// let queue = OneShotQueue::new();
 /// queue.enqueue(1);
@@ -66,12 +66,15 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
         false
     }
 
-    pub fn enqueue_iter(&self, items: impl IntoIterator<Item = T>) {
+    pub fn enqueue_iter<'a>(&self, items: impl IntoIterator<Item = &'a T>)
+    where
+        T: 'a,
+    {
         let mut inner = self.inner.lock().unwrap();
         for item in items {
-            if !inner.status_map.contains_key(&item) {
+            if !inner.status_map.contains_key(item) {
                 inner.status_map.insert(item.clone(), QueueStatus::Pending);
-                inner.pending.push_back(item);
+                inner.pending.push_back(item.clone());
             }
         }
     }
@@ -209,7 +212,7 @@ mod tests {
     #[test]
     fn test_enqueue_iter_dupes() {
         let queue = OneShotQueue::new();
-        queue.enqueue_iter(vec![1, 2, 2, 3, 1]);
+        queue.enqueue_iter(&[1, 2, 2, 3, 1]);
         assert!(count_for_status(&queue, QueueStatus::Pending) == 3);
 
         assert_eq!(queue.pop_next(), Some(1));
@@ -257,7 +260,7 @@ mod tests {
     #[test]
     fn test_enqueue_iter() {
         let queue = OneShotQueue::new();
-        queue.enqueue_iter(vec![1, 2, 3]);
+        queue.enqueue_iter(&[1, 2, 3]);
 
         assert_eq!(queue.pop_next(), Some(1));
         assert_eq!(queue.pop_next(), Some(2));
@@ -290,7 +293,7 @@ mod tests {
     #[test]
     fn test_multiple_reserves_and_completes() {
         let queue = OneShotQueue::new();
-        queue.enqueue_iter(vec![1, 2, 3, 4]);
+        queue.enqueue_iter(&[1, 2, 3, 4]);
 
         let item1 = queue.pop_next().unwrap();
         let item2 = queue.pop_next().unwrap();
@@ -345,7 +348,7 @@ mod tests {
     #[tokio::test]
     async fn test_concurrent_reserve_and_complete() {
         let queue = Arc::new(OneShotQueue::new());
-        queue.enqueue_iter(0..100);
+        queue.enqueue_iter(&(0..100).collect::<Vec<_>>());
 
         let mut handles = vec![];
 
@@ -387,7 +390,7 @@ mod tests {
             let handle = tokio::spawn(async move {
                 let start = batch * 25;
                 let end = start + 25;
-                queue_clone.enqueue_iter(start..end);
+                queue_clone.enqueue_iter(&(start..end).collect::<Vec<_>>());
             });
             producer_handles.push(handle);
         }
