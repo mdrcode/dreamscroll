@@ -1,3 +1,3 @@
-mod rezqueue;
+mod oneshotqueue;
 
-pub use rezqueue::RezQueue;
+pub use oneshotqueue::OneShotQueue;

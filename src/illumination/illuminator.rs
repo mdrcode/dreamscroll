@@ -3,8 +3,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use sea_orm::EntityTrait;
 
-use crate::database;
 use crate::model::capture;
+use crate::{common, database};
 
 #[async_trait]
 pub trait Illuminator: Send + Sync {
@@ -12,11 +12,15 @@ pub trait Illuminator: Send + Sync {
 }
 
 pub fn make(db: Arc<database::DbHandle>) -> Box<dyn Illuminator> {
-    Box::new(SimpleIlluminator { db })
+    Box::new(SimpleIlluminator {
+        db,
+        queue: common::OneShotQueue::new(),
+    })
 }
 
 pub struct SimpleIlluminator {
     db: Arc<database::DbHandle>,
+    queue: common::OneShotQueue<i32>,
 }
 
 #[async_trait]
