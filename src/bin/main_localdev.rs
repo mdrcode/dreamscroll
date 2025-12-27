@@ -3,11 +3,11 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use dreamspot::{config, database, storage, webui, workers};
+use dreamspot::{config, database, illumination, storage, webui};
 
 #[tokio::main]
 async fn main() {
-    let (db_config, storage_config) = config::make_local_dev();
+    let (db_config, storage_config) = config::make(config::Env::LocalDev);
     let webui_host_port = "127.0.0.1:8000".to_string();
 
     let db = database::connect(db_config).await.unwrap();
@@ -20,14 +20,14 @@ async fn main() {
     let cancel_token = CancellationToken::new();
 
     let h_webui = {
-        let webui_router = webui::build_axum_router(db.clone(), storage.clone());
-        let webui_cancel = cancel_token.clone();
-        let host_port_clone = webui_host_port.clone();
+        let webui_router = webui::make_axum_router(db.clone(), storage.clone());
+        let cancel = cancel_token.clone();
+        let host_port = webui_host_port.clone();
         tokio::spawn(async move {
-            let listener = TcpListener::bind(host_port_clone).await.unwrap();
+            let listener = TcpListener::bind(host_port).await.unwrap();
             axum::serve(listener, webui_router)
                 .with_graceful_shutdown(async move {
-                    webui_cancel.cancelled().await;
+                    cancel.cancelled().await;
                 })
                 .await
                 .unwrap();
@@ -35,13 +35,13 @@ async fn main() {
     };
     println!("Web UI serving at http://{}", webui_host_port);
 
-    let h_worker = {
-        let worker_cancel = cancel_token.clone();
-        let runner = workers::Runner::new(db.clone());
+    let h_illuminator = {
+        let illuminator = illumination::make(db.clone());
+        let cancel = cancel_token.clone();
         tokio::spawn(async move {
             tokio::select! {
-                _ = worker_cancel.cancelled() => {}
-                _ = runner.run() => {}
+                _ = illuminator.run() => {}
+                _ = cancel.cancelled() => {}
             }
         })
     };
@@ -51,5 +51,5 @@ async fn main() {
     tokio::signal::ctrl_c().await.unwrap();
     println!("Shutting down...");
     cancel_token.cancel();
-    let _ = tokio::join!(h_webui, h_worker);
+    let _ = tokio::join!(h_webui, h_illuminator);
 }

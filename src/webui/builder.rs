@@ -17,7 +17,7 @@ pub struct WebState {
     pub tera: Tera,
 }
 
-pub fn build_axum_router(
+pub fn make_axum_router(
     db: Arc<DbHandle>,
     storage: Arc<dyn StorageProvider + Send + Sync>,
 ) -> Router {

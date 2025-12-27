@@ -1,23 +1,28 @@
 use std::sync::Arc;
 
+use async_trait::async_trait;
 use sea_orm::EntityTrait;
 
 use crate::database;
 use crate::model::capture;
 
+#[async_trait]
+pub trait Illuminator: Send + Sync {
+    async fn run(&self) -> anyhow::Result<()>;
+}
 
+pub fn make(db: Arc<database::DbHandle>) -> Box<dyn Illuminator> {
+    Box::new(SimpleIlluminator { db })
+}
 
-pub struct Runner {
+pub struct SimpleIlluminator {
     db: Arc<database::DbHandle>,
 }
 
-impl Runner {
-    pub fn new(db: Arc<database::DbHandle>) -> Self {
-        Self { db }
-    }
-
-    pub async fn run(&self) -> anyhow::Result<()> {
-        println!("Worker loop starting...");
+#[async_trait]
+impl Illuminator for SimpleIlluminator {
+    async fn run(&self) -> anyhow::Result<()> {
+        println!("Illuminator starting...");
 
         loop {
             // Fetch all captures from the database

@@ -8,7 +8,7 @@ pub mod prelude {
 }
 
 pub use builder::WebState;
-pub use builder::build_axum_router;
+pub use builder::make_axum_router;
 
 pub mod r_detail;
 pub mod r_index;

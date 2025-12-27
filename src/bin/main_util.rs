@@ -70,7 +70,7 @@ async fn run_import(args: ImportArgs) -> anyhow::Result<()> {
         .filter(|path| path.is_file())
         .map(|path| dir.join(&path));
 
-    let (db_config, storage_config) = config::make_local_dev();
+    let (db_config, storage_config) = config::make(config::Env::LocalDev);
 
     // connect to the local dev database and storage provider
     let db = database::connect(db_config).await?;
@@ -134,7 +134,7 @@ async fn run_export_uniq(args: ExportUniqArgs) -> anyhow::Result<()> {
         existing_hashes.len()
     );
 
-    let (db_config, _) = config::make_local_dev();
+    let (db_config, _) = config::make(config::Env::LocalDev);
     let db = database::connect(db_config).await?;
     database::run_migrations(&db).await?;
 
