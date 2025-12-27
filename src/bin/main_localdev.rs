@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use dreamspot::{config, database, storage, webui, worker};
+use dreamspot::{config, database, storage, webui, workers};
 
 #[tokio::main]
 async fn main() {
@@ -37,11 +37,11 @@ async fn main() {
 
     let h_worker = {
         let worker_cancel = cancel_token.clone();
-        let worker_db = db.clone();
+        let runner = workers::Runner::new(db.clone());
         tokio::spawn(async move {
             tokio::select! {
                 _ = worker_cancel.cancelled() => {}
-                _ = worker::main_loop(worker_db) => {}
+                _ = runner.run() => {}
             }
         })
     };
