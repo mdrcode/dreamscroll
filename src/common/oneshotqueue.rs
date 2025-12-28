@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Debug;
 use std::hash::Hash;
@@ -5,8 +6,21 @@ use std::sync::Mutex;
 
 /// A thread-safe queue that ensures each unique item is processed exactly once.
 ///
-/// Items enqueued multiple times are deduplicated. Each item progresses through
-/// three states: `Pending` → `Reserved` (via `pop_next`) → `Completed` (via `complete`).
+/// If the caller attempts to enqueue an item multiple times, the request is ignored.
+/// Each item progresses through three states: `Pending` → `Reserved` (via `pop_next`)
+/// → `Completed` (via `complete`). If an item is already `Reserved` or `Completed`,
+/// enqueue attempts are ignored.
+///
+/// Note, by design, currently this will grow its internal status map indefinitely and
+/// thus "leak" memory over time as new unique items are added. So usage is best suited
+/// for scenarios where the set of unique items is bounded. In the future, this will be
+/// improved with a time-based eviction strategy to both limit memory usage and allow
+/// re-processing of items after a certain duration.
+///
+/// Currently, the items are Clone'd twice per enqueue for internal storage. This could
+/// be optimized in the future by using reference counting or other techniques. But for
+/// the present, it is suggested to use small, cheap-to-clone types such as integers
+/// (database IDs).
 ///
 /// # Example
 ///
@@ -58,8 +72,8 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
 
     pub fn enqueue(&self, item: T) -> bool {
         let mut inner = self.inner.lock().unwrap();
-        if !inner.status_map.contains_key(&item) {
-            inner.status_map.insert(item.clone(), QueueStatus::Pending);
+        if let Entry::Vacant(e) = inner.status_map.entry(item.clone()) {
+            e.insert(QueueStatus::Pending);
             inner.pending.push_back(item);
             return true;
         }
@@ -73,8 +87,8 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
         let mut count = 0;
         let mut inner = self.inner.lock().unwrap();
         for item in items {
-            if !inner.status_map.contains_key(item) {
-                inner.status_map.insert(item.clone(), QueueStatus::Pending);
+            if let Entry::Vacant(e) = inner.status_map.entry(item.clone()) {
+                e.insert(QueueStatus::Pending);
                 inner.pending.push_back(item.clone());
                 count += 1;
             }
@@ -85,22 +99,21 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
     pub fn pop_next(&self) -> Option<T> {
         let mut inner = self.inner.lock().unwrap();
         let next = inner.pending.pop_front()?;
-        let status = inner.status_map.get_mut(&next);
+        let status = inner
+            .status_map
+            .get_mut(&next)
+            .expect("invariant violated: pending item not in status_map");
 
-        if status.is_none() {
-            tracing::warn!("Attempted to pop item {:?} but not in map", next);
-            return None;
-        }
-
-        let status = status.unwrap();
         match status {
             QueueStatus::Pending => {
                 *status = QueueStatus::Reserved;
                 Some(next)
             }
-            _ => {
-                tracing::warn!("Attempted to pop already reserved item {:?}", next);
-                None
+            QueueStatus::Reserved | QueueStatus::Completed => {
+                unreachable!(
+                    "invariant violated: only pending items should be in pending queue, got {:?} for {:?}",
+                    status, next
+                );
             }
         }
     }
@@ -110,7 +123,7 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
         let status = inner.status_map.get_mut(&item);
 
         if status.is_none() {
-            tracing::warn!("Attempted to complete unknown item {:?}", item);
+            tracing::warn!("Attempted to complete unknown, untracked item {:?}", item);
             return false;
         }
 
