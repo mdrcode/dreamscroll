@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use anyhow::anyhow;
 use async_trait::async_trait;
 use sea_orm::{EntityTrait, QuerySelect};
 
@@ -28,8 +29,7 @@ impl<I: Illumination + 'static> IlluminationWorker for SimpleWorker<I> {
                 .column(model::capture::Column::Id)
                 .into_tuple::<i32>()
                 .all(&self.db.conn)
-                .await
-                .expect("Failed to fetch capture IDs");
+                .await?;
 
             let n = self.queue.enqueue_iter(&captures);
 
@@ -52,14 +52,15 @@ impl<I: Illumination + 'static> SimpleWorkerThread<I> {
 
 impl<I: Illumination + 'static> SimpleWorkerThread<I> {
     // note this consumes self
-    async fn run(self) {
+    async fn run(self) -> anyhow::Result<()> {
         let parent = &self.parent_arc;
 
         loop {
             if let Some(capture_id) = parent.queue.pop_next() {
                 let capture = CaptureInfo::fetch_by_id(&parent.db, capture_id)
                     .await
-                    .expect("Failed to fetch capture info");
+                    .map_err(|e| anyhow!("Failed to fetch capture {}: {:?}", capture_id, e))?;
+
                 parent.illumination.illuminate(capture).await;
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                 parent.queue.complete(capture_id);

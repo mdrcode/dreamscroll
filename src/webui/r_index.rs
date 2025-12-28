@@ -1,15 +1,18 @@
 use std::sync::Arc;
 
-use axum::{extract::State, response::Html};
+use anyhow::anyhow;
+use axum::{
+    extract::State,
+    response::{Html, IntoResponse, Response},
+};
 use tera::Context;
 
+use crate::common::AppError;
 use crate::controller::CaptureInfo;
 use crate::webui::WebState;
 
-pub async fn index(State(state): State<Arc<WebState>>) -> Html<String> {
-    let capture_infos = CaptureInfo::fetch_timeline(&state.db)
-        .await
-        .expect("Failed to fetch capture infos");
+pub async fn index(State(state): State<Arc<WebState>>) -> Result<Response, AppError> {
+    let capture_infos = CaptureInfo::fetch_timeline(&state.db).await?;
 
     let mut context = Context::new();
     context.insert("capture_infos", &capture_infos);
@@ -17,7 +20,7 @@ pub async fn index(State(state): State<Arc<WebState>>) -> Html<String> {
     let rendered = state
         .tera
         .render("index.html.tera", &context)
-        .expect("Failed to render template");
+        .map_err(|e| AppError::internal(anyhow!("Failed to render template: {:?}", e)))?;
 
-    Html(rendered)
+    Ok(Html(rendered).into_response())
 }

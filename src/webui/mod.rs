@@ -1,9 +1,4 @@
 mod builder;
-mod error;
-
-pub mod prelude {
-    pub use super::error::*;
-}
 
 pub use builder::WebState;
 pub use builder::make_axum_router;

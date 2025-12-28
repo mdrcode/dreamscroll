@@ -8,6 +8,12 @@
 >   - [done: YYYY-MM-DD]
 > ```
 
+- [ ] Investigate whether possible to convert from SeaORM's DbErr into AppError automatically?
+  - [added: 2025-12-28]
+
+- [ ] AppError should automatically trace internally as a convenence
+  - [added: 2025-12-28]
+
 - [ ] Move the DB migrations into connect call?
   - [added: 2025-12-20]
 

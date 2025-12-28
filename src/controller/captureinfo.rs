@@ -1,7 +1,9 @@
+use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use sea_orm::{EntityTrait, QueryOrder};
 use serde::Serialize;
 
+use crate::common::*;
 use crate::database::DbHandle;
 use crate::model::*;
 
@@ -21,26 +23,28 @@ impl CaptureInfo {
         }
     }
 
-    pub async fn fetch_by_id(db: &DbHandle, capture_id: i32) -> anyhow::Result<CaptureInfo> {
-        let fetch = capture::Entity::find_by_id(capture_id)
+    pub async fn fetch_by_id(db: &DbHandle, id: i32) -> anyhow::Result<CaptureInfo, AppError> {
+        let fetch = capture::Entity::find_by_id(id)
             .find_with_related(media::Entity)
             .all(&db.conn)
             .await
-            .expect(&format!("Failed to fetch capture {} from db.", capture_id));
+            .map_err(|e| {
+                AppError::internal(anyhow!("DB error fetching capture id {}: {}", id, e))
+            })?;
 
         match fetch.into_iter().next() {
             Some(db_tuple) => Ok(CaptureInfo::new(db_tuple)),
-            None => Err(anyhow::anyhow!("Capture {} not found", capture_id)),
+            None => Err(AppError::not_found(anyhow!("Capture id {} not found", id))),
         }
     }
 
-    pub async fn fetch_timeline(db: &DbHandle) -> anyhow::Result<Vec<CaptureInfo>> {
+    pub async fn fetch_timeline(db: &DbHandle) -> anyhow::Result<Vec<CaptureInfo>, AppError> {
         let capture_infos = capture::Entity::find()
             .order_by(capture::Column::CreatedAt, sea_orm::Order::Desc)
             .find_with_related(media::Entity)
             .all(&db.conn)
             .await
-            .expect("Failed to fetch captures from db.")
+            .map_err(|e| AppError::internal(anyhow!("Failed to fetch captures from db: {}", e)))?
             .into_iter()
             .map(|db_tuple| CaptureInfo::new(db_tuple))
             .collect::<Vec<_>>();
