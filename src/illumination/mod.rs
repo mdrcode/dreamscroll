@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{common, database::DbHandle};
+use crate::{common, controller, database::DbHandle};
 
 mod grok;
 mod simpleworker;
@@ -9,7 +9,7 @@ pub use grok::GrokIllumination;
 
 #[async_trait::async_trait]
 pub trait Illumination: Clone + Send + Sync {
-    async fn illuminate(&self, capture_id: i32) -> String;
+    async fn illuminate(&self, capture: controller::CaptureInfo) -> String;
 }
 
 #[async_trait::async_trait]

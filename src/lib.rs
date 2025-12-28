@@ -1,5 +1,6 @@
 pub mod common;
 pub mod config;
+pub mod controller;
 pub mod database;
 pub mod illumination;
 pub mod model;

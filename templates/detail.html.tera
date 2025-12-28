@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>dreamspotting - {{ cm.capture.id }}</title>
+    <title>dreamspotting - {{ capture.id }}</title>
     <style>
         body {
             display: flex;
@@ -87,16 +87,16 @@
 
         <div class="detail-container">
             <div class="image-container">
-                <img src="/media/{{ cm.medias[0].filename }}" alt="{{ cm.medias[0].filename }}">
+                <img src="/media/{{ capture.medias[0].filename }}" alt="{{ capture.medias[0].filename }}">
             </div>
 
             <div class="metadata">
                 <h2>Image Details</h2>
                 <div class="metadata-row">
-                    <span class="metadata-label">Filename:</span> {{ cm.medias[0].filename }}
+                    <span class="metadata-label">Filename:</span> {{ capture.medias[0].filename }}
                 </div>
                 <div class="metadata-row">
-                    <span class="metadata-label">Uploaded:</span> {{ cm.capture.created_at }}
+                    <span class="metadata-label">Uploaded:</span> {{ capture.created_at }}
                 </div>
             </div>
         </div>

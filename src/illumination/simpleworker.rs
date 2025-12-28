@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use sea_orm::{EntityTrait, QuerySelect};
 
 use super::{Illumination, IlluminationWorker};
-use crate::{common, database, model};
+use crate::{common, controller::CaptureInfo, database, model};
 
 #[derive(Clone)]
 pub struct SimpleWorker<I: Illumination + 'static> {
@@ -57,7 +57,10 @@ impl<I: Illumination + 'static> SimpleWorkerThread<I> {
 
         loop {
             if let Some(capture_id) = parent.queue.pop_next() {
-                parent.illumination.illuminate(capture_id).await;
+                let capture = CaptureInfo::fetch_by_id(&parent.db, capture_id)
+                    .await
+                    .expect("Failed to fetch capture info");
+                parent.illumination.illuminate(capture).await;
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                 parent.queue.complete(capture_id);
             } else {

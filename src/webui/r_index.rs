@@ -1,26 +1,18 @@
 use std::sync::Arc;
 
 use axum::{extract::State, response::Html};
-use sea_orm::{QueryOrder, entity::prelude::*};
 use tera::Context;
 
-use crate::common::CaptureInfo;
-use crate::model::{capture, media};
+use crate::controller::CaptureInfo;
 use crate::webui::WebState;
 
 pub async fn index(State(state): State<Arc<WebState>>) -> Html<String> {
-    let capture_medias = capture::Entity::find()
-        .order_by(capture::Column::CreatedAt, sea_orm::Order::Desc)
-        .find_with_related(media::Entity)
-        .all(&state.db.conn)
+    let capture_infos = CaptureInfo::fetch_timeline(&state.db)
         .await
-        .expect("Failed to fetch captures from db.")
-        .into_iter()
-        .map(|(capture, medias)| CaptureInfo { capture, medias })
-        .collect::<Vec<_>>();
+        .expect("Failed to fetch capture infos");
 
     let mut context = Context::new();
-    context.insert("capture_medias", &capture_medias);
+    context.insert("capture_infos", &capture_infos);
 
     let rendered = state
         .tera
