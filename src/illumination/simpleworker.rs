@@ -31,9 +31,10 @@ impl<I: Illumination + 'static> IlluminationWorker for SimpleWorker<I> {
                 .all(&self.db.conn)
                 .await?;
 
-            let n = self.queue.enqueue_iter(&captures);
+            let r = captures.len();
+            let n = self.queue.enqueue_iter(captures);
 
-            tracing::info!("Found {} total caps in db, enqueued {}.", captures.len(), n);
+            tracing::info!("Retrieved {} captures for illumination, enqueued {}.", r, n);
 
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }

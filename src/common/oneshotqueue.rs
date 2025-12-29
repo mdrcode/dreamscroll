@@ -80,16 +80,13 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
         false
     }
 
-    pub fn enqueue_iter<'a>(&self, items: impl IntoIterator<Item = &'a T>) -> usize
-    where
-        T: 'a,
-    {
+    pub fn enqueue_iter(&self, items: impl IntoIterator<Item = T>) -> usize {
         let mut count = 0;
         let mut inner = self.inner.lock().unwrap();
         for item in items {
             if let Entry::Vacant(e) = inner.status_map.entry(item.clone()) {
                 e.insert(QueueStatus::Pending);
-                inner.pending.push_back(item.clone());
+                inner.pending.push_back(item);
                 count += 1;
             }
         }
@@ -147,7 +144,7 @@ impl<T: Clone + Debug + Eq + Hash> OneShotQueue<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::{sync::Arc, vec};
 
     use super::*;
 
@@ -164,29 +161,9 @@ mod tests {
         inner.status_map.get(i) == Some(&QueueStatus::Reserved)
     }
 
-    fn reserved_contains_all<T: Clone + Debug + Eq + Hash>(
-        q: &OneShotQueue<T>,
-        items: &[T],
-    ) -> bool {
-        let inner = q.inner.lock().unwrap();
-        items
-            .iter()
-            .all(|i| inner.status_map.get(i) == Some(&QueueStatus::Reserved))
-    }
-
     fn completed_contains<T: Clone + Debug + Eq + Hash>(q: &OneShotQueue<T>, i: &T) -> bool {
         let inner = q.inner.lock().unwrap();
         inner.status_map.get(i) == Some(&QueueStatus::Completed)
-    }
-
-    fn completed_contains_all<T: Clone + Debug + Eq + Hash>(
-        q: &OneShotQueue<T>,
-        items: &[T],
-    ) -> bool {
-        let inner = q.inner.lock().unwrap();
-        items
-            .iter()
-            .all(|i| inner.status_map.get(i) == Some(&QueueStatus::Completed))
     }
 
     #[test]
@@ -205,7 +182,7 @@ mod tests {
         assert_eq!(queue.pop_next(), Some(2));
         assert_eq!(queue.pop_next(), None);
 
-        assert!(reserved_contains_all(&queue, &[1, 2]));
+        assert!(vec![1, 2].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
@@ -222,13 +199,13 @@ mod tests {
 
         assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
         assert!(count_for_status(&queue, QueueStatus::Reserved) == 2);
-        assert!(reserved_contains_all(&queue, &[1, 2]));
+        assert!(vec![1, 2].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
     fn test_enqueue_iter_dupes() {
         let queue = OneShotQueue::new();
-        queue.enqueue_iter(&[1, 2, 2, 3, 1]);
+        queue.enqueue_iter([1, 2, 2, 3, 1]);
         assert!(count_for_status(&queue, QueueStatus::Pending) == 3);
 
         assert_eq!(queue.pop_next(), Some(1));
@@ -238,7 +215,7 @@ mod tests {
 
         assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
         assert!(count_for_status(&queue, QueueStatus::Reserved) == 3);
-        assert!(reserved_contains_all(&queue, &[1, 2, 3]));
+        assert!(vec![1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
@@ -254,7 +231,7 @@ mod tests {
 
         assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
         assert!(count_for_status(&queue, QueueStatus::Reserved) == 2);
-        assert!(reserved_contains_all(&queue, &[1, 2]));
+        assert!(vec![1, 2].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
@@ -269,21 +246,21 @@ mod tests {
         assert_eq!(queue.pop_next(), Some(2));
         assert_eq!(queue.pop_next(), None);
 
-        assert!(reserved_contains_all(&queue, &[2]));
+        assert!(reserved_contains(&queue, &2));
         assert!(completed_contains(&queue, &1));
     }
 
     #[test]
     fn test_enqueue_iter() {
         let queue = OneShotQueue::new();
-        queue.enqueue_iter(&[1, 2, 3]);
+        queue.enqueue_iter([1, 2, 3]);
 
         assert_eq!(queue.pop_next(), Some(1));
         assert_eq!(queue.pop_next(), Some(2));
         assert_eq!(queue.pop_next(), Some(3));
         assert_eq!(queue.pop_next(), None);
 
-        assert!(reserved_contains_all(&queue, &[1, 2, 3]));
+        assert!(vec![1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
@@ -302,14 +279,14 @@ mod tests {
     #[test]
     fn test_complete_unreserved_item() {
         let queue: OneShotQueue<i32> = OneShotQueue::new();
-        let was_completed = queue.complete(42); // Should print error message but not panic TODO
+        let was_completed = queue.complete(42);
         assert!(!was_completed);
     }
 
     #[test]
     fn test_multiple_reserves_and_completes() {
         let queue = OneShotQueue::new();
-        queue.enqueue_iter(&[1, 2, 3, 4]);
+        queue.enqueue_iter([1, 2, 3, 4]);
 
         let item1 = queue.pop_next().unwrap();
         let item2 = queue.pop_next().unwrap();
@@ -320,27 +297,28 @@ mod tests {
         queue.complete(item2);
         queue.complete(item3);
 
-        assert!(!reserved_contains_all(&queue, &[1, 2, 3]));
-        assert!(completed_contains_all(&queue, &[1, 2, 3]));
+        assert!(!vec![1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
+        assert!(vec![1, 2, 3].iter().all(|i| completed_contains(&queue, i)));
     }
 
     #[test]
     fn test_with_string_type() {
         let queue = OneShotQueue::new();
-        queue.enqueue("hello".to_string());
-        queue.enqueue("world".to_string());
+        queue.enqueue("hello");
+        queue.enqueue("world");
 
-        assert_eq!(queue.pop_next(), Some("hello".to_string()));
-        assert_eq!(queue.pop_next(), Some("world".to_string()));
+        assert_eq!(queue.pop_next(), Some("hello"));
+        assert_eq!(queue.pop_next(), Some("world"));
 
-        assert!(reserved_contains_all(
-            &queue,
-            &["hello".to_string(), "world".to_string()]
-        ));
+        assert!(
+            vec!["hello", "world"]
+                .iter()
+                .all(|i| reserved_contains(&queue, &i))
+        );
 
-        queue.complete("hello".to_string());
-        assert!(!reserved_contains_all(&queue, &["hello".to_string()]));
-        assert!(completed_contains_all(&queue, &["hello".to_string()]));
+        queue.complete("hello");
+        assert!(!reserved_contains(&queue, &"hello"));
+        assert!(completed_contains(&queue, &"hello"));
     }
 
     #[test]
@@ -364,7 +342,7 @@ mod tests {
     #[tokio::test]
     async fn test_concurrent_reserve_and_complete() {
         let queue = Arc::new(OneShotQueue::new());
-        queue.enqueue_iter(&(0..100).collect::<Vec<_>>());
+        queue.enqueue_iter((0..100).collect::<Vec<_>>());
 
         let mut handles = vec![];
 
@@ -389,10 +367,13 @@ mod tests {
         assert_eq!(queue.pop_next(), None);
         assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
         assert!(count_for_status(&queue, QueueStatus::Reserved) == 0);
-        assert!(completed_contains_all(
-            &queue,
-            &(0..100).collect::<Vec<_>>()
-        ));
+
+        assert!(
+            (0..100)
+                .collect::<Vec<_>>()
+                .iter()
+                .all(|i| completed_contains(&queue, &i))
+        );
     }
 
     #[tokio::test]
@@ -406,7 +387,7 @@ mod tests {
             let handle = tokio::spawn(async move {
                 let start = batch * 25;
                 let end = start + 25;
-                queue_clone.enqueue_iter(&(start..end).collect::<Vec<_>>());
+                queue_clone.enqueue_iter((start..end).collect::<Vec<_>>());
             });
             producer_handles.push(handle);
         }
@@ -441,9 +422,11 @@ mod tests {
         assert_eq!(queue.pop_next(), None);
         assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
         assert!(count_for_status(&queue, QueueStatus::Reserved) == 0);
-        assert!(completed_contains_all(
-            &queue,
-            &(0..100).collect::<Vec<_>>()
-        ));
+        assert!(
+            (0..100)
+                .collect::<Vec<_>>()
+                .iter()
+                .all(|i| completed_contains(&queue, &i))
+        );
     }
 }
