@@ -8,14 +8,13 @@ use dreamspot::{config, database, illumination, storage, webui};
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
+        //.with_max_level(tracing::Level::WARN)
         .init();
 
     let (db_config, storage_config) = config::make(config::Env::LocalDev);
     let webui_host_port = "127.0.0.1:8000".to_string();
 
     let db = database::connect(db_config).await.unwrap();
-    database::run_migrations(&db).await.unwrap();
     let db = Arc::new(db);
 
     let storage = storage::make(storage_config);

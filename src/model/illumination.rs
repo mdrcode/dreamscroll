@@ -1,7 +1,10 @@
 use sea_orm::entity::prelude::*;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-#[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
+use super::capture;
+
+#[sea_orm::model]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize)]
 #[sea_orm(table_name = "illumination")]
 pub struct Model {
     #[sea_orm(primary_key)]
@@ -9,22 +12,9 @@ pub struct Model {
     pub capture_id: i32,
     pub provider: String,
     pub content: String,
-}
 
-#[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {
-    #[sea_orm(
-        belongs_to = "super::capture::Entity",
-        from = "Column::CaptureId",
-        to = "super::capture::Column::Id"
-    )]
-    Capture,
-}
-
-impl Related<super::capture::Entity> for Entity {
-    fn to() -> RelationDef {
-        Relation::Capture.def()
-    }
+    #[sea_orm(belongs_to, from = "capture_id", to = "id")]
+    pub capture: HasOne<capture::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

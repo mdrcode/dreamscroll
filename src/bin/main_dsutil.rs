@@ -76,7 +76,6 @@ async fn run_import(args: ImportArgs) -> anyhow::Result<()> {
 
     // connect to the local dev database and storage provider
     let db = database::connect(db_config).await?;
-    database::run_migrations(&db).await?;
 
     let storage = storage::make(storage_config);
 
@@ -138,7 +137,6 @@ async fn run_export_uniq(args: ExportUniqArgs) -> anyhow::Result<()> {
 
     let (db_config, _) = config::make(config::Env::LocalDev);
     let db = database::connect(db_config).await?;
-    database::run_migrations(&db).await?;
 
     let medias = media::Entity::find()
         .all(&db.conn)
