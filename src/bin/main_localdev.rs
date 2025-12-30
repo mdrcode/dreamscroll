@@ -40,7 +40,7 @@ async fn main() {
     println!("Web UI serving at http://{}", webui_host_port);
 
     let h_illuminator = {
-        let grok = illumination::GrokIllumination {};
+        let grok = illumination::GrokIlluminator {};
         let illuminator = illumination::make_worker(db.clone(), grok);
         let cancel = cancel_token.clone();
         tokio::spawn(async move {

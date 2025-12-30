@@ -9,18 +9,18 @@ use std::sync::Mutex;
 /// If the caller attempts to enqueue an item multiple times, the request is ignored.
 /// Each item progresses through three states: `Pending` → `Reserved` (via `pop_next`)
 /// → `Completed` (via `complete`). If an item is already `Reserved` or `Completed`,
-/// enqueue attempts are ignored.
+/// attempts to enqueue it again are ignored.
 ///
 /// Note, by design, currently this will grow its internal status map indefinitely and
 /// thus "leak" memory over time as new unique items are added. So usage is best suited
 /// for scenarios where the set of unique items is bounded. In the future, this will be
 /// improved with a time-based eviction strategy to both limit memory usage and allow
-/// re-processing of items after a certain duration.
+/// re-processing of items after a certain expiration.
 ///
-/// Currently, the items are Clone'd twice per enqueue for internal storage. This could
-/// be optimized in the future by using reference counting or other techniques. But for
-/// the present, it is suggested to use small, cheap-to-clone types such as integers
-/// (database IDs).
+/// Currently, the items are consumed and clone'd per enqueue for a total of 2x for
+/// internal storage. This could be optimized in the future by using reference counting
+/// or other techniques. But for the present, it is suggested to use small,
+/// cheap-to-clone types such as integers (database IDs).
 ///
 /// # Example
 ///

@@ -1,6 +1,6 @@
 use anyhow::anyhow;
 use chrono::{DateTime, Utc};
-use sea_orm::{EntityTrait, QueryOrder};
+use sea_orm::{EntityTrait, QueryOrder, QuerySelect};
 use serde::Serialize;
 
 use crate::common::*;
@@ -38,6 +38,7 @@ impl CaptureInfo {
         }
     }
 
+    // TODO obviously this should take a user_id or equivalent at some point
     pub async fn fetch_timeline(db: &DbHandle) -> anyhow::Result<Vec<CaptureInfo>, AppError> {
         let capture_infos = capture::Entity::find()
             .order_by(capture::Column::CreatedAt, sea_orm::Order::Desc)
@@ -50,5 +51,17 @@ impl CaptureInfo {
             .collect::<Vec<_>>();
 
         Ok(capture_infos)
+    }
+
+    pub async fn fetch_ids_need_illumination(db: &DbHandle) -> anyhow::Result<Vec<i32>, AppError> {
+        let capture_ids = capture::Entity::find()
+            .order_by(capture::Column::CreatedAt, sea_orm::Order::Desc)
+            .select_only()
+            .column(capture::Column::Id)
+            .into_tuple::<i32>()
+            .all(&db.conn)
+            .await?;
+
+        Ok(capture_ids)
     }
 }

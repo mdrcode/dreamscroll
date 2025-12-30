@@ -2,21 +2,37 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use async_trait::async_trait;
-use sea_orm::{EntityTrait, QuerySelect};
 
-use super::{Illumination, IlluminationWorker};
-use crate::{common, controller::CaptureInfo, database, model};
+use super::{Illuminator, IlluminatorWorker};
+use crate::{
+    common::{self, AppError},
+    controller::CaptureInfo,
+    database::DbHandle,
+};
 
 #[derive(Clone)]
-pub struct SimpleWorker<I: Illumination + 'static> {
-    pub db: Arc<database::DbHandle>,
+pub struct SimpleWorker<I: Illuminator + 'static> {
+    pub db: Arc<DbHandle>,
     pub queue: Arc<common::OneShotQueue<i32>>,
-    pub illumination: I,
+    pub illuminator: I,
+}
+
+impl<I> SimpleWorker<I>
+where
+    I: Illuminator + 'static,
+{
+    pub fn new(db: Arc<DbHandle>, illuminator: I) -> Self {
+        Self {
+            db,
+            queue: Arc::new(common::OneShotQueue::new()),
+            illuminator,
+        }
+    }
 }
 
 #[async_trait]
-impl<I: Illumination + 'static> IlluminationWorker for SimpleWorker<I> {
-    async fn run(&self) -> anyhow::Result<()> {
+impl<I: Illuminator + 'static> IlluminatorWorker for SimpleWorker<I> {
+    async fn run(&self) -> anyhow::Result<(), AppError> {
         let arc_self = Arc::new(self.clone());
         (0..2).for_each(|_| {
             let t = SimpleWorkerThread::new(Arc::clone(&arc_self));
@@ -24,34 +40,29 @@ impl<I: Illumination + 'static> IlluminationWorker for SimpleWorker<I> {
         });
 
         loop {
-            let captures = model::capture::Entity::find()
-                .select_only()
-                .column(model::capture::Column::Id)
-                .into_tuple::<i32>()
-                .all(&self.db.conn)
-                .await?;
+            let capture_ids = CaptureInfo::fetch_ids_need_illumination(&self.db).await?;
+            let n = capture_ids.len();
 
-            let r = captures.len();
-            let n = self.queue.enqueue_iter(captures);
+            let nq = self.queue.enqueue_iter(capture_ids);
 
-            tracing::info!("Retrieved {} captures for illumination, enqueued {}.", r, n);
+            tracing::info!("Retrieved {} needing illumination, enqueued {}.", n, nq);
 
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }
     }
 }
 
-struct SimpleWorkerThread<I: Illumination + 'static> {
+struct SimpleWorkerThread<I: Illuminator + 'static> {
     parent_arc: Arc<SimpleWorker<I>>,
 }
 
-impl<I: Illumination + 'static> SimpleWorkerThread<I> {
+impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
     pub fn new(parent_arc: Arc<SimpleWorker<I>>) -> Self {
         Self { parent_arc }
     }
 }
 
-impl<I: Illumination + 'static> SimpleWorkerThread<I> {
+impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
     // note this consumes self
     async fn run(self) -> anyhow::Result<()> {
         let parent = &self.parent_arc;
@@ -62,7 +73,7 @@ impl<I: Illumination + 'static> SimpleWorkerThread<I> {
                     .await
                     .map_err(|e| anyhow!("Failed to fetch capture {}: {:?}", capture_id, e))?;
 
-                parent.illumination.illuminate(capture).await;
+                parent.illuminator.illuminate(capture).await;
                 tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
                 parent.queue.complete(capture_id);
             } else {

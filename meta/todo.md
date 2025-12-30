@@ -8,6 +8,11 @@
 >   - [done: YYYY-MM-DD]
 > ```
 
+- [ ] Illuminator should not talk to DB directly (internally).
+  - [added: 2025-12-30]
+  - Ideally the illuminator should not know about DB internals or controller logic. Some
+    external entity should monitor/poll the DB and enqueue into Illuminator.
+
 - [ ] Investigate whether possible to convert from SeaORM's DbErr into AppError automatically?
   - [added: 2025-12-28]
 
