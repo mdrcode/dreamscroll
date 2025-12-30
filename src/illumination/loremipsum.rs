@@ -8,7 +8,7 @@ pub struct LoremIpsumIlluminator;
 impl Illuminator for LoremIpsumIlluminator {
     async fn illuminate(&self, capture: controller::CaptureInfo) -> String {
         let s = format!("Lorem ipsum illumination for capture ID {}", capture.id);
-        println!("{}", s);
+        std::thread::sleep(std::time::Duration::from_millis(500));
         s
     }
 }

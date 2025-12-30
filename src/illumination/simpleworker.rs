@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use super::{Illuminator, IlluminatorWorker};
 use crate::{
     common::{self, AppError},
-    controller::CaptureInfo,
+    controller::{CaptureInfo, IlluminationInfo},
     database::DbHandle,
 };
 
@@ -64,17 +64,17 @@ impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
 
 impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
     // note this consumes self
-    async fn run(self) -> anyhow::Result<()> {
+    async fn run(self) -> anyhow::Result<(), AppError> {
         let parent = &self.parent_arc;
 
         loop {
             if let Some(capture_id) = parent.queue.pop_next() {
-                let capture = CaptureInfo::fetch_by_id(&parent.db, capture_id)
-                    .await
-                    .map_err(|e| anyhow!("Failed to fetch capture {}: {:?}", capture_id, e))?;
+                let capture = CaptureInfo::fetch_by_id(&parent.db, capture_id).await?;
 
-                parent.illuminator.illuminate(capture).await;
-                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                let illumination = parent.illuminator.illuminate(capture).await;
+                IlluminationInfo::insert(&parent.db, capture_id, "simpleTODOTDO", &illumination)
+                    .await?;
+
                 parent.queue.complete(capture_id);
             } else {
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
