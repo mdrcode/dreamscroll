@@ -29,5 +29,20 @@ pub async fn run_migrations(db: &impl ConnectionTrait) -> Result<(), DbErr> {
     ))
     .await?;
 
+    // Create illumination table
+    db.execute(Statement::from_string(
+        sea_orm::DatabaseBackend::Postgres,
+        r#"
+        CREATE TABLE IF NOT EXISTS illumination (
+            id SERIAL PRIMARY KEY,
+            capture_id INTEGER NOT NULL REFERENCES captures(id),
+            provider TEXT NOT NULL,
+            content TEXT NOT NULL
+        )
+        "#
+        .to_string(),
+    ))
+    .await?;
+
     Ok(())
 }

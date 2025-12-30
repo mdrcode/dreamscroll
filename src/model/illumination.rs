@@ -2,15 +2,13 @@ use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
-#[sea_orm(table_name = "media")]
+#[sea_orm(table_name = "illumination")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    
-    #[sea_orm(nullable)]
-    pub capture_id: Option<i32>,
-
-    pub filename: String,
+    pub capture_id: i32,
+    pub provider: String,
+    pub content: String,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
