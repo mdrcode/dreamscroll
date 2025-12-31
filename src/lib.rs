@@ -5,4 +5,5 @@ pub mod database;
 pub mod illumination;
 pub mod model;
 pub mod storage;
+pub mod util_cmd;
 pub mod webui;
