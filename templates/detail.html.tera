@@ -98,6 +98,14 @@
                 <div class="metadata-row">
                     <span class="metadata-label">Uploaded:</span> {{ capture.created_at }}
                 </div>
+                <div class="metadata-row">
+                    {% if capture.illuminations %}
+                    <span class="metadata-label">Illumination:</span>
+                        {{ capture.illuminations[0].content }}
+                    {% else %}
+                        No illumination data available.
+                    {% endif %}
+                </div>
             </div>
         </div>
     </div>

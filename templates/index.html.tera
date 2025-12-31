@@ -111,7 +111,7 @@
         .image-metadata-wrapper {
             width: 45%;
             display: flex;
-            flex-direction: row;
+            flex-direction: column;
             align-items: flex-start;
             margin-left: 10px;
         }
@@ -205,9 +205,12 @@
                 </a>
             </div>
             <div class="image-metadata-wrapper">
-                <div class="image-metadata">
-                    {{ capture.created_at }}
-                </div>
+                {{ capture.created_at }}
+                {% if capture.illuminations %}
+                <p>
+                    {{ capture.illuminations[0].content }}
+                </p>
+                {% endif %}
             </div>
         </div>
         {% endfor %}
