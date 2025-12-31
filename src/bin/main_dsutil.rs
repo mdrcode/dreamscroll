@@ -142,7 +142,7 @@ async fn run_export_uniq(args: ExportUniqArgs) -> anyhow::Result<()> {
     let (db_config, _) = config::make(config::Env::LocalDev);
     let db = database::connect(db_config).await?;
 
-    let medias = media::Entity::find()
+    let medias = media::Entity::load()
         .all(&db.conn)
         .await
         .expect("Failed to fetch medias from db.")
