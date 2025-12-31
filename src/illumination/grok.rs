@@ -1,14 +1,14 @@
 use super::Illuminator;
 use crate::controller;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct GrokIlluminator;
 
 #[async_trait::async_trait]
 impl Illuminator for GrokIlluminator {
     async fn illuminate(&self, capture: controller::CaptureInfo) -> String {
-        let s = format!("Grok illumination for capture ID {}", capture.id);
-        println!("{}", s);
+        tracing::info!("GrokIlluminator: Illuminating capture ID {}", capture.id);
+        let s = format!("Here is the illumination for capture {}!!", capture.id);
         s
     }
 }

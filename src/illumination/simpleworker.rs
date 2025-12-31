@@ -1,12 +1,11 @@
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use async_trait::async_trait;
 
 use super::{Illuminator, IlluminatorWorker};
 use crate::{
     common::{self, AppError},
-    controller::{CaptureInfo, IlluminationInfo},
+    controller::CaptureInfo,
     database::DbHandle,
     model::illumination,
 };

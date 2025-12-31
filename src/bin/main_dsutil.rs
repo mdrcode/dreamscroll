@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use dreamspot::{util_cmd::export_uniq, util_cmd::import};
+use dreamspot::util_cmd::*;
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll admin utility")]
@@ -15,6 +15,7 @@ struct Args {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 enum Command {
+    Illuminate(illuminate::IlluminateArgs),
     Import(import::ImportArgs),
     ExportUniq(export_uniq::ExportUniqArgs),
 }
@@ -31,6 +32,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_max_level(level).init();
 
     match args.command {
+        Command::Illuminate(args) => illuminate::run(args).await?,
         Command::Import(args) => import::run(args).await?,
         Command::ExportUniq(args) => export_uniq::run(args).await?,
     }

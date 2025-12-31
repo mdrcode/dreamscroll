@@ -18,7 +18,7 @@ pub async fn run(args: ExportUniqArgs) -> anyhow::Result<()> {
     let export_dir = &args.directory;
 
     if !export_dir.is_dir() {
-        std::fs::create_dir_all(export_dir)?;
+        std::fs::create_dir_all(export_dir)?;   
     }
 
     // First, compute hashes for existing content of the export dir
