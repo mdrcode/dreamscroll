@@ -30,6 +30,11 @@ impl StorageProvider for LocalStorageProvider {
     fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageId> {
         let uuid = Uuid::new_v4().to_string();
         let upload_path = Path::new(&self.storage_path).join(uuid.as_str());
+        tracing::warn!(
+            "Storing from local path {:?} to local storage {}.",
+            path,
+            upload_path.display()
+        );
         std::fs::copy(path, &upload_path)?;
         Ok(uuid)
     }

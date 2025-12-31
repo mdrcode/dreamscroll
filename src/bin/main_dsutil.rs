@@ -9,7 +9,7 @@ use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
 use dreamspot::{
     config, database,
-    model::{self, media},
+    model::{capture, media},
     storage,
 };
 
@@ -32,7 +32,7 @@ enum Command {
 #[argh(description = "Import assets from a directory into the db")]
 struct ImportArgs {
     #[argh(positional)]
-    #[argh(description = "directory path containing images to add")]
+    #[argh(description = "path to directory containing images to add")]
     directory: PathBuf,
 }
 
@@ -47,7 +47,9 @@ struct ExportUniqArgs {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt::init();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::WARN)
+        .init();
 
     let args: Args = argh::from_env();
 
@@ -62,40 +64,42 @@ async fn main() -> anyhow::Result<()> {
 async fn run_import(args: ImportArgs) -> anyhow::Result<()> {
     let dir = &args.directory;
 
+    tracing::info!("Starting import from directory {}", dir.display());
+
     if !dir.is_dir() {
         anyhow::bail!("'{}' is not a directory", dir.display());
     }
 
-    let file_paths = std::fs::read_dir(dir)?
+    let paths = std::fs::read_dir(dir)?
         .filter_map(|entry| entry.ok())
         .map(|entry| entry.path())
         .filter(|path| path.is_file())
-        .map(|path| dir.join(&path));
+        .collect::<Vec<_>>();
+
+    tracing::info!("Found {} to import from {}.", paths.len(), dir.display());
 
     let (db_config, storage_config) = config::make(config::Env::LocalDev);
-
-    // connect to the local dev database and storage provider
     let db = database::connect(db_config).await?;
-
     let storage = storage::make(storage_config);
-
     let mut imported = 0;
 
-    for img_path in file_paths {
-        let storage_id = storage.store_from_local_path(&img_path)?;
+    for path in paths {
+        let storage_id = storage.store_from_local_path(&path)?;
 
-        let capture = model::capture::ActiveModel {
-            created_at: Set(Utc::now()),
-            ..Default::default()
-        };
-        let capture = capture.insert(&db.conn).await?;
+        let media = media::ActiveModel::builder().set_filename(storage_id.clone());
 
-        let media = model::media::ActiveModel {
-            filename: Set(storage_id.clone()),
-            capture_id: Set(Some(capture.id)),
-            ..Default::default()
-        };
-        media.insert(&db.conn).await?;
+        let capture = capture::ActiveModel::builder()
+            .set_created_at(Utc::now())
+            .add_media(media)
+            .save(&db.conn)
+            .await?;
+
+        tracing::info!(
+            "Imported new capture {} with storage id {} from path {}",
+            capture.id.unwrap(),
+            storage_id,
+            path.display(),
+        );
 
         imported += 1;
     }
