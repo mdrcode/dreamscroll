@@ -8,6 +8,7 @@ use crate::{
     common::{self, AppError},
     controller::{CaptureInfo, IlluminationInfo},
     database::DbHandle,
+    model::illumination,
 };
 
 #[derive(Clone)]
@@ -33,16 +34,17 @@ where
 #[async_trait]
 impl<I: Illuminator + 'static> IlluminatorWorker for SimpleWorker<I> {
     async fn run(&self) -> anyhow::Result<(), AppError> {
-        let arc_self = Arc::new(self.clone());
+        let self_arc = Arc::new(self.clone());
         (0..2).for_each(|_| {
-            let t = SimpleWorkerThread::new(Arc::clone(&arc_self));
+            let t = SimpleWorkerThread {
+                parent_arc: self_arc.clone(),
+            };
             tokio::spawn(t.run());
         });
 
         loop {
             let capture_ids = CaptureInfo::fetch_ids_need_illumination(&self.db).await?;
             let n = capture_ids.len();
-
             let nq = self.queue.enqueue_iter(capture_ids);
 
             tracing::info!("Retrieved {} needing illumination, enqueued {}.", n, nq);
@@ -53,29 +55,30 @@ impl<I: Illuminator + 'static> IlluminatorWorker for SimpleWorker<I> {
 }
 
 struct SimpleWorkerThread<I: Illuminator + 'static> {
-    parent_arc: Arc<SimpleWorker<I>>,
-}
-
-impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
-    pub fn new(parent_arc: Arc<SimpleWorker<I>>) -> Self {
-        Self { parent_arc }
-    }
+    pub parent_arc: Arc<SimpleWorker<I>>,
 }
 
 impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
     // note this consumes self
     async fn run(self) -> anyhow::Result<(), AppError> {
-        let parent = &self.parent_arc;
+        let db = &self.parent_arc.db;
+        let queue = &self.parent_arc.queue;
+        let illuminator = &self.parent_arc.illuminator;
 
         loop {
-            if let Some(capture_id) = parent.queue.pop_next() {
-                let capture = CaptureInfo::fetch_by_id(&parent.db, capture_id).await?;
+            if let Some(capture_id) = queue.pop_next() {
+                let capture = CaptureInfo::fetch_by_id(&db, capture_id).await?;
 
-                let illumination = parent.illuminator.illuminate(capture).await;
-                IlluminationInfo::insert(&parent.db, capture_id, "simpleTODOTDO", &illumination)
+                let i = illuminator.illuminate(capture).await;
+
+                illumination::ActiveModel::builder()
+                    .set_capture_id(capture_id)
+                    .set_provider("simpleTODOTODO".to_string())
+                    .set_content(i)
+                    .save(&db.conn)
                     .await?;
 
-                parent.queue.complete(capture_id);
+                queue.complete(capture_id);
             } else {
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
