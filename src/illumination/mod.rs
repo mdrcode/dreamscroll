@@ -11,7 +11,7 @@ pub use loremipsum::LoremIpsumIlluminator;
 
 #[async_trait::async_trait]
 pub trait Illuminator: Clone + Send + Sync {
-    async fn illuminate(&self, capture: controller::CaptureInfo) -> String;
+    async fn illuminate(&self, capture: controller::CaptureInfo) -> anyhow::Result<String>;
 }
 
 #[async_trait::async_trait]

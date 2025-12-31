@@ -68,7 +68,7 @@ impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
             if let Some(capture_id) = queue.pop_next() {
                 let capture = CaptureInfo::fetch_by_id(&db, capture_id).await?;
 
-                let i = illuminator.illuminate(capture).await;
+                let i = illuminator.illuminate(capture).await?;
 
                 illumination::ActiveModel::builder()
                     .set_capture_id(capture_id)

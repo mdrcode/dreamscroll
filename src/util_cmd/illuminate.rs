@@ -31,7 +31,7 @@ pub async fn run(args: IlluminateArgs) -> anyhow::Result<()> {
     tracing::info!("Fetched capture {} from db.", capture_info.id);
 
     let illuminator = illumination::GrokIlluminator::default();
-    let result = illuminator.illuminate(capture_info).await;
+    let result = illuminator.illuminate(capture_info).await?;
 
     println!("Illumination result for capture ID {}: ", capture_id);
     println!("{}", result);
