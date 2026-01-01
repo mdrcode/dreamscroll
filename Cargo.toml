@@ -13,8 +13,8 @@ name = "localdev"
 path = "src/bin/main_localdev.rs"
 
 [[bin]]
-name = "dsutil"
-path = "src/bin/main_dsutil.rs"
+name = "ds_util"
+path = "src/bin/main_ds_util.rs"
 
 [[bin]]
 name = "worker"
@@ -29,6 +29,7 @@ axum-extra = { version = "0.10", features = ["multipart"] }
 base64 = "0.21"
 blake3 = "1.8.2"
 chrono = { version = "0.4", features = ["serde"] }
+dyn-clone = "1.0"
 reqwest = { version="0.13.1", features =["json"]}
 sea-orm = { version = "2.0.0-rc.27", features = ["sqlx-sqlite", "runtime-tokio-native-tls", "macros", "schema-sync", "entity-registry"] }
 serde = { version = "1.0", features = ["derive"] }

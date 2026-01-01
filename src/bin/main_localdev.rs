@@ -8,7 +8,7 @@ use dreamspot::{config, database, illumination, storage, webui};
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
-        //.with_max_level(tracing::Level::WARN)
+        .with_max_level(tracing::Level::WARN)
         .init();
 
     let (db_config, storage_config) = config::make(config::Env::LocalDev);
@@ -39,8 +39,8 @@ async fn main() {
     println!("Web UI serving at http://{}", webui_host_port);
 
     let h_illuminator = {
-        let grok = illumination::GrokIlluminator::default();
-        let illuminator = illumination::make_worker(db.clone(), grok);
+        let gemini = illumination::GeminiIlluminator::default();
+        let illuminator = illumination::make_worker(db.clone(), gemini);
         let cancel = cancel_token.clone();
         tokio::spawn(async move {
             tokio::select! {

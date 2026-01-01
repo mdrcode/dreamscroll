@@ -1,7 +1,7 @@
 use std::{env, io::Read, path::PathBuf};
 
 use base64::Engine;
-use reqwest::{Client, Error};
+use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
 use super::Illuminator;
@@ -48,7 +48,7 @@ impl Illuminator for GrokIlluminator {
                     ContentItem::ImageUrl {
                         image_url: ImageUrl {
                             url: format!("data:image/jpeg;base64,{}", enc),
-                            detail: Some("auto".to_string()),
+                            detail: Some("high".to_string()), // low, auto, high
                         },
                     },
                 ]),
@@ -64,7 +64,11 @@ impl Illuminator for GrokIlluminator {
             .send()
             .await?;
         let duration = start.elapsed();
-        println!("GrokIlluminator: API request completed in {:?}", duration); // TODO 
+        println!(
+            "GrokIlluminator: API request completed with status {} in {:?}",
+            response.status(),
+            duration
+        ); // TODO 
 
         if response.status().is_success() {
             let parsed_response: ChatCompletionResponse = response.json().await?;

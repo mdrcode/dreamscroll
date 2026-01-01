@@ -3,10 +3,15 @@
 > Format:
 >
 > ```text
-> - [ ] Title [added: YYYY-MM-DD]
+> - [ ] Title
+>   - [added: YYYY-MM-DD]
 >   - Description of the task with more details
 >   - [done: YYYY-MM-DD]
 > ```
+
+- [ ] Illumination worker threads should handle errors gracefully and keep chugging
+  - [added 2025-12-31]
+  - Currently afaict a single error (like a 400 Bad Request from API) and the thread finishes
 
 - [ ] Illuminator should not talk to DB directly (internally).
   - [added: 2025-12-30]

@@ -10,11 +10,23 @@ use crate::{
     model::illumination,
 };
 
-#[derive(Clone)]
 pub struct SimpleWorker<I: Illuminator + 'static> {
     pub db: Arc<DbHandle>,
     pub queue: Arc<common::OneShotQueue<i32>>,
     pub illuminator: I,
+}
+
+impl<I> Clone for SimpleWorker<I>
+where
+    I: Illuminator + 'static,
+{
+    fn clone(&self) -> Self {
+        Self {
+            db: Arc::clone(&self.db),
+            queue: Arc::clone(&self.queue),
+            illuminator: dyn_clone::clone(&self.illuminator),
+        }
+    }
 }
 
 impl<I> SimpleWorker<I>
@@ -36,7 +48,7 @@ impl<I: Illuminator + 'static> IlluminatorWorker for SimpleWorker<I> {
         let self_arc = Arc::new(self.clone());
         (0..2).for_each(|_| {
             let t = SimpleWorkerThread {
-                parent_arc: self_arc.clone(),
+                parent_arc: Arc::clone(&self_arc),
             };
             tokio::spawn(t.run());
         });

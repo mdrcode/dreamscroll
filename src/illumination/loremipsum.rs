@@ -1,7 +1,7 @@
 use super::Illuminator;
 use crate::controller;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct LoremIpsumIlluminator;
 
 #[async_trait::async_trait]

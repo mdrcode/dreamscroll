@@ -1,11 +1,7 @@
 use anyhow::anyhow;
 use argh::FromArgs;
 
-use crate::{
-    config, controller, database,
-    illumination::{self, Illuminator},
-    storage,
-};
+use crate::{config, controller, database, illumination::*, storage};
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "illuminate")]
@@ -14,6 +10,14 @@ pub struct IlluminateArgs {
     #[argh(positional)]
     #[argh(description = "ID of the capture to illuminate")]
     id: i32,
+
+    #[argh(
+        option,
+        long = "model",
+        default = "String::from(\"grok\")",
+        description = "illuminator model (grok, gemini, loremipsum) [default: grok]"
+    )]
+    model: String,
 }
 
 pub async fn run(args: IlluminateArgs) -> anyhow::Result<()> {
@@ -30,7 +34,17 @@ pub async fn run(args: IlluminateArgs) -> anyhow::Result<()> {
         .map_err(|_| anyhow!("Capture with ID {} not found in database.", capture_id))?;
     tracing::info!("Fetched capture {} from db.", capture_info.id);
 
-    let illuminator = illumination::GrokIlluminator::default();
+    let illuminator: Box<dyn Illuminator> = match args.model.as_str() {
+        "grok" => Box::new(GrokIlluminator::default()),
+        "gemini" => Box::new(GeminiIlluminator::default()),
+        "loremipsum" => Box::new(LoremIpsumIlluminator::default()),
+        other => {
+            return Err(anyhow!(
+                "Unknown model '{}'. Supported: grok, gemini, loremipsum.",
+                other
+            ));
+        }
+    };
     let result = illuminator.illuminate(capture_info).await?;
 
     println!("Illumination result for capture ID {}: ", capture_id);
