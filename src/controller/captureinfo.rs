@@ -14,6 +14,9 @@ pub struct CaptureInfo {
     pub created_at: DateTime<Utc>,
     pub medias: Vec<media::ModelEx>,
     pub illuminations: Vec<illumination::ModelEx>,
+
+    pub summary: String,
+    pub details: String,
 }
 
 impl CaptureInfo {
@@ -29,11 +32,29 @@ impl CaptureInfo {
             HasMany::Loaded(illuminations) => illuminations,
         };
 
+        // TODO obviously this is brittle, need to rethink the CaptureInfo
+        // structure and how elements are extracted from the illumination
+        let mut summary = String::new();
+        let mut details = String::new();
+
+        if illuminations.len() > 0 {
+            let first_illum = &illuminations[0];
+            let parts: Vec<&str> = first_illum.content.splitn(2, "\n\n").collect();
+            if parts.len() > 0 {
+                summary = parts[0].to_string();
+            }
+            if parts.len() > 1 {
+                details = parts[1].to_string();
+            }
+        }
+
         Self {
             id: mx.id,
             created_at: mx.created_at,
             medias,
             illuminations,
+            summary: summary,
+            details: details,
         }
     }
 
@@ -59,15 +80,30 @@ impl CaptureInfo {
         let captures = capture::Entity::load()
             .order_by(capture::Column::CreatedAt, sea_orm::Order::Desc)
             .with(media::Entity)
-            .with(illumination::Entity)
             .all(&db.conn)
-            .await
-            .map_err(|e| AppError::internal(anyhow!("Failed to fetch captures from db: {}", e)))?
-            .into_iter()
-            .map(|c| CaptureInfo::new(c))
-            .collect::<Vec<_>>();
+            .await?;
 
-        Ok(captures)
+        let illuminations = captures
+            .load_many(
+                illumination::Entity::find()
+                    //.filter(illumination::Column::Provider.eq("gemini"))
+                    .order_by(illumination::Column::Id, sea_orm::Order::Desc),
+                &db.conn,
+            )
+            .await?;
+
+        let capture_infos = captures
+            .into_iter()
+            .zip(illuminations.into_iter())
+            .map(|(c, ill)| {
+                let mut mx = c;
+                mx.illuminations =
+                    HasMany::Loaded(ill.into_iter().map(illumination::ModelEx::from).collect());
+                CaptureInfo::new(mx)
+            })
+            .collect();
+
+        Ok(capture_infos)
     }
 
     pub async fn fetch_ids_need_illumination(db: &DbHandle) -> anyhow::Result<Vec<i32>, AppError> {
