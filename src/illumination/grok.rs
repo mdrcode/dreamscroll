@@ -22,6 +22,10 @@ impl Default for GrokIlluminator {
 
 #[async_trait::async_trait]
 impl Illuminator for GrokIlluminator {
+    fn model_name(&self) -> &'static str {
+        "grok"
+    }
+
     async fn illuminate(&self, capture: controller::CaptureInfo) -> anyhow::Result<String> {
         tracing::info!("GrokIlluminator: Illuminating capture ID {}", capture.id);
 
@@ -33,7 +37,7 @@ impl Illuminator for GrokIlluminator {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
         let enc = base64::engine::general_purpose::STANDARD.encode(&buffer);
-        tracing::info!("GrokIlluminator: Encoded media base64 bytes {}", enc.len());
+        tracing::info!("GrokIlluminator: media base64 bytes {}", enc.len());
 
         let client = Client::new();
 
@@ -97,6 +101,7 @@ struct Message {
 #[derive(Serialize)]
 #[serde(untagged)]
 enum MessageContent {
+    #[allow(unused)]
     Text(String),
     Array(Vec<ContentItem>),
 }

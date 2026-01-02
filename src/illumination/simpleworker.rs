@@ -84,7 +84,7 @@ impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
 
                 illumination::ActiveModel::builder()
                     .set_capture_id(capture_id)
-                    .set_provider("simpleTODOTODO".to_string())
+                    .set_provider(illuminator.model_name().to_string())
                     .set_content(i)
                     .save(&db.conn)
                     .await?;

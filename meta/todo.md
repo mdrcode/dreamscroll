@@ -9,6 +9,11 @@
 >   - [done: YYYY-MM-DD]
 > ```
 
+- [ ] Filter out sqlx tracing::info! by default, it is too spammy
+
+- [ ] Save illumination llm metadata like tokens, compressed image bytes, base64 encoded bytes, etc
+  - [added 2026-01-02]
+
 - [ ] Illumination worker threads should handle errors gracefully and keep chugging
   - [added 2025-12-31]
   - Currently afaict a single error (like a 400 Bad Request from API) and the thread finishes

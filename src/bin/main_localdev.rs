@@ -22,7 +22,7 @@ async fn main() {
 
     let cancel_token = CancellationToken::new();
 
-    let h_webui = {
+    let thread_webui = {
         let router = webui::make_axum_router(db.clone(), storage.clone());
         let cancel = cancel_token.clone();
         let host_port = webui_host_port.clone();
@@ -38,7 +38,7 @@ async fn main() {
     };
     println!("Web UI serving at http://{}", webui_host_port);
 
-    let h_illuminator = {
+    let thread_illuminator = {
         let gemini = illumination::GeminiIlluminator::default();
         let illuminator = illumination::make_worker(db.clone(), gemini);
         let cancel = cancel_token.clone();
@@ -55,5 +55,5 @@ async fn main() {
     tokio::signal::ctrl_c().await.unwrap();
     println!("Shutting down...");
     cancel_token.cancel();
-    let _ = tokio::join!(h_webui, h_illuminator);
+    let _ = tokio::join!(thread_webui, thread_illuminator);
 }

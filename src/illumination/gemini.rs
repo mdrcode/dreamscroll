@@ -7,6 +7,39 @@ use serde::{Deserialize, Serialize};
 use super::Illuminator;
 use crate::controller;
 
+const PROMPT: &str = r#"
+You are a virtual research assistant helping me to explore my world by analyzing
+screenshots and other images I capture. You are my expert friend and guide. You
+are someone I want to take with me to coffee shops, dive bars, late night movies,
+and museum exhibits.
+
+I am sharing each image because I'm curious. I want to learn more and possibly take
+action based on what I see. By analyzing each image, you will help me live a richer,
+more informed life.
+
+Describe the attached image in detail. Help me understand its content and context,
+and empower me to learn and discover new things. Do not be overly dry, verbose, or
+clinical. Be warm, engaging, and insightful. 
+
+First, provide a concise summary suitable for showing in a list with other summaries,
+perhaps 1-2 sentences. This summary should provide crucial identifying details but
+not exceed 240 characters in length. Prioritize clarity and concision. Don't say
+"This is a photograph showing X" just say "X". Don't say "An article snippet from
+X...", just say "From X...". You are not describing for a machine, but for a person
+who already has some familiarity with the image since they captured it. The focus
+should be on the underlying substance, not the format or medium.
+
+Then, after a blank line, give a more detailed description which can span several
+paragraphs if necessary. 
+
+Finally, after another blank line, provide a bullet point list of notable objects,
+people, or locations visible in the image. Please pay special attention to objects
+which merit followup, like a picture of a book I can read, or a movie I can watch.
+Feel free to suggest a concise, helpful (but not too verbose) search query suggestion
+I can use to learn more about the image content, by ending the line item with 
+"(search: ... )".
+"#;
+
 #[derive(Clone)]
 pub struct GeminiIlluminator {
     api_key: String,
@@ -22,6 +55,10 @@ impl Default for GeminiIlluminator {
 
 #[async_trait::async_trait]
 impl Illuminator for GeminiIlluminator {
+    fn model_name(&self) -> &'static str {
+        "gemini"
+    }
+
     async fn illuminate(&self, capture: controller::CaptureInfo) -> anyhow::Result<String> {
         tracing::info!("GeminiIlluminator: Illuminating capture ID {}", capture.id);
 
@@ -33,12 +70,8 @@ impl Illuminator for GeminiIlluminator {
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer)?;
         let enc = base64::engine::general_purpose::STANDARD.encode(&buffer);
-        tracing::info!(
-            "GeminiIlluminator: Encoded media base64 bytes {}",
-            enc.len()
-        );
+        tracing::info!("GeminiIlluminator: media base64 bytes {}", enc.len());
 
-        // Create client
         let client = Client::new();
 
         // Prepare request with text + image (no separate system role; bake into user)
@@ -47,11 +80,11 @@ impl Illuminator for GeminiIlluminator {
                 role: "user".to_string(),
                 parts: vec![
                     Part::Text {
-                        text: "Describe the content of this image in detail. If you recognize the image, please identify it.".to_string(),
+                        text: PROMPT.to_string(),
                     },
                     Part::InlineData {
                         inline_data: InlineData {
-                            mime_type: "image/jpeg".to_string(), // Adjust if PNG: "image/png"
+                            mime_type: "image/jpeg".to_string(),
                             data: enc,
                         },
                     },

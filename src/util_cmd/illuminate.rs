@@ -14,8 +14,9 @@ pub struct IlluminateArgs {
     #[argh(
         option,
         long = "model",
-        default = "String::from(\"grok\")",
-        description = "illuminator model (grok, gemini, loremipsum) [default: grok]"
+        short = 'm',
+        default = "String::from(\"gemini\")",
+        description = "illuminator model (grok, gemini, loremipsum) [default: gemini]"
     )]
     model: String,
 }
