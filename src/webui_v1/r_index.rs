@@ -9,7 +9,7 @@ use tera::Context;
 
 use crate::common::AppError;
 use crate::controller::CaptureInfo;
-use crate::webui::WebState;
+use crate::webui_v1::WebState;
 
 pub async fn index(State(state): State<Arc<WebState>>) -> Result<Response, AppError> {
     let capture_infos = CaptureInfo::fetch_timeline(&state.db).await?;

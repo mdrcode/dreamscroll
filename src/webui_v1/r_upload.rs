@@ -12,7 +12,7 @@ use sea_orm::{ActiveModelTrait, Set};
 
 use crate::common::AppError;
 use crate::model::{capture, media};
-use crate::webui::WebState;
+use crate::webui_v1::WebState;
 
 pub async fn upload(
     State(state): State<Arc<WebState>>,

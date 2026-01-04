@@ -7,9 +7,9 @@ use tower_http::services::ServeDir;
 
 use crate::database::DbHandle;
 use crate::storage::StorageProvider;
-use crate::webui::r_detail::detail;
-use crate::webui::r_index::index;
-use crate::webui::r_upload::upload;
+use crate::webui_v1::r_detail::detail;
+use crate::webui_v1::r_index::index;
+use crate::webui_v1::r_upload::upload;
 
 pub struct WebState {
     pub db: Arc<DbHandle>,
@@ -33,7 +33,7 @@ pub fn make_axum_router(
         .with_state(state);
 
     // Serve static files (CSS, JS, etc.)
-    router = router.nest_service("/static", ServeDir::new("static"));
+    router = router.nest_service("/static", ServeDir::new("static/"));
 
     if let Some(ref path) = local_serving_path_opt {
         // In some environments, we serve media directly from local storage

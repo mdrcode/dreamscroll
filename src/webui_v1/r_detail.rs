@@ -9,7 +9,7 @@ use tera::Context;
 
 use crate::common::AppError;
 use crate::controller::CaptureInfo;
-use crate::webui::WebState;
+use crate::webui_v1::WebState;
 
 pub async fn detail(
     State(state): State<Arc<WebState>>,

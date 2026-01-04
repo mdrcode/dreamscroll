@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use dreamspot::{config, database, illumination, storage, webui};
+use dreamspot::{config, database, illumination, storage, webui_v1};
 
 #[tokio::main]
 async fn main() {
@@ -23,7 +23,7 @@ async fn main() {
     let cancel_token = CancellationToken::new();
 
     let thread_webui = {
-        let router = webui::make_axum_router(db.clone(), storage.clone());
+        let router = webui_v1::make_axum_router(db.clone(), storage.clone());
         let cancel = cancel_token.clone();
         let host_port = webui_host_port.clone();
         tokio::spawn(async move {
