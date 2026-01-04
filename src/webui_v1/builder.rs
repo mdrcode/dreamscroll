@@ -9,6 +9,7 @@ use crate::database::DbHandle;
 use crate::storage::StorageProvider;
 use crate::webui_v1::r_detail::detail;
 use crate::webui_v1::r_index::index;
+use crate::webui_v1::r_search::search;
 use crate::webui_v1::r_upload::upload;
 
 pub struct WebState {
@@ -27,6 +28,7 @@ pub fn make_axum_router(
 
     let mut router = Router::new()
         .route("/", get(index))
+        .route("/search", get(search))
         .route("/detail/{capture_id}", get(detail))
         .route("/upload", post(upload))
         .layer(DefaultBodyLimit::max(5 * 1024 * 1024)) // 5 MB

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Search - dreamscroll</title>
+    <link rel="stylesheet" href="/static/v1/common.css">
+    <link rel="stylesheet" href="/static/v1/capturelist.css">
+    <style>
+        #page-content-container {
+            width: 80%;
+            min-width: 480px;
+            max-width: 800px;
+        }
+
+        #search-form {
+            display: flex;
+            flex-direction: row;
+            gap: 10px;
+            width: 100%;
+            margin-bottom: 20px;
+        }
+
+        #search-input {
+            flex: 1;
+            padding: 10px 14px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
+        #search-input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
+        #search-btn {
+            padding: 10px 20px;
+            font-size: 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+        }
+
+        #search-btn:hover {
+            background-color: #0056b3;
+        }
+
+        .result-count {
+            color: #666;
+            margin-bottom: 20px;
+        }
+
+        .no-results {
+            color: #666;
+            font-style: italic;
+            padding: 20px 0;
+        }
+    </style>
+    <script>
+        document.addEventListener('DOMContentLoaded', function () {
+            document.querySelectorAll('.capturelist-row-metadata-details-seemore').forEach(function (link) {
+                link.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    const detailsText = this.previousElementSibling;
+                    detailsText.classList.toggle('expanded');
+                    this.textContent = detailsText.classList.contains('expanded') ? 'See Less...' : 'See More...';
+                });
+            });
+        });
+    </script>
+</head>
+
+<body>
+    <div id="page-content-container">
+
+        <div id="header-row">
+            <h1 id="page-title"><a href="/" style="text-decoration: none; color: inherit;">dreamscroll</a></h1>
+        </div>
+
+        <form id="search-form" action="/search" method="get">
+            <input type="text" id="search-input" name="q" placeholder="Search illuminations..." value="{{ query }}" autofocus>
+            <button type="submit" id="search-btn">Search</button>
+        </form>
+
+        {% if query %}
+        <div class="result-count">
+            Found {{ result_count }} result{% if result_count != 1 %}s{% endif %} for "{{ query }}"
+        </div>
+
+        {% if capture_infos | length == 0 %}
+        <div class="no-results">
+            No results found. Try a different search term.
+        </div>
+        {% endif %}
+        {% endif %}
+
+        {% for capture in capture_infos %}
+        <div class="capturelist-row">
+            <div class="capturelist-row-image-container">
+                <a href="/detail/{{ capture.id }}" style="text-decoration: none; color: inherit;">
+                    <img class="capturelist-row-image" src="/media/{{ capture.medias[0].filename }}"
+                        alt="image {{ capture.medias[0].filename }}">
+                </a>
+            </div>
+            <div class="capturelist-row-metadata-container">
+                {{ capture.created_at }}
+
+                {% if capture.summary %}
+                <p>
+                    {{ capture.summary }}
+                </p>
+                {% endif %}
+
+                {% if capture.details %}
+                <div class="capturelist-row-metadata-details">
+                    <div class="capturelist-row-metadata-details-text">
+                        <p>{{ capture.details }}</p>
+                    </div>
+                    <a href="#" class="capturelist-row-metadata-details-seemore">See More...</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</body>
+
+</html>
