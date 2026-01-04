@@ -4,10 +4,9 @@
 <head>
     <title>dreamscroll</title>
     <link rel="stylesheet" href="/static/common.css">
+    <link rel="stylesheet" href="/static/capturelist.css">
     <style>
         #page-content-container {
-            display: flex;
-            flex-direction: column;
             width: 80%;
             min-width: 480px;
             max-width: 800px;
@@ -49,47 +48,6 @@
             display: block;
             border-color: #999;
             background-color: #f0f0f0;
-        }
-
-        .image-row {
-            width: 100%;
-            display: flex;
-            flex-direction: row;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            gap: 10px;
-            padding: 10px;
-            margin-bottom: 10px;
-
-        }
-
-        .image-actual-wrapper {
-            width: 55%;
-            display: flex;
-            justify-content: center;
-            align-items: start;
-        }
-
-        .image-actual {
-            width: 100%;
-            height: auto;
-            max-height: 540px;
-            object-fit: contain;
-
-            cursor: pointer;
-            transition: transform 0.1s ease, box-shadow 0.1s ease;
-        }
-
-        .image-actual:hover {
-            box-shadow: 0 6px 10px rgba(0, 0, 0, 0.1);
-        }
-
-        .image-metadata-wrapper {
-            width: 45%;
-            display: flex;
-            flex-direction: column;
-            align-items: flex-start;
-            margin-left: 10px;
         }
     </style>
     <script>
@@ -148,7 +106,7 @@
                 }
             });
 
-            document.querySelectorAll('.toggle-details').forEach(function (link) {
+            document.querySelectorAll('.capturelist-row-metadata-details-seemore').forEach(function (link) {
                 link.addEventListener('click', function (e) {
                     e.preventDefault();
                     const detailsText = this.previousElementSibling;
@@ -182,14 +140,14 @@
 
         {% for capture in capture_infos %}
 
-        <div class="image-row">
-            <div class="image-actual-wrapper">
+        <div class="capturelist-row">
+            <div class="capturelist-row-image-container">
                 <a href="/detail/{{ capture.id }}" style="text-decoration: none; color: inherit;">
-                    <img class="image-actual" src="/media/{{ capture.medias[0].filename }}"
+                    <img class="capturelist-row-image" src="/media/{{ capture.medias[0].filename }}"
                         alt="image {{ capture.medias[0].filename }}">
                 </a>
             </div>
-            <div class="image-metadata-wrapper">
+            <div class="capturelist-row-metadata-container">
                 {{ capture.created_at }}
 
                 {% if capture.summary %}
@@ -199,11 +157,11 @@
                 {% endif %}
 
                 {% if capture.details %}
-                <div class="details-container">
-                    <div class="details-text">
+                <div class="capturelist-row-metadata-details">
+                    <div class="capturelist-row-metadata-details-text">
                         <p>{{ capture.details }}</p>
                     </div>
-                    <a href="#" class="toggle-details">See More...</a>
+                    <a href="#" class="capturelist-row-metadata-details-seemore">See More...</a>
                 </div>
                 {% endif %}
             </div>

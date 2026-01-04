@@ -1,0 +1,66 @@
+.capturelist-row {
+    width: 100%;
+    display: flex;
+    flex-direction: row;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+    gap: 10px;
+    padding: 10px;
+    margin-bottom: 10px;
+
+}
+
+.capturelist-row-image-container {
+    width: 55%;
+    display: flex;
+    justify-content: center;
+    align-items: start;
+}
+
+.capturelist-row-image {
+    width: 100%;
+    height: auto;
+    max-height: 540px;
+    object-fit: contain;
+
+    cursor: pointer;
+    transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.capturelist-row-image:hover {
+    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.1);
+}
+
+.capturelist-row-metadata-container {
+    width: 45%;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    margin-left: 10px;
+}
+
+.capturelist-row-metadata-details {
+    position: relative;
+}
+
+.capturelist-row-metadata-details-text {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.capturelist-row-metadata-details-text.expanded {
+    max-height: 1000px;
+}
+
+.capturelist-row-metadata-details-seemore {
+    color: #585f67;
+    cursor: pointer;
+    text-decoration: underline;
+    font-size: 14px;
+    margin-top: 4px;
+}
+
+.capturelist-row-metadata-details-seemore:hover {
+    color: #0056b3;
+}
