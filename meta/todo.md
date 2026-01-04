@@ -9,13 +9,17 @@
 >   - [done: YYYY-MM-DD]
 > ```
 
+- [ ] Local web development with axum should hot reload somehow to avoid ludicrous compile cycles
+  - [added: 2026-01-04]
+
 - [ ] Filter out sqlx tracing::info! by default, it is too spammy
+  - [added: 2026-01-02 ]
 
 - [ ] Save illumination llm metadata like tokens, compressed image bytes, base64 encoded bytes, etc
-  - [added 2026-01-02]
+  - [added: 2026-01-02]
 
 - [ ] Illumination worker threads should handle errors gracefully and keep chugging
-  - [added 2025-12-31]
+  - [added: 2025-12-31]
   - Currently afaict a single error (like a 400 Bad Request from API) and the thread finishes
 
 - [ ] Illuminator should not talk to DB directly (internally).

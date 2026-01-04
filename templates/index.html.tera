@@ -12,6 +12,31 @@
             max-width: 800px;
         }
 
+        #header-action-bar {
+            display: flex;
+            flex-direction: row;
+            gap: 20px;
+            align-items: center;
+        }
+
+        #header-search-form {
+            display: flex;
+            flex-direction: row;
+            gap: 10px;
+        }
+
+        #header-search-input {
+            padding: 7px 14px;
+            font-size: 16px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+        }
+
+        #header-search-input:focus {
+            outline: none;
+            border-color: #007bff;
+        }
+
         #file-upload-form {
             display: flex;
             flex-direction: column;
@@ -52,19 +77,16 @@
     </style>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
-            const filePicker = document.getElementById('file-picker');
-            const uploadForm = document.getElementById('file-upload-form');
-            const dropZone = document.getElementById('drop-zone-row');
-            let dragCounter = 0;
-
-            filePicker.addEventListener('change', function () {
+            // File upload auto-submit on file selection without explicit submit button
+            document.getElementById('file-picker').addEventListener('change', function () {
                 this.form.submit();
             });
-
             // If JS enabled, form will auto submit (as above) so can hide explicit button
             document.getElementById('submit-btn-container').style.display = 'none';
 
             // Drag and drop functionality
+            const dropZone = document.getElementById('drop-zone-row');
+            let dragCounter = 0;
             document.body.addEventListener('dragenter', function (e) {
                 e.preventDefault();
                 e.stopPropagation();
@@ -106,6 +128,17 @@
                 }
             });
 
+
+            // Focus search input on "/" key press
+            const searchInput = document.getElementById('header-search-input');
+            document.addEventListener('keydown', function (e) {
+                if (e.key === '/' && document.activeElement !== searchInput) {
+                    e.preventDefault();
+                    searchInput.focus();
+                }
+            });
+
+            // "See More"/"See Less" toggle for capture details
             document.querySelectorAll('.capturelist-row-metadata-details-seemore').forEach(function (link) {
                 link.addEventListener('click', function (e) {
                     e.preventDefault();
@@ -114,6 +147,8 @@
                     this.textContent = detailsText.classList.contains('expanded') ? 'See Less...' : 'See More...';
                 });
             });
+
+
         });
     </script>
 </head>
@@ -124,14 +159,22 @@
         <div id="header-row">
             <h1 id="page-title">dreamscroll</h1>
 
-            <form id="file-upload-form" action="/upload" method="post" enctype="multipart/form-data">
-                <input id="file-picker" type="file" name="image" accept="image/*" style="display: none;" required>
-                <label id="file-picker-label" for="file-picker">Upload ⇧</label>
-                <div id="submit-btn-container">
-                    <br>
-                    <input id="submit-btn" type="submit" value="Submit">
-                </div>
-            </form>
+            <div id="header-action-bar">
+
+                <form id="file-upload-form" action="/upload" method="post" enctype="multipart/form-data">
+                    <input id="file-picker" type="file" name="image" accept="image/*" style="display: none;" required>
+                    <label id="file-picker-label" for="file-picker">Upload ⇧</label>
+                    <div id="submit-btn-container">
+                        <br>
+                        <input id="submit-btn" type="submit" value="Submit">
+                    </div>
+                </form>
+
+                <form id="header-search-form" action="/search" method="get">
+                    <input id="header-search-input" type="text" name="q" placeholder="search...">
+                </form>
+
+            </div>
         </div>
 
         <div id="drop-zone-row">

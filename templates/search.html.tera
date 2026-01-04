@@ -16,7 +16,8 @@
             display: flex;
             flex-direction: row;
             gap: 10px;
-            width: 100%;
+            /* due to mysterious padding issue in .capturelist ... */
+            width: calc(100% + 20px);
             margin-bottom: 20px;
         }
 
@@ -60,6 +61,17 @@
     </style>
     <script>
         document.addEventListener('DOMContentLoaded', function () {
+            const searchInput = document.getElementById('search-input');
+
+            // Focus search input on "/" key press
+            document.addEventListener('keydown', function (e) {
+                if (e.key === '/' && document.activeElement !== searchInput) {
+                    e.preventDefault();
+                    searchInput.focus();
+                }
+            });
+
+            // "See More"/"See Less" toggle for capture details
             document.querySelectorAll('.capturelist-row-metadata-details-seemore').forEach(function (link) {
                 link.addEventListener('click', function (e) {
                     e.preventDefault();
@@ -80,7 +92,8 @@
         </div>
 
         <form id="search-form" action="/search" method="get">
-            <input type="text" id="search-input" name="q" placeholder="Search illuminations..." value="{{ query }}" autofocus>
+            <input type="text" id="search-input" name="q" placeholder="Search illuminations..." {% if query
+                %}value="{{ query }}" {% else %} autofocus {% endif %}>
             <button type="submit" id="search-btn">Search</button>
         </form>
 

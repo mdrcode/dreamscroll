@@ -22,7 +22,7 @@ body {
     display: flex;
     flex-direction: row;
     justify-content: space-between;
-    /* due to padding in .image-row below... */
+    /* due to mysterious padding issue in .capturelist ... */
     width: calc(100% + 20px);
     margin-top: 12px;
     margin-bottom: 20px;
@@ -30,7 +30,7 @@ body {
 
 #page-title {
     margin: 0;
-    font-size: xx-large;
+    font-size: xxx-large;
     line-height: 1.0;
 }
 
