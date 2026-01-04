@@ -3,38 +3,14 @@
 
 <head>
     <title>dreamscroll</title>
+    <link rel="stylesheet" href="/static/common.css">
     <style>
-        body {
-            display: flex;
-            justify-content: center;
-
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Helvetica Neue', Arial, sans-serif;
-            font-weight: 400;
-            line-height: 1.6;
-        }
-
         #page-content-container {
             display: flex;
             flex-direction: column;
             width: 80%;
             min-width: 480px;
             max-width: 800px;
-        }
-
-        #header-row {
-            display: flex;
-            flex-direction: row;
-            justify-content: space-between;
-            /* due to padding in .image-row below... */
-            width: calc(100% + 20px);
-            margin-top: 12px;
-            margin-bottom: 20px;
-        }
-
-        #page-title {
-            margin: 0;
-            font-size: xx-large;
-            line-height: 1.0;
         }
 
         #file-upload-form {
@@ -114,32 +90,6 @@
             flex-direction: column;
             align-items: flex-start;
             margin-left: 10px;
-        }
-
-        .details-container {
-            position: relative;
-        }
-
-        .details-text {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.3s ease;
-        }
-
-        .details-text.expanded {
-            max-height: 1000px;
-        }
-
-        .toggle-details {
-            color: #585f67;
-            cursor: pointer;
-            text-decoration: underline;
-            font-size: 14px;
-            margin-top: 4px;
-        }
-
-        .toggle-details:hover {
-            color: #0056b3;
         }
     </style>
     <script>

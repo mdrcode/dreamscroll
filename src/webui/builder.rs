@@ -32,6 +32,9 @@ pub fn make_axum_router(
         .layer(DefaultBodyLimit::max(5 * 1024 * 1024)) // 5 MB
         .with_state(state);
 
+    // Serve static files (CSS, JS, etc.)
+    router = router.nest_service("/static", ServeDir::new("static"));
+
     if let Some(ref path) = local_serving_path_opt {
         // In some environments, we serve media directly from local storage
         router = router.nest_service("/media", ServeDir::new(path));
