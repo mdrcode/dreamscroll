@@ -15,8 +15,9 @@
         #header-action-bar {
             display: flex;
             flex-direction: row;
+            align-items: end;
             gap: 20px;
-            align-items: center;
+            padding-bottom: 2px;
         }
 
         #header-search-form {
