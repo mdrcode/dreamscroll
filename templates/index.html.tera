@@ -79,13 +79,15 @@
     <script>
         document.addEventListener('DOMContentLoaded', function () {
             // File upload auto-submit on file selection without explicit submit button
-            document.getElementById('file-picker').addEventListener('change', function () {
+            const filePicker = document.getElementById('file-picker');
+            filePicker.addEventListener('change', function () {
                 this.form.submit();
             });
             // If JS enabled, form will auto submit (as above) so can hide explicit button
             document.getElementById('submit-btn-container').style.display = 'none';
 
             // Drag and drop functionality
+            const uploadForm = document.getElementById('file-upload-form');
             const dropZone = document.getElementById('drop-zone-row');
             let dragCounter = 0;
             document.body.addEventListener('dragenter', function (e) {
