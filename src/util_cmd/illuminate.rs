@@ -21,14 +21,13 @@ pub struct IlluminateArgs {
     model: String,
 }
 
-pub async fn run(args: IlluminateArgs) -> anyhow::Result<()> {
+pub async fn run(config: config::Config, args: IlluminateArgs) -> anyhow::Result<()> {
     let capture_id = args.id;
 
     tracing::info!("Starting illumination for capture ID {}", capture_id);
 
-    let (db_config, storage_config) = config::make(config::Env::LocalDev);
-    let db = database::connect(db_config).await?;
-    let _storage = storage::make(storage_config);
+    let db = database::connect(config.db_config).await?;
+    let _storage = storage::make(config.storage_config);
 
     let capture_info = controller::CaptureInfo::fetch_by_id(&db, capture_id)
         .await

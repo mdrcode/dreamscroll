@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use dreamspot::util_cmd::*;
+use dreamspot::{config, util_cmd::*};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll admin utility")]
@@ -24,17 +24,20 @@ enum Command {
 async fn main() -> anyhow::Result<()> {
     let args: Args = argh::from_env();
 
+    let mut config = config::make(config::Env::LocalDev);
+
     let level = if args.verbose {
         tracing::Level::DEBUG
     } else {
         tracing::Level::WARN
     };
+    config.init_logging();
     tracing_subscriber::fmt().with_max_level(level).init();
 
     match args.command {
-        Command::Illuminate(args) => illuminate::run(args).await?,
-        Command::Import(args) => import::run(args).await?,
-        Command::ExportUniq(args) => export_uniq::run(args).await?,
+        Command::Illuminate(args) => illuminate::run(config, args).await?,
+        Command::Import(args) => import::run(config, args).await?,
+        Command::ExportUniq(args) => export_uniq::run(config, args).await?,
     }
 
     Ok(())

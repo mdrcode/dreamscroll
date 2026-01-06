@@ -7,20 +7,20 @@ use dreamspot::{config, database, illumination, storage, webui_v1};
 
 #[tokio::main]
 async fn main() {
-    tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
-        .init();
+    let config = config::make(config::Env::LocalDev);
+    config.init_logging();
 
-    let (db_config, storage_config) = config::make(config::Env::LocalDev);
-    let webui_host_port = "127.0.0.1:8000".to_string();
-
-    let db = database::connect(db_config).await.unwrap();
+    let db = database::connect(config.db_config).await.unwrap();
     let db = Arc::new(db);
 
-    let storage = storage::make(storage_config);
+    let storage = storage::make(config.storage_config);
     let storage: Arc<dyn storage::StorageProvider> = Arc::from(storage);
 
     let cancel_token = CancellationToken::new();
+
+    let webui_host_port = config
+        .webui_host_port
+        .expect("webui_host_port must be set in config for local hosting");
 
     let thread_webui = {
         let router = webui_v1::make_axum_router(db.clone(), storage.clone());

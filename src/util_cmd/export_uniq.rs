@@ -14,11 +14,11 @@ pub struct ExportUniqArgs {
     directory: PathBuf,
 }
 
-pub async fn run(args: ExportUniqArgs) -> anyhow::Result<()> {
+pub async fn run(config: config::Config, args: ExportUniqArgs) -> anyhow::Result<()> {
     let export_dir = &args.directory;
 
     if !export_dir.is_dir() {
-        std::fs::create_dir_all(export_dir)?;   
+        std::fs::create_dir_all(export_dir)?;
     }
 
     // First, compute hashes for existing content of the export dir
@@ -36,8 +36,8 @@ pub async fn run(args: ExportUniqArgs) -> anyhow::Result<()> {
         existing_hashes.len()
     );
 
-    let (db_config, _) = config::make(config::Env::LocalDev);
-    let db = database::connect(db_config).await?;
+    
+    let db = database::connect(config.db_config).await?;
 
     let medias = media::Entity::load()
         .all(&db.conn)

@@ -18,7 +18,7 @@ pub struct ImportArgs {
     directory: PathBuf,
 }
 
-pub async fn run(args: ImportArgs) -> anyhow::Result<()> {
+pub async fn run(config: config::Config, args: ImportArgs) -> anyhow::Result<()> {
     let dir = &args.directory;
 
     tracing::info!("Starting import from directory {}", dir.display());
@@ -35,9 +35,8 @@ pub async fn run(args: ImportArgs) -> anyhow::Result<()> {
 
     tracing::info!("Found {} to import from {}.", paths.len(), dir.display());
 
-    let (db_config, storage_config) = config::make(config::Env::LocalDev);
-    let db = database::connect(db_config).await?;
-    let storage = storage::make(storage_config);
+    let db = database::connect(config.db_config).await?;
+    let storage = storage::make(config.storage_config);
     let mut imported = 0;
 
     for path in paths {
