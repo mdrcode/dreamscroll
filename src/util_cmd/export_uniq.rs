@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 
-use crate::{common, config, database, model::media};
+use crate::{common, database, facility, model::media};
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "export_uniq")]
@@ -14,7 +14,7 @@ pub struct ExportUniqArgs {
     directory: PathBuf,
 }
 
-pub async fn run(config: config::Config, args: ExportUniqArgs) -> anyhow::Result<()> {
+pub async fn run(config: facility::Config, args: ExportUniqArgs) -> anyhow::Result<()> {
     let export_dir = &args.directory;
 
     if !export_dir.is_dir() {
@@ -36,7 +36,6 @@ pub async fn run(config: config::Config, args: ExportUniqArgs) -> anyhow::Result
         existing_hashes.len()
     );
 
-    
     let db = database::connect(config.db_config).await?;
 
     let medias = media::Entity::load()

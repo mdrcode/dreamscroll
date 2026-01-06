@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use argh::FromArgs;
 
-use crate::{config, controller, database, illumination::*, storage};
+use crate::{controller, database, facility, illumination::*, storage};
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "illuminate")]
@@ -21,7 +21,7 @@ pub struct IlluminateArgs {
     model: String,
 }
 
-pub async fn run(config: config::Config, args: IlluminateArgs) -> anyhow::Result<()> {
+pub async fn run(config: facility::Config, args: IlluminateArgs) -> anyhow::Result<()> {
     let capture_id = args.id;
 
     tracing::info!("Starting illumination for capture ID {}", capture_id);

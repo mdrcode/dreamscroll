@@ -3,12 +3,12 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use dreamspot::{config, database, illumination, storage, webui_v1};
+use dreamspot::{database, facility, illumination, storage, webui_v1};
 
 #[tokio::main]
 async fn main() {
-    let config = config::make(config::Env::LocalDev);
-    config.init_logging();
+    let config = facility::make_config(facility::Env::LocalDev);
+    facility::init_logging(&config);
 
     let db = database::connect(config.db_config).await.unwrap();
     let db = Arc::new(db);
@@ -40,11 +40,11 @@ async fn main() {
 
     let thread_illuminator = {
         let gemini = illumination::GeminiIlluminator::default();
-        let illuminator = illumination::make_worker(db.clone(), gemini);
+        let worker = illumination::make_worker(db.clone(), gemini);
         let cancel = cancel_token.clone();
         tokio::spawn(async move {
             tokio::select! {
-                _ = illuminator.run() => {}
+                _ = worker.run() => {}
                 _ = cancel.cancelled() => {}
             }
         })

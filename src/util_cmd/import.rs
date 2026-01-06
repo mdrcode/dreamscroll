@@ -4,7 +4,7 @@ use argh::FromArgs;
 use chrono::Utc;
 
 use crate::{
-    config, database,
+    database, facility,
     model::{capture, media},
     storage,
 };
@@ -18,7 +18,7 @@ pub struct ImportArgs {
     directory: PathBuf,
 }
 
-pub async fn run(config: config::Config, args: ImportArgs) -> anyhow::Result<()> {
+pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<()> {
     let dir = &args.directory;
 
     tracing::info!("Starting import from directory {}", dir.display());
