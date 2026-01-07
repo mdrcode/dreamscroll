@@ -20,12 +20,12 @@ async fn main() {
 
     let webui_host_port = config
         .webui_host_port
-        .expect("webui_host_port must be set in config for local hosting");
+        .expect("webui_host_port must be configured");
 
     let thread_webui = {
         let router = webui_v1::make_axum_router(db.clone(), storage.clone());
         let cancel = cancel_token.clone();
-        let host_port = webui_host_port.clone();
+        let host_port = format!("{}:{}", webui_host_port.0, webui_host_port.1);
         tokio::spawn(async move {
             let listener = TcpListener::bind(host_port).await.unwrap();
             axum::serve(listener, router)
@@ -36,7 +36,10 @@ async fn main() {
                 .expect("Failed to serve Web UI.");
         })
     };
-    println!("Web UI serving at http://{}", webui_host_port);
+    println!(
+        "Web UI serving locally at http://localhost:{}",
+        webui_host_port.1
+    );
 
     let thread_illuminator = {
         let gemini = illumination::GeminiIlluminator::default();
@@ -50,7 +53,7 @@ async fn main() {
         })
     };
 
-    let _ = webbrowser::open(&format!("http://{}", webui_host_port));
+    let _ = webbrowser::open(&format!("http://localhost:{}", webui_host_port.1));
 
     tokio::signal::ctrl_c().await.unwrap();
     println!("Shutting down...");

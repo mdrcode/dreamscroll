@@ -10,7 +10,7 @@ pub struct Config {
     pub tracing_max_level: tracing::Level,
     pub db_config: DbConfig,
     pub storage_config: StorageConfig,
-    pub webui_host_port: Option<String>,
+    pub webui_host_port: Option<(String, u16)>,
 }
 
 pub fn make_config(env: Env) -> Config {
@@ -27,7 +27,7 @@ pub fn make_config(env: Env) -> Config {
                 tracing_max_level: tracing::Level::WARN,
                 db_config,
                 storage_config,
-                webui_host_port: Some("127.0.0.1:8000".to_string()),
+                webui_host_port: Some(("0.0.0.0".to_string(), 8000)),
             };
         }
 
