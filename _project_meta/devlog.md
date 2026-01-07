@@ -1,14 +1,31 @@
 # Dreamscroll Development Log
 
+## 2026-01-08
+
+One month anniversary of start of project!
+
+Changing gears a bit today, I think we should focus on users, auth, and
+converting the controller/ code into a more proper API (both internal app- auth
+and token-based REST webservice auth).
+
+- [ ] Investigate best approach for users
+- [ ] Investigate bets approach for auth, emphasizing flexible approach that
+  supports API
+- [ ] Start migrating controller/ over to api/
+
 ## 2026-01-07
 
 Goals for today:
 
 - [X] Setup wireguard and validate working end to end
-- [ ] Setup Git daemon on VM
+- [X] Setup Git daemon on VM
 - [ ] Create Github repo
 - [ ] Register domain??
-- [ ] Get dreamscroll working on GCE instance (at least at proof of concept level)
+- [X] Get dreamscroll working on GCE instance (at least at proof of concept level)
+
+It works! Now running on a GCE VM instance! Next up, start refactoring and
+organizing for a true cloud-shaped deployment, chiefly (1) a non-sqlite database
+and (2) a media storage service (like S3).
 
 ## 2026-01-06
 

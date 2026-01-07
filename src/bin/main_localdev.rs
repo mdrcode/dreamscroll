@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
+use tower_http::services::ServeDir;
 
 use dreamscroll::{database, facility, illumination, storage, webui_v1};
 
@@ -23,7 +24,17 @@ async fn main() {
         .expect("webui_host_port must be configured");
 
     let thread_webui = {
-        let router = webui_v1::make_axum_router(db.clone(), storage.clone());
+        let mut router = webui_v1::make_axum_router(db.clone(), storage.clone());
+
+        // For local dev, we serve static files directly
+        router = router.nest_service("/static", ServeDir::new("web_static/"));
+
+        // ... and we serve media directly from local file storage
+        let local_serving_path_opt = storage.local_serving_path();
+        if let Some(ref path) = local_serving_path_opt {
+            router = router.nest_service("/media", ServeDir::new(path));
+        }
+
         let cancel = cancel_token.clone();
         let host_port = format!("{}:{}", webui_host_port.0, webui_host_port.1);
         tokio::spawn(async move {
