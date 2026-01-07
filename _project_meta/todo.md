@@ -40,7 +40,7 @@
 - [X] Move the DB migrations into connect call?
   - [added: 2025-12-20]
   - This is handled auto-magically by SeaORM v2, specifically the call
-    get_schema_registry("dreamspot::model::*").sync(&conn).await?;
+    get_schema_registry("dreamscroll::model::*").sync(&conn).await?;
   - [done: 2025-12-30]
 
 - [X] Upgrade to SeaORM v2

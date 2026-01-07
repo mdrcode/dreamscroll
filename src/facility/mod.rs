@@ -17,7 +17,7 @@ pub fn make_config(env: Env) -> Config {
     match env {
         Env::LocalDev => {
             let db_config = DbConfig::SqliteFile {
-                path: "localdev/dreamspot.db".to_string(),
+                path: "localdev/dreamscroll.db".to_string(),
             };
             let storage_config = StorageConfig::Local {
                 storage_path: "localdev/media/".to_string(),

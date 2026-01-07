@@ -16,7 +16,7 @@ pub async fn connect(config: DbConfig) -> Result<DbHandle, DbErr> {
 
     let url = config.to_url();
     let conn = Database::connect(&url).await?;
-    conn.get_schema_registry("dreamspot::model::*")
+    conn.get_schema_registry("dreamscroll::model::*")
         .sync(&conn)
         .await?;
 

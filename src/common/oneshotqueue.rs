@@ -25,7 +25,7 @@ use std::sync::Mutex;
 /// # Example
 ///
 /// ```
-/// use dreamspot::common::OneShotQueue;
+/// use dreamscroll::common::OneShotQueue;
 ///
 /// let queue = OneShotQueue::new();
 /// queue.enqueue(1);

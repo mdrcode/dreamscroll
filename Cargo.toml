@@ -1,11 +1,11 @@
 [package]
-name = "dreamspot"
+name = "dreamscroll"
 version = "0.1.0"
 edition = "2024"
 default-run = "localdev"
 
 [lib]
-name = "dreamspot"
+name = "dreamscroll"
 path = "src/lib.rs"
 
 [[bin]]

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use dreamspot::{database, facility, illumination, storage, webui_v1};
+use dreamscroll::{database, facility, illumination, storage, webui_v1};
 
 #[tokio::main]
 async fn main() {

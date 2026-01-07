@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use dreamspot::{facility, util_cmd::*};
+use dreamscroll::{facility, util_cmd::*};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll admin utility")]
