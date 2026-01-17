@@ -1,5 +1,17 @@
 # Dreamscroll Development Log
 
+## 2026-01-16
+
+Took a long hiatus to focus on family and job interviews. Back in the saddle
+today.
+
+Did play around in the `auth` branch for a day or two, but I think I was biting
+off too much at once by trying to think simultaneously about both web UI auth
+and API auth, using two different crates at different levels of maturity.
+
+Going to reset and focus first and foremost on introducing a User entity and web
+UI auth and then follow up with API auth separately.
+
 ## 2026-01-08
 
 One month anniversary of start of project!
