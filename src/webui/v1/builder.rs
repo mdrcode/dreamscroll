@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
-use axum_login::AuthManagerLayerBuilder;
+use axum_login::{AuthManagerLayerBuilder, login_required};
 use tera::Tera;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 
@@ -37,10 +37,23 @@ pub fn make_axum_router(
     let router = Router::new()
         .route("/login", get(login_page).post(login_handler))
         .route("/logout", get(logout_handler))
-        .route("/", get(index))
-        .route("/search", get(search))
-        .route("/detail/{capture_id}", get(detail))
-        .route("/upload", post(upload))
+        .route(
+            "/",
+            get(index).layer(login_required!(auth::Backend, login_url = "/login")),
+        )
+        .route(
+            "/search",
+            get(search).layer(login_required!(auth::Backend, login_url = "/login")),
+        )
+        .route(
+            "/detail/{capture_id}",
+            get(detail).layer(login_required!(auth::Backend, login_url = "/login")),
+        )
+        .route(
+            "/upload",
+            post(upload).layer(login_required!(auth::Backend, login_url = "/login")),
+        )
+        .layer(auth_layer)
         .layer(DefaultBodyLimit::max(5 * 1024 * 1024)) // 5 MB
         .with_state(state);
 
