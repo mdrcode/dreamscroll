@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Login - dreamscroll</title>
+    <link rel="stylesheet" href="/static/v1/common.css">
+    <style>
+    </style>
+    <script>
+    </script>
+</head>
+
+<body>
+    <div id="page-content-container">
+
+        <div id="header-row">
+            <h1 id="page-title">dreamscroll</h1>
+        </div>
+
+        <div id="login-form">
+        <h2>Login</h2>
+
+        {% if error %}
+            <div class="error">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST" action="/login">
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" name="username" required autofocus>
+            </div>
+
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+
+            <button type="submit">Login</button>
+        </form>
+        </div>
+            
+    </div>
+</body>
+
+</html>

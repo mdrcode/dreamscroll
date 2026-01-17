@@ -1,9 +1,17 @@
 mod builder;
+mod r_auth;
+mod r_detail;
+mod r_index;
+mod r_login_page;
+mod r_search;
+mod r_upload;
 
 pub use builder::WebState;
 pub use builder::make_axum_router;
-
-pub mod r_detail;
-pub mod r_index;
-pub mod r_search;
-pub mod r_upload;
+pub use r_auth::login_handler;
+pub use r_auth::logout_handler;
+pub use r_detail::detail;
+pub use r_index::index;
+pub use r_login_page::login_page;
+pub use r_search::search;
+pub use r_upload::upload;

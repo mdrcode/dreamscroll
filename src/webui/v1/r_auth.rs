@@ -1,0 +1,32 @@
+use axum::{Form, response::Redirect};
+use axum_login::AuthSession;
+
+use crate::auth;
+
+// Login handler
+pub async fn login_handler(
+    mut auth: AuthSession<auth::Backend>,
+    Form(creds): Form<auth::Credentials>,
+) -> Result<Redirect, axum::http::StatusCode> {
+    let user = match auth.authenticate(creds).await {
+        Ok(Some(user)) => user,
+        Ok(None) => return Err(axum::http::StatusCode::UNAUTHORIZED),
+        Err(_) => return Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
+    };
+
+    if auth.login(&user).await.is_err() {
+        return Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    Ok(Redirect::to("/"))
+}
+
+pub async fn logout_handler(
+    mut auth: AuthSession<auth::Backend>,
+) -> Result<Redirect, axum::http::StatusCode> {
+    if auth.logout().await.is_err() {
+        return Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    Ok(Redirect::to("/login"))
+}
