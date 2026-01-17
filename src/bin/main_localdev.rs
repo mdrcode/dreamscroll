@@ -4,7 +4,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
 
-use dreamscroll::{database, facility, illumination, storage, webui_v1};
+use dreamscroll::{database, facility, illumination, storage, webui};
 
 #[tokio::main]
 async fn main() {
@@ -24,7 +24,7 @@ async fn main() {
         .expect("webui_host_port must be configured");
 
     let thread_webui = {
-        let mut router = webui_v1::make_axum_router(db.clone(), storage.clone());
+        let mut router = webui::v1::make_axum_router(db.clone(), storage.clone());
 
         // For local dev, we serve static files directly
         router = router.nest_service("/static", ServeDir::new("web_static/"));

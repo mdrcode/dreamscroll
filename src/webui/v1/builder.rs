@@ -1,15 +1,11 @@
 use std::sync::Arc;
 
-use axum::extract::DefaultBodyLimit;
-use axum::{Router, routing::get, routing::post};
+use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
 use tera::Tera;
 
-use crate::database::DbHandle;
-use crate::storage::StorageProvider;
-use crate::webui_v1::r_detail::detail;
-use crate::webui_v1::r_index::index;
-use crate::webui_v1::r_search::search;
-use crate::webui_v1::r_upload::upload;
+use crate::{database::DbHandle, storage::StorageProvider};
+
+use super::{r_detail::detail, r_index::index, r_search::search, r_upload::upload};
 
 pub struct WebState {
     pub db: Arc<DbHandle>,

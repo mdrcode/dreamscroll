@@ -10,9 +10,12 @@ use axum_extra::extract::Multipart;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 
-use crate::common::AppError;
-use crate::model::{capture, media};
-use crate::webui_v1::WebState;
+use crate::{
+    common::AppError,
+    model::{capture, media},
+};
+
+use super::WebState;
 
 pub async fn upload(
     State(state): State<Arc<WebState>>,

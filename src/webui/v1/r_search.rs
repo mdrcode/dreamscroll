@@ -8,9 +8,9 @@ use axum::{
 use serde::Deserialize;
 use tera::Context;
 
-use crate::common::AppError;
-use crate::controller;
-use crate::webui_v1::WebState;
+use crate::{common::AppError, controller};
+
+use super::WebState;
 
 #[derive(Deserialize)]
 pub struct SearchParams {

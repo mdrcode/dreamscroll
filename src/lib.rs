@@ -7,4 +7,4 @@ pub mod illumination;
 pub mod model;
 pub mod storage;
 pub mod util_cmd;
-pub mod webui_v1;
+pub mod webui;
