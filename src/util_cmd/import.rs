@@ -4,9 +4,9 @@ use argh::FromArgs;
 use chrono::Utc;
 
 use crate::{
-    database, facility,
-    model::{capture, media},
-    storage,
+    database,
+    entity::{capture, media},
+    facility, storage,
 };
 
 #[derive(FromArgs)]

@@ -1,4 +1,4 @@
-use crate::model::user;
+use crate::entity::user;
 
 use axum_login::AuthUser;
 

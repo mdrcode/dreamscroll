@@ -12,7 +12,7 @@ use sea_orm::{ActiveModelTrait, Set};
 
 use crate::{
     common::AppError,
-    model::{capture, media},
+    entity::{capture, media},
 };
 
 use super::WebState;

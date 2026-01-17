@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use crate::common::*;
 use crate::database::DbHandle;
-use crate::model::*;
+use crate::entity::*;
 
 #[derive(Serialize)]
 pub struct CaptureInfo {

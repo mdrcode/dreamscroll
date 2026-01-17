@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 
-use crate::{common, database, facility, model::media};
+use crate::{common, database, entity::media, facility};
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "export_uniq")]

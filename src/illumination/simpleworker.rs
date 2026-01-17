@@ -7,7 +7,7 @@ use crate::{
     common::{self, AppError},
     controller::CaptureInfo,
     database::DbHandle,
-    model::illumination,
+    entity::illumination,
 };
 
 pub struct SimpleWorker<I: Illuminator + 'static> {

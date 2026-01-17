@@ -1,7 +1,7 @@
 use argh::FromArgs;
 use sea_orm::{ActiveModelTrait, Set};
 
-use crate::{auth, database, facility, model::user};
+use crate::{auth, database, entity::user, facility};
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "create_user")]

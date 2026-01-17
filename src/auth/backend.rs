@@ -4,7 +4,7 @@ use axum_login::{AuthnBackend, UserId};
 use sea_orm::EntityTrait;
 use serde::Deserialize;
 
-use crate::{database::DbHandle, model::user};
+use crate::{database::DbHandle, entity::user};
 
 use super::{autherror::*, password::*};
 
