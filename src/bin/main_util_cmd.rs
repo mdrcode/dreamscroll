@@ -15,6 +15,7 @@ struct Args {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 enum Command {
+    CreateUser(create_user::CreateUserArgs),
     Illuminate(illuminate::IlluminateArgs),
     Import(import::ImportArgs),
     ExportUniq(export_uniq::ExportUniqArgs),
@@ -32,6 +33,7 @@ async fn main() -> anyhow::Result<()> {
     facility::init_logging(&config);
 
     match args.command {
+        Command::CreateUser(args) => create_user::run(config, args).await?,
         Command::Illuminate(args) => illuminate::run(config, args).await?,
         Command::Import(args) => import::run(config, args).await?,
         Command::ExportUniq(args) => export_uniq::run(config, args).await?,
