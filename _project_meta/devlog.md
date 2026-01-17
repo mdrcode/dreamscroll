@@ -12,6 +12,16 @@ and API auth, using two different crates at different levels of maturity.
 Going to reset and focus first and foremost on introducing a User entity and web
 UI auth and then follow up with API auth separately.
 
+- [X] Get axum-login working end to end.
+
+TODO:
+
+- Currently the route handlers which need auth are pretected in the serving
+  layer, but probably they should have some internal boilerplate at the top to
+  verify authentication.
+- Research session store.
+- Possibly just use SSL even for localdev?
+
 ## 2026-01-08
 
 One month anniversary of start of project!
