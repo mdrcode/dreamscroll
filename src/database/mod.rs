@@ -1,21 +1,29 @@
-mod config;
-
-pub use config::{DbBackend, DbConfig, DbHandle};
+use std::time::Duration;
 
 use sea_orm::{ConnectionTrait, Database, DbErr, Statement};
+use tracing::log::LevelFilter;
+
+mod config;
+pub use config::{DbBackend, DbConfig, DbHandle};
 
 pub async fn connect(config: DbConfig) -> Result<DbHandle, DbErr> {
-    // SqliteFile will not create parent dirs automatically, must do manually
-    if let DbConfig::SqliteFile { path } = &config {
-        if let Some(parent) = std::path::Path::new(path).parent() {
-            std::fs::create_dir_all(parent).map_err(|e| {
-                DbErr::Custom(format!("Failed to create database parent dirs: {}", e))
-            })?;
+    let mut options = sea_orm::ConnectOptions::new(config.to_url());
+    options.sqlx_logging_level(LevelFilter::Debug);
+    options.sqlx_slow_statements_logging_settings(LevelFilter::Warn, Duration::from_secs(1));
+
+    let conn = Database::connect(options).await;
+
+    if let Err(e) = conn {
+        tracing::error!("Failed to connect to database at '{}'", config.to_url());
+        if let DbConfig::SqliteFile { .. } = &config {
+            tracing::warn!("When running in local dev, must run from the project root directory.");
         }
+
+        return Err(e);
     }
 
-    let url = config.to_url();
-    let conn = Database::connect(&url).await?;
+    let conn = conn?;
+
     conn.get_schema_registry("dreamscroll::model::*")
         .sync(&conn)
         .await?;

@@ -8,7 +8,12 @@ struct Args {
     #[argh(subcommand)]
     command: Command,
 
-    #[argh(switch, long = "verbose", description = "enable verbose logging")]
+    #[argh(
+        switch,
+        long = "verbose",
+        short = 'v',
+        description = "enable verbose logging"
+    )]
     verbose: bool,
 }
 
@@ -29,15 +34,14 @@ async fn main() -> anyhow::Result<()> {
 
     if args.verbose {
         config.tracing_max_level = tracing::Level::DEBUG;
-    };
-    facility::init_logging(&config);
-
-    match args.command {
-        Command::CreateUser(args) => create_user::run(config, args).await?,
-        Command::Illuminate(args) => illuminate::run(config, args).await?,
-        Command::Import(args) => import::run(config, args).await?,
-        Command::ExportUniq(args) => export_uniq::run(config, args).await?,
     }
 
-    Ok(())
+    facility::init_tracing(&config);
+
+    match args.command {
+        Command::CreateUser(args) => create_user::run(config, args).await,
+        Command::Illuminate(args) => illuminate::run(config, args).await,
+        Command::Import(args) => import::run(config, args).await,
+        Command::ExportUniq(args) => export_uniq::run(config, args).await,
+    }
 }

@@ -1,5 +1,15 @@
 # Dreamscroll Development Log
 
+## 2026-01-17
+
+Now that we have auth and a basic concept of User, need to port the rest of the
+app to rely on this. Notably, this means ensuring that capture creation is tide
+to a User, etc.
+
+- [ ] Rework capture entity to be a relation of user
+- [ ] Ensure import/export work in the context of a specific user id
+- [ ] Start sketching out API?
+
 ## 2026-01-16
 
 Took a long hiatus to focus on family and job interviews. Back in the saddle

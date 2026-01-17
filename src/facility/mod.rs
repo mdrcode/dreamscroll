@@ -1,44 +1,18 @@
-use crate::{database::DbConfig, storage::StorageConfig};
+use tracing_subscriber::EnvFilter;
+
+mod config;
+pub use config::{Config, make_config};
 
 pub enum Env {
     LocalDev,
     Production,
 }
 
-#[derive(Clone)]
-pub struct Config {
-    pub tracing_max_level: tracing::Level,
-    pub db_config: DbConfig,
-    pub storage_config: StorageConfig,
-    pub webui_host_port: Option<(String, u16)>,
-}
-
-pub fn make_config(env: Env) -> Config {
-    match env {
-        Env::LocalDev => {
-            let db_config = DbConfig::SqliteFile {
-                path: "localdev/dreamscroll.db".to_string(),
-            };
-            let storage_config = StorageConfig::Local {
-                storage_path: "localdev/media/".to_string(),
-                base_url: "/media/".to_string(),
-            };
-            return Config {
-                tracing_max_level: tracing::Level::WARN,
-                db_config,
-                storage_config,
-                webui_host_port: Some(("0.0.0.0".to_string(), 8000)),
-            };
-        }
-
-        Env::Production => {
-            unimplemented!();
-        }
-    }
-}
-
-pub fn init_logging(_config: &Config) {
+pub fn init_tracing(config: &Config) {
     tracing_subscriber::fmt()
-        .with_max_level(tracing::Level::WARN)
+        .pretty()
+        .without_time()
+        .with_max_level(config.tracing_max_level)
+        .with_env_filter(EnvFilter::from_default_env())
         .init();
 }

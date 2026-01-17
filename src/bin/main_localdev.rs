@@ -7,11 +7,11 @@ use tower_http::services::ServeDir;
 use dreamscroll::{database, facility, illumination, storage, webui};
 
 #[tokio::main]
-async fn main() {
+async fn main() -> anyhow::Result<()> {
     let config = facility::make_config(facility::Env::LocalDev);
-    facility::init_logging(&config);
+    facility::init_tracing(&config);
 
-    let db = database::connect(config.db_config).await.unwrap();
+    let db = database::connect(config.db_config).await?;
     let db = Arc::new(db);
 
     let storage = storage::make(config.storage_config);
@@ -66,8 +66,10 @@ async fn main() {
 
     let _ = webbrowser::open(&format!("http://localhost:{}", webui_host_port.1));
 
-    tokio::signal::ctrl_c().await.unwrap();
+    tokio::signal::ctrl_c().await?;
     println!("Shutting down...");
     cancel_token.cancel();
     let _ = tokio::join!(thread_webui, thread_illuminator);
+
+    Ok(())
 }

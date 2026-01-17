@@ -21,7 +21,7 @@ pub async fn run(config: facility::Config, args: CreateUserArgs) -> anyhow::Resu
         .one(&db.conn)
         .await?;
     if existing_user.is_some() {
-        anyhow::bail!("User with username '{}' already exists.", args.username);
+        anyhow::bail!("username '{}' already exists.", args.username);
     }
 
     println!("Enter password for new user '{}':", args.username);
