@@ -11,6 +11,7 @@ use crate::{common::AppError, controller::CaptureInfo};
 
 use super::WebState;
 
+#[tracing::instrument(skip(state))]
 pub async fn index(State(state): State<Arc<WebState>>) -> Result<Response, AppError> {
     let capture_infos = CaptureInfo::fetch_timeline(&state.db).await?;
 

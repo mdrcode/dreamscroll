@@ -7,7 +7,7 @@ mod r_search;
 mod r_upload;
 
 pub use builder::WebState;
-pub use builder::make_axum_router;
+pub use builder::make_ui_router;
 pub use r_auth::login_handler;
 pub use r_auth::logout_handler;
 pub use r_detail::detail;

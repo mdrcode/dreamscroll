@@ -18,6 +18,7 @@ pub struct SearchParams {
     q: String,
 }
 
+#[tracing::instrument(skip(state, params))]
 pub async fn search(
     State(state): State<Arc<WebState>>,
     Query(params): Query<SearchParams>,

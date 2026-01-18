@@ -4,7 +4,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
 
-use dreamscroll::{database, facility, illumination, storage, webui};
+use dreamscroll::{api, database, facility, illumination, storage, webui};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -19,14 +19,18 @@ async fn main() -> anyhow::Result<()> {
 
     let cancel_token = CancellationToken::new();
 
-    let webui_host_port = config
-        .webui_host_port
+    let web_host_port = config
+        .web_host_port
         .expect("webui_host_port must be configured");
 
     let thread_webui = {
-        let mut router = webui::v1::make_axum_router(db.clone(), storage.clone());
+        let mut router = webui::v1::make_ui_router(db.clone(), storage.clone());
 
-        // For local dev, we serve static files directly
+        // REST API routes
+        let api_router = api::service::make_api_router(db.clone());
+        router = router.nest("/api", api_router);
+
+        // For local dev, we serve static JS/CSS files directly
         router = router.nest_service("/static", ServeDir::new("web_static/"));
 
         // ... and we serve media directly from local file storage
@@ -36,7 +40,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         let cancel = cancel_token.clone();
-        let host_port = format!("{}:{}", webui_host_port.0, webui_host_port.1);
+        let host_port = format!("{}:{}", web_host_port.0, web_host_port.1);
         tokio::spawn(async move {
             let listener = TcpListener::bind(host_port).await.unwrap();
             axum::serve(listener, router)
@@ -44,12 +48,12 @@ async fn main() -> anyhow::Result<()> {
                     cancel.cancelled().await;
                 })
                 .await
-                .expect("Failed to serve Web UI.");
+                .expect("Failed to serve Web.");
         })
     };
     println!(
         "Web UI serving locally at http://localhost:{}",
-        webui_host_port.1
+        web_host_port.1
     );
 
     let thread_illuminator = {
@@ -64,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
         })
     };
 
-    let _ = webbrowser::open(&format!("http://localhost:{}", webui_host_port.1));
+    let _ = webbrowser::open(&format!("http://localhost:{}", web_host_port.1));
 
     tokio::signal::ctrl_c().await?;
     println!("Shutting down...");

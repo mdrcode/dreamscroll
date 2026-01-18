@@ -1,4 +1,4 @@
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{EnvFilter, fmt::format::FmtSpan};
 
 use super::config::Config;
 
@@ -7,10 +7,8 @@ pub fn init_tracing(config: &Config) {
         .unwrap_or_else(|_| EnvFilter::new(config.tracing_max_level.to_string()));
 
     tracing_subscriber::fmt()
-        .without_time()
-        .with_target(false)
-        .with_file(true)
-        .with_line_number(true)
+        .compact()
+        .with_span_events(FmtSpan::NEW | FmtSpan::CLOSE)
         .with_env_filter(filter)
         .init();
 }
