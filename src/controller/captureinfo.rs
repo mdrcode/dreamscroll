@@ -8,7 +8,7 @@ use crate::common::*;
 use crate::database::DbHandle;
 use crate::entity::*;
 
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 pub struct CaptureInfo {
     pub id: i32,
     pub created_at: DateTime<Utc>,

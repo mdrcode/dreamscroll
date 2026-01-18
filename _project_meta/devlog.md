@@ -8,7 +8,15 @@ to a User, etc.
 
 - [ ] Rework capture entity to be a relation of user
 - [ ] Ensure import/export work in the context of a specific user id
-- [ ] Start sketching out API?
+- [X] Start sketching out API?
+
+EOD: Made good progress on the API implementation but unfortunately it seems a
+bit slow via Axum:
+
+- Fetching all captures, but returning just 1 takes: 16ms
+- Fetching all capatures, returning them all takes: 60ms
+
+Where does all the extra time come from?
 
 ## 2026-01-16
 

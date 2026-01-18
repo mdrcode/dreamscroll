@@ -14,7 +14,7 @@ use super::ApiState;
 pub async fn get(State(state): State<Arc<ApiState>>) -> Result<impl IntoResponse, AppError> {
     let capture_infos = CaptureInfo::fetch_timeline(&state.db).await?;
     tracing::info!(count = capture_infos.len(), "Fetched timeline captures");
-    Ok(Json(capture_infos))
+    Ok(Json(capture_infos[..1].to_vec()))
 }
 
 #[cfg(test)]
