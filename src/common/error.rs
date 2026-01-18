@@ -17,6 +17,10 @@ impl AppError {
         }
     }
 
+    pub fn into_inner(self) -> anyhow::Error {
+        self.error
+    }
+
     pub fn bad_request(error: impl Into<anyhow::Error>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, error.into())
     }
@@ -42,9 +46,28 @@ impl IntoResponse for AppError {
     }
 }
 
-// Support `?` with any anyhow-compatible error
-impl<E: Into<anyhow::Error>> From<E> for AppError {
-    fn from(err: E) -> Self {
+// Allow AppError to be converted back to anyhow::Error
+impl From<AppError> for anyhow::Error {
+    fn from(err: AppError) -> Self {
+        err.error
+    }
+}
+
+// Specific From implementations for common error types
+impl From<anyhow::Error> for AppError {
+    fn from(err: anyhow::Error) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, err)
+    }
+}
+
+impl From<sea_orm::DbErr> for AppError {
+    fn from(err: sea_orm::DbErr) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, err.into())
+    }
+}
+
+impl From<std::io::Error> for AppError {
+    fn from(err: std::io::Error) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, err.into())
     }
 }

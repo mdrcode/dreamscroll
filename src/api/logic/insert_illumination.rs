@@ -1,29 +1,18 @@
-use anyhow::anyhow;
-use sea_orm::ActiveValue::Set;
-use sea_orm::EntityTrait;
+use crate::{common::*, database::DbHandle, entity, illumination::Illuminator};
 
-use crate::common::*;
-use crate::database::DbHandle;
-use crate::entity::*;
-
-// Is this still needed? 
-pub async fn insert(
+// Is this still needed?
+pub async fn insert_illumination<I: Illuminator>(
     db: &DbHandle,
     capture_id: i32,
-    provider: &str,
-    content: &str,
+    illuminator: &I,
+    content: String,
 ) -> anyhow::Result<(), AppError> {
-    let new_illumination = illumination::ActiveModel {
-        capture_id: Set(capture_id),
-        provider: Set(provider.to_string()),
-        content: Set(content.to_string()),
-        ..Default::default()
-    };
-
-    illumination::Entity::insert(new_illumination)
-        .exec(&db.conn)
-        .await
-        .map_err(|e| anyhow!(e))?;
+    entity::illumination::ActiveModel::builder()
+        .set_capture_id(capture_id)
+        .set_provider(illuminator.model_name().to_string())
+        .set_content(content)
+        .save(&db.conn)
+        .await?;
 
     Ok(())
 }

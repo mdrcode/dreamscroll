@@ -1,13 +1,8 @@
 use std::path::PathBuf;
 
 use argh::FromArgs;
-use chrono::Utc;
 
-use crate::{
-    database,
-    entity::{capture, media},
-    facility, storage,
-};
+use crate::{api, database, facility, storage};
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "import")]
@@ -42,17 +37,11 @@ pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<(
     for path in paths {
         let storage_id = storage.store_from_local_path(&path)?;
 
-        let media = media::ActiveModel::builder().set_filename(storage_id.clone());
-
-        let capture = capture::ActiveModel::builder()
-            .set_created_at(Utc::now())
-            .add_media(media)
-            .save(&db.conn)
-            .await?;
+        let capture_info = api::insert_capture(&db, storage_id.clone()).await?;
 
         tracing::info!(
             "Imported new capture {} with storage id {} from path {}",
-            capture.id.unwrap(),
+            capture_info.id,
             storage_id,
             path.display(),
         );

@@ -7,13 +7,8 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::Multipart;
-use chrono::Utc;
-use sea_orm::{ActiveModelTrait, Set};
 
-use crate::{
-    common::AppError,
-    entity::{capture, media},
-};
+use crate::{api, common::AppError};
 
 use super::WebState;
 
@@ -35,20 +30,7 @@ pub async fn upload(
 
     let storage_id = state.storage.store_from_bytes(&media_bytes)?;
 
-    // Insert new capture record into the database
-    let new_capture = capture::ActiveModel {
-        created_at: Set(Utc::now()),
-        ..Default::default()
-    };
-    let capture_result = new_capture.insert(&state.db.conn).await?;
-
-    // Insert new media record linked to the capture
-    let new_media = media::ActiveModel {
-        filename: Set(storage_id),
-        capture_id: Set(Some(capture_result.id)),
-        ..Default::default()
-    };
-    new_media.insert(&state.db.conn).await?;
+    api::insert_capture(&state.db, storage_id).await?;
 
     // Redirect to home page to show the timeline
     Ok(Redirect::to("/").into_response())

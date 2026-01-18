@@ -7,7 +7,6 @@ use crate::{
     api,
     common::{self, AppError},
     database::DbHandle,
-    entity::illumination,
 };
 
 pub struct SimpleWorker<I: Illuminator + 'static> {
@@ -77,19 +76,14 @@ impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
         let illuminator = &self.parent_arc.illuminator;
 
         loop {
-            if let Some(capture_id) = queue.pop_next() {
-                let capture = api::fetch_capture_by_id(&db, capture_id).await?;
+            if let Some(cap_id) = queue.pop_next() {
+                let capture = api::fetch_capture_by_id(&db, cap_id).await?;
 
                 let i = illuminator.illuminate(capture).await?;
 
-                illumination::ActiveModel::builder()
-                    .set_capture_id(capture_id)
-                    .set_provider(illuminator.model_name().to_string())
-                    .set_content(i)
-                    .save(&db.conn)
-                    .await?;
+                api::insert_illumination(db, cap_id, illuminator, i).await?;
 
-                queue.complete(capture_id);
+                queue.complete(cap_id);
             } else {
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
             }
