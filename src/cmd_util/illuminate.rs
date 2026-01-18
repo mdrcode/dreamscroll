@@ -29,7 +29,7 @@ pub async fn run(config: facility::Config, args: IlluminateArgs) -> anyhow::Resu
     let db = database::connect(config.db_config).await?;
     let _storage = storage::make(config.storage_config);
 
-    let capture_info = api::CaptureInfo::fetch_capture_by_id(&db, capture_id)
+    let capture_info = api::fetch_capture_by_id(&db, capture_id)
         .await
         .map_err(|_| anyhow!("Capture with ID {} not found in database.", capture_id))?;
     tracing::info!("Fetched capture {} from db.", capture_info.id);

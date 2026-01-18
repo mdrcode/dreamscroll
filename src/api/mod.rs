@@ -1,6 +1,8 @@
 pub mod client;
-pub mod logic;
 pub mod service;
+
+mod logic;
+pub use logic::*;
 
 mod captureinfo;
 pub use captureinfo::CaptureInfo;

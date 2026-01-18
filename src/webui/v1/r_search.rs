@@ -24,7 +24,7 @@ pub async fn search(
     Query(params): Query<SearchParams>,
 ) -> Result<Response, AppError> {
     let query = params.q.trim();
-    let capture_infos = api::CaptureInfo::search_by_illuminations(&state.db, query).await?;
+    let capture_infos = api::search_by_illuminations(&state.db, query).await?;
 
     let mut context = Context::new();
     context.insert("query", query);

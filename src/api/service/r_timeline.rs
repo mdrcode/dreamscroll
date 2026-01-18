@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
+use crate::{api, common::AppError};
 use axum::{Json, extract::State, response::IntoResponse};
-use crate::{api::CaptureInfo, common::AppError};
 
 use super::ApiState;
 
@@ -11,7 +11,7 @@ use super::ApiState;
 /// media and illuminations, ordered by creation date (newest first).
 #[tracing::instrument(skip(state))]
 pub async fn get(State(state): State<Arc<ApiState>>) -> Result<impl IntoResponse, AppError> {
-    let capture_infos = CaptureInfo::fetch_timeline(&state.db).await?;
+    let capture_infos = api::fetch_timeline(&state.db).await?;
     tracing::info!(count = capture_infos.len(), "Fetched timeline captures");
     Ok(Json(capture_infos))
 }
