@@ -1,5 +1,10 @@
 # Dreamscroll Development Log
 
+## 2026-01-18
+
+Today, intend to make more progress on the API implementation and still need to
+migrate the schema so that all captures/etc properly relate to a user.
+
 ## 2026-01-17
 
 Now that we have auth and a basic concept of User, need to port the rest of the

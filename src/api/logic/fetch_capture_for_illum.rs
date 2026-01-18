@@ -1,8 +1,7 @@
-use anyhow::anyhow;
 use sea_orm::prelude::*;
-use sea_orm::{EntityLoaderTrait, EntityTrait, QueryOrder, QuerySelect};
+use sea_orm::{EntityTrait, QueryOrder, QuerySelect};
 
-use crate::{api, common::AppError, database::DbHandle, entity::*};
+use crate::{common::AppError, database::DbHandle, entity::*};
 
 pub async fn fetch_captures_need_illumination(db: &DbHandle) -> anyhow::Result<Vec<i32>, AppError> {
     let capture_ids = capture::Entity::find()

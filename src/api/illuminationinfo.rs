@@ -1,34 +1,22 @@
-use anyhow::anyhow;
-use sea_orm::ActiveValue::Set;
-use sea_orm::EntityTrait;
 use serde::Serialize;
 
-use crate::common::*;
-use crate::database::DbHandle;
 use crate::entity::*;
 
-#[derive(Serialize)]
-pub struct IlluminationInfo;
+#[derive(Clone, Serialize)]
+pub struct IlluminationInfo {
+    pub id: i32,
+    pub capture_id: i32,
+    pub provider: String,
+    pub content: String,
+}
 
-impl IlluminationInfo {
-    pub async fn insert(
-        db: &DbHandle,
-        capture_id: i32,
-        provider: &str,
-        content: &str,
-    ) -> anyhow::Result<(), AppError> {
-        let new_illumination = illumination::ActiveModel {
-            capture_id: Set(capture_id),
-            provider: Set(provider.to_string()),
-            content: Set(content.to_string()),
-            ..Default::default()
-        };
-
-        illumination::Entity::insert(new_illumination)
-            .exec(&db.conn)
-            .await
-            .map_err(|e| anyhow!(e))?;
-
-        Ok(())
+impl From<illumination::ModelEx> for IlluminationInfo {
+    fn from(mx: illumination::ModelEx) -> Self {
+        Self {
+            id: mx.id,
+            capture_id: mx.capture_id,
+            provider: mx.provider,
+            content: mx.content,
+        }
     }
 }

@@ -1,10 +1,9 @@
 use sea_orm::entity::prelude::*;
-use serde::Serialize;
 
 use super::capture;
 
 #[sea_orm::model]
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "illumination")]
 pub struct Model {
     #[sea_orm(primary_key)]

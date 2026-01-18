@@ -1,6 +1,5 @@
-use anyhow::anyhow;
 use sea_orm::prelude::*;
-use sea_orm::{EntityLoaderTrait, EntityTrait, QueryOrder, QuerySelect};
+use sea_orm::{EntityTrait, QueryOrder};
 
 use crate::{api, common::AppError, database::DbHandle, entity::*};
 
@@ -28,7 +27,7 @@ pub async fn fetch_timeline(db: &DbHandle) -> anyhow::Result<Vec<api::CaptureInf
             let mut mx = c;
             mx.illuminations =
                 HasMany::Loaded(ill.into_iter().map(illumination::ModelEx::from).collect());
-            api::CaptureInfo::new(mx)
+            api::CaptureInfo::from(mx)
         })
         .collect();
 

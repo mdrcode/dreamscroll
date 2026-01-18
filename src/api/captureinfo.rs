@@ -4,28 +4,32 @@ use serde::Serialize;
 
 use crate::entity::*;
 
+use super::*;
+
 #[derive(Clone, Serialize)]
 pub struct CaptureInfo {
     pub id: i32,
     pub created_at: DateTime<Utc>,
-    pub medias: Vec<media::ModelEx>,
-    pub illuminations: Vec<illumination::ModelEx>,
+    pub medias: Vec<MediaInfo>,
+    pub illuminations: Vec<IlluminationInfo>,
 
     pub summary: String,
     pub details: String,
 }
 
-impl CaptureInfo {
-    pub fn new(mx: capture::ModelEx) -> Self {
-        // TODO is this the most idiomatic way??
-        let medias = match mx.medias {
+impl From<capture::ModelEx> for CaptureInfo {
+    fn from(capture_model: capture::ModelEx) -> Self {
+        let medias = match capture_model.medias {
             HasMany::Unloaded => vec![],
-            HasMany::Loaded(medias) => medias,
+            HasMany::Loaded(models) => models.into_iter().map(|m| MediaInfo::from(m)).collect(),
         };
 
-        let illuminations = match mx.illuminations {
+        let illuminations = match capture_model.illuminations {
             HasMany::Unloaded => vec![],
-            HasMany::Loaded(illuminations) => illuminations,
+            HasMany::Loaded(models) => models
+                .into_iter()
+                .map(|m| IlluminationInfo::from(m))
+                .collect(),
         };
 
         // TODO obviously this is brittle, need to rethink the CaptureInfo
@@ -45,12 +49,12 @@ impl CaptureInfo {
         }
 
         Self {
-            id: mx.id,
-            created_at: mx.created_at,
+            id: capture_model.id,
+            created_at: capture_model.created_at,
             medias,
             illuminations,
-            summary: summary,
-            details: details,
+            summary,
+            details,
         }
     }
 }
