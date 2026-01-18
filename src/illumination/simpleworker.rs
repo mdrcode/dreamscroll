@@ -4,8 +4,8 @@ use async_trait::async_trait;
 
 use super::{Illuminator, IlluminatorWorker};
 use crate::{
+    api,
     common::{self, AppError},
-    controller::CaptureInfo,
     database::DbHandle,
     entity::illumination,
 };
@@ -54,7 +54,7 @@ impl<I: Illuminator + 'static> IlluminatorWorker for SimpleWorker<I> {
         });
 
         loop {
-            let capture_ids = CaptureInfo::fetch_ids_need_illumination(&self.db).await?;
+            let capture_ids = api::CaptureInfo::fetch_captures_need_illumination(&self.db).await?;
             let n = capture_ids.len();
             let nq = self.queue.enqueue_iter(capture_ids);
 
@@ -78,7 +78,7 @@ impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
 
         loop {
             if let Some(capture_id) = queue.pop_next() {
-                let capture = CaptureInfo::fetch_by_id(&db, capture_id).await?;
+                let capture = api::CaptureInfo::fetch_capture_by_id(&db, capture_id).await?;
 
                 let i = illuminator.illuminate(capture).await?;
 

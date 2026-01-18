@@ -4,8 +4,9 @@ use base64::Engine;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use crate::api;
+
 use super::Illuminator;
-use crate::controller;
 
 #[derive(Clone)]
 pub struct GrokIlluminator {
@@ -26,7 +27,7 @@ impl Illuminator for GrokIlluminator {
         "grok"
     }
 
-    async fn illuminate(&self, capture: controller::CaptureInfo) -> anyhow::Result<String> {
+    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<String> {
         tracing::info!("GrokIlluminator: Illuminating capture ID {}", capture.id);
 
         let media1 = capture.medias.get(0).expect("No media found for capture.");

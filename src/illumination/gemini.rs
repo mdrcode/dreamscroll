@@ -4,8 +4,9 @@ use base64::Engine;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
+use crate::api;
+
 use super::Illuminator;
-use crate::controller;
 
 const PROMPT: &str = r#"
 You are a virtual research assistant helping me to explore my world by analyzing
@@ -62,7 +63,7 @@ impl Illuminator for GeminiIlluminator {
         "gemini"
     }
 
-    async fn illuminate(&self, capture: controller::CaptureInfo) -> anyhow::Result<String> {
+    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<String> {
         tracing::info!("GeminiIlluminator: Illuminating capture ID {}", capture.id);
 
         let media1 = capture.medias.get(0).expect("No media found for capture.");

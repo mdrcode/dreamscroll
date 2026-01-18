@@ -7,13 +7,13 @@ use axum::{
 };
 use tera::Context;
 
-use crate::{common::AppError, controller::CaptureInfo};
+use crate::{api, common::AppError};
 
 use super::WebState;
 
 #[tracing::instrument(skip(state))]
 pub async fn index(State(state): State<Arc<WebState>>) -> Result<Response, AppError> {
-    let capture_infos = CaptureInfo::fetch_timeline(&state.db).await?;
+    let capture_infos = api::CaptureInfo::fetch_timeline(&state.db).await?;
 
     let mut context = Context::new();
     context.insert("capture_infos", &capture_infos);

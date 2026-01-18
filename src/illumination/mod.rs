@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{common::AppError, controller, database::DbHandle};
+use crate::{api, common::AppError, database::DbHandle};
 
 mod gemini;
 mod grok;
@@ -14,7 +14,7 @@ pub use loremipsum::LoremIpsumIlluminator;
 #[async_trait::async_trait]
 pub trait Illuminator: dyn_clone::DynClone + Send + Sync {
     fn model_name(&self) -> &'static str;
-    async fn illuminate(&self, capture: controller::CaptureInfo) -> anyhow::Result<String>;
+    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<String>;
 }
 
 dyn_clone::clone_trait_object!(Illuminator);

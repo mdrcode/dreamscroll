@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use axum::{Json, extract::State, response::IntoResponse};
-
-use crate::{common::AppError, controller::CaptureInfo};
+use crate::{api::CaptureInfo, common::AppError};
 
 use super::ApiState;
 

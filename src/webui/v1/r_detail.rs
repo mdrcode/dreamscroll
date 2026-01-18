@@ -7,7 +7,7 @@ use axum::{
 };
 use tera::Context;
 
-use crate::{common::AppError, controller::CaptureInfo};
+use crate::{api, common::AppError};
 
 use super::WebState;
 
@@ -15,7 +15,7 @@ pub async fn detail(
     State(state): State<Arc<WebState>>,
     Path(id): Path<i32>,
 ) -> Result<Response, AppError> {
-    let capture_info = CaptureInfo::fetch_by_id(&state.db, id).await?;
+    let capture_info = api::CaptureInfo::fetch_capture_by_id(&state.db, id).await?;
 
     let mut context = Context::new();
     context.insert("capture", &capture_info);

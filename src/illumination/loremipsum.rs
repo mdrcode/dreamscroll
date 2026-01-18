@@ -1,5 +1,6 @@
+use crate::api;
+
 use super::Illuminator;
-use crate::controller;
 
 #[derive(Clone, Default)]
 pub struct LoremIpsumIlluminator;
@@ -10,7 +11,7 @@ impl Illuminator for LoremIpsumIlluminator {
         "loremipsum"
     }
 
-    async fn illuminate(&self, capture: controller::CaptureInfo) -> anyhow::Result<String> {
+    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<String> {
         let s = format!("Lorem ipsum illumination for capture ID {}", capture.id);
         std::thread::sleep(std::time::Duration::from_millis(500));
         Ok(s)

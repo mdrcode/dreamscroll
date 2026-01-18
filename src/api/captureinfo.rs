@@ -58,7 +58,10 @@ impl CaptureInfo {
         }
     }
 
-    pub async fn fetch_by_id(db: &DbHandle, id: i32) -> anyhow::Result<CaptureInfo, AppError> {
+    pub async fn fetch_capture_by_id(
+        db: &DbHandle,
+        id: i32,
+    ) -> anyhow::Result<CaptureInfo, AppError> {
         let capture = capture::Entity::load()
             .filter_by_id(id)
             .with(media::Entity)
@@ -106,7 +109,9 @@ impl CaptureInfo {
         Ok(capture_infos)
     }
 
-    pub async fn fetch_ids_need_illumination(db: &DbHandle) -> anyhow::Result<Vec<i32>, AppError> {
+    pub async fn fetch_captures_need_illumination(
+        db: &DbHandle,
+    ) -> anyhow::Result<Vec<i32>, AppError> {
         let capture_ids = capture::Entity::find()
             .left_join(illumination::Entity)
             .filter(illumination::Column::Id.is_null())
