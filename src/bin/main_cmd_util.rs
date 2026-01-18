@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use dreamscroll::{facility, util_cmd::*};
+use dreamscroll::{cmd_util::*, facility};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll admin utility")]
@@ -8,12 +8,7 @@ struct Args {
     #[argh(subcommand)]
     command: Command,
 
-    #[argh(
-        switch,
-        long = "verbose",
-        short = 'v',
-        description = "enable verbose logging"
-    )]
+    #[argh(switch, long = "verbose", description = "enable verbose logging")]
     verbose: bool,
 }
 

@@ -1,6 +1,8 @@
+use tracing;
+
 use crate::{database::DbConfig, storage::StorageConfig};
 
-use super::*;
+use super::Env;
 
 pub struct Config {
     pub tracing_max_level: tracing::Level,
