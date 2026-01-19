@@ -28,8 +28,8 @@ pub async fn search(
 
     let mut context = Context::new();
     context.insert("query", query);
-    context.insert("capture_infos", &capture_infos);
     context.insert("result_count", &capture_infos.len());
+    context.insert("capture_infos", &capture_infos);
 
     let rendered = state
         .tera

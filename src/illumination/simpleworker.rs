@@ -57,7 +57,14 @@ impl<I: Illuminator + 'static> IlluminatorWorker for SimpleWorker<I> {
             let n = capture_ids.len();
             let nq = self.queue.enqueue_iter(capture_ids);
 
-            tracing::info!("Retrieved {} needing illumination, enqueued {}.", n, nq);
+            if nq > 0 {
+                tracing::info!("Retrieved {} needing illumination, enqueued {}.", n, nq);
+            } else {
+                tracing::debug!(
+                    "Retrieved {} needing illumination, none enqueued (all already queued).",
+                    n
+                );
+            }
 
             tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         }

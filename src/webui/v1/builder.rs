@@ -19,7 +19,7 @@ pub fn make_ui_router(
     db: Arc<DbHandle>,
     storage: Arc<dyn StorageProvider + Send + Sync>,
 ) -> Router {
-    let tera = Tera::new("web_templates/v1/*.tera").expect("Failed to load templates");
+    let tera = Tera::new("web/v1/templates/*.tera").expect("Failed to load templates");
 
     let state = Arc::new(WebState {
         db: db.clone(),

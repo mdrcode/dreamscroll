@@ -3,7 +3,7 @@
 
 <head>
     <title>Login - dreamscroll</title>
-    <link rel="stylesheet" href="/static/v1/common.css">
+    <link rel="stylesheet" href="/static/common.css">
     <style>
     </style>
     <script>

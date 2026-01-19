@@ -1,4 +1,4 @@
-use sea_orm::prelude::*;
+use sea_orm::{EntityLoaderTrait, prelude::*};
 use sea_orm::{EntityTrait, QuerySelect};
 
 use crate::{api, common::AppError, database::DbHandle, entity::*};
@@ -25,6 +25,7 @@ pub async fn search_by_illuminations(
     // Get unique capture IDs
     let captures = capture::Entity::load()
         .filter(capture::Column::Id.is_in(capture_ids_with_match))
+        .order_by_id_desc()
         .with(media::Entity)
         .with(illumination::Entity)
         .all(&db.conn)

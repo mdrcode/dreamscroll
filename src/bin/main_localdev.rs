@@ -31,7 +31,7 @@ async fn main() -> anyhow::Result<()> {
         router = router.nest("/api", api_router);
 
         // For local dev, we serve static JS/CSS files directly
-        router = router.nest_service("/static", ServeDir::new("web_static/"));
+        router = router.nest_service("/static", ServeDir::new("web/v1/static"));
 
         // ... and we serve media directly from local file storage
         let local_serving_path_opt = storage.local_serving_path();

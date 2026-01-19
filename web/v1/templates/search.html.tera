@@ -3,8 +3,8 @@
 
 <head>
     <title>Search - dreamscroll</title>
-    <link rel="stylesheet" href="/static/v1/common.css">
-    <link rel="stylesheet" href="/static/v1/capturelist.css">
+    <link rel="stylesheet" href="/static/common.css">
+    <link rel="stylesheet" href="/static/capturelist.css">
     <style>
         #page-content-container {
             width: 80%;
