@@ -5,6 +5,9 @@
 Today, intend to make more progress on the API implementation and still need to
 migrate the schema so that all captures/etc properly relate to a user.
 
+EOD: API structure is feeling good. The capture model now has a user_id field
+but it's not (yet) set during various other flows of the app. TODO.
+
 ## 2026-01-17
 
 Now that we have auth and a basic concept of User, need to port the rest of the
