@@ -4,3 +4,7 @@ GET http://localhost:8000/api/dummy
 ###
 
 GET http://localhost:8000/api/timeline
+
+###
+
+GET http://localhost:8000/api/capture/12
