@@ -5,7 +5,7 @@ use argon2::{
 
 use crate::{database::DbHandle, entity::user};
 
-use super::autherror::*;
+use super::{WebAuthUser, autherror::*};
 
 pub fn hash_password(password: &str) -> Result<String, AuthError> {
     let salt = SaltString::generate(&mut OsRng);
@@ -15,24 +15,24 @@ pub fn hash_password(password: &str) -> Result<String, AuthError> {
 }
 
 pub enum Verification {
-    Success(user::Model),
+    Success(WebAuthUser),
     NoSuchUser,
     InvalidPassword,
 }
 
 pub async fn verify_password(db: &DbHandle, u: &str, p: &str) -> Result<Verification, AuthError> {
-    let user = match user::Entity::find_by_username(u).one(&db.conn).await? {
+    let db_user = match user::Entity::find_by_username(u).one(&db.conn).await? {
         Some(user) => user,
         None => return Ok(Verification::NoSuchUser),
     };
 
-    let parsed_hash = PasswordHash::new(&user.password_hash)?;
+    let parsed_hash = PasswordHash::new(&db_user.password_hash)?;
 
     if Argon2::default()
         .verify_password(p.as_bytes(), &parsed_hash)
         .is_ok()
     {
-        Ok(Verification::Success(user))
+        Ok(Verification::Success(WebAuthUser::from(db_user)))
     } else {
         Ok(Verification::InvalidPassword)
     }

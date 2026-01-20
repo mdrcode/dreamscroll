@@ -7,15 +7,21 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::Multipart;
+use axum_login::{AuthSession, AuthUser};
 
-use crate::{api, common::AppError};
+use crate::{api, auth, common::AppError};
 
 use super::WebState;
 
+#[tracing::instrument(skip(auth, state, multipart))]
 pub async fn upload(
+    auth: AuthSession<auth::Backend>,
     State(state): State<Arc<WebState>>,
     multipart: Multipart,
 ) -> Result<Response, AppError> {
+    let user = auth.user.unwrap();
+    tracing::debug!("Processing upload for user ID {}", user.id());
+
     let media_bytes = match extract_bytes(multipart, "image").await? {
         Some(bytes) => bytes,
         None => {
@@ -30,7 +36,7 @@ pub async fn upload(
 
     let storage_id = state.storage.store_from_bytes(&media_bytes)?;
 
-    api::insert_capture(&state.db, storage_id).await?;
+    api::insert_capture(None, auth::Context::from(&user), &state.db, storage_id).await?;
 
     // Redirect to home page to show the timeline
     Ok(Redirect::to("/").into_response())

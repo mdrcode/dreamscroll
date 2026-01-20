@@ -26,7 +26,7 @@ pub async fn run(config: facility::Config, args: CreateUserArgs) -> anyhow::Resu
 
     println!("Enter password for new user '{}':", args.username);
     let password = rpassword::read_password()?;
-    let password_hash = auth::hash_password(&password)?;
+    let password_hash = auth::password::hash_password(&password)?;
 
     let new_user = user::ActiveModel {
         username: Set(args.username),

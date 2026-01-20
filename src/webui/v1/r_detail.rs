@@ -5,16 +5,22 @@ use axum::{
     extract::{Path, State},
     response::{Html, IntoResponse, Response},
 };
+use axum_login::{AuthSession, AuthUser};
 use tera::Context;
 
-use crate::{api, common::AppError};
+use crate::{api, auth, common::AppError};
 
 use super::WebState;
 
+#[tracing::instrument(skip(auth, state, id))]
 pub async fn detail(
+    auth: AuthSession<auth::Backend>,
     State(state): State<Arc<WebState>>,
     Path(id): Path<i32>,
 ) -> Result<Response, AppError> {
+    let user = auth.user.unwrap();
+    tracing::debug!("Rendering detail for capture {} for user {}", id, user.id());
+
     let capture_info = api::fetch_capture_by_id(&state.db, id).await?;
 
     let mut context = Context::new();

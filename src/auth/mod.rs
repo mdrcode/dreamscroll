@@ -1,9 +1,14 @@
 mod autherror;
-mod authuser;
-mod backend;
-mod password;
-
 pub use autherror::AuthError;
+
+mod authuser;
+pub use authuser::WebAuthUser;
+
+mod backend;
 pub use backend::Backend;
 pub use backend::Credentials;
-pub use password::hash_password;
+
+mod context;
+pub use context::Context;
+
+pub mod password;

@@ -5,14 +5,21 @@ use axum::{
     extract::State,
     response::{Html, IntoResponse, Response},
 };
+use axum_login::{AuthSession, AuthUser};
 use tera::Context;
 
-use crate::{api, common::AppError};
+use crate::{api, auth, common::AppError};
 
 use super::WebState;
 
-#[tracing::instrument(skip(state))]
-pub async fn index(State(state): State<Arc<WebState>>) -> Result<Response, AppError> {
+#[tracing::instrument(skip(auth, state))]
+pub async fn index(
+    auth: AuthSession<auth::Backend>,
+    State(state): State<Arc<WebState>>,
+) -> Result<Response, AppError> {
+    let user = auth.user.unwrap();
+    tracing::debug!("Rendering index for user ID {}", user.id());
+
     let capture_infos = api::fetch_timeline(&state.db).await?;
 
     let mut context = Context::new();

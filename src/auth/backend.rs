@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::{database::DbHandle, entity::user};
 
-use super::{autherror::*, password::*};
+use super::{AuthError, WebAuthUser, password::*};
 
 #[derive(Deserialize)]
 pub struct Credentials {
@@ -26,7 +26,7 @@ impl Backend {
 }
 
 impl AuthnBackend for Backend {
-    type User = user::Model;
+    type User = WebAuthUser;
     type Credentials = Credentials;
     type Error = AuthError;
 
@@ -43,9 +43,11 @@ impl AuthnBackend for Backend {
     }
 
     async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
-        user::Entity::find_by_id(*user_id)
+        let auth_user = user::Entity::find_by_id(*user_id)
             .one(&self.db.conn)
-            .await
-            .map_err(AuthError::from)
+            .await?
+            .map(WebAuthUser::from);
+
+        Ok(auth_user)
     }
 }

@@ -5,10 +5,11 @@ use axum::{
     extract::{Query, State},
     response::{Html, IntoResponse, Response},
 };
+use axum_login::{AuthSession, AuthUser};
 use serde::Deserialize;
 use tera::Context;
 
-use crate::{api, common::AppError};
+use crate::{api, auth, common::AppError};
 
 use super::WebState;
 
@@ -18,12 +19,17 @@ pub struct SearchParams {
     q: String,
 }
 
-#[tracing::instrument(skip(state, params))]
+#[tracing::instrument(skip(auth, state, params))]
 pub async fn search(
+    auth: AuthSession<auth::Backend>,
     State(state): State<Arc<WebState>>,
     Query(params): Query<SearchParams>,
 ) -> Result<Response, AppError> {
     let query = params.q.trim();
+
+    let user = auth.user.unwrap();
+    tracing::debug!("Rendering search q: {} for user ID {}", query, user.id());
+
     let capture_infos = api::search_by_illuminations(&state.db, query).await?;
 
     let mut context = Context::new();
