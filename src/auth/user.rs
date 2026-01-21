@@ -1,6 +1,11 @@
-use crate::entity::user;
+use argon2::{
+    Argon2, PasswordHash, PasswordVerifier,
+    password_hash::{SaltString, rand_core::OsRng},
+};
 
-use super::jwt::JwtClaims;
+use crate::{database::DbHandle, entity::user};
+
+use super::{jwt::JwtClaims, webautherror::*};
 
 #[derive(Clone)]
 pub struct DreamscrollAuthUser {
@@ -57,5 +62,40 @@ impl From<JwtClaims> for DreamscrollAuthUser {
             session_hash: String::new(),
             claims: Some(claims),
         }
+    }
+}
+
+pub fn hash_password(password: &str) -> Result<String, WebAuthError> {
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    let password_hash = PasswordHash::generate(argon2, password.as_bytes(), &salt)?.to_string();
+    Ok(password_hash)
+}
+
+pub enum Verification {
+    Success(DreamscrollAuthUser),
+    NoSuchUser,
+    InvalidPassword,
+}
+
+pub async fn verify_password(
+    db: &DbHandle,
+    u: &str,
+    p: &str,
+) -> Result<Verification, WebAuthError> {
+    let db_user = match user::Entity::find_by_username(u).one(&db.conn).await? {
+        Some(user) => user,
+        None => return Ok(Verification::NoSuchUser),
+    };
+
+    let parsed_hash = PasswordHash::new(&db_user.password_hash)?;
+
+    if Argon2::default()
+        .verify_password(p.as_bytes(), &parsed_hash)
+        .is_ok()
+    {
+        Ok(Verification::Success(DreamscrollAuthUser::from(db_user)))
+    } else {
+        Ok(Verification::InvalidPassword)
     }
 }

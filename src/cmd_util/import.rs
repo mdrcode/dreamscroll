@@ -41,14 +41,14 @@ pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<(
     // TODO this should be a param
     println!("Enter password for user '{}':", args.username);
     let password = rpassword::read_password()?;
-    let verification = auth::password::verify_password(&db, &args.username, &password).await?;
+    let verification = auth::verify_password(&db, &args.username, &password).await?;
 
     let user_context = match verification {
-        auth::password::Verification::Success(user) => auth::Context::from(&user),
-        auth::password::Verification::NoSuchUser => {
+        auth::Verification::Success(user) => auth::Context::from(&user),
+        auth::Verification::NoSuchUser => {
             anyhow::bail!("No such user: {}", args.username);
         }
-        auth::password::Verification::InvalidPassword => {
+        auth::Verification::InvalidPassword => {
             anyhow::bail!("Invalid password for user: {}", args.username);
         }
     };

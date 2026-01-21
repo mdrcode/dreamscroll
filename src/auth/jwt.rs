@@ -99,10 +99,10 @@ impl JwtConfig {
     /// # Returns
     ///
     /// The encoded JWT string, or an error if encoding fails.
-    pub fn create_token(&self, user_id: i32) -> Result<String, JwtError> {
+    pub fn create_token(&self, user: DreamscrollAuthUser) -> Result<String, JwtError> {
         let now = jsonwebtoken::get_current_timestamp();
         let claims = JwtClaims {
-            sub: user_id,
+            sub: user.user_id(),
             exp: now + self.expiration_secs,
             iat: now,
         };
@@ -278,6 +278,7 @@ mod tests {
     fn test_create_and_decode_token() {
         let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!");
         let user_id = 42;
+        
 
         let token = config.create_token(user_id).expect("should create token");
         assert!(!token.is_empty());

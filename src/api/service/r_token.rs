@@ -7,7 +7,7 @@ use std::sync::Arc;
 use axum::{Json, extract::State, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 
-use crate::{auth::password, common::AppError, entity::user};
+use crate::{auth, common::AppError};
 
 use super::ApiState;
 
@@ -58,31 +58,33 @@ pub async fn post(
     Json(request): Json<TokenRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     // Look up the user by username
-    let user_opt = user::Entity::find_by_username(&request.username)
-        .one(&state.db.conn)
-        .await?;
+    let verification =
+        auth::verify_password(&state.db, &request.username, &request.password).await?;
 
-    let user = user_opt.ok_or_else(|| {
-        tracing::warn!("Login attempt for unknown user");
-        AppError::unauthorized(anyhow::anyhow!("Invalid credentials"))
-    })?;
-
-    // Verify password
-    let password_valid = password::verify(&user.password_hash, &request.password)?;
-    if !password_valid {
-        tracing::warn!(user_id = user.id, "Login attempt with invalid password");
-        return Err(AppError::unauthorized(anyhow::anyhow!(
-            "Invalid credentials"
-        )));
-    }
+    let user = match verification {
+        auth::Verification::Success(user) => user,
+        auth::Verification::NoSuchUser => {
+            tracing::warn!(username = %request.username, "Login attempt for non-existent user");
+            return Err(AppError::unauthorized(anyhow::anyhow!(
+                "Invalid credentials"
+            )));
+        }
+        auth::Verification::InvalidPassword => {
+            tracing::warn!(username = %request.username, "Login attempt with invalid password");
+            return Err(AppError::unauthorized(anyhow::anyhow!(
+                "Invalid credentials"
+            )));
+        }
+    };
 
     // Create JWT token
+    let user_id = user.user_id();
     let token = state
         .jwt_config
-        .create_token(user.id)
+        .create_token(user)
         .map_err(|e| AppError::internal(anyhow::anyhow!("Token creation failed: {e}")))?;
 
-    tracing::info!(user_id = user.id, "JWT token issued successfully");
+    tracing::info!(user_id, "JWT token issued successfully");
 
     Ok(Json(TokenResponse {
         access_token: token,

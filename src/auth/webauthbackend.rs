@@ -4,9 +4,9 @@ use axum_login::UserId;
 use sea_orm::EntityTrait;
 use serde::Deserialize;
 
-use crate::{database::DbHandle, entity::user};
+use crate::{auth, database::DbHandle, entity::user};
 
-use super::{DreamscrollAuthUser, WebAuthError, password::*};
+use super::{DreamscrollAuthUser, WebAuthError};
 
 #[derive(Deserialize)]
 pub struct Credentials {
@@ -34,10 +34,11 @@ impl axum_login::AuthnBackend for WebAuthBackend {
         &self,
         creds: Self::Credentials,
     ) -> Result<Option<Self::User>, Self::Error> {
-        let verification = verify_password(&self.db, &creds.username, &creds.password).await?;
+        let verification =
+            auth::verify_password(&self.db, &creds.username, &creds.password).await?;
 
         match verification {
-            Verification::Success(user) => Ok(Some(user)),
+            auth::Verification::Success(user) => Ok(Some(user)),
             _ => Ok(None),
         }
     }
