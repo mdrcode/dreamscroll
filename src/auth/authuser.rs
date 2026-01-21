@@ -22,6 +22,18 @@ pub enum AuthMethod {
     },
 }
 
+/// Represents an authenticated user in the Dreamscroll system.
+///
+/// # Construction
+///
+/// This type can ONLY be created through authenticated flows:
+/// - `verify_password()` - after successful password verification  
+/// - `From<JwtClaims>` - after successful JWT token validation
+/// - `from_db_model()` (auth-module only) - for session rehydration by axum-login
+///
+/// There is intentionally no public way to construct this from a raw database
+/// entity to prevent authentication bypass. The constructor is restricted to
+/// the `auth` module using `pub(super)` visibility.
 #[derive(Clone)]
 pub struct DreamscrollAuthUser {
     id: i32,
@@ -41,6 +53,26 @@ impl DreamscrollAuthUser {
         match &self.method {
             AuthMethod::Jwt { claims } => Some(claims),
             AuthMethod::Session { .. } => None,
+        }
+    }
+
+    /// Creates a DreamscrollAuthUser from a database model.
+    ///
+    /// This is module-private (auth module only) and should only be used by:
+    /// - `verify_password()` after successful password verification
+    /// - `WebAuthBackend::get_user()` for session rehydration
+    ///
+    /// # Security Note
+    ///
+    /// This assumes the caller has already performed authentication checks.
+    /// For password auth, the caller must verify the password hash.
+    /// For session rehydration, axum-login has already validated the session.
+    pub(super) fn from_db_model(user_model: user::Model) -> Self {
+        Self {
+            id: user_model.id,
+            method: AuthMethod::Session {
+                session_hash: user_model.password_hash,
+            },
         }
     }
 
@@ -105,22 +137,8 @@ impl axum_login::AuthUser for DreamscrollAuthUser {
             AuthMethod::Jwt { .. } => {
                 // JWT users shouldn't be seen in a session validation context.
                 tracing::error!("session_auth_hash called on JWT-auth user {:?}", self);
-                #[cfg(not(debug_assertions))]
-                return b"";
-                #[cfg(debug_assertions)]
                 panic!("session_auth_hash called on JWT-auth user {:?}", self);
             }
-        }
-    }
-}
-
-impl From<user::Model> for DreamscrollAuthUser {
-    fn from(user_model: user::Model) -> Self {
-        DreamscrollAuthUser {
-            id: user_model.id,
-            method: AuthMethod::Session {
-                session_hash: user_model.password_hash,
-            },
         }
     }
 }
@@ -160,7 +178,9 @@ pub async fn verify_password(db: &DbHandle, u: &str, p: &str) -> Result<Verifica
         .verify_password(p.as_bytes(), &parsed_hash)
         .is_ok()
     {
-        Ok(Verification::Success(DreamscrollAuthUser::from(db_user)))
+        Ok(Verification::Success(DreamscrollAuthUser::from_db_model(
+            db_user,
+        )))
     } else {
         Ok(Verification::InvalidPassword)
     }

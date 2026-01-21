@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::{auth, database::DbHandle, entity::user};
 
-use super::{DreamscrollAuthUser, AuthError};
+use super::{AuthError, DreamscrollAuthUser};
 
 #[derive(Deserialize)]
 pub struct Credentials {
@@ -47,7 +47,7 @@ impl axum_login::AuthnBackend for WebAuthBackend {
         let auth_user = user::Entity::find_by_id(*user_id)
             .one(&self.db.conn)
             .await?
-            .map(DreamscrollAuthUser::from);
+            .map(DreamscrollAuthUser::from_db_model);
 
         Ok(auth_user)
     }
