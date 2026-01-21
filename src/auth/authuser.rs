@@ -5,13 +5,27 @@ use argon2::{
 
 use crate::{database::DbHandle, entity::user};
 
-use super::{jwt::JwtClaims, webautherror::*};
+use super::{autherror::*, jwt::JwtClaims};
+
+/// The authentication method used to create this user session.
+#[derive(Clone, Debug)]
+pub enum AuthMethod {
+    /// Session-based authentication (e.g., cookie-based web login)
+    Session {
+        /// Hash used by axum-login for session validation
+        session_hash: String,
+    },
+    /// JWT token-based authentication (e.g., API access)
+    Jwt {
+        /// The validated JWT claims
+        claims: JwtClaims,
+    },
+}
 
 #[derive(Clone)]
 pub struct DreamscrollAuthUser {
     id: i32,
-    session_hash: String,
-    claims: Option<JwtClaims>,
+    method: AuthMethod,
 }
 
 impl DreamscrollAuthUser {
@@ -19,38 +33,65 @@ impl DreamscrollAuthUser {
         self.id
     }
 
+    pub fn auth_method(&self) -> &AuthMethod {
+        &self.method
+    }
+
     pub fn jwt_claims(&self) -> Option<&JwtClaims> {
-        self.claims.as_ref()
+        match &self.method {
+            AuthMethod::Jwt { claims } => Some(claims),
+            AuthMethod::Session { .. } => None,
+        }
     }
 
     #[cfg(test)]
     pub fn new_test(id: i32) -> Self {
         Self {
             id,
-            session_hash: format!("test-hash-{}", id),
-            claims: None,
+            method: AuthMethod::Session {
+                session_hash: format!("test-hash-{}", id),
+            },
         }
     }
 
     #[cfg(test)]
-    pub fn new_test_with_jwt(id: i32, claims: JwtClaims) -> Self {
+    pub fn new_test_with_claims(id: i32, claims: JwtClaims) -> Self {
         Self {
             id,
-            session_hash: String::new(),
-            claims: Some(claims),
+            method: AuthMethod::Jwt { claims },
         }
     }
 }
 
 impl std::fmt::Debug for DreamscrollAuthUser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("DreamscrollAuthUser")
-            .field("id", &self.id)
-            .finish()
+        let mut debug = f.debug_struct("DreamscrollAuthUser");
+        debug.field("id", &self.id);
+
+        match &self.method {
+            AuthMethod::Session { session_hash } => {
+                debug.field("auth_method", &"Session");
+                // Only show a prefix of the hash for security/readability
+                let hash_preview = if session_hash.len() > 4 {
+                    format!("{}...", &session_hash[..4])
+                } else {
+                    session_hash.clone()
+                };
+                debug.field("session_hash_preview", &hash_preview);
+            }
+            AuthMethod::Jwt { claims } => {
+                debug.field("auth_method", &"Jwt");
+                debug.field("jwt_sub", &claims.sub);
+                debug.field("jwt_exp", &claims.exp);
+                debug.field("jwt_iat", &claims.iat);
+            }
+        }
+
+        debug.finish()
     }
 }
 
-// This trait tells axum-login how to identify your user
+// Axum-login uses this trait to extract user identity from the session
 impl axum_login::AuthUser for DreamscrollAuthUser {
     type Id = i32;
 
@@ -59,16 +100,17 @@ impl axum_login::AuthUser for DreamscrollAuthUser {
     }
 
     fn session_auth_hash(&self) -> &[u8] {
-        // SAFETY: This method should only be called by axum-login for
-        // session-based authentication. JWT-authenticated users bypass
-        // this trait entirely. If this panics, it indicates a logic error
-        // in the authentication flow.
-        assert!(
-            !self.session_hash.is_empty(),
-            "session_auth_hash called on JWT user (user_id: {})",
-            self.id
-        );
-        self.session_hash.as_bytes()
+        match &self.method {
+            AuthMethod::Session { session_hash } => session_hash.as_bytes(),
+            AuthMethod::Jwt { .. } => {
+                // JWT users shouldn't be seen in a session validation context.
+                tracing::error!("session_auth_hash called on JWT-auth user {:?}", self);
+                #[cfg(not(debug_assertions))]
+                return b"";
+                #[cfg(debug_assertions)]
+                panic!("session_auth_hash called on JWT-auth user {:?}", self);
+            }
+        }
     }
 }
 
@@ -76,18 +118,19 @@ impl From<user::Model> for DreamscrollAuthUser {
     fn from(user_model: user::Model) -> Self {
         DreamscrollAuthUser {
             id: user_model.id,
-            session_hash: user_model.password_hash,
-            claims: None,
+            method: AuthMethod::Session {
+                session_hash: user_model.password_hash,
+            },
         }
     }
 }
 
 impl From<JwtClaims> for DreamscrollAuthUser {
     fn from(claims: JwtClaims) -> Self {
+        let id = claims.sub;
         DreamscrollAuthUser {
-            id: claims.sub,
-            session_hash: String::new(),
-            claims: Some(claims),
+            id,
+            method: AuthMethod::Jwt { claims },
         }
     }
 }

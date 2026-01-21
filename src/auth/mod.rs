@@ -1,3 +1,6 @@
+mod autherror;
+pub use autherror::AuthError;
+
 mod authuser;
 pub use authuser::*;
 
@@ -10,9 +13,5 @@ pub use jwt::{JwtClaims, JwtConfig, JwtLayer};
 mod jwterror;
 pub use jwterror::JwtError;
 
-mod webautherror;
-pub use webautherror::AuthError;
-
 mod webauthbackend;
-pub use webauthbackend::Credentials;
-pub use webauthbackend::WebAuthBackend;
+pub use webauthbackend::{Credentials, WebAuthBackend};
