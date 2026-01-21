@@ -4,7 +4,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
 
-use dreamscroll::{api, auth, database, facility, illumination, storage, webui};
+use dreamscroll::{auth, database, facility, illumination, rest, storage, webui};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
         let mut router = webui::v1::make_ui_router(db.clone(), storage.clone());
 
         // REST API routes (JWT-protected)
-        let api_router = api::service::make_api_router(db.clone(), jwt_config.clone());
+        let api_router = rest::make_api_router(db.clone(), jwt_config.clone());
         router = router.nest("/api", api_router);
 
         // For local dev, we serve static JS/CSS files directly

@@ -1,5 +1,3 @@
-pub mod service;
-
 mod logic;
 pub use logic::*;
 

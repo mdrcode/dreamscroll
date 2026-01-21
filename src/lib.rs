@@ -6,5 +6,6 @@ pub mod database;
 pub mod entity;
 pub mod facility;
 pub mod illumination;
+pub mod rest;
 pub mod storage;
 pub mod webui;
