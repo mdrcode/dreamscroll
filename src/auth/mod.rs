@@ -11,7 +11,10 @@ pub use webauthbackend::WebAuthBackend;
 mod context;
 pub use context::Context;
 
-pub mod jwt;
-pub use jwt::{JwtAuthUser, JwtClaims, JwtConfig, JwtError, JwtLayer};
+mod jwt;
+pub use jwt::{JwtAuthUser, JwtClaims, JwtConfig, JwtLayer};
+
+mod jwterror;
+pub use jwterror::JwtError;
 
 pub mod password;
