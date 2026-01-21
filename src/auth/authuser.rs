@@ -22,6 +22,24 @@ impl DreamscrollAuthUser {
     pub fn jwt_claims(&self) -> Option<&JwtClaims> {
         self.claims.as_ref()
     }
+
+    #[cfg(test)]
+    pub fn new_test(id: i32) -> Self {
+        Self {
+            id,
+            session_hash: format!("test-hash-{}", id),
+            claims: None,
+        }
+    }
+
+    #[cfg(test)]
+    pub fn new_test_with_jwt(id: i32, claims: JwtClaims) -> Self {
+        Self {
+            id,
+            session_hash: String::new(),
+            claims: Some(claims),
+        }
+    }
 }
 
 impl std::fmt::Debug for DreamscrollAuthUser {
@@ -41,6 +59,15 @@ impl axum_login::AuthUser for DreamscrollAuthUser {
     }
 
     fn session_auth_hash(&self) -> &[u8] {
+        // SAFETY: This method should only be called by axum-login for
+        // session-based authentication. JWT-authenticated users bypass
+        // this trait entirely. If this panics, it indicates a logic error
+        // in the authentication flow.
+        assert!(
+            !self.session_hash.is_empty(),
+            "session_auth_hash called on JWT user (user_id: {})",
+            self.id
+        );
         self.session_hash.as_bytes()
     }
 }
@@ -65,7 +92,7 @@ impl From<JwtClaims> for DreamscrollAuthUser {
     }
 }
 
-pub fn hash_password(password: &str) -> Result<String, WebAuthError> {
+pub fn hash_password(password: &str) -> Result<String, AuthError> {
     let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
     let password_hash = PasswordHash::generate(argon2, password.as_bytes(), &salt)?.to_string();
@@ -78,11 +105,7 @@ pub enum Verification {
     InvalidPassword,
 }
 
-pub async fn verify_password(
-    db: &DbHandle,
-    u: &str,
-    p: &str,
-) -> Result<Verification, WebAuthError> {
+pub async fn verify_password(db: &DbHandle, u: &str, p: &str) -> Result<Verification, AuthError> {
     let db_user = match user::Entity::find_by_username(u).one(&db.conn).await? {
         Some(user) => user,
         None => return Ok(Verification::NoSuchUser),

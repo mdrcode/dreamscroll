@@ -76,8 +76,8 @@ impl From<std::io::Error> for AppError {
     }
 }
 
-impl From<crate::auth::WebAuthError> for AppError {
-    fn from(err: crate::auth::WebAuthError) -> Self {
+impl From<crate::auth::AuthError> for AppError {
+    fn from(err: crate::auth::AuthError) -> Self {
         Self::new(
             StatusCode::INTERNAL_SERVER_ERROR,
             anyhow::anyhow!("{}", err),

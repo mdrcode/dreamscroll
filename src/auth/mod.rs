@@ -1,3 +1,6 @@
+mod authuser;
+pub use authuser::*;
+
 mod context;
 pub use context::Context;
 
@@ -7,13 +10,8 @@ pub use jwt::{JwtClaims, JwtConfig, JwtLayer};
 mod jwterror;
 pub use jwterror::JwtError;
 
-mod user;
-pub use user::{DreamscrollAuthUser, Verification, hash_password, verify_password};
-
-pub mod password;
-
 mod webautherror;
-pub use webautherror::WebAuthError;
+pub use webautherror::AuthError;
 
 mod webauthbackend;
 pub use webauthbackend::Credentials;

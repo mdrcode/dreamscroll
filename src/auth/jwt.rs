@@ -277,14 +277,15 @@ mod tests {
     #[test]
     fn test_create_and_decode_token() {
         let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!");
-        let user_id = 42;
-        
+        let user = DreamscrollAuthUser::new_test(42);
 
-        let token = config.create_token(user_id).expect("should create token");
+        let token = config
+            .create_token(user.clone())
+            .expect("should create token");
         assert!(!token.is_empty());
 
         let claims = config.decode_token(&token).expect("should decode token");
-        assert_eq!(claims.user_id(), user_id);
+        assert_eq!(claims.user_id(), user.user_id());
     }
 
     #[test]
@@ -300,7 +301,8 @@ mod tests {
         let config1 = JwtConfig::from_secret(b"secret-one-at-least-32-bytes!!!");
         let config2 = JwtConfig::from_secret(b"secret-two-at-least-32-bytes!!!");
 
-        let token = config1.create_token(42).expect("should create token");
+        let user = DreamscrollAuthUser::new_test(42);
+        let token = config1.create_token(user).expect("should create token");
 
         let result = config2.decode_token(&token);
         assert!(matches!(result, Err(JwtError::InvalidToken)));

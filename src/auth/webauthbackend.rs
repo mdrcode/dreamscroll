@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::{auth, database::DbHandle, entity::user};
 
-use super::{DreamscrollAuthUser, WebAuthError};
+use super::{DreamscrollAuthUser, AuthError};
 
 #[derive(Deserialize)]
 pub struct Credentials {
@@ -28,7 +28,7 @@ impl WebAuthBackend {
 impl axum_login::AuthnBackend for WebAuthBackend {
     type User = DreamscrollAuthUser;
     type Credentials = Credentials;
-    type Error = WebAuthError;
+    type Error = AuthError;
 
     async fn authenticate(
         &self,
