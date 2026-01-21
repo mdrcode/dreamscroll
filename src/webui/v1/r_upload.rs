@@ -15,7 +15,7 @@ use super::WebState;
 
 #[tracing::instrument(skip(auth, state, multipart))]
 pub async fn upload(
-    auth: AuthSession<auth::Backend>,
+    auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     multipart: Multipart,
 ) -> Result<Response, AppError> {

@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use axum_login::{AuthnBackend, UserId};
+use axum_login::UserId;
 use sea_orm::EntityTrait;
 use serde::Deserialize;
 
 use crate::{database::DbHandle, entity::user};
 
-use super::{AuthError, WebAuthUser, password::*};
+use super::{WebAuthError, WebAuthUser, password::*};
 
 #[derive(Deserialize)]
 pub struct Credentials {
@@ -15,20 +15,20 @@ pub struct Credentials {
 }
 
 #[derive(Clone)]
-pub struct Backend {
+pub struct WebAuthBackend {
     db: Arc<DbHandle>,
 }
 
-impl Backend {
+impl WebAuthBackend {
     pub fn new(db: Arc<DbHandle>) -> Self {
         Self { db }
     }
 }
 
-impl AuthnBackend for Backend {
+impl axum_login::AuthnBackend for WebAuthBackend {
     type User = WebAuthUser;
     type Credentials = Credentials;
-    type Error = AuthError;
+    type Error = WebAuthError;
 
     async fn authenticate(
         &self,

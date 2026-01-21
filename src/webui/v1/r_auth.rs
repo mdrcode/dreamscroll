@@ -5,7 +5,7 @@ use crate::auth;
 
 // Login handler
 pub async fn login_handler(
-    mut auth: AuthSession<auth::Backend>,
+    mut auth: AuthSession<auth::WebAuthBackend>,
     Form(creds): Form<auth::Credentials>,
 ) -> Result<Redirect, axum::http::StatusCode> {
     let user = match auth.authenticate(creds).await {
@@ -22,7 +22,7 @@ pub async fn login_handler(
 }
 
 pub async fn logout_handler(
-    mut auth: AuthSession<auth::Backend>,
+    mut auth: AuthSession<auth::WebAuthBackend>,
 ) -> Result<Redirect, axum::http::StatusCode> {
     if auth.logout().await.is_err() {
         return Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR);

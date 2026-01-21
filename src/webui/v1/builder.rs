@@ -31,7 +31,7 @@ pub fn make_ui_router(
     // of Facility/ config, etc
     let session_store = MemoryStore::default();
     let session_layer = SessionManagerLayer::new(session_store).with_secure(false); // TODO: Use secure cookies in production
-    let auth_backend = auth::Backend::new(db.clone());
+    let auth_backend = auth::WebAuthBackend::new(db.clone());
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 
     let router = Router::new()
@@ -39,19 +39,19 @@ pub fn make_ui_router(
         .route("/logout", get(logout_handler))
         .route(
             "/",
-            get(index).layer(login_required!(auth::Backend, login_url = "/login")),
+            get(index).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
         )
         .route(
             "/search",
-            get(search).layer(login_required!(auth::Backend, login_url = "/login")),
+            get(search).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
         )
         .route(
             "/detail/{capture_id}",
-            get(detail).layer(login_required!(auth::Backend, login_url = "/login")),
+            get(detail).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
         )
         .route(
             "/upload",
-            post(upload).layer(login_required!(auth::Backend, login_url = "/login")),
+            post(upload).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
         )
         .layer(auth_layer)
         .layer(DefaultBodyLimit::max(5 * 1024 * 1024)) // 5 MB

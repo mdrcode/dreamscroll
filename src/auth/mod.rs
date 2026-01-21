@@ -1,12 +1,12 @@
-mod autherror;
-pub use autherror::AuthError;
+mod webautherror;
+pub use webautherror::WebAuthError;
 
-mod authuser;
-pub use authuser::WebAuthUser;
+mod webauthuser;
+pub use webauthuser::WebAuthUser;
 
-mod backend;
-pub use backend::Backend;
-pub use backend::Credentials;
+mod webauthbackend;
+pub use webauthbackend::Credentials;
+pub use webauthbackend::WebAuthBackend;
 
 mod context;
 pub use context::Context;

@@ -14,7 +14,7 @@ use super::WebState;
 
 #[tracing::instrument(skip(auth, state))]
 pub async fn index(
-    auth: AuthSession<auth::Backend>,
+    auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
 ) -> Result<Response, AppError> {
     let user = auth.user.unwrap();
