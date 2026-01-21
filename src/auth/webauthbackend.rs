@@ -34,7 +34,8 @@ impl axum_login::AuthnBackend for WebAuthBackend {
         &self,
         creds: Self::Credentials,
     ) -> Result<Option<Self::User>, Self::Error> {
-        let auth_user = auth::verify_password(&self.db, &creds.username, &creds.password).await?;
+        let auth_user =
+            auth::password::verify(&self.db, &creds.username, &creds.password).await?;
 
         Ok(Some(auth_user))
     }

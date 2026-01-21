@@ -24,7 +24,7 @@ impl std::fmt::Display for AuthError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             AuthError::Database(e) => write!(f, "Database error: {}", e),
-            AuthError::InvalidCredentials => write!(f, "Invalid password"),
+            AuthError::InvalidCredentials => write!(f, "Invalid credentials"),
             AuthError::PasswordHashError(e) => write!(f, "Password hash error: {}", e),
             AuthError::MissingOrInvalidHeader => {
                 write!(f, "Missing or invalid Authorization header")

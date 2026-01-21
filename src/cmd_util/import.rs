@@ -40,8 +40,7 @@ pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<(
 
     println!("Enter password for user '{}':", args.username);
     let password = rpassword::read_password()?;
-    let auth_user = auth::verify_password(&db, &args.username, &password).await?;
-
+    let auth_user = auth::password::verify(&db, &args.username, &password).await?;
     let user_context = auth::Context::from(auth_user);
 
     for path in paths {

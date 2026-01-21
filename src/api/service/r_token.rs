@@ -57,7 +57,7 @@ pub async fn post(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<TokenRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let auth_user = auth::verify_password(&state.db, &request.username, &request.password).await;
+    let auth_user = auth::password::verify(&state.db, &request.username, &request.password).await;
 
     // If authentication fails, return unauthorized error
     let auth_user = match auth_user {
