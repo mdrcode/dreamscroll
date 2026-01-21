@@ -38,20 +38,11 @@ pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<(
     let storage = storage::make(config.storage_config);
     let mut imported = 0;
 
-    // TODO this should be a param
     println!("Enter password for user '{}':", args.username);
     let password = rpassword::read_password()?;
-    let verification = auth::verify_password(&db, &args.username, &password).await?;
+    let auth_user = auth::verify_password(&db, &args.username, &password).await?;
 
-    let user_context = match verification {
-        auth::Verification::Success(user) => auth::Context::from(user),
-        auth::Verification::NoSuchUser => {
-            anyhow::bail!("No such user: {}", args.username);
-        }
-        auth::Verification::InvalidPassword => {
-            anyhow::bail!("Invalid password for user: {}", args.username);
-        }
-    };
+    let user_context = auth::Context::from(auth_user);
 
     for path in paths {
         let storage_id = storage.store_from_local_path(&path)?;

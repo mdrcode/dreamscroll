@@ -57,20 +57,13 @@ pub async fn post(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<TokenRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    // Look up the user by username
-    let verification =
-        auth::verify_password(&state.db, &request.username, &request.password).await?;
+    let auth_user = auth::verify_password(&state.db, &request.username, &request.password).await;
 
-    let user = match verification {
-        auth::Verification::Success(user) => user,
-        auth::Verification::NoSuchUser => {
-            tracing::warn!(username = %request.username, "Login attempt for non-existent user");
-            return Err(AppError::unauthorized(anyhow::anyhow!(
-                "Invalid credentials"
-            )));
-        }
-        auth::Verification::InvalidPassword => {
-            tracing::warn!(username = %request.username, "Login attempt with invalid password");
+    // If authentication fails, return unauthorized error
+    let auth_user = match auth_user {
+        Ok(user) => user,
+        Err(_) => {
+            tracing::warn!("Authentication failed for user {}", request.username);
             return Err(AppError::unauthorized(anyhow::anyhow!(
                 "Invalid credentials"
             )));
@@ -78,10 +71,10 @@ pub async fn post(
     };
 
     // Create JWT token
-    let user_id = user.user_id();
+    let user_id = auth_user.user_id();
     let token = state
         .jwt_config
-        .create_token(user)
+        .create_token(auth_user)
         .map_err(|e| AppError::internal(anyhow::anyhow!("Token creation failed: {e}")))?;
 
     tracing::info!(user_id, "JWT token issued successfully");

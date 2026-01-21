@@ -161,16 +161,14 @@ pub fn hash_password(password: &str) -> Result<String, AuthError> {
     Ok(password_hash)
 }
 
-pub enum Verification {
-    Success(DreamscrollAuthUser),
-    NoSuchUser,
-    InvalidPassword,
-}
-
-pub async fn verify_password(db: &DbHandle, u: &str, p: &str) -> Result<Verification, AuthError> {
+pub async fn verify_password(
+    db: &DbHandle,
+    u: &str,
+    p: &str,
+) -> Result<DreamscrollAuthUser, AuthError> {
     let db_user = match user::Entity::find_by_username(u).one(&db.conn).await? {
         Some(user) => user,
-        None => return Ok(Verification::NoSuchUser),
+        None => return Err(AuthError::InvalidCredentials),
     };
 
     let parsed_hash = PasswordHash::new(&db_user.password_hash)?;
@@ -179,10 +177,8 @@ pub async fn verify_password(db: &DbHandle, u: &str, p: &str) -> Result<Verifica
         .verify_password(p.as_bytes(), &parsed_hash)
         .is_ok()
     {
-        Ok(Verification::Success(DreamscrollAuthUser::from_db_model(
-            db_user,
-        )))
+        Ok(DreamscrollAuthUser::from_db_model(db_user))
     } else {
-        Ok(Verification::InvalidPassword)
+        Err(AuthError::InvalidCredentials)
     }
 }
