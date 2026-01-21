@@ -23,6 +23,6 @@ impl Context {
 
 impl From<DreamscrollAuthUser> for Context {
     fn from(user: DreamscrollAuthUser) -> Self {
-        Context { user: user.clone() }
+        Context { user }
     }
 }

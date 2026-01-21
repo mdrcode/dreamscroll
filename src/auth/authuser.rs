@@ -137,7 +137,8 @@ impl axum_login::AuthUser for DreamscrollAuthUser {
             AuthMethod::Jwt { .. } => {
                 // JWT users shouldn't be seen in a session validation context.
                 tracing::error!("session_auth_hash called on JWT-auth user {:?}", self);
-                panic!("session_auth_hash called on JWT-auth user {:?}", self);
+                debug_assert!(false, "session_auth_hash called on JWT-auth user");
+                b""
             }
         }
     }

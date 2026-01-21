@@ -28,7 +28,7 @@ use axum_extra::{
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 
-use super::{DreamscrollAuthUser, JwtError};
+use super::{AuthError, DreamscrollAuthUser};
 
 /// Duration in seconds for JWT token expiration (24 hours by default)
 const DEFAULT_JWT_EXPIRATION_SECS: u64 = 24 * 60 * 60;
@@ -99,7 +99,7 @@ impl JwtConfig {
     /// # Returns
     ///
     /// The encoded JWT string, or an error if encoding fails.
-    pub fn create_token(&self, user: DreamscrollAuthUser) -> Result<String, JwtError> {
+    pub fn create_token(&self, user: DreamscrollAuthUser) -> Result<String, AuthError> {
         let now = jsonwebtoken::get_current_timestamp();
         let claims = JwtClaims {
             sub: user.user_id(),
@@ -107,7 +107,7 @@ impl JwtConfig {
             iat: now,
         };
 
-        encode(&Header::default(), &claims, &self.encoding_key).map_err(JwtError::from)
+        encode(&Header::default(), &claims, &self.encoding_key).map_err(AuthError::from)
     }
 
     /// Validates and decodes a JWT token.
@@ -115,7 +115,7 @@ impl JwtConfig {
     /// # Returns
     ///
     /// The decoded claims, or an error if validation fails.
-    pub fn decode_token(&self, token: &str) -> Result<JwtClaims, JwtError> {
+    pub fn decode_token(&self, token: &str) -> Result<JwtClaims, AuthError> {
         let mut validation = Validation::new(Algorithm::HS256);
         // We only require exp claim (which is validated automatically)
         validation.required_spec_claims.clear();
@@ -182,7 +182,7 @@ impl<S> FromRequestParts<S> for DreamscrollAuthUser
 where
     S: Send + Sync,
 {
-    type Rejection = JwtError;
+    type Rejection = AuthError;
 
     async fn from_request_parts(parts: &mut Parts, _state: &S) -> Result<Self, Self::Rejection> {
         // Extract the JWT config from request extensions
@@ -193,7 +193,7 @@ where
                 tracing::error!(
                     "JwtConfig not found in request extensions. Did you add the JWT layer?"
                 );
-                JwtError::InvalidToken
+                AuthError::InvalidToken
             })?
             .clone();
 
@@ -201,7 +201,7 @@ where
         let TypedHeader(Authorization(bearer)) = parts
             .extract::<TypedHeader<Authorization<Bearer>>>()
             .await
-            .map_err(|_| JwtError::MissingOrInvalidHeader)?;
+            .map_err(|_| AuthError::MissingOrInvalidHeader)?;
 
         // Decode and validate the token
         let claims = jwt_config.decode_token(bearer.token())?;
@@ -293,7 +293,7 @@ mod tests {
         let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!");
 
         let result = config.decode_token("invalid.token.here");
-        assert!(matches!(result, Err(JwtError::InvalidToken)));
+        assert!(matches!(result, Err(AuthError::InvalidToken)));
     }
 
     #[test]
@@ -305,6 +305,6 @@ mod tests {
         let token = config1.create_token(user).expect("should create token");
 
         let result = config2.decode_token(&token);
-        assert!(matches!(result, Err(JwtError::InvalidToken)));
+        assert!(matches!(result, Err(AuthError::InvalidToken)));
     }
 }
