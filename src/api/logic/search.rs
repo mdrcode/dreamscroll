@@ -1,9 +1,10 @@
 use sea_orm::{EntityLoaderTrait, prelude::*};
 use sea_orm::{EntityTrait, QuerySelect};
 
-use crate::{api, common::AppError, database::DbHandle, entity::*};
+use crate::{api, auth, common::AppError, database::DbHandle, entity::*};
 
 pub async fn search_by_illuminations(
+    user_context: auth::Context,
     db: &DbHandle,
     query: &str,
 ) -> anyhow::Result<Vec<api::CaptureInfo>, AppError> {
@@ -11,15 +12,17 @@ pub async fn search_by_illuminations(
         return Ok(vec![]);
     }
 
-    // Find illuminations that contain the search query
-    let capture_ids_with_match = illumination::Entity::find()
+    // Start from captures filtered by user (indexed), then join to illuminations
+    let capture_ids_with_match = capture::Entity::find()
+        .filter(capture::Column::UserId.eq(user_context.user_id()))
+        .inner_join(illumination::Entity)
         .filter(illumination::Column::Content.contains(query))
-        .column(illumination::Column::CaptureId)
+        .column(capture::Column::Id)
         .distinct()
         .all(&db.conn)
         .await?
         .into_iter()
-        .map(|i| i.capture_id)
+        .map(|c| c.id)
         .collect::<Vec<i32>>();
 
     // Get unique capture IDs

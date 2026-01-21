@@ -4,7 +4,6 @@ use sea_orm::TryIntoModel;
 use crate::{api, auth, common::*, database::DbHandle, entity};
 
 pub async fn insert_capture(
-    _auth_context: Option<auth::Context>,
     user_context: auth::Context,
     db: &DbHandle,
     storage_id: String,

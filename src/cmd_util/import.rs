@@ -57,7 +57,7 @@ pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<(
         let storage_id = storage.store_from_local_path(&path)?;
 
         let capture_info =
-            api::insert_capture(None, user_context.clone(), &db, storage_id.clone()).await?;
+            api::insert_capture(user_context.clone(), &db, storage_id.clone()).await?;
 
         tracing::info!(
             "Imported new capture {} with storage id {} from path {}",

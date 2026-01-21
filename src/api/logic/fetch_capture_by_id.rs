@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use sea_orm::EntityLoaderTrait;
 
-use crate::{api, auth, common::AppError, database::DbHandle, entity::*};
+use crate::{api, common::AppError, database::DbHandle, entity::*};
 
 pub async fn fetch_capture_by_id(
     db: &DbHandle,
