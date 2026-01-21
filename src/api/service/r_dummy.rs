@@ -16,7 +16,7 @@ pub async fn get(
     State(_state): State<Arc<ApiState>>,
 ) -> Result<impl IntoResponse, AppError> {
     // Convert the JWT user to a Context for business logic
-    let user_context = Context::from(&user);
+    let user_context = Context::from(user);
 
     Ok(Json(serde_json::json!({
         "message": "Hello from dreamscroll API!",

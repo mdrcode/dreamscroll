@@ -17,7 +17,7 @@ pub async fn get(
     user: auth::DreamscrollAuthUser,
     State(state): State<Arc<ApiState>>,
 ) -> Result<impl IntoResponse, AppError> {
-    let user_context = auth::Context::from(&user);
+    let user_context = auth::Context::from(user);
     let capture_infos = api::fetch_timeline(user_context, &state.db).await?;
     tracing::info!(count = capture_infos.len(), "Fetched timeline captures");
     Ok(Json(capture_infos))

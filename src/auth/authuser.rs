@@ -45,7 +45,7 @@ impl DreamscrollAuthUser {
     }
 
     #[cfg(test)]
-    pub fn new_test(id: i32) -> Self {
+    pub fn new_test_session(id: i32) -> Self {
         Self {
             id,
             method: AuthMethod::Session {
@@ -55,7 +55,7 @@ impl DreamscrollAuthUser {
     }
 
     #[cfg(test)]
-    pub fn new_test_with_claims(id: i32, claims: JwtClaims) -> Self {
+    pub fn new_test_jwt(id: i32, claims: JwtClaims) -> Self {
         Self {
             id,
             method: AuthMethod::Jwt { claims },

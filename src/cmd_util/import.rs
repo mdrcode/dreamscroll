@@ -44,7 +44,7 @@ pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<(
     let verification = auth::verify_password(&db, &args.username, &password).await?;
 
     let user_context = match verification {
-        auth::Verification::Success(user) => auth::Context::from(&user),
+        auth::Verification::Success(user) => auth::Context::from(user),
         auth::Verification::NoSuchUser => {
             anyhow::bail!("No such user: {}", args.username);
         }

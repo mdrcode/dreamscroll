@@ -36,7 +36,7 @@ pub async fn upload(
 
     let storage_id = state.storage.store_from_bytes(&media_bytes)?;
 
-    api::insert_capture(auth::Context::from(&user), &state.db, storage_id).await?;
+    api::insert_capture(auth::Context::from(user), &state.db, storage_id).await?;
 
     // Redirect to home page to show the timeline
     Ok(Redirect::to("/").into_response())

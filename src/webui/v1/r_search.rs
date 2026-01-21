@@ -31,7 +31,7 @@ pub async fn search(
     tracing::debug!("Rendering search q: {} for user ID {}", query, user.id());
 
     let capture_infos =
-        api::search_by_illuminations(auth::Context::from(&user), &state.db, query).await?;
+        api::search_by_illuminations(auth::Context::from(user), &state.db, query).await?;
 
     let mut context = Context::new();
     context.insert("query", query);

@@ -1,5 +1,3 @@
-use axum_login::AuthUser;
-
 use super::DreamscrollAuthUser;
 
 /// Security context for business logic which is agnostic to the authentication
@@ -9,26 +7,22 @@ use super::DreamscrollAuthUser;
 /// behalf of another user, the context would reflect both the admin's
 /// authority and the target user's identity.
 ///
-/// Different auth extractors convert their user representations into this
-/// common context, allowing the same business logic to work with multiple
-/// authentication strategies.
-///
 /// Currently contains user identity information, with plans to extend with
 /// permissions and roles as the authorization model evolves.
 #[derive(Debug, Clone)]
 pub struct Context {
-    user_id: i32,
+    user: DreamscrollAuthUser,
     // TODO more to come
 }
 
 impl Context {
     pub fn user_id(&self) -> i32 {
-        self.user_id
+        self.user.user_id()
     }
 }
 
-impl From<&DreamscrollAuthUser> for Context {
-    fn from(user: &DreamscrollAuthUser) -> Self {
-        Context { user_id: user.id() }
+impl From<DreamscrollAuthUser> for Context {
+    fn from(user: DreamscrollAuthUser) -> Self {
+        Context { user: user.clone() }
     }
 }
