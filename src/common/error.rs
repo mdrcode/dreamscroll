@@ -25,6 +25,10 @@ impl AppError {
         Self::new(StatusCode::BAD_REQUEST, error.into())
     }
 
+    pub fn unauthorized(error: impl Into<anyhow::Error>) -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, error.into())
+    }
+
     pub fn not_found(error: impl Into<anyhow::Error>) -> Self {
         Self::new(StatusCode::NOT_FOUND, error.into())
     }
@@ -69,5 +73,11 @@ impl From<sea_orm::DbErr> for AppError {
 impl From<std::io::Error> for AppError {
     fn from(err: std::io::Error) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, err.into())
+    }
+}
+
+impl From<crate::auth::AuthError> for AppError {
+    fn from(err: crate::auth::AuthError) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, anyhow::anyhow!("{}", err))
     }
 }

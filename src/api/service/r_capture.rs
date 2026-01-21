@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
-use crate::{api, common::AppError};
 use axum::{
     Json,
     extract::{Path, State},
     response::IntoResponse,
 };
+
+use crate::{api, auth::JwtAuthUser, common::AppError};
 
 use super::ApiState;
 
@@ -13,8 +14,11 @@ use super::ApiState;
 ///
 /// Returns a JSON object containing the capture information including
 /// associated media and illuminations.
-#[tracing::instrument(skip(state))]
+///
+/// Requires JWT authentication.
+#[tracing::instrument(skip(state, _user))]
 pub async fn get(
+    _user: JwtAuthUser,
     State(state): State<Arc<ApiState>>,
     Path(id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {

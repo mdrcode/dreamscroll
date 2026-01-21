@@ -1,6 +1,6 @@
 use axum_login::AuthUser;
 
-use crate::auth::WebAuthUser;
+use crate::auth::{JwtAuthUser, WebAuthUser};
 
 /// Security context for business logic which is agnostic to the authentication
 /// mechanism (session-based, JWT, etc.). The ultimate (aspirational) goal is
@@ -30,5 +30,13 @@ impl Context {
 impl From<&WebAuthUser> for Context {
     fn from(user: &WebAuthUser) -> Self {
         Context { user_id: user.id() }
+    }
+}
+
+impl From<&JwtAuthUser> for Context {
+    fn from(user: &JwtAuthUser) -> Self {
+        Context {
+            user_id: user.user_id(),
+        }
     }
 }

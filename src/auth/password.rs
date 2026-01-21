@@ -14,6 +14,18 @@ pub fn hash_password(password: &str) -> Result<String, AuthError> {
     Ok(password_hash)
 }
 
+/// Verifies a password against a stored hash.
+///
+/// Returns Ok(true) if the password matches, Ok(false) if it doesn't,
+/// or an error if the hash is malformed.
+pub fn verify(hash: &str, password: &str) -> Result<bool, AuthError> {
+    tracing::warn!("verify function is deprecated; use verify_password instead");
+    let parsed_hash = PasswordHash::new(hash)?;
+    Ok(Argon2::default()
+        .verify_password(password.as_bytes(), &parsed_hash)
+        .is_ok())
+}
+
 pub enum Verification {
     Success(WebAuthUser),
     NoSuchUser,
