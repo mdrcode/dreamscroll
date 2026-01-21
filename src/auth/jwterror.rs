@@ -1,10 +1,7 @@
 use axum::{
-    RequestPartsExt,
-    extract::FromRequestParts,
-    http::{StatusCode, request::Parts},
+    http::StatusCode,
     response::{IntoResponse, Response},
 };
-
 
 /// Errors that can occur during JWT operations.
 #[derive(Debug)]

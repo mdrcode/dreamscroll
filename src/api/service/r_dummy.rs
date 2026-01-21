@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{Json, extract::State, response::IntoResponse};
 
-use crate::auth::{Context, JwtAuthUser};
+use crate::auth::{Context, DreamscrollAuthUser};
 use crate::common::AppError;
 
 use super::ApiState;
@@ -12,7 +12,7 @@ use super::ApiState;
 /// This endpoint requires a valid JWT token in the Authorization header.
 /// Returns information about the authenticated user.
 pub async fn get(
-    user: JwtAuthUser,
+    user: DreamscrollAuthUser,
     State(_state): State<Arc<ApiState>>,
 ) -> Result<impl IntoResponse, AppError> {
     // Convert the JWT user to a Context for business logic

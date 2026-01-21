@@ -2,7 +2,7 @@ mod webautherror;
 pub use webautherror::WebAuthError;
 
 mod webauthuser;
-pub use webauthuser::WebAuthUser;
+pub use webauthuser::DreamscrollAuthUser;
 
 mod webauthbackend;
 pub use webauthbackend::Credentials;
@@ -12,7 +12,7 @@ mod context;
 pub use context::Context;
 
 mod jwt;
-pub use jwt::{JwtAuthUser, JwtClaims, JwtConfig, JwtLayer};
+pub use jwt::{JwtClaims, JwtConfig, JwtLayer};
 
 mod jwterror;
 pub use jwterror::JwtError;

@@ -14,7 +14,7 @@ use super::ApiState;
 /// Requires JWT authentication.
 #[tracing::instrument(skip(user, state), fields(user_id = %user.user_id()))]
 pub async fn get(
-    user: auth::JwtAuthUser,
+    user: auth::DreamscrollAuthUser,
     State(state): State<Arc<ApiState>>,
 ) -> Result<impl IntoResponse, AppError> {
     let user_context = auth::Context::from(&user);

@@ -6,7 +6,7 @@ use axum::{
     response::IntoResponse,
 };
 
-use crate::{api, auth::JwtAuthUser, common::AppError};
+use crate::{api, auth::DreamscrollAuthUser, common::AppError};
 
 use super::ApiState;
 
@@ -18,7 +18,7 @@ use super::ApiState;
 /// Requires JWT authentication.
 #[tracing::instrument(skip(state, _user))]
 pub async fn get(
-    _user: JwtAuthUser,
+    _user: DreamscrollAuthUser,
     State(state): State<Arc<ApiState>>,
     Path(id): Path<i32>,
 ) -> Result<impl IntoResponse, AppError> {

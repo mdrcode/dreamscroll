@@ -28,7 +28,7 @@ use axum_extra::{
 use jsonwebtoken::{Algorithm, DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use serde::{Deserialize, Serialize};
 
-use super::JwtError;
+use super::{DreamscrollAuthUser, JwtError};
 
 /// Duration in seconds for JWT token expiration (24 hours by default)
 const DEFAULT_JWT_EXPIRATION_SECS: u64 = 24 * 60 * 60;
@@ -174,27 +174,11 @@ impl JwtClaims {
 ///     format!("Hello, user {}", user.user_id())
 /// }
 /// ```
-#[derive(Debug, Clone)]
-pub struct JwtAuthUser {
-    claims: JwtClaims,
-}
-
-impl JwtAuthUser {
-    /// Returns the authenticated user's ID.
-    pub fn user_id(&self) -> i32 {
-        self.claims.user_id()
-    }
-
-    /// Returns the full claims from the token.
-    pub fn claims(&self) -> &JwtClaims {
-        &self.claims
-    }
-}
 
 /// Axum extractor implementation for JwtAuthUser.
 ///
 /// Requires `Arc<JwtConfig>` to be present in the request extensions (added via layer).
-impl<S> FromRequestParts<S> for JwtAuthUser
+impl<S> FromRequestParts<S> for DreamscrollAuthUser
 where
     S: Send + Sync,
 {
@@ -222,7 +206,7 @@ where
         // Decode and validate the token
         let claims = jwt_config.decode_token(bearer.token())?;
 
-        Ok(JwtAuthUser { claims })
+        Ok(DreamscrollAuthUser::from(claims))
     }
 }
 

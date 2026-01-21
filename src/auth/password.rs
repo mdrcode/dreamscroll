@@ -5,7 +5,7 @@ use argon2::{
 
 use crate::{database::DbHandle, entity::user};
 
-use super::{WebAuthUser, webautherror::*};
+use super::{DreamscrollAuthUser, webautherror::*};
 
 pub fn hash_password(password: &str) -> Result<String, WebAuthError> {
     let salt = SaltString::generate(&mut OsRng);
@@ -27,12 +27,16 @@ pub fn verify(hash: &str, password: &str) -> Result<bool, WebAuthError> {
 }
 
 pub enum Verification {
-    Success(WebAuthUser),
+    Success(DreamscrollAuthUser),
     NoSuchUser,
     InvalidPassword,
 }
 
-pub async fn verify_password(db: &DbHandle, u: &str, p: &str) -> Result<Verification, WebAuthError> {
+pub async fn verify_password(
+    db: &DbHandle,
+    u: &str,
+    p: &str,
+) -> Result<Verification, WebAuthError> {
     let db_user = match user::Entity::find_by_username(u).one(&db.conn).await? {
         Some(user) => user,
         None => return Ok(Verification::NoSuchUser),
@@ -44,7 +48,7 @@ pub async fn verify_password(db: &DbHandle, u: &str, p: &str) -> Result<Verifica
         .verify_password(p.as_bytes(), &parsed_hash)
         .is_ok()
     {
-        Ok(Verification::Success(WebAuthUser::from(db_user)))
+        Ok(Verification::Success(DreamscrollAuthUser::from(db_user)))
     } else {
         Ok(Verification::InvalidPassword)
     }
