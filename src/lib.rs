@@ -1,6 +1,5 @@
 pub mod api;
 pub mod auth;
-pub mod cmd_util;
 pub mod common;
 pub mod database;
 pub mod facility;
@@ -8,4 +7,5 @@ pub mod illumination;
 pub mod model;
 pub mod rest;
 pub mod storage;
+pub mod util_cmd;
 pub mod webui;
