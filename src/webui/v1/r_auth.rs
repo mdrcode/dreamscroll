@@ -3,18 +3,20 @@ use axum_login::AuthSession;
 
 use crate::auth;
 
-// Login handler
 pub async fn login_handler(
     mut auth: AuthSession<auth::WebAuthBackend>,
     Form(creds): Form<auth::Credentials>,
 ) -> Result<Redirect, axum::http::StatusCode> {
-
     let authentication = auth.authenticate(creds).await;
 
     let user = match authentication {
         Ok(Some(user)) => user,
-        Ok(None) => return Err(axum::http::StatusCode::UNAUTHORIZED),
-        Err(_) => return Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(None) => {
+            return Ok(Redirect::to("/login?error=Invalid+username+or+password"));
+        }
+        Err(_) => {
+            return Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR);
+        }
     };
 
     if auth.login(&user).await.is_err() {

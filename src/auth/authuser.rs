@@ -34,6 +34,7 @@ pub enum AuthMethod {
 #[derive(Clone)]
 pub struct DreamscrollAuthUser {
     id: i32,
+    username: String,
     is_admin: bool,
     method: AuthMethod,
 }
@@ -41,6 +42,10 @@ pub struct DreamscrollAuthUser {
 impl DreamscrollAuthUser {
     pub fn user_id(&self) -> i32 {
         self.id
+    }
+
+    pub fn username(&self) -> &str {
+        &self.username
     }
 
     pub fn is_admin(&self) -> bool {
@@ -72,6 +77,7 @@ impl DreamscrollAuthUser {
     pub(super) fn from_db_model(user_model: user::Model) -> Self {
         Self {
             id: user_model.id,
+            username: user_model.username,
             is_admin: user_model.is_admin,
             method: AuthMethod::Session {
                 session_hash: user_model.password_hash,
@@ -83,6 +89,7 @@ impl DreamscrollAuthUser {
     pub fn new_test_session(id: i32) -> Self {
         Self {
             id,
+            username: format!("testuser{}", id),
             is_admin: false,
             method: AuthMethod::Session {
                 session_hash: format!("test-hash-{}", id),
@@ -94,6 +101,7 @@ impl DreamscrollAuthUser {
     pub fn new_test_jwt(id: i32, claims: JwtClaims) -> Self {
         Self {
             id,
+            username: format!("jwtuser{}", id),
             is_admin: false,
             method: AuthMethod::Jwt { claims },
         }
@@ -104,6 +112,7 @@ impl std::fmt::Debug for DreamscrollAuthUser {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("DreamscrollAuthUser");
         debug.field("id", &self.id);
+        debug.field("username", &self.username);
 
         match &self.method {
             AuthMethod::Session { session_hash } => {
@@ -154,6 +163,7 @@ impl From<JwtClaims> for DreamscrollAuthUser {
         let id = claims.sub;
         DreamscrollAuthUser {
             id,
+            username: format!("jwtuser{}", id),
             is_admin: false, // TODO currently no is_admin info in JWT claims
             method: AuthMethod::Jwt { claims },
         }
@@ -291,6 +301,7 @@ mod tests {
         // Create a custom user with a short hash for this specific test
         let user = DreamscrollAuthUser {
             id: 42,
+            username: "shorthashuser".to_string(),
             is_admin: false,
             method: AuthMethod::Session {
                 session_hash: "abc".to_string(),

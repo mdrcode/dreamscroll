@@ -5,6 +5,14 @@
     <title>Login - dreamscroll</title>
     <link rel="stylesheet" href="/static/common.css">
     <style>
+        .error {
+            background-color: #fee;
+            border: 1px solid #fcc;
+            border-radius: 4px;
+            color: #c00;
+            padding: 12px;
+            margin-bottom: 16px;
+        }
     </style>
     <script>
     </script>
@@ -14,9 +22,17 @@
     <div id="page-content-container">
 
         <div id="header-row">
-            <h1 id="page-title">dreamscroll</h1>
+            <h1 id="page-title"><a href="/" style="text-decoration: none; color: inherit;">dreamscroll</a></h1>
         </div>
 
+        {% if already_logged_in %}
+        <div id="login-form">
+            <p>You are currently logged in as user {{ username }}.</p>
+            <p>
+                <a href="/logout">logout</a>
+            </p>
+        </div>
+        {% else %}
         <div id="login-form">
         <h2>Login</h2>
 
@@ -38,6 +54,7 @@
             <button type="submit">Login</button>
         </form>
         </div>
+        {% endif %}
             
     </div>
 </body>
