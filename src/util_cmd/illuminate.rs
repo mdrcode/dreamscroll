@@ -37,10 +37,11 @@ pub async fn run(config: facility::Config, args: IlluminateArgs) -> anyhow::Resu
     let illuminator: Box<dyn Illuminator> = match args.model.as_str() {
         "grok" => Box::new(GrokIlluminator::default()),
         "gemini" => Box::new(GeminiIlluminator::default()),
+        "geministructured" => Box::new(GeminiStructuredIlluminator::default()),
         "loremipsum" => Box::new(LoremIpsumIlluminator::default()),
         other => {
             return Err(anyhow!(
-                "Unknown model '{}'. Supported: grok, gemini, loremipsum.",
+                "Unknown model '{}'. Supported: grok, gemini, geministructured, loremipsum.",
                 other
             ));
         }

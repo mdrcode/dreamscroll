@@ -3,11 +3,13 @@ use std::sync::Arc;
 use crate::{api, database::DbHandle};
 
 mod gemini;
+mod geministructured;
 mod grok;
 mod loremipsum;
 mod simpleworker;
 
 pub use gemini::GeminiIlluminator;
+pub use geministructured::{GeminiStructuredIlluminator, StructuredIllumination};
 pub use grok::GrokIlluminator;
 pub use loremipsum::LoremIpsumIlluminator;
 
