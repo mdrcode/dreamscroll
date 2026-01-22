@@ -12,8 +12,9 @@
 - [ ] Local web development with axum should hot reload somehow to avoid ludicrous compile cycles
   - [added: 2026-01-04]
 
-- [ ] Filter out sqlx tracing::info! by default, it is too spammy
+- [X] Filter out sqlx tracing::info! by default, it is too spammy
   - [added: 2026-01-02 ]
+  - [resolved: 2026-01-18]
 
 - [ ] Save illumination llm metadata like tokens, compressed image bytes, base64 encoded bytes, etc
   - [added: 2026-01-02]
@@ -29,6 +30,7 @@
 
 - [ ] Investigate whether possible to convert from SeaORM's DbErr into AppError automatically?
   - [added: 2025-12-28]
+  - [resolved: 2026-01-10]
 
 - [ ] AppError should automatically trace internally as a convenence
   - [added: 2025-12-28]
@@ -41,14 +43,14 @@
   - [added: 2025-12-20]
   - This is handled auto-magically by SeaORM v2, specifically the call
     get_schema_registry("dreamscroll::model::*").sync(&conn).await?;
-  - [done: 2025-12-30]
+  - [resolved: 2025-12-30]
 
 - [X] Upgrade to SeaORM v2
   - [added: 2025-12-30]
-  - [done: 2025-12-30]
+  - [resolved: 2025-12-30]
 
 - [X] Prevent or mitigate multiple processes from opening local SQLite file
   - [added: 2025-12-19]
   - Add file locking or a mutex to ensure only one process can access the local SQLite database at a time. Or just fail informatively to avoid corruption.
   - Actually just enabled WAL mode here and that seems durable enough for local dev purposes.
-  - [done: 2025-12-19]
+  - [resolved: 2025-12-19]

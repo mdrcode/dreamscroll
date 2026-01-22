@@ -1,5 +1,26 @@
 # Dreamscroll Development Log
 
+## 2026-01-22
+
+Success on the auth front! Took longer than expect but learned a lot. Now we
+need to audit the app and fix up the core functionality as we make the final
+push towards hosting on GCE and dogfooding live. Basically, what needs to happen
+so that this can run 24x7 (crudely) for dogfood round the clock?
+
+- [ ] Formalize the Illumination structure instead of just relying on simple
+  text splitting.
+- [ ] Fix up the export/import API so can run against a prod/dogfood instance.
+
+
+## 2026-01-21
+
+Token-based auth is working for the API and our internal representation of a
+"user" is now unified across both session auth and API.
+
+## 2026-01-20
+
+Significant progress on API and token-based auth.
+
 ## 2026-01-18
 
 Today, intend to make more progress on the API implementation and still need to

@@ -26,3 +26,48 @@ impl From<DreamscrollAuthUser> for Context {
         Context { user }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::jwt::JwtClaims;
+
+    #[test]
+    fn test_context_from_session_auth_user() {
+        let user = DreamscrollAuthUser::new_test_session(42);
+        let context = Context::from(user);
+
+        assert_eq!(context.user_id(), 42);
+    }
+
+    #[test]
+    fn test_context_from_jwt_auth_user() {
+        let claims = JwtClaims {
+            sub: 123,
+            exp: 9999999999,
+            iat: 1000000000,
+        };
+        let user = DreamscrollAuthUser::new_test_jwt(123, claims);
+        let context = Context::from(user);
+
+        assert_eq!(context.user_id(), 123);
+    }
+
+    #[test]
+    fn test_context_is_cloneable() {
+        let user = DreamscrollAuthUser::new_test_session(42);
+        let context = Context::from(user);
+        let cloned = context.clone();
+
+        assert_eq!(context.user_id(), cloned.user_id());
+    }
+
+    #[test]
+    fn test_context_is_debuggable() {
+        let user = DreamscrollAuthUser::new_test_session(42);
+        let context = Context::from(user);
+
+        let debug_str = format!("{:?}", context);
+        assert!(debug_str.contains("Context"));
+    }
+}

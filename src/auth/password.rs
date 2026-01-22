@@ -31,3 +31,59 @@ pub async fn verify(db: &DbHandle, u: &str, p: &str) -> Result<DreamscrollAuthUs
         Err(AuthError::InvalidCredentials)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_hash_creates_valid_argon2_hash() {
+        let password = "test_password_123";
+        let hash_result = hash(password);
+
+        assert!(hash_result.is_ok());
+        let hash_str = hash_result.unwrap();
+
+        // Argon2 hashes start with $argon2
+        assert!(hash_str.starts_with("$argon2"));
+
+        // Should be reasonably long (argon2 hashes are ~90+ chars)
+        assert!(hash_str.len() > 80);
+    }
+
+    #[test]
+    fn test_hash_produces_different_salts() {
+        let password = "same_password";
+
+        let hash1 = hash(password).unwrap();
+        let hash2 = hash(password).unwrap();
+
+        // Same password should produce different hashes due to different salts
+        assert_ne!(hash1, hash2);
+    }
+
+    #[test]
+    fn test_hash_and_verify_roundtrip() {
+        let password = "correct_password";
+        let hash_str = hash(password).unwrap();
+
+        // Verify the password matches the hash
+        let parsed = PasswordHash::new(&hash_str).unwrap();
+        let verify_result = Argon2::default().verify_password(password.as_bytes(), &parsed);
+
+        assert!(verify_result.is_ok());
+    }
+
+    #[test]
+    fn test_wrong_password_fails_verification() {
+        let correct_password = "correct_password";
+        let wrong_password = "wrong_password";
+
+        let hash_str = hash(correct_password).unwrap();
+        let parsed = PasswordHash::new(&hash_str).unwrap();
+
+        // Wrong password should fail verification
+        let verify_result = Argon2::default().verify_password(wrong_password.as_bytes(), &parsed);
+        assert!(verify_result.is_err());
+    }
+}

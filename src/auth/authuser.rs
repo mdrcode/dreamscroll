@@ -1,11 +1,6 @@
-use argon2::{
-    Argon2, PasswordHash, PasswordVerifier,
-    password_hash::{SaltString, rand_core::OsRng},
-};
+use crate::entity::user;
 
-use crate::{database::DbHandle, entity::user};
-
-use super::{autherror::*, jwt::JwtClaims};
+use super::jwt::JwtClaims;
 
 /// The authentication method used to create this user session.
 #[derive(Clone, Debug)]
@@ -22,7 +17,9 @@ pub enum AuthMethod {
     },
 }
 
-/// Represents an authenticated user in the Dreamscroll system.
+/// Represents an authenticated user in the Dreamscroll system. We opted for
+/// the name `DreamscrollAuthUser` because `AuthUser` is already taken by
+/// axum-login as a key trait name.
 ///
 /// # Construction
 ///
@@ -154,4 +151,201 @@ impl From<JwtClaims> for DreamscrollAuthUser {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum_login::AuthUser;
 
+    #[test]
+    fn test_user_id_session() {
+        let user = DreamscrollAuthUser::new_test_session(42);
+        assert_eq!(user.user_id(), 42);
+    }
+
+    #[test]
+    fn test_user_id_jwt() {
+        let claims = JwtClaims {
+            sub: 123,
+            exp: 9999,
+            iat: 1000,
+        };
+        let user = DreamscrollAuthUser::new_test_jwt(123, claims);
+        assert_eq!(user.user_id(), 123);
+    }
+
+    #[test]
+    fn test_auth_method_session() {
+        let user = DreamscrollAuthUser::new_test_session(42);
+        match user.auth_method() {
+            AuthMethod::Session { session_hash } => {
+                assert_eq!(session_hash, "test-hash-42");
+            }
+            AuthMethod::Jwt { .. } => panic!("Expected Session auth method"),
+        }
+    }
+
+    #[test]
+    fn test_auth_method_jwt() {
+        let claims = JwtClaims {
+            sub: 123,
+            exp: 9999,
+            iat: 1000,
+        };
+        let user = DreamscrollAuthUser::new_test_jwt(123, claims.clone());
+        match user.auth_method() {
+            AuthMethod::Jwt {
+                claims: user_claims,
+            } => {
+                assert_eq!(user_claims.sub, 123);
+                assert_eq!(user_claims.exp, 9999);
+            }
+            AuthMethod::Session { .. } => panic!("Expected Jwt auth method"),
+        }
+    }
+
+    #[test]
+    fn test_jwt_claims_returns_some_for_jwt() {
+        let claims = JwtClaims {
+            sub: 123,
+            exp: 9999,
+            iat: 1000,
+        };
+        let user = DreamscrollAuthUser::new_test_jwt(123, claims);
+        let retrieved_claims = user.jwt_claims();
+        assert!(retrieved_claims.is_some());
+        assert_eq!(retrieved_claims.unwrap().sub, 123);
+    }
+
+    #[test]
+    fn test_jwt_claims_returns_none_for_session() {
+        let user = DreamscrollAuthUser::new_test_session(42);
+        assert!(user.jwt_claims().is_none());
+    }
+
+    #[test]
+    fn test_from_jwt_claims() {
+        let claims = JwtClaims {
+            sub: 456,
+            exp: 8888,
+            iat: 1111,
+        };
+        let user = DreamscrollAuthUser::from(claims.clone());
+
+        assert_eq!(user.user_id(), 456);
+        assert_eq!(user.jwt_claims().unwrap().sub, 456);
+        assert_eq!(user.jwt_claims().unwrap().exp, 8888);
+        assert_eq!(user.jwt_claims().unwrap().iat, 1111);
+    }
+
+    #[test]
+    fn test_session_auth_hash_for_session() {
+        let user = DreamscrollAuthUser::new_test_session(42);
+        assert_eq!(user.session_auth_hash(), b"test-hash-42");
+    }
+
+    #[test]
+    #[cfg_attr(
+        debug_assertions,
+        should_panic(expected = "session_auth_hash called on JWT-auth user")
+    )]
+    fn test_session_auth_hash_for_jwt() {
+        // JWT users should return empty bytes when session_auth_hash is called
+        // In debug builds, this will panic due to debug_assert!
+        // In release builds, it returns b"" and logs an error
+        let claims = JwtClaims {
+            sub: 123,
+            exp: 9999,
+            iat: 1000,
+        };
+        let user = DreamscrollAuthUser::new_test_jwt(123, claims);
+        assert_eq!(user.session_auth_hash(), b"");
+    }
+
+    #[test]
+    fn test_debug_format_session() {
+        let user = DreamscrollAuthUser::new_test_session(42);
+        let debug_str = format!("{:?}", user);
+
+        // Should contain user ID
+        assert!(debug_str.contains("id: 42"));
+        // Should indicate session auth method
+        assert!(debug_str.contains("auth_method"));
+        assert!(debug_str.contains("Session"));
+        // Should show hash preview
+        assert!(debug_str.contains("session_hash_preview"));
+        // Test hash is "test-hash-42" which is > 4 chars, so should show first 4 chars
+        assert!(debug_str.contains("test..."));
+    }
+
+    #[test]
+    fn test_debug_format_session_short_hash() {
+        // Create a custom user with a short hash for this specific test
+        let user = DreamscrollAuthUser {
+            id: 42,
+            method: AuthMethod::Session {
+                session_hash: "abc".to_string(),
+            },
+        };
+        let debug_str = format!("{:?}", user);
+
+        // For short hashes, should show full hash without "..."
+        assert!(debug_str.contains("abc"));
+        assert!(!debug_str.contains("..."));
+    }
+
+    #[test]
+    fn test_debug_format_jwt() {
+        let claims = JwtClaims {
+            sub: 123,
+            exp: 9999,
+            iat: 1000,
+        };
+        let user = DreamscrollAuthUser::new_test_jwt(123, claims);
+        let debug_str = format!("{:?}", user);
+
+        // Should contain user ID
+        assert!(debug_str.contains("id: 123"));
+        // Should indicate JWT auth method
+        assert!(debug_str.contains("auth_method"));
+        assert!(debug_str.contains("Jwt"));
+        // Should show JWT claim fields
+        assert!(debug_str.contains("jwt_sub: 123"));
+        assert!(debug_str.contains("jwt_exp: 9999"));
+    }
+
+    #[test]
+    fn test_clone_session() {
+        let user = DreamscrollAuthUser::new_test_session(42);
+        let cloned = user.clone();
+
+        assert_eq!(user.user_id(), cloned.user_id());
+        assert_eq!(user.session_auth_hash(), cloned.session_auth_hash());
+    }
+
+    #[test]
+    fn test_clone_jwt() {
+        let claims = JwtClaims {
+            sub: 123,
+            exp: 9999,
+            iat: 1000,
+        };
+        let user = DreamscrollAuthUser::new_test_jwt(123, claims);
+        let cloned = user.clone();
+
+        assert_eq!(user.user_id(), cloned.user_id());
+        assert_eq!(
+            user.jwt_claims().unwrap().sub,
+            cloned.jwt_claims().unwrap().sub
+        );
+        assert_eq!(
+            user.jwt_claims().unwrap().exp,
+            cloned.jwt_claims().unwrap().exp
+        );
+    }
+
+    #[test]
+    fn test_axum_login_id_trait() {
+        let user = DreamscrollAuthUser::new_test_session(999);
+        assert_eq!(user.id(), 999);
+    }
+}
