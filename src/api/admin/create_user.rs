@@ -9,10 +9,10 @@ pub async fn create_user(
     username: String,
     password: String,
     email: String,
-) -> anyhow::Result<api::UserInfo, api::AppError> {
+) -> anyhow::Result<api::UserInfo, api::ApiError> {
     // Only allow admin users to create new users
     if !context.is_admin() {
-        return Err(api::AppError::forbidden(anyhow!(
+        return Err(api::ApiError::forbidden(anyhow!(
             "Only admin users can create new users"
         )));
     }
@@ -22,7 +22,7 @@ pub async fn create_user(
         .one(&db.conn)
         .await
         .map_err(|e| {
-            api::AppError::internal(anyhow!(
+            api::ApiError::internal(anyhow!(
                 "DB error checking existing username {}: {}",
                 username,
                 e
@@ -30,7 +30,7 @@ pub async fn create_user(
         })?;
 
     if existing_user.is_some() {
-        return Err(api::AppError::conflict(anyhow!(
+        return Err(api::ApiError::conflict(anyhow!(
             "Username {} already exists",
             username
         )));
@@ -38,7 +38,7 @@ pub async fn create_user(
 
     // Hash the password
     let password_hash = auth::password::hash(&password).map_err(|e| {
-        api::AppError::internal(anyhow!(
+        api::ApiError::internal(anyhow!(
             "Password hashing failed for user {}: {}",
             username,
             e

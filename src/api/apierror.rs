@@ -4,14 +4,14 @@ use axum::{
 };
 
 #[derive(Debug)]
-pub struct AppError {
+pub struct ApiError {
     status_code: StatusCode,
     error: anyhow::Error,
 }
 
-impl AppError {
+impl ApiError {
     pub fn new(code: StatusCode, error: anyhow::Error) -> Self {
-        AppError {
+        ApiError {
             status_code: code,
             error,
         }
@@ -50,7 +50,7 @@ impl AppError {
     }
 }
 
-impl IntoResponse for AppError {
+impl IntoResponse for ApiError {
     // TODO should only show detailed error in dev mode
     fn into_response(self) -> Response {
         let body = format!("Error: {:?}", self.error);
@@ -59,36 +59,27 @@ impl IntoResponse for AppError {
 }
 
 // Allow AppError to be converted back to anyhow::Error
-impl From<AppError> for anyhow::Error {
-    fn from(err: AppError) -> Self {
+impl From<ApiError> for anyhow::Error {
+    fn from(err: ApiError) -> Self {
         err.error
     }
 }
 
 // Specific From implementations for common error types
-impl From<anyhow::Error> for AppError {
+impl From<anyhow::Error> for ApiError {
     fn from(err: anyhow::Error) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, err)
     }
 }
 
-impl From<sea_orm::DbErr> for AppError {
+impl From<sea_orm::DbErr> for ApiError {
     fn from(err: sea_orm::DbErr) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, err.into())
     }
 }
 
-impl From<std::io::Error> for AppError {
+impl From<std::io::Error> for ApiError {
     fn from(err: std::io::Error) -> Self {
         Self::new(StatusCode::INTERNAL_SERVER_ERROR, err.into())
-    }
-}
-
-impl From<crate::auth::AuthError> for AppError {
-    fn from(err: crate::auth::AuthError) -> Self {
-        Self::new(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            anyhow::anyhow!("{}", err),
-        )
     }
 }

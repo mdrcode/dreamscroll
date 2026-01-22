@@ -7,7 +7,7 @@ use crate::{api, auth, database::DbHandle, model};
 pub async fn fetch_timeline(
     user_context: auth::Context,
     db: &DbHandle,
-) -> anyhow::Result<Vec<api::CaptureInfo>, api::AppError> {
+) -> Result<Vec<api::CaptureInfo>, api::ApiError> {
     let captures = model::capture::Entity::load()
         .filter(model::capture::Column::UserId.eq(user_context.user_id()))
         .order_by(model::capture::Column::CreatedAt, sea_orm::Order::Desc)

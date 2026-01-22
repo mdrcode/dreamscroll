@@ -17,7 +17,7 @@ pub async fn detail(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     Path(id): Path<i32>,
-) -> Result<Response, api::AppError> {
+) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
     tracing::debug!("Rendering detail for capture {} for user {}", id, user.id());
 
@@ -29,7 +29,7 @@ pub async fn detail(
     let rendered = state
         .tera
         .render("detail.html.tera", &context)
-        .map_err(|e| api::AppError::internal(anyhow!("Failed to render template: {:?}", e)))?;
+        .map_err(|e| anyhow!("Failed to render template: {:?}", e))?;
 
     Ok(Html(rendered).into_response())
 }

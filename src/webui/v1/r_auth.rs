@@ -8,7 +8,10 @@ pub async fn login_handler(
     mut auth: AuthSession<auth::WebAuthBackend>,
     Form(creds): Form<auth::Credentials>,
 ) -> Result<Redirect, axum::http::StatusCode> {
-    let user = match auth.authenticate(creds).await {
+
+    let authentication = auth.authenticate(creds).await;
+
+    let user = match authentication {
         Ok(Some(user)) => user,
         Ok(None) => return Err(axum::http::StatusCode::UNAUTHORIZED),
         Err(_) => return Err(axum::http::StatusCode::INTERNAL_SERVER_ERROR),

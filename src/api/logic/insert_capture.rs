@@ -7,7 +7,7 @@ pub async fn insert_capture(
     user_context: auth::Context,
     db: &DbHandle,
     storage_id: String,
-) -> anyhow::Result<api::CaptureInfo, api::AppError> {
+) -> Result<api::CaptureInfo, api::ApiError> {
     let media = model::media::ActiveModel::builder().set_filename(storage_id.clone());
 
     let active_model = model::capture::ActiveModel::builder()

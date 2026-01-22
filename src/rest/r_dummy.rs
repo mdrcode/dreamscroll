@@ -16,7 +16,7 @@ use super::ApiState;
 pub async fn get(
     user: DreamscrollAuthUser,
     State(_state): State<Arc<ApiState>>,
-) -> Result<impl IntoResponse, api::AppError> {
+) -> Result<impl IntoResponse, api::ApiError> {
     // Convert the JWT user to a Context for business logic
     let user_context = Context::from(user);
 

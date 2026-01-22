@@ -56,7 +56,7 @@ pub struct TokenResponse {
 pub async fn post(
     State(state): State<Arc<ApiState>>,
     Json(request): Json<TokenRequest>,
-) -> Result<impl IntoResponse, api::AppError> {
+) -> Result<impl IntoResponse, api::ApiError> {
     let auth_user = auth::password::verify(&state.db, &request.username, &request.password).await;
 
     // If authentication fails, return unauthorized error
@@ -64,7 +64,7 @@ pub async fn post(
         Ok(user) => user,
         Err(_) => {
             tracing::warn!("Authentication failed for user {}", request.username);
-            return Err(api::AppError::unauthorized(anyhow::anyhow!(
+            return Err(api::ApiError::unauthorized(anyhow::anyhow!(
                 "Invalid credentials"
             )));
         }
@@ -75,7 +75,7 @@ pub async fn post(
     let token = state
         .jwt_config
         .create_token(auth_user)
-        .map_err(|e| api::AppError::internal(anyhow::anyhow!("Token creation failed: {e}")))?;
+        .map_err(|e| api::ApiError::internal(anyhow::anyhow!("Token creation failed: {e}")))?;
 
     tracing::info!(user_id, "JWT token issued successfully");
 

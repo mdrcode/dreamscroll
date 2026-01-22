@@ -21,7 +21,7 @@ dyn_clone::clone_trait_object!(Illuminator);
 
 #[async_trait::async_trait]
 pub trait IlluminatorWorker: Send + Sync {
-    async fn run(&self) -> anyhow::Result<(), api::AppError>;
+    async fn run(&self) -> anyhow::Result<(), api::ApiError>;
 }
 
 pub fn make_worker<I>(db: Arc<DbHandle>, ill: I) -> Box<dyn IlluminatorWorker>

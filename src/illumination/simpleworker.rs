@@ -39,7 +39,7 @@ where
 
 #[async_trait]
 impl<I: Illuminator + 'static> IlluminatorWorker for SimpleWorker<I> {
-    async fn run(&self) -> anyhow::Result<(), api::AppError> {
+    async fn run(&self) -> anyhow::Result<(), api::ApiError> {
         let self_arc = Arc::new(self.clone());
         (0..2).for_each(|_| {
             let t = SimpleWorkerThread {
@@ -73,7 +73,7 @@ struct SimpleWorkerThread<I: Illuminator + 'static> {
 
 impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
     // note this consumes self
-    async fn run(self) -> anyhow::Result<(), api::AppError> {
+    async fn run(self) -> anyhow::Result<(), api::ApiError> {
         let db = &self.parent_arc.db;
         let queue = &self.parent_arc.queue;
         let illuminator = &self.parent_arc.illuminator;

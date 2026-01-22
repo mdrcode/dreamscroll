@@ -6,7 +6,7 @@ pub async fn insert_illumination<I: Illuminator>(
     capture_id: i32,
     illuminator: &I,
     content: String,
-) -> anyhow::Result<(), api::AppError> {
+) -> Result<(), api::ApiError> {
     model::illumination::ActiveModel::builder()
         .set_capture_id(capture_id)
         .set_provider(illuminator.model_name().to_string())

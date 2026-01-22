@@ -16,7 +16,7 @@ use super::WebState;
 pub async fn index(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
-) -> Result<Response, api::AppError> {
+) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
     tracing::debug!("Rendering index for user ID {}", user.id());
 
@@ -28,7 +28,7 @@ pub async fn index(
     let rendered = state
         .tera
         .render("index.html.tera", &context)
-        .map_err(|e| api::AppError::internal(anyhow!("Failed to render template: {:?}", e)))?;
+        .map_err(|e| anyhow!("Failed to render template: {:?}", e))?;
 
     Ok(Html(rendered).into_response())
 }

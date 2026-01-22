@@ -11,14 +11,14 @@ use crate::api;
 
 use super::WebState;
 
-pub async fn login_page(State(state): State<Arc<WebState>>) -> Result<Response, api::AppError> {
+pub async fn login_page(State(state): State<Arc<WebState>>) -> Result<Response, api::ApiError> {
     let context = Context::new();
     // TODO possibly pass in an error message?
 
     let rendered = state
         .tera
         .render("login.html.tera", &context)
-        .map_err(|e| api::AppError::internal(anyhow!("Failed to render template: {:?}", e)))?;
+        .map_err(|e| anyhow!("Failed to render template: {:?}", e))?;
 
     Ok(Html(rendered).into_response())
 }

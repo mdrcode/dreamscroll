@@ -24,7 +24,7 @@ pub async fn search(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     Query(params): Query<SearchParams>,
-) -> Result<Response, api::AppError> {
+) -> Result<Response, api::ApiError> {
     let query = params.q.trim();
 
     let user = auth.user.unwrap();
@@ -41,7 +41,7 @@ pub async fn search(
     let rendered = state
         .tera
         .render("search.html.tera", &context)
-        .map_err(|e| api::AppError::internal(anyhow!("Failed to render template: {:?}", e)))?;
+        .map_err(|e| api::ApiError::internal(anyhow!("Failed to render template: {:?}", e)))?;
 
     Ok(Html(rendered).into_response())
 }

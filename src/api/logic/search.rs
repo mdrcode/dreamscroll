@@ -1,5 +1,4 @@
-use sea_orm::{EntityLoaderTrait, prelude::*};
-use sea_orm::{EntityTrait, QuerySelect};
+use sea_orm::{EntityLoaderTrait, EntityTrait, QuerySelect, prelude::*};
 
 use crate::{api, auth, database::DbHandle, model};
 
@@ -7,7 +6,7 @@ pub async fn search_by_illuminations(
     user_context: auth::Context,
     db: &DbHandle,
     query: &str,
-) -> anyhow::Result<Vec<api::CaptureInfo>, api::AppError> {
+) -> anyhow::Result<Vec<api::CaptureInfo>, api::ApiError> {
     if query.is_empty() {
         return Ok(vec![]);
     }

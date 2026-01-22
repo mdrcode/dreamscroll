@@ -4,7 +4,7 @@ mod logic;
 pub use logic::*;
 
 mod apierror;
-pub use apierror::AppError;
+pub use apierror::ApiError;
 
 mod captureinfo;
 pub use captureinfo::CaptureInfo;
