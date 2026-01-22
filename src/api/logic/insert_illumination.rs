@@ -1,4 +1,4 @@
-use crate::{common::*, database::DbHandle, illumination::Illuminator, model};
+use crate::{api, database::DbHandle, illumination::Illuminator, model};
 
 // Is this still needed?
 pub async fn insert_illumination<I: Illuminator>(
@@ -6,7 +6,7 @@ pub async fn insert_illumination<I: Illuminator>(
     capture_id: i32,
     illuminator: &I,
     content: String,
-) -> anyhow::Result<(), AppError> {
+) -> anyhow::Result<(), api::AppError> {
     model::illumination::ActiveModel::builder()
         .set_capture_id(capture_id)
         .set_provider(illuminator.model_name().to_string())

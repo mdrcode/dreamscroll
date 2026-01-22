@@ -1,13 +1,13 @@
 use sea_orm::prelude::*;
 use sea_orm::{EntityTrait, QueryOrder};
 
-use crate::{api, auth, common::AppError, database::DbHandle, model};
+use crate::{api, auth, database::DbHandle, model};
 
 // TODO obviously this should take a user_id or equivalent at some point
 pub async fn fetch_timeline(
     user_context: auth::Context,
     db: &DbHandle,
-) -> anyhow::Result<Vec<api::CaptureInfo>, AppError> {
+) -> anyhow::Result<Vec<api::CaptureInfo>, api::AppError> {
     let captures = model::capture::Entity::load()
         .filter(model::capture::Column::UserId.eq(user_context.user_id()))
         .order_by(model::capture::Column::CreatedAt, sea_orm::Order::Desc)

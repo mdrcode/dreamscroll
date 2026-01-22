@@ -8,7 +8,7 @@ use axum::{
 use axum_login::{AuthSession, AuthUser};
 use tera::Context;
 
-use crate::{api, auth, common::AppError};
+use crate::{api, auth};
 
 use super::WebState;
 
@@ -16,7 +16,7 @@ use super::WebState;
 pub async fn index(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
-) -> Result<Response, AppError> {
+) -> Result<Response, api::AppError> {
     let user = auth.user.unwrap();
     tracing::debug!("Rendering index for user ID {}", user.id());
 
@@ -28,7 +28,7 @@ pub async fn index(
     let rendered = state
         .tera
         .render("index.html.tera", &context)
-        .map_err(|e| AppError::internal(anyhow!("Failed to render template: {:?}", e)))?;
+        .map_err(|e| api::AppError::internal(anyhow!("Failed to render template: {:?}", e)))?;
 
     Ok(Html(rendered).into_response())
 }

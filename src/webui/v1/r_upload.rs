@@ -9,7 +9,7 @@ use axum::{
 use axum_extra::extract::Multipart;
 use axum_login::{AuthSession, AuthUser};
 
-use crate::{api, auth, common::AppError};
+use crate::{api, auth};
 
 use super::WebState;
 
@@ -18,20 +18,22 @@ pub async fn upload(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     multipart: Multipart,
-) -> Result<Response, AppError> {
+) -> Result<Response, api::AppError> {
     let user = auth.user.unwrap();
     tracing::debug!("Processing upload for user ID {}", user.id());
 
     let media_bytes = match extract_bytes(multipart, "image").await? {
         Some(bytes) => bytes,
         None => {
-            return Err(AppError::bad_request(anyhow!("No image data found.")));
+            return Err(api::AppError::bad_request(anyhow!("No image data found.")));
         }
     };
 
     // Limit to 5MB TODO currently this is already limited by axum body limit layer
     if media_bytes.len() > 5 * 1024 * 1024 {
-        return Err(AppError::payload_too_large(anyhow!("Payload too large.")));
+        return Err(api::AppError::payload_too_large(anyhow!(
+            "Payload too large."
+        )));
     }
 
     let storage_id = state.storage.store_from_bytes(&media_bytes)?;

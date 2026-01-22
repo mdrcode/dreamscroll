@@ -3,6 +3,9 @@ pub mod admin;
 mod logic;
 pub use logic::*;
 
+mod apierror;
+pub use apierror::AppError;
+
 mod captureinfo;
 pub use captureinfo::CaptureInfo;
 

@@ -6,7 +6,7 @@ use axum::{
     response::IntoResponse,
 };
 
-use crate::{api, auth::DreamscrollAuthUser, common::AppError};
+use crate::{api, auth::DreamscrollAuthUser};
 
 use super::ApiState;
 
@@ -21,7 +21,7 @@ pub async fn get(
     _user: DreamscrollAuthUser,
     State(state): State<Arc<ApiState>>,
     Path(id): Path<i32>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<impl IntoResponse, api::AppError> {
     let capture_info = api::fetch_capture_by_id(&state.db, id).await?;
     Ok(Json(capture_info))
 }

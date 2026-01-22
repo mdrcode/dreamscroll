@@ -3,11 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 
 use super::{Illuminator, IlluminatorWorker};
-use crate::{
-    api,
-    common::{self, AppError},
-    database::DbHandle,
-};
+use crate::{api, common, database::DbHandle};
 
 pub struct SimpleWorker<I: Illuminator + 'static> {
     pub db: Arc<DbHandle>,
@@ -43,7 +39,7 @@ where
 
 #[async_trait]
 impl<I: Illuminator + 'static> IlluminatorWorker for SimpleWorker<I> {
-    async fn run(&self) -> anyhow::Result<(), AppError> {
+    async fn run(&self) -> anyhow::Result<(), api::AppError> {
         let self_arc = Arc::new(self.clone());
         (0..2).for_each(|_| {
             let t = SimpleWorkerThread {
@@ -77,7 +73,7 @@ struct SimpleWorkerThread<I: Illuminator + 'static> {
 
 impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
     // note this consumes self
-    async fn run(self) -> anyhow::Result<(), AppError> {
+    async fn run(self) -> anyhow::Result<(), api::AppError> {
         let db = &self.parent_arc.db;
         let queue = &self.parent_arc.queue;
         let illuminator = &self.parent_arc.illuminator;

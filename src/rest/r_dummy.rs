@@ -2,8 +2,10 @@ use std::sync::Arc;
 
 use axum::{Json, extract::State, response::IntoResponse};
 
-use crate::auth::{Context, DreamscrollAuthUser};
-use crate::common::AppError;
+use crate::{
+    api,
+    auth::{Context, DreamscrollAuthUser},
+};
 
 use super::ApiState;
 
@@ -14,7 +16,7 @@ use super::ApiState;
 pub async fn get(
     user: DreamscrollAuthUser,
     State(_state): State<Arc<ApiState>>,
-) -> Result<impl IntoResponse, AppError> {
+) -> Result<impl IntoResponse, api::AppError> {
     // Convert the JWT user to a Context for business logic
     let user_context = Context::from(user);
 

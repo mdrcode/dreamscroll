@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{api, common::AppError, database::DbHandle};
+use crate::{api, database::DbHandle};
 
 mod gemini;
 mod grok;
@@ -21,7 +21,7 @@ dyn_clone::clone_trait_object!(Illuminator);
 
 #[async_trait::async_trait]
 pub trait IlluminatorWorker: Send + Sync {
-    async fn run(&self) -> anyhow::Result<(), AppError>;
+    async fn run(&self) -> anyhow::Result<(), api::AppError>;
 }
 
 pub fn make_worker<I>(db: Arc<DbHandle>, ill: I) -> Box<dyn IlluminatorWorker>

@@ -1,7 +1,5 @@
-mod error;
 mod filehash;
-mod oneshotqueue;
-
-pub use error::AppError;
 pub use filehash::compute_file_hash;
+
+mod oneshotqueue;
 pub use oneshotqueue::OneShotQueue;

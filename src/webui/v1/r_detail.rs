@@ -8,7 +8,7 @@ use axum::{
 use axum_login::{AuthSession, AuthUser};
 use tera::Context;
 
-use crate::{api, auth, common::AppError};
+use crate::{api, auth};
 
 use super::WebState;
 
@@ -17,7 +17,7 @@ pub async fn detail(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     Path(id): Path<i32>,
-) -> Result<Response, AppError> {
+) -> Result<Response, api::AppError> {
     let user = auth.user.unwrap();
     tracing::debug!("Rendering detail for capture {} for user {}", id, user.id());
 
@@ -29,7 +29,7 @@ pub async fn detail(
     let rendered = state
         .tera
         .render("detail.html.tera", &context)
-        .map_err(|e| AppError::internal(anyhow!("Failed to render template: {:?}", e)))?;
+        .map_err(|e| api::AppError::internal(anyhow!("Failed to render template: {:?}", e)))?;
 
     Ok(Html(rendered).into_response())
 }
