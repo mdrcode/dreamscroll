@@ -1,4 +1,4 @@
-use crate::entity::user;
+use crate::model::user;
 
 use super::jwt::JwtClaims;
 
@@ -34,12 +34,17 @@ pub enum AuthMethod {
 #[derive(Clone)]
 pub struct DreamscrollAuthUser {
     id: i32,
+    is_admin: bool,
     method: AuthMethod,
 }
 
 impl DreamscrollAuthUser {
     pub fn user_id(&self) -> i32 {
         self.id
+    }
+
+    pub fn is_admin(&self) -> bool {
+        self.is_admin
     }
 
     pub fn auth_method(&self) -> &AuthMethod {
@@ -67,6 +72,7 @@ impl DreamscrollAuthUser {
     pub(super) fn from_db_model(user_model: user::Model) -> Self {
         Self {
             id: user_model.id,
+            is_admin: user_model.is_admin,
             method: AuthMethod::Session {
                 session_hash: user_model.password_hash,
             },
@@ -77,6 +83,7 @@ impl DreamscrollAuthUser {
     pub fn new_test_session(id: i32) -> Self {
         Self {
             id,
+            is_admin: false,
             method: AuthMethod::Session {
                 session_hash: format!("test-hash-{}", id),
             },
@@ -87,6 +94,7 @@ impl DreamscrollAuthUser {
     pub fn new_test_jwt(id: i32, claims: JwtClaims) -> Self {
         Self {
             id,
+            is_admin: false,
             method: AuthMethod::Jwt { claims },
         }
     }
@@ -146,6 +154,7 @@ impl From<JwtClaims> for DreamscrollAuthUser {
         let id = claims.sub;
         DreamscrollAuthUser {
             id,
+            is_admin: false, // TODO currently no is_admin info in JWT claims
             method: AuthMethod::Jwt { claims },
         }
     }
@@ -282,6 +291,7 @@ mod tests {
         // Create a custom user with a short hash for this specific test
         let user = DreamscrollAuthUser {
             id: 42,
+            is_admin: false,
             method: AuthMethod::Session {
                 session_hash: "abc".to_string(),
             },

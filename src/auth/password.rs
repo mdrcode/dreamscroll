@@ -3,7 +3,7 @@ use argon2::{
     password_hash::{SaltString, rand_core::OsRng},
 };
 
-use crate::{database::DbHandle, entity::user};
+use crate::{database::DbHandle, model::user};
 
 use super::{autherror::AuthError, authuser::DreamscrollAuthUser};
 

@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 
-use crate::{common, database, entity::media, facility};
+use crate::{common, database, facility, model};
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "export_uniq")]
@@ -38,7 +38,7 @@ pub async fn run(config: facility::Config, args: ExportUniqArgs) -> anyhow::Resu
 
     let db = database::connect(config.db_config).await?;
 
-    let medias = media::Entity::load()
+    let medias = model::media::Entity::load()
         .all(&db.conn)
         .await
         .expect("Failed to fetch medias from db.")

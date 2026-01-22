@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::prelude::*;
 use serde::Serialize;
 
-use crate::entity::*;
+use crate::model;
 
 use super::*;
 
@@ -17,8 +17,8 @@ pub struct CaptureInfo {
     pub details: String,
 }
 
-impl From<capture::ModelEx> for CaptureInfo {
-    fn from(capture_model: capture::ModelEx) -> Self {
+impl From<model::capture::ModelEx> for CaptureInfo {
+    fn from(capture_model: model::capture::ModelEx) -> Self {
         let medias = match capture_model.medias {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(models) => models.into_iter().map(|m| MediaInfo::from(m)).collect(),

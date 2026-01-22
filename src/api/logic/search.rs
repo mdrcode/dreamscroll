@@ -1,7 +1,7 @@
 use sea_orm::{EntityLoaderTrait, prelude::*};
 use sea_orm::{EntityTrait, QuerySelect};
 
-use crate::{api, auth, common::AppError, database::DbHandle, entity::*};
+use crate::{api, auth, common::AppError, database::DbHandle, model};
 
 pub async fn search_by_illuminations(
     user_context: auth::Context,
@@ -13,11 +13,11 @@ pub async fn search_by_illuminations(
     }
 
     // Start from captures filtered by user (indexed), then join to illuminations
-    let capture_ids_with_match = capture::Entity::find()
-        .filter(capture::Column::UserId.eq(user_context.user_id()))
-        .inner_join(illumination::Entity)
-        .filter(illumination::Column::Content.contains(query))
-        .column(capture::Column::Id)
+    let capture_ids_with_match = model::capture::Entity::find()
+        .filter(model::capture::Column::UserId.eq(user_context.user_id()))
+        .inner_join(model::illumination::Entity)
+        .filter(model::illumination::Column::Content.contains(query))
+        .column(model::capture::Column::Id)
         .distinct()
         .all(&db.conn)
         .await?
@@ -26,11 +26,11 @@ pub async fn search_by_illuminations(
         .collect::<Vec<i32>>();
 
     // Get unique capture IDs
-    let captures = capture::Entity::load()
-        .filter(capture::Column::Id.is_in(capture_ids_with_match))
+    let captures = model::capture::Entity::load()
+        .filter(model::capture::Column::Id.is_in(capture_ids_with_match))
         .order_by_id_desc()
-        .with(media::Entity)
-        .with(illumination::Entity)
+        .with(model::media::Entity)
+        .with(model::illumination::Entity)
         .all(&db.conn)
         .await?;
 

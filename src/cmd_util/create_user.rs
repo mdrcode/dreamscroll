@@ -1,41 +1,51 @@
 use argh::FromArgs;
-use sea_orm::{ActiveModelTrait, Set};
 
-use crate::{auth, database, entity::user, facility};
+use crate::{api, auth, database, facility};
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "create_user")]
 #[argh(description = "Create a new user in the database")]
 
-pub struct CreateUserArgs {
-    #[argh(positional)]
-    #[argh(description = "username for the new user")]
-    username: String,
-}
+pub struct CreateUserArgs {}
 
-pub async fn run(config: facility::Config, args: CreateUserArgs) -> anyhow::Result<()> {
+pub async fn run(config: facility::Config, _args: CreateUserArgs) -> anyhow::Result<()> {
     let db = database::connect(config.db_config).await?;
 
-    // first check if user already exists
-    let existing_user = user::Entity::find_by_username(args.username.clone())
-        .one(&db.conn)
-        .await?;
-    if existing_user.is_some() {
-        anyhow::bail!("username '{}' already exists.", args.username);
+    println!("Enter ADMIN username:");
+    let mut admin_username = String::new();
+    std::io::stdin().read_line(&mut admin_username)?;
+    let admin_username = admin_username.trim().to_string();
+
+    println!("Enter ADMIN password:");
+    let admin_password = rpassword::read_password()?;
+    let admin_user = auth::password::verify(&db, &admin_username, &admin_password).await?;
+    if !admin_user.is_admin() {
+        return Err(anyhow::anyhow!("Only admin users can create new users"));
     }
 
-    println!("Enter password for new user '{}':", args.username);
+    println!("Enter username for new user:");
+    let mut username = String::new();
+    std::io::stdin().read_line(&mut username)?;
+    let username = username.trim().to_string();
+
+    println!("Enter email for new user:");
+    let mut email = String::new();
+    std::io::stdin().read_line(&mut email)?;
+    let email = email.trim().to_string();
+
+    println!("Enter password for new user:");
     let password = rpassword::read_password()?;
-    let password_hash = auth::password::hash(&password)?;
 
-    let new_user = user::ActiveModel {
-        username: Set(args.username),
-        password_hash: Set(password_hash),
-        ..Default::default()
-    };
-    let new_user = new_user.insert(&db.conn).await?;
+    let new_user_info = api::admin::create_user(
+        auth::Context::from(admin_user),
+        &db,
+        username,
+        password,
+        email,
+    )
+    .await?;
 
-    println!("Successfully created new user: {}", new_user.username);
+    println!("Created new user: {:?}", new_user_info);
 
     Ok(())
 }

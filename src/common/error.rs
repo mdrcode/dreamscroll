@@ -25,8 +25,16 @@ impl AppError {
         Self::new(StatusCode::BAD_REQUEST, error.into())
     }
 
-    pub fn unauthorized(error: impl Into<anyhow::Error>) -> Self {
-        Self::new(StatusCode::UNAUTHORIZED, error.into())
+    pub fn conflict(error: impl Into<anyhow::Error>) -> Self {
+        Self::new(StatusCode::CONFLICT, error.into())
+    }
+
+    pub fn forbidden(error: impl Into<anyhow::Error>) -> Self {
+        Self::new(StatusCode::FORBIDDEN, error.into())
+    }
+
+    pub fn internal(error: impl Into<anyhow::Error>) -> Self {
+        Self::new(StatusCode::INTERNAL_SERVER_ERROR, error.into())
     }
 
     pub fn not_found(error: impl Into<anyhow::Error>) -> Self {
@@ -37,8 +45,8 @@ impl AppError {
         Self::new(StatusCode::PAYLOAD_TOO_LARGE, error.into())
     }
 
-    pub fn internal(error: impl Into<anyhow::Error>) -> Self {
-        Self::new(StatusCode::INTERNAL_SERVER_ERROR, error.into())
+    pub fn unauthorized(error: impl Into<anyhow::Error>) -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, error.into())
     }
 }
 

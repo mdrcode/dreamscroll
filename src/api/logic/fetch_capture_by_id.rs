@@ -1,16 +1,16 @@
 use anyhow::anyhow;
 use sea_orm::EntityLoaderTrait;
 
-use crate::{api, common::AppError, database::DbHandle, entity::*};
+use crate::{api, common::AppError, database::DbHandle, model};
 
 pub async fn fetch_capture_by_id(
     db: &DbHandle,
     capture_id: i32,
 ) -> anyhow::Result<api::CaptureInfo, AppError> {
-    let capture_model = capture::Entity::load()
+    let capture_model = model::capture::Entity::load()
         .filter_by_id(capture_id)
-        .with(media::Entity)
-        .with(illumination::Entity)
+        .with(model::media::Entity)
+        .with(model::illumination::Entity)
         .one(&db.conn)
         .await
         .map_err(|e| {

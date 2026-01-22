@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::entity::*;
+use crate::model;
 
 #[derive(Clone, Serialize)]
 pub struct IlluminationInfo {
@@ -10,8 +10,8 @@ pub struct IlluminationInfo {
     pub content: String,
 }
 
-impl From<illumination::ModelEx> for IlluminationInfo {
-    fn from(mx: illumination::ModelEx) -> Self {
+impl From<model::illumination::ModelEx> for IlluminationInfo {
+    fn from(mx: model::illumination::ModelEx) -> Self {
         Self {
             id: mx.id,
             capture_id: mx.capture_id,

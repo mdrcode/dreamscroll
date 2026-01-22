@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::entity::*;
+use crate::model;
 
 #[derive(Clone, Serialize)]
 pub struct MediaInfo {
@@ -9,8 +9,8 @@ pub struct MediaInfo {
     pub filename: String,
 }
 
-impl From<media::ModelEx> for MediaInfo {
-    fn from(mx: media::ModelEx) -> Self {
+impl From<model::media::ModelEx> for MediaInfo {
+    fn from(mx: model::media::ModelEx) -> Self {
         Self {
             id: mx.id,
             capture_id: mx.capture_id,

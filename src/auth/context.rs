@@ -19,6 +19,10 @@ impl Context {
     pub fn user_id(&self) -> i32 {
         self.user.user_id()
     }
+
+    pub fn is_admin(&self) -> bool {
+        self.user.is_admin()
+    }
 }
 
 impl From<DreamscrollAuthUser> for Context {

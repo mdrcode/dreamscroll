@@ -4,7 +4,7 @@ use axum_login::UserId;
 use sea_orm::EntityTrait;
 use serde::Deserialize;
 
-use crate::{auth, database::DbHandle, entity::user};
+use crate::{auth, database::DbHandle, model::user};
 
 use super::{AuthError, DreamscrollAuthUser};
 
@@ -34,8 +34,7 @@ impl axum_login::AuthnBackend for WebAuthBackend {
         &self,
         creds: Self::Credentials,
     ) -> Result<Option<Self::User>, Self::Error> {
-        let auth_user =
-            auth::password::verify(&self.db, &creds.username, &creds.password).await?;
+        let auth_user = auth::password::verify(&self.db, &creds.username, &creds.password).await?;
 
         Ok(Some(auth_user))
     }
@@ -75,7 +74,7 @@ mod tests {
     // 2. Testing successful authentication with valid credentials
     // 3. Testing failed authentication with invalid credentials
     // 4. Testing session rehydration via get_user()
-    // 
+    //
     // These tests are better suited for integration tests that can spin up
     // a full database and test the complete authentication flow end-to-end.
 }
