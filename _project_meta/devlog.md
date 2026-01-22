@@ -11,6 +11,11 @@ so that this can run 24x7 (crudely) for dogfood round the clock?
   text splitting.
 - [ ] Fix up the export/import API so can run against a prod/dogfood instance.
 
+EOD:
+
+- Stubbed out a basic structured illumination via vibe coding and am now tuning
+  the prompt.
+- Tons of cleanups and reorganizations, notably of Error handling.
 
 ## 2026-01-21
 

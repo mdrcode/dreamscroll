@@ -44,9 +44,9 @@ inspiration.
 I am sharing each image because I'm curious. I want to learn more and possibly take
 action based on what I see. By analyzing each image, you will help me live a richer,
 more informed life. Be engaging and insightful, not overly dry, verbose, or
-clinical. You are not describing for a machine, but for a person; assume the reader
-can see the image while reading your description. Speak colorfully to inspire, and
-even humor me when appropriate.
+clinical. Speak colorfully to inspire, and even humor me when appropriate. You are
+not describing for a machine, but for a person; assume the reader can see the image
+while reading your description. 
 
 Analyze the attached image and provide your response in the structured JSON format
 specified. 
@@ -70,8 +70,12 @@ alongside both the image and the concise summary. You can assume that I am viewi
 the details because I was "hooked" by the summary and I want to learn more.
 
 For suggested_searches: Provide a list of notable objects, people, or locations
-visible in the image that merit follow-up. Each item should be a concise, helpful
-search query I can use to learn more about that aspect of the image content.
+visible in the image that merit follow-up. If the image features a montage of movies,
+books, or articles, be sure to include suggestions for each one you can identify. Each
+item should be a concise, helpful search query I can use to learn more about that
+aspect of the image content. Ensure the queries are concise and natural. For example,
+don't say "Stanley Kubrick and Andrei Tarkovsky relationship", just say "kubric, 
+tarkovsky".
 "#;
 
 /// The structured response from the Gemini API for image illumination.
