@@ -126,7 +126,7 @@ fn generate_comparison_html(
         .map(|filename| {
             // Use relative path since media files are in the same directory as the HTML
             format!(
-                r#"<img src="{}" alt="capture media" style="max-width: 100%; height: auto; margin-bottom: 10px;" />"#,
+                r#"<img src="{}" alt="capture media" style="max-width: 100%; max-height: 400px; height: auto; margin-bottom: 10px;" />"#,
                 filename
             )
         })
@@ -299,10 +299,15 @@ fn markdown_to_html(markdown: &str) -> String {
     // This is a very basic converter - in production you'd want to use a proper markdown library
     let mut html = String::new();
     let mut in_code_block = false;
+    let mut in_list = false;
     let mut code_block_content = String::new();
 
     for line in markdown.lines() {
         if line.starts_with("```") {
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
             if in_code_block {
                 html.push_str(&format!(
                     "<pre><code>{}</code></pre>\n",
@@ -323,18 +328,56 @@ fn markdown_to_html(markdown: &str) -> String {
         }
 
         if line.trim().is_empty() {
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
             html.push_str("<br/>\n");
         } else if line.starts_with("### ") {
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
             html.push_str(&format!("<h3>{}</h3>\n", html_escape(&line[4..])));
         } else if line.starts_with("## ") {
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
             html.push_str(&format!("<h2>{}</h2>\n", html_escape(&line[3..])));
         } else if line.starts_with("# ") {
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
             html.push_str(&format!("<h1>{}</h1>\n", html_escape(&line[2..])));
         } else if line.starts_with("- ") || line.starts_with("* ") {
+            if !in_list {
+                html.push_str("<ul>\n");
+                in_list = true;
+            }
             html.push_str(&format!("<li>{}</li>\n", html_escape(&line[2..])));
+        } else if line.ends_with(":") && !line.contains(' ') || 
+                  line == "Suggested searches:" || 
+                  line == "Entities:" {
+            // Treat section headers as h3
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
+            html.push_str(&format!("<h3>{}</h3>\n", html_escape(line)));
         } else {
+            if in_list {
+                html.push_str("</ul>\n");
+                in_list = false;
+            }
             html.push_str(&format!("<p>{}</p>\n", html_escape(line)));
         }
+    }
+
+    // Close any open list at the end
+    if in_list {
+        html.push_str("</ul>\n");
     }
 
     html

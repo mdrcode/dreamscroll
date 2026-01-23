@@ -17,6 +17,7 @@
 //! - `summary`: A concise 1-2 sentence summary (max ~240 chars)
 //! - `details`: A more detailed multi-paragraph description
 //! - `suggested_searches`: A list of search queries to learn more
+//! - `entities`: A list of notable entities with descriptions
 //!
 //! ## Future Work
 //!
@@ -78,6 +79,12 @@ item should be a concise, helpful search query I can use to learn more about tha
 aspect of the image content. Ensure the queries are concise and natural. For example,
 don't say "Stanley Kubrick and Andrei Tarkovsky relationship", just say "kubric, 
 tarkovsky".
+
+For entities: Identify and list notable and recognizable objects, people, locations, 
+and references visible in the image. For each entity, provide its name and a brief 
+description. Focus on entities that are noteworthy, culturally significant, or would 
+be interesting to learn more about. Examples: books (with title and author), movies, 
+brands, landmarks, famous people, artwork, etc. Be concise but informative.
 "#;
 
 /// The structured response from the Gemini API for image illumination.
@@ -98,6 +105,20 @@ pub struct StructuredIllumination {
     /// Each entry is a concise search query for a notable object, person, or
     /// location visible in the image.
     pub suggested_searches: Vec<String>,
+
+    /// A list of notable entities (objects, people, locations, references) in the image.
+    /// Each entry contains the entity name and a brief description.
+    pub entities: Vec<Entity>,
+}
+
+/// Represents a notable entity found in an image.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Entity {
+    /// The name of the entity (object, person, location, or reference).
+    pub name: String,
+
+    /// A brief description of the entity.
+    pub description: String,
 }
 
 impl StructuredIllumination {
@@ -116,6 +137,11 @@ impl StructuredIllumination {
     /// - <search 1>
     /// - <search 2>
     /// ...
+    ///
+    /// Entities:
+    /// - <entity 1>: <description>
+    /// - <entity 2>: <description>
+    /// ...
     /// ```
     pub fn to_legacy_text(&self) -> String {
         let mut result = format!("{}\n\n{}", self.summary, self.details);
@@ -124,6 +150,13 @@ impl StructuredIllumination {
             result.push_str("\n\nSuggested searches:");
             for search in &self.suggested_searches {
                 result.push_str(&format!("\n- {}", search));
+            }
+        }
+
+        if !self.entities.is_empty() {
+            result.push_str("\n\nEntities:");
+            for entity in &self.entities {
+                result.push_str(&format!("\n- {}: {}", entity.name, entity.description));
             }
         }
 
@@ -200,9 +233,27 @@ impl GeminiStructuredIlluminator {
                     "items": {
                         "type": "STRING"
                     }
+                },
+                "entities": {
+                    "type": "ARRAY",
+                    "description": "A list of notable entities (objects, people, locations, references) with descriptions.",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "name": {
+                                "type": "STRING",
+                                "description": "The name of the entity"
+                            },
+                            "description": {
+                                "type": "STRING",
+                                "description": "A brief description of the entity"
+                            }
+                        },
+                        "required": ["name", "description"]
+                    }
                 }
             },
-            "required": ["summary", "details", "suggested_searches"]
+            "required": ["summary", "details", "suggested_searches", "entities"]
         });
 
         // Prepare request with text + image and structured output config
@@ -254,7 +305,8 @@ impl GeminiStructuredIlluminator {
                 .map_err(|e| anyhow::anyhow!("Failed to parse structured response: {}", e))?;
 
             tracing::info!(
-                "GeminiStructuredIlluminator: Successfully parsed structured response with {} suggested searches",
+                "GeminiStructuredIlluminator: Successfully parsed structured response with {} entities and {} suggested searches",
+                structured.entities.len(),
                 structured.suggested_searches.len()
             );
 
@@ -314,6 +366,12 @@ mod tests {
         let illumination = StructuredIllumination {
             summary: "A fascinating book about quantum physics.".to_string(),
             details: "This appears to be a cover of a popular science book.\n\nThe author is well-known for making complex topics accessible.".to_string(),
+            entities: vec![
+                Entity {
+                    name: "Quantum Physics Book".to_string(),
+                    description: "A popular science book on quantum mechanics".to_string(),
+                },
+            ],
             suggested_searches: vec![
                 "quantum physics introduction".to_string(),
                 "author name books".to_string(),
@@ -327,6 +385,18 @@ mod tests {
         assert!(legacy.contains("Suggested searches:"));
         assert!(legacy.contains("- quantum physics introduction"));
         assert!(legacy.contains("- author name books"));
+        assert!(legacy.contains("Entities:"));
+        assert!(
+            legacy.contains("- Quantum Physics Book: A popular science book on quantum mechanics")
+        );
+
+        // Verify entities come after suggested searches
+        let searches_pos = legacy.find("Suggested searches:").unwrap();
+        let entities_pos = legacy.find("Entities:").unwrap();
+        assert!(
+            entities_pos > searches_pos,
+            "Entities should come after suggested searches"
+        );
     }
 
     #[test]
@@ -334,6 +404,7 @@ mod tests {
         let illumination = StructuredIllumination {
             summary: "A simple image.".to_string(),
             details: "Nothing remarkable here.".to_string(),
+            entities: vec![],
             suggested_searches: vec![],
         };
 
@@ -341,6 +412,7 @@ mod tests {
 
         assert!(legacy.contains("A simple image."));
         assert!(legacy.contains("Nothing remarkable here."));
+        assert!(!legacy.contains("Entities:"));
         assert!(!legacy.contains("Suggested searches:"));
     }
 
@@ -349,6 +421,10 @@ mod tests {
         let json = r#"{
             "summary": "Test summary",
             "details": "Test details",
+            "entities": [
+                {"name": "Entity1", "description": "Description1"},
+                {"name": "Entity2", "description": "Description2"}
+            ],
             "suggested_searches": ["search1", "search2"]
         }"#;
 
@@ -356,6 +432,9 @@ mod tests {
 
         assert_eq!(parsed.summary, "Test summary");
         assert_eq!(parsed.details, "Test details");
+        assert_eq!(parsed.entities.len(), 2);
+        assert_eq!(parsed.entities[0].name, "Entity1");
+        assert_eq!(parsed.entities[0].description, "Description1");
         assert_eq!(parsed.suggested_searches.len(), 2);
         assert_eq!(parsed.suggested_searches[0], "search1");
     }
@@ -365,6 +444,10 @@ mod tests {
         let illumination = StructuredIllumination {
             summary: "Test".to_string(),
             details: "Details".to_string(),
+            entities: vec![Entity {
+                name: "TestEntity".to_string(),
+                description: "TestDesc".to_string(),
+            }],
             suggested_searches: vec!["search".to_string()],
         };
 
@@ -372,6 +455,9 @@ mod tests {
 
         assert!(json.contains("\"summary\":\"Test\""));
         assert!(json.contains("\"details\":\"Details\""));
+        assert!(json.contains("\"entities\":"));
+        assert!(json.contains("\"name\":\"TestEntity\""));
+        assert!(json.contains("\"description\":\"TestDesc\""));
         assert!(json.contains("\"suggested_searches\":[\"search\"]"));
     }
 }
