@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use argh::FromArgs;
+use base64::Engine;
 
 use crate::{api, database, facility, illumination::*};
 
@@ -60,31 +61,30 @@ pub async fn run(config: facility::Config, args: EvalArgs) -> anyhow::Result<()>
     tracing::info!("Running illumination with '{}'...", args.illuminator_b);
     let result_b = illuminator_b.illuminate(capture_info.clone()).await?;
 
-    // Create a temporary directory for the comparison HTML and media files
-    let temp_dir = std::env::temp_dir();
-    let comparison_dir = temp_dir.join(format!("illuminator_comparison_{}", capture_id));
-    std::fs::create_dir_all(&comparison_dir)?;
-
-    // Copy media files to the temporary directory
-    let media_filenames: Vec<String> = capture_info
+    // Convert media files to base64 data URIs
+    let media_data_uris: Vec<String> = capture_info
         .medias
         .iter()
-        .map(|media| {
+        .filter_map(|media| {
             let source_path =
                 std::path::PathBuf::from(format!("localdev/media/{}", media.filename));
-            let dest_path = comparison_dir.join(&media.filename);
 
-            if let Err(e) = std::fs::copy(&source_path, &dest_path) {
-                tracing::warn!("Failed to copy media file {}: {}", media.filename, e);
+            match std::fs::read(&source_path) {
+                Ok(bytes) => {
+                    let base64_data = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    Some(format!("data:image/jpeg;base64,{}", base64_data))
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to read media file {}: {}", media.filename, e);
+                    None
+                }
             }
-
-            media.filename.clone()
         })
         .collect();
 
-    // Generate HTML comparison
+    // Generate HTML comparison with embedded images
     let html_content = generate_comparison_html(
-        &media_filenames,
+        &media_data_uris,
         capture_info.id,
         &args.illuminator_a,
         &result_a,
@@ -93,7 +93,8 @@ pub async fn run(config: facility::Config, args: EvalArgs) -> anyhow::Result<()>
     );
 
     // Write to temporary file
-    let html_path = comparison_dir.join("comparison.html");
+    let temp_dir = std::env::temp_dir();
+    let html_path = temp_dir.join(format!("illuminator_comparison_{}.html", capture_id));
     std::fs::write(&html_path, html_content)?;
 
     println!(
@@ -111,7 +112,7 @@ pub async fn run(config: facility::Config, args: EvalArgs) -> anyhow::Result<()>
 }
 
 fn generate_comparison_html(
-    media_filenames: &[String],
+    media_data_uris: &[String],
     capture_id: i32,
     name_a: &str,
     result_a: &str,
@@ -121,13 +122,13 @@ fn generate_comparison_html(
     let html_result_a = markdown_to_html(result_a);
     let html_result_b = markdown_to_html(result_b);
 
-    let media_previews = media_filenames
+    let media_previews = media_data_uris
         .iter()
-        .map(|filename| {
-            // Use relative path since media files are in the same directory as the HTML
+        .map(|data_uri| {
+            // Use base64-encoded data URI for embedded images
             format!(
-                r#"<img src="{}" alt="capture media" style="max-width: 100%; max-height: 400px; height: auto; margin-bottom: 10px;" />"#,
-                filename
+                r#"<img src="{}" alt="capture media" style="max-width: 100%; max-height: 400px; height: auto; margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto;" />"#,
+                data_uri
             )
         })
         .collect::<Vec<_>>()
@@ -357,9 +358,10 @@ fn markdown_to_html(markdown: &str) -> String {
                 in_list = true;
             }
             html.push_str(&format!("<li>{}</li>\n", html_escape(&line[2..])));
-        } else if line.ends_with(":") && !line.contains(' ') || 
-                  line == "Suggested searches:" || 
-                  line == "Entities:" {
+        } else if line.ends_with(":") && !line.contains(' ')
+            || line == "Suggested searches:"
+            || line == "Entities:"
+        {
             // Treat section headers as h3
             if in_list {
                 html.push_str("</ul>\n");
