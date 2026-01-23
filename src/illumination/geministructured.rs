@@ -68,16 +68,15 @@ the format or medium.
 For the details: Give a more detailed description which can span several paragraphs.
 Explore the content, context, and significance of what you see. Inform and empower me
 to learn more and possibly take action. You can assume that I am viewing the image
-at the same time as I am reading your commentary. Imagine that I am viewing the
-details because I was "hooked" by the summary and I want to learn more and possibly
-take follow up action.
+at the same time. Imagine that I am viewing the details because I was "hooked" by 
+your summary and I want to learn more and possibly take follow up action.
 
 For suggested_searches: Provide a list of notable objects, people, or locations
 visible in the image that merit follow-up. If the image features a montage of movies,
 books, or articles, be sure to include suggestions for each one you can identify. Each
 item should be a concise, helpful search query I can use to learn more about that
 aspect of the image content. Ensure the queries are concise and natural. For example,
-don't say "Stanley Kubrick and Andrei Tarkovsky relationship", just say "kubric, 
+don't say "Stanley Kubrick and Andrei Tarkovsky relationship", just say "kubrick 
 tarkovsky".
 
 For entities: Identify and list notable and recognizable objects, people, locations, 
@@ -85,8 +84,9 @@ and references visible in the image. For each entity, provide its name, a brief
 description, and classify its type. Focus on entities that are noteworthy, culturally 
 significant, or would be interesting to learn more about. Examples: books (with title 
 and author), movies, brands, landmarks, famous people, artwork, etc. Be concise but 
-informative. Entity types should be one of: person, place, book, movie, television_show, 
-brand, or unknown (for entities that don't fit other categories).
+informative. Entity types should be one of: person, place, book, movie,
+television_show,  art_work, meme, software_project, financial, youtuber, brand, or
+unknown (for entities that don't fit other categories).
 "#;
 
 /// The structured response from the Gemini API for image illumination.
