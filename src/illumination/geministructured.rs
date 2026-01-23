@@ -17,7 +17,7 @@
 //! - `summary`: A concise 1-2 sentence summary (max ~240 chars)
 //! - `details`: A more detailed multi-paragraph description
 //! - `suggested_searches`: A list of search queries to learn more
-//! - `entities`: A list of notable entities with descriptions
+//! - `entities`: A list of notable entities with descriptions and types (person, place, book, movie, television_show, brand, unknown)
 //!
 //! ## Future Work
 //!
@@ -81,10 +81,12 @@ don't say "Stanley Kubrick and Andrei Tarkovsky relationship", just say "kubric,
 tarkovsky".
 
 For entities: Identify and list notable and recognizable objects, people, locations, 
-and references visible in the image. For each entity, provide its name and a brief 
-description. Focus on entities that are noteworthy, culturally significant, or would 
-be interesting to learn more about. Examples: books (with title and author), movies, 
-brands, landmarks, famous people, artwork, etc. Be concise but informative.
+and references visible in the image. For each entity, provide its name, a brief 
+description, and classify its type. Focus on entities that are noteworthy, culturally 
+significant, or would be interesting to learn more about. Examples: books (with title 
+and author), movies, brands, landmarks, famous people, artwork, etc. Be concise but 
+informative. Entity types should be one of: person, place, book, movie, television_show, 
+brand, or unknown (for entities that don't fit other categories).
 "#;
 
 /// The structured response from the Gemini API for image illumination.
@@ -111,6 +113,19 @@ pub struct StructuredIllumination {
     pub entities: Vec<Entity>,
 }
 
+/// The type/category of an entity.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum EntityType {
+    Person,
+    Place,
+    Book,
+    Movie,
+    TelevisionShow,
+    Brand,
+    Unknown,
+}
+
 /// Represents a notable entity found in an image.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Entity {
@@ -119,6 +134,10 @@ pub struct Entity {
 
     /// A brief description of the entity.
     pub description: String,
+
+    /// The type/category of the entity.
+    #[serde(rename = "type")]
+    pub entity_type: EntityType,
 }
 
 impl StructuredIllumination {
@@ -139,8 +158,8 @@ impl StructuredIllumination {
     /// ...
     ///
     /// Entities:
-    /// - <entity 1>: <description>
-    /// - <entity 2>: <description>
+    /// - <entity name> [<type>]: <description>
+    /// - <entity name> [<type>]: <description>
     /// ...
     /// ```
     pub fn to_legacy_text(&self) -> String {
@@ -156,7 +175,19 @@ impl StructuredIllumination {
         if !self.entities.is_empty() {
             result.push_str("\n\nEntities:");
             for entity in &self.entities {
-                result.push_str(&format!("\n- {}: {}", entity.name, entity.description));
+                let type_str = match entity.entity_type {
+                    EntityType::Person => "person",
+                    EntityType::Place => "place",
+                    EntityType::Book => "book",
+                    EntityType::Movie => "movie",
+                    EntityType::TelevisionShow => "television_show",
+                    EntityType::Brand => "brand",
+                    EntityType::Unknown => "unknown",
+                };
+                result.push_str(&format!(
+                    "\n- {} [{}]: {}",
+                    entity.name, type_str, entity.description
+                ));
             }
         }
 
@@ -236,7 +267,7 @@ impl GeminiStructuredIlluminator {
                 },
                 "entities": {
                     "type": "ARRAY",
-                    "description": "A list of notable entities (objects, people, locations, references) with descriptions.",
+                    "description": "A list of notable entities (objects, people, locations, references) with descriptions and types.",
                     "items": {
                         "type": "OBJECT",
                         "properties": {
@@ -247,9 +278,14 @@ impl GeminiStructuredIlluminator {
                             "description": {
                                 "type": "STRING",
                                 "description": "A brief description of the entity"
+                            },
+                            "type": {
+                                "type": "STRING",
+                                "description": "The type of entity: person, place, book, movie, television_show, brand, or unknown",
+                                "enum": ["person", "place", "book", "movie", "television_show", "brand", "unknown"]
                             }
                         },
-                        "required": ["name", "description"]
+                        "required": ["name", "description", "type"]
                     }
                 }
             },
@@ -370,6 +406,7 @@ mod tests {
                 Entity {
                     name: "Quantum Physics Book".to_string(),
                     description: "A popular science book on quantum mechanics".to_string(),
+                    entity_type: EntityType::Book,
                 },
             ],
             suggested_searches: vec![
@@ -386,9 +423,9 @@ mod tests {
         assert!(legacy.contains("- quantum physics introduction"));
         assert!(legacy.contains("- author name books"));
         assert!(legacy.contains("Entities:"));
-        assert!(
-            legacy.contains("- Quantum Physics Book: A popular science book on quantum mechanics")
-        );
+        assert!(legacy.contains(
+            "- Quantum Physics Book [book]: A popular science book on quantum mechanics"
+        ));
 
         // Verify entities come after suggested searches
         let searches_pos = legacy.find("Suggested searches:").unwrap();
@@ -422,8 +459,8 @@ mod tests {
             "summary": "Test summary",
             "details": "Test details",
             "entities": [
-                {"name": "Entity1", "description": "Description1"},
-                {"name": "Entity2", "description": "Description2"}
+                {"name": "Entity1", "description": "Description1", "type": "person"},
+                {"name": "Entity2", "description": "Description2", "type": "place"}
             ],
             "suggested_searches": ["search1", "search2"]
         }"#;
@@ -435,6 +472,8 @@ mod tests {
         assert_eq!(parsed.entities.len(), 2);
         assert_eq!(parsed.entities[0].name, "Entity1");
         assert_eq!(parsed.entities[0].description, "Description1");
+        assert_eq!(parsed.entities[0].entity_type, EntityType::Person);
+        assert_eq!(parsed.entities[1].entity_type, EntityType::Place);
         assert_eq!(parsed.suggested_searches.len(), 2);
         assert_eq!(parsed.suggested_searches[0], "search1");
     }
@@ -447,6 +486,7 @@ mod tests {
             entities: vec![Entity {
                 name: "TestEntity".to_string(),
                 description: "TestDesc".to_string(),
+                entity_type: EntityType::Brand,
             }],
             suggested_searches: vec!["search".to_string()],
         };
@@ -458,6 +498,7 @@ mod tests {
         assert!(json.contains("\"entities\":"));
         assert!(json.contains("\"name\":\"TestEntity\""));
         assert!(json.contains("\"description\":\"TestDesc\""));
+        assert!(json.contains("\"type\":\"brand\""));
         assert!(json.contains("\"suggested_searches\":[\"search\"]"));
     }
 }
