@@ -16,9 +16,10 @@ struct Args {
 #[argh(subcommand)]
 enum Command {
     CreateUser(create_user::CreateUserArgs),
+    Eval(eval::EvalArgs),
+    ExportUniq(export_uniq::ExportUniqArgs),
     Illuminate(illuminate::IlluminateArgs),
     Import(import::ImportArgs),
-    ExportUniq(export_uniq::ExportUniqArgs),
 }
 
 #[tokio::main]
@@ -34,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
     facility::init_tracing(&config);
 
     match args.command {
+        Command::Eval(args) => eval::run(config, args).await,
         Command::CreateUser(args) => create_user::run(config, args).await,
         Command::Illuminate(args) => illuminate::run(config, args).await,
         Command::Import(args) => import::run(config, args).await,

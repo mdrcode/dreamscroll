@@ -1,5 +1,9 @@
 # Dreamscroll Development Log
 
+## 2026-01-23
+
+Main goal for today is to incorporate structured illumination into the app.
+
 ## 2026-01-22
 
 Success on the auth front! Took longer than expect but learned a lot. Now we

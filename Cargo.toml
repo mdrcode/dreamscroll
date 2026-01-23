@@ -13,8 +13,8 @@ name = "localdev"
 path = "src/bin/main_localdev.rs"
 
 [[bin]]
-name = "dreamspot_util"
-path = "src/bin/main_cmd_util.rs"
+name = "dreamscroll_util"
+path = "src/bin/main_util_cmd.rs"
 
 [[bin]]
 name = "worker"
