@@ -66,9 +66,10 @@ the format or medium.
 
 For the details: Give a more detailed description which can span several paragraphs.
 Explore the content, context, and significance of what you see. Inform and empower me
-to learn more and possibly take action. Imagine that I am viewing the details
-alongside both the image and the concise summary. You can assume that I am viewing
-the details because I was "hooked" by the summary and I want to learn more.
+to learn more and possibly take action. You can assume that I am viewing the image
+at the same time as I am reading your commentary. Imagine that I am viewing the
+details because I was "hooked" by the summary and I want to learn more and possibly
+take follow up action.
 
 For suggested_searches: Provide a list of notable objects, people, or locations
 visible in the image that merit follow-up. If the image features a montage of movies,
