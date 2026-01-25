@@ -4,16 +4,13 @@ use crate::{api, common, database::DbHandle};
 
 use super::*;
 
-pub struct SimpleWorker<I: Illuminator + 'static> {
+pub struct SimpleWorker {
     pub db: Arc<DbHandle>,
     pub queue: Arc<common::OneShotQueue<i32>>,
-    pub illuminator: I,
+    pub illuminator: Box<dyn Illuminator>,
 }
 
-impl<I> Clone for SimpleWorker<I>
-where
-    I: Illuminator + 'static,
-{
+impl Clone for SimpleWorker {
     fn clone(&self) -> Self {
         Self {
             db: Arc::clone(&self.db),
@@ -23,11 +20,8 @@ where
     }
 }
 
-impl<I> SimpleWorker<I>
-where
-    I: Illuminator + 'static,
-{
-    pub fn new(db: Arc<DbHandle>, illuminator: I) -> Self {
+impl SimpleWorker {
+    pub fn new(db: Arc<DbHandle>, illuminator: Box<dyn Illuminator>) -> Self {
         Self {
             db,
             queue: Arc::new(common::OneShotQueue::new()),
@@ -37,7 +31,7 @@ where
 }
 
 #[async_trait::async_trait]
-impl<I: Illuminator + 'static> IlluminatorWorker for SimpleWorker<I> {
+impl IlluminatorWorker for SimpleWorker {
     async fn run(&self) -> anyhow::Result<(), api::ApiError> {
         let self_arc = Arc::new(self.clone());
         (0..2).for_each(|_| {
@@ -66,11 +60,11 @@ impl<I: Illuminator + 'static> IlluminatorWorker for SimpleWorker<I> {
     }
 }
 
-struct SimpleWorkerThread<I: Illuminator + 'static> {
-    pub parent_arc: Arc<SimpleWorker<I>>,
+struct SimpleWorkerThread {
+    pub parent_arc: Arc<SimpleWorker>,
 }
 
-impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
+impl SimpleWorkerThread {
     // note this consumes self
     async fn run(self) -> anyhow::Result<(), api::ApiError> {
         let db = &self.parent_arc.db;
@@ -79,9 +73,11 @@ impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
 
         loop {
             if let Some(cap_id) = queue.pop_next() {
+                tracing::info!("Starting illumination for capture ID {}...", cap_id);
                 let capture = api::fetch_capture_by_id(&db, cap_id).await?;
 
                 let i = illuminator.illuminate(capture).await?;
+                tracing::info!("Completed illumination for capture ID {}.", cap_id);
 
                 api::insert_illumination(db, cap_id, i).await?;
 

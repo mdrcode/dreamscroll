@@ -9,9 +9,6 @@ pub trait IlluminatorWorker: Send + Sync {
     async fn run(&self) -> anyhow::Result<(), api::ApiError>;
 }
 
-pub fn make_worker<I>(db: Arc<DbHandle>, ill: I) -> Box<dyn IlluminatorWorker>
-where
-    I: Illuminator + 'static,
-{
+pub fn make_worker(db: Arc<DbHandle>, ill: Box<dyn Illuminator>) -> Box<dyn IlluminatorWorker> {
     Box::new(simpleworker::SimpleWorker::new(db, ill))
 }
