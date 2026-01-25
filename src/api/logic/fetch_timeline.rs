@@ -12,31 +12,13 @@ pub async fn fetch_timeline(
         .filter(model::capture::Column::UserId.eq(user_context.user_id()))
         .order_by(model::capture::Column::CreatedAt, sea_orm::Order::Desc)
         .with(model::media::Entity)
+        .with(model::illumination::Entity)
+        .with((model::illumination::Entity, model::x_query::Entity))
+        .with((model::illumination::Entity, model::k_node::Entity))
         .all(&db.conn)
         .await?;
 
-    let illuminations = captures
-        .load_many(
-            model::illumination::Entity::find()
-                //.filter(model::illumination::Column::Provider.eq("gemini"))
-                .order_by(model::illumination::Column::Id, sea_orm::Order::Desc),
-            &db.conn,
-        )
-        .await?;
-
-    let capture_infos = captures
-        .into_iter()
-        .zip(illuminations.into_iter())
-        .map(|(c, ill)| {
-            let mut mx = c;
-            mx.illuminations = HasMany::Loaded(
-                ill.into_iter()
-                    .map(model::illumination::ModelEx::from)
-                    .collect(),
-            );
-            api::CaptureInfo::from(mx)
-        })
-        .collect();
+    let capture_infos = captures.into_iter().map(api::CaptureInfo::from).collect();
 
     Ok(capture_infos)
 }
