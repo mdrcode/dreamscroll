@@ -65,11 +65,11 @@ describing for a machine, but for a person; assume the reader can see the image
 while reading your description. The focus should be on the underlying substance, not
 the format or medium.
 
-For the details: Give a more detailed description which can span several paragraphs.
-Explore the content, context, and significance of what you see. Inform and empower me
-to learn more and possibly take action. You can assume that I am viewing the image
-at the same time. Imagine that I am viewing the details because I was "hooked" by 
-your summary and I want to learn more and possibly take follow up action.
+For the details: Give a more detailed description which should span two paragraphs
+or more. Explore the content, context, and significance of what you see. Inform and 
+empower me to learn more and possibly take action. You can assume that I am viewing
+the image at the same time. Imagine that I am viewing the details because I was
+"hooked" by your summary and I want to learn more and possibly take follow up action.
 
 For suggested_searches: Provide a list of notable objects, people, or locations
 visible in the image that merit follow-up. If the image features a montage of movies,
@@ -85,7 +85,7 @@ description, and classify its type. Focus on entities that are noteworthy, cultu
 significant, or would be interesting to learn more about. Examples: books (with title 
 and author), movies, brands, landmarks, famous people, artwork, etc. Be concise but 
 informative. Entity types should be one of: person, place, book, movie,
-television_show,  art_work, meme, software_project, financial, youtuber, brand, or
+television,  painting, meme, software, financial, youtuber, brand, or
 unknown (for entities that don't fit other categories).
 "#;
 
@@ -114,16 +114,43 @@ pub struct StructuredIllumination {
 }
 
 /// The type/category of an entity.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(
+    Debug,
+    Clone,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    strum::Display,
+    strum::EnumIter,
+    strum::AsRefStr,
+)]
 #[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
 pub enum EntityType {
     Person,
     Place,
     Book,
     Movie,
     TelevisionShow,
+    ArtWork,
+    Meme,
+    Software,
+    Financial,
+    Youtuber,
     Brand,
     Unknown,
+}
+
+impl EntityType {
+    /// Returns a comma-separated string of all possible entity type values.
+    pub fn all_values() -> String {
+        use strum::IntoEnumIterator;
+        Self::iter()
+            .map(|e| format!("{}", e))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
 }
 
 /// Represents a notable entity found in an image.
@@ -175,18 +202,9 @@ impl StructuredIllumination {
         if !self.entities.is_empty() {
             result.push_str("\n\nEntities:");
             for entity in &self.entities {
-                let type_str = match entity.entity_type {
-                    EntityType::Person => "person",
-                    EntityType::Place => "place",
-                    EntityType::Book => "book",
-                    EntityType::Movie => "movie",
-                    EntityType::TelevisionShow => "television_show",
-                    EntityType::Brand => "brand",
-                    EntityType::Unknown => "unknown",
-                };
                 result.push_str(&format!(
                     "\n- {} [{}]: {}",
-                    entity.name, type_str, entity.description
+                    entity.name, entity.entity_type, entity.description
                 ));
             }
         }
@@ -247,6 +265,10 @@ impl GeminiStructuredIlluminator {
 
         // Build the JSON schema for the structured response
         // Following the OpenAPI 3.0 schema format that Gemini expects
+        let entity_type_enum: Vec<String> = {
+            use strum::IntoEnumIterator;
+            EntityType::iter().map(|e| e.as_ref().to_string()).collect()
+        };
         let response_schema = json!({
             "type": "OBJECT",
             "properties": {
@@ -282,7 +304,7 @@ impl GeminiStructuredIlluminator {
                             "type": {
                                 "type": "STRING",
                                 "description": "The type of entity: person, place, book, movie, television_show, brand, or unknown",
-                                "enum": ["person", "place", "book", "movie", "television_show", "brand", "unknown"]
+                                "enum": entity_type_enum
                             }
                         },
                         "required": ["name", "description", "type"]
