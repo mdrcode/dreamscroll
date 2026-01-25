@@ -84,20 +84,17 @@ pub async fn run(config: facility::Config, args: IlluminateArgs) -> anyhow::Resu
 
     // Generate HTML based on whether we have single or multiple captures
     let html_content = if args.ids.len() == 1 {
-        let (capture_id, media_data_uris, result) = &capture_results[0];
+        let (capture_id, media_data_uris, illumination) = &capture_results[0];
         html_view::generate_html(
             media_data_uris,
             *capture_id,
             &[html_view::IlluminationPanel {
                 name: &args.model,
-                content: &result.to_legacy_text(),
+                illumination,
             }],
         )
     } else {
-        let multi_results: Vec<(i32, Vec<String>, String)> = capture_results.iter().map(|(id, uris, res)| {
-            ( *id, uris.clone(), res.to_legacy_text() )
-        }).collect();
-        html_view::generate_multi_capture_html(&args.model, &multi_results)
+        html_view::generate_multi_capture_html(&args.model, &capture_results)
     };
 
     // Write to temporary file
