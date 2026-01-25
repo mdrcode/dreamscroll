@@ -71,7 +71,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     let thread_illuminator = {
-        let gemini = illumination::GeminiIlluminator::default();
+        let gemini = illumination::gemini::GeminiIlluminator::default();
         let worker = illumination::make_worker(db.clone(), gemini);
         let cancel = cancel_token.clone();
         tokio::spawn(async move {

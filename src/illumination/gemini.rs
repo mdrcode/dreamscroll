@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api;
 
-use super::Illuminator;
+use super::*;
 
 const PROMPT: &str = r#"
 You are a virtual research assistant helping me to explore my world by analyzing

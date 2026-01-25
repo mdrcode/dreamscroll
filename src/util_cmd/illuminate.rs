@@ -43,10 +43,12 @@ pub async fn run(config: facility::Config, args: IlluminateArgs) -> anyhow::Resu
         tracing::info!("Fetched capture {} from db.", capture_info.id);
 
         let illuminator: Box<dyn Illuminator> = match args.model.as_str() {
-            "grok" => Box::new(GrokIlluminator::default()),
-            "gemini" => Box::new(GeminiIlluminator::default()),
-            "geministructured" => Box::new(GeminiStructuredIlluminator::default()),
-            "loremipsum" => Box::new(LoremIpsumIlluminator::default()),
+            "grok" => Box::new(grok::GrokIlluminator::default()),
+            "gemini" => Box::new(gemini::GeminiIlluminator::default()),
+            "geministructured" => {
+                Box::new(geministructured::GeminiStructuredIlluminator::default())
+            }
+            "loremipsum" => Box::new(loremipsum::LoremIpsumIlluminator::default()),
             other => {
                 return Err(anyhow!(
                     "Unknown model '{}'. Supported: grok, gemini, geministructured, loremipsum.",

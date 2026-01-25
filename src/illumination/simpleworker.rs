@@ -1,9 +1,8 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
-
-use super::{Illuminator, IlluminatorWorker};
 use crate::{api, common, database::DbHandle};
+
+use super::*;
 
 pub struct SimpleWorker<I: Illuminator + 'static> {
     pub db: Arc<DbHandle>,
@@ -37,7 +36,7 @@ where
     }
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl<I: Illuminator + 'static> IlluminatorWorker for SimpleWorker<I> {
     async fn run(&self) -> anyhow::Result<(), api::ApiError> {
         let self_arc = Arc::new(self.clone());

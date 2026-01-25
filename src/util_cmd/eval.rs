@@ -42,10 +42,12 @@ pub async fn run(config: facility::Config, args: EvalArgs) -> anyhow::Result<()>
     // Helper to create illuminator from string
     fn make_illuminator(model: &str) -> anyhow::Result<Box<dyn Illuminator>> {
         match model {
-            "grok" => Ok(Box::new(GrokIlluminator::default())),
-            "gemini" => Ok(Box::new(GeminiIlluminator::default())),
-            "geministructured" => Ok(Box::new(GeminiStructuredIlluminator::default())),
-            "loremipsum" => Ok(Box::new(LoremIpsumIlluminator::default())),
+            "grok" => Ok(Box::new(grok::GrokIlluminator::default())),
+            "gemini" => Ok(Box::new(gemini::GeminiIlluminator::default())),
+            "geministructured" => Ok(Box::new(
+                geministructured::GeminiStructuredIlluminator::default(),
+            )),
+            "loremipsum" => Ok(Box::new(loremipsum::LoremIpsumIlluminator::default())),
             other => Err(anyhow!(
                 "Unknown model '{}'. Supported: grok, gemini, geministructured, loremipsum.",
                 other

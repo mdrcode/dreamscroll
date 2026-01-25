@@ -1,6 +1,6 @@
 use crate::api;
 
-use super::Illuminator;
+use super::*;
 
 #[derive(Clone, Default)]
 pub struct LoremIpsumIlluminator;

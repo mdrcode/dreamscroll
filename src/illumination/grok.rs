@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api;
 
-use super::Illuminator;
+use super::*;
 
 #[derive(Clone)]
 pub struct GrokIlluminator {
