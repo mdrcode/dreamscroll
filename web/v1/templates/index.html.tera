@@ -194,21 +194,43 @@
                 </a>
             </div>
             <div class="capturelist-row-metadata-container">
-                {{ capture.created_at }}
+                <span class="capturelist-row-timestamp">{{ capture.created_at }}</span>
 
-                {% if capture.summary %}
-                <p>
-                    {{ capture.summary }}
-                </p>
-                {% endif %}
+                {% if capture.illuminations | length > 0 %}
+                    {% set illum = capture.illuminations | first %}
 
-                {% if capture.details %}
-                <div class="capturelist-row-metadata-details">
-                    <div class="capturelist-row-metadata-details-text">
-                        <p>{{ capture.details }}</p>
+                    {% if illum.summary %}
+                    <p class="capturelist-row-summary">{{ illum.summary }}</p>
+                    {% endif %}
+
+                    {% if illum.details %}
+                    <div class="capturelist-row-metadata-details">
+                        <div class="capturelist-row-metadata-details-text">
+                            <p>{{ illum.details }}</p>
+                        </div>
+                        <a href="#" class="capturelist-row-metadata-details-seemore">See More...</a>
                     </div>
-                    <a href="#" class="capturelist-row-metadata-details-seemore">See More...</a>
-                </div>
+                    {% endif %}
+
+                    {% if illum.k_nodes | length > 0 %}
+                    <div class="capturelist-row-entities">
+                        {% for node in illum.k_nodes %}
+                        <span class="capturelist-entity" title="{{ node.description }}">
+                            <span class="capturelist-entity-type">{{ node.k_type }}</span>
+                            <span class="capturelist-entity-name">{{ node.name }}</span>
+                        </span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    {% if illum.x_queries | length > 0 %}
+                    <div class="capturelist-row-queries">
+                        {% for query in illum.x_queries %}
+                        <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="capturelist-query-pill">{{ query }}</a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
                 {% endif %}
             </div>
         </div>

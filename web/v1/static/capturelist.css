@@ -64,3 +64,74 @@
 .capturelist-row-metadata-details-seemore:hover {
     color: #0056b3;
 }
+
+/* Timestamp */
+.capturelist-row-timestamp {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 8px;
+}
+
+/* Summary */
+.capturelist-row-summary {
+    font-size: 15px;
+    line-height: 1.5;
+    margin: 0 0 12px 0;
+}
+
+/* Suggested searches (x_queries) */
+.capturelist-row-queries {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.capturelist-query-pill {
+    font-size: 12px;
+    color: #4a5568;
+    /* background: #edf2f7; */
+    background: none;
+    padding: 4px 10px;
+    border: 1px solid #afc1d3;
+    border-radius: 12px;
+    text-decoration: none;
+    transition: background 0.15s ease;
+}
+
+.capturelist-query-pill:hover {
+    background: #e2e8f0;
+    color: #2d3748;
+}
+
+/* Entities (k_nodes) */
+.capturelist-row-entities {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.capturelist-entity {
+    display: inline-flex;
+    align-items: center;
+    font-size: 11px;
+    border: 1px solid #e2e8f0;
+    border-radius: 4px;
+    overflow: hidden;
+    cursor: default;
+}
+
+.capturelist-entity-type {
+    background: #f7fafc;
+    color: #718096;
+    padding: 2px 6px;
+    text-transform: lowercase;
+    font-size: 10px;
+    letter-spacing: 0.3px;
+}
+
+.capturelist-entity-name {
+    padding: 2px 8px;
+    color: #2d3748;
+}

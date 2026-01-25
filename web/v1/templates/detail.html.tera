@@ -50,6 +50,94 @@
             font-weight: 600;
             color: #666;
         }
+
+        .detail-timestamp {
+            font-size: 13px;
+            color: #888;
+        }
+
+        .detail-summary {
+            font-size: 16px;
+            line-height: 1.6;
+            margin: 16px 0;
+        }
+
+        .detail-details {
+            font-size: 15px;
+            line-height: 1.6;
+            color: #444;
+            margin: 16px 0;
+            white-space: pre-wrap;
+        }
+
+        .detail-section-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
+
+        .detail-queries {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 16px 0;
+        }
+
+        .detail-query-pill {
+            font-size: 13px;
+            color: #4a5568;
+            background: #edf2f7;
+            padding: 6px 12px;
+            border-radius: 14px;
+            text-decoration: none;
+            transition: background 0.15s ease;
+        }
+
+        .detail-query-pill:hover {
+            background: #e2e8f0;
+            color: #2d3748;
+        }
+
+        .detail-entities {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 16px 0;
+        }
+
+        .detail-entity {
+            display: inline-flex;
+            align-items: center;
+            font-size: 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .detail-entity-type {
+            background: #f7fafc;
+            color: #718096;
+            padding: 4px 8px;
+            text-transform: lowercase;
+            font-size: 11px;
+            letter-spacing: 0.3px;
+        }
+
+        .detail-entity-name {
+            padding: 4px 10px;
+            color: #2d3748;
+            font-weight: 500;
+        }
+
+        .detail-entity-desc {
+            display: block;
+            font-size: 11px;
+            color: #666;
+            margin-top: 2px;
+        }
     </style>
 </head>
 
@@ -74,16 +162,45 @@
                     <span class="metadata-label">Filename:</span> {{ capture.medias[0].filename }}
                 </div>
                 <div class="metadata-row">
-                    <span class="metadata-label">Uploaded:</span> {{ capture.created_at }}
+                    <span class="metadata-label">Uploaded:</span>
+                    <span class="detail-timestamp">{{ capture.created_at }}</span>
                 </div>
-                <div class="metadata-row">
-                    {% if capture.illuminations %}
-                    <span class="metadata-label">Illumination:</span>
-                    {{ capture.illuminations[0].content }}
-                    {% else %}
-                    No illumination data available.
-                    {% endif %}
+
+                {% if capture.illuminations | length > 0 %}
+                {% set illum = capture.illuminations | first %}
+
+                {% if illum.summary %}
+                <div class="detail-summary">{{ illum.summary }}</div>
+                {% endif %}
+
+                {% if illum.details %}
+                <div class="detail-details">{{ illum.details }}</div>
+                {% endif %}
+
+                {% if illum.x_queries | length > 0 %}
+                <div class="detail-section-label">Suggested Searches</div>
+                <div class="detail-queries">
+                    {% for query in illum.x_queries %}
+                    <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="detail-query-pill">{{ query }}</a>
+                    {% endfor %}
                 </div>
+                {% endif %}
+
+                {% if illum.k_nodes | length > 0 %}
+                <div class="detail-section-label">Entities</div>
+                <div class="detail-entities">
+                    {% for node in illum.k_nodes %}
+                    <div class="detail-entity">
+                        <span class="detail-entity-type">{{ node.k_type }}</span>
+                        <span class="detail-entity-name">{{ node.name }}</span>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% else %}
+                <div class="metadata-row">No illumination data available.</div>
+                {% endif %}
             </div>
         </div>
     </div>
