@@ -2,6 +2,14 @@ use crate::api;
 
 use super::*;
 
+const DETAILS: &str = r#"
+Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore
+et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut
+aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse
+cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa
+qui officia deserunt mollit anim id est laborum.
+"#;
+
 #[derive(Clone, Default)]
 pub struct LoremIpsumIlluminator;
 
@@ -11,9 +19,14 @@ impl Illuminator for LoremIpsumIlluminator {
         "loremipsum"
     }
 
-    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<String> {
-        let s = format!("Lorem ipsum illumination for capture ID {}", capture.id);
+    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<Illumination> {
         std::thread::sleep(std::time::Duration::from_millis(500));
-        Ok(s)
+
+        Ok(Illumination {
+            summary: format!("Lorem ipsum illumination for capture ID {}", capture.id),
+            details: DETAILS.trim().to_string(),
+            suggested_searches: vec![],
+            entities: vec![],
+        })
     }
 }

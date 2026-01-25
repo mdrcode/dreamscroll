@@ -90,11 +90,14 @@ pub async fn run(config: facility::Config, args: IlluminateArgs) -> anyhow::Resu
             *capture_id,
             &[html_view::IlluminationPanel {
                 name: &args.model,
-                content: result,
+                content: &result.to_legacy_text(),
             }],
         )
     } else {
-        html_view::generate_multi_capture_html(&args.model, &capture_results)
+        let multi_results: Vec<(i32, Vec<String>, String)> = capture_results.iter().map(|(id, uris, res)| {
+            ( *id, uris.clone(), res.to_legacy_text() )
+        }).collect();
+        html_view::generate_multi_capture_html(&args.model, &multi_results)
     };
 
     // Write to temporary file

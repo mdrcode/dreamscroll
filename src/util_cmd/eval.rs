@@ -92,11 +92,11 @@ pub async fn run(config: facility::Config, args: EvalArgs) -> anyhow::Result<()>
         &[
             html_view::IlluminationPanel {
                 name: &args.illuminator_a,
-                content: &result_a,
+                content: &result_a.to_legacy_text(),
             },
             html_view::IlluminationPanel {
                 name: &args.illuminator_b,
-                content: &result_b,
+                content: &result_b.to_legacy_text(),
             },
         ],
     );

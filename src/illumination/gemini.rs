@@ -63,7 +63,7 @@ impl Illuminator for GeminiIlluminator {
         "gemini"
     }
 
-    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<String> {
+    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<Illumination> {
         tracing::info!("GeminiIlluminator: Illuminating capture ID {}", capture.id);
 
         let media1 = capture.medias.get(0).expect("No media found for capture.");
@@ -115,7 +115,18 @@ impl Illuminator for GeminiIlluminator {
         if response.status().is_success() {
             let parsed_response: GenerateContentResponse = response.json().await?;
             let r = parsed_response.candidates[0].content.parts[0].text.clone();
-            Ok(r)
+
+            // split on blank lines
+            let mut sections = r.split("\n\n");
+            let summary = sections.next().unwrap_or("").trim().to_string();
+            let details = sections.next().unwrap_or("").trim().to_string();
+
+            Ok(Illumination {
+                summary,
+                details,
+                suggested_searches: vec![],
+                entities: vec![],
+            })
         } else {
             let status_code = response.status();
             let error_text = response.text().await?;

@@ -103,15 +103,14 @@ impl Default for GeminiStructuredIlluminator {
     }
 }
 
-impl GeminiStructuredIlluminator {
+#[async_trait::async_trait]
+impl Illuminator for GeminiStructuredIlluminator {
+    fn model_name(&self) -> &'static str {
+        "gemini-structured"
+    }
+
     /// Illuminates a capture and returns the structured response directly.
-    ///
-    /// This method provides access to the parsed structured data, unlike the
-    /// `Illuminator::illuminate` trait method which returns a legacy text format.
-    pub async fn illuminate_structured(
-        &self,
-        capture: api::CaptureInfo,
-    ) -> anyhow::Result<Illumination> {
+    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<Illumination> {
         tracing::info!(
             "GeminiStructuredIlluminator: Illuminating capture ID {}",
             capture.id
@@ -250,19 +249,6 @@ impl GeminiStructuredIlluminator {
                 error_text
             ))?
         }
-    }
-}
-
-#[async_trait::async_trait]
-impl Illuminator for GeminiStructuredIlluminator {
-    fn model_name(&self) -> &'static str {
-        "gemini-structured"
-    }
-
-    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<String> {
-        // Use the structured illumination and convert to legacy text format
-        let structured = self.illuminate_structured(capture).await?;
-        Ok(structured.to_legacy_text())
     }
 }
 

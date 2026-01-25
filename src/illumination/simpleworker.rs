@@ -83,7 +83,7 @@ impl<I: Illuminator + 'static> SimpleWorkerThread<I> {
 
                 let i = illuminator.illuminate(capture).await?;
 
-                api::insert_illumination(db, cap_id, illuminator, i).await?;
+                api::insert_illumination(db, cap_id, illuminator, i.to_legacy_text()).await?;
 
                 queue.complete(cap_id);
             } else {
