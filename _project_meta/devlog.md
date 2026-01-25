@@ -1,5 +1,15 @@
 # Dreamscroll Development Log
 
+## 2026-01-25
+
+Structured Illumination now flows throughout the app and api. It looks
+beautiful.
+
+Also, suggested searches (aka "explore queries" or XQueries) and knowledge
+entity nodes (aka "KNodes") are also present.
+
+Done for today.
+
 ## 2026-01-23
 
 Main goal for today is to incorporate structured illumination into the app.
