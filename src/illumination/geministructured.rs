@@ -230,7 +230,7 @@ impl Illuminator for GeminiStructuredIlluminator {
             let json_text = &parsed_response.candidates[0].content.parts[0].text;
 
             // Parse the structured response
-            let structured: Illumination = serde_json::from_str(json_text)
+            let structured: GeminiStructuredResponse = serde_json::from_str(json_text)
                 .map_err(|e| anyhow::anyhow!("Failed to parse structured response: {}", e))?;
 
             tracing::info!(
@@ -239,7 +239,7 @@ impl Illuminator for GeminiStructuredIlluminator {
                 structured.suggested_searches.len()
             );
 
-            Ok(structured)
+            Ok(Illumination::from(structured))
         } else {
             let status_code = response.status();
             let error_text = response.text().await?;
@@ -248,6 +248,28 @@ impl Illuminator for GeminiStructuredIlluminator {
                 status_code,
                 error_text
             ))?
+        }
+    }
+}
+
+#[derive(Deserialize, Debug)]
+pub struct GeminiStructuredResponse {
+    pub summary: String,
+    pub details: String,
+    pub suggested_searches: Vec<String>,
+    pub entities: Vec<Entity>,
+}
+
+impl From<GeminiStructuredResponse> for Illumination {
+    fn from(resp: GeminiStructuredResponse) -> Self {
+        Illumination {
+            meta: IlluminationMeta {
+                provider_name: "geministructured".to_string(),
+            },
+            summary: resp.summary,
+            details: resp.details,
+            suggested_searches: resp.suggested_searches,
+            entities: resp.entities,
         }
     }
 }

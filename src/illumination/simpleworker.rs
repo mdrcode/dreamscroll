@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
-use crate::{api, common, database::DbHandle};
+use crate::{
+    api::{self, ApiError},
+    common,
+    database::DbHandle,
+};
 
 use super::*;
 
@@ -76,10 +80,28 @@ impl SimpleWorkerThread {
                 tracing::info!("Starting illumination for capture ID {}...", cap_id);
                 let capture = api::fetch_capture_by_id(&db, cap_id).await?;
 
-                let i = illuminator.illuminate(capture).await?;
-                tracing::info!("Completed illumination for capture ID {}.", cap_id);
+                let r_illumination = illuminator.illuminate(capture.clone()).await;
+                if r_illumination.is_err() {
+                    let err = r_illumination.as_ref().err().unwrap();
+                    tracing::error!(
+                        "Error during illumination for capture ID {}: {:?}",
+                        cap_id,
+                        err
+                    );
+                    continue;
+                }
+                let i = r_illumination?;
 
-                api::insert_illumination(db, cap_id, i).await?;
+                let r_insert = api::insert_illumination(db, cap_id, i).await;
+                if r_insert.is_err() {
+                    let err = r_insert.as_ref().err().unwrap();
+                    tracing::error!(
+                        "Error inserting illumination for capture ID {}: {:?}",
+                        cap_id,
+                        err
+                    );
+                    continue;
+                }
 
                 queue.complete(cap_id);
             } else {
