@@ -1,5 +1,5 @@
+use sea_orm::QueryOrder;
 use sea_orm::prelude::*;
-use sea_orm::{EntityTrait, QueryOrder};
 
 use crate::{api, auth, database::DbHandle, model};
 

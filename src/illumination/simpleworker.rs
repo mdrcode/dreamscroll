@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    api::{self, ApiError},
+    api::{self},
     common,
     database::DbHandle,
 };
