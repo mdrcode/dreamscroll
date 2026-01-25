@@ -339,6 +339,196 @@ pub fn markdown_to_html(markdown: &str) -> String {
     html
 }
 
+/// Generate an HTML view for multiple captures stacked vertically.
+/// Each capture shows its media and illumination result.
+pub fn generate_multi_capture_html(
+    model_name: &str,
+    capture_results: &[(i32, Vec<String>, String)],
+) -> String {
+    let capture_sections: String = capture_results
+        .iter()
+        .map(|(capture_id, media_data_uris, result)| {
+            let media_previews = media_data_uris
+                .iter()
+                .map(|data_uri| {
+                    format!(
+                        r#"<img src="{}" alt="capture media" style="max-width: 100%; max-height: 400px; height: auto; margin-bottom: 10px; display: block; margin-left: auto; margin-right: auto;" />"#,
+                        data_uri
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+
+            let html_content = markdown_to_html(result);
+
+            format!(
+                r#"        <div class="capture-section">
+            <div class="capture-header">
+                <h2>Capture ID: {}</h2>
+            </div>
+            
+            <div class="media-section">
+                <h3>Media</h3>
+                {}
+            </div>
+
+            <div class="content">
+                <h3>{}</h3>
+                <div class="result">
+                    {}
+                </div>
+            </div>
+        </div>"#,
+                capture_id,
+                media_previews,
+                html_escape(model_name),
+                html_content
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let capture_ids: Vec<String> = capture_results
+        .iter()
+        .map(|(id, _, _)| id.to_string())
+        .collect();
+    let title = format!(
+        "Multi-Capture Illumination - {} Captures",
+        capture_results.len()
+    );
+    let subtitle = format!(
+        "Capture IDs: {} | Model: {}",
+        capture_ids.join(", "),
+        model_name
+    );
+
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{}</title>
+    <style>
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f5f5f5;
+            padding: 20px;
+        }}
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+        }}
+        .main-header {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }}
+        .main-header h1 {{
+            font-size: 2em;
+            margin-bottom: 10px;
+        }}
+        .main-header p {{
+            opacity: 0.9;
+        }}
+        .capture-section {{
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            overflow: hidden;
+        }}
+        .capture-header {{
+            background: #667eea;
+            color: white;
+            padding: 20px 30px;
+        }}
+        .capture-header h2 {{
+            font-size: 1.5em;
+        }}
+        .media-section {{
+            padding: 30px;
+            background: #fafafa;
+            border-bottom: 2px solid #eee;
+        }}
+        .media-section h3 {{
+            margin-bottom: 20px;
+            color: #555;
+        }}
+        .content {{
+            padding: 30px;
+        }}
+        .content h3 {{
+            color: #667eea;
+            margin-bottom: 20px;
+            padding-bottom: 10px;
+            border-bottom: 3px solid #667eea;
+            font-size: 1.3em;
+        }}
+        .result {{
+            background: #fafafa;
+            padding: 20px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }}
+        .result p {{
+            margin-bottom: 1em;
+        }}
+        .result h1, .result h2, .result h3 {{
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+        }}
+        .result ul, .result ol {{
+            margin-left: 2em;
+            margin-bottom: 1em;
+        }}
+        .result code {{
+            background: #e0e0e0;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }}
+        .result pre {{
+            background: #2d2d2d;
+            color: #f8f8f2;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin-bottom: 1em;
+        }}
+        .result pre code {{
+            background: none;
+            padding: 0;
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="main-header">
+            <h1>Multi-Capture Illumination</h1>
+            <p>{}</p>
+        </div>
+
+{}
+    </div>
+</body>
+</html>"#,
+        title, subtitle, capture_sections
+    )
+}
+
 /// Escape HTML special characters to prevent injection
 pub fn html_escape(text: &str) -> String {
     text.replace('&', "&amp;")
