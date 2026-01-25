@@ -105,8 +105,8 @@ impl Default for GeminiStructuredIlluminator {
 
 #[async_trait::async_trait]
 impl Illuminator for GeminiStructuredIlluminator {
-    fn model_name(&self) -> &'static str {
-        "gemini-structured"
+    fn name(&self) -> &'static str {
+        "geministructured"
     }
 
     /// Illuminates a capture and returns the structured response directly.
@@ -276,10 +276,10 @@ struct PartResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[test]
     fn test_structured_illumination_to_legacy_text() {
         let illumination = Illumination {
+            meta: IlluminationMeta { provider_name: "testilluminator".to_string() },
             summary: "A fascinating book about quantum physics.".to_string(),
             details: "This appears to be a cover of a popular science book.\n\nThe author is well-known for making complex topics accessible.".to_string(),
             entities: vec![
@@ -319,6 +319,9 @@ mod tests {
     #[test]
     fn test_structured_illumination_to_legacy_text_no_searches() {
         let illumination = Illumination {
+            meta: IlluminationMeta {
+                provider_name: "testilluminator".to_string(),
+            },
             summary: "A simple image.".to_string(),
             details: "Nothing remarkable here.".to_string(),
             entities: vec![],
@@ -361,6 +364,9 @@ mod tests {
     #[test]
     fn test_structured_illumination_serialize() {
         let illumination = Illumination {
+            meta: IlluminationMeta {
+                provider_name: "testilluminator".to_string(),
+            },
             summary: "Test".to_string(),
             details: "Details".to_string(),
             entities: vec![Entity {

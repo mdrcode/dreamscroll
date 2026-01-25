@@ -59,8 +59,8 @@ impl Default for GeminiIlluminator {
 
 #[async_trait::async_trait]
 impl Illuminator for GeminiIlluminator {
-    fn model_name(&self) -> &'static str {
-        "gemini"
+    fn name(&self) -> &'static str {
+        "geministructured"
     }
 
     async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<Illumination> {
@@ -121,7 +121,12 @@ impl Illuminator for GeminiIlluminator {
             let summary = sections.next().unwrap_or("").trim().to_string();
             let details = sections.next().unwrap_or("").trim().to_string();
 
+            let meta = IlluminationMeta {
+                provider_name: self.name().to_string(),
+            };
+
             Ok(Illumination {
+                meta,
                 summary,
                 details,
                 suggested_searches: vec![],

@@ -15,7 +15,7 @@ pub async fn search_by_illuminations(
     let capture_ids_with_match = model::capture::Entity::find()
         .filter(model::capture::Column::UserId.eq(user_context.user_id()))
         .inner_join(model::illumination::Entity)
-        .filter(model::illumination::Column::Content.contains(query))
+        .filter(model::illumination::Column::RawContent.contains(query))
         .column(model::capture::Column::Id)
         .distinct()
         .all(&db.conn)

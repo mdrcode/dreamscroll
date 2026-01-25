@@ -15,8 +15,8 @@ impl From<model::illumination::ModelEx> for IlluminationInfo {
         Self {
             id: mx.id,
             capture_id: mx.capture_id,
-            provider: mx.provider,
-            content: mx.content,
+            provider: mx.provider_name,
+            content: mx.raw_content,
         }
     }
 }

@@ -52,8 +52,8 @@ impl Default for GrokIlluminator {
 
 #[async_trait::async_trait]
 impl Illuminator for GrokIlluminator {
-    fn model_name(&self) -> &'static str {
-        "grok"
+    fn name(&self) -> &'static str {
+        "geministructured"
     }
 
     async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<Illumination> {
@@ -113,7 +113,12 @@ impl Illuminator for GrokIlluminator {
             let summary = parts.next().unwrap_or("").trim().to_string();
             let details = parts.next().unwrap_or("").trim().to_string();
 
+            let meta = IlluminationMeta {
+                provider_name: self.name().to_string(),
+            };
+
             Ok(Illumination {
+                meta,
                 summary,
                 details,
                 suggested_searches: vec![],

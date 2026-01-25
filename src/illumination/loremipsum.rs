@@ -15,14 +15,19 @@ pub struct LoremIpsumIlluminator;
 
 #[async_trait::async_trait]
 impl Illuminator for LoremIpsumIlluminator {
-    fn model_name(&self) -> &'static str {
-        "loremipsum"
+    fn name(&self) -> &'static str {
+        "geministructured"
     }
 
     async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<Illumination> {
         std::thread::sleep(std::time::Duration::from_millis(500));
 
+        let meta = IlluminationMeta {
+            provider_name: "loremipsum".to_string(),
+        };
+
         Ok(Illumination {
+            meta,
             summary: format!("Lorem ipsum illumination for capture ID {}", capture.id),
             details: DETAILS.trim().to_string(),
             suggested_searches: vec![],

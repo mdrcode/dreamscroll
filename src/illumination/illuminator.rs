@@ -4,15 +4,22 @@ use crate::api;
 
 #[async_trait::async_trait]
 pub trait Illuminator: dyn_clone::DynClone + Send + Sync {
-    fn model_name(&self) -> &'static str;
+    fn name(&self) -> &'static str;
     async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<Illumination>;
 }
 
 dyn_clone::clone_trait_object!(Illuminator);
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IlluminationMeta {
+    pub provider_name: String,
+}
+
 /// Structured response which describes and exposits the content of an image capture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Illumination {
+    pub meta: IlluminationMeta,
+
     /// A concise 1-2 sentence summary of the capture content (max ~240 chars).
     /// Suitable for display in a list view alongside other summaries.
     pub summary: String,
