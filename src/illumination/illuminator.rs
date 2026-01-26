@@ -33,8 +33,8 @@ pub struct Illumination {
     /// location visible in the capture.
     pub suggested_searches: Vec<String>,
 
-    /// A list of notable entities (objects, people, locations, references) in the capture.
-    /// Each entry contains the entity name and a brief description.
+    /// A list of notable entities (objects, people, locations, references, etc)
+    /// in the capture. Each entry contains the entity name, type, and a description.
     pub entities: Vec<Entity>,
 }
 
@@ -53,17 +53,18 @@ pub struct Illumination {
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum EntityType {
-    Person,
+    RealPerson,
+    SocialMediaAccount,
     Place,
     Book,
     Movie,
     TelevisionShow,
-    Music,
     ArtWork,
+    FictionalCharacter,
+    Music,
     Meme,
     Software,
     Financial,
-    Youtuber,
     Brand,
     Unknown,
 }

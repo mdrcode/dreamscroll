@@ -17,7 +17,7 @@
 //! - `summary`: A concise 1-2 sentence summary (max ~240 chars)
 //! - `details`: A more detailed multi-paragraph description
 //! - `suggested_searches`: A list of search queries to learn more
-//! - `entities`: A list of notable entities with descriptions and types (person, place, book, movie, television_show, etc. See `EntityType` enum for full list)
+//! - `entities`: A list of notable entities with descriptions and types (person, place, book, movie, television_show, etc). See `EntityType` enum for full list)
 //!
 
 use std::{env, io::Read, path::PathBuf};
@@ -71,18 +71,20 @@ For suggested_searches: Provide a list of notable objects, people, or locations
 visible in the image that merit follow-up. If the image features a montage of movies,
 books, or articles, be sure to include suggestions for each one you can identify. Each
 item should be a concise, helpful search query I can use to learn more about that
-aspect of the image content. Ensure the queries are concise and natural. For example,
-don't say "Stanley Kubrick and Andrei Tarkovsky relationship", just say "kubrick 
-tarkovsky".
+aspect of the image content. Ensure the queries are concise and natural. Don't say
+"Stanley Kubrick and Andrei Tarkovsky relationship", just say "kubrick tarkovsky".
 
 For entities: Identify and list notable and recognizable objects, people, locations, 
 and references visible in the image. For each entity, provide its name, a brief 
-description, and classify its type. Focus on entities that are noteworthy, culturally 
-significant, or would be interesting to learn more about. Examples: books (with title 
-and author), movies, brands, landmarks, famous people, artwork, etc. Be concise but 
-informative. Entity types should be one of: person, place, book, movie,
-television,  painting, meme, software, financial, youtuber, brand, or
-unknown (for entities that don't fit other categories).
+description, and classify its type. The description should contain enough information
+to help me research more about the entity using a site like Wikipedia. Focus on
+entities that are noteworthy, culturally significant, or would be interesting to
+learn more about. Examples: books (with title and author), movies, brands, landmarks,
+famous people, artwork, fictional characters (with the most relevant work in which
+they appear), etc. Be concise but informative. Entity types should be one of:
+real_person, social_media_account, place, book, movie, television_show, art_work
+fictional_character, music, meme, software, financial, brand,
+or unknown (for entities that don't fit other categories).
 "#;
 
 /// Gemini-based illuminator that returns structured JSON responses.
@@ -364,7 +366,7 @@ mod tests {
             "summary": "Test summary",
             "details": "Test details",
             "entities": [
-                {"name": "Entity1", "description": "Description1", "type": "person"},
+                {"name": "Entity1", "description": "Description1", "type": "real_person"},
                 {"name": "Entity2", "description": "Description2", "type": "place"}
             ],
             "suggested_searches": ["search1", "search2"]
@@ -377,7 +379,7 @@ mod tests {
         assert_eq!(parsed.entities.len(), 2);
         assert_eq!(parsed.entities[0].name, "Entity1");
         assert_eq!(parsed.entities[0].description, "Description1");
-        assert_eq!(parsed.entities[0].entity_type, EntityType::Person);
+        assert_eq!(parsed.entities[0].entity_type, EntityType::RealPerson);
         assert_eq!(parsed.entities[1].entity_type, EntityType::Place);
         assert_eq!(parsed.suggested_searches.len(), 2);
         assert_eq!(parsed.suggested_searches[0], "search1");
