@@ -4,3 +4,4 @@ pub mod export_uniq;
 pub mod html_view;
 pub mod illuminate;
 pub mod import;
+pub mod k_nodes;

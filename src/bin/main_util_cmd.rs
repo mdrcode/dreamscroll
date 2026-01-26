@@ -20,6 +20,7 @@ enum Command {
     ExportUniq(export_uniq::ExportUniqArgs),
     Illuminate(illuminate::IlluminateArgs),
     Import(import::ImportArgs),
+    KNodes(k_nodes::KNodesArgs),
 }
 
 #[tokio::main]
@@ -40,5 +41,6 @@ async fn main() -> anyhow::Result<()> {
         Command::Illuminate(args) => illuminate::run(config, args).await,
         Command::Import(args) => import::run(config, args).await,
         Command::ExportUniq(args) => export_uniq::run(config, args).await,
+        Command::KNodes(args) => k_nodes::run(config, args).await,
     }
 }
