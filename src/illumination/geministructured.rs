@@ -81,8 +81,12 @@ to help me research more about the entity using a site like Wikipedia. Focus on
 entities that are noteworthy, culturally significant, or would be interesting to
 learn more about. Examples: books (with title and author), movies, brands, landmarks,
 famous people, artwork, fictional characters (with the most relevant work in which
-they appear), etc. Be concise but informative. Entity types should be one of:
-real_person, social_media_account, place, book, movie, television_show, art_work
+they appear), etc. For social media accounts, be sure to specify the underlying 
+username like @username. Be concise but informative. Entity types should be one of:
+real_person, social_media_account_x, social_media_account_youtube,
+social_media_account_instagram, social_media_account_tiktok,
+social_media_account_facebook, social_media_account_linked_in,
+social_media_account_other, place, book, movie, television_show, art_work,
 fictional_character, music, meme, software, financial, brand,
 or unknown (for entities that don't fit other categories).
 "#;

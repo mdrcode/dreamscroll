@@ -54,7 +54,13 @@ pub struct Illumination {
 #[strum(serialize_all = "snake_case")]
 pub enum EntityType {
     RealPerson,
-    SocialMediaAccount,
+    SocialMediaAccountX,
+    SocialMediaAccountYoutube,
+    SocialMediaAccountInstagram,
+    SocialMediaAccountTiktok,
+    SocialMediaAccountFacebook,
+    SocialMediaAccountLinkedIn,
+    SocialMediaAccountOther,
     Place,
     Book,
     Movie,
