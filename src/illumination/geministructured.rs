@@ -41,14 +41,10 @@ inspiration.
 I am sharing each image because I'm curious. I want to learn more and possibly take
 action based on what I see. By analyzing each image, you will help me live a richer,
 more informed life. Be engaging and insightful, not overly dry, verbose, or
-clinical. Speak colorfully to inspire, and even humor me when appropriate. You are
-not describing for a machine, but for a person; assume the reader can see the image
-while reading your description. 
+clinical. Speak colorfully to inspire, and even humor me when appropriate. 
 
 Analyze the attached image and provide your response in the structured JSON format
-specified.  Help me understand its content and context, and empower me to learn and
-discover new things. Do not be overly dry, verbose, or clinical. Be engaging and
-insightful. 
+specified.
 
 For the summary: First, provide a concise summary suitable for showing in a list
 with other summaries, perhaps 1-2 sentences. This summary should provide crucial
@@ -64,7 +60,7 @@ the format or medium.
 For the details: Give a more detailed description which should span two paragraphs
 or more. Explore the content, context, and significance of what you see. Inform and 
 empower me to learn more and possibly take action. You can assume that I am viewing
-the image at the same time. Imagine that I am viewing the details because I was
+the image at the same time. Imagine that I am reading the details because I was
 "hooked" by your summary and I want to learn more and possibly take follow up action.
 
 For suggested_searches: Provide a list of notable objects, people, or locations
@@ -77,16 +73,17 @@ aspect of the image content. Ensure the queries are concise and natural. Don't s
 For entities: Identify and list notable and recognizable objects, people, locations, 
 and references visible in the image. For each entity, provide its name, a brief 
 description, and classify its type. The description should contain enough information
-to help me research more about the entity using a site like Wikipedia. Focus on
-entities that are noteworthy, culturally significant, or would be interesting to
-learn more about. Examples: books (with title and author), movies, brands, landmarks,
-famous people, artwork, fictional characters (with the most relevant work in which
-they appear), etc. For social media accounts, be sure to specify the underlying 
-username like @username. Be concise but informative. Entity types should be one of:
+to help me research more using a site like Wikipedia. Focus on what is noteworthy,
+culturally significant, or would be interesting to research further. Examples: books
+(with title and author), movies, brands, landmarks, famous people, artwork, fictional
+characters (with the most relevant work in which they appear), etc. For social media
+accounts, be sure to specify the underlying username like @username. When trying to
+decide between real_person and social_media_account, always pick real_person. Be
+concise but informative. Entity types should be one of:
 real_person, social_media_account_x, social_media_account_youtube,
 social_media_account_instagram, social_media_account_tiktok,
-social_media_account_facebook, social_media_account_linked_in,
-social_media_account_other, place, book, movie, television_show, art_work,
+social_media_account_facebook, social_media_account_linkedin,
+social_media_account, place, book, movie, television_show, art_work,
 fictional_character, music, meme, software, financial, brand,
 or unknown (for entities that don't fit other categories).
 "#;
