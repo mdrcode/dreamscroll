@@ -123,6 +123,7 @@ impl Illuminator for GrokIlluminator {
                 details,
                 suggested_searches: vec![],
                 entities: vec![],
+                social_media_accounts: vec![],
             })
         } else {
             let error_text = response.text().await?;

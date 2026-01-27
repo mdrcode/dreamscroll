@@ -131,6 +131,7 @@ impl Illuminator for GeminiIlluminator {
                 details,
                 suggested_searches: vec![],
                 entities: vec![],
+                social_media_accounts: vec![],
             })
         } else {
             let status_code = response.status();

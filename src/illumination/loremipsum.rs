@@ -32,6 +32,7 @@ impl Illuminator for LoremIpsumIlluminator {
             details: DETAILS.trim().to_string(),
             suggested_searches: vec![],
             entities: vec![],
+            social_media_accounts: vec![],
         })
     }
 }

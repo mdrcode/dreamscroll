@@ -36,16 +36,20 @@ pub struct Illumination {
     /// A list of notable entities (objects, people, locations, references, etc)
     /// in the capture. Each entry contains the entity name, type, and a description.
     pub entities: Vec<Entity>,
+
+    /// A list of social media accounts visible in the capture.
+    /// Each entry contains the display name, handle, and platform.
+    pub social_media_accounts: Vec<SocialMediaAccount>,
 }
 
 /// The type/category of an entity.
 #[derive(
     Debug,
     Clone,
-    Serialize,
-    Deserialize,
     PartialEq,
     Eq,
+    Serialize,
+    Deserialize,
     strum::Display,
     strum::EnumIter,
     strum::AsRefStr,
@@ -54,13 +58,6 @@ pub struct Illumination {
 #[strum(serialize_all = "snake_case")]
 pub enum EntityType {
     RealPerson,
-    SocialMediaAccountX,
-    SocialMediaAccountYoutube,
-    SocialMediaAccountInstagram,
-    SocialMediaAccountTiktok,
-    SocialMediaAccountFacebook,
-    SocialMediaAccountLinkedIn,
-    SocialMediaAccountOther,
     Place,
     Book,
     Movie,
@@ -89,6 +86,44 @@ pub struct Entity {
     pub entity_type: EntityType,
 }
 
+/// The platform of a social media account.
+#[derive(
+    Debug,
+    Clone,
+    PartialEq,
+    Eq,
+    Serialize,
+    Deserialize,
+    strum::Display,
+    strum::EnumIter,
+    strum::AsRefStr,
+)]
+#[serde(rename_all = "snake_case")]
+#[strum(serialize_all = "snake_case")]
+pub enum SocialMediaPlatform {
+    XTwitter,
+    Youtube,
+    Instagram,
+    Tiktok,
+    Facebook,
+    LinkedIn,
+    Other,
+}
+
+/// Represents a social media account found in an image.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SocialMediaAccount {
+    /// The display name shown on the account profile.
+    pub display_name: String,
+
+    /// The handle/username of the account (e.g., @username).
+    pub handle: String,
+
+    /// The platform where this account exists.
+    #[serde(rename = "platform")]
+    pub platform: SocialMediaPlatform,
+}
+
 impl Illumination {
     /// Converts the structured illumination back to a legacy freeform text format.
     ///
@@ -110,6 +145,11 @@ impl Illumination {
     /// - <entity name> [<type>]: <description>
     /// - <entity name> [<type>]: <description>
     /// ...
+    ///
+    /// Social Media Accounts:
+    /// - <display name> (<handle>) [<platform>]
+    /// - <display name> (<handle>) [<platform>]
+    /// ...
     /// ```
     pub fn to_legacy_text(&self) -> String {
         let mut result = format!("{}\n\n{}", self.summary, self.details);
@@ -127,6 +167,16 @@ impl Illumination {
                 result.push_str(&format!(
                     "\n- {} [{}]: {}",
                     entity.name, entity.entity_type, entity.description
+                ));
+            }
+        }
+
+        if !self.social_media_accounts.is_empty() {
+            result.push_str("\n\nSocial Media Accounts:");
+            for account in &self.social_media_accounts {
+                result.push_str(&format!(
+                    "\n- {} ({}) [{}]",
+                    account.display_name, account.handle, account.platform
                 ));
             }
         }

@@ -1,7 +1,7 @@
 //! Gemini Structured Illuminator
 //!
-//! This module provides a Gemini-based illuminator that uses structured output
-//! to return well-defined JSON responses instead of freeform text.
+//! This module provides a Gemini-based illuminator that uses structured
+//! output to return well-defined JSON responses instead of freeform text.
 //!
 //! ## Structured Output
 //!
@@ -17,7 +17,11 @@
 //! - `summary`: A concise 1-2 sentence summary (max ~240 chars)
 //! - `details`: A more detailed multi-paragraph description
 //! - `suggested_searches`: A list of search queries to learn more
-//! - `entities`: A list of notable entities with descriptions and types (person, place, book, movie, television_show, etc). See `EntityType` enum for full list)
+//! - `entities`: A list of notable entities with descriptions and types
+//!   (person, place, book, movie, television_show, etc). See `EntityType`
+//!   enum for full list)
+//! - `social_media_accounts`: A list of social media accounts with
+//!   display_name, handle, and platform
 //!
 
 use std::{env, io::Read, path::PathBuf};
@@ -48,14 +52,14 @@ specified.
 
 For the summary: First, provide a concise summary suitable for showing in a list
 with other summaries, perhaps 1-2 sentences. This summary should provide crucial
-insights and helpful details but not exceed 240 characters in length. Prioritize
+insights and helpful details but not exceed 280 characters in length. Prioritize
 clarity and concision. Do not describe obvious or mundane visual details from the
 image like "the cover of book X has red letters and a white background" or "a movie
 poster for X", just say "X". Don't say "This is a photograph showing X" just say "X".
 Don't say "An article snippet from X...", just say "From X...". You are not
 describing for a machine, but for a person; assume the reader can see the image
-while reading your description. The focus should be on the underlying substance, not
-the format or medium.
+while reading. The focus should be on the underlying substance, not the format
+or medium.
 
 For the details: Give a more detailed description which should span two paragraphs
 or more. Explore the content, context, and significance of what you see. Inform and 
@@ -76,16 +80,21 @@ description, and classify its type. The description should contain enough inform
 to help me research more using a site like Wikipedia. Focus on what is noteworthy,
 culturally significant, or would be interesting to research further. Examples: books
 (with title and author), movies, brands, landmarks, famous people, artwork, fictional
-characters (with the most relevant work in which they appear), etc. For social media
-accounts, be sure to specify the underlying username like @username. When trying to
-decide between real_person and social_media_account, always pick real_person. Be
-concise but informative. Entity types should be one of:
-real_person, social_media_account_x, social_media_account_youtube,
-social_media_account_instagram, social_media_account_tiktok,
-social_media_account_facebook, social_media_account_linkedin,
-social_media_account, place, book, movie, television_show, art_work,
+characters (with the most relevant work in which they appear), etc. Do NOT include
+social media accounts as entities - those should go in the social_media_accounts field.
+Be concise but informative. Entity types should be one of:
+real_person, place, book, movie, television_show, art_work,
 fictional_character, music, meme, software, financial, brand,
 or unknown (for entities that don't fit other categories).
+
+For social_media_accounts: If the image contains any visible social media accounts,
+profiles, or posts, extract them here. For each account provide:
+- display_name: The display name or real name shown on the profile
+- handle: The username/handle (include the @ symbol if visible, e.g., @username)
+- platform: The platform where this account exists (x_twitter, youtube, instagram,
+  tiktok, facebook, linkedin, or other)
+Be precise about distinguishing the handle from the display name. The handle is the
+unique username, while the display name is what appears as the profile name.
 "#;
 
 /// Gemini-based illuminator that returns structured JSON responses.
@@ -143,6 +152,12 @@ impl Illuminator for GeminiStructuredIlluminator {
             use strum::IntoEnumIterator;
             EntityType::iter().map(|e| e.as_ref().to_string()).collect()
         };
+        let platform_enum: Vec<String> = {
+            use strum::IntoEnumIterator;
+            SocialMediaPlatform::iter()
+                .map(|e| e.as_ref().to_string())
+                .collect()
+        };
         let response_schema = json!({
             "type": "OBJECT",
             "properties": {
@@ -163,7 +178,7 @@ impl Illuminator for GeminiStructuredIlluminator {
                 },
                 "entities": {
                     "type": "ARRAY",
-                    "description": "A list of notable entities (objects, people, locations, references) with descriptions and types.",
+                    "description": "A list of notable entities (objects, people, locations, references) with descriptions and types. Do NOT include social media accounts here.",
                     "items": {
                         "type": "OBJECT",
                         "properties": {
@@ -177,15 +192,38 @@ impl Illuminator for GeminiStructuredIlluminator {
                             },
                             "type": {
                                 "type": "STRING",
-                                "description": "The type of entity: person, place, book, movie, television_show, brand, or unknown",
+                                "description": "The type of entity: real_person, place, book, movie, television_show, brand, or unknown",
                                 "enum": entity_type_enum
                             }
                         },
                         "required": ["name", "description", "type"]
                     }
+                },
+                "social_media_accounts": {
+                    "type": "ARRAY",
+                    "description": "A list of social media accounts visible in the image.",
+                    "items": {
+                        "type": "OBJECT",
+                        "properties": {
+                            "display_name": {
+                                "type": "STRING",
+                                "description": "The display name or real name shown on the profile"
+                            },
+                            "handle": {
+                                "type": "STRING",
+                                "description": "The username/handle of the account (e.g., @username)"
+                            },
+                            "platform": {
+                                "type": "STRING",
+                                "description": "The platform: x_twitter, youtube, instagram, tiktok, facebook, linkedin, threads, bluesky, mastodon, or other",
+                                "enum": platform_enum
+                            }
+                        },
+                        "required": ["display_name", "handle", "platform"]
+                    }
                 }
             },
-            "required": ["summary", "details", "suggested_searches", "entities"]
+            "required": ["summary", "details", "suggested_searches", "entities", "social_media_accounts"]
         });
 
         // Prepare request with text + image and structured output config
@@ -237,8 +275,9 @@ impl Illuminator for GeminiStructuredIlluminator {
                 .map_err(|e| anyhow::anyhow!("Failed to parse structured response: {}", e))?;
 
             tracing::info!(
-                "GeminiStructuredIlluminator: Successfully parsed structured response with {} entities and {} suggested searches",
+                "GeminiStructuredIlluminator: Successfully parsed structured response with {} entities, {} social media accounts, and {} suggested searches",
                 structured.entities.len(),
+                structured.social_media_accounts.len(),
                 structured.suggested_searches.len()
             );
 
@@ -261,6 +300,7 @@ pub struct GeminiStructuredResponse {
     pub details: String,
     pub suggested_searches: Vec<String>,
     pub entities: Vec<Entity>,
+    pub social_media_accounts: Vec<SocialMediaAccount>,
 }
 
 impl From<GeminiStructuredResponse> for Illumination {
@@ -273,6 +313,7 @@ impl From<GeminiStructuredResponse> for Illumination {
             details: resp.details,
             suggested_searches: resp.suggested_searches,
             entities: resp.entities,
+            social_media_accounts: resp.social_media_accounts,
         }
     }
 }
@@ -318,6 +359,13 @@ mod tests {
                 "quantum physics introduction".to_string(),
                 "author name books".to_string(),
             ],
+            social_media_accounts: vec![
+                SocialMediaAccount {
+                    display_name: "Science Author".to_string(),
+                    handle: "@scienceauthor".to_string(),
+                    platform: SocialMediaPlatform::XTwitter,
+                },
+            ],
         };
 
         let legacy = illumination.to_legacy_text();
@@ -331,6 +379,8 @@ mod tests {
         assert!(legacy.contains(
             "- Quantum Physics Book [book]: A popular science book on quantum mechanics"
         ));
+        assert!(legacy.contains("Social Media Accounts:"));
+        assert!(legacy.contains("- Science Author (@scienceauthor) [x_twitter]"));
 
         // Verify entities come after suggested searches
         let searches_pos = legacy.find("Suggested searches:").unwrap();
@@ -351,6 +401,7 @@ mod tests {
             details: "Nothing remarkable here.".to_string(),
             entities: vec![],
             suggested_searches: vec![],
+            social_media_accounts: vec![],
         };
 
         let legacy = illumination.to_legacy_text();
@@ -359,6 +410,7 @@ mod tests {
         assert!(legacy.contains("Nothing remarkable here."));
         assert!(!legacy.contains("Entities:"));
         assert!(!legacy.contains("Suggested searches:"));
+        assert!(!legacy.contains("Social Media Accounts:"));
     }
 
     #[test]
@@ -370,10 +422,15 @@ mod tests {
                 {"name": "Entity1", "description": "Description1", "type": "real_person"},
                 {"name": "Entity2", "description": "Description2", "type": "place"}
             ],
-            "suggested_searches": ["search1", "search2"]
+            "suggested_searches": ["search1", "search2"],
+            "social_media_accounts": [
+                {"display_name": "Test User", "handle": "@testuser", "platform": "x_twitter"}
+            ]
         }"#;
 
-        let parsed: Illumination = serde_json::from_str(json).unwrap();
+        // Deserialize to GeminiStructuredResponse (as the API does)
+        let structured: GeminiStructuredResponse = serde_json::from_str(json).unwrap();
+        let parsed: Illumination = Illumination::from(structured);
 
         assert_eq!(parsed.summary, "Test summary");
         assert_eq!(parsed.details, "Test details");
@@ -384,6 +441,13 @@ mod tests {
         assert_eq!(parsed.entities[1].entity_type, EntityType::Place);
         assert_eq!(parsed.suggested_searches.len(), 2);
         assert_eq!(parsed.suggested_searches[0], "search1");
+        assert_eq!(parsed.social_media_accounts.len(), 1);
+        assert_eq!(parsed.social_media_accounts[0].display_name, "Test User");
+        assert_eq!(parsed.social_media_accounts[0].handle, "@testuser");
+        assert_eq!(
+            parsed.social_media_accounts[0].platform,
+            SocialMediaPlatform::XTwitter
+        );
     }
 
     #[test]
@@ -400,6 +464,11 @@ mod tests {
                 entity_type: EntityType::Brand,
             }],
             suggested_searches: vec!["search".to_string()],
+            social_media_accounts: vec![SocialMediaAccount {
+                display_name: "Test User".to_string(),
+                handle: "@testuser".to_string(),
+                platform: SocialMediaPlatform::Youtube,
+            }],
         };
 
         let json = serde_json::to_string(&illumination).unwrap();
@@ -411,5 +480,9 @@ mod tests {
         assert!(json.contains("\"description\":\"TestDesc\""));
         assert!(json.contains("\"type\":\"brand\""));
         assert!(json.contains("\"suggested_searches\":[\"search\"]"));
+        assert!(json.contains("\"social_media_accounts\":"));
+        assert!(json.contains("\"display_name\":\"Test User\""));
+        assert!(json.contains("\"handle\":\"@testuser\""));
+        assert!(json.contains("\"platform\":\"youtube\""));
     }
 }

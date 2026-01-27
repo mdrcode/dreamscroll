@@ -1,5 +1,5 @@
 /// Shared HTML generation utilities for illumination views
-use crate::illumination::{Entity, Illumination};
+use crate::illumination::{Entity, Illumination, SocialMediaAccount};
 
 /// Represents a single illumination result panel for comparison views
 pub struct IlluminationPanel<'a> {
@@ -253,6 +253,24 @@ fn render_illumination(illumination: &Illumination) -> String {
         );
     }
 
+    // Social Media Accounts section
+    if !illumination.social_media_accounts.is_empty() {
+        html.push_str(
+            r#"
+        <div class="social-media-accounts">
+            <h4>Social Media Accounts</h4>
+            <div class="account-list">"#,
+        );
+        for account in &illumination.social_media_accounts {
+            html.push_str(&render_social_media_account(account));
+        }
+        html.push_str(
+            r#"
+            </div>
+        </div>"#,
+        );
+    }
+
     html
 }
 
@@ -270,6 +288,23 @@ fn render_entity(entity: &Entity) -> String {
         html_escape(&entity.name),
         entity.entity_type,
         html_escape(&entity.description)
+    )
+}
+
+/// Render a single social media account as an HTML card
+fn render_social_media_account(account: &SocialMediaAccount) -> String {
+    format!(
+        r#"
+                <div class="account-card">
+                    <div class="account-header">
+                        <span class="account-name">{}</span>
+                        <span class="account-platform">{}</span>
+                    </div>
+                    <p class="account-handle">{}</p>
+                </div>"#,
+        html_escape(&account.display_name),
+        account.platform,
+        html_escape(&account.handle)
     )
 }
 
@@ -491,6 +526,53 @@ const CSS_STYLES: &str = r#"<style>
         .entity-description {
             font-size: 0.9em;
             color: #666;
+        }
+        /* Social Media Account styles */
+        .social-media-accounts {
+            margin-bottom: 24px;
+        }
+        .social-media-accounts h4 {
+            color: #555;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+            border-bottom: 1px solid #eee;
+            padding-bottom: 6px;
+        }
+        .account-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 16px;
+        }
+        .account-card {
+            background: #fff3e0;
+            border: 1px solid #ffe0b2;
+            border-radius: 8px;
+            padding: 16px;
+        }
+        .account-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        .account-name {
+            font-weight: 600;
+            color: #333;
+        }
+        .account-platform {
+            font-size: 0.75em;
+            background: #ff9800;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            text-transform: lowercase;
+        }
+        .account-handle {
+            font-size: 0.95em;
+            color: #e65100;
+            font-family: monospace;
         }
         @media (max-width: 1024px) {
             .comparison {

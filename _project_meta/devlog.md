@@ -1,5 +1,24 @@
 # Dreamscroll Development Log
 
+## 2026-01-27
+
+The KNodes and XQueries are beautiful and I am continually surprised by the
+quality. However, when attempting to extract social media accounts, frequently
+the model gets confused. e.g. FirstName LastName (@cool_handle) will sometime be
+reported as any of:
+
+- RealPerson: @handle
+- RealPerson: handle
+- RealPerson: FirstName LastName
+- RealPerson: FirstName LastName (@handle)
+
+So there is a fair amount of randomness here. Today I am going to attempt to
+elevate the social media accounts to their own structred response.
+
+## 2026-01-26
+
+Prompt tuning and eval.
+
 ## 2026-01-25
 
 Structured Illumination now flows throughout the app and api. It looks
