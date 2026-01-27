@@ -3,8 +3,8 @@ use argh::FromArgs;
 use crate::{facility, illumination::EntityType};
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "k_nodes")]
-#[argh(description = "List all unique k_node entity types")]
+#[argh(subcommand, name = "knodes")]
+#[argh(description = "List all unique knode entity types")]
 pub struct KNodesArgs {}
 
 pub async fn run(_config: facility::Config, _args: KNodesArgs) -> anyhow::Result<()> {

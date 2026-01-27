@@ -18,6 +18,15 @@ pub struct Model {
 
     #[sea_orm(has_many)]
     pub illuminations: HasMany<super::illumination::Entity>,
+
+    #[sea_orm(has_many)]
+    pub x_queries: HasMany<super::x_query::Entity>,
+
+    #[sea_orm(has_many)]
+    pub k_nodes: HasMany<super::k_node::Entity>,
+
+    #[sea_orm(has_many)]
+    pub social_medias: HasMany<super::social_media::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

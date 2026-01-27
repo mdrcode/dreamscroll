@@ -11,8 +11,8 @@ pub async fn fetch_capture_by_id(
         .filter_by_id(capture_id)
         .with(model::media::Entity)
         .with(model::illumination::Entity)
-        .with((model::illumination::Entity, model::x_query::Entity))
-        .with((model::illumination::Entity, model::k_node::Entity))
+        .with(model::x_query::Entity)
+        .with(model::k_node::Entity)
         .one(&db.conn)
         .await?;
 

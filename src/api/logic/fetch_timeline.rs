@@ -3,7 +3,6 @@ use sea_orm::prelude::*;
 
 use crate::{api, auth, database::DbHandle, model};
 
-// TODO obviously this should take a user_id or equivalent at some point
 pub async fn fetch_timeline(
     user_context: auth::Context,
     db: &DbHandle,
@@ -13,8 +12,9 @@ pub async fn fetch_timeline(
         .order_by(model::capture::Column::CreatedAt, sea_orm::Order::Desc)
         .with(model::media::Entity)
         .with(model::illumination::Entity)
-        .with((model::illumination::Entity, model::x_query::Entity))
-        .with((model::illumination::Entity, model::k_node::Entity))
+        .with(model::x_query::Entity)
+        .with(model::k_node::Entity)
+        .with(model::social_media::Entity)
         .all(&db.conn)
         .await?;
 

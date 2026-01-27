@@ -5,7 +5,7 @@ use super::capture;
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "k_nodes8")]
+#[sea_orm(table_name = "social_medias8")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
@@ -17,10 +17,9 @@ pub struct Model {
     #[sea_orm(belongs_to, from = "capture_id", to = "id")]
     pub capture: HasOne<capture::Entity>,
 
-    pub name: String,
-    pub description: String,
-    #[sea_orm(column_name = "type")] // "type" is a reserved keyword in Rust
-    pub k_type: String,
+    pub display_name: String,
+    pub handle: String,
+    pub platform: String,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

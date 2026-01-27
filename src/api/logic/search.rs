@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use sea_orm::{EntityLoaderTrait, EntityTrait, QuerySelect, prelude::*};
 
 use crate::{api, auth, database::DbHandle, model};
@@ -11,6 +12,7 @@ pub async fn search_by_illuminations(
         return Ok(vec![]);
     }
 
+    /* TODO
     // Start from captures filtered by user (indexed), then join to illuminations
     let capture_ids_with_match = model::capture::Entity::find()
         .filter(model::capture::Column::UserId.eq(user_context.user_id()))
@@ -39,4 +41,8 @@ pub async fn search_by_illuminations(
         .collect();
 
     Ok(capture_info)
+    */
+    Err(api::ApiError::internal(anyhow!(
+        "Illumination search not yet implemented"
+    )))
 }

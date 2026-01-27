@@ -211,27 +211,38 @@
                         <a href="#" class="capturelist-row-metadata-details-seemore">See More...</a>
                     </div>
                     {% endif %}
-
-                    {% if illum.k_nodes | length > 0 %}
-                    <div class="capturelist-row-entities">
-                        {% for node in illum.k_nodes %}
-                        <span class="capturelist-entity" title="{{ node.description }}">
-                            <span class="capturelist-entity-type">{{ node.k_type }}</span>
-                            <span class="capturelist-entity-name">{{ node.name }}</span>
-                        </span>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-
-                    {% if illum.x_queries | length > 0 %}
-                    <div class="capturelist-row-queries">
-                        {% for query in illum.x_queries %}
-                        <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="capturelist-query-pill">{{ query }}</a>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-
                 {% endif %}
+
+                {% if capture.k_nodes | length > 0 %}
+                <div class="capturelist-row-entities">
+                    {% for node in capture.k_nodes %}
+                    <span class="capturelist-entity" title="{{ node.description }}">
+                        <span class="capturelist-entity-type">{{ node.k_type }}</span>
+                        <span class="capturelist-entity-name">{{ node.name }}</span>
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if capture.social_medias | length > 0 %}
+                <div class="capturelist-row-entities">
+                    {% for node in capture.social_medias %}
+                    <span class="capturelist-entity" title="{{ node.handle }}">
+                        <span class="capturelist-entity-type">{{ node.platform }}</span>
+                        <span class="capturelist-entity-name">{{ node.display_name }}</span>
+                    </span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if capture.x_queries | length > 0 %}
+                <div class="capturelist-row-queries">
+                    {% for query in capture.x_queries %}
+                    <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="capturelist-query-pill">{{ query }}</a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
             </div>
         </div>
         {% endfor %}

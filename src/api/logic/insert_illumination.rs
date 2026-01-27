@@ -1,4 +1,11 @@
-use crate::{api, database::DbHandle, illumination::*, model};
+use sea_orm::EntityTrait;
+
+use crate::{
+    api,
+    database::DbHandle,
+    illumination::*,
+    model::{self, social_media},
+};
 
 // Is this still needed?
 pub async fn insert_illumination(
@@ -8,27 +15,43 @@ pub async fn insert_illumination(
 ) -> Result<(), api::ApiError> {
     let raw_content = format!("{}\n{}", illumination.summary, illumination.details);
 
-    let mut builder = model::illumination::ActiveModel::builder()
+    model::illumination::ActiveModel::builder()
         .set_capture_id(capture_id)
-        .set_provider_name(illumination.meta.provider_name)
         .set_summary(illumination.summary)
         .set_details(illumination.details)
-        .set_raw_content(raw_content);
+        .save(&db.conn)
+        .await?;
 
-    for entity in illumination.entities {
-        let k_node_builder = model::k_node::ActiveModel::builder()
+    let knode_builders = illumination.entities.into_iter().map(|entity| {
+        model::k_node::ActiveModel::builder()
+            .set_capture_id(capture_id)
             .set_name(entity.name)
             .set_description(entity.description)
-            .set_k_type(entity.entity_type.to_string());
-        builder.k_nodes.push(k_node_builder);
-    }
+            .set_k_type(entity.entity_type.to_string())
+    });
+    model::k_node::Entity::insert_many(knode_builders)
+        .exec(&db.conn)
+        .await?;
 
-    for ss in illumination.suggested_searches {
-        let x_query_builder = model::x_query::ActiveModel::builder().set_query(ss);
-        builder.x_queries.push(x_query_builder);
-    }
+    let xquery_builders = illumination.suggested_searches.into_iter().map(|ss| {
+        model::x_query::ActiveModel::builder()
+            .set_capture_id(capture_id)
+            .set_query(ss)
+    });
+    model::x_query::Entity::insert_many(xquery_builders)
+        .exec(&db.conn)
+        .await?;
 
-    builder.save(&db.conn).await?;
+    let social_media_builders = illumination.social_media_accounts.into_iter().map(|sm| {
+        model::social_media::ActiveModel::builder()
+            .set_capture_id(capture_id)
+            .set_display_name(sm.display_name)
+            .set_handle(sm.handle)
+            .set_platform(sm.platform.to_string())
+    });
+    model::social_media::Entity::insert_many(social_media_builders)
+        .exec(&db.conn)
+        .await?;
 
     Ok(())
 }

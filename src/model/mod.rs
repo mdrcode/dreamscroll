@@ -1,6 +1,9 @@
 pub mod capture;
 pub mod illumination;
+pub mod illumination_meta;
 pub mod k_node;
 pub mod media;
-pub mod x_query;
+pub mod search_index;
+pub mod social_media;
 pub mod user;
+pub mod x_query;
