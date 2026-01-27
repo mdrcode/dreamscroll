@@ -23,17 +23,24 @@ pub async fn connect(dbconfig: DbConfig) -> Result<DbHandle, DbErr> {
         e
     })?;
 
-    conn.get_schema_registry("dreamscroll::model::*")
-        .sync(&conn)
+    if let DbConfig::SqliteFile { .. } = &dbconfig {
+        // Ensure UTF-8 encoding (must be set before table creation for new databases)
+        conn.execute_raw(Statement::from_string(
+            sea_orm::DatabaseBackend::Sqlite,
+            "PRAGMA encoding = 'UTF-8';",
+        ))
         .await?;
 
-    if let DbConfig::SqliteFile { .. } = &dbconfig {
         conn.execute_raw(Statement::from_string(
             sea_orm::DatabaseBackend::Sqlite,
             "PRAGMA journal_mode=WAL;",
         ))
         .await?;
     }
+
+    conn.get_schema_registry("dreamscroll::model::*")
+        .sync(&conn)
+        .await?;
 
     Ok(DbHandle::new(conn, dbconfig))
 }
