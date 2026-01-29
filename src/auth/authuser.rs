@@ -1,6 +1,6 @@
 use crate::model::user;
 
-use super::jwt::JwtClaims;
+use super::jwt::JwtUserClaims;
 
 /// The authentication method used to create this user session.
 #[derive(Clone, Debug)]
@@ -13,7 +13,7 @@ pub enum AuthMethod {
     /// JWT token-based authentication (e.g., API access)
     Jwt {
         /// The validated JWT claims
-        claims: JwtClaims,
+        claims: JwtUserClaims,
     },
 }
 
@@ -56,7 +56,7 @@ impl DreamscrollAuthUser {
         &self.method
     }
 
-    pub fn jwt_claims(&self) -> Option<&JwtClaims> {
+    pub fn jwt_claims(&self) -> Option<&JwtUserClaims> {
         match &self.method {
             AuthMethod::Jwt { claims } => Some(claims),
             AuthMethod::Session { .. } => None,
@@ -98,7 +98,7 @@ impl DreamscrollAuthUser {
     }
 
     #[cfg(test)]
-    pub fn new_test_jwt(id: i32, claims: JwtClaims) -> Self {
+    pub fn new_test_jwt(id: i32, claims: JwtUserClaims) -> Self {
         Self {
             id,
             username: format!("jwtuser{}", id),
@@ -158,8 +158,8 @@ impl axum_login::AuthUser for DreamscrollAuthUser {
     }
 }
 
-impl From<JwtClaims> for DreamscrollAuthUser {
-    fn from(claims: JwtClaims) -> Self {
+impl From<JwtUserClaims> for DreamscrollAuthUser {
+    fn from(claims: JwtUserClaims) -> Self {
         let id = claims.sub;
         DreamscrollAuthUser {
             id,
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn test_user_id_jwt() {
-        let claims = JwtClaims {
+        let claims = JwtUserClaims {
             sub: 123,
             exp: 9999,
             iat: 1000,
@@ -205,7 +205,7 @@ mod tests {
 
     #[test]
     fn test_auth_method_jwt() {
-        let claims = JwtClaims {
+        let claims = JwtUserClaims {
             sub: 123,
             exp: 9999,
             iat: 1000,
@@ -224,7 +224,7 @@ mod tests {
 
     #[test]
     fn test_jwt_claims_returns_some_for_jwt() {
-        let claims = JwtClaims {
+        let claims = JwtUserClaims {
             sub: 123,
             exp: 9999,
             iat: 1000,
@@ -243,7 +243,7 @@ mod tests {
 
     #[test]
     fn test_from_jwt_claims() {
-        let claims = JwtClaims {
+        let claims = JwtUserClaims {
             sub: 456,
             exp: 8888,
             iat: 1111,
@@ -271,7 +271,7 @@ mod tests {
         // JWT users should return empty bytes when session_auth_hash is called
         // In debug builds, this will panic due to debug_assert!
         // In release builds, it returns b"" and logs an error
-        let claims = JwtClaims {
+        let claims = JwtUserClaims {
             sub: 123,
             exp: 9999,
             iat: 1000,
@@ -316,7 +316,7 @@ mod tests {
 
     #[test]
     fn test_debug_format_jwt() {
-        let claims = JwtClaims {
+        let claims = JwtUserClaims {
             sub: 123,
             exp: 9999,
             iat: 1000,
@@ -345,7 +345,7 @@ mod tests {
 
     #[test]
     fn test_clone_jwt() {
-        let claims = JwtClaims {
+        let claims = JwtUserClaims {
             sub: 123,
             exp: 9999,
             iat: 1000,

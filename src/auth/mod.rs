@@ -8,9 +8,11 @@ mod context;
 pub use context::Context;
 
 mod jwt;
-pub use jwt::{JwtClaims, JwtConfig, JwtLayer};
+pub use jwt::{JwtAxumLayer, JwtConfig, JwtServiceClaims, JwtUserClaims};
 
 pub mod password;
+
+pub mod service;
 
 mod webauthbackend;
 pub use webauthbackend::{Credentials, WebAuthBackend};

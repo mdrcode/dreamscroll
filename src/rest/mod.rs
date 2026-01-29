@@ -6,7 +6,7 @@ use axum::{
 };
 
 use crate::{
-    auth::{JwtConfig, JwtLayer},
+    auth::{JwtAxumLayer, JwtConfig},
     database::DbHandle,
 };
 
@@ -37,7 +37,7 @@ pub fn make_api_router(db: Arc<DbHandle>, jwt_config: Arc<JwtConfig>) -> Router 
         .route("/capture/{id}", get(r_capture::get))
         .route("/dummy", get(r_dummy::get))
         .route("/timeline", get(r_timeline::get))
-        .layer(JwtLayer::new(jwt_config));
+        .layer(JwtAxumLayer::new(jwt_config));
 
     // Public routes (no authentication required)
     let public_routes = Router::new().route("/token", post(r_token::post));

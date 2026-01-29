@@ -74,7 +74,7 @@ pub async fn post(
     let user_id = auth_user.user_id();
     let token = state
         .jwt_config
-        .create_token(auth_user)
+        .create_user_token(auth_user)
         .map_err(|e| api::ApiError::internal(anyhow::anyhow!("Token creation failed: {e}")))?;
 
     tracing::info!(user_id, "JWT token issued successfully");
@@ -82,6 +82,6 @@ pub async fn post(
     Ok(Json(TokenResponse {
         access_token: token,
         token_type: "Bearer".to_string(),
-        expires_in: state.jwt_config.expiration_secs,
+        expires_in: state.jwt_config.user_expiration_secs(),
     }))
 }
