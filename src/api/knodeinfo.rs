@@ -10,8 +10,8 @@ pub struct KNodeInfo {
     pub k_type: String,
 }
 
-impl From<model::k_node::ModelEx> for KNodeInfo {
-    fn from(mx: model::k_node::ModelEx) -> Self {
+impl From<model::knode::ModelEx> for KNodeInfo {
+    fn from(mx: model::knode::ModelEx) -> Self {
         Self {
             id: mx.id,
             name: mx.name,

@@ -19,22 +19,22 @@ pub async fn insert_illumination(
         .await?;
 
     let knode_builders = illumination.entities.into_iter().map(|entity| {
-        model::k_node::ActiveModel::builder()
+        model::knode::ActiveModel::builder()
             .set_capture_id(capture_id)
             .set_name(entity.name)
             .set_description(entity.description)
             .set_k_type(entity.entity_type.to_string())
     });
-    model::k_node::Entity::insert_many(knode_builders)
+    model::knode::Entity::insert_many(knode_builders)
         .exec(&db.conn)
         .await?;
 
     let xquery_builders = illumination.suggested_searches.into_iter().map(|ss| {
-        model::x_query::ActiveModel::builder()
+        model::xquery::ActiveModel::builder()
             .set_capture_id(capture_id)
             .set_query(ss)
     });
-    model::x_query::Entity::insert_many(xquery_builders)
+    model::xquery::Entity::insert_many(xquery_builders)
         .exec(&db.conn)
         .await?;
 

@@ -22,8 +22,8 @@ pub async fn fetch_captures(
     let loader = loader
         .with(model::media::Entity)
         .with(model::illumination::Entity)
-        .with(model::x_query::Entity)
-        .with(model::k_node::Entity)
+        .with(model::xquery::Entity)
+        .with(model::knode::Entity)
         .all(&db.conn)
         .await?;
 

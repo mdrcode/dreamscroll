@@ -18,7 +18,8 @@ pub struct ExportDigestArgs {
 }
 
 /// Represents a single capture in the export digest.
-/// Note that this does NOT include user_id.
+/// Note that this does NOT include user_id, so that captures can be imported from
+/// any user in environment A to any user in environment B.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureDigestEntry {
     /// Original capture ID (for reference, not used on import)

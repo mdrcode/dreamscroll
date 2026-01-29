@@ -12,8 +12,8 @@ pub async fn fetch_timeline(
         .order_by(model::capture::Column::CreatedAt, sea_orm::Order::Desc)
         .with(model::media::Entity)
         .with(model::illumination::Entity)
-        .with(model::x_query::Entity)
-        .with(model::k_node::Entity)
+        .with(model::xquery::Entity)
+        .with(model::knode::Entity)
         .with(model::social_media::Entity)
         .all(&db.conn)
         .await?;

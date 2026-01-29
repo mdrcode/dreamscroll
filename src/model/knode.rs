@@ -5,7 +5,7 @@ use super::capture;
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "k_nodes8")]
+#[sea_orm(table_name = "knodes")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,

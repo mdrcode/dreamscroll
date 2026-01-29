@@ -6,6 +6,9 @@ Introduced a new auth concept of "service context" which is created from a
 JWT service token. This is intended to be a security identity for backend/
 system services like the illumination worker.
 
+Import/Export roundtripping with preservation of `created_at` timestamp now
+works properly.
+
 ## 2026-01-28
 
 Successfully factored out social media account extraction to be structured.

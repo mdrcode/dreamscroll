@@ -32,14 +32,14 @@ impl From<model::capture::ModelEx> for CaptureInfo {
                 .collect(),
         };
 
-        let x_queries = match capture_model.x_queries {
+        let x_queries = match capture_model.xqueries {
             sea_orm::prelude::HasMany::Unloaded => vec![],
             sea_orm::prelude::HasMany::Loaded(models) => {
                 models.into_iter().map(|m| m.query).collect()
             }
         };
 
-        let k_nodes = match capture_model.k_nodes {
+        let k_nodes = match capture_model.knodes {
             sea_orm::prelude::HasMany::Unloaded => vec![],
             sea_orm::prelude::HasMany::Loaded(models) => {
                 models.into_iter().map(|m| KNodeInfo::from(m)).collect()
