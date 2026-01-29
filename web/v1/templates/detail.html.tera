@@ -116,6 +116,13 @@
             border: 1px solid #e2e8f0;
             border-radius: 4px;
             overflow: hidden;
+            text-decoration: none;
+            color: inherit;
+            transition: border-color 0.15s ease;
+        }
+
+        .detail-entity:hover {
+            border-color: #cbd5e0;
         }
 
         .detail-entity-type {
@@ -191,10 +198,22 @@
                 <div class="detail-section-label">Entities</div>
                 <div class="detail-entities">
                     {% for node in capture.k_nodes %}
-                    <div class="detail-entity">
+                    <a href="/entity/knode/{{ node.id }}" class="detail-entity">
                         <span class="detail-entity-type">{{ node.k_type }}</span>
                         <span class="detail-entity-name">{{ node.name }}</span>
-                    </div>
+                    </a>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if capture.social_medias | length > 0 %}
+                <div class="detail-section-label">Social Media</div>
+                <div class="detail-entities">
+                    {% for node in capture.social_medias %}
+                    <a href="/entity/social/{{ node.id }}" class="detail-entity">
+                        <span class="detail-entity-type">{{ node.platform }}</span>
+                        <span class="detail-entity-name">{{ node.display_name }}</span>
+                    </a>
                     {% endfor %}
                 </div>
                 {% endif %}

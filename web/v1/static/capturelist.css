@@ -100,11 +100,11 @@
 }
 
 .capturelist-query-pill:hover {
-    background: #e2e8f0;
+    background: #f0f4f8;
     color: #2d3748;
 }
 
-/* Entities (k_nodes) */
+/* Entities (k_nodes and social) */
 .capturelist-row-entities {
     display: flex;
     flex-wrap: wrap;
@@ -115,23 +115,30 @@
 .capturelist-entity {
     display: inline-flex;
     align-items: center;
+    color: #4a5568;
     font-size: 11px;
-    border: 1px solid #e2e8f0;
-    border-radius: 4px;
+    border: 1px solid #afc1d3;
+    border-radius: 12px;
     overflow: hidden;
-    cursor: default;
+    transition: background 0.15s ease, border-color 0.15s ease;
+    text-decoration: none !important;
+}
+
+.capturelist-entity:hover {
+    background: #f0f4f8;
+    cursor: pointer;
 }
 
 .capturelist-entity-type {
-    background: #f7fafc;
+    padding: 4px 8px;
+    background: #f0f4f8;
     color: #718096;
-    padding: 2px 6px;
     text-transform: lowercase;
     font-size: 10px;
     letter-spacing: 0.3px;
 }
 
 .capturelist-entity-name {
-    padding: 2px 8px;
-    color: #2d3748;
+    padding: 4px 10px;
+    color: #4a5568;
 }

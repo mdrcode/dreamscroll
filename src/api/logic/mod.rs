@@ -4,6 +4,9 @@ pub use fetch_captures::*;
 mod fetch_capture_for_illum;
 pub use fetch_capture_for_illum::*;
 
+mod fetch_entity;
+pub use fetch_entity::*;
+
 mod fetch_timeline;
 pub use fetch_timeline::*;
 

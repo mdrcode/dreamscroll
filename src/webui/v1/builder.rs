@@ -50,6 +50,15 @@ pub fn make_ui_router(
             get(detail).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
         )
         .route(
+            "/entity/knode/{id}",
+            get(entity_knode).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
+        )
+        .route(
+            "/entity/social/{id}",
+            get(entity_social_media)
+                .layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
+        )
+        .route(
             "/upload",
             post(upload).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
         )

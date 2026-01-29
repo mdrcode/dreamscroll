@@ -217,10 +217,10 @@
                 {% if capture.k_nodes | length > 0 %}
                 <div class="capturelist-row-entities">
                     {% for node in capture.k_nodes %}
-                    <span class="capturelist-entity" title="{{ node.description }}">
-                        <span class="capturelist-entity-type">{{ node.k_type }}</span>
-                        <span class="capturelist-entity-name">{{ node.name }}</span>
-                    </span>
+                    <a href="/entity/knode/{{ node.id }}" class="capturelist-entity" title="{{ node.description }}">
+                        <div class="capturelist-entity-type">{{ node.k_type }}</div>
+                        <div class="capturelist-entity-name">{{ node.name }}</div>
+                    </a>
                     {% endfor %}
                 </div>
                 {% endif %}
@@ -228,10 +228,10 @@
                 {% if capture.social_medias | length > 0 %}
                 <div class="capturelist-row-entities">
                     {% for node in capture.social_medias %}
-                    <span class="capturelist-entity" title="{{ node.handle }}">
-                        <span class="capturelist-entity-type">{{ node.platform }}</span>
-                        <span class="capturelist-entity-name">{{ node.display_name }}</span>
-                    </span>
+                    <a href="/entity/social/{{ node.id }}" class="capturelist-entity" title="{{ node.handle }}">
+                        <div class="capturelist-entity-type">{{ node.platform }}</div>
+                        <div class="capturelist-entity-name">{{ node.display_name }}</div>
+                    </a>
                     {% endfor %}
                 </div>
                 {% endif %}

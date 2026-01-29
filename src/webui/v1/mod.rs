@@ -1,6 +1,7 @@
 mod builder;
 mod r_auth;
 mod r_detail;
+mod r_entity;
 mod r_index;
 mod r_login_page;
 mod r_search;
@@ -11,6 +12,8 @@ pub use builder::make_ui_router;
 pub use r_auth::login_handler;
 pub use r_auth::logout_handler;
 pub use r_detail::detail;
+pub use r_entity::entity_knode;
+pub use r_entity::entity_social_media;
 pub use r_index::index;
 pub use r_login_page::login_page;
 pub use r_search::search;

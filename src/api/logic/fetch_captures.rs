@@ -24,6 +24,7 @@ pub async fn fetch_captures(
         .with(model::illumination::Entity)
         .with(model::xquery::Entity)
         .with(model::knode::Entity)
+        .with(model::social_media::Entity)
         .all(&db.conn)
         .await?;
 

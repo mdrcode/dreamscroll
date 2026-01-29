@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>dreamscroll - {% if entity.entity_type == "KNode" %}{{ entity.name }}{% else %}{{ entity.display_name }}{% endif %}</title>
+    <link rel="stylesheet" href="/static/common.css">
+    <style>
+        #page-content-container {
+            max-width: 960px;
+        }
+
+        .entity-container {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .entity-header {
+            padding: 24px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background: #fafafa;
+        }
+
+        .entity-type-badge {
+            display: inline-block;
+            font-size: 12px;
+            font-weight: 600;
+            color: #718096;
+            background: #edf2f7;
+            padding: 4px 10px;
+            border-radius: 4px;
+            text-transform: lowercase;
+            letter-spacing: 0.3px;
+            margin-bottom: 12px;
+        }
+
+        .entity-name {
+            font-size: 28px;
+            font-weight: 600;
+            margin: 0 0 16px 0;
+            color: #1a202c;
+        }
+
+        .entity-description {
+            font-size: 16px;
+            line-height: 1.7;
+            color: #4a5568;
+            margin: 0;
+            white-space: pre-wrap;
+        }
+
+        .entity-handle {
+            font-size: 14px;
+            color: #718096;
+            margin-top: 8px;
+        }
+
+        .entity-handle a {
+            color: #4299e1;
+            text-decoration: none;
+        }
+
+        .entity-handle a:hover {
+            text-decoration: underline;
+        }
+
+        .source-section {
+            margin-top: 20px;
+        }
+
+        .source-section-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 12px;
+        }
+
+        .source-capture {
+            display: flex;
+            gap: 16px;
+            padding: 16px;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            text-decoration: none;
+            color: inherit;
+            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .source-capture:hover {
+            border-color: #cbd5e0;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+
+        .source-capture-image {
+            width: 120px;
+            height: 90px;
+            object-fit: cover;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .source-capture-info {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        .source-capture-timestamp {
+            font-size: 12px;
+            color: #888;
+        }
+
+        .source-capture-summary {
+            font-size: 14px;
+            line-height: 1.5;
+            color: #4a5568;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 3;
+            -webkit-box-orient: vertical;
+        }
+
+        .other-entities-section {
+            margin-top: 8px;
+        }
+
+        .other-entities {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .other-entity {
+            display: inline-flex;
+            align-items: center;
+            font-size: 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            overflow: hidden;
+            text-decoration: none;
+            color: inherit;
+            transition: border-color 0.15s ease;
+        }
+
+        .other-entity:hover {
+            border-color: #cbd5e0;
+        }
+
+        .other-entity.current {
+            border-color: #4299e1;
+            background: #ebf8ff;
+        }
+
+        .other-entity-type {
+            background: #f7fafc;
+            color: #718096;
+            padding: 4px 8px;
+            text-transform: lowercase;
+            font-size: 11px;
+            letter-spacing: 0.3px;
+        }
+
+        .other-entity-name {
+            padding: 4px 10px;
+            color: #2d3748;
+            font-weight: 500;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="page-content-container">
+        <div id="header-row">
+            <h1 id="page-title">dreamscroll</h1>
+        </div>
+
+        <div class="back-link">
+            <a href="/">← Back</a>
+        </div>
+
+        <div class="entity-container">
+            <div class="entity-header">
+                <span class="entity-type-badge">{% if entity.entity_type == "KNode" %}{{ entity.k_type }}{% else %}{{ entity.platform }}{% endif %}</span>
+                <h2 class="entity-name">{% if entity.entity_type == "KNode" %}{{ entity.name }}{% else %}{{ entity.display_name }}{% endif %}</h2>
+
+                {% if entity.entity_type == "KNode" %}
+                <p class="entity-description">{{ entity.description }}</p>
+                {% elif entity.entity_type == "SocialMedia" %}
+                <p class="entity-handle">
+                    {% if entity.platform == "twitter" or entity.platform == "x" %}
+                    <a href="https://x.com/{{ entity.handle }}" target="_blank">@{{ entity.handle }}</a>
+                    {% elif entity.platform == "instagram" %}
+                    <a href="https://instagram.com/{{ entity.handle }}" target="_blank">@{{ entity.handle }}</a>
+                    {% elif entity.platform == "youtube" %}
+                    <a href="https://youtube.com/@{{ entity.handle }}" target="_blank">@{{ entity.handle }}</a>
+                    {% elif entity.platform == "tiktok" %}
+                    <a href="https://tiktok.com/@{{ entity.handle }}" target="_blank">@{{ entity.handle }}</a>
+                    {% elif entity.platform == "linkedin" %}
+                    <a href="https://linkedin.com/in/{{ entity.handle }}" target="_blank">{{ entity.handle }}</a>
+                    {% else %}
+                    @{{ entity.handle }}
+                    {% endif %}
+                </p>
+                {% endif %}
+            </div>
+
+            <div class="source-section">
+                <div class="source-section-label">Source Capture</div>
+                <a href="/detail/{{ entity.capture.id }}" class="source-capture">
+                    {% if entity.capture.medias | length > 0 %}
+                    <img class="source-capture-image" src="/media/{{ entity.capture.medias[0].filename }}" alt="capture">
+                    {% endif %}
+                    <div class="source-capture-info">
+                        <span class="source-capture-timestamp">{{ entity.capture.created_at }}</span>
+                        {% if entity.capture.illuminations | length > 0 %}
+                        {% set illum = entity.capture.illuminations | first %}
+                        {% if illum.summary %}
+                        <p class="source-capture-summary">{{ illum.summary }}</p>
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                </a>
+            </div>
+
+            {% if entity.capture.k_nodes | length > 0 or entity.capture.social_medias | length > 0 %}
+            <div class="other-entities-section">
+                <div class="source-section-label">Related Entities from this Capture</div>
+                <div class="other-entities">
+                    {% for node in entity.capture.k_nodes %}
+                    <a href="/entity/knode/{{ node.id }}" class="other-entity {% if entity.entity_type == 'KNode' and entity.id == node.id %}current{% endif %}">
+                        <span class="other-entity-type">{{ node.k_type }}</span>
+                        <span class="other-entity-name">{{ node.name }}</span>
+                    </a>
+                    {% endfor %}
+                    {% for sm in entity.capture.social_medias %}
+                    <a href="/entity/social/{{ sm.id }}" class="other-entity {% if entity.entity_type == 'SocialMedia' and entity.id == sm.id %}current{% endif %}">
+                        <span class="other-entity-type">{{ sm.platform }}</span>
+                        <span class="other-entity-name">{{ sm.display_name }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</body>
+
+</html>
