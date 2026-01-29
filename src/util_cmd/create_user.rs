@@ -36,14 +36,8 @@ pub async fn run(config: facility::Config, _args: CreateUserArgs) -> anyhow::Res
     println!("Enter password for new user:");
     let password = rpassword::read_password()?;
 
-    let new_user_info = api::admin::create_user(
-        auth::Context::from(admin_user),
-        &db,
-        username,
-        password,
-        email,
-    )
-    .await?;
+    let new_user_info =
+        api::admin::create_user(&db, &admin_user.into(), username, password, email).await?;
 
     println!("Created new user: {:?}", new_user_info);
 

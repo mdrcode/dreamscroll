@@ -9,8 +9,9 @@ pub async fn fetch_captures(
 ) -> Result<Vec<api::CaptureInfo>, api::ApiError> {
     let mut loader = model::capture::Entity::load();
 
-    // For non-admin users, filter to only their captures
-    if context.is_user() && !context.is_admin() {
+    // For user contexts, restrict to their own captures
+    // TODO admin override?
+    if context.is_user() {
         loader = loader.filter(model::capture::Column::UserId.eq(context.user_id()));
     }
 

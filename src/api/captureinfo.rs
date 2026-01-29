@@ -6,7 +6,7 @@ use crate::model;
 
 use super::*;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct CaptureInfo {
     pub id: i32,
     pub created_at: DateTime<Utc>,

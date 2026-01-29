@@ -49,9 +49,9 @@ impl IlluminatorWorker for SimpleWorker {
         });
 
         loop {
-            let capture_ids = api::fetch_captures_need_illumination(&self.db).await?;
-            let n = capture_ids.len();
-            let nq = self.queue.enqueue_iter(capture_ids);
+            let ids = api::fetch_captures_need_illumination(&self.db, &self.context).await?;
+            let n = ids.len();
+            let nq = self.queue.enqueue_iter(ids);
 
             if nq > 0 {
                 tracing::info!("Retrieved {} needing illumination, enqueued {}.", n, nq);
@@ -101,7 +101,7 @@ impl SimpleWorkerThread {
                 }
                 let i = r_illumination?;
 
-                let r_insert = api::insert_illumination(db, cap_id, i).await;
+                let r_insert = api::insert_illumination(db, &context, cap_id, i).await;
                 if r_insert.is_err() {
                     let err = r_insert.as_ref().err().unwrap();
                     tracing::error!(

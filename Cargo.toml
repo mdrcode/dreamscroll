@@ -26,7 +26,7 @@ argh = "0.1.13"
 argon2 = "0.5.3"
 async-trait = "0.1"
 axum = "0.8"
-axum-extra = { version = "0.10", features = ["multipart", "typed-header"] }
+axum-extra = { version = "0.10", features = ["multipart", "typed-header", "query"] }
 axum-login = "0.18.0"
 base64 = "0.21"
 blake3 = "1.8.2"

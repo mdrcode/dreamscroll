@@ -1,10 +1,11 @@
 use sea_orm::EntityTrait;
 
-use crate::{api, database::DbHandle, illumination::*, model};
+use crate::{api, auth, database::DbHandle, illumination::*, model};
 
 // Is this still needed?
 pub async fn insert_illumination(
     db: &DbHandle,
+    _user_context: &auth::Context,
     capture_id: i32,
     illumination: Illumination,
 ) -> Result<(), api::ApiError> {

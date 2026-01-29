@@ -4,8 +4,8 @@ use sea_orm::TryIntoModel;
 use crate::{api, auth, database::DbHandle, model};
 
 pub async fn create_user(
-    context: auth::Context,
     db: &DbHandle,
+    context: &auth::Context,
     username: String,
     password: String,
     email: String,

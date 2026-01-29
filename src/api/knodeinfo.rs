@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::model;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct KNodeInfo {
     pub id: i32,
     pub name: String,

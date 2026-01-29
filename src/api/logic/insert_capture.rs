@@ -4,8 +4,8 @@ use sea_orm::TryIntoModel;
 use crate::{api, auth, database::DbHandle, model};
 
 pub async fn insert_capture(
-    user_context: auth::Context,
     db: &DbHandle,
+    user_context: &auth::Context,
     storage_id: String,
 ) -> Result<api::CaptureInfo, api::ApiError> {
     let media = model::media::ActiveModel::builder().set_filename(storage_id.clone());

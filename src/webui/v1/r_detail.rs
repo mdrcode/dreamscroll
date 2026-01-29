@@ -8,7 +8,7 @@ use axum::{
 use axum_login::{AuthSession, AuthUser};
 use tera::Context;
 
-use crate::{api, auth};
+use crate::{api, auth, model::capture};
 
 use super::WebState;
 
@@ -21,7 +21,12 @@ pub async fn detail(
     let user = auth.user.unwrap();
     tracing::debug!("Rendering detail for capture {} for user {}", id, user.id());
 
-    let capture_info = api::fetch_captures(&state.db, &user.into(), Some(vec![id])).await?;
+    let fetch = api::fetch_captures(&state.db, &user.into(), Some(vec![id])).await?;
+
+    let capture_info = fetch
+        .into_iter()
+        .next()
+        .ok_or_else(|| api::ApiError::not_found(anyhow!("Capture with id {} not found", id)))?;
 
     let mut context = Context::new();
     context.insert("capture", &capture_info);

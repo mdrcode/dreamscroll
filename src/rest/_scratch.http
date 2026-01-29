@@ -20,5 +20,10 @@ Authorization: Bearer {{token.response.body.access_token}}
 
 ###
 
-GET http://localhost:8000/api/capture/559
+GET http://localhost:8000/api/captures?id=559
+Authorization: Bearer {{token.response.body.access_token}}
+
+###
+
+GET http://localhost:8000/api/captures
 Authorization: Bearer {{token.response.body.access_token}}

@@ -34,7 +34,7 @@ pub fn make_api_router(db: Arc<DbHandle>, jwt_config: Arc<JwtConfig>) -> Router 
 
     // Routes that require JWT authentication
     let protected_routes = Router::new()
-        .route("/capture/{id}", get(r_capture::get))
+        .route("/captures", get(r_capture::get))
         .route("/dummy", get(r_dummy::get))
         .route("/timeline", get(r_timeline::get))
         .layer(JwtAxumLayer::new(jwt_config));

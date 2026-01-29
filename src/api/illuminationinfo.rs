@@ -2,7 +2,7 @@ use serde::Serialize;
 
 use crate::model;
 
-#[derive(Clone, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 pub struct IlluminationInfo {
     pub id: i32,
     pub capture_id: i32,
