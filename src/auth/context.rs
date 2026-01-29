@@ -7,14 +7,27 @@ use super::*;
 /// behalf of another user (i.e. authorized impersonation), the context would
 /// reflect both the admin's authority and the target user's identity.
 ///
-/// Currently, Context instances can be created from either:
-/// - `DreamscrollAuthUser` for user-based authentication, using From<>
-/// - `token:String` for service-to-service authentication, using from_service_credentials()
+/// Context instances can ONLY be created via:
+/// - `From<DreamscrollAuthUser>` for user-based authentication
+/// - `from_service_credentials()` for service-to-service authentication
+///
+/// Direct construction of variants is prevented by private inner types.
 #[derive(Debug, Clone)]
+#[allow(private_interfaces)]
 pub enum Context {
-    User(DreamscrollAuthUser),
-    Service(String),
+    User(UserInner),
+    Service(ServiceInner),
 }
+
+/// Private wrapper for user context data.
+/// Prevents direct construction of `Context::User(...)`.
+#[derive(Debug, Clone)]
+struct UserInner(DreamscrollAuthUser);
+
+/// Private wrapper for service context data.
+/// Prevents direct construction of `Context::Service(...)`.
+#[derive(Debug, Clone)]
+struct ServiceInner(String);
 
 impl Context {
     /// Validates the service token and returns a `Context::Service` if successful.
@@ -30,20 +43,38 @@ impl Context {
             .decode_service_token(&token)
             .map(|claims| claims.service_name)
             .inspect_err(|e| tracing::warn!("Service token verification failed: {}", e))?;
-        Ok(Context::Service(service_name))
+        Ok(Context::Service(ServiceInner(service_name)))
     }
 
-    pub fn user_id(&self) -> i32 {
-        match self {
-            Context::User(user) => user.user_id(),
-            Context::Service(_) => 0, // System user ID
-        }
+    /// Returns true if this is a user context.
+    pub fn is_user(&self) -> bool {
+        matches!(self, Context::User(_))
+    }
+
+    /// Returns true if this is a service context.
+    pub fn is_service(&self) -> bool {
+        matches!(self, Context::Service(_))
     }
 
     pub fn is_admin(&self) -> bool {
         match self {
-            Context::User(user) => user.is_admin(),
+            Context::User(user_inner) => user_inner.0.is_admin(),
             Context::Service(_) => true,
+        }
+    }
+
+    pub fn user_id(&self) -> i32 {
+        match self {
+            Context::User(user_inner) => user_inner.0.user_id(),
+            Context::Service(_) => 0, // System user ID
+        }
+    }
+
+    /// Returns the service name if this is a service context.
+    pub fn service_name(&self) -> Option<&str> {
+        match self {
+            Context::User(_) => None,
+            Context::Service(svc_ctx) => Some(&svc_ctx.0),
         }
     }
 }
@@ -51,7 +82,7 @@ impl Context {
 /// Converts a `DreamscrollAuthUser` into a `Context::User`.
 impl From<DreamscrollAuthUser> for Context {
     fn from(user: DreamscrollAuthUser) -> Self {
-        Context::User(user)
+        Context::User(UserInner(user))
     }
 }
 
@@ -110,21 +141,36 @@ mod tests {
 
     #[test]
     fn test_service_context_has_system_user_id() {
-        let context = Context::Service("illuminator".to_string());
+        let config = JwtConfig::from_secret(b"test-secret-32-bytes-minimum!!!");
+        let token = config
+            .create_service_token("illuminator")
+            .expect("should create service token");
+        let context =
+            Context::from_service_credentials(&config, token).expect("should create context");
 
         assert_eq!(context.user_id(), 0);
     }
 
     #[test]
     fn test_service_context_is_admin() {
-        let context = Context::Service("scheduler".to_string());
+        let config = JwtConfig::from_secret(b"test-secret-32-bytes-minimum!!!");
+        let token = config
+            .create_service_token("scheduler")
+            .expect("should create service token");
+        let context =
+            Context::from_service_credentials(&config, token).expect("should create context");
 
         assert!(context.is_admin());
     }
 
     #[test]
     fn test_service_context_is_debuggable() {
-        let context = Context::Service("notifier".to_string());
+        let config = JwtConfig::from_secret(b"test-secret-32-bytes-minimum!!!");
+        let token = config
+            .create_service_token("notifier")
+            .expect("should create service token");
+        let context =
+            Context::from_service_credentials(&config, token).expect("should create context");
 
         let debug_str = format!("{:?}", context);
         assert!(debug_str.contains("Service"));
@@ -141,10 +187,9 @@ mod tests {
         let ctx = Context::from_service_credentials(&config, token)
             .expect("should create service context");
 
-        match ctx {
-            Context::Service(name) => assert_eq!(name, "illuminator"),
-            Context::User(_) => panic!("Expected Service context, got User"),
-        }
+        assert_eq!(ctx.service_name(), Some("illuminator"));
+        assert!(ctx.is_service());
+        assert!(!ctx.is_user());
     }
 
     #[test]

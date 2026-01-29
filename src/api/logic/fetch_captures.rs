@@ -1,4 +1,4 @@
-use sea_orm::{ColumnTrait, EntityLoaderTrait, QueryFilter};
+use sea_orm::{ColumnTrait, QueryFilter};
 
 use crate::{api, auth, database::DbHandle, model};
 
@@ -9,10 +9,9 @@ pub async fn fetch_captures(
 ) -> Result<Vec<api::CaptureInfo>, api::ApiError> {
     let mut loader = model::capture::Entity::load();
 
-    if let auth::Context::User(user) = &context {
-        if !user.is_admin() {
-            loader = loader.filter(model::capture::Column::UserId.eq(user.user_id()));
-        }
+    // For non-admin users, filter to only their captures
+    if context.is_user() && !context.is_admin() {
+        loader = loader.filter(model::capture::Column::UserId.eq(context.user_id()));
     }
 
     if let Some(ids) = &ids {
