@@ -1,11 +1,6 @@
 use sea_orm::EntityTrait;
 
-use crate::{
-    api,
-    database::DbHandle,
-    illumination::*,
-    model::{self, social_media},
-};
+use crate::{api, database::DbHandle, illumination::*, model};
 
 // Is this still needed?
 pub async fn insert_illumination(

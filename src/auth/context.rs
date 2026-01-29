@@ -4,12 +4,12 @@ use super::*;
 /// mechanism (session-based, JWT, etc.). The ultimate (aspirational) goal is
 /// that this type encapsulates both the identity and authorization information
 /// about the user. So if an administrator wants to perform some action on
-/// behalf of another user, the context would reflect both the admin's
-/// authority and the target user's identity.
+/// behalf of another user (i.e. authorized impersonation), the context would
+/// reflect both the admin's authority and the target user's identity.
 ///
-/// Currently, Context instances can be created via either:
+/// Currently, Context instances can be created from either:
 /// - `DreamscrollAuthUser` for user-based authentication, using From<>
-/// - `service::ServiceCredentials` for service-to-service authentication, using from_service_credentials()
+/// - `token:String` for service-to-service authentication, using from_service_credentials()
 #[derive(Debug, Clone)]
 pub enum Context {
     User(DreamscrollAuthUser),
@@ -24,9 +24,12 @@ impl Context {
     /// A `Context::Service` with the verified service name, or an error if validation fails.
     pub fn from_service_credentials(
         jwt_config: &JwtConfig,
-        creds: &service::ServiceCredentials,
+        token: String,
     ) -> Result<Self, AuthError> {
-        let service_name = service::verify_token(jwt_config, creds)?;
+        let service_name = jwt_config
+            .decode_service_token(&token)
+            .map(|claims| claims.service_name)
+            .inspect_err(|e| tracing::warn!("Service token verification failed: {}", e))?;
         Ok(Context::Service(service_name))
     }
 
@@ -134,9 +137,8 @@ mod tests {
         let token = config
             .create_service_token("illuminator")
             .expect("should create service token");
-        let creds = service::ServiceCredentials { token };
 
-        let ctx = Context::from_service_credentials(&config, &creds)
+        let ctx = Context::from_service_credentials(&config, token)
             .expect("should create service context");
 
         match ctx {
@@ -148,11 +150,9 @@ mod tests {
     #[test]
     fn test_service_context_from_invalid_credentials_fails() {
         let config = JwtConfig::from_secret(b"test-secret-32-bytes-minimum!!!");
-        let creds = service::ServiceCredentials {
-            token: "invalid.garbage.token".to_string(),
-        };
+        let token = "invalid.garbage.token".to_string();
 
-        let result = Context::from_service_credentials(&config, &creds);
+        let result = Context::from_service_credentials(&config, token);
         assert!(result.is_err());
     }
 
@@ -164,10 +164,9 @@ mod tests {
         let token = config1
             .create_service_token("scheduler")
             .expect("should create service token");
-        let creds = service::ServiceCredentials { token };
 
         // Try to verify with a different secret
-        let result = Context::from_service_credentials(&config2, &creds);
+        let result = Context::from_service_credentials(&config2, token);
         assert!(result.is_err());
     }
 }

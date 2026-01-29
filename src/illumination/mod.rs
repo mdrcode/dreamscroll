@@ -13,7 +13,7 @@ pub mod geministructured;
 pub mod grok;
 pub mod loremipsum;
 
-pub fn make(model_name: &str) -> Box<dyn Illuminator> {
+pub fn make_illuminator(model_name: &str) -> Box<dyn Illuminator> {
     match model_name {
         "grok" => Box::new(grok::GrokIlluminator::default()),
         "gemini" => Box::new(gemini::GeminiIlluminator::default()),

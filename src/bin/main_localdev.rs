@@ -17,19 +17,7 @@ async fn main() -> anyhow::Result<()> {
     let storage = storage::make(config.storage_config);
     let storage: Arc<dyn storage::StorageProvider> = Arc::from(storage);
 
-    // Initialize JWT configuration from environment variable.
-    // For local development, a default secret is used if not set.
-    let jwt_config = Arc::new(
-        std::env::var("JWT_SECRET")
-            .map(|secret| auth::JwtConfig::from_secret(secret.as_bytes()))
-            .unwrap_or_else(|_| {
-                tracing::warn!(
-                    "JWT_SECRET not set, using default development secret. \
-                     DO NOT use this in production!"
-                );
-                auth::JwtConfig::from_secret(b"dreamscroll-local-dev-secret-key-not-for-production")
-            }),
-    );
+    let jwt = Arc::new(config.jwt_config);
 
     let cancel_token = CancellationToken::new();
 
@@ -41,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
         let mut router = webui::v1::make_ui_router(db.clone(), storage.clone());
 
         // REST API routes (JWT-protected)
-        let api_router = rest::make_api_router(db.clone(), jwt_config.clone());
+        let api_router = rest::make_api_router(db.clone(), jwt.clone());
         router = router.nest("/api", api_router);
 
         // For local dev, we serve static JS/CSS files directly
@@ -70,9 +58,14 @@ async fn main() -> anyhow::Result<()> {
         web_host_port.1
     );
 
+    let illuminator_context = auth::Context::from_service_credentials(
+        &jwt,
+        // For local dev, there are no true secrets, so just create token on the fly
+        jwt.create_service_token("illuminator_worker")?,
+    )?;
     let thread_illuminator = {
-        let gemini = illumination::make("geministructured");
-        let worker = illumination::make_worker(db.clone(), gemini);
+        let gemini = illumination::make_illuminator("geministructured");
+        let worker = illumination::make_worker(db.clone(), illuminator_context, gemini);
         let cancel = cancel_token.clone();
         tokio::spawn(async move {
             tokio::select! {

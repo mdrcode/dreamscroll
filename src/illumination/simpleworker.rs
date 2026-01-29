@@ -1,23 +1,21 @@
 use std::sync::Arc;
 
-use crate::{
-    api::{self},
-    common,
-    database::DbHandle,
-};
+use crate::{api, auth, common, database::DbHandle};
 
 use super::*;
 
 pub struct SimpleWorker {
-    pub db: Arc<DbHandle>,
-    pub queue: Arc<common::OneShotQueue<i32>>,
-    pub illuminator: Box<dyn Illuminator>,
+    db: Arc<DbHandle>,
+    context: auth::Context,
+    queue: Arc<common::OneShotQueue<i32>>,
+    illuminator: Box<dyn Illuminator>,
 }
 
 impl Clone for SimpleWorker {
     fn clone(&self) -> Self {
         Self {
             db: Arc::clone(&self.db),
+            context: self.context.clone(),
             queue: Arc::clone(&self.queue),
             illuminator: dyn_clone::clone(&self.illuminator),
         }
@@ -25,9 +23,14 @@ impl Clone for SimpleWorker {
 }
 
 impl SimpleWorker {
-    pub fn new(db: Arc<DbHandle>, illuminator: Box<dyn Illuminator>) -> Self {
+    pub fn new(
+        db: Arc<DbHandle>,
+        context: auth::Context,
+        illuminator: Box<dyn Illuminator>,
+    ) -> Self {
         Self {
             db,
+            context,
             queue: Arc::new(common::OneShotQueue::new()),
             illuminator,
         }

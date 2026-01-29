@@ -12,7 +12,5 @@ pub use jwt::{JwtAxumLayer, JwtConfig, JwtServiceClaims, JwtUserClaims};
 
 pub mod password;
 
-pub mod service;
-
 mod webauthbackend;
 pub use webauthbackend::{Credentials, WebAuthBackend};
