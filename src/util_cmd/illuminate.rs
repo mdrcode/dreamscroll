@@ -2,8 +2,9 @@ use anyhow::anyhow;
 use argh::FromArgs;
 use base64::Engine;
 
-use super::html_view;
 use crate::{api, database, facility, illumination::*, storage};
+
+use super::{auth_helper, html_view};
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "illuminate")]
@@ -31,7 +32,7 @@ pub async fn run(config: facility::Config, args: IlluminateArgs) -> anyhow::Resu
     let db = database::connect(config.db_config).await?;
     let _storage = storage::make(config.storage_config);
 
-    let user = super::authenticate_user_stdin(&db).await?;
+    let user = auth_helper::authenticate_user_stdin(&db).await?;
 
     let illuminator: Box<dyn Illuminator> = make_illuminator(&args.model);
 

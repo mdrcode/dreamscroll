@@ -2,8 +2,9 @@ use anyhow::anyhow;
 use argh::FromArgs;
 use base64::Engine;
 
-use super::html_view;
-use crate::{api, auth, database, facility, illumination::*};
+use crate::{api, database, facility, illumination::*};
+
+use super::{auth_helper, html_view};
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "eval")]
@@ -25,7 +26,7 @@ pub struct EvalArgs {
 pub async fn run(config: facility::Config, args: EvalArgs) -> anyhow::Result<()> {
     let db = database::connect(config.db_config).await?;
 
-    let user = super::authenticate_user_stdin(&db).await?;
+    let user = auth_helper::authenticate_user_stdin(&db).await?;
 
     let capture_id = args.id;
 
