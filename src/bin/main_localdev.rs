@@ -14,6 +14,8 @@ async fn main() -> anyhow::Result<()> {
     let db = database::connect(config.db_config).await?;
     let db = Arc::new(db);
 
+    facility::check_first_users(&db).await?;
+
     let storage = storage::make(config.storage_config);
     let storage: Arc<dyn storage::StorageProvider> = Arc::from(storage);
 

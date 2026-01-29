@@ -5,6 +5,7 @@ use crate::{auth, database, storage};
 use super::Env;
 
 pub struct Config {
+    pub environment: Env,
     pub tracing_max_level: tracing::Level,
     pub db_config: database::DbConfig,
     pub storage_config: storage::StorageConfig,
@@ -34,6 +35,7 @@ pub fn make_config(env: Env) -> Config {
                     )
                 });
             return Config {
+                environment: Env::LocalDev,
                 tracing_max_level: tracing::Level::INFO,
                 db_config,
                 storage_config,
