@@ -22,7 +22,7 @@ enum Command {
     Illuminate(illuminate::IlluminateArgs),
     Import(import::ImportArgs),
     ImportDigest(import_digest::ImportDigestArgs),
-    KNodes(knodes::KNodesArgs),
+    Enums(enums::EnumsArgs),
 }
 
 #[tokio::main]
@@ -45,6 +45,6 @@ async fn main() -> anyhow::Result<()> {
         Command::ImportDigest(args) => import_digest::run(config, args).await,
         Command::ExportUniq(args) => export_uniq::run(config, args).await,
         Command::ExportDigest(args) => export_digest::run(config, args).await,
-        Command::KNodes(args) => knodes::run(config, args).await,
+        Command::Enums(args) => enums::run(config, args).await,
     }
 }

@@ -92,7 +92,7 @@ profiles, or posts, extract them here. For each account provide:
 - display_name: The display name or real name shown on the profile
 - handle: The username/handle (include the @ symbol if visible, e.g., @username)
 - platform: The platform where this account exists (x_twitter, youtube, instagram,
-  tiktok, facebook, linkedin, or other)
+tiktok, facebook, linkedin, threads, bluesky, mastodon, other)
 Be precise about distinguishing the handle from the display name. The handle is the
 unique username, while the display name is what appears as the profile name.
 "#;
@@ -148,11 +148,11 @@ impl Illuminator for GeminiStructuredIlluminator {
 
         // Build the JSON schema for the structured response
         // Following the OpenAPI 3.0 schema format that Gemini expects
-        let entity_type_enum: Vec<String> = {
+        let knode_types: Vec<String> = {
             use strum::IntoEnumIterator;
             EntityType::iter().map(|e| e.as_ref().to_string()).collect()
         };
-        let platform_enum: Vec<String> = {
+        let social_platform_types: Vec<String> = {
             use strum::IntoEnumIterator;
             SocialMediaPlatform::iter()
                 .map(|e| e.as_ref().to_string())
@@ -192,8 +192,8 @@ impl Illuminator for GeminiStructuredIlluminator {
                             },
                             "type": {
                                 "type": "STRING",
-                                "description": "The type of entity: real_person, place, book, movie, television_show, brand, or unknown",
-                                "enum": entity_type_enum
+                                "description": "The type of entity: real_person, place, book, movie, television_show, art_work, fictional_character, music, meme, software, financial, brand, or unknown",
+                                "enum": knode_types
                             }
                         },
                         "required": ["name", "description", "type"]
@@ -215,8 +215,8 @@ impl Illuminator for GeminiStructuredIlluminator {
                             },
                             "platform": {
                                 "type": "STRING",
-                                "description": "The platform: x_twitter, youtube, instagram, tiktok, facebook, linkedin, threads, bluesky, mastodon, or other",
-                                "enum": platform_enum
+                                "description": "The platform: x_twitter, youtube, instagram, tiktok, facebook, linkedin, threads, bluesky, mastodon, other",
+                                "enum": social_platform_types
                             }
                         },
                         "required": ["display_name", "handle", "platform"]

@@ -193,12 +193,12 @@
                 <p class="entity-description">{{ entity.description }}</p>
                 {% elif entity.entity_type == "SocialMedia" %}
                 <p class="entity-handle">
-                    {% if entity.platform == "twitter" or entity.platform == "x" %}
-                    <a href="https://x.com/{{ entity.handle }}" target="_blank">@{{ entity.handle }}</a>
+                    {% if entity.platform == "x_twitter" %}
+                    <a href="https://x.com/{{ entity.handle }}" target="_blank">{{ entity.handle }}</a>
                     {% elif entity.platform == "instagram" %}
                     <a href="https://instagram.com/{{ entity.handle }}" target="_blank">@{{ entity.handle }}</a>
                     {% elif entity.platform == "youtube" %}
-                    <a href="https://youtube.com/@{{ entity.handle }}" target="_blank">@{{ entity.handle }}</a>
+                    <a href="https://www.youtube.com/results?search_query={{ entity.handle }}" target="_blank">{{ entity.handle }}</a>
                     {% elif entity.platform == "tiktok" %}
                     <a href="https://tiktok.com/@{{ entity.handle }}" target="_blank">@{{ entity.handle }}</a>
                     {% elif entity.platform == "linkedin" %}

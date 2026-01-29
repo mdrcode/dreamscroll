@@ -106,7 +106,10 @@ pub enum SocialMediaPlatform {
     Instagram,
     Tiktok,
     Facebook,
-    LinkedIn,
+    Linkedin, // keep second 'i' small for serialization consistency
+    Threads,
+    Bluesky,
+    Mastodon,
     Other,
 }
 
