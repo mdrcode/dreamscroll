@@ -1,5 +1,5 @@
-mod fetch_capture_by_id;
-pub use fetch_capture_by_id::*;
+mod fetch_captures;
+pub use fetch_captures::*;
 
 mod fetch_capture_for_illum;
 pub use fetch_capture_for_illum::*;

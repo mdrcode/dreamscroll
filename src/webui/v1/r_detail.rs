@@ -21,7 +21,7 @@ pub async fn detail(
     let user = auth.user.unwrap();
     tracing::debug!("Rendering detail for capture {} for user {}", id, user.id());
 
-    let capture_info = api::fetch_capture_by_id(&state.db, id).await?;
+    let capture_info = api::fetch_captures(&state.db, &user.into(), Some(vec![id])).await?;
 
     let mut context = Context::new();
     context.insert("capture", &capture_info);

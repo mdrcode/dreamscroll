@@ -4,8 +4,8 @@ use sea_orm::prelude::*;
 use crate::{api, auth, database::DbHandle, model};
 
 pub async fn fetch_timeline(
-    user_context: auth::Context,
     db: &DbHandle,
+    user_context: auth::Context,
 ) -> Result<Vec<api::CaptureInfo>, api::ApiError> {
     let captures = model::capture::Entity::load()
         .filter(model::capture::Column::UserId.eq(user_context.user_id()))

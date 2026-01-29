@@ -1,5 +1,18 @@
 # Dreamscroll Development Log
 
+## 2026-01-29
+
+Introduced a new auth concept of "service context" which is created from a
+JWT service token. This is intended to be a security identity for backend/
+system services like the illumination worker.
+
+## 2026-01-28
+
+Successfully factored out social media account extraction to be structured.
+
+Elevated knodes, xqueries, and social_media to be direct relations of capture
+instead of hanging off the illumination.
+
 ## 2026-01-27
 
 The KNodes and XQueries are beautiful and I am continually surprised by the

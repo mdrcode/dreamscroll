@@ -31,35 +31,31 @@ pub async fn run(config: facility::Config, args: IlluminateArgs) -> anyhow::Resu
     let db = database::connect(config.db_config).await?;
     let _storage = storage::make(config.storage_config);
 
+    let user = super::authenticate_user_stdin(&db).await?;
+
+    let illuminator: Box<dyn Illuminator> = make_illuminator(&args.model);
+
     // Process each capture
+    let capture_infos =
+        api::fetch_captures(&db, &user.clone().into(), Some(args.ids.clone())).await?;
+
+    if capture_infos.is_empty() {
+        return Err(anyhow!(
+            "No matching captures found for user_id {}.",
+            user.user_id()
+        ));
+    }
+
+    tracing::info!("Fetched {} capture(s) from db.", capture_infos.len());
     let mut capture_results = Vec::new();
 
-    for capture_id in &args.ids {
-        tracing::info!("Starting illumination for capture ID {}", capture_id);
+    for c in capture_infos {
+        tracing::info!("Starting illumination for capture ID {}", c.id);
 
-        let capture_info = api::fetch_capture_by_id(&db, *capture_id)
-            .await
-            .map_err(|_| anyhow!("Capture with ID {} not found in database.", capture_id))?;
-        tracing::info!("Fetched capture {} from db.", capture_info.id);
-
-        let illuminator: Box<dyn Illuminator> = match args.model.as_str() {
-            "grok" => Box::new(grok::GrokIlluminator::default()),
-            "gemini" => Box::new(gemini::GeminiIlluminator::default()),
-            "geministructured" => {
-                Box::new(geministructured::GeminiStructuredIlluminator::default())
-            }
-            "loremipsum" => Box::new(loremipsum::LoremIpsumIlluminator::default()),
-            other => {
-                return Err(anyhow!(
-                    "Unknown model '{}'. Supported: grok, gemini, geministructured, loremipsum.",
-                    other
-                ));
-            }
-        };
-        let result = illuminator.illuminate(capture_info.clone()).await?;
+        let result = illuminator.illuminate(c.clone()).await?;
 
         // Convert media files to base64 data URIs
-        let media_data_uris: Vec<String> = capture_info
+        let media_data_uris: Vec<String> = c
             .medias
             .iter()
             .filter_map(|media| {
@@ -79,7 +75,7 @@ pub async fn run(config: facility::Config, args: IlluminateArgs) -> anyhow::Resu
             })
             .collect();
 
-        capture_results.push((capture_info.id, media_data_uris, result));
+        capture_results.push((c.id, media_data_uris, result));
     }
 
     // Generate HTML based on whether we have single or multiple captures

@@ -3,7 +3,7 @@ use argh::FromArgs;
 use base64::Engine;
 
 use super::html_view;
-use crate::{api, database, facility, illumination::*};
+use crate::{api, auth, database, facility, illumination::*};
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "eval")]
@@ -23,6 +23,10 @@ pub struct EvalArgs {
 }
 
 pub async fn run(config: facility::Config, args: EvalArgs) -> anyhow::Result<()> {
+    let db = database::connect(config.db_config).await?;
+
+    let user = super::authenticate_user_stdin(&db).await?;
+
     let capture_id = args.id;
 
     tracing::info!(
@@ -32,11 +36,10 @@ pub async fn run(config: facility::Config, args: EvalArgs) -> anyhow::Result<()>
         capture_id
     );
 
-    let db = database::connect(config.db_config).await?;
-
-    let capture_info = api::fetch_capture_by_id(&db, capture_id)
+    let mut fetch = api::fetch_captures(&db, &user.into(), Some(vec![capture_id]))
         .await
         .map_err(|_| anyhow!("Capture with ID {} not found in database.", capture_id))?;
+    let capture_info = fetch.remove(0);
     tracing::info!("Fetched capture {} from db.", capture_info.id);
 
     // Helper to create illuminator from string

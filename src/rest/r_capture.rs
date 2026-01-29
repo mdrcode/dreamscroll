@@ -2,28 +2,50 @@ use std::sync::Arc;
 
 use axum::{
     Json,
-    extract::{Path, State},
+    extract::{Query, State},
     response::IntoResponse,
 };
+use serde::Deserialize;
 
 use crate::{api, auth::DreamscrollAuthUser};
 
 use super::ApiState;
 
-/// GET /api/capture/{id} - Fetch a capture by ID
+#[derive(Debug, Deserialize)]
+pub struct CaptureQuery {
+    #[serde(default)]
+    ids: Vec<i32>,
+}
+
+/// GET /api/capture - Fetch captures by IDs
 ///
-/// Returns a JSON object containing the capture information including
+/// Query parameters:
+/// - `ids` (optional, repeatable): Specific capture IDs to fetch
+///
+/// Examples:
+/// - `GET /api/capture` - returns all captures
+/// - `GET /api/capture?ids=123` - returns capture 123
+/// - `GET /api/capture?ids=123&ids=456&ids=789` - returns captures 123, 456, and 789
+///
+/// Returns a JSON array containing the capture information including
 /// associated media and illuminations.
 ///
 /// Requires JWT authentication.
-#[tracing::instrument(skip(state, _user))]
+#[tracing::instrument(skip(user, state))]
 pub async fn get(
-    _user: DreamscrollAuthUser,
+    user: DreamscrollAuthUser,
     State(state): State<Arc<ApiState>>,
-    Path(id): Path<i32>,
+    Query(query): Query<CaptureQuery>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let capture_info = api::fetch_capture_by_id(&state.db, id).await?;
-    Ok(Json(capture_info))
+    let ids = if query.ids.is_empty() {
+        None
+    } else {
+        Some(query.ids)
+    };
+
+    let capture_infos = api::fetch_captures(&state.db, &user.into(), ids).await?;
+
+    Ok(Json(capture_infos))
 }
 
 #[cfg(test)]
