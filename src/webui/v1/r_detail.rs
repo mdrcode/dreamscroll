@@ -8,7 +8,7 @@ use axum::{
 use axum_login::{AuthSession, AuthUser};
 use tera::Context;
 
-use crate::{api, auth, model::capture};
+use crate::{api, auth};
 
 use super::WebState;
 

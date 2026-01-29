@@ -18,9 +18,10 @@ enum Command {
     CreateUser(create_user::CreateUserArgs),
     Eval(eval::EvalArgs),
     ExportUniq(export_uniq::ExportUniqArgs),
-    ExportWithDigest(export_with_digest::ExportWithDigestArgs),
+    ExportDigest(export_digest::ExportDigestArgs),
     Illuminate(illuminate::IlluminateArgs),
     Import(import::ImportArgs),
+    ImportDigest(import_digest::ImportDigestArgs),
     KNodes(knodes::KNodesArgs),
 }
 
@@ -41,8 +42,9 @@ async fn main() -> anyhow::Result<()> {
         Command::CreateUser(args) => create_user::run(config, args).await,
         Command::Illuminate(args) => illuminate::run(config, args).await,
         Command::Import(args) => import::run(config, args).await,
+        Command::ImportDigest(args) => import_digest::run(config, args).await,
         Command::ExportUniq(args) => export_uniq::run(config, args).await,
-        Command::ExportWithDigest(args) => export_with_digest::run(config, args).await,
+        Command::ExportDigest(args) => export_digest::run(config, args).await,
         Command::KNodes(args) => knodes::run(config, args).await,
     }
 }

@@ -2,27 +2,27 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 use chrono::{DateTime, Utc};
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use serde::{Deserialize, Serialize};
 
-use crate::{database, facility, model};
+use crate::{api, database, facility};
+
+use super::auth_helper;
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "export_with_digest")]
+#[argh(subcommand, name = "export_digest")]
 #[argh(description = "Export all captures with images and a JSON digest for later import")]
-pub struct ExportWithDigestArgs {
+pub struct ExportDigestArgs {
     #[argh(positional)]
     #[argh(description = "root directory where export folder will be created")]
     root_dir: PathBuf,
 }
 
 /// Represents a single capture in the export digest.
+/// Note that this does NOT include user_id.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CaptureDigestEntry {
     /// Original capture ID (for reference, not used on import)
     pub original_id: i32,
-    /// User ID who created the capture
-    pub user_id: i32,
     /// When the capture was created (preserved across export/import)
     pub created_at: DateTime<Utc>,
     /// Media files associated with this capture (filenames in export folder)
@@ -31,7 +31,7 @@ pub struct CaptureDigestEntry {
 
 /// The complete export digest containing all captures.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ExportDigest {
+pub struct FullDigest {
     /// Version of the digest format
     pub version: u32,
     /// When the export was created
@@ -40,7 +40,7 @@ pub struct ExportDigest {
     pub captures: Vec<CaptureDigestEntry>,
 }
 
-impl ExportDigest {
+impl FullDigest {
     pub fn new() -> Self {
         Self {
             version: 1,
@@ -50,40 +50,30 @@ impl ExportDigest {
     }
 }
 
-pub async fn run(config: facility::Config, args: ExportWithDigestArgs) -> anyhow::Result<()> {
-    let root_dir = &args.root_dir;
+pub async fn run(config: facility::Config, args: ExportDigestArgs) -> anyhow::Result<()> {
+    let db = database::connect(config.db_config).await?;
+
+    let user = auth_helper::authenticate_user_stdin(&db).await?;
 
     // Create export folder with timestamp
+    let root_dir = &args.root_dir;
     let timestamp = Utc::now().format("%Y%m%d_%H%M%S");
     let export_dir = root_dir.join(format!("dreamscroll_export_{}", timestamp));
-
-    if !root_dir.is_dir() {
-        std::fs::create_dir_all(root_dir)?;
-    }
-
     std::fs::create_dir_all(&export_dir)?;
     println!("Created export directory: {}", export_dir.display());
 
-    let db = database::connect(config.db_config).await?;
+    // Fetch all capture_infos from API for this user
+    let capture_infos = api::fetch_captures(&db, &user.into(), None).await?;
 
-    // Fetch all captures with their related data
-    let captures = model::capture::Entity::load().all(&db.conn).await?;
+    println!("Found {} captures to export.", capture_infos.len());
 
-    println!("Found {} captures to export.", captures.len());
-
-    let mut digest = ExportDigest::new();
+    let mut digest = FullDigest::new();
     let mut total_media = 0;
 
-    for capture in captures {
-        // Fetch media for this capture
-        let medias = model::media::Entity::find()
-            .filter(model::media::Column::CaptureId.eq(Some(capture.id)))
-            .all(&db.conn)
-            .await?;
-
+    for capture in capture_infos {
         let mut media_files = Vec::new();
 
-        for media in &medias {
+        for media in &capture.medias {
             let storage_id = &media.filename;
 
             // TODO: This assumes local storage - should use storage abstraction
@@ -106,7 +96,6 @@ pub async fn run(config: facility::Config, args: ExportWithDigestArgs) -> anyhow
 
         digest.captures.push(CaptureDigestEntry {
             original_id: capture.id,
-            user_id: capture.user_id,
             created_at: capture.created_at,
             media_files,
         });
