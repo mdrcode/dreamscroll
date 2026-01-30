@@ -9,6 +9,7 @@ use super::*;
 #[derive(Clone, Debug, Serialize)]
 pub struct CaptureInfo {
     pub id: i32,
+    pub user_id: i32,
     pub created_at: DateTime<Utc>,
     pub medias: Vec<MediaInfo>,
     pub illuminations: Vec<IlluminationInfo>,
@@ -56,6 +57,7 @@ impl From<model::capture::ModelEx> for CaptureInfo {
 
         Self {
             id: capture_model.id,
+            user_id: capture_model.user_id,
             created_at: capture_model.created_at,
             medias,
             illuminations,

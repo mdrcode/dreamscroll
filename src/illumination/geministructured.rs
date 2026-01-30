@@ -122,7 +122,7 @@ impl Illuminator for GeminiStructuredIlluminator {
     }
 
     /// Illuminates a capture and returns the structured response directly.
-    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<Illumination> {
+    async fn illuminate(&self, capture: &api::CaptureInfo) -> anyhow::Result<Illumination> {
         tracing::info!(
             "GeminiStructuredIlluminator: Illuminating capture ID {}",
             capture.id

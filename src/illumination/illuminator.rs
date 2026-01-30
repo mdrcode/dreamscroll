@@ -5,7 +5,7 @@ use crate::api;
 #[async_trait::async_trait]
 pub trait Illuminator: dyn_clone::DynClone + Send + Sync {
     fn name(&self) -> &'static str;
-    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<Illumination>;
+    async fn illuminate(&self, capture: &api::CaptureInfo) -> anyhow::Result<Illumination>;
 }
 
 dyn_clone::clone_trait_object!(Illuminator);

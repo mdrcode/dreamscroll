@@ -53,7 +53,7 @@ pub async fn run(config: facility::Config, args: IlluminateArgs) -> anyhow::Resu
     for c in capture_infos {
         tracing::info!("Starting illumination for capture ID {}", c.id);
 
-        let result = illuminator.illuminate(c.clone()).await?;
+        let result = illuminator.illuminate(&c).await?;
 
         // Convert media files to base64 data URIs
         let media_data_uris: Vec<String> = c

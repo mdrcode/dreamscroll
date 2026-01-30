@@ -89,7 +89,7 @@ impl SimpleWorkerThread {
                     continue;
                 };
 
-                let r_illumination = illuminator.illuminate(capture).await;
+                let r_illumination = illuminator.illuminate(&capture).await;
                 if r_illumination.is_err() {
                     let err = r_illumination.as_ref().err().unwrap();
                     tracing::error!(
@@ -101,7 +101,7 @@ impl SimpleWorkerThread {
                 }
                 let i = r_illumination?;
 
-                let r_insert = api::insert_illumination(db, &context, cap_id, i).await;
+                let r_insert = api::insert_illumination(db, &context, &capture, i).await;
                 if r_insert.is_err() {
                     let err = r_insert.as_ref().err().unwrap();
                     tracing::error!(

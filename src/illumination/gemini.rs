@@ -63,7 +63,7 @@ impl Illuminator for GeminiIlluminator {
         "geministructured"
     }
 
-    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<Illumination> {
+    async fn illuminate(&self, capture: &api::CaptureInfo) -> anyhow::Result<Illumination> {
         tracing::info!("GeminiIlluminator: Illuminating capture ID {}", capture.id);
 
         let media1 = capture.medias.get(0).expect("No media found for capture.");

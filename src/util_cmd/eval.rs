@@ -63,10 +63,10 @@ pub async fn run(config: facility::Config, args: EvalArgs) -> anyhow::Result<()>
     let illuminator_b = make_illuminator(&args.illuminator_b)?;
 
     tracing::info!("Running illumination with '{}'...", args.illuminator_a);
-    let result_a = illuminator_a.illuminate(capture_info.clone()).await?;
+    let result_a = illuminator_a.illuminate(&capture_info).await?;
 
     tracing::info!("Running illumination with '{}'...", args.illuminator_b);
-    let result_b = illuminator_b.illuminate(capture_info.clone()).await?;
+    let result_b = illuminator_b.illuminate(&capture_info).await?;
 
     // Convert media files to base64 data URIs
     let media_data_uris: Vec<String> = capture_info

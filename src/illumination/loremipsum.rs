@@ -19,7 +19,7 @@ impl Illuminator for LoremIpsumIlluminator {
         "geministructured"
     }
 
-    async fn illuminate(&self, capture: api::CaptureInfo) -> anyhow::Result<Illumination> {
+    async fn illuminate(&self, capture: &api::CaptureInfo) -> anyhow::Result<Illumination> {
         std::thread::sleep(std::time::Duration::from_millis(500));
 
         let meta = IlluminationMeta {
