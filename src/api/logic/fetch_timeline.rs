@@ -3,6 +3,7 @@ use sea_orm::prelude::*;
 
 use crate::{api, auth, database::DbHandle, model};
 
+#[tracing::instrument(skip(db, user_context))]
 pub async fn fetch_timeline(
     db: &DbHandle,
     user_context: &auth::Context,
