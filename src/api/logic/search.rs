@@ -1,48 +1,58 @@
-use anyhow::anyhow;
 use sea_orm::{EntityLoaderTrait, EntityTrait, QuerySelect, prelude::*};
 
 use crate::{api, auth, database::DbHandle, model};
 
 pub async fn search_by_illuminations(
-    user_context: auth::Context,
     db: &DbHandle,
+    user_context: &auth::Context,
     query: &str,
 ) -> anyhow::Result<Vec<api::CaptureInfo>, api::ApiError> {
     if query.is_empty() {
         return Ok(vec![]);
     }
 
-    /* TODO
-    // Start from captures filtered by user (indexed), then join to illuminations
-    let capture_ids_with_match = model::capture::Entity::find()
-        .filter(model::capture::Column::UserId.eq(user_context.user_id()))
-        .inner_join(model::illumination::Entity)
-        .filter(model::illumination::Column::RawContent.contains(query))
-        .column(model::capture::Column::Id)
+    let capture_ids_with_match = model::search_index::Entity::find()
+        .filter(model::search_index::Column::UserId.eq(user_context.user_id()))
+        .filter(model::search_index::Column::Content.contains(query))
+        .column(model::search_index::Column::CaptureId)
         .distinct()
         .all(&db.conn)
         .await?
         .into_iter()
-        .map(|c| c.id)
+        .map(|si| si.capture_id)
         .collect::<Vec<i32>>();
 
-    // Get unique capture IDs
     let captures = model::capture::Entity::load()
         .filter(model::capture::Column::Id.is_in(capture_ids_with_match))
         .order_by_id_desc()
         .with(model::media::Entity)
         .with(model::illumination::Entity)
+        .with(model::xquery::Entity)
+        .with(model::knode::Entity)
+        .with(model::social_media::Entity)
         .all(&db.conn)
         .await?;
 
-    let capture_info = captures
+    Ok(captures
         .into_iter()
         .map(|model| api::CaptureInfo::from(model))
-        .collect();
+        .collect())
+}
 
-    Ok(capture_info)
-    */
-    Err(api::ApiError::internal(anyhow!(
-        "Illumination search not yet implemented"
-    )))
+pub async fn get_capture_ids_missing_search(
+    db: &DbHandle,
+    user_context: &auth::Context,
+) -> anyhow::Result<Vec<i32>, api::ApiError> {
+    let captures_without_index = model::capture::Entity::find()
+        .filter(model::capture::Column::UserId.eq(user_context.user_id()))
+        .left_join(model::search_index::Entity)
+        .filter(model::search_index::Column::Id.is_null())
+        .column(model::capture::Column::Id)
+        .all(&db.conn)
+        .await?
+        .into_iter()
+        .map(|model| model.id)
+        .collect::<Vec<i32>>();
+
+    Ok(captures_without_index)
 }

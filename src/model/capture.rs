@@ -1,6 +1,8 @@
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
+use super::*;
+
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "captures")]
@@ -11,22 +13,25 @@ pub struct Model {
     pub created_at: DateTime<Utc>,
 
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
-    pub user: HasOne<super::user::Entity>,
+    pub user: HasOne<user::Entity>,
 
     #[sea_orm(has_many)]
-    pub medias: HasMany<super::media::Entity>,
+    pub medias: HasMany<media::Entity>,
 
     #[sea_orm(has_many)]
-    pub illuminations: HasMany<super::illumination::Entity>,
+    pub illuminations: HasMany<illumination::Entity>,
 
     #[sea_orm(has_many)]
-    pub xqueries: HasMany<super::xquery::Entity>,
+    pub xqueries: HasMany<xquery::Entity>,
 
     #[sea_orm(has_many)]
-    pub knodes: HasMany<super::knode::Entity>,
+    pub knodes: HasMany<knode::Entity>,
 
     #[sea_orm(has_many)]
-    pub social_medias: HasMany<super::social_media::Entity>,
+    pub social_medias: HasMany<social_media::Entity>,
+
+    #[sea_orm(has_one)]
+    pub search_index: HasOne<search_index::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

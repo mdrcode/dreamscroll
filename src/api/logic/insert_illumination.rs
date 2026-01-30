@@ -5,31 +5,32 @@ use crate::{api, auth, database::DbHandle, illumination::*, model};
 // Is this still needed?
 pub async fn insert_illumination(
     db: &DbHandle,
-    _user_context: &auth::Context,
+    user_context: &auth::Context,
     capture_id: i32,
     illumination: Illumination,
 ) -> Result<(), api::ApiError> {
-    let raw_content = format!("{}\n{}", illumination.summary, illumination.details);
-
+    // Todo, the illumination::Illumination struct has diverged from the
+    // model::illumination::ActiveModel, need to think about naming carefully
+    // possibly we will change the name of model::illumination to model::exposition
     model::illumination::ActiveModel::builder()
         .set_capture_id(capture_id)
-        .set_summary(illumination.summary)
-        .set_details(illumination.details)
+        .set_summary(&illumination.summary)
+        .set_details(&illumination.details)
         .save(&db.conn)
         .await?;
 
-    let knode_builders = illumination.entities.into_iter().map(|entity| {
+    let knode_builders = illumination.entities.iter().map(|entity| {
         model::knode::ActiveModel::builder()
             .set_capture_id(capture_id)
-            .set_name(entity.name)
-            .set_description(entity.description)
+            .set_name(&entity.name)
+            .set_description(&entity.description)
             .set_k_type(entity.entity_type.to_string())
     });
     model::knode::Entity::insert_many(knode_builders)
         .exec(&db.conn)
         .await?;
 
-    let xquery_builders = illumination.suggested_searches.into_iter().map(|ss| {
+    let xquery_builders = illumination.suggested_searches.iter().map(|ss| {
         model::xquery::ActiveModel::builder()
             .set_capture_id(capture_id)
             .set_query(ss)
@@ -38,15 +39,46 @@ pub async fn insert_illumination(
         .exec(&db.conn)
         .await?;
 
-    let social_media_builders = illumination.social_media_accounts.into_iter().map(|sm| {
+    let social_media_builders = illumination.social_media_accounts.iter().map(|sm| {
         model::social_media::ActiveModel::builder()
             .set_capture_id(capture_id)
-            .set_display_name(sm.display_name)
-            .set_handle(sm.handle)
+            .set_display_name(&sm.display_name)
+            .set_handle(&sm.handle)
             .set_platform(sm.platform.to_string())
     });
     model::social_media::Entity::insert_many(social_media_builders)
         .exec(&db.conn)
+        .await?;
+
+    // An insult to search indexes everywhere, but it'll do for now
+    let raw_content_for_search = format!(
+        "{} {} {} {} {}",
+        illumination.summary,
+        illumination.details,
+        illumination
+            .entities
+            .into_iter()
+            .map(|e| e.name)
+            .collect::<Vec<String>>()
+            .join(" "),
+        illumination
+            .suggested_searches
+            .into_iter()
+            .collect::<Vec<String>>()
+            .join(" "),
+        illumination
+            .social_media_accounts
+            .into_iter()
+            .map(|s| s.display_name)
+            .collect::<Vec<String>>()
+            .join(" ")
+    );
+
+    model::search_index::ActiveModel::builder()
+        .set_user_id(user_context.user_id())
+        .set_capture_id(capture_id)
+        .set_content(raw_content_for_search)
+        .save(&db.conn)
         .await?;
 
     Ok(())

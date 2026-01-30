@@ -15,6 +15,7 @@ struct Args {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 enum Command {
+    BackfillSearch(backfill_search::BackfillSearchArgs),
     CreateUser(create_user::CreateUserArgs),
     Eval(eval::EvalArgs),
     ExportUniq(export_uniq::ExportUniqArgs),
@@ -38,6 +39,7 @@ async fn main() -> anyhow::Result<()> {
     facility::init_tracing(&config);
 
     match args.command {
+        Command::BackfillSearch(args) => backfill_search::run(config, args).await,
         Command::Eval(args) => eval::run(config, args).await,
         Command::CreateUser(args) => create_user::run(config, args).await,
         Command::Illuminate(args) => illuminate::run(config, args).await,

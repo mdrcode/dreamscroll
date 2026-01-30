@@ -118,24 +118,7 @@
                         alt="image {{ capture.medias[0].filename }}">
                 </a>
             </div>
-            <div class="capturelist-row-metadata-container">
-                {{ capture.created_at }}
 
-                {% if capture.summary %}
-                <p>
-                    {{ capture.summary }}
-                </p>
-                {% endif %}
-
-                {% if capture.details %}
-                <div class="capturelist-row-metadata-details">
-                    <div class="capturelist-row-metadata-details-text">
-                        <p>{{ capture.details }}</p>
-                    </div>
-                    <a href="#" class="capturelist-row-metadata-details-seemore">See More...</a>
-                </div>
-                {% endif %}
-            </div>
         </div>
         {% endfor %}
     </div>
