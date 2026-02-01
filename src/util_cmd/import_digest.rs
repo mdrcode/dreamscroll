@@ -40,7 +40,7 @@ pub async fn run(config: facility::Config, args: ImportDigestArgs) -> anyhow::Re
     );
 
     let db = database::connect(config.db_config).await?;
-    let storage = storage::make(config.storage_config).await;
+    let storage = storage::make_provider(config.storage_config).await;
 
     let user = auth_helper::authenticate_user_stdin(&db).await?;
     let user_context = user.into();

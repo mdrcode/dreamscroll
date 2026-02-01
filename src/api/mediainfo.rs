@@ -6,7 +6,7 @@ use crate::model;
 pub struct MediaInfo {
     pub id: i32,
     pub capture_id: Option<i32>,
-    pub filename: String,
+    pub storage_id: String,
 }
 
 impl From<model::media::ModelEx> for MediaInfo {
@@ -14,7 +14,7 @@ impl From<model::media::ModelEx> for MediaInfo {
         Self {
             id: mx.id,
             capture_id: mx.capture_id,
-            filename: mx.filename,
+            storage_id: mx.storage_id,
         }
     }
 }

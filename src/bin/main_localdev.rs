@@ -16,7 +16,7 @@ async fn main() -> anyhow::Result<()> {
 
     facility::check_first_users(&db).await?;
 
-    let stg = storage::make(config.storage_config).await;
+    let stg = storage::make_provider(config.storage_config).await;
     let stg: Arc<dyn storage::StorageProvider> = Arc::from(stg);
 
     let jwt = Arc::new(config.jwt_config);

@@ -30,14 +30,19 @@ impl StorageProvider for LocalStorageProvider {
         })
     }
 
-    async fn store_from_bytes(&self, bytes: &[u8]) -> anyhow::Result<StorageId> {
+    async fn store_from_bytes(&self, bytes: &[u8]) -> anyhow::Result<StorageIdentity> {
         let uuid = Uuid::new_v4().to_string();
         let upload_path = Path::new(&self.config.storage_path).join(uuid.as_str());
         tokio::fs::write(&upload_path, &bytes).await?;
-        Ok(uuid)
+        Ok(StorageIdentity {
+            storage_provider: "local".to_string(),
+            provider_id: uuid,
+            provider_shard: None,
+            provider_bucket: None,
+        })
     }
 
-    async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageId> {
+    async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageIdentity> {
         let uuid = Uuid::new_v4().to_string();
         let upload_path = Path::new(&self.config.storage_path).join(uuid.as_str());
         tracing::warn!(
@@ -46,11 +51,31 @@ impl StorageProvider for LocalStorageProvider {
             upload_path.display()
         );
         tokio::fs::copy(path, &upload_path).await?;
-        Ok(uuid)
-    }
 
-    fn make_url_for_id(&self, id: &StorageId) -> anyhow::Result<String> {
-        // Implementation for generating URL for local storage
-        Ok(format!("http://localhost/storage/{}", id))
+        Ok(StorageIdentity {
+            storage_provider: "local".to_string(),
+            provider_id: uuid,
+            provider_shard: None,
+            provider_bucket: None,
+        })
+    }
+}
+
+pub struct LocalStorageUrlMaker {
+    config: LocalConfig,
+}
+
+impl LocalStorageUrlMaker {
+    pub fn new(config: LocalConfig) -> Self {
+        Self { config }
+    }
+}
+
+impl provider::StorageUrlMaker for LocalStorageUrlMaker {
+    fn make_url(&self, id: &StorageIdentity) -> anyhow::Result<String> {
+        Ok(format!(
+            "http://localhost/{}/{}",
+            self.config.web_path, id.provider_id
+        ))
     }
 }

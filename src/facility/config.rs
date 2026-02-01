@@ -20,7 +20,7 @@ pub fn make_config(env: Env) -> Config {
                 path: "localdev/dreamscroll.db".to_string(),
             };
             let local_storage_config = storage::LocalConfig {
-                storage_path: "localdev/media".to_string(),
+                storage_path: "localdev/local_storage_provider".to_string(),
                 web_path: "/media/".to_string(),
             };
             let jwt_config = std::env::var("JWT_SECRET")

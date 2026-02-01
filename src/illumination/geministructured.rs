@@ -129,7 +129,7 @@ impl Illuminator for GeminiStructuredIlluminator {
         );
 
         let media1 = capture.medias.get(0).expect("No media found for capture.");
-        let media1_path = PathBuf::from(format!("localdev/media/{}", &media1.filename));
+        let media1_path = PathBuf::from(format!("localdev/media/{}", &media1.storage_id));
         tracing::info!(
             "GeminiStructuredIlluminator: Using media at path {:?}",
             media1_path

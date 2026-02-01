@@ -67,7 +67,7 @@ impl Illuminator for GeminiIlluminator {
         tracing::info!("GeminiIlluminator: Illuminating capture ID {}", capture.id);
 
         let media1 = capture.medias.get(0).expect("No media found for capture.");
-        let media1_path = PathBuf::from(format!("localdev/media/{}", &media1.filename));
+        let media1_path = PathBuf::from(format!("localdev/media/{}", &media1.storage_id));
         tracing::info!("GeminiIlluminator: Using media at path {:?}", media1_path);
 
         let mut file = std::fs::File::open(media1_path)?;

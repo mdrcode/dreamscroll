@@ -75,7 +75,7 @@ pub async fn run(config: facility::Config, args: ExportDigestArgs) -> anyhow::Re
         let mut media_files = Vec::new();
 
         for media in &capture.medias {
-            let storage_id = &media.filename;
+            let storage_id = &media.storage_id;
 
             // TODO: This assumes local storage - should use storage abstraction
             let storage_path = PathBuf::from(format!("localdev/media/{}", storage_id));

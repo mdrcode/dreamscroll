@@ -35,7 +35,7 @@ pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<(
     tracing::info!("Found {} to import from {}.", paths.len(), dir.display());
 
     let db = database::connect(config.db_config).await?;
-    let storage = storage::make(config.storage_config).await;
+    let stg = storage::make_provider(config.storage_config).await;
     let mut imported = 0;
 
     println!("Enter password for user '{}':", args.username);
@@ -44,12 +44,12 @@ pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<(
     let user_context = auth::Context::from(auth_user);
 
     for path in paths {
-        let storage_id = storage.store_from_local_path(&path).await?;
+        let storage_id = stg.store_from_local_path(&path).await?;
 
         let capture_info = api::insert_capture(&db, &user_context, storage_id.clone()).await?;
 
         tracing::info!(
-            "Imported new capture {} with storage id {} from path {}",
+            "Imported new capture {} media with storage {} from path {}",
             capture_info.id,
             storage_id,
             path.display(),

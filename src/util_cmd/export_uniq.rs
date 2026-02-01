@@ -51,7 +51,7 @@ pub async fn run(config: facility::Config, args: ExportUniqArgs) -> anyhow::Resu
     let mut exported = 0;
 
     for media in medias {
-        let storage_id = &media.filename;
+        let storage_id = &media.storage_id;
 
         // TODO obviously this will break when not using local storage...
         let storage_path = PathBuf::from(format!("localdev/media/{}", &storage_id));

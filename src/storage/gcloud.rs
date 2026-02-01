@@ -49,7 +49,7 @@ impl GCloudStorageProvider {
 
 #[async_trait]
 impl provider::StorageProvider for GCloudStorageProvider {
-    async fn store_from_bytes(&self, data: &[u8]) -> anyhow::Result<StorageId> {
+    async fn store_from_bytes(&self, data: &[u8]) -> anyhow::Result<StorageIdentity> {
         let uuid = Uuid::new_v4().to_string();
         let bytes_data = Bytes::copy_from_slice(data);
 
@@ -63,10 +63,15 @@ impl provider::StorageProvider for GCloudStorageProvider {
             })?;
 
         tracing::debug!("Stored object {} in bucket {}", uuid, self.config.bucket);
-        Ok(uuid)
+        Ok(StorageIdentity {
+            storage_provider: "gcloud".to_string(),
+            provider_id: uuid,
+            provider_shard: None,
+            provider_bucket: Some(self.config.bucket.clone()),
+        })
     }
 
-    async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageId> {
+    async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageIdentity> {
         let uuid = Uuid::new_v4().to_string();
 
         tracing::info!(
@@ -87,22 +92,39 @@ impl provider::StorageProvider for GCloudStorageProvider {
             })?;
 
         tracing::debug!("Stored object {} in bucket {}", uuid, self.config.bucket);
-        Ok(uuid)
+        Ok(StorageIdentity {
+            storage_provider: "gcloud".to_string(),
+            provider_id: uuid,
+            provider_shard: None,
+            provider_bucket: Some(self.config.bucket.clone()),
+        })
     }
+}
 
-    fn make_url_for_id(&self, id: &StorageId) -> anyhow::Result<String> {
+pub struct GCloudStorageUrlMaker {
+    config: GCloudConfig,
+}
+
+impl GCloudStorageUrlMaker {
+    pub fn new(config: GCloudConfig) -> Self {
+        Self { config }
+    }
+}
+
+impl provider::StorageUrlMaker for GCloudStorageUrlMaker {
+    fn make_url(&self, id: &StorageIdentity) -> anyhow::Result<String> {
         // For emulator, return emulator URL
         if let Some(ref endpoint) = self.config.emulator_endpoint {
             Ok(format!(
                 "{}/storage/v1/b/{}/o/{}?alt=media",
-                endpoint, self.config.bucket, id
+                endpoint, self.config.bucket, id.provider_id
             ))
         } else {
             // For production GCS, return the public URL format
             // Note: The object must be publicly accessible for this URL to work
             Ok(format!(
                 "https://storage.googleapis.com/{}/{}",
-                self.config.bucket, id
+                self.config.bucket, id.provider_id
             ))
         }
     }
