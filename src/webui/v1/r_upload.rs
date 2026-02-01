@@ -36,7 +36,7 @@ pub async fn upload(
         )));
     }
 
-    let storage_id = state.storage.store_from_bytes(&media_bytes)?;
+    let storage_id = state.storage.store_from_bytes(&media_bytes).await?;
 
     api::insert_capture(&state.db, &user.into(), storage_id).await?;
 

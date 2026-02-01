@@ -19,9 +19,9 @@ pub fn make_config(env: Env) -> Config {
             let db_config = database::DbConfig::SqliteFile {
                 path: "localdev/dreamscroll.db".to_string(),
             };
-            let storage_config = storage::StorageConfig::Local {
-                storage_path: "localdev/media/".to_string(),
-                base_url: "/media/".to_string(),
+            let local_storage_config = storage::LocalConfig {
+                storage_path: "localdev/media".to_string(),
+                web_path: "/media/".to_string(),
             };
             let jwt_config = std::env::var("JWT_SECRET")
                 .map(|secret| auth::JwtConfig::from_secret(secret.as_bytes()))
@@ -38,7 +38,7 @@ pub fn make_config(env: Env) -> Config {
                 environment: Env::LocalDev,
                 tracing_max_level: tracing::Level::INFO,
                 db_config,
-                storage_config,
+                storage_config: storage::StorageConfig::LocalFile(local_storage_config),
                 jwt_config,
                 web_host_port: Some(("0.0.0.0".to_string(), 8000)),
             };

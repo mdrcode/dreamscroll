@@ -3,6 +3,7 @@ use std::sync::Arc;
 use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use tera::Tera;
+use tower_http::services::ServeDir;
 use tower_sessions::{MemoryStore, SessionManagerLayer};
 
 use crate::{auth, database::DbHandle, storage::StorageProvider};
@@ -34,7 +35,7 @@ pub fn make_ui_router(
     let auth_backend = auth::WebAuthBackend::new(db.clone());
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 
-    let router = Router::new()
+    let mut router = Router::new()
         .route("/login", get(login_page).post(login_handler))
         .route("/logout", get(logout_handler))
         .route(
@@ -65,6 +66,9 @@ pub fn make_ui_router(
         .layer(auth_layer)
         .layer(DefaultBodyLimit::max(5 * 1024 * 1024)) // 5 MB
         .with_state(state);
+
+    // For local dev, we serve static JS/CSS files directly
+    router = router.nest_service("/static", ServeDir::new("web/v1/static"));
 
     router
 }

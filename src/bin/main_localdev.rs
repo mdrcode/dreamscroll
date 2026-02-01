@@ -16,8 +16,8 @@ async fn main() -> anyhow::Result<()> {
 
     facility::check_first_users(&db).await?;
 
-    let storage = storage::make(config.storage_config);
-    let storage: Arc<dyn storage::StorageProvider> = Arc::from(storage);
+    let stg = storage::make(config.storage_config).await;
+    let stg: Arc<dyn storage::StorageProvider> = Arc::from(stg);
 
     let jwt = Arc::new(config.jwt_config);
 
@@ -28,19 +28,16 @@ async fn main() -> anyhow::Result<()> {
         .expect("webui_host_port must be configured");
 
     let thread_webui = {
-        let mut router = webui::v1::make_ui_router(db.clone(), storage.clone());
+        // Web UI routes (Session-auth protected) + static JS/CSS serving
+        let mut router = webui::v1::make_ui_router(db.clone(), stg.clone());
 
         // REST API routes (JWT-protected)
         let api_router = rest::make_api_router(db.clone(), jwt.clone());
         router = router.nest("/api", api_router);
 
-        // For local dev, we serve static JS/CSS files directly
-        router = router.nest_service("/static", ServeDir::new("web/v1/static"));
-
-        // ... and we serve media directly from local file storage
-        let local_serving_path_opt = storage.local_serving_path();
-        if let Some(ref path) = local_serving_path_opt {
-            router = router.nest_service("/media", ServeDir::new(path));
+        // Check if the storage provider requires local web serving
+        if let Some(serving) = stg.local_web_serving() {
+            router = router.nest_service(&serving.web_path, ServeDir::new(serving.local_path));
         }
 
         let cancel = cancel_token.clone();

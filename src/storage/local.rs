@@ -1,41 +1,51 @@
 use std::path::{Path, PathBuf};
 
+use async_trait::async_trait;
 use uuid::Uuid;
 
-use super::{StorageId, StorageProvider};
+use super::*;
+
+#[derive(Debug, Clone)]
+pub struct LocalConfig {
+    pub storage_path: String,
+    pub web_path: String,
+}
 
 pub struct LocalStorageProvider {
-    storage_path: String,
+    config: LocalConfig,
 }
 
 impl LocalStorageProvider {
-    pub fn new(storage_path: String) -> Self {
-        std::fs::create_dir_all(&storage_path).unwrap();
-        Self { storage_path }
+    pub fn new(config: LocalConfig) -> Self {
+        Self { config }
     }
 }
 
+#[async_trait]
 impl StorageProvider for LocalStorageProvider {
-    fn local_serving_path(&self) -> Option<String> {
-        Some(self.storage_path.clone())
+    fn local_web_serving(&self) -> Option<LocalWebServing> {
+        Some(LocalWebServing {
+            local_path: self.config.storage_path.clone(),
+            web_path: self.config.web_path.clone(),
+        })
     }
 
-    fn store_from_bytes(&self, bytes: &[u8]) -> anyhow::Result<StorageId> {
+    async fn store_from_bytes(&self, bytes: &[u8]) -> anyhow::Result<StorageId> {
         let uuid = Uuid::new_v4().to_string();
-        let upload_path = Path::new(&self.storage_path).join(uuid.as_str());
-        std::fs::write(&upload_path, &bytes)?;
+        let upload_path = Path::new(&self.config.storage_path).join(uuid.as_str());
+        tokio::fs::write(&upload_path, &bytes).await?;
         Ok(uuid)
     }
 
-    fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageId> {
+    async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageId> {
         let uuid = Uuid::new_v4().to_string();
-        let upload_path = Path::new(&self.storage_path).join(uuid.as_str());
+        let upload_path = Path::new(&self.config.storage_path).join(uuid.as_str());
         tracing::warn!(
             "Storing from local path {:?} to local storage {}.",
             path,
             upload_path.display()
         );
-        std::fs::copy(path, &upload_path)?;
+        tokio::fs::copy(path, &upload_path).await?;
         Ok(uuid)
     }
 

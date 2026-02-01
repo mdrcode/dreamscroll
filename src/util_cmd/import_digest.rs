@@ -40,7 +40,7 @@ pub async fn run(config: facility::Config, args: ImportDigestArgs) -> anyhow::Re
     );
 
     let db = database::connect(config.db_config).await?;
-    let storage = storage::make(config.storage_config);
+    let storage = storage::make(config.storage_config).await;
 
     let user = auth_helper::authenticate_user_stdin(&db).await?;
     let user_context = user.into();
@@ -61,7 +61,7 @@ pub async fn run(config: facility::Config, args: ImportDigestArgs) -> anyhow::Re
             anyhow::bail!("Media file not found: {}", media_path.display());
         }
 
-        let storage_id = storage.store_from_local_path(&media_path)?;
+        let storage_id = storage.store_from_local_path(&media_path).await?;
 
         api::import::import_capture(&db, &user_context, storage_id, entry.created_at)
             .await

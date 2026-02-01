@@ -9,6 +9,8 @@ pub async fn check_first_users(db: &DbHandle) -> anyhow::Result<()> {
         return Ok(());
     }
 
+    tracing::warn!("No users found in database, attempting to create admin user from stdin.");
+
     println!("No users found in current database, creating default admin user.");
     println!("Enter username for new user with admin privileges:");
     let mut username = String::new();
@@ -32,11 +34,17 @@ pub async fn check_first_users(db: &DbHandle) -> anyhow::Result<()> {
         .set_is_admin(true)
         .save(&db.conn)
         .await?;
+    let id = new_user.id.unwrap();
 
     println!(
-        "Successfully created admin user '{}' with id {}",
+        "Successfully created initial admin user '{}' with id {}",
+        username, id
+    );
+
+    tracing::info!(
+        "Successfully created initial admin user '{}' with id {} from stdin",
         username,
-        new_user.id.unwrap()
+        id
     );
 
     Ok(())
