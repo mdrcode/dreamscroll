@@ -5,6 +5,12 @@ use async_trait::async_trait;
 use super::*;
 
 #[derive(Debug, Clone)]
+pub enum StorageConfig {
+    LocalFile(local::LocalConfig),
+    GCloud(gcloud::GCloudConfig),
+}
+
+#[derive(Debug, Clone)]
 pub struct StorageIdentity {
     pub storage_provider: String,
 
@@ -24,12 +30,6 @@ impl std::fmt::Display for StorageIdentity {
 }
 
 #[derive(Debug, Clone)]
-pub enum StorageConfig {
-    LocalFile(local::LocalConfig),
-    GCloud(gcloud::GCloudConfig),
-}
-
-#[derive(Debug, Clone)]
 pub struct LocalWebServing {
     pub local_path: String,
     pub web_path: String,
@@ -44,10 +44,6 @@ pub trait StorageProvider: Send + Sync {
     async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageIdentity>;
 }
 
-pub trait StorageUrlMaker {
-    fn make_url(&self, id: &StorageIdentity) -> anyhow::Result<String>;
-}
-
 pub async fn make_provider(config: StorageConfig) -> Box<dyn StorageProvider> {
     match config {
         StorageConfig::LocalFile(local) => {
@@ -55,12 +51,5 @@ pub async fn make_provider(config: StorageConfig) -> Box<dyn StorageProvider> {
             Box::new(local::LocalStorageProvider::new(local)) as Box<dyn StorageProvider>
         }
         StorageConfig::GCloud(gcloud) => Box::new(gcloud::GCloudStorageProvider::new(gcloud).await),
-    }
-}
-
-pub fn make_url_writer(config: StorageConfig) -> Box<dyn StorageUrlMaker> {
-    match config {
-        StorageConfig::LocalFile(local) => Box::new(local::LocalStorageUrlMaker::new(local)),
-        StorageConfig::GCloud(gcloud) => Box::new(gcloud::GCloudStorageUrlMaker::new(gcloud)),
     }
 }

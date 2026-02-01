@@ -60,22 +60,3 @@ impl StorageProvider for LocalStorageProvider {
         })
     }
 }
-
-pub struct LocalStorageUrlMaker {
-    config: LocalConfig,
-}
-
-impl LocalStorageUrlMaker {
-    pub fn new(config: LocalConfig) -> Self {
-        Self { config }
-    }
-}
-
-impl provider::StorageUrlMaker for LocalStorageUrlMaker {
-    fn make_url(&self, id: &StorageIdentity) -> anyhow::Result<String> {
-        Ok(format!(
-            "http://localhost/{}/{}",
-            self.config.web_path, id.provider_id
-        ))
-    }
-}

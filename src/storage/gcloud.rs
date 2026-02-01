@@ -100,32 +100,3 @@ impl provider::StorageProvider for GCloudStorageProvider {
         })
     }
 }
-
-pub struct GCloudStorageUrlMaker {
-    config: GCloudConfig,
-}
-
-impl GCloudStorageUrlMaker {
-    pub fn new(config: GCloudConfig) -> Self {
-        Self { config }
-    }
-}
-
-impl provider::StorageUrlMaker for GCloudStorageUrlMaker {
-    fn make_url(&self, id: &StorageIdentity) -> anyhow::Result<String> {
-        // For emulator, return emulator URL
-        if let Some(ref endpoint) = self.config.emulator_endpoint {
-            Ok(format!(
-                "{}/storage/v1/b/{}/o/{}?alt=media",
-                endpoint, self.config.bucket, id.provider_id
-            ))
-        } else {
-            // For production GCS, return the public URL format
-            // Note: The object must be publicly accessible for this URL to work
-            Ok(format!(
-                "https://storage.googleapis.com/{}/{}",
-                self.config.bucket, id.provider_id
-            ))
-        }
-    }
-}

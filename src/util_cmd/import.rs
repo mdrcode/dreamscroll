@@ -4,14 +4,12 @@ use argh::FromArgs;
 
 use crate::{api, auth, database, facility, storage};
 
+use super::auth_helper;
+
 #[derive(FromArgs)]
 #[argh(subcommand, name = "import")]
 #[argh(description = "Import assets from a directory into the db")]
 pub struct ImportArgs {
-    #[argh(option)]
-    #[argh(description = "username to attribute imports to")]
-    username: String,
-
     #[argh(option)]
     #[argh(description = "path to directory containing images to add")]
     directory: PathBuf,
@@ -34,14 +32,13 @@ pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<(
 
     tracing::info!("Found {} to import from {}.", paths.len(), dir.display());
 
-    let db = database::connect(config.db_config).await?;
     let stg = storage::make_provider(config.storage_config).await;
-    let mut imported = 0;
+    let db = database::connect(config.db_config).await?;
 
-    println!("Enter password for user '{}':", args.username);
-    let password = rpassword::read_password()?;
-    let auth_user = auth::password::verify(&db, &args.username, &password).await?;
-    let user_context = auth::Context::from(auth_user);
+    let user = auth_helper::authenticate_user_stdin(&db).await?;
+    let user_context = auth::Context::from(user);
+
+    let mut imported = 0;
 
     for path in paths {
         let storage_id = stg.store_from_local_path(&path).await?;
