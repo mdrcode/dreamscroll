@@ -1,7 +1,7 @@
 use sea_orm::prelude::*;
 
 use crate::{
-    model::{self, media},
+    model::{self},
     storage,
 };
 

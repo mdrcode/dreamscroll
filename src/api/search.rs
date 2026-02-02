@@ -2,7 +2,6 @@ use sea_orm::{EntityLoaderTrait, EntityTrait, QuerySelect, prelude::*};
 
 use crate::{api, auth, database::DbHandle, model};
 
-#[tracing::instrument(skip(db, user_context))]
 pub async fn search_by_illuminations(
     db: &DbHandle,
     user_context: &auth::Context,

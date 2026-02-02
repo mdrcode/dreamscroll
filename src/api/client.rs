@@ -27,6 +27,7 @@ impl ApiClient {
         }
     }
 
+    #[tracing::instrument(skip(self, context, ids))]
     pub async fn get_captures(
         &self,
         context: &auth::Context,
@@ -41,6 +42,7 @@ impl ApiClient {
             .collect())
     }
 
+    #[tracing::instrument(skip(self, context))]
     pub async fn get_captures_need_illum(
         &self,
         context: &auth::Context,
@@ -48,18 +50,20 @@ impl ApiClient {
         get_captures_need_illum(&self.db, context).await
     }
 
+    #[tracing::instrument(skip(self, context))]
     pub async fn get_captures_need_search_idx(
         &self,
-        user: &auth::Context,
+        context: &auth::Context,
     ) -> Result<Vec<i32>, ApiError> {
-        get_captures_need_search_idx(&self.db, user).await
+        get_captures_need_search_idx(&self.db, context).await
     }
 
+    #[tracing::instrument(skip(self, context))]
     pub async fn get_timeline(
         &self,
-        user_context: &auth::Context,
+        context: &auth::Context,
     ) -> Result<Vec<CaptureInfo>, ApiError> {
-        let captures = get_timeline(&self.db, user_context).await;
+        let captures = get_timeline(&self.db, context).await;
 
         Ok(captures?
             .into_iter()
@@ -67,31 +71,34 @@ impl ApiClient {
             .collect())
     }
 
+    #[tracing::instrument(skip(self, context, media1))]
     pub async fn insert_capture(
         &self,
-        user_context: &auth::Context,
+        context: &auth::Context,
         media1: storage::StorageIdentity,
     ) -> Result<CaptureInfo, ApiError> {
-        let capture_model = insert_capture(&self.db, user_context, media1).await?;
+        let capture_model = insert_capture(&self.db, context, media1).await?;
 
         Ok(self.info_maker.make_capture_info(capture_model))
     }
 
+    #[tracing::instrument(skip(self, context, capture, illumination))]
     pub async fn insert_illumination(
         &self,
         context: &auth::Context,
-        capture: &CaptureInfo,
+        capture: &CaptureInfo, // TODO could this just take capture id?
         illumination: illumination::Illumination,
     ) -> Result<(), ApiError> {
         insert_illumination(&self.db, context, capture, illumination).await
     }
 
+    #[tracing::instrument(skip(self, context))]
     pub async fn search(
         &self,
-        user_context: &auth::Context,
+        context: &auth::Context,
         query: &str,
     ) -> Result<Vec<CaptureInfo>, ApiError> {
-        let capture_models = search_by_illuminations(&self.db, user_context, query).await?;
+        let capture_models = search_by_illuminations(&self.db, context, query).await?;
 
         Ok(capture_models
             .into_iter()
@@ -100,17 +107,18 @@ impl ApiClient {
     }
 
     // TODO will move this to its own ImportClient facade later
+    #[tracing::instrument(skip(self, context, media1, created_at))]
     pub async fn import_capture(
         &self,
-        user_context: &auth::Context,
+        context: &auth::Context,
         media1: storage::StorageIdentity,
         created_at: chrono::DateTime<Utc>,
     ) -> Result<CaptureInfo, ApiError> {
-        let capture_model =
-            import::import_capture(&self.db, user_context, media1, created_at).await?;
+        let capture_model = import::import_capture(&self.db, context, media1, created_at).await?;
         Ok(self.info_maker.make_capture_info(capture_model))
     }
 
+    #[tracing::instrument(skip(self, media))]
     pub async fn get_media_storage(&self, media: MediaInfo) -> Result<Vec<u8>, ApiError> {
         get_media_storage(&self.storage, media).await
     }

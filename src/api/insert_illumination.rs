@@ -2,7 +2,6 @@ use sea_orm::EntityTrait;
 
 use crate::{api, auth, database::DbHandle, illumination::*, model};
 
-#[tracing::instrument(skip(db, _context, capture, illumination))]
 pub async fn insert_illumination(
     db: &DbHandle,
     _context: &auth::Context,
