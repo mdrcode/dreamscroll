@@ -2,9 +2,9 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 
-use crate::{api, auth, database, facility, storage};
+use crate::{api, auth};
 
-use super::auth_helper;
+use super::*;
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "import")]
@@ -15,7 +15,7 @@ pub struct ImportArgs {
     directory: PathBuf,
 }
 
-pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<()> {
+pub async fn run(state: CmdState, args: ImportArgs) -> anyhow::Result<()> {
     let dir = &args.directory;
 
     tracing::info!("Starting import from directory {}", dir.display());
@@ -32,24 +32,23 @@ pub async fn run(config: facility::Config, args: ImportArgs) -> anyhow::Result<(
 
     tracing::info!("Found {} to import from {}.", paths.len(), dir.display());
 
-    let stg = storage::make_provider(config.storage_config).await;
-    let db = database::connect(config.db_config).await?;
-
-    let user = auth_helper::authenticate_user_stdin(&db).await?;
+    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
     let user_context = auth::Context::from(user);
 
     let mut imported = 0;
 
     for path in paths {
-        let storage_id = stg.store_from_local_path(&path).await?;
+        let storage_id = state.storage.store_from_local_path(&path).await?;
 
-        let capture_info = api::insert_capture(&db, &user_context, storage_id.clone()).await?;
+        let capture_info = state
+            .api_client
+            .insert_capture(&user_context, storage_id.clone())
+            .await?;
 
         tracing::info!(
-            "Imported new capture {} media with storage {} from path {}",
+            "Imported new capture {} media with storage {}",
             capture_info.id,
             storage_id,
-            path.display(),
         );
 
         imported += 1;

@@ -5,6 +5,8 @@ use argh::FromArgs;
 
 use crate::{common, database, facility, model};
 
+use super::*;
+
 #[derive(FromArgs)]
 #[argh(subcommand, name = "export_uniq")]
 #[argh(description = "Export images from db to a directory, avoiding content duplicates")]
@@ -14,7 +16,7 @@ pub struct ExportUniqArgs {
     directory: PathBuf,
 }
 
-pub async fn run(config: facility::Config, args: ExportUniqArgs) -> anyhow::Result<()> {
+pub async fn run(state: CmdState, args: ExportUniqArgs) -> anyhow::Result<()> {
     let export_dir = &args.directory;
 
     if !export_dir.is_dir() {
@@ -36,10 +38,8 @@ pub async fn run(config: facility::Config, args: ExportUniqArgs) -> anyhow::Resu
         existing_hashes.len()
     );
 
-    let db = database::connect(config.db_config).await?;
-
     let medias = model::media::Entity::load()
-        .all(&db.conn)
+        .all(&state.db.conn)
         .await
         .expect("Failed to fetch medias from db.")
         .into_iter()

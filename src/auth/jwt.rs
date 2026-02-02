@@ -336,11 +336,11 @@ where
 /// ```
 #[derive(Clone)]
 pub struct JwtAxumLayer {
-    config: Arc<JwtConfig>,
+    config: JwtConfig,
 }
 
 impl JwtAxumLayer {
-    pub fn new(config: Arc<JwtConfig>) -> Self {
+    pub fn new(config: JwtConfig) -> Self {
         Self { config }
     }
 }
@@ -360,7 +360,7 @@ impl<S> tower::Layer<S> for JwtAxumLayer {
 #[derive(Clone)]
 pub struct JwtAxumMiddleware<S> {
     inner: S,
-    config: Arc<JwtConfig>,
+    config: JwtConfig,
 }
 
 impl<S, B> tower::Service<axum::http::Request<B>> for JwtAxumMiddleware<S>

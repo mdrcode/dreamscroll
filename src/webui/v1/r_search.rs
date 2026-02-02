@@ -30,8 +30,7 @@ pub async fn search(
     let user = auth.user.unwrap();
     tracing::debug!("Rendering search q: {} for user ID {}", query, user.id());
 
-    let capture_infos: Vec<_> =
-        api::search_by_illuminations(&state.db, &user.into(), query).await?;
+    let capture_infos: Vec<_> = state.api_client.search(&user.into(), query).await?;
 
     let mut context = Context::new();
     context.insert("query", query);

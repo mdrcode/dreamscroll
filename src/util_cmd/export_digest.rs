@@ -4,9 +4,7 @@ use argh::FromArgs;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::{api, database, facility};
-
-use super::auth_helper;
+use super::*;
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "export_digest")]
@@ -51,10 +49,8 @@ impl FullDigest {
     }
 }
 
-pub async fn run(config: facility::Config, args: ExportDigestArgs) -> anyhow::Result<()> {
-    let db = database::connect(config.db_config).await?;
-
-    let user = auth_helper::authenticate_user_stdin(&db).await?;
+pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> {
+    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
 
     // Create export folder with timestamp
     let root_dir = &args.root_dir;
@@ -64,7 +60,7 @@ pub async fn run(config: facility::Config, args: ExportDigestArgs) -> anyhow::Re
     println!("Created export directory: {}", export_dir.display());
 
     // Fetch all capture_infos from API for this user
-    let capture_infos = api::fetch_captures(&db, &user.into(), None).await?;
+    let capture_infos = state.api_client.fetch_captures(&user.into(), None).await?;
 
     println!("Found {} captures to export.", capture_infos.len());
 

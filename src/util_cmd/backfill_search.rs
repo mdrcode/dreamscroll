@@ -1,8 +1,8 @@
 use argh::FromArgs;
 
-use crate::{api, database, facility, model};
+use crate::{api, model};
 
-use super::auth_helper;
+use super::*;
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "backfill_search")]
@@ -10,16 +10,20 @@ use super::auth_helper;
 pub struct BackfillSearchArgs {}
 
 /// Represents a single capture in the export digest.
-pub async fn run(config: facility::Config, _args: BackfillSearchArgs) -> anyhow::Result<()> {
-    let db = database::connect(config.db_config).await?;
-
-    let user = auth_helper::authenticate_user_stdin(&db).await?;
+pub async fn run(state: CmdState, _args: BackfillSearchArgs) -> anyhow::Result<()> {
+    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
     let user_context = user.into();
 
     // Fetch captures without a corresponding search_index
-    let ids_without_index = api::get_capture_ids_missing_search(&db, &user_context).await?;
+    let ids_without_index = state
+        .api_client
+        .get_capture_ids_missing_search(&user_context)
+        .await?;
 
-    let capture_infos = api::fetch_captures(&db, &user_context, Some(ids_without_index)).await?;
+    let capture_infos = state
+        .api_client
+        .fetch_captures(&user_context, Some(ids_without_index))
+        .await?;
     let nci = capture_infos.len();
     println!("Found {} captures missing search indexes", nci);
 
@@ -61,7 +65,7 @@ pub async fn run(config: facility::Config, _args: BackfillSearchArgs) -> anyhow:
             .set_user_id(user_context.user_id())
             .set_capture_id(capture_info.id)
             .set_content(raw_content_for_search)
-            .save(&db.conn)
+            .save(&state.db.conn)
             .await?;
         count += 1;
     }

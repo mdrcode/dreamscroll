@@ -2,9 +2,9 @@ use anyhow::anyhow;
 use argh::FromArgs;
 use base64::Engine;
 
-use crate::{api, database, facility, illumination::*, storage};
+use crate::{api, illumination::*, storage};
 
-use super::{auth_helper, html_view};
+use super::*;
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "illuminate")]
@@ -24,21 +24,20 @@ pub struct IlluminateArgs {
     model: String,
 }
 
-pub async fn run(config: facility::Config, args: IlluminateArgs) -> anyhow::Result<()> {
+pub async fn run(state: CmdState, args: IlluminateArgs) -> anyhow::Result<()> {
     if args.ids.is_empty() {
         return Err(anyhow!("At least one capture ID must be provided."));
     }
 
-    let db = database::connect(config.db_config).await?;
-    let _storage = storage::make_provider(config.storage_config);
-
-    let user = auth_helper::authenticate_user_stdin(&db).await?;
+    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
 
     let illuminator: Box<dyn Illuminator> = make_illuminator(&args.model);
 
     // Process each capture
-    let capture_infos =
-        api::fetch_captures(&db, &user.clone().into(), Some(args.ids.clone())).await?;
+    let capture_infos = state
+        .api_client
+        .fetch_captures(&user.clone().into(), Some(args.ids.clone()))
+        .await?;
 
     if capture_infos.is_empty() {
         return Err(anyhow!(

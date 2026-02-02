@@ -3,6 +3,7 @@ use sea_orm::QueryFilter;
 
 use crate::{api, auth, database::DbHandle, model};
 
+/*
 /// Represents either a KNode or SocialMedia entity with its associated capture
 #[derive(Clone, Debug, serde::Serialize)]
 #[serde(tag = "entity_type")]
@@ -107,3 +108,4 @@ pub async fn fetch_social_media(
         capture,
     }))
 }
+    */

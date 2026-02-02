@@ -10,31 +10,6 @@ pub enum StorageConfig {
     GCloud(gcloud::GCloudConfig),
 }
 
-#[derive(Debug, Clone)]
-pub struct StorageIdentity {
-    pub storage_provider: String,
-
-    pub provider_bucket: Option<String>,
-    pub provider_shard: Option<String>,
-    pub provider_id: String,
-}
-
-impl std::fmt::Display for StorageIdentity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "provider_id {} ({})",
-            self.provider_id, self.storage_provider,
-        )
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct LocalWebServing {
-    pub local_path: String,
-    pub web_path: String,
-}
-
 #[async_trait]
 pub trait StorageProvider: Send + Sync {
     fn local_web_serving(&self) -> Option<LocalWebServing> {
@@ -42,6 +17,14 @@ pub trait StorageProvider: Send + Sync {
     }
     async fn store_from_bytes(&self, data: &[u8]) -> anyhow::Result<StorageIdentity>;
     async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageIdentity>;
+}
+
+dyn_clone::clone_trait_object!(StorageProvider);
+
+#[derive(Debug, Clone)]
+pub struct LocalWebServing {
+    pub local_path: String,
+    pub web_path: String,
 }
 
 pub async fn make_provider(config: StorageConfig) -> Box<dyn StorageProvider> {

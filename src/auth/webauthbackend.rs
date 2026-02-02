@@ -16,11 +16,11 @@ pub struct Credentials {
 
 #[derive(Clone)]
 pub struct WebAuthBackend {
-    db: Arc<DbHandle>,
+    db: DbHandle,
 }
 
 impl WebAuthBackend {
-    pub fn new(db: Arc<DbHandle>) -> Self {
+    pub fn new(db: DbHandle) -> Self {
         Self { db }
     }
 }

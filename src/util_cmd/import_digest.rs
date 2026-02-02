@@ -4,8 +4,7 @@ use argh::FromArgs;
 
 use crate::{api, database, facility, storage};
 
-use super::auth_helper;
-use super::export_digest::FullDigest;
+use super::*;
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "import_digest")]
@@ -16,7 +15,7 @@ pub struct ImportDigestArgs {
     export_dir: PathBuf,
 }
 
-pub async fn run(config: facility::Config, args: ImportDigestArgs) -> anyhow::Result<()> {
+pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> {
     let export_dir = &args.export_dir;
 
     if !export_dir.is_dir() {
@@ -30,7 +29,7 @@ pub async fn run(config: facility::Config, args: ImportDigestArgs) -> anyhow::Re
 
     // Read and parse the digest
     let digest_content = std::fs::read_to_string(&digest_path)?;
-    let digest: FullDigest = serde_json::from_str(&digest_content)?;
+    let digest: export_digest::FullDigest = serde_json::from_str(&digest_content)?;
 
     println!(
         "Found digest v{} exported at {} with {} captures.",
@@ -39,10 +38,7 @@ pub async fn run(config: facility::Config, args: ImportDigestArgs) -> anyhow::Re
         digest.captures.len()
     );
 
-    let db = database::connect(config.db_config).await?;
-    let storage = storage::make_provider(config.storage_config).await;
-
-    let user = auth_helper::authenticate_user_stdin(&db).await?;
+    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
     let user_context = user.into();
 
     let mut imported_captures = 0;
@@ -61,9 +57,9 @@ pub async fn run(config: facility::Config, args: ImportDigestArgs) -> anyhow::Re
             anyhow::bail!("Media file not found: {}", media_path.display());
         }
 
-        let storage_id = storage.store_from_local_path(&media_path).await?;
+        let storage_id = state.storage.store_from_local_path(&media_path).await?;
 
-        api::import::import_capture(&db, &user_context, storage_id, entry.created_at)
+        api::import::import_capture(&state.db, &user_context, storage_id, entry.created_at)
             .await
             .map_err(|e| {
                 anyhow::anyhow!(

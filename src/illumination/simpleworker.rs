@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use crate::{api, auth, common, database::DbHandle};
+use crate::{api, auth, common};
 
 use super::*;
 
 pub struct SimpleWorker {
-    db: Arc<DbHandle>,
+    api: Arc<api::ApiClient>,
     context: auth::Context,
     queue: Arc<common::OneShotQueue<i32>>,
     illuminator: Box<dyn Illuminator>,
@@ -14,7 +14,7 @@ pub struct SimpleWorker {
 impl Clone for SimpleWorker {
     fn clone(&self) -> Self {
         Self {
-            db: Arc::clone(&self.db),
+            api: Arc::clone(&self.api),
             context: self.context.clone(),
             queue: Arc::clone(&self.queue),
             illuminator: dyn_clone::clone(&self.illuminator),
@@ -24,12 +24,12 @@ impl Clone for SimpleWorker {
 
 impl SimpleWorker {
     pub fn new(
-        db: Arc<DbHandle>,
+        api_client: Arc<api::ApiClient>,
         context: auth::Context,
         illuminator: Box<dyn Illuminator>,
     ) -> Self {
         Self {
-            db,
+            api: api_client,
             context,
             queue: Arc::new(common::OneShotQueue::new()),
             illuminator,
@@ -49,7 +49,7 @@ impl IlluminatorWorker for SimpleWorker {
         });
 
         loop {
-            let ids = api::fetch_captures_need_illumination(&self.db, &self.context).await?;
+            let ids = self.api.fetch_capture_for_illum(&self.context).await?;
             let n = ids.len();
             let nq = self.queue.enqueue_iter(ids);
 
@@ -74,7 +74,7 @@ struct SimpleWorkerThread {
 impl SimpleWorkerThread {
     // note this consumes self
     async fn run(self) -> anyhow::Result<(), api::ApiError> {
-        let db = &self.parent_arc.db;
+        let api = &self.parent_arc.api;
         let context = &self.parent_arc.context;
         let queue = &self.parent_arc.queue;
         let illuminator = &self.parent_arc.illuminator;
@@ -82,7 +82,7 @@ impl SimpleWorkerThread {
         loop {
             if let Some(cap_id) = queue.pop_next() {
                 tracing::info!("Starting illumination for capture ID {}...", cap_id);
-                let fetch = api::fetch_captures(&db, &context, Some(vec![cap_id])).await?;
+                let fetch = api.fetch_captures(&context, Some(vec![cap_id])).await?;
 
                 let Some(capture) = fetch.into_iter().next() else {
                     tracing::error!("Capture ID {} not found during illumination.", cap_id);
@@ -101,7 +101,7 @@ impl SimpleWorkerThread {
                 }
                 let i = r_illumination?;
 
-                let r_insert = api::insert_illumination(db, &context, &capture, i).await;
+                let r_insert = api.insert_illumination(&context, &capture, i).await;
                 if r_insert.is_err() {
                     let err = r_insert.as_ref().err().unwrap();
                     tracing::error!(

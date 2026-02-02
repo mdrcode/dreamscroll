@@ -19,14 +19,26 @@ pub async fn entity_knode(
     Path(id): Path<i32>,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
-    tracing::debug!("Rendering entity detail for knode {} for user {}", id, user.id());
+    tracing::debug!(
+        "Rendering entity detail for knode {} for user {}",
+        id,
+        user.id()
+    );
 
+    Err(api::ApiError::not_found(anyhow!(
+        "SocialMedia entity rendering not yet implemented"
+    )))
+
+    /*
     let entity_info = api::fetch_knode(&state.db, &user.into(), id)
         .await?
         .ok_or_else(|| api::ApiError::not_found(anyhow!("KNode with id {} not found", id)))?;
 
     render_entity(&state, entity_info)
+    */
 }
+
+/*
 
 #[tracing::instrument(skip(auth, state, id))]
 pub async fn entity_social_media(
@@ -35,16 +47,27 @@ pub async fn entity_social_media(
     Path(id): Path<i32>,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
-    tracing::debug!("Rendering entity detail for social_media {} for user {}", id, user.id());
+    tracing::debug!(
+        "Rendering entity detail for social_media {} for user {}",
+        id,
+        user.id()
+    );
+
 
     let entity_info = api::fetch_social_media(&state.db, &user.into(), id)
         .await?
         .ok_or_else(|| api::ApiError::not_found(anyhow!("SocialMedia with id {} not found", id)))?;
 
     render_entity(&state, entity_info)
+
+
 }
 
-fn render_entity(state: &WebState, entity_info: api::EntityInfo) -> Result<Response, api::ApiError> {
+
+fn render_entity(
+    state: &WebState,
+    entity_info: api::EntityInfo,
+) -> Result<Response, api::ApiError> {
     let mut context = Context::new();
     context.insert("entity", &entity_info);
 
@@ -55,3 +78,4 @@ fn render_entity(state: &WebState, entity_info: api::EntityInfo) -> Result<Respo
 
     Ok(Html(rendered).into_response())
 }
+    */

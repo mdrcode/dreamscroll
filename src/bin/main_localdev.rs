@@ -4,7 +4,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
 
-use dreamscroll::{auth, database, facility, illumination, rest, storage, webui};
+use dreamscroll::{api, auth, database, facility, illumination, rest, storage, webui};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -12,14 +12,14 @@ async fn main() -> anyhow::Result<()> {
     facility::init_tracing(&config);
 
     let db = database::connect(config.db_config).await?;
-    let db = Arc::new(db);
 
     facility::check_first_users(&db).await?;
 
     let stg = storage::make_provider(config.storage_config).await;
-    let stg: Arc<dyn storage::StorageProvider> = Arc::from(stg);
+    let url_maker = storage::StorageUrlMaker::new(config.storage_config.public_base_url);
+    let api_client = api::ApiClient::new(db.clone(), stg.clone(), url_maker.clone());
 
-    let jwt = Arc::new(config.jwt_config);
+    let jwt = config.jwt_config;
 
     let cancel_token = CancellationToken::new();
 
@@ -29,10 +29,10 @@ async fn main() -> anyhow::Result<()> {
 
     let thread_webui = {
         // Web UI routes (Session-auth protected) + static JS/CSS serving
-        let mut router = webui::v1::make_ui_router(db.clone(), stg.clone());
+        let mut router = webui::v1::make_ui_router(api_client.clone());
 
         // REST API routes (JWT-protected)
-        let api_router = rest::make_api_router(db.clone(), jwt.clone());
+        let api_router = rest::make_api_router(api_client.clone(), jwt.clone());
         router = router.nest("/api", api_router);
 
         // Check if the storage provider requires local web serving
@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
     )?;
     let thread_illuminator = {
         let gemini = illumination::make_illuminator("geministructured");
-        let worker = illumination::make_worker(db.clone(), illuminator_context, gemini);
+        let worker = illumination::make_worker(api_client.clone(), illuminator_context, gemini);
         let cancel = cancel_token.clone();
         tokio::spawn(async move {
             tokio::select! {

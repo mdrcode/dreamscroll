@@ -7,7 +7,7 @@ pub async fn insert_capture(
     db: &DbHandle,
     user_context: &auth::Context,
     media1: storage::StorageIdentity,
-) -> Result<api::CaptureInfo, api::ApiError> {
+) -> Result<model::capture::ModelEx, api::ApiError> {
     let media = model::media::ActiveModelEx::from(media1);
 
     let active_model = model::capture::ActiveModel::builder()
@@ -19,5 +19,5 @@ pub async fn insert_capture(
 
     let model = active_model.try_into_model()?;
 
-    Ok(api::CaptureInfo::from(model))
+    Ok(model)
 }

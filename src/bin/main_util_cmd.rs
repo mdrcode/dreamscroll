@@ -38,15 +38,22 @@ async fn main() -> anyhow::Result<()> {
 
     facility::init_tracing(&config);
 
+    let cmd_state = CmdState {
+        db: database::connect(config.db_config).await?,
+        storage: storage::make_provider(config.storage_config).await,
+        url_maker: storage::StorageUrlMaker::new(config.storage_config.public_base_url),
+        api_client: api::ApiClient::new(db.clone(), Box::from(stg.as_ref().clone_box()), url_maker),
+    };
+
     match args.command {
-        Command::BackfillSearch(args) => backfill_search::run(config, args).await,
-        Command::Eval(args) => eval::run(config, args).await,
-        Command::CreateUser(args) => create_user::run(config, args).await,
-        Command::Illuminate(args) => illuminate::run(config, args).await,
-        Command::Import(args) => import::run(config, args).await,
-        Command::ImportDigest(args) => import_digest::run(config, args).await,
-        Command::ExportUniq(args) => export_uniq::run(config, args).await,
-        Command::ExportDigest(args) => export_digest::run(config, args).await,
-        Command::Enums(args) => enums::run(config, args).await,
+        Command::BackfillSearch(args) => backfill_search::run(cmd_state, args).await,
+        Command::Eval(args) => eval::run(cmd_state, args).await,
+        Command::CreateUser(args) => create_user::run(cmd_state, args).await,
+        Command::Illuminate(args) => illuminate::run(cmd_state, args).await,
+        Command::Import(args) => import::run(cmd_state, args).await,
+        Command::ImportDigest(args) => import_digest::run(cmd_state, args).await,
+        Command::ExportUniq(args) => export_uniq::run(cmd_state, args).await,
+        Command::ExportDigest(args) => export_digest::run(cmd_state, args).await,
+        Command::Enums(args) => enums::run(cmd_state, args).await,
     }
 }

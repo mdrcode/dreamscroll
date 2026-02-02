@@ -2,15 +2,15 @@ use argh::FromArgs;
 
 use crate::{api, auth, database, facility};
 
+use super::*;
+
 #[derive(FromArgs)]
 #[argh(subcommand, name = "create_user")]
 #[argh(description = "Create a new user in the database")]
 
 pub struct CreateUserArgs {}
 
-pub async fn run(config: facility::Config, _args: CreateUserArgs) -> anyhow::Result<()> {
-    let db = database::connect(config.db_config).await?;
-
+pub async fn run(state: CmdState, _args: CreateUserArgs) -> anyhow::Result<()> {
     println!("Enter ADMIN username:");
     let mut admin_username = String::new();
     std::io::stdin().read_line(&mut admin_username)?;
@@ -18,7 +18,7 @@ pub async fn run(config: facility::Config, _args: CreateUserArgs) -> anyhow::Res
 
     println!("Enter ADMIN password:");
     let admin_password = rpassword::read_password()?;
-    let admin_user = auth::password::verify(&db, &admin_username, &admin_password).await?;
+    let admin_user = auth::password::verify(&state.db, &admin_username, &admin_password).await?;
     if !admin_user.is_admin() {
         return Err(anyhow::anyhow!("Only admin users can create new users"));
     }
@@ -37,7 +37,7 @@ pub async fn run(config: facility::Config, _args: CreateUserArgs) -> anyhow::Res
     let password = rpassword::read_password()?;
 
     let new_user_info =
-        api::admin::create_user(&db, &admin_user.into(), username, password, email).await?;
+        api::admin::create_user(&state.db, &admin_user.into(), username, password, email).await?;
 
     println!("Created new user: {:?}", new_user_info);
 

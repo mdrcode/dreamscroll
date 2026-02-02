@@ -4,6 +4,9 @@ pub mod import;
 mod logic;
 pub use logic::*;
 
+mod client;
+pub use client::*;
+
 mod apierror;
 pub use apierror::ApiError;
 
@@ -12,6 +15,9 @@ pub use captureinfo::CaptureInfo;
 
 mod illuminationinfo;
 pub use illuminationinfo::IlluminationInfo;
+
+mod infomaker;
+pub use infomaker::InfoMaker;
 
 mod knodeinfo;
 pub use knodeinfo::KNodeInfo;

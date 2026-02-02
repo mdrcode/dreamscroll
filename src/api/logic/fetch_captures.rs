@@ -6,7 +6,7 @@ pub async fn fetch_captures(
     db: &DbHandle,
     context: &auth::Context,
     ids: Option<Vec<i32>>,
-) -> Result<Vec<api::CaptureInfo>, api::ApiError> {
+) -> Result<Vec<model::capture::ModelEx>, api::ApiError> {
     let mut loader = model::capture::Entity::load();
 
     // For user contexts, restrict to their own captures
@@ -28,5 +28,5 @@ pub async fn fetch_captures(
         .all(&db.conn)
         .await?;
 
-    Ok(loader.into_iter().map(api::CaptureInfo::from).collect())
+    Ok(loader)
 }

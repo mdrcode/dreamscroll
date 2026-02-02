@@ -4,7 +4,7 @@ use base64::Engine;
 
 use crate::{api, database, facility, illumination::*};
 
-use super::{auth_helper, html_view};
+use super::*;
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "eval")]
@@ -23,10 +23,8 @@ pub struct EvalArgs {
     id: i32,
 }
 
-pub async fn run(config: facility::Config, args: EvalArgs) -> anyhow::Result<()> {
-    let db = database::connect(config.db_config).await?;
-
-    let user = auth_helper::authenticate_user_stdin(&db).await?;
+pub async fn run(state: CmdState, args: EvalArgs) -> anyhow::Result<()> {
+    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
 
     let capture_id = args.id;
 
@@ -37,7 +35,9 @@ pub async fn run(config: facility::Config, args: EvalArgs) -> anyhow::Result<()>
         capture_id
     );
 
-    let mut fetch = api::fetch_captures(&db, &user.into(), Some(vec![capture_id]))
+    let mut fetch = state
+        .api_client
+        .fetch_captures(&user.into(), Some(vec![capture_id]))
         .await
         .map_err(|_| anyhow!("Capture with ID {} not found in database.", capture_id))?;
     let capture_info = fetch.remove(0);

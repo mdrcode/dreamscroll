@@ -6,6 +6,7 @@ use axum::{
 };
 
 use crate::{
+    api,
     auth::{JwtAxumLayer, JwtConfig},
     database::DbHandle,
 };
@@ -16,8 +17,8 @@ pub mod r_timeline;
 pub mod r_token;
 
 pub struct ApiState {
-    pub db: Arc<DbHandle>,
-    pub jwt_config: Arc<JwtConfig>,
+    pub api_client: api::ApiClient,
+    pub jwt_config: JwtConfig,
 }
 
 /// Creates the API router with all REST endpoints.
@@ -26,9 +27,9 @@ pub struct ApiState {
 /// `Authorization: Bearer <token>` header.
 ///
 /// The `/token` endpoint is public and used to obtain JWT tokens.
-pub fn make_api_router(db: Arc<DbHandle>, jwt_config: Arc<JwtConfig>) -> Router {
+pub fn make_api_router(api_client: api::ApiClient, jwt_config: JwtConfig) -> Router {
     let state = Arc::new(ApiState {
-        db,
+        api_client,
         jwt_config: jwt_config.clone(),
     });
 

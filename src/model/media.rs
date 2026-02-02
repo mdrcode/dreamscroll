@@ -15,7 +15,9 @@ pub struct Model {
     #[sea_orm(belongs_to, from = "capture_id", to = "id")]
     pub capture: HasOne<capture::Entity>,
 
-    // Path is constructed as [storage_bucket/][storage_shard/]storage_id
+    // Path suffix is conceptually [storage_bucket/][storage_shard/]storage_id
+    // but different providers may modify that mapping.
+    pub storage_provider: String,
     pub storage_bucket: Option<String>,
     pub storage_shard: Option<String>,
     pub storage_id: String,
@@ -24,12 +26,3 @@ pub struct Model {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
-
-impl From<storage::StorageIdentity> for ActiveModelEx {
-    fn from(storage_id: storage::StorageIdentity) -> Self {
-        ActiveModel::builder()
-            .set_storage_id(storage_id.provider_id)
-            .set_storage_bucket(storage_id.provider_bucket)
-            .set_storage_shard(storage_id.provider_shard)
-    }
-}

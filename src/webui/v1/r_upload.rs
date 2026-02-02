@@ -36,9 +36,16 @@ pub async fn upload(
         )));
     }
 
-    let storage_id = state.storage.store_from_bytes(&media_bytes).await?;
+    let storage_id = state
+        .api_client
+        .storage
+        .store_from_bytes(&media_bytes)
+        .await?;
 
-    api::insert_capture(&state.db, &user.into(), storage_id).await?;
+    state
+        .api_client
+        .insert_capture(&user.into(), storage_id)
+        .await?;
 
     // Redirect to home page to show the timeline
     Ok(Redirect::to("/").into_response())

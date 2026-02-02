@@ -7,7 +7,7 @@ pub async fn search_by_illuminations(
     db: &DbHandle,
     user_context: &auth::Context,
     query: &str,
-) -> anyhow::Result<Vec<api::CaptureInfo>, api::ApiError> {
+) -> anyhow::Result<Vec<model::capture::ModelEx>, api::ApiError> {
     if query.is_empty() {
         return Ok(vec![]);
     }
@@ -34,10 +34,7 @@ pub async fn search_by_illuminations(
         .all(&db.conn)
         .await?;
 
-    Ok(captures
-        .into_iter()
-        .map(|model| api::CaptureInfo::from(model))
-        .collect())
+    Ok(captures)
 }
 
 pub async fn get_capture_ids_missing_search(

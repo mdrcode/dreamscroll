@@ -6,6 +6,7 @@ pub enum DbBackend {
     Postgres,
 }
 
+#[derive(Clone)]
 pub struct DbHandle {
     pub backend: DbBackend,
     pub config: DbConfig,

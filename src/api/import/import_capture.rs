@@ -8,7 +8,7 @@ pub async fn import_capture(
     user_context: &auth::Context,
     media1: storage::StorageIdentity,
     created_at: chrono::DateTime<Utc>,
-) -> Result<api::CaptureInfo, api::ApiError> {
+) -> Result<model::capture::ModelEx, api::ApiError> {
     let media = model::media::ActiveModelEx::from(media1);
 
     let active_model = model::capture::ActiveModel::builder()
@@ -18,7 +18,5 @@ pub async fn import_capture(
         .save(&db.conn)
         .await?;
 
-    let model = active_model.try_into_model()?;
-
-    Ok(api::CaptureInfo::from(model))
+    Ok(active_model.try_into_model()?)
 }
