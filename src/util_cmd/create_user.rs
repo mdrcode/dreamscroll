@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use crate::{api, auth, database, facility};
+use crate::{api, auth};
 
 use super::*;
 

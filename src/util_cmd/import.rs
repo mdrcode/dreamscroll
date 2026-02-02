@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 
-use crate::{api, auth};
+use crate::auth;
 
 use super::*;
 

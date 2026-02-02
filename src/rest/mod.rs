@@ -8,7 +8,6 @@ use axum::{
 use crate::{
     api,
     auth::{JwtAxumLayer, JwtConfig},
-    database::DbHandle,
 };
 
 pub mod r_capture;

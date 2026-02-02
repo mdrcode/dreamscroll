@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use crate::{api, model};
+use crate::model;
 
 use super::*;
 

@@ -1,4 +1,3 @@
-use anyhow;
 
 use crate::storage::StorageIdentity;
 

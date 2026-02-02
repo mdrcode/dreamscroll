@@ -1,4 +1,3 @@
-use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
