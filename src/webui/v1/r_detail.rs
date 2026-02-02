@@ -23,7 +23,7 @@ pub async fn detail(
 
     let fetch = state
         .api_client
-        .fetch_captures(&user.into(), Some(vec![id]))
+        .get_captures(&user.into(), Some(vec![id]))
         .await?;
 
     let capture = fetch

@@ -27,12 +27,12 @@ impl ApiClient {
         }
     }
 
-    pub async fn fetch_captures(
+    pub async fn get_captures(
         &self,
         context: &auth::Context,
         ids: Option<Vec<i32>>,
     ) -> Result<Vec<CaptureInfo>, ApiError> {
-        let captures = fetch_captures(&self.db, context, ids).await;
+        let captures = get_captures(&self.db, context, ids).await;
 
         // TODO probably more efficient way here?
         Ok(captures?
@@ -41,18 +41,25 @@ impl ApiClient {
             .collect())
     }
 
-    pub async fn fetch_capture_for_illum(
+    pub async fn get_captures_need_illum(
         &self,
         context: &auth::Context,
     ) -> Result<Vec<i32>, ApiError> {
-        fetch_captures_need_illumination(&self.db, context).await
+        get_captures_need_illum(&self.db, context).await
     }
 
-    pub async fn fetch_timeline(
+    pub async fn get_captures_need_search_idx(
+        &self,
+        user: &auth::Context,
+    ) -> Result<Vec<i32>, ApiError> {
+        get_captures_need_search_idx(&self.db, user).await
+    }
+
+    pub async fn get_timeline(
         &self,
         user_context: &auth::Context,
     ) -> Result<Vec<CaptureInfo>, ApiError> {
-        let captures = fetch_timeline(&self.db, user_context).await;
+        let captures = get_timeline(&self.db, user_context).await;
 
         Ok(captures?
             .into_iter()
@@ -92,13 +99,7 @@ impl ApiClient {
             .collect())
     }
 
-    pub async fn get_capture_ids_missing_search(
-        &self,
-        user: &auth::Context,
-    ) -> anyhow::Result<Vec<i32>, ApiError> {
-        get_capture_ids_missing_search(&self.db, user).await
-    }
-
+    // TODO will move this to its own ImportClient facade later
     pub async fn import_capture(
         &self,
         user_context: &auth::Context,

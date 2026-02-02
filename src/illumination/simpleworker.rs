@@ -51,7 +51,7 @@ impl IlluminatorWorker for SimpleWorker {
         loop {
             let ids = self
                 .api_client
-                .fetch_capture_for_illum(&self.context)
+                .get_captures_need_illum(&self.context)
                 .await?;
             let n = ids.len();
             let nq = self.queue.enqueue_iter(ids);
@@ -85,7 +85,7 @@ impl SimpleWorkerThread {
         loop {
             if let Some(cap_id) = queue.pop_next() {
                 tracing::info!("Starting illumination for capture ID {}...", cap_id);
-                let fetch = api.fetch_captures(&context, Some(vec![cap_id])).await?;
+                let fetch = api.get_captures(&context, Some(vec![cap_id])).await?;
 
                 let Some(capture) = fetch.into_iter().next() else {
                     tracing::error!("Capture ID {} not found during illumination.", cap_id);

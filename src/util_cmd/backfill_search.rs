@@ -17,12 +17,12 @@ pub async fn run(state: CmdState, _args: BackfillSearchArgs) -> anyhow::Result<(
     // Fetch captures without a corresponding search_index
     let ids_without_index = state
         .api_client
-        .get_capture_ids_missing_search(&user_context)
+        .get_captures_need_search_idx(&user_context)
         .await?;
 
     let capture_infos = state
         .api_client
-        .fetch_captures(&user_context, Some(ids_without_index))
+        .get_captures(&user_context, Some(ids_without_index))
         .await?;
     let nci = capture_infos.len();
     println!("Found {} captures missing search indexes", nci);

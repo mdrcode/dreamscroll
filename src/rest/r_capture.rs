@@ -40,7 +40,7 @@ pub async fn get(
         Some(query.id)
     };
 
-    let capture_infos = state.api_client.fetch_captures(&user.into(), ids).await?;
+    let capture_infos = state.api_client.get_captures(&user.into(), ids).await?;
 
     Ok(Json(capture_infos))
 }

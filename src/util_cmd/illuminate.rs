@@ -36,7 +36,7 @@ pub async fn run(state: CmdState, args: IlluminateArgs) -> anyhow::Result<()> {
     // Process each capture
     let capture_infos = state
         .api_client
-        .fetch_captures(&user.clone().into(), Some(args.ids.clone()))
+        .get_captures(&user.clone().into(), Some(args.ids.clone()))
         .await?;
 
     if capture_infos.is_empty() {

@@ -60,7 +60,7 @@ pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> 
     println!("Created export directory: {}", export_dir.display());
 
     // Fetch all capture_infos from API for this user
-    let capture_infos = state.api_client.fetch_captures(&user.into(), None).await?;
+    let capture_infos = state.api_client.get_captures(&user.into(), None).await?;
 
     println!("Found {} captures to export.", capture_infos.len());
 

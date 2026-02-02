@@ -4,7 +4,7 @@ use sea_orm::prelude::*;
 use crate::{api, auth, database::DbHandle, model};
 
 #[tracing::instrument(skip(db, user_context))]
-pub async fn fetch_timeline(
+pub async fn get_timeline(
     db: &DbHandle,
     user_context: &auth::Context,
 ) -> Result<Vec<model::capture::ModelEx>, api::ApiError> {

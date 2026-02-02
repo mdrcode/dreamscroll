@@ -4,7 +4,7 @@ use sea_orm::{EntityTrait, QueryOrder, QuerySelect};
 
 use crate::{api, auth, database::DbHandle, model};
 
-pub async fn fetch_captures(
+pub async fn get_captures(
     db: &DbHandle,
     context: &auth::Context,
     ids: Option<Vec<i32>>,
@@ -33,7 +33,7 @@ pub async fn fetch_captures(
     Ok(loader)
 }
 
-pub async fn fetch_captures_need_illumination(
+pub async fn get_captures_need_illum(
     db: &DbHandle,
     context: &auth::Context,
 ) -> Result<Vec<i32>, api::ApiError> {
@@ -56,10 +56,10 @@ pub async fn fetch_captures_need_illumination(
     Ok(capture_ids)
 }
 
-pub async fn get_capture_ids_missing_search(
+pub async fn get_captures_need_search_idx(
     db: &DbHandle,
     user_context: &auth::Context,
-) -> anyhow::Result<Vec<i32>, api::ApiError> {
+) -> Result<Vec<i32>, api::ApiError> {
     let captures_without_index = model::capture::Entity::find()
         .filter(model::capture::Column::UserId.eq(user_context.user_id()))
         .left_join(model::search_index::Entity)
