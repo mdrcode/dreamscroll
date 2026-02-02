@@ -130,8 +130,9 @@ pub struct SocialMediaAccount {
 impl Illumination {
     /// Converts the structured illumination back to a legacy freeform text format.
     ///
-    /// This is useful for backwards compatibility with the current Illumination
-    /// database model which stores a single text blob.
+    /// Useful for backwards compatibility with the legacy Illumination
+    /// implementations and simple debugging / evaluation.
+    ///
     ///
     /// Format:
     /// ```text
