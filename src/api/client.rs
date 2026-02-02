@@ -120,6 +120,6 @@ impl ApiClient {
 
     #[tracing::instrument(skip(self, media))]
     pub async fn get_media_storage(&self, media: MediaInfo) -> Result<Vec<u8>, ApiError> {
-        get_media_storage(&self.storage, media).await
+        get_media_bytes(&self.storage, media).await
     }
 }

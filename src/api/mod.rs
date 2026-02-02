@@ -18,9 +18,6 @@ pub use get_capture::*;
 
 mod get_entity;
 
-mod get_storage;
-pub use get_storage::*;
-
 mod get_timeline;
 pub use get_timeline::*;
 
@@ -32,3 +29,6 @@ pub use insert_illumination::*;
 
 mod search;
 pub use search::*;
+
+mod storage;
+pub use storage::*;
