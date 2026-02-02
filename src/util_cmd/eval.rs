@@ -43,24 +43,8 @@ pub async fn run(state: CmdState, args: EvalArgs) -> anyhow::Result<()> {
     let capture_info = fetch.remove(0);
     tracing::info!("Fetched capture {} from db.", capture_info.id);
 
-    // Helper to create illuminator from string
-    fn make_illuminator(model: &str) -> anyhow::Result<Box<dyn Illuminator>> {
-        match model {
-            "grok" => Ok(Box::new(grok::GrokIlluminator::default())),
-            "gemini" => Ok(Box::new(gemini::GeminiIlluminator::default())),
-            "geministructured" => Ok(Box::new(
-                geministructured::GeminiStructuredIlluminator::default(),
-            )),
-            "loremipsum" => Ok(Box::new(loremipsum::LoremIpsumIlluminator::default())),
-            other => Err(anyhow!(
-                "Unknown model '{}'. Supported: grok, gemini, geministructured, loremipsum.",
-                other
-            )),
-        }
-    }
-
-    let illuminator_a = make_illuminator(&args.illuminator_a)?;
-    let illuminator_b = make_illuminator(&args.illuminator_b)?;
+    let illuminator_a = make_illuminator(&args.illuminator_a, state.api_client.clone());
+    let illuminator_b = make_illuminator(&args.illuminator_b, state.api_client.clone());
 
     tracing::info!("Running illumination with '{}'...", args.illuminator_a);
     let result_a = illuminator_a.illuminate(&capture_info).await?;

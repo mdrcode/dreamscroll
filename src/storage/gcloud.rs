@@ -100,4 +100,22 @@ impl provider::StorageProvider for GCloudStorageProvider {
             provider_bucket: Some(self.config.bucket.clone()),
         })
     }
+
+    async fn retrieve_bytes(&self, id: &StorageIdentity) -> anyhow::Result<Vec<u8>> {
+        let mut reader = self
+            .client
+            .read_object(&self.bucket_path, &id.provider_id)
+            .send()
+            .await
+            .map_err(|e| {
+                tracing::error!("Failed to read object from GCS: {:?}", e);
+                anyhow::anyhow!("Failed to read object from GCS: {}", e)
+            })?;
+
+        let mut contents = Vec::new();
+        while let Some(chunk) = reader.next().await.transpose()? {
+            contents.extend_from_slice(&chunk);
+        }
+        Ok(contents)
+    }
 }

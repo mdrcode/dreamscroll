@@ -61,7 +61,7 @@ async fn main() -> anyhow::Result<()> {
         jwt.create_service_token("illuminator_worker")?,
     )?;
     let thread_illuminator = {
-        let gemini = illumination::make_illuminator("geministructured");
+        let gemini = illumination::make_illuminator("geministructured", api_client.clone());
         let worker = illumination::make_worker(api_client.clone(), illuminator_context, gemini);
         let cancel = cancel_token.clone();
         tokio::spawn(async move {

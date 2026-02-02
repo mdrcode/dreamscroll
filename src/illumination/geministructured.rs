@@ -24,8 +24,9 @@
 //!   display_name, handle, and platform
 //!
 
-use std::{env, io::Read, path::PathBuf};
+use std::env;
 
+use anyhow::anyhow;
 use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
@@ -104,14 +105,18 @@ unique username, while the display name is what appears as the profile name.
 /// of individual response fields.
 #[derive(Clone)]
 pub struct GeminiStructuredIlluminator {
-    api_key: String,
+    gemini_api_key: String,
+    dreamscroll_api: api::ApiClient,
 }
 
-impl Default for GeminiStructuredIlluminator {
-    fn default() -> Self {
+impl GeminiStructuredIlluminator {
+    pub fn mew(api_client: api::ApiClient) -> Self {
         let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not found in env.");
 
-        GeminiStructuredIlluminator { api_key }
+        GeminiStructuredIlluminator {
+            gemini_api_key: api_key,
+            dreamscroll_api: api_client,
+        }
     }
 }
 
@@ -128,17 +133,18 @@ impl Illuminator for GeminiStructuredIlluminator {
             capture.id
         );
 
-        let media1 = capture.medias.get(0).expect("No media found for capture.");
-        let media1_path = PathBuf::from(format!("localdev/media/{}", &media1.storage_id));
-        tracing::info!(
-            "GeminiStructuredIlluminator: Using media at path {:?}",
-            media1_path
-        );
+        let media_storages = self
+            .dreamscroll_api
+            .get_media_for_capture(capture.id)
+            .await?;
+        let (_, storage1) = media_storages
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("No media found for capture ID {}", capture.id))?;
 
-        let mut file = std::fs::File::open(media1_path)?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)?;
-        let enc = base64::engine::general_purpose::STANDARD.encode(&buffer);
+        let buffer = self.dreamscroll_api.get_storage_bytes(storage1).await?;
+
+        let enc = base64::engine::general_purpose::STANDARD.encode(buffer);
         tracing::info!(
             "GeminiStructuredIlluminator: media base64 bytes {}",
             enc.len()
@@ -258,7 +264,7 @@ impl Illuminator for GeminiStructuredIlluminator {
         // Send request
         let response = client
             .post(&url)
-            .header("x-goog-api-key", &self.api_key)
+            .header("x-goog-api-key", &self.gemini_api_key)
             .header("Content-Type", "application/json")
             .json(&request_body)
             .send()

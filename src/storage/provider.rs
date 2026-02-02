@@ -24,6 +24,7 @@ pub trait StorageProvider: DynClone + Send + Sync {
     }
     async fn store_from_bytes(&self, data: &[u8]) -> anyhow::Result<StorageIdentity>;
     async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageIdentity>;
+    async fn retrieve_bytes(&self, id: &StorageIdentity) -> anyhow::Result<Vec<u8>>;
 }
 
 dyn_clone::clone_trait_object!(StorageProvider);

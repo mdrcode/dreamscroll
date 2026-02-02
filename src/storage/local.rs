@@ -60,4 +60,10 @@ impl StorageProvider for LocalStorageProvider {
             provider_bucket: None,
         })
     }
+
+    async fn retrieve_bytes(&self, id: &StorageIdentity) -> anyhow::Result<Vec<u8>> {
+        let file_path = Path::new(&self.config.storage_path).join(&id.provider_id);
+        let bytes = tokio::fs::read(&file_path).await?;
+        Ok(bytes)
+    }
 }

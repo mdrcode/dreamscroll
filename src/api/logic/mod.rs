@@ -9,6 +9,12 @@ mod fetch_entity;
 mod fetch_timeline;
 pub use fetch_timeline::*;
 
+mod get_storage_bytes;
+pub use get_storage_bytes::*;
+
+mod get_media_for_capture;
+pub use get_media_for_capture::*;
+
 mod insert_capture;
 pub use insert_capture::*;
 
