@@ -1,22 +1,21 @@
-
 use crate::storage::StorageIdentity;
 
 #[derive(Clone)]
 pub struct StorageUrlMaker {
-    web_path_prefix: Option<String>,
+    local_url_prefix: Option<String>,
     gcloud_emulator_endpoint: Option<String>,
 }
 
 impl StorageUrlMaker {
-    pub fn new_local(web_path_prefix: String) -> Self {
+    pub fn new_local(local_url_prefix: String) -> Self {
         Self {
-            web_path_prefix: Some(web_path_prefix),
+            local_url_prefix: Some(local_url_prefix),
             gcloud_emulator_endpoint: None,
         }
     }
     pub fn new_gcloud(emulator_endpoint: Option<String>) -> Self {
         Self {
-            web_path_prefix: None,
+            local_url_prefix: None,
             gcloud_emulator_endpoint: emulator_endpoint,
         }
     }
@@ -33,8 +32,8 @@ impl StorageUrlMaker {
 
     pub fn make_local_url(&self, id: &StorageIdentity) -> String {
         format!(
-            "http://localhost:8000/{}/{}",
-            self.web_path_prefix.as_ref().unwrap(),
+            "{}/{}",
+            self.local_url_prefix.as_ref().unwrap(),
             id.provider_id
         )
     }

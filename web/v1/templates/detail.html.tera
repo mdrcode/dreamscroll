@@ -161,13 +161,13 @@
 
         <div class="detail-container">
             <div class="image-container">
-                <img src="/media/{{ capture.medias[0].filename }}" alt="{{ capture.medias[0].filename }}">
+                <img src="{{ capture.medias[0].url }}" alt="{{ capture.medias[0].storage_id }}">
             </div>
 
             <div class="metadata">
                 <h2>Image Details</h2>
                 <div class="metadata-row">
-                    <span class="metadata-label">Filename:</span> {{ capture.medias[0].filename }}
+                    <span class="metadata-label">Filename:</span> {{ capture.medias[0].storage_id }}
                 </div>
                 <div class="metadata-row">
                     <span class="metadata-label">Uploaded:</span>

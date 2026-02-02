@@ -1,4 +1,3 @@
-
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
@@ -15,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
     facility::check_first_users(&db).await?;
 
     let stg = storage::make_provider(config.storage_config).await;
-    let url_maker = storage::StorageUrlMaker::new_local("http://localhost:8000".to_string());
+    let url_maker = storage::StorageUrlMaker::new_local("/media".to_string());
     let api_client = api::ApiClient::new(db.clone(), stg.clone(), url_maker);
 
     let jwt = config.jwt_config;
@@ -36,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
 
         // Check if the storage provider requires local web serving
         if let Some(serving) = stg.local_web_serving() {
-            router = router.nest_service(&serving.web_path, ServeDir::new(serving.local_path));
+            router = router.nest_service(&serving.web_path, ServeDir::new(serving.file_path));
         }
 
         let cancel = cancel_token.clone();

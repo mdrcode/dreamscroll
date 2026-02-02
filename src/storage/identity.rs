@@ -22,9 +22,10 @@ impl std::fmt::Display for StorageIdentity {
 impl From<storage::StorageIdentity> for model::media::ActiveModelEx {
     fn from(storage_id: storage::StorageIdentity) -> Self {
         model::media::ActiveModel::builder()
-            .set_storage_id(storage_id.provider_id)
+            .set_storage_provider(storage_id.storage_provider)
             .set_storage_bucket(storage_id.provider_bucket)
             .set_storage_shard(storage_id.provider_shard)
+            .set_storage_id(storage_id.provider_id)
     }
 }
 

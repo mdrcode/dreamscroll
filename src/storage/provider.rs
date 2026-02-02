@@ -11,6 +11,12 @@ pub enum StorageConfig {
     GCloud(gcloud::GCloudConfig),
 }
 
+#[derive(Debug, Clone)]
+pub struct LocalWebServing {
+    pub file_path: String,
+    pub web_path: String,
+}
+
 #[async_trait]
 pub trait StorageProvider: DynClone + Send + Sync {
     fn local_web_serving(&self) -> Option<LocalWebServing> {
@@ -21,12 +27,6 @@ pub trait StorageProvider: DynClone + Send + Sync {
 }
 
 dyn_clone::clone_trait_object!(StorageProvider);
-
-#[derive(Debug, Clone)]
-pub struct LocalWebServing {
-    pub local_path: String,
-    pub web_path: String,
-}
 
 pub async fn make_provider(config: StorageConfig) -> Box<dyn StorageProvider> {
     match config {

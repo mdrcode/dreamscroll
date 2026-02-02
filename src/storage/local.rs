@@ -26,7 +26,7 @@ impl LocalStorageProvider {
 impl StorageProvider for LocalStorageProvider {
     fn local_web_serving(&self) -> Option<LocalWebServing> {
         Some(LocalWebServing {
-            local_path: self.config.storage_path.clone(),
+            file_path: self.config.storage_path.clone(),
             web_path: self.config.web_path.clone(),
         })
     }
