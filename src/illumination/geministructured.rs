@@ -26,7 +26,6 @@
 
 use std::env;
 
-use anyhow::anyhow;
 use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
@@ -133,16 +132,15 @@ impl Illuminator for GeminiStructuredIlluminator {
             capture.id
         );
 
-        let media_storages = self
-            .dreamscroll_api
-            .get_media_for_capture(capture.id)
-            .await?;
-        let (_, storage1) = media_storages
-            .into_iter()
-            .next()
-            .ok_or_else(|| anyhow!("No media found for capture ID {}", capture.id))?;
+        let media1 = capture
+            .medias
+            .get(0)
+            .ok_or_else(|| anyhow::anyhow!("Capture has no media"))?;
 
-        let buffer = self.dreamscroll_api.get_storage_bytes(storage1).await?;
+        let buffer = self
+            .dreamscroll_api
+            .get_media_storage(media1.clone())
+            .await?;
 
         let enc = base64::engine::general_purpose::STANDARD.encode(buffer);
         tracing::info!(

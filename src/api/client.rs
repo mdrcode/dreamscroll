@@ -110,17 +110,7 @@ impl ApiClient {
         Ok(self.info_maker.make_capture_info(capture_model))
     }
 
-    pub async fn get_media_for_capture(
-        &self,
-        capture_id: i32,
-    ) -> Result<Vec<(MediaInfo, storage::StorageIdentity)>, ApiError> {
-        get_media_for_capture(&self.db, &self.info_maker, capture_id).await
-    }
-
-    pub async fn get_storage_bytes(
-        &self,
-        stg_id: storage::StorageIdentity,
-    ) -> Result<Vec<u8>, ApiError> {
-        get_storage_bytes(&self.storage, stg_id).await
+    pub async fn get_media_storage(&self, media: MediaInfo) -> Result<Vec<u8>, ApiError> {
+        get_media_storage(&self.storage, media).await
     }
 }

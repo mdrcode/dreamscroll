@@ -36,21 +36,3 @@ pub async fn search_by_illuminations(
 
     Ok(captures)
 }
-
-pub async fn get_capture_ids_missing_search(
-    db: &DbHandle,
-    user_context: &auth::Context,
-) -> anyhow::Result<Vec<i32>, api::ApiError> {
-    let captures_without_index = model::capture::Entity::find()
-        .filter(model::capture::Column::UserId.eq(user_context.user_id()))
-        .left_join(model::search_index::Entity)
-        .filter(model::search_index::Column::Id.is_null())
-        .column(model::capture::Column::Id)
-        .all(&db.conn)
-        .await?
-        .into_iter()
-        .map(|model| model.id)
-        .collect::<Vec<i32>>();
-
-    Ok(captures_without_index)
-}
