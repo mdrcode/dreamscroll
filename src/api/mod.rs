@@ -1,14 +1,34 @@
 pub mod admin;
 pub mod import;
 
+// Core concepts: client, errors, and schema
 mod client;
 pub use client::*;
 
 mod apierror;
 pub use apierror::*;
 
-mod core;
-pub use core::*;
-
 mod schema;
 pub use schema::*;
+
+// API implementations
+
+mod get_capture;
+pub use get_capture::*;
+
+mod get_entity;
+
+mod get_storage;
+pub use get_storage::*;
+
+mod get_timeline;
+pub use get_timeline::*;
+
+mod insert_capture;
+pub use insert_capture::*;
+
+mod insert_illumination;
+pub use insert_illumination::*;
+
+mod search;
+pub use search::*;
