@@ -1,13 +1,13 @@
-mod get_captures;
-pub use get_captures::*;
+mod get_capture;
+pub use get_capture::*;
 
-mod fetch_entity;
+mod get_entity;
 
-mod fetch_timeline;
-pub use fetch_timeline::*;
+mod get_timeline;
+pub use get_timeline::*;
 
-mod get_media_storage;
-pub use get_media_storage::*;
+mod get_storage;
+pub use get_storage::*;
 
 mod insert_capture;
 pub use insert_capture::*;
