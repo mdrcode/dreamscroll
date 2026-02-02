@@ -57,7 +57,7 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
             anyhow::bail!("Media file not found: {}", media_path.display());
         }
 
-        let storage_id = state.storage.store_from_local_path(&media_path).await?;
+        let storage_id = state.stg.store_from_local_path(&media_path).await?;
 
         api::import::import_capture(&state.db, &user_context, storage_id, entry.created_at)
             .await

@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use dyn_clone::DynClone;
 
 use super::*;
 
@@ -11,7 +12,7 @@ pub enum StorageConfig {
 }
 
 #[async_trait]
-pub trait StorageProvider: Send + Sync {
+pub trait StorageProvider: DynClone + Send + Sync {
     fn local_web_serving(&self) -> Option<LocalWebServing> {
         None
     }

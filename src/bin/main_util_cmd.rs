@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use dreamscroll::{facility, util_cmd::*};
+use dreamscroll::{api, database, facility, storage, util_cmd::*};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll admin utility")]
@@ -38,11 +38,15 @@ async fn main() -> anyhow::Result<()> {
 
     facility::init_tracing(&config);
 
+    let db = database::connect(config.db_config).await?;
+    let stg = storage::make_provider(config.storage_config).await;
+    let url_maker = storage::StorageUrlMaker::new_local("http://localhost:8000".to_string());
+    let api_client = api::ApiClient::new(db.clone(), stg.clone(), url_maker);
+
     let cmd_state = CmdState {
-        db: database::connect(config.db_config).await?,
-        storage: storage::make_provider(config.storage_config).await,
-        url_maker: storage::StorageUrlMaker::new(config.storage_config.public_base_url),
-        api_client: api::ApiClient::new(db.clone(), Box::from(stg.as_ref().clone_box()), url_maker),
+        api_client,
+        db,
+        stg: stg,
     };
 
     match args.command {

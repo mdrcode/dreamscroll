@@ -11,6 +11,7 @@ pub struct LocalConfig {
     pub web_path: String,
 }
 
+#[derive(Clone)]
 pub struct LocalStorageProvider {
     config: LocalConfig,
 }

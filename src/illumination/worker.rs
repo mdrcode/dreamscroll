@@ -10,7 +10,7 @@ pub trait IlluminatorWorker: Send + Sync {
 }
 
 pub fn make_worker(
-    api_client: Arc<api::ApiClient>,
+    api_client: api::ApiClient,
     context: auth::Context,
     ill: Box<dyn Illuminator>,
 ) -> Box<dyn IlluminatorWorker> {

@@ -4,6 +4,7 @@ use crate::{auth, database, illumination, storage};
 
 use super::*;
 
+#[derive(Clone)]
 pub struct ApiClient {
     // TODO hack this is currently public for webui auth backend, fix later
     pub db: database::DbHandle,

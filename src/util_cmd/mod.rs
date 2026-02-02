@@ -14,6 +14,5 @@ mod auth_helper;
 pub struct CmdState {
     pub api_client: crate::api::ApiClient,
     pub db: crate::database::DbHandle,
-    pub storage: Box<dyn crate::storage::StorageProvider>,
-    pub url_maker: crate::storage::StorageUrlMaker,
+    pub stg: Box<dyn crate::storage::StorageProvider>,
 }

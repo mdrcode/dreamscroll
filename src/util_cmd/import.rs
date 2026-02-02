@@ -38,7 +38,7 @@ pub async fn run(state: CmdState, args: ImportArgs) -> anyhow::Result<()> {
     let mut imported = 0;
 
     for path in paths {
-        let storage_id = state.storage.store_from_local_path(&path).await?;
+        let storage_id = state.stg.store_from_local_path(&path).await?;
 
         let capture_info = state
             .api_client

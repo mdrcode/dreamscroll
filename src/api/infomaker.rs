@@ -4,6 +4,7 @@ use crate::{model, storage};
 
 use super::*;
 
+#[derive(Clone)]
 pub struct InfoMaker {
     url_maker: storage::StorageUrlMaker,
 }

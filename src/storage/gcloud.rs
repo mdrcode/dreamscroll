@@ -16,6 +16,7 @@ pub struct GCloudConfig {
     pub bucket: String,
 }
 
+#[derive(Clone)]
 pub struct GCloudStorageProvider {
     config: GCloudConfig,
     client: Storage,

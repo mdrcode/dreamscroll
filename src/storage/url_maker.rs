@@ -2,6 +2,7 @@ use anyhow;
 
 use crate::storage::StorageIdentity;
 
+#[derive(Clone)]
 pub struct StorageUrlMaker {
     web_path_prefix: Option<String>,
     gcloud_emulator_endpoint: Option<String>,

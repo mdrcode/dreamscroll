@@ -16,8 +16,8 @@ async fn main() -> anyhow::Result<()> {
     facility::check_first_users(&db).await?;
 
     let stg = storage::make_provider(config.storage_config).await;
-    let url_maker = storage::StorageUrlMaker::new(config.storage_config.public_base_url);
-    let api_client = api::ApiClient::new(db.clone(), stg.clone(), url_maker.clone());
+    let url_maker = storage::StorageUrlMaker::new_local("http://localhost:8000".to_string());
+    let api_client = api::ApiClient::new(db.clone(), stg.clone(), url_maker);
 
     let jwt = config.jwt_config;
 
