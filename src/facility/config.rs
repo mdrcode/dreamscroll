@@ -9,6 +9,7 @@ pub struct Config {
     pub tracing_max_level: tracing::Level,
     pub database: database::DbConfig,
     pub storage: storage::StorageConfig,
+    pub storage_url_maker: storage::UrlMakerConfig,
     pub jwt: auth::JwtConfig,
     pub web_host_port: Option<(String, u16)>,
 }
@@ -19,13 +20,17 @@ pub fn make_config(env: Env) -> Config {
             let database = database::DbConfig::SqliteFile {
                 path: "localdev/dreamscroll.db".to_string(),
             };
-            let _local_storage = storage::LocalConfig {
+            let local_storage = storage::LocalConfig {
                 storage_path: "localdev/local_storage_provider".to_string(),
                 web_path: "/media/".to_string(),
             };
             let gcloud_emulator_storage = storage::GCloudConfig {
                 emulator_endpoint: Some("http://localhost:4443".to_string()),
                 bucket: "dreamscroll-test1".to_string(),
+            };
+            let storage_url_maker = storage::UrlMakerConfig {
+                local_url_prefix: Some(local_storage.web_path.clone()),
+                gcloud_emulator_endpoint: gcloud_emulator_storage.emulator_endpoint.clone(),
             };
             let jwt = std::env::var("JWT_SECRET")
                 .map(|secret| auth::JwtConfig::from_secret(secret.as_bytes()))
@@ -43,6 +48,7 @@ pub fn make_config(env: Env) -> Config {
                 tracing_max_level: tracing::Level::INFO,
                 database,
                 storage: storage::StorageConfig::GCloud(gcloud_emulator_storage),
+                storage_url_maker,
                 jwt,
                 web_host_port: Some(("0.0.0.0".to_string(), 8000)),
             };

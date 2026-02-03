@@ -14,12 +14,7 @@ async fn main() -> anyhow::Result<()> {
     facility::check_first_users(&db).await?;
 
     let stg = storage::make_provider(config.storage.clone()).await;
-    let mut url_maker = storage::UrlMaker::default().with_local_url_prefix("/media".to_string());
-    if let storage::StorageConfig::GCloud(gcloud_config) = &config.storage {
-        if let Some(emulator_endpoint) = &gcloud_config.emulator_endpoint {
-            url_maker = url_maker.with_gcloud_emulator_endpoint(emulator_endpoint.clone());
-        }
-    }
+    let url_maker = storage::UrlMaker::new(config.storage_url_maker.clone());
     let api_client = api::ApiClient::new(db.clone(), stg.clone(), url_maker);
 
     let jwt = config.jwt;
