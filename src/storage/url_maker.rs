@@ -1,23 +1,20 @@
 use crate::storage::StorageIdentity;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct StorageUrlMaker {
     local_url_prefix: Option<String>,
     gcloud_emulator_endpoint: Option<String>,
 }
 
 impl StorageUrlMaker {
-    pub fn new_local(local_url_prefix: String) -> Self {
-        Self {
-            local_url_prefix: Some(local_url_prefix),
-            gcloud_emulator_endpoint: None,
-        }
+    pub fn with_local_url_prefix(mut self, prefix: String) -> Self {
+        self.local_url_prefix = Some(prefix);
+        self
     }
-    pub fn new_gcloud(emulator_endpoint: Option<String>) -> Self {
-        Self {
-            local_url_prefix: None,
-            gcloud_emulator_endpoint: emulator_endpoint,
-        }
+
+    pub fn with_gcloud_emulator_endpoint(mut self, endpoint: String) -> Self {
+        self.gcloud_emulator_endpoint = Some(endpoint);
+        self
     }
 }
 
@@ -53,6 +50,7 @@ impl StorageUrlMaker {
         } else {
             // For production GCS, return the public URL format
             // Note: The object must be publicly accessible for this URL to work
+            // TODO: Consider signed URLs for controlled access
             format!(
                 "https://storage.googleapis.com/{}/{}",
                 id.provider_bucket.as_ref().unwrap(),

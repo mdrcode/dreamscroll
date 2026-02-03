@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use axum::body::Bytes;
+use google_cloud_auth::credentials;
 use google_cloud_storage::client::Storage;
 use uuid::Uuid;
 
@@ -28,9 +29,11 @@ impl GCloudStorageProvider {
     pub async fn new(config: GCloudConfig) -> Self {
         let mut builder = Storage::builder();
 
-        // If emulator endpoint is set, configure for emulator use
+        // Infer that we are using the emulator if .emulator_endpoint is set
         if let Some(ref endpoint) = config.emulator_endpoint {
-            builder = builder.with_endpoint(endpoint.clone());
+            builder = builder
+                .with_endpoint(endpoint.clone())
+                .with_credentials(credentials::anonymous::Builder::default().build());
         }
 
         let client = builder

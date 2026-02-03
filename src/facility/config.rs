@@ -23,6 +23,10 @@ pub fn make_config(env: Env) -> Config {
                 storage_path: "localdev/local_storage_provider".to_string(),
                 web_path: "/media/".to_string(),
             };
+            let gcloud_emulator_storage = storage::GCloudConfig {
+                emulator_endpoint: Some("http://localhost:4443".to_string()),
+                bucket: "dreamscroll-test1".to_string(),
+            };
             let jwt_config = std::env::var("JWT_SECRET")
                 .map(|secret| auth::JwtConfig::from_secret(secret.as_bytes()))
                 .unwrap_or_else(|_| {
@@ -38,7 +42,7 @@ pub fn make_config(env: Env) -> Config {
                 environment: Env::LocalDev,
                 tracing_max_level: tracing::Level::INFO,
                 db_config,
-                storage_config: storage::StorageConfig::LocalFile(local_storage_config),
+                storage_config: storage::StorageConfig::GCloud(gcloud_emulator_storage),
                 jwt_config,
                 web_host_port: Some(("0.0.0.0".to_string(), 8000)),
             };

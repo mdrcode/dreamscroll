@@ -39,8 +39,14 @@ async fn main() -> anyhow::Result<()> {
     facility::init_tracing(&config);
 
     let db = database::connect(config.db_config).await?;
-    let stg = storage::make_provider(config.storage_config).await;
-    let url_maker = storage::StorageUrlMaker::new_local("http://localhost:8000".to_string());
+    let stg = storage::make_provider(config.storage_config.clone()).await;
+    let mut url_maker =
+        storage::StorageUrlMaker::default().with_local_url_prefix("/media".to_string());
+    if let storage::StorageConfig::GCloud(gcloud_config) = &config.storage_config {
+        if let Some(emulator_endpoint) = &gcloud_config.emulator_endpoint {
+            url_maker = url_maker.with_gcloud_emulator_endpoint(emulator_endpoint.clone());
+        }
+    }
     let api_client = api::ApiClient::new(db.clone(), stg.clone(), url_maker);
 
     let cmd_state = CmdState {
