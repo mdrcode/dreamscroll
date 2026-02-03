@@ -18,7 +18,7 @@ impl ApiClient {
     pub fn new(
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
-        url_maker: storage::StorageUrlMaker,
+        url_maker: storage::UrlMaker,
     ) -> Self {
         Self {
             db,

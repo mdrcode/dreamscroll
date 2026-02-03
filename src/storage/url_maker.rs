@@ -1,25 +1,29 @@
 use crate::storage::StorageIdentity;
 
 #[derive(Clone, Default)]
-pub struct StorageUrlMaker {
+pub struct UrlMaker {
     local_url_prefix: Option<String>,
     gcloud_emulator_endpoint: Option<String>,
 }
 
-impl StorageUrlMaker {
+impl UrlMaker {
+    // "/media" if full URL is something like http://localhost:8000/media/foo.jpg
     pub fn with_local_url_prefix(mut self, prefix: String) -> Self {
         self.local_url_prefix = Some(prefix);
         self
     }
 
+    // e.g. "http://localhost:4443 if running fake-gcs via Docker
+    // see docker-fake-gcs-emulator.sh
     pub fn with_gcloud_emulator_endpoint(mut self, endpoint: String) -> Self {
         self.gcloud_emulator_endpoint = Some(endpoint);
         self
     }
 }
 
-impl StorageUrlMaker {
+impl UrlMaker {
     pub fn make_url(&self, id: &StorageIdentity) -> String {
+        // TODO should do this more performantly
         match id.storage_provider.as_str() {
             "local" => self.make_local_url(id),
             "gcloud" => self.make_gcloud_url(id),

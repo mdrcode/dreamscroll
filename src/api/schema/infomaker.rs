@@ -9,11 +9,11 @@ use super::*;
 
 #[derive(Clone)]
 pub struct InfoMaker {
-    url_maker: storage::StorageUrlMaker,
+    url_maker: storage::UrlMaker,
 }
 
 impl InfoMaker {
-    pub fn new(url_maker: storage::StorageUrlMaker) -> Self {
+    pub fn new(url_maker: storage::UrlMaker) -> Self {
         Self { url_maker }
     }
 
