@@ -42,7 +42,6 @@ pub fn make_ui_router(api_client: api::ApiClient) -> Router {
             "/detail/{capture_id}",
             get(detail).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
         )
-        /*
         .route(
             "/entity/knode/{id}",
             get(entity_knode).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
@@ -52,7 +51,6 @@ pub fn make_ui_router(api_client: api::ApiClient) -> Router {
             get(entity_social_media)
                 .layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
         )
-        */
         .route(
             "/upload",
             post(upload).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),

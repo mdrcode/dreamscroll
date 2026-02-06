@@ -1,8 +1,16 @@
+use std::sync::Arc;
 
+use anyhow::anyhow;
+use axum::{
+    extract::{Path, State},
+    response::{Html, IntoResponse, Response},
+};
+use axum_login::{AuthSession, AuthUser};
+use tera::Context;
 
+use crate::{api, auth};
 
-
-/*
+use super::WebState;
 
 #[tracing::instrument(skip(auth, state, id))]
 pub async fn entity_knode(
@@ -17,20 +25,12 @@ pub async fn entity_knode(
         user.id()
     );
 
-    Err(api::ApiError::not_found(anyhow!(
-        "SocialMedia entity rendering not yet implemented"
-    )))
-
-
-    let entity_info = api::fetch_knode(&state.db, &user.into(), id)
+    let entity_info = api::fetch_knode(&state.api_client, &user.into(), id)
         .await?
         .ok_or_else(|| api::ApiError::not_found(anyhow!("KNode with id {} not found", id)))?;
 
     render_entity(&state, entity_info)
-
 }
-
-
 
 #[tracing::instrument(skip(auth, state, id))]
 pub async fn entity_social_media(
@@ -45,16 +45,12 @@ pub async fn entity_social_media(
         user.id()
     );
 
-
-    let entity_info = api::fetch_social_media(&state.db, &user.into(), id)
+    let entity_info = api::fetch_social_media(&state.api_client, &user.into(), id)
         .await?
         .ok_or_else(|| api::ApiError::not_found(anyhow!("SocialMedia with id {} not found", id)))?;
 
     render_entity(&state, entity_info)
-
-
 }
-
 
 fn render_entity(
     state: &WebState,
@@ -70,4 +66,3 @@ fn render_entity(
 
     Ok(Html(rendered).into_response())
 }
-    */

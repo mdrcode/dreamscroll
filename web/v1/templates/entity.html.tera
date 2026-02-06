@@ -214,7 +214,7 @@
                 <div class="source-section-label">Source Capture</div>
                 <a href="/detail/{{ entity.capture.id }}" class="source-capture">
                     {% if entity.capture.medias | length > 0 %}
-                    <img class="source-capture-image" src="/media/{{ entity.capture.medias[0].filename }}" alt="capture">
+                    <img class="source-capture-image" src="{{ entity.capture.medias[0].url }}" alt="capture">
                     {% endif %}
                     <div class="source-capture-info">
                         <span class="source-capture-timestamp">{{ entity.capture.created_at }}</span>

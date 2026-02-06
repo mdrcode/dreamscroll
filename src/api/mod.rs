@@ -17,6 +17,7 @@ mod get_capture;
 pub use get_capture::*;
 
 mod get_entity;
+pub use get_entity::*;
 
 mod get_timeline;
 pub use get_timeline::*;

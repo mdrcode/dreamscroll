@@ -50,7 +50,7 @@ pub fn make_config(env: Env) -> Config {
                 storage: storage::StorageConfig::GCloud(gcloud_emulator_storage),
                 storage_url_maker,
                 jwt,
-                web_host_port: Some(("0.0.0.0".to_string(), 8000)),
+                web_host_port: Some(("0.0.0.0".to_string(), 8888)),
             };
         }
 
