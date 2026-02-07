@@ -18,10 +18,12 @@ pub struct Config {
     pub illuminator_gemini_key: Option<String>,
 
     pub storage_backend: storage::StorageBackend,
-    pub storage_local_path: String,
+
+    pub storage_local_file_path: String,
+    pub storage_local_url_prefix: String,
+
     pub storage_gcloud_emulator_endpoint: Option<String>,
     pub storage_gcloud_bucket_name: String,
-    pub storage_url_local_prefix: String,
 }
 
 pub fn make_config() -> Config {

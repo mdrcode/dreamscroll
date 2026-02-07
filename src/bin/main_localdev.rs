@@ -41,8 +41,8 @@ async fn main() -> anyhow::Result<()> {
 
         // Web serving for media assets stored with the local storage provider
         router = router.nest_service(
-            &config.storage_url_local_prefix,
-            ServeDir::new(&config.storage_local_path),
+            &config.storage_local_url_prefix,
+            ServeDir::new(&config.storage_local_file_path),
         );
 
         let cancel = cancel_token.clone();

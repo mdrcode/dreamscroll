@@ -6,7 +6,7 @@ use tera::Tera;
 use tower_http::services::ServeDir;
 use tower_sessions::SessionManagerLayer;
 
-use crate::{api, auth, database};
+use crate::{api, auth};
 
 use super::*;
 

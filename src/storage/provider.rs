@@ -19,7 +19,7 @@ dyn_clone::clone_trait_object!(StorageProvider);
 pub async fn make_provider(config: &facility::Config) -> Box<dyn StorageProvider> {
     match config.storage_backend {
         StorageBackend::Local => {
-            let local = local::LocalStorageProvider::new(config.storage_local_path.clone());
+            let local = local::LocalStorageProvider::new(config.storage_local_file_path.clone());
             // explicit type annotation is needed here because the other match arm is async
             Box::new(local) as Box<dyn StorageProvider>
         }
