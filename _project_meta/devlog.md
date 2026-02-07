@@ -4,7 +4,7 @@
 
 Up next:
 
-- Use a proper backing SessionStore for Auth
+- [X] Use a proper backing SessionStore for Auth
 - Port the config structure over to envy and dotenvy
 - Get GCloud storage working end to end
 

@@ -30,7 +30,7 @@ enum Command {
 async fn main() -> anyhow::Result<()> {
     let args: Args = argh::from_env();
 
-    let mut config = facility::make_config(facility::Env::LocalDev);
+    let mut config = facility::make_config();
 
     if args.verbose {
         config.tracing_max_level = tracing::Level::DEBUG;
@@ -38,9 +38,8 @@ async fn main() -> anyhow::Result<()> {
 
     facility::init_tracing(&config);
 
-    let pool = database::create_sqlite_pool(&config.db_sqlite_url).await?;
-    let seaorm_connection = database::connect_sqlite_db(pool.clone()).await?;
-    let db = database::DbHandle::new(seaorm_connection);
+    let (db_connection, _) = database::connect(&config).await?;
+    let db = database::DbHandle::new(db_connection);
 
     let stg = storage::make_provider(config.storage.clone()).await;
     let url_maker = storage::UrlMaker::new(config.storage_url_maker.clone());

@@ -28,7 +28,7 @@
   - Ideally the illuminator should not know about DB internals or controller logic. Some
     external entity should monitor/poll the DB and enqueue into Illuminator.
 
-- [ ] Investigate whether possible to convert from SeaORM's DbErr into AppError automatically?
+- [X] Investigate whether possible to convert from SeaORM's DbErr into AppError automatically?
   - [added: 2025-12-28]
   - [resolved: 2026-01-10]
 
