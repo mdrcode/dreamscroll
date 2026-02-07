@@ -4,7 +4,7 @@ use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use tera::Tera;
 use tower_http::services::ServeDir;
-use tower_sessions::{MemoryStore, SessionManagerLayer};
+use tower_sessions::SessionManagerLayer;
 
 use crate::{api, auth};
 
@@ -15,17 +15,20 @@ pub struct WebState {
     pub tera: Tera,
 }
 
-pub fn make_ui_router(api_client: api::ApiClient) -> Router {
-    let tera = Tera::new("web/v1/templates/*.tera").expect("Failed to load templates");
-
-    let state = Arc::new(WebState { api_client, tera });
-
-    // Todo the session store should come externally from the "environment" and be part
-    // of Facility/ config, etc
-    let session_store = MemoryStore::default();
+pub fn make_ui_router<S>(
+    api_client: api::ApiClient,
+    session_store: S,
+    auth_backend: auth::WebAuthBackend,
+) -> Router
+where
+    S: tower_sessions::SessionStore + Clone,
+{
     let session_layer = SessionManagerLayer::new(session_store).with_secure(false); // TODO: Use secure cookies in production
-    let auth_backend = auth::WebAuthBackend::new(state.api_client.db.clone());
+
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
+
+    let tera = Tera::new("web/v1/templates/*.tera").expect("Failed to load templates");
+    let state = Arc::new(WebState { api_client, tera });
 
     let mut router = Router::new()
         .route("/login", get(login_page).post(login_handler))

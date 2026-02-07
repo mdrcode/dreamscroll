@@ -1,6 +1,7 @@
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
+use tower_sessions::MemoryStore;
 
 use dreamscroll::{api, auth, database, facility, illumination, rest, storage, webui};
 
@@ -23,13 +24,12 @@ async fn main() -> anyhow::Result<()> {
 
     let cancel_token = CancellationToken::new();
 
-    let web_host_port = config
-        .web_host_port
-        .expect("webui_host_port must be configured");
+    let session_store = MemoryStore::default();
+    let auth_backend = auth::WebAuthBackend::new(db.clone());
 
     let thread_webui = {
         // Web UI routes (Session-auth protected) + static JS/CSS serving
-        let mut router = webui::v1::make_ui_router(api_client.clone());
+        let mut router = webui::v1::make_ui_router(api_client.clone(), session_store, auth_backend);
 
         // REST API routes (JWT-protected)
         let api_router = rest::make_api_router(api_client.clone(), jwt.clone());
@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
         }
 
         let cancel = cancel_token.clone();
-        let host_port = format!("{}:{}", web_host_port.0, web_host_port.1);
+        let host_port = format!("0.0.0.0:{}", config.port);
         tokio::spawn(async move {
             let listener = TcpListener::bind(host_port).await.unwrap();
             axum::serve(listener, router)
@@ -52,10 +52,7 @@ async fn main() -> anyhow::Result<()> {
                 .expect("Failed to serve Web.");
         })
     };
-    println!(
-        "Web UI serving locally at http://localhost:{}",
-        web_host_port.1
-    );
+    println!("Web UI serving locally at http://localhost:{}", config.port);
 
     let illuminator_context = auth::Context::from_service_credentials(
         &jwt,
@@ -74,7 +71,7 @@ async fn main() -> anyhow::Result<()> {
         })
     };
 
-    let _ = webbrowser::open(&format!("http://localhost:{}", web_host_port.1));
+    let _ = webbrowser::open(&format!("http://localhost:{}", config.port));
 
     tokio::signal::ctrl_c().await?;
     println!("Shutting down...");

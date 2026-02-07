@@ -11,7 +11,7 @@ pub struct Config {
     pub storage: storage::StorageConfig,
     pub storage_url_maker: storage::UrlMakerConfig,
     pub jwt: auth::JwtConfig,
-    pub web_host_port: Option<(String, u16)>,
+    pub port: u16,
 }
 
 pub fn make_config(env: Env) -> Config {
@@ -50,7 +50,7 @@ pub fn make_config(env: Env) -> Config {
                 storage: storage::StorageConfig::GCloud(gcloud_emulator_storage),
                 storage_url_maker,
                 jwt,
-                web_host_port: Some(("0.0.0.0".to_string(), 8888)),
+                port: 8888,
             };
         }
 
