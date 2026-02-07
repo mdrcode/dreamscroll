@@ -41,8 +41,8 @@ async fn main() -> anyhow::Result<()> {
     let (db_connection, _) = database::connect(&config).await?;
     let db = database::DbHandle::new(db_connection);
 
-    let stg = storage::make_provider(config.storage.clone()).await;
-    let url_maker = storage::UrlMaker::new(config.storage_url_maker.clone());
+    let stg = storage::make_provider(&config).await;
+    let url_maker = storage::UrlMaker::new(&config);
     let api_client = api::ApiClient::new(db.clone(), stg.clone(), url_maker);
 
     let cmd_state = CmdState {

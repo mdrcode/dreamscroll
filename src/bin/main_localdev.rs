@@ -6,8 +6,8 @@ use dreamscroll::{api, auth, database, facility, illumination, rest, storage, we
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let _ = dotenvy::from_filename("secrets.env"); // gitignored
-    
+    dotenvy::from_filename("ds_config.env").ok();
+    let _ = dotenvy::from_filename("ds_secrets.env"); // gitignored for api keys
 
     let config = facility::make_config();
     facility::init_tracing(&config);
@@ -17,11 +17,15 @@ async fn main() -> anyhow::Result<()> {
 
     facility::check_first_users(&db).await?;
 
-    let stg = storage::make_provider(config.storage.clone()).await;
-    let url_maker = storage::UrlMaker::new(config.storage_url_maker.clone());
+    let stg = storage::make_provider(&config).await;
+    let url_maker = storage::UrlMaker::new(&config);
     let api_client = api::ApiClient::new(db.clone(), stg.clone(), url_maker);
 
-    let jwt = config.jwt;
+    let jwt_secret = config.jwt_secret.unwrap_or_else(|| {
+        tracing::warn!("JWT secret not set, using default for localdev. NOT FOR PROD!");
+        "dreamscroll-local-jwt-secret-not-for-prod".to_string()
+    });
+    let jwt = auth::JwtConfig::from_secret(jwt_secret.as_bytes());
 
     let cancel_token = CancellationToken::new();
 
@@ -35,13 +39,14 @@ async fn main() -> anyhow::Result<()> {
         let api_router = rest::make_api_router(api_client.clone(), jwt.clone());
         router = router.nest("/api", api_router);
 
-        // Check if the storage provider requires local web serving
-        if let Some(serving) = stg.local_web_serving() {
-            router = router.nest_service(&serving.web_path, ServeDir::new(serving.file_path));
-        }
+        // Web serving for media assets stored with the local storage provider
+        router = router.nest_service(
+            &config.storage_url_local_prefix,
+            ServeDir::new(&config.storage_local_path),
+        );
 
         let cancel = cancel_token.clone();
-        let host_port = format!("0.0.0.0:{}", config.port);
+        let host_port = format!("0.0.0.0:{}", config.web_port);
         tokio::spawn(async move {
             let listener = TcpListener::bind(host_port).await.unwrap();
             axum::serve(listener, router)
@@ -52,7 +57,10 @@ async fn main() -> anyhow::Result<()> {
                 .expect("Failed to serve Web.");
         })
     };
-    println!("Web UI serving locally at http://localhost:{}", config.port);
+    println!(
+        "Web UI serving locally at http://localhost:{}",
+        config.web_port
+    );
 
     let illuminator_context = auth::Context::from_service_credentials(
         &jwt,
@@ -71,7 +79,7 @@ async fn main() -> anyhow::Result<()> {
         })
     };
 
-    let _ = webbrowser::open(&format!("http://localhost:{}", config.port));
+    let _ = webbrowser::open(&format!("http://localhost:{}", config.web_port));
 
     tokio::signal::ctrl_c().await?;
     println!("Shutting down...");

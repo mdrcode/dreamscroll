@@ -7,6 +7,15 @@ pub use connect_sqlite::*;
 mod connect_postgres;
 pub use connect_postgres::*;
 
+use serde::Deserialize;
+
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "lowercase")]
+pub enum DbBackend {
+    Sqlite,
+    Postgres,
+}
+
 // Unclear if this is needed? Just a wrapper for now
 
 #[derive(Clone)]

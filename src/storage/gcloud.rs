@@ -8,45 +8,35 @@ use uuid::Uuid;
 
 use super::*;
 
-#[derive(Debug, Clone)]
-pub struct GCloudConfig {
-    /// Optional emulator endpoint (e.g., "http://localhost:4443")
-    /// If None, uses production GCS
-    pub emulator_endpoint: Option<String>,
-    /// The GCS bucket name (without the projects/_/buckets/ prefix)
-    pub bucket: String,
-}
-
 #[derive(Clone)]
 pub struct GCloudStorageProvider {
-    config: GCloudConfig,
-    client: Storage,
-    /// The bucket path in the format required by the API: "projects/_/buckets/{bucket}"
-    bucket_path: String,
+    bucket_name: String,
+    bucket_path: String, // format for the API: "projects/_/buckets/{bucket_name}"
+    gcloud_client: Storage,
 }
 
 impl GCloudStorageProvider {
-    pub async fn new(config: GCloudConfig) -> Self {
+    pub async fn new(emulator_endpoint: Option<String>, bucket_name: String) -> Self {
         let mut builder = Storage::builder();
 
         // Infer that we are using the emulator if .emulator_endpoint is set
-        if let Some(ref endpoint) = config.emulator_endpoint {
+        if let Some(endpoint) = emulator_endpoint {
             builder = builder
                 .with_endpoint(endpoint.clone())
                 .with_credentials(credentials::anonymous::Builder::default().build());
         }
 
-        let client = builder
+        let gcloud_client = builder
             .build()
             .await
             .expect("Failed to create GCloud Storage client");
 
-        let bucket_path = format!("projects/_/buckets/{}", config.bucket);
+        let bucket_path = format!("projects/_/buckets/{}", bucket_name);
 
         Self {
-            config,
-            client,
+            bucket_name,
             bucket_path,
+            gcloud_client,
         }
     }
 }
@@ -57,7 +47,7 @@ impl provider::StorageProvider for GCloudStorageProvider {
         let uuid = Uuid::new_v4().to_string();
         let bytes_data = Bytes::copy_from_slice(data);
 
-        self.client
+        self.gcloud_client
             .write_object(&self.bucket_path, &uuid, bytes_data)
             .send_buffered()
             .await
@@ -66,12 +56,12 @@ impl provider::StorageProvider for GCloudStorageProvider {
                 anyhow::anyhow!("Failed to store object in GCS: {}", e)
             })?;
 
-        tracing::debug!("Stored object {} in bucket {}", uuid, self.config.bucket);
+        tracing::debug!("Stored object {} in bucket {}", uuid, self.bucket_name);
         Ok(StorageIdentity {
             storage_provider: "gcloud".to_string(),
             provider_id: uuid,
             provider_shard: None,
-            provider_bucket: Some(self.config.bucket.clone()),
+            provider_bucket: Some(self.bucket_name.clone()),
         })
     }
 
@@ -81,12 +71,12 @@ impl provider::StorageProvider for GCloudStorageProvider {
         tracing::info!(
             "Storing from local path {:?} to GCS bucket {} as {}",
             path,
-            self.config.bucket,
+            self.bucket_name,
             uuid
         );
 
         let file = tokio::fs::File::open(path).await?;
-        self.client
+        self.gcloud_client
             .write_object(&self.bucket_path, &uuid, file)
             .send_unbuffered()
             .await
@@ -95,18 +85,18 @@ impl provider::StorageProvider for GCloudStorageProvider {
                 anyhow::anyhow!("GCS write error: {}", e)
             })?;
 
-        tracing::debug!("Stored object {} in bucket {}", uuid, self.config.bucket);
+        tracing::debug!("Stored object {} in bucket {}", uuid, self.bucket_name);
         Ok(StorageIdentity {
             storage_provider: "gcloud".to_string(),
             provider_id: uuid,
             provider_shard: None,
-            provider_bucket: Some(self.config.bucket.clone()),
+            provider_bucket: Some(self.bucket_name.clone()),
         })
     }
 
     async fn retrieve_bytes(&self, id: &StorageIdentity) -> anyhow::Result<Vec<u8>> {
         let mut reader = self
-            .client
+            .gcloud_client
             .read_object(&self.bucket_path, &id.provider_id)
             .send()
             .await
