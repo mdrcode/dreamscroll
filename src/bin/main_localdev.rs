@@ -1,7 +1,6 @@
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
-use tower_sessions::MemoryStore;
 
 use dreamscroll::{api, auth, database, facility, illumination, rest, storage, webui};
 
@@ -12,7 +11,11 @@ async fn main() -> anyhow::Result<()> {
     let config = facility::make_config(facility::Env::LocalDev);
     facility::init_tracing(&config);
 
-    let db = database::connect(config.database).await?;
+    let pool = database::create_sqlite_pool(&config.sqlite_url).await?;
+    let db_connection = database::connect_sqlite_db(pool.clone()).await?;
+    let session_store = database::connect_sqlite_session_store(pool.clone()).await?;
+
+    let db = database::DbHandle::new(db_connection);
 
     facility::check_first_users(&db).await?;
 
@@ -24,7 +27,6 @@ async fn main() -> anyhow::Result<()> {
 
     let cancel_token = CancellationToken::new();
 
-    let session_store = MemoryStore::default();
     let auth_backend = auth::WebAuthBackend::new(db.clone());
 
     let thread_webui = {

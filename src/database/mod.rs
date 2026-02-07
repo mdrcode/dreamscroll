@@ -1,5 +1,5 @@
 mod config;
-mod connect;
+pub use config::*;
 
-pub use config::{DbBackend, DbConfig, DbHandle};
-pub use connect::connect;
+mod connect;
+pub use connect::*;

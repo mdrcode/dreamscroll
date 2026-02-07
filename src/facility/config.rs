@@ -5,9 +5,9 @@ use crate::{auth, database, storage};
 use super::Env;
 
 pub struct Config {
+    pub sqlite_url: String,
     pub environment: Env,
     pub tracing_max_level: tracing::Level,
-    pub database: database::DbConfig,
     pub storage: storage::StorageConfig,
     pub storage_url_maker: storage::UrlMakerConfig,
     pub jwt: auth::JwtConfig,
@@ -17,9 +17,6 @@ pub struct Config {
 pub fn make_config(env: Env) -> Config {
     match env {
         Env::LocalDev => {
-            let database = database::DbConfig::SqliteFile {
-                path: "localdev/dreamscroll.db".to_string(),
-            };
             let local_storage = storage::LocalConfig {
                 storage_path: "localdev/local_storage_provider".to_string(),
                 web_path: "/media/".to_string(),
@@ -44,9 +41,9 @@ pub fn make_config(env: Env) -> Config {
                     )
                 });
             return Config {
+                sqlite_url: "localdev/dreamscroll.db".to_string(),
                 environment: Env::LocalDev,
                 tracing_max_level: tracing::Level::INFO,
-                database,
                 storage: storage::StorageConfig::GCloud(gcloud_emulator_storage),
                 storage_url_maker,
                 jwt,

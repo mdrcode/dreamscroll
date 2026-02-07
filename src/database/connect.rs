@@ -1,46 +1,50 @@
-use std::time::Duration;
+use anyhow;
+use sea_orm::{self, ConnectionTrait, DbErr, Statement};
+use sqlx;
 
-use sea_orm::{ConnectionTrait, Database, DbErr, Statement};
-use tracing::log::LevelFilter;
+pub async fn create_sqlite_pool(path: &str) -> anyhow::Result<sqlx::sqlite::SqlitePool> {
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(20)
+        .connect(&path)
+        .await
+        .map_err(|e| anyhow::anyhow!(e))?;
+    Ok(pool)
+}
 
-use super::config::{DbConfig, DbHandle};
-
-pub async fn connect(dbconfig: DbConfig) -> Result<DbHandle, DbErr> {
-    let mut options = sea_orm::ConnectOptions::new(dbconfig.to_url());
-
+pub async fn connect_sqlite_db(
+    pool: sqlx::sqlite::SqlitePool,
+) -> Result<sea_orm::DatabaseConnection, DbErr> {
+    // Unfortunately there is no way to paramterize the connection when binding a sqlx pool
     // sqlx logs all queries to INFO by default, so we set to DEBUG
-    options.sqlx_logging_level(LevelFilter::Debug);
-    options.sqlx_slow_statements_logging_settings(LevelFilter::Warn, Duration::from_secs(1));
+    //options.sqlx_logging_level(LevelFilter::Debug);
+    //options.sqlx_slow_statements_logging_settings(LevelFilter::Warn, Duration::from_secs(1));
 
-    let conn = Database::connect(options).await.map_err(|e| {
-        tracing::error!(
-            "Failed to connect to database at url: {}",
-            dbconfig.to_url()
-        );
-        if matches!(dbconfig, DbConfig::SqliteFile { .. }) {
-            tracing::warn!("When running in local dev, must run from the project root directory.");
-        }
-        e
-    })?;
+    let conn = sea_orm::SqlxSqliteConnector::from_sqlx_sqlite_pool(pool.clone());
 
-    if let DbConfig::SqliteFile { .. } = &dbconfig {
-        // Ensure UTF-8 encoding (must be set before table creation for new databases)
-        conn.execute_raw(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            "PRAGMA encoding = 'UTF-8';",
-        ))
-        .await?;
+    // Ensure UTF-8 encoding (must be set before table creation for new databases)
+    conn.execute_raw(Statement::from_string(
+        sea_orm::DatabaseBackend::Sqlite,
+        "PRAGMA encoding = 'UTF-8';",
+    ))
+    .await?;
 
-        conn.execute_raw(Statement::from_string(
-            sea_orm::DatabaseBackend::Sqlite,
-            "PRAGMA journal_mode=WAL;",
-        ))
-        .await?;
-    }
+    conn.execute_raw(Statement::from_string(
+        sea_orm::DatabaseBackend::Sqlite,
+        "PRAGMA journal_mode=WAL;",
+    ))
+    .await?;
 
     conn.get_schema_registry("dreamscroll::model::*")
         .sync(&conn)
         .await?;
 
-    Ok(DbHandle::new(conn, dbconfig))
+    Ok(conn)
+}
+
+pub async fn connect_sqlite_session_store(
+    pool: sqlx::SqlitePool,
+) -> anyhow::Result<tower_sessions_sqlx_store::SqliteStore> {
+    let store = tower_sessions_sqlx_store::SqliteStore::new(pool);
+    store.migrate().await?;
+    Ok(store)
 }
