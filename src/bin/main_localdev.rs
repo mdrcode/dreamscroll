@@ -6,6 +6,8 @@ use dreamscroll::{api, auth, database, facility, illumination, rest, storage, we
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let _ = dotenvy::from_filename("secrets.env"); // gitignored
+
     let config = facility::make_config(facility::Env::LocalDev);
     facility::init_tracing(&config);
 

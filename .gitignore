@@ -2,3 +2,4 @@
 /target
 /localdev/*
 !/localdev/readme.txt
+secrets.env

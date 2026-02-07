@@ -1,5 +1,41 @@
 # Dreamscroll Development Log
 
+## 2026-02-7
+
+Up next:
+
+- Use a proper backing SessionStore for Auth
+- Port the config structure over to envy and dotenvy
+- Get GCloud storage working end to end
+
+## 2026-02-06
+
+Over the past week, executed a massive refactor to make the API client stateful
+so that the DB and Storage handles could be encapsulated inside and hidden
+entirely from API clients. Similarly, this work allowed the json serialization
+to become stateful (parameterized) which was necessary to serialize different
+URLs depending on the different storage backends in use. Basically, the proper
+JSON expression became a function of dynamic details like storage provider.
+
+Additionally, integrated with the local Google Cloud Storage emulator (fsouza/
+fake-gcs-server) to verify Gloud auth working.
+
+Once this was up and running, spent several days registering a domain
+(dreamscroll.ai) and getting it hosted on Google Cloud, which took many
+iterations but now works!
+
+The app now runs successfully in GCloud but still uses "local" mechanisms like
+file-backed sqlite.
+
+The next step is to get it running in a fully "cloud-native" configuration like:
+
+- Use postgres in the cloud
+- Use prod GCloud storage (and possibly sign URLs)
+- Investigate using a more durable session store than just in-process-memory
+- Possibly this work will necessitate adopting a more flexible config solution
+   like dotenvy
+- Use Cloud Run instead of manually deploying and running on an unmanaged instance
+
 ## 2026-01-29
 
 Introduced a new auth concept of "service context" which is created from a

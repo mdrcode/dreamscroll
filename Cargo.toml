@@ -31,7 +31,9 @@ axum-login = "0.18.0"
 base64 = "0.21"
 blake3 = "1.8.2"
 chrono = { version = "0.4", features = ["serde"] }
+dotenvy = "0.15.7"
 dyn-clone = "1.0"
+envy = "0.4.2"
 google-cloud-auth = "1.5.0"
 google-cloud-storage = "1.7.0"
 jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
@@ -48,6 +50,6 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["fs"] }
 tower-sessions = "0.14.0"
 tracing = "0.1.44"
-tracing-subscriber = { version ="0.3.22", features = ["env-filter", "registry"]}
+tracing-subscriber = { version ="0.3.22", features = ["chrono", "env-filter", "registry"]}
 uuid = { version = "1.0", features = ["v4"] }
 webbrowser = "1.0.6"
