@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
 
     facility::init_tracing(&config);
 
-    let pool = database::create_sqlite_pool(&config.sqlite_url).await?;
+    let pool = database::create_sqlite_pool(&config.db_sqlite_url).await?;
     let seaorm_connection = database::connect_sqlite_db(pool.clone()).await?;
     let db = database::DbHandle::new(seaorm_connection);
 

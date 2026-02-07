@@ -1,11 +1,13 @@
 use tracing;
 
-use crate::{auth, database, storage};
+use crate::{auth, storage};
 
 use super::Env;
 
 pub struct Config {
-    pub sqlite_url: String,
+    pub db_backend: String,
+    pub db_sqlite_url: String,
+    pub db_postgres_url: String,
     pub environment: Env,
     pub tracing_max_level: tracing::Level,
     pub storage: storage::StorageConfig,
@@ -41,7 +43,9 @@ pub fn make_config(env: Env) -> Config {
                     )
                 });
             return Config {
-                sqlite_url: "localdev/dreamscroll.db".to_string(),
+                db_backend: "sqlite".to_string(),
+                db_sqlite_url: "sqlite://localdev/dreamscroll.db".to_string(),
+                db_postgres_url: "".to_string(),
                 environment: Env::LocalDev,
                 tracing_max_level: tracing::Level::INFO,
                 storage: storage::StorageConfig::GCloud(gcloud_emulator_storage),

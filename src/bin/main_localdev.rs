@@ -11,10 +11,7 @@ async fn main() -> anyhow::Result<()> {
     let config = facility::make_config(facility::Env::LocalDev);
     facility::init_tracing(&config);
 
-    let pool = database::create_sqlite_pool(&config.sqlite_url).await?;
-    let db_connection = database::connect_sqlite_db(pool.clone()).await?;
-    let session_store = database::connect_sqlite_session_store(pool.clone()).await?;
-
+    let (db_connection, session_store) = database::connect(&config).await?;
     let db = database::DbHandle::new(db_connection);
 
     facility::check_first_users(&db).await?;

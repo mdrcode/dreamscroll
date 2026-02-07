@@ -6,7 +6,7 @@ use tera::Tera;
 use tower_http::services::ServeDir;
 use tower_sessions::SessionManagerLayer;
 
-use crate::{api, auth};
+use crate::{api, auth, database};
 
 use super::*;
 
@@ -15,15 +15,12 @@ pub struct WebState {
     pub tera: Tera,
 }
 
-pub fn make_ui_router<S>(
+pub fn make_ui_router(
     api_client: api::ApiClient,
-    session_store: S,
+    session_store: auth::SessionStoreWrapper,
     auth_backend: auth::WebAuthBackend,
-) -> Router
-where
-    S: tower_sessions::SessionStore + Clone,
-{
-    let session_layer = SessionManagerLayer::new(session_store).with_secure(false); // TODO: Use secure cookies in production
+) -> Router {
+    let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
 
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 

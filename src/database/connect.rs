@@ -1,50 +1,27 @@
-use anyhow;
-use sea_orm::{self, ConnectionTrait, DbErr, Statement};
-use sqlx;
+use sea_orm;
 
-pub async fn create_sqlite_pool(path: &str) -> anyhow::Result<sqlx::sqlite::SqlitePool> {
-    let pool = sqlx::sqlite::SqlitePoolOptions::new()
-        .max_connections(20)
-        .connect(&path)
-        .await
-        .map_err(|e| anyhow::anyhow!(e))?;
-    Ok(pool)
-}
+use crate::auth;
 
-pub async fn connect_sqlite_db(
-    pool: sqlx::sqlite::SqlitePool,
-) -> Result<sea_orm::DatabaseConnection, DbErr> {
-    // Unfortunately there is no way to paramterize the connection when binding a sqlx pool
-    // sqlx logs all queries to INFO by default, so we set to DEBUG
-    //options.sqlx_logging_level(LevelFilter::Debug);
-    //options.sqlx_slow_statements_logging_settings(LevelFilter::Warn, Duration::from_secs(1));
+use super::*;
 
-    let conn = sea_orm::SqlxSqliteConnector::from_sqlx_sqlite_pool(pool.clone());
-
-    // Ensure UTF-8 encoding (must be set before table creation for new databases)
-    conn.execute_raw(Statement::from_string(
-        sea_orm::DatabaseBackend::Sqlite,
-        "PRAGMA encoding = 'UTF-8';",
-    ))
-    .await?;
-
-    conn.execute_raw(Statement::from_string(
-        sea_orm::DatabaseBackend::Sqlite,
-        "PRAGMA journal_mode=WAL;",
-    ))
-    .await?;
-
-    conn.get_schema_registry("dreamscroll::model::*")
-        .sync(&conn)
-        .await?;
-
-    Ok(conn)
-}
-
-pub async fn connect_sqlite_session_store(
-    pool: sqlx::SqlitePool,
-) -> anyhow::Result<tower_sessions_sqlx_store::SqliteStore> {
-    let store = tower_sessions_sqlx_store::SqliteStore::new(pool);
-    store.migrate().await?;
-    Ok(store)
+pub async fn connect(
+    config: &crate::facility::Config,
+) -> anyhow::Result<(sea_orm::DatabaseConnection, auth::SessionStoreWrapper)> {
+    match config.db_backend.as_str() {
+        "sqlite" => {
+            let pool = create_sqlite_pool(&config.db_sqlite_url).await?;
+            let db_connection = connect_sqlite_db(pool.clone()).await?;
+            let session_store = connect_sqlite_session_store(pool.clone()).await?;
+            Ok((db_connection, session_store))
+        }
+        "postgres" => {
+            let pool = create_postgres_pool(&config.db_postgres_url).await?;
+            let db_connection = connect_postgres_db(pool.clone()).await?;
+            let session_store = connect_postgres_session_store(pool.clone()).await?;
+            Ok((db_connection, session_store))
+        }
+        _ => {
+            unimplemented!("Unsupported database backend: {}", config.db_backend);
+        }
+    }
 }
