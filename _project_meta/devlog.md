@@ -5,8 +5,8 @@
 Up next:
 
 - [X] Use a proper backing SessionStore for Auth
-- Port the config structure over to envy and dotenvy
-- Get GCloud storage working end to end
+- [X] Port the config structure over to envy and dotenvy
+- [ ] Get GCloud storage working end to end
 
 ## 2026-02-06
 
