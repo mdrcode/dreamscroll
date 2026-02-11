@@ -68,6 +68,38 @@ impl InfoMaker {
         }
     }
 
+    pub fn make_knode_entity_info(
+        &self,
+        knode_model: model::knode::ModelEx,
+        capture: model::capture::ModelEx,
+    ) -> EntityInfo {
+        let capture_info = self.make_capture_info(capture);
+
+        EntityInfo::KNode {
+            id: knode_model.id,
+            name: knode_model.name,
+            description: knode_model.description,
+            k_type: knode_model.k_type,
+            capture: capture_info,
+        }
+    }
+
+    pub fn make_social_media_entity_info(
+        &self,
+        social_media_model: model::social_media::ModelEx,
+        capture: model::capture::ModelEx,
+    ) -> EntityInfo {
+        let capture_info = self.make_capture_info(capture);
+
+        EntityInfo::SocialMedia {
+            id: social_media_model.id,
+            display_name: social_media_model.display_name,
+            handle: social_media_model.handle,
+            platform: social_media_model.platform,
+            capture: capture_info,
+        }
+    }
+
     pub fn make_media_info(&self, media_model: model::media::ModelEx) -> MediaInfo {
         let storage_id = storage::StorageIdentity::from(&media_model);
 

@@ -1,6 +1,9 @@
 mod captureinfo;
 pub use captureinfo::CaptureInfo;
 
+mod entityinfo;
+pub use entityinfo::EntityInfo;
+
 mod illuminationinfo;
 pub use illuminationinfo::IlluminationInfo;
 

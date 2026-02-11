@@ -25,9 +25,7 @@ pub async fn entity_knode(
         user.id()
     );
 
-    let entity_info = api::fetch_knode(&state.api_client, &user.into(), id)
-        .await?
-        .ok_or_else(|| api::ApiError::not_found(anyhow!("KNode with id {} not found", id)))?;
+    let entity_info = state.api_client.get_knode(&user.into(), id).await?;
 
     render_entity(&state, entity_info)
 }
@@ -45,9 +43,7 @@ pub async fn entity_social_media(
         user.id()
     );
 
-    let entity_info = api::fetch_social_media(&state.api_client, &user.into(), id)
-        .await?
-        .ok_or_else(|| api::ApiError::not_found(anyhow!("SocialMedia with id {} not found", id)))?;
+    let entity_info = state.api_client.get_social_media(&user.into(), id).await?;
 
     render_entity(&state, entity_info)
 }
