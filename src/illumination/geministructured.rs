@@ -126,12 +126,8 @@ impl Illuminator for GeminiStructuredIlluminator {
     }
 
     /// Illuminates a capture and returns the structured response directly.
+    #[tracing::instrument(skip(self, capture), fields(capture_id = %capture.id))]
     async fn illuminate(&self, capture: &api::CaptureInfo) -> anyhow::Result<Illumination> {
-        tracing::info!(
-            "GeminiStructuredIlluminator: Illuminating capture ID {}",
-            capture.id
-        );
-
         let media1 = capture
             .medias
             .get(0)
@@ -142,7 +138,9 @@ impl Illuminator for GeminiStructuredIlluminator {
 
         let enc = base64::engine::general_purpose::STANDARD.encode(buffer);
         tracing::info!(
-            "GeminiStructuredIlluminator: media base64 bytes {}",
+            "GeminiStructuredIlluminator: capture {} media {} base64 bytes {}",
+            capture.id,
+            media1.id,
             enc.len()
         );
 
@@ -277,7 +275,8 @@ impl Illuminator for GeminiStructuredIlluminator {
                 .map_err(|e| anyhow::anyhow!("Failed to parse structured response: {}", e))?;
 
             tracing::info!(
-                "GeminiStructuredIlluminator: Successfully parsed structured response with {} entities, {} social media accounts, and {} suggested searches",
+                "GeminiStructuredIlluminator: Successfully parsed response for capture {} with {} entities, {} social media accounts, and {} suggested searches",
+                capture.id,
                 structured.entities.len(),
                 structured.social_media_accounts.len(),
                 structured.suggested_searches.len()
@@ -287,11 +286,17 @@ impl Illuminator for GeminiStructuredIlluminator {
         } else {
             let status_code = response.status();
             let error_text = response.text().await?;
-            Err(anyhow::anyhow!(
-                "API Error status {}: {}",
+            tracing::error!(
+                "GeminiStructuredIlluminator: API failed for capture {} with status {}, error text: {}",
+                capture.id,
                 status_code,
                 error_text
-            ))?
+            );
+            Err(anyhow::anyhow!(
+                "Gemini API Error status {}: {}",
+                status_code,
+                error_text
+            ))
         }
     }
 }

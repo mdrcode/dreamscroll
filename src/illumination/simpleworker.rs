@@ -73,7 +73,6 @@ impl SimpleWorkerThread {
 
         loop {
             if let Some(cap_id) = queue.pop_next() {
-                tracing::info!("Starting illumination for capture ID {}...", cap_id);
                 let fetch = service_api.get_captures(Some(vec![cap_id])).await?;
 
                 let Some(capture) = fetch.into_iter().next() else {
