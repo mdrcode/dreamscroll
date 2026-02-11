@@ -65,36 +65,26 @@ pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> 
     println!("Found {} captures to export.", capture_infos.len());
 
     let mut digest = FullDigest::new();
-    let mut total_media = 0;
 
     for capture in capture_infos {
-        let mut media_files = Vec::new();
-
-        for media in &capture.medias {
-            let storage_id = &media.storage_id;
-
-            // TODO: This assumes local storage - should use storage abstraction
-            let storage_path = PathBuf::from(format!("localdev/media/{}", storage_id));
-
-            if storage_path.exists() {
-                // Copy to export directory
-                let dest_path = export_dir.join(storage_id);
-                std::fs::copy(&storage_path, &dest_path)?;
-                media_files.push(storage_id.clone());
-                total_media += 1;
-            } else {
-                eprintln!(
-                    "Warning: Media file not found for capture {}: {}",
-                    capture.id,
-                    storage_path.display()
-                );
+        let media = match capture.medias.first() {
+            Some(m) => m,
+            None => {
+                eprintln!("Warning: Capture {} has no media, skipping", capture.id);
+                continue;
             }
-        }
+        };
+
+        let bytes = state.api_client.get_media_storage(media.clone()).await?;
+
+        // Copy to export directory
+        let dest_path = export_dir.join(&media.storage_id);
+        std::fs::write(&dest_path, bytes)?;
 
         digest.captures.push(CaptureDigestEntry {
             original_id: capture.id,
             created_at: capture.created_at,
-            media_files,
+            media_files: vec![media.storage_id.clone()],
         });
     }
 
@@ -103,11 +93,7 @@ pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> 
     let digest_json = serde_json::to_string_pretty(&digest)?;
     std::fs::write(&digest_path, &digest_json)?;
 
-    println!(
-        "Export complete: {} captures, {} media files.",
-        digest.captures.len(),
-        total_media
-    );
+    println!("Export complete: {} captures.", digest.captures.len(),);
     println!("Digest written to: {}", digest_path.display());
 
     Ok(())

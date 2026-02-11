@@ -28,10 +28,11 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    let args: Args = argh::from_env();
-
+    dotenvy::from_filename("ds_config.env").ok();
+    let _ = dotenvy::from_filename("ds_secrets.env"); // gitignored for api keys
     let mut config = facility::make_config();
 
+    let args: Args = argh::from_env();
     if args.verbose {
         config.tracing_max_level = tracing::Level::DEBUG;
     }
