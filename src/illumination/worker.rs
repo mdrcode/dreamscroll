@@ -1,4 +1,4 @@
-use crate::{api, auth};
+use crate::api;
 
 use super::{illuminator::*, simpleworker};
 
