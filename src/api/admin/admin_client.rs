@@ -4,7 +4,7 @@ use crate::{api::*, auth, database};
 
 pub struct AdminClient {
     db: database::DbHandle,
-    admin_context: auth::Context,
+    _admin_context: auth::Context,
 }
 
 impl AdminClient {
@@ -15,7 +15,10 @@ impl AdminClient {
             )));
         }
 
-        Ok(Self { db, admin_context })
+        Ok(Self {
+            db,
+            _admin_context: admin_context,
+        })
     }
 
     pub async fn create_user(

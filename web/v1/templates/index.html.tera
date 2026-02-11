@@ -212,36 +212,37 @@
                         <a href="#" class="capturelist-row-metadata-details-seemore">See More...</a>
                     </div>
                     {% endif %}
-                {% endif %}
 
-                {% if capture.k_nodes | length > 0 %}
-                <div class="capturelist-row-entities">
-                    {% for node in capture.k_nodes %}
-                    <a href="/entity/knode/{{ node.id }}" class="capturelist-entity" title="{{ node.description }}">
-                        <div class="capturelist-entity-type">{{ node.k_type }}</div>
-                        <div class="capturelist-entity-name">{{ node.name }}</div>
-                    </a>
-                    {% endfor %}
-                </div>
-                {% endif %}
+                    {% if illum.k_nodes | length > 0 %}
+                    <div class="capturelist-row-entities">
+                        {% for node in illum.k_nodes %}
+                        <a href="/entity/knode/{{ node.id }}" class="capturelist-entity" title="{{ node.description }}">
+                            <div class="capturelist-entity-type">{{ node.k_type }}</div>
+                            <div class="capturelist-entity-name">{{ node.name }}</div>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
 
-                {% if capture.social_medias | length > 0 %}
-                <div class="capturelist-row-entities">
-                    {% for node in capture.social_medias %}
-                    <a href="/entity/social/{{ node.id }}" class="capturelist-entity" title="{{ node.handle }}">
-                        <div class="capturelist-entity-type">{{ node.platform }}</div>
-                        <div class="capturelist-entity-name">{{ node.display_name }}</div>
-                    </a>
-                    {% endfor %}
-                </div>
-                {% endif %}
+                    {% if illum.social_medias | length > 0 %}
+                    <div class="capturelist-row-entities">
+                        {% for node in illum.social_medias %}
+                        <a href="/entity/social/{{ node.id }}" class="capturelist-entity" title="{{ node.handle }}">
+                            <div class="capturelist-entity-type">{{ node.platform }}</div>
+                            <div class="capturelist-entity-name">{{ node.display_name }}</div>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
 
-                {% if capture.x_queries | length > 0 %}
-                <div class="capturelist-row-queries">
-                    {% for query in capture.x_queries %}
-                    <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="capturelist-query-pill">{{ query }}</a>
-                    {% endfor %}
-                </div>
+                    {% if illum.x_queries | length > 0 %}
+                    <div class="capturelist-row-queries">
+                        {% for query in illum.x_queries %}
+                        <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="capturelist-query-pill">{{ query }}</a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
                 {% endif %}
 
             </div>

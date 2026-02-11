@@ -43,6 +43,20 @@ impl InfoMaker {
         }
     }
 
+    pub fn make_media_info(&self, media_model: model::media::ModelEx) -> MediaInfo {
+        let storage_id = storage::StorageIdentity::from(&media_model);
+
+        MediaInfo {
+            id: media_model.id,
+            url: self.url_maker.make_url(&storage_id),
+
+            storage_provider: media_model.storage_provider,
+            storage_bucket: media_model.storage_bucket,
+            storage_shard: media_model.storage_shard,
+            storage_id: media_model.storage_id,
+        }
+    }
+
     pub fn make_illumination_info(
         &self,
         illumination_model: model::illumination::ModelEx,
@@ -105,20 +119,6 @@ impl InfoMaker {
             handle: social_media_model.handle,
             platform: social_media_model.platform,
             capture: capture_info,
-        }
-    }
-
-    pub fn make_media_info(&self, media_model: model::media::ModelEx) -> MediaInfo {
-        let storage_id = storage::StorageIdentity::from(&media_model);
-
-        MediaInfo {
-            id: media_model.id,
-            url: self.url_maker.make_url(&storage_id),
-
-            storage_provider: media_model.storage_provider,
-            storage_bucket: media_model.storage_bucket,
-            storage_shard: media_model.storage_shard,
-            storage_id: media_model.storage_id,
         }
     }
 }
