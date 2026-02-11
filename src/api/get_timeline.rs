@@ -12,9 +12,9 @@ pub async fn get_timeline(
         .order_by(model::capture::Column::CreatedAt, sea_orm::Order::Desc)
         .with(model::media::Entity)
         .with(model::illumination::Entity)
-        .with(model::xquery::Entity)
-        .with(model::knode::Entity)
-        .with(model::social_media::Entity)
+        .with((model::illumination::Entity, model::xquery::Entity))
+        .with((model::illumination::Entity, model::knode::Entity))
+        .with((model::illumination::Entity, model::social_media::Entity))
         .all(&db.conn)
         .await?;
 

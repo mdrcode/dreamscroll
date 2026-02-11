@@ -10,6 +10,8 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub user_id: i32,
+
+    // not set automatically for import use case (may revisit)
     pub created_at: DateTime<Utc>,
 
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
@@ -20,18 +22,6 @@ pub struct Model {
 
     #[sea_orm(has_many)]
     pub illuminations: HasMany<illumination::Entity>,
-
-    #[sea_orm(has_many)]
-    pub xqueries: HasMany<xquery::Entity>,
-
-    #[sea_orm(has_many)]
-    pub knodes: HasMany<knode::Entity>,
-
-    #[sea_orm(has_many)]
-    pub social_medias: HasMany<social_media::Entity>,
-
-    #[sea_orm(has_one)]
-    pub search_index: HasOne<search_index::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use crate::model;
+use super::*;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct IlluminationInfo {
@@ -8,15 +8,7 @@ pub struct IlluminationInfo {
     pub capture_id: i32,
     pub summary: String,
     pub details: String,
-}
-
-impl From<model::illumination::ModelEx> for IlluminationInfo {
-    fn from(m: model::illumination::ModelEx) -> Self {
-        Self {
-            id: m.id,
-            capture_id: m.capture_id,
-            summary: m.summary,
-            details: m.details,
-        }
-    }
+    pub x_queries: Vec<String>,
+    pub k_nodes: Vec<KNodeInfo>,
+    pub social_medias: Vec<SocialMediaInfo>,
 }

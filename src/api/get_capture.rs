@@ -9,13 +9,8 @@ pub async fn get_captures(
     context: &auth::Context,
     ids: Option<Vec<i32>>,
 ) -> Result<Vec<model::capture::ModelEx>, api::ApiError> {
-    let mut loader = model::capture::Entity::load();
-
-    // For user contexts, restrict to their own captures
-    // TODO admin override?
-    if context.is_user() {
-        loader = loader.filter(model::capture::Column::UserId.eq(context.user_id()));
-    }
+    let mut loader =
+        model::capture::Entity::load().filter(model::capture::Column::UserId.eq(context.user_id()));
 
     if let Some(ids) = &ids {
         loader = loader.filter(model::capture::Column::Id.is_in(ids.clone()));
@@ -24,9 +19,9 @@ pub async fn get_captures(
     let loader = loader
         .with(model::media::Entity)
         .with(model::illumination::Entity)
-        .with(model::xquery::Entity)
-        .with(model::knode::Entity)
-        .with(model::social_media::Entity)
+        .with((model::illumination::Entity, model::xquery::Entity))
+        .with((model::illumination::Entity, model::knode::Entity))
+        .with((model::illumination::Entity, model::social_media::Entity))
         .all(&db.conn)
         .await?;
 
@@ -54,22 +49,4 @@ pub async fn get_captures_need_illum(
         .await?;
 
     Ok(capture_ids)
-}
-
-pub async fn get_captures_need_search_idx(
-    db: &DbHandle,
-    user_context: &auth::Context,
-) -> Result<Vec<i32>, api::ApiError> {
-    let captures_without_index = model::capture::Entity::find()
-        .filter(model::capture::Column::UserId.eq(user_context.user_id()))
-        .left_join(model::search_index::Entity)
-        .filter(model::search_index::Column::Id.is_null())
-        .column(model::capture::Column::Id)
-        .all(&db.conn)
-        .await?
-        .into_iter()
-        .map(|model| model.id)
-        .collect::<Vec<i32>>();
-
-    Ok(captures_without_index)
 }

@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use crate::model;
+use crate::{api, model};
 
 use super::*;
 
@@ -14,56 +14,29 @@ pub async fn run(state: CmdState, _args: BackfillSearchArgs) -> anyhow::Result<(
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
     let user_context = user.into();
 
-    // Fetch captures without a corresponding search_index
-    let ids_without_index = state
+    // Fetch illuminations without a corresponding search index
+    let iids_without_search = state
         .api_client
-        .get_captures_need_search_idx(&user_context)
+        .get_illumination_ids_need_search(&user_context)
         .await?;
 
-    let capture_infos = state
+    let iinfos = state
         .api_client
-        .get_captures(&user_context, Some(ids_without_index))
+        .get_illuminations(&user_context, iids_without_search)
         .await?;
-    let nci = capture_infos.len();
-    println!("Found {} captures missing search indexes", nci);
+    let nci = iinfos.len();
+    println!("Found {} illuminations missing search indexes", nci);
 
     let mut count = 0;
-    for capture_info in capture_infos {
+    for i in iinfos {
         // An insult to search indexes everywhere, but it'll do for now
-        let raw_content_for_search = format!(
-            "{} {} {} {} {}",
-            capture_info
-                .illuminations
-                .first()
-                .map(|i| &i.summary)
-                .unwrap_or(&"".to_string()),
-            capture_info
-                .illuminations
-                .first()
-                .map(|i| &i.details)
-                .unwrap_or(&"".to_string()),
-            capture_info
-                .k_nodes
-                .into_iter()
-                .map(|e| e.name)
-                .collect::<Vec<String>>()
-                .join(" "),
-            capture_info
-                .x_queries
-                .into_iter()
-                .collect::<Vec<String>>()
-                .join(" "),
-            capture_info
-                .social_medias
-                .into_iter()
-                .map(|s| s.display_name)
-                .collect::<Vec<String>>()
-                .join(" ")
-        );
+
+        let raw_content_for_search = format_for_search(&i);
 
         model::search_index::ActiveModel::builder()
             .set_user_id(user_context.user_id())
-            .set_capture_id(capture_info.id)
+            .set_capture_id(i.capture_id)
+            .set_illumination_id(i.id)
             .set_content(raw_content_for_search)
             .save(&state.db.conn)
             .await?;
@@ -73,4 +46,24 @@ pub async fn run(state: CmdState, _args: BackfillSearchArgs) -> anyhow::Result<(
     println!("Backfilled search indexes for {}/{} captures", count, nci);
 
     Ok(())
+}
+
+fn format_for_search(i: &api::IlluminationInfo) -> String {
+    // lol, a naive approach for now
+    format!(
+        "{} {} {} {} {}",
+        i.summary,
+        i.details,
+        i.k_nodes
+            .iter()
+            .map(|e| e.name.clone())
+            .collect::<Vec<String>>()
+            .join(" "),
+        i.x_queries.join(" "),
+        i.social_medias
+            .iter()
+            .map(|sm| format!("{} {}", sm.display_name, sm.handle))
+            .collect::<Vec<String>>()
+            .join(" ")
+    )
 }

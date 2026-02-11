@@ -51,11 +51,25 @@ impl ApiClient {
     }
 
     #[tracing::instrument(skip(self, context))]
-    pub async fn get_captures_need_search_idx(
+    pub async fn get_illuminations(
+        &self,
+        context: &auth::Context,
+        illumination_ids: Vec<i32>,
+    ) -> Result<Vec<schema::IlluminationInfo>, ApiError> {
+        let illuminations = super::get_illuminations(&self.db, context, illumination_ids).await?;
+
+        Ok(illuminations
+            .into_iter()
+            .map(|m| self.info_maker.make_illumination_info(m))
+            .collect())
+    }
+
+    #[tracing::instrument(skip(self, context))]
+    pub async fn get_illumination_ids_need_search(
         &self,
         context: &auth::Context,
     ) -> Result<Vec<i32>, ApiError> {
-        super::get_captures_need_search_idx(&self.db, context).await
+        super::get_illumination_ids_need_search(&self.db, context).await
     }
 
     #[tracing::instrument(skip(self, context))]

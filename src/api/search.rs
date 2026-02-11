@@ -1,4 +1,4 @@
-use sea_orm::{EntityLoaderTrait, EntityTrait, QuerySelect, prelude::*};
+use sea_orm::{EntityTrait, QuerySelect, prelude::*};
 
 use crate::{api, auth, database::DbHandle, model};
 
@@ -11,27 +11,27 @@ pub async fn search_by_illuminations(
         return Ok(vec![]);
     }
 
-    let capture_ids_with_match = model::search_index::Entity::find()
+    let iids_matching = model::search_index::Entity::find()
         .filter(model::search_index::Column::UserId.eq(user_context.user_id()))
         .filter(model::search_index::Column::Content.contains(query))
-        .column(model::search_index::Column::CaptureId)
+        .column(model::search_index::Column::IlluminationId)
         .distinct()
         .all(&db.conn)
         .await?
         .into_iter()
-        .map(|si| si.capture_id)
+        .map(|si| si.illumination_id)
         .collect::<Vec<i32>>();
 
-    let captures = model::capture::Entity::load()
-        .filter(model::capture::Column::Id.is_in(capture_ids_with_match))
-        .order_by_id_desc()
-        .with(model::media::Entity)
-        .with(model::illumination::Entity)
-        .with(model::xquery::Entity)
-        .with(model::knode::Entity)
-        .with(model::social_media::Entity)
+    let capture_ids = model::illumination::Entity::find()
+        .filter(model::illumination::Column::Id.is_in(iids_matching.clone()))
+        .column(model::illumination::Column::CaptureId)
         .all(&db.conn)
-        .await?;
+        .await?
+        .into_iter()
+        .map(|illum| illum.capture_id)
+        .collect::<Vec<i32>>();
+
+    let captures = super::get_captures(&db, user_context, Some(capture_ids)).await?;
 
     Ok(captures)
 }

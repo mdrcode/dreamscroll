@@ -11,9 +11,7 @@ pub struct CaptureInfo {
     pub created_at: DateTime<Utc>,
     pub medias: Vec<MediaInfo>,
     pub illuminations: Vec<IlluminationInfo>,
-    pub x_queries: Vec<String>,
-    pub k_nodes: Vec<KNodeInfo>,
-    pub social_medias: Vec<SocialMediaInfo>,
+
 }
 
 

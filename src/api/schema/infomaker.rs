@@ -30,29 +30,7 @@ impl InfoMaker {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(models) => models
                 .into_iter()
-                .map(|m| IlluminationInfo::from(m))
-                .collect(),
-        };
-
-        let x_queries = match capture_model.xqueries {
-            sea_orm::prelude::HasMany::Unloaded => vec![],
-            sea_orm::prelude::HasMany::Loaded(models) => {
-                models.into_iter().map(|m| m.query).collect()
-            }
-        };
-
-        let k_nodes = match capture_model.knodes {
-            sea_orm::prelude::HasMany::Unloaded => vec![],
-            sea_orm::prelude::HasMany::Loaded(models) => {
-                models.into_iter().map(|m| KNodeInfo::from(m)).collect()
-            }
-        };
-
-        let social_medias = match capture_model.social_medias {
-            sea_orm::prelude::HasMany::Unloaded => vec![],
-            sea_orm::prelude::HasMany::Loaded(models) => models
-                .into_iter()
-                .map(|m| SocialMediaInfo::from(m))
+                .map(|m| self.make_illumination_info(m))
                 .collect(),
         };
 
@@ -62,6 +40,36 @@ impl InfoMaker {
             created_at: capture_model.created_at,
             medias,
             illuminations,
+        }
+    }
+
+    pub fn make_illumination_info(
+        &self,
+        illumination_model: model::illumination::ModelEx,
+    ) -> IlluminationInfo {
+        let x_queries = match illumination_model.xqueries {
+            HasMany::Unloaded => vec![],
+            HasMany::Loaded(models) => models.into_iter().map(|m| m.query).collect(),
+        };
+
+        let k_nodes = match illumination_model.knodes {
+            HasMany::Unloaded => vec![],
+            HasMany::Loaded(models) => models.into_iter().map(|m| KNodeInfo::from(m)).collect(),
+        };
+
+        let social_medias = match illumination_model.social_medias {
+            HasMany::Unloaded => vec![],
+            HasMany::Loaded(models) => models
+                .into_iter()
+                .map(|m| SocialMediaInfo::from(m))
+                .collect(),
+        };
+
+        IlluminationInfo {
+            id: illumination_model.id,
+            capture_id: illumination_model.capture_id,
+            summary: illumination_model.summary,
+            details: illumination_model.details,
             x_queries,
             k_nodes,
             social_medias,
