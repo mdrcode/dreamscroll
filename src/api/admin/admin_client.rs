@@ -2,12 +2,12 @@ use anyhow::anyhow;
 
 use crate::{api::*, auth, database};
 
-pub struct AdminClient {
+pub struct AdminApiClient {
     db: database::DbHandle,
     _admin_context: auth::Context,
 }
 
-impl AdminClient {
+impl AdminApiClient {
     pub fn new(db: database::DbHandle, admin_context: auth::Context) -> Result<Self, ApiError> {
         if !admin_context.is_admin() {
             return Err(ApiError::forbidden(anyhow!(

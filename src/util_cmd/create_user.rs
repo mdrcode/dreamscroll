@@ -22,7 +22,7 @@ pub async fn run(state: CmdState, _args: CreateUserArgs) -> anyhow::Result<()> {
     if !admin_user.is_admin() {
         return Err(anyhow::anyhow!("Only admin users can create new users"));
     }
-    let admin_client = api::AdminClient::new(state.db.clone(), admin_user.into())?;
+    let admin_client = api::AdminApiClient::new(state.db.clone(), admin_user.into())?;
 
     println!("Enter username for new user:");
     let mut username = String::new();

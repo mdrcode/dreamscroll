@@ -1,8 +1,7 @@
-use crate::{api::*, auth, database::DbHandle, illumination::*, model};
+use crate::{api::*, database::DbHandle, illumination::*, model};
 
 pub async fn insert_illumination(
     db: &DbHandle,
-    _context: &auth::Context,
     capture: &CaptureInfo,
     illumination: Illumination,
 ) -> Result<(), ApiError> {

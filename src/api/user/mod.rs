@@ -16,8 +16,5 @@ pub use get_timeline::*;
 mod insert_capture;
 pub use insert_capture::*;
 
-mod insert_illumination;
-pub use insert_illumination::*;
-
 mod search;
 pub use search::*;

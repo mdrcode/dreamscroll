@@ -8,9 +8,8 @@ pub trait IlluminatorWorker: Send + Sync {
 }
 
 pub fn make_worker(
-    user_api: api::UserApiClient,
-    context: auth::Context,
+    service_api: api::ServiceApiClient,
     ill: Box<dyn Illuminator>,
 ) -> Box<dyn IlluminatorWorker> {
-    Box::new(simpleworker::SimpleWorker::new(user_api, context, ill))
+    Box::new(simpleworker::SimpleWorker::new(service_api, ill))
 }

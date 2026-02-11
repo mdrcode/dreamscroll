@@ -36,9 +36,15 @@ pub async fn connect_sqlite_db(
     ))
     .await?;
 
-    conn.get_schema_registry("dreamscroll::model::*")
+    let result = conn
+        .get_schema_registry("dreamscroll::model::*")
         .sync(&conn)
-        .await?;
+        .await;
+
+    if let Err(e) = result {
+        tracing::error!("Error syncing schema registry: {:?}", e);
+        return Err(e);
+    }
 
     Ok(conn)
 }

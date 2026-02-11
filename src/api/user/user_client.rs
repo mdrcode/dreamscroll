@@ -39,14 +39,6 @@ impl UserApiClient {
     }
 
     #[tracing::instrument(skip(self, context))]
-    pub async fn get_captures_need_illum(
-        &self,
-        context: &auth::Context,
-    ) -> Result<Vec<i32>, ApiError> {
-        super::get_captures_need_illum(&self.db, context).await
-    }
-
-    #[tracing::instrument(skip(self, context))]
     pub async fn get_illuminations(
         &self,
         context: &auth::Context,
@@ -112,16 +104,6 @@ impl UserApiClient {
         let capture_model = super::insert_capture(&self.db, context, media1).await?;
 
         Ok(self.info_maker.make_capture_info(capture_model))
-    }
-
-    #[tracing::instrument(skip(self, context, capture, illumination))]
-    pub async fn insert_illumination(
-        &self,
-        context: &auth::Context,
-        capture: &schema::CaptureInfo, // TODO could this just take capture id?
-        illumination: illumination::Illumination,
-    ) -> Result<(), ApiError> {
-        super::insert_illumination(&self.db, context, capture, illumination).await
     }
 
     #[tracing::instrument(skip(self, context))]

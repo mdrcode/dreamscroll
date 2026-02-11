@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker);
+    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone());
 
     let jwt_secret = config.jwt_secret.unwrap_or_else(|| {
         tracing::warn!("JWT secret not set, using default for localdev. NOT FOR PROD!");
@@ -62,14 +62,10 @@ async fn main() -> anyhow::Result<()> {
         config.web_port
     );
 
-    let illuminator_context = auth::Context::from_service_credentials(
-        &jwt,
-        // For local dev, there are no true secrets, so just create token on the fly
-        jwt.create_service_token("illuminator_worker")?,
-    )?;
+    let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
     let thread_illuminator = {
         let gemini = illumination::make_illuminator("geministructured", stg.clone());
-        let worker = illumination::make_worker(user_api.clone(), illuminator_context, gemini);
+        let worker = illumination::make_worker(service_api, gemini);
         let cancel = cancel_token.clone();
         tokio::spawn(async move {
             tokio::select! {
