@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{api, auth};
 
-use super::ApiState;
+use super::RestState;
 
 /// Request body for token generation.
 #[derive(Debug, Deserialize)]
@@ -54,11 +54,11 @@ pub struct TokenResponse {
 /// On failure: HTTP 401 Unauthorized
 #[tracing::instrument(skip(state, request), fields(username = %request.username))]
 pub async fn post(
-    State(state): State<Arc<ApiState>>,
+    State(state): State<Arc<RestState>>,
     Json(request): Json<TokenRequest>,
 ) -> Result<impl IntoResponse, api::ApiError> {
     let auth_user =
-        auth::password::verify(&state.api_client.db, &request.username, &request.password).await;
+        auth::password::verify(&state.user_api.db, &request.username, &request.password).await;
 
     // If authentication fails, return unauthorized error
     let auth_user = match auth_user {

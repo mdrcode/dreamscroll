@@ -16,12 +16,12 @@ pub async fn run(state: CmdState, _args: BackfillSearchArgs) -> anyhow::Result<(
 
     // Fetch illuminations without a corresponding search index
     let iids_without_search = state
-        .api_client
+        .user_api
         .get_illumination_ids_need_search(&user_context)
         .await?;
 
     let iinfos = state
-        .api_client
+        .user_api
         .get_illuminations(&user_context, iids_without_search)
         .await?;
     let nci = iinfos.len();

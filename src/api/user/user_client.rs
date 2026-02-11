@@ -1,20 +1,16 @@
-use chrono::Utc;
-
-use crate::{auth, database, illumination, storage};
-
-use super::{ApiError, import, schema};
+use crate::{api::*, auth, database, illumination, storage};
 
 #[derive(Clone)]
-pub struct ApiClient {
+pub struct UserApiClient {
     // TODO hack this is currently public for auth verification in rest/r_token.rs
     pub db: database::DbHandle,
 
     // TODO hack this is public for r_upload.rs, fix later
     pub storage: Box<dyn storage::StorageProvider>,
-    info_maker: schema::InfoMaker,
+    info_maker: InfoMaker,
 }
 
-impl ApiClient {
+impl UserApiClient {
     pub fn new(
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
@@ -32,7 +28,7 @@ impl ApiClient {
         &self,
         context: &auth::Context,
         ids: Option<Vec<i32>>,
-    ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
+    ) -> Result<Vec<CaptureInfo>, ApiError> {
         let captures = super::get_captures(&self.db, context, ids).await;
 
         // TODO probably more efficient way here?
@@ -140,22 +136,5 @@ impl ApiClient {
             .into_iter()
             .map(|m| self.info_maker.make_capture_info(m))
             .collect())
-    }
-
-    // TODO will move this to its own ImportClient facade later
-    #[tracing::instrument(skip(self, context, media1, created_at))]
-    pub async fn import_capture(
-        &self,
-        context: &auth::Context,
-        media1: storage::StorageIdentity,
-        created_at: chrono::DateTime<Utc>,
-    ) -> Result<schema::CaptureInfo, ApiError> {
-        let capture_model = import::import_capture(&self.db, context, media1, created_at).await?;
-        Ok(self.info_maker.make_capture_info(capture_model))
-    }
-
-    #[tracing::instrument(skip(self, media))]
-    pub async fn get_media_storage(&self, media: schema::MediaInfo) -> Result<Vec<u8>, ApiError> {
-        super::get_media_bytes(&self.storage, media).await
     }
 }

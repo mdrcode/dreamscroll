@@ -39,7 +39,6 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
     );
 
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
-    let user_context = user.into();
 
     let mut imported_captures = 0;
 
@@ -59,7 +58,9 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
 
         let storage_id = state.stg.store_from_local_path(&media_path).await?;
 
-        api::import::import_capture(&state.db, &user_context, storage_id, entry.created_at)
+        state
+            .import_api
+            .import_capture(user.user_id(), storage_id, entry.created_at)
             .await
             .map_err(|e| {
                 anyhow::anyhow!(

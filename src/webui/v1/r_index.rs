@@ -20,7 +20,7 @@ pub async fn index(
     let user = auth.user.unwrap();
     tracing::debug!("Rendering index for user ID {}", user.id());
 
-    let capture_infos = state.api_client.get_timeline(&user.into()).await?;
+    let capture_infos = state.user_api.get_timeline(&user.into()).await?;
     let mut context = Context::new();
     context.insert("capture_infos", &capture_infos);
 

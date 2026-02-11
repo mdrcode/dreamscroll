@@ -36,15 +36,15 @@ pub async fn run(state: CmdState, args: EvalArgs) -> anyhow::Result<()> {
     );
 
     let mut fetch = state
-        .api_client
+        .user_api
         .get_captures(&user.into(), Some(vec![capture_id]))
         .await
         .map_err(|_| anyhow!("Capture with ID {} not found in database.", capture_id))?;
     let capture_info = fetch.remove(0);
     tracing::info!("Fetched capture {} from db.", capture_info.id);
 
-    let illuminator_a = make_illuminator(&args.illuminator_a, state.api_client.clone());
-    let illuminator_b = make_illuminator(&args.illuminator_b, state.api_client.clone());
+    let illuminator_a = make_illuminator(&args.illuminator_a, state.stg.clone());
+    let illuminator_b = make_illuminator(&args.illuminator_b, state.stg.clone());
 
     tracing::info!("Running illumination with '{}'...", args.illuminator_a);
     let result_a = illuminator_a.illuminate(&capture_info).await?;

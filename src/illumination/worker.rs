@@ -1,4 +1,3 @@
-
 use crate::{api, auth};
 
 use super::{illuminator::*, simpleworker};
@@ -9,9 +8,9 @@ pub trait IlluminatorWorker: Send + Sync {
 }
 
 pub fn make_worker(
-    api_client: api::ApiClient,
+    user_api: api::UserApiClient,
     context: auth::Context,
     ill: Box<dyn Illuminator>,
 ) -> Box<dyn IlluminatorWorker> {
-    Box::new(simpleworker::SimpleWorker::new(api_client, context, ill))
+    Box::new(simpleworker::SimpleWorker::new(user_api, context, ill))
 }

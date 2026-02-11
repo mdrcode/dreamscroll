@@ -1,19 +1,14 @@
 use anyhow::anyhow;
 use sea_orm::prelude::*;
 
-use crate::{
-    api::{self, ApiError},
-    auth,
-    database::DbHandle,
-    model,
-};
+use crate::{api::*, auth, database::DbHandle, model};
 
 /// Fetch a KNode entity by ID along with its associated capture
 pub async fn get_knode(
     db: &DbHandle,
     context: &auth::Context,
     knode_id: i32,
-) -> Result<(model::knode::ModelEx, model::capture::ModelEx), api::ApiError> {
+) -> Result<(model::knode::ModelEx, model::capture::ModelEx), ApiError> {
     let knode = model::knode::Entity::find_by_id(knode_id)
         .one(&db.conn)
         .await?;
@@ -42,7 +37,7 @@ pub async fn get_social_media(
     db: &DbHandle,
     context: &auth::Context,
     social_media_id: i32,
-) -> Result<(model::social_media::ModelEx, model::capture::ModelEx), api::ApiError> {
+) -> Result<(model::social_media::ModelEx, model::capture::ModelEx), ApiError> {
     let social_media = model::social_media::Entity::find_by_id(social_media_id)
         .one(&db.conn)
         .await?;

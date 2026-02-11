@@ -15,14 +15,12 @@ pub mod loremipsum;
 
 pub fn make_illuminator(
     model_name: &str,
-    api_client: crate::api::ApiClient,
+    storage: Box<dyn crate::storage::StorageProvider>,
 ) -> Box<dyn Illuminator> {
     match model_name {
         "grok" => Box::new(grok::GrokIlluminator::default()),
         "gemini" => Box::new(gemini::GeminiIlluminator::default()),
-        "geministructured" => Box::new(geministructured::GeminiStructuredIlluminator::mew(
-            api_client,
-        )),
+        "geministructured" => Box::new(geministructured::GeminiStructuredIlluminator::new(storage)),
         "loremipsum" => Box::new(loremipsum::LoremIpsumIlluminator::default()),
         other => panic!(
             "Unknown illuminator model '{}'. Supported: grok, gemini, geministructured, loremipsum.",

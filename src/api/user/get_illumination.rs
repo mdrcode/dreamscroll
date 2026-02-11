@@ -1,13 +1,13 @@
 use sea_orm::prelude::*;
 use sea_orm::{EntityTrait, QuerySelect};
 
-use crate::{api, auth, database::DbHandle, model};
+use crate::{api::*, auth, database::DbHandle, model};
 
 pub async fn get_illuminations(
     db: &DbHandle,
     context: &auth::Context,
     illumination_ids: Vec<i32>,
-) -> Result<Vec<model::illumination::ModelEx>, api::ApiError> {
+) -> Result<Vec<model::illumination::ModelEx>, ApiError> {
     let loader = model::illumination::Entity::load()
         .filter(model::illumination::Column::UserId.eq(context.user_id()))
         .filter(model::illumination::Column::Id.is_in(illumination_ids.clone()));
@@ -26,7 +26,7 @@ pub async fn get_illuminations(
 pub async fn get_illumination_ids_need_search(
     db: &DbHandle,
     user_context: &auth::Context,
-) -> Result<Vec<i32>, api::ApiError> {
+) -> Result<Vec<i32>, ApiError> {
     let ids = model::illumination::Entity::find()
         .filter(model::illumination::Column::UserId.eq(user_context.user_id()))
         .left_join(model::search_index::Entity)

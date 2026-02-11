@@ -5,18 +5,10 @@ use crate::{api, auth, database::DbHandle, model};
 
 pub async fn create_user(
     db: &DbHandle,
-    context: &auth::Context,
     username: String,
     password: String,
     email: String,
 ) -> anyhow::Result<api::UserInfo, api::ApiError> {
-    // Only allow admin users to create new users
-    if !context.is_admin() {
-        return Err(api::ApiError::forbidden(anyhow!(
-            "Only admin users can create new users"
-        )));
-    }
-
     // Check if already exists
     let existing_user = model::user::Entity::find_by_username(username.clone())
         .one(&db.conn)

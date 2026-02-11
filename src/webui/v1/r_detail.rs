@@ -22,7 +22,7 @@ pub async fn detail(
     tracing::debug!("Rendering detail for capture {} for user {}", id, user.id());
 
     let fetch = state
-        .api_client
+        .user_api
         .get_captures(&user.into(), Some(vec![id]))
         .await?;
 

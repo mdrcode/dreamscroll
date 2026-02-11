@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let api_client = api::ApiClient::new(db.clone(), stg.clone(), url_maker);
+    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker);
 
     let jwt_secret = config.jwt_secret.unwrap_or_else(|| {
         tracing::warn!("JWT secret not set, using default for localdev. NOT FOR PROD!");
@@ -33,10 +33,10 @@ async fn main() -> anyhow::Result<()> {
 
     let thread_webui = {
         // Web UI routes (Session-auth protected) + static JS/CSS serving
-        let mut router = webui::v1::make_ui_router(api_client.clone(), session_store, auth_backend);
+        let mut router = webui::v1::make_ui_router(user_api.clone(), session_store, auth_backend);
 
         // REST API routes (JWT-protected)
-        let api_router = rest::make_api_router(api_client.clone(), jwt.clone());
+        let api_router = rest::make_api_router(user_api.clone(), jwt.clone());
         router = router.nest("/api", api_router);
 
         // Web serving for media assets stored with the local storage provider
@@ -68,8 +68,8 @@ async fn main() -> anyhow::Result<()> {
         jwt.create_service_token("illuminator_worker")?,
     )?;
     let thread_illuminator = {
-        let gemini = illumination::make_illuminator("geministructured", api_client.clone());
-        let worker = illumination::make_worker(api_client.clone(), illuminator_context, gemini);
+        let gemini = illumination::make_illuminator("geministructured", stg.clone());
+        let worker = illumination::make_worker(user_api.clone(), illuminator_context, gemini);
         let cancel = cancel_token.clone();
         tokio::spawn(async move {
             tokio::select! {

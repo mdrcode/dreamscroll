@@ -1,13 +1,13 @@
 use chrono::Utc;
 use sea_orm::TryIntoModel;
 
-use crate::{api, auth, database::DbHandle, model, storage};
+use crate::{api::*, auth, database::DbHandle, model, storage};
 
 pub async fn insert_capture(
     db: &DbHandle,
     user_context: &auth::Context,
     media1: storage::StorageIdentity,
-) -> Result<model::capture::ModelEx, api::ApiError> {
+) -> Result<model::capture::ModelEx, ApiError> {
     let media = model::media::ActiveModelEx::from(media1);
 
     let active_model = model::capture::ActiveModel::builder()

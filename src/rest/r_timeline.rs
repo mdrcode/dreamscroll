@@ -4,7 +4,7 @@ use axum::{Json, extract::State, response::IntoResponse};
 
 use crate::{api, auth};
 
-use super::ApiState;
+use super::RestState;
 
 /// GET /api/timeline - Fetch all captures for the user's timeline
 ///
@@ -15,9 +15,9 @@ use super::ApiState;
 #[tracing::instrument(skip(user, state), fields(user_id = %user.user_id()))]
 pub async fn get(
     user: auth::DreamscrollAuthUser,
-    State(state): State<Arc<ApiState>>,
+    State(state): State<Arc<RestState>>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let capture_infos = state.api_client.get_timeline(&user.into()).await?;
+    let capture_infos = state.user_api.get_timeline(&user.into()).await?;
     tracing::info!(count = capture_infos.len(), "Fetched timeline captures");
     Ok(Json(capture_infos))
 }

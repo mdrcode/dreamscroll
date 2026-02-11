@@ -37,13 +37,13 @@ pub async fn upload(
     }
 
     let storage_id = state
-        .api_client
+        .user_api
         .storage
         .store_from_bytes(&media_bytes)
         .await?;
 
     state
-        .api_client
+        .user_api
         .insert_capture(&user.into(), storage_id)
         .await?;
 

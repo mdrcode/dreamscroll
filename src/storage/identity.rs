@@ -1,4 +1,4 @@
-use crate::{model, storage};
+use crate::{api, model, storage};
 
 #[derive(Debug, Clone)]
 pub struct StorageIdentity {
@@ -31,6 +31,17 @@ impl From<storage::StorageIdentity> for model::media::ActiveModelEx {
 
 impl From<&model::media::ModelEx> for StorageIdentity {
     fn from(media: &model::media::ModelEx) -> Self {
+        StorageIdentity {
+            storage_provider: media.storage_provider.clone(),
+            provider_bucket: media.storage_bucket.clone(),
+            provider_shard: media.storage_shard.clone(),
+            provider_id: media.storage_id.clone(),
+        }
+    }
+}
+
+impl From<&api::MediaInfo> for StorageIdentity {
+    fn from(media: &api::MediaInfo) -> Self {
         StorageIdentity {
             storage_provider: media.storage_provider.clone(),
             provider_bucket: media.storage_bucket.clone(),

@@ -31,7 +31,7 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::api;
+use crate::{api, storage};
 
 use super::*;
 
@@ -105,16 +105,16 @@ unique username, while the display name is what appears as the profile name.
 #[derive(Clone)]
 pub struct GeminiStructuredIlluminator {
     gemini_api_key: String,
-    dreamscroll_api: api::ApiClient,
+    storage: Box<dyn storage::StorageProvider>,
 }
 
 impl GeminiStructuredIlluminator {
-    pub fn mew(api_client: api::ApiClient) -> Self {
+    pub fn new(storage: Box<dyn storage::StorageProvider>) -> Self {
         let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not found in env.");
 
         GeminiStructuredIlluminator {
             gemini_api_key: api_key,
-            dreamscroll_api: api_client,
+            storage,
         }
     }
 }
@@ -137,10 +137,8 @@ impl Illuminator for GeminiStructuredIlluminator {
             .get(0)
             .ok_or_else(|| anyhow::anyhow!("Capture has no media"))?;
 
-        let buffer = self
-            .dreamscroll_api
-            .get_media_storage(media1.clone())
-            .await?;
+        let storage_handle = storage::StorageIdentity::from(media1);
+        let buffer = self.storage.retrieve_bytes(&storage_handle).await?;
 
         let enc = base64::engine::general_purpose::STANDARD.encode(buffer);
         tracing::info!(

@@ -4,6 +4,8 @@ use argh::FromArgs;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::storage;
+
 use super::*;
 
 #[derive(FromArgs)]
@@ -60,7 +62,7 @@ pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> 
     println!("Created export directory: {}", export_dir.display());
 
     // Fetch all capture_infos from API for this user
-    let capture_infos = state.api_client.get_captures(&user.into(), None).await?;
+    let capture_infos = state.user_api.get_captures(&user.into(), None).await?;
 
     println!("Found {} captures to export.", capture_infos.len());
 
@@ -75,7 +77,8 @@ pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> 
             }
         };
 
-        let bytes = state.api_client.get_media_storage(media.clone()).await?;
+        let storage_handle = storage::StorageIdentity::from(media);
+        let bytes = state.stg.retrieve_bytes(&storage_handle).await?;
 
         // Copy to export directory
         let dest_path = export_dir.join(&media.storage_id);

@@ -1,11 +1,11 @@
-use crate::{api, auth, database::DbHandle, illumination::*, model};
+use crate::{api::*, auth, database::DbHandle, illumination::*, model};
 
 pub async fn insert_illumination(
     db: &DbHandle,
     _context: &auth::Context,
-    capture: &api::CaptureInfo,
+    capture: &CaptureInfo,
     illumination: Illumination,
-) -> Result<(), api::ApiError> {
+) -> Result<(), ApiError> {
     let mut builder = model::illumination::ActiveModel::builder()
         .set_capture_id(capture.id)
         .set_summary(&illumination.summary)

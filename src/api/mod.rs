@@ -1,38 +1,16 @@
-pub mod admin;
-pub mod import;
-
-// Core concepts: client, errors, and schema
-mod client;
-pub use client::*;
-
 mod apierror;
 pub use apierror::*;
 
 mod schema;
 pub use schema::*;
 
-// API implementations
+mod admin;
+pub use admin::AdminClient;
 
-mod get_capture;
-pub use get_capture::*;
+mod import;
+pub use import::ImportApiClient;
 
-mod get_entity;
-pub use get_entity::*;
+mod service;
 
-mod get_illumination;
-pub use get_illumination::*;
-
-mod get_timeline;
-pub use get_timeline::*;
-
-mod insert_capture;
-pub use insert_capture::*;
-
-mod insert_illumination;
-pub use insert_illumination::*;
-
-mod search;
-pub use search::*;
-
-mod storage;
-pub use storage::*;
+mod user;
+pub use user::UserApiClient;

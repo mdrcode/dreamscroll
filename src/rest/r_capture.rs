@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::{api, auth::DreamscrollAuthUser};
 
-use super::ApiState;
+use super::RestState;
 
 #[derive(Debug, Deserialize)]
 pub struct CaptureQuery {
@@ -31,7 +31,7 @@ pub struct CaptureQuery {
 #[tracing::instrument(skip(user, state))]
 pub async fn get(
     user: DreamscrollAuthUser,
-    State(state): State<Arc<ApiState>>,
+    State(state): State<Arc<RestState>>,
     Query(query): Query<CaptureQuery>,
 ) -> Result<impl IntoResponse, api::ApiError> {
     let ids = if query.id.is_empty() {
@@ -40,7 +40,7 @@ pub async fn get(
         Some(query.id)
     };
 
-    let capture_infos = state.api_client.get_captures(&user.into(), ids).await?;
+    let capture_infos = state.user_api.get_captures(&user.into(), ids).await?;
 
     Ok(Json(capture_infos))
 }

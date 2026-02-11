@@ -7,7 +7,7 @@ use crate::{
     auth::{Context, DreamscrollAuthUser},
 };
 
-use super::ApiState;
+use super::RestState;
 
 /// GET /api/dummy - A simple authenticated endpoint for testing.
 ///
@@ -15,7 +15,7 @@ use super::ApiState;
 /// Returns information about the authenticated user.
 pub async fn get(
     user: DreamscrollAuthUser,
-    State(_state): State<Arc<ApiState>>,
+    State(_state): State<Arc<RestState>>,
 ) -> Result<impl IntoResponse, api::ApiError> {
     // Convert the JWT user to a Context for business logic
     let user_context = Context::from(user);

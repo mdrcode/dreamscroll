@@ -25,7 +25,7 @@ pub async fn entity_knode(
         user.id()
     );
 
-    let entity_info = state.api_client.get_knode(&user.into(), id).await?;
+    let entity_info = state.user_api.get_knode(&user.into(), id).await?;
 
     render_entity(&state, entity_info)
 }
@@ -43,7 +43,7 @@ pub async fn entity_social_media(
         user.id()
     );
 
-    let entity_info = state.api_client.get_social_media(&user.into(), id).await?;
+    let entity_info = state.user_api.get_social_media(&user.into(), id).await?;
 
     render_entity(&state, entity_info)
 }

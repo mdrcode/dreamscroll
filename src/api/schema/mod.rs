@@ -1,3 +1,8 @@
+// Stateful serializer
+mod infomaker;
+pub use infomaker::InfoMaker;
+
+// Serializable schema types
 mod captureinfo;
 pub use captureinfo::CaptureInfo;
 
@@ -6,9 +11,6 @@ pub use entityinfo::EntityInfo;
 
 mod illuminationinfo;
 pub use illuminationinfo::IlluminationInfo;
-
-mod infomaker;
-pub use infomaker::InfoMaker;
 
 mod knodeinfo;
 pub use knodeinfo::KNodeInfo;

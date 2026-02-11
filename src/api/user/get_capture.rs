@@ -2,13 +2,13 @@ use anyhow::anyhow;
 use sea_orm::prelude::*;
 use sea_orm::{EntityTrait, QueryOrder, QuerySelect};
 
-use crate::{api, auth, database::DbHandle, model};
+use crate::{api::*, auth, database::DbHandle, model};
 
 pub async fn get_captures(
     db: &DbHandle,
     context: &auth::Context,
     ids: Option<Vec<i32>>,
-) -> Result<Vec<model::capture::ModelEx>, api::ApiError> {
+) -> Result<Vec<model::capture::ModelEx>, ApiError> {
     let mut loader =
         model::capture::Entity::load().filter(model::capture::Column::UserId.eq(context.user_id()));
 
@@ -31,9 +31,9 @@ pub async fn get_captures(
 pub async fn get_captures_need_illum(
     db: &DbHandle,
     context: &auth::Context,
-) -> Result<Vec<i32>, api::ApiError> {
+) -> Result<Vec<i32>, ApiError> {
     if !context.is_service() {
-        return Err(api::ApiError::unauthorized(anyhow!(
+        return Err(ApiError::unauthorized(anyhow!(
             "only service contexts can fetch captures needing illumination"
         )));
     }

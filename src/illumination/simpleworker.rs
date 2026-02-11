@@ -5,7 +5,7 @@ use crate::{api, auth, common};
 use super::*;
 
 pub struct SimpleWorker {
-    api_client: api::ApiClient,
+    user_api: api::UserApiClient,
     context: auth::Context,
     queue: Arc<common::OneShotQueue<i32>>,
     illuminator: Box<dyn Illuminator>,
@@ -14,7 +14,7 @@ pub struct SimpleWorker {
 impl Clone for SimpleWorker {
     fn clone(&self) -> Self {
         Self {
-            api_client: self.api_client.clone(),
+            user_api: self.user_api.clone(),
             context: self.context.clone(),
             queue: Arc::clone(&self.queue),
             illuminator: dyn_clone::clone(&self.illuminator),
@@ -24,12 +24,12 @@ impl Clone for SimpleWorker {
 
 impl SimpleWorker {
     pub fn new(
-        api_client: api::ApiClient,
+        user_api: api::UserApiClient,
         context: auth::Context,
         illuminator: Box<dyn Illuminator>,
     ) -> Self {
         Self {
-            api_client,
+            user_api,
             context,
             queue: Arc::new(common::OneShotQueue::new()),
             illuminator,
@@ -49,10 +49,7 @@ impl IlluminatorWorker for SimpleWorker {
         });
 
         loop {
-            let ids = self
-                .api_client
-                .get_captures_need_illum(&self.context)
-                .await?;
+            let ids = self.user_api.get_captures_need_illum(&self.context).await?;
             let n = ids.len();
             let nq = self.queue.enqueue_iter(ids);
 
@@ -77,7 +74,7 @@ struct SimpleWorkerThread {
 impl SimpleWorkerThread {
     // note this consumes self
     async fn run(self) -> anyhow::Result<(), api::ApiError> {
-        let api = &self.parent_arc.api_client;
+        let api = &self.parent_arc.user_api;
         let context = &self.parent_arc.context;
         let queue = &self.parent_arc.queue;
         let illuminator = &self.parent_arc.illuminator;

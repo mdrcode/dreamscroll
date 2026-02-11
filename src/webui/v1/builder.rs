@@ -11,12 +11,12 @@ use crate::{api, auth};
 use super::*;
 
 pub struct WebState {
-    pub api_client: api::ApiClient,
+    pub user_api: api::UserApiClient,
     pub tera: Tera,
 }
 
 pub fn make_ui_router(
-    api_client: api::ApiClient,
+    user_api: api::UserApiClient,
     session_store: auth::SessionStoreWrapper,
     auth_backend: auth::WebAuthBackend,
 ) -> Router {
@@ -25,7 +25,7 @@ pub fn make_ui_router(
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 
     let tera = Tera::new("web/v1/templates/*.tera").expect("Failed to load templates");
-    let state = Arc::new(WebState { api_client, tera });
+    let state = Arc::new(WebState { user_api, tera });
 
     let mut router = Router::new()
         .route("/login", get(login_page).post(login_handler))

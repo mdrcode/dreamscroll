@@ -12,7 +12,8 @@ pub mod import_digest;
 mod auth_helper;
 
 pub struct CmdState {
-    pub api_client: crate::api::ApiClient,
+    pub user_api: crate::api::UserApiClient,
+    pub import_api: crate::api::ImportApiClient,
     pub db: crate::database::DbHandle,
     pub stg: Box<dyn crate::storage::StorageProvider>,
 }

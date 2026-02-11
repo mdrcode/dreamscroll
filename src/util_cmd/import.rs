@@ -41,7 +41,7 @@ pub async fn run(state: CmdState, args: ImportArgs) -> anyhow::Result<()> {
         let storage_id = state.stg.store_from_local_path(&path).await?;
 
         let capture_info = state
-            .api_client
+            .user_api
             .insert_capture(&user_context, storage_id.clone())
             .await?;
 

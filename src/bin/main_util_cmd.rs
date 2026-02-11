@@ -44,10 +44,12 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let api_client = api::ApiClient::new(db.clone(), stg.clone(), url_maker);
+    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone());
+    let import_api = api::ImportApiClient::new(db.clone(), stg.clone(), url_maker.clone());
 
     let cmd_state = CmdState {
-        api_client,
+        user_api,
+        import_api,
         db,
         stg: stg,
     };
