@@ -9,7 +9,7 @@ use crate::{
 };
 
 /// Fetch a KNode entity by ID along with its associated capture
-pub async fn fetch_knode(
+pub async fn get_knode(
     db: &DbHandle,
     context: &auth::Context,
     knode_id: i32,
@@ -38,7 +38,7 @@ pub async fn fetch_knode(
 }
 
 /// Fetch a SocialMedia entity by ID along with its associated capture
-pub async fn fetch_social_media(
+pub async fn get_social_media(
     db: &DbHandle,
     context: &auth::Context,
     social_media_id: i32,

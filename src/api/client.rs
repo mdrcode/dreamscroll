@@ -64,7 +64,7 @@ impl ApiClient {
         context: &auth::Context,
         knode_id: i32,
     ) -> Result<schema::EntityInfo, ApiError> {
-        let (knode, capture) = super::fetch_knode(&self.db, context, knode_id).await?;
+        let (knode, capture) = super::get_knode(&self.db, context, knode_id).await?;
 
         Ok(self.info_maker.make_knode_entity_info(knode, capture))
     }
@@ -75,7 +75,7 @@ impl ApiClient {
         context: &auth::Context,
         social_media_id: i32,
     ) -> Result<schema::EntityInfo, ApiError> {
-        let (sm, capture) = super::fetch_social_media(&self.db, context, social_media_id).await?;
+        let (sm, capture) = super::get_social_media(&self.db, context, social_media_id).await?;
 
         Ok(self.info_maker.make_social_media_entity_info(sm, capture))
     }
