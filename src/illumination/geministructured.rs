@@ -110,6 +110,7 @@ pub struct GeminiStructuredIlluminator {
 
 impl GeminiStructuredIlluminator {
     pub fn new(storage: Box<dyn storage::StorageProvider>) -> Self {
+        // TODO this should come from config
         let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not found in env.");
 
         GeminiStructuredIlluminator {

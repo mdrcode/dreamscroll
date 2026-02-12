@@ -8,7 +8,7 @@ mod context;
 pub use context::Context;
 
 mod jwt;
-pub use jwt::{JwtAxumLayer, JwtConfig, JwtServiceClaims, JwtUserClaims};
+pub use jwt::{JwtAxumLayer, JwtConfig, JwtUserClaims};
 
 pub mod password;
 

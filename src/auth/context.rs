@@ -1,88 +1,31 @@
 use super::*;
 
 /// Security context for business logic which is agnostic to the authentication
-/// mechanism (session-based, JWT, etc.). The ultimate (aspirational) goal is
-/// that this type encapsulates both the identity and authorization information
-/// about the user. So if an administrator wants to perform some action on
-/// behalf of another user (i.e. authorized impersonation), the context would
-/// reflect both the admin's authority and the target user's identity.
+/// mechanism (session-based, JWT, etc.).
 ///
-/// Context instances can ONLY be created via:
-/// - `From<DreamscrollAuthUser>` for user-based authentication
-/// - `from_service_credentials()` for service-to-service authentication
-///
+/// Context instances can ONLY be created via `From<DreamscrollAuthUser>`
 /// Direct construction of variants is prevented by private inner types.
 #[derive(Debug, Clone)]
-#[allow(private_interfaces)]
-pub enum Context {
-    User(UserInner),
-    Service(ServiceInner),
+pub struct Context {
+    user: DreamscrollAuthUser,
 }
 
-/// Private wrapper for user context data.
-/// Prevents direct construction of `Context::User(...)`.
-#[derive(Debug, Clone)]
-struct UserInner(DreamscrollAuthUser);
-
-/// Private wrapper for service context data.
-/// Prevents direct construction of `Context::Service(...)`.
-#[derive(Debug, Clone)]
-struct ServiceInner(String);
-
 impl Context {
-    /// Validates the service token and returns a `Context::Service` if successful.
-    ///
-    /// # Returns
-    ///
-    /// A `Context::Service` with the verified service name, or an error if validation fails.
-    pub fn from_service_credentials(
-        jwt_config: &JwtConfig,
-        token: String,
-    ) -> Result<Self, AuthError> {
-        let service_name = jwt_config
-            .decode_service_token(&token)
-            .map(|claims| claims.service_name)
-            .inspect_err(|e| tracing::warn!("Service token verification failed: {}", e))?;
-        Ok(Context::Service(ServiceInner(service_name)))
-    }
-
-    /// Returns true if this is a user context.
-    pub fn is_user(&self) -> bool {
-        matches!(self, Context::User(_))
-    }
-
-    /// Returns true if this is a service context.
-    pub fn is_service(&self) -> bool {
-        matches!(self, Context::Service(_))
-    }
-
     pub fn is_admin(&self) -> bool {
-        match self {
-            Context::User(user_inner) => user_inner.0.is_admin(),
-            Context::Service(_) => true,
-        }
+        self.user.is_admin()
     }
 
     pub fn user_id(&self) -> i32 {
-        match self {
-            Context::User(user_inner) => user_inner.0.user_id(),
-            Context::Service(_) => 0, // System user ID
-        }
-    }
-
-    /// Returns the service name if this is a service context.
-    pub fn service_name(&self) -> Option<&str> {
-        match self {
-            Context::User(_) => None,
-            Context::Service(svc_ctx) => Some(&svc_ctx.0),
-        }
+        self.user.user_id()
     }
 }
 
-/// Converts a `DreamscrollAuthUser` into a `Context::User`.
+/// Converts a `DreamscrollAuthUser` into a `Context::User`. This is the
+/// only way to create a `Context`, ensuring that all necessary information is
+/// properly encapsulated and a context is always associated with a valid user.
 impl From<DreamscrollAuthUser> for Context {
     fn from(user: DreamscrollAuthUser) -> Self {
-        Context::User(UserInner(user))
+        Context { user }
     }
 }
 
@@ -133,85 +76,5 @@ mod tests {
 
         let debug_str = format!("{:?}", context);
         assert!(debug_str.contains("User"));
-    }
-
-    // ========================================================================
-    // Service Context Tests
-    // ========================================================================
-
-    #[test]
-    fn test_service_context_has_system_user_id() {
-        let config = JwtConfig::from_secret(b"test-secret-32-bytes-minimum!!!");
-        let token = config
-            .create_service_token("illuminator")
-            .expect("should create service token");
-        let context =
-            Context::from_service_credentials(&config, token).expect("should create context");
-
-        assert_eq!(context.user_id(), 0);
-    }
-
-    #[test]
-    fn test_service_context_is_admin() {
-        let config = JwtConfig::from_secret(b"test-secret-32-bytes-minimum!!!");
-        let token = config
-            .create_service_token("scheduler")
-            .expect("should create service token");
-        let context =
-            Context::from_service_credentials(&config, token).expect("should create context");
-
-        assert!(context.is_admin());
-    }
-
-    #[test]
-    fn test_service_context_is_debuggable() {
-        let config = JwtConfig::from_secret(b"test-secret-32-bytes-minimum!!!");
-        let token = config
-            .create_service_token("notifier")
-            .expect("should create service token");
-        let context =
-            Context::from_service_credentials(&config, token).expect("should create context");
-
-        let debug_str = format!("{:?}", context);
-        assert!(debug_str.contains("Service"));
-        assert!(debug_str.contains("notifier"));
-    }
-
-    #[test]
-    fn test_service_context_from_valid_credentials() {
-        let config = JwtConfig::from_secret(b"test-secret-32-bytes-minimum!!!");
-        let token = config
-            .create_service_token("illuminator")
-            .expect("should create service token");
-
-        let ctx = Context::from_service_credentials(&config, token)
-            .expect("should create service context");
-
-        assert_eq!(ctx.service_name(), Some("illuminator"));
-        assert!(ctx.is_service());
-        assert!(!ctx.is_user());
-    }
-
-    #[test]
-    fn test_service_context_from_invalid_credentials_fails() {
-        let config = JwtConfig::from_secret(b"test-secret-32-bytes-minimum!!!");
-        let token = "invalid.garbage.token".to_string();
-
-        let result = Context::from_service_credentials(&config, token);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_service_context_from_wrong_secret_fails() {
-        let config1 = JwtConfig::from_secret(b"secret-one-at-least-32-bytes!!!");
-        let config2 = JwtConfig::from_secret(b"secret-two-at-least-32-bytes!!!");
-
-        let token = config1
-            .create_service_token("scheduler")
-            .expect("should create service token");
-
-        // Try to verify with a different secret
-        let result = Context::from_service_credentials(&config2, token);
-        assert!(result.is_err());
     }
 }

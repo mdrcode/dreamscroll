@@ -3,7 +3,6 @@
 //! This module provides:
 //! - `JwtConfig`: Configuration for JWT encoding/decoding (keys, expiration)
 //! - `JwtUserClaims`: Claims describing the authenticated user in the token
-//! - `JwtServiceClaims`: Claims for service-to-service authentication tokens
 //! - `FromRequestParts` implementation for extracting and validating JWTs in
 //!   Axum and converting to `DreamscrollAuthUser`
 //! - `JwtAxumLayer`: Support for adding JWT config to Axum request extensions
@@ -15,7 +14,7 @@
 //!
 //! ```ignore
 //! async fn protected_route(user: DreamscrollAuthUser) -> impl IntoResponse {
-//!     let context = auth::Context::from(&user);
+//!     let context = auth::Context::from(user);
 //!     // ... use context for business logic
 //! }
 //! ```
@@ -35,7 +34,6 @@ use serde::{Deserialize, Serialize};
 use super::{AuthError, DreamscrollAuthUser};
 
 const DEFAULT_JWT_USER_EXPIRATION_SECS: u64 = 24 * 60 * 60;
-const DEFAULT_JWT_SERVICE_EXPIRATION_SECS: u64 = 7 * 24 * 60 * 60;
 
 /// Configuration for JWT token generation and validation.
 ///
@@ -45,7 +43,7 @@ const DEFAULT_JWT_SERVICE_EXPIRATION_SECS: u64 = 7 * 24 * 60 * 60;
 /// # Example
 ///
 /// ```ignore
-/// let config = JwtConfig::from_secret(b"your-secret-key");
+/// let config = JwtConfig::from_secret(b"your-secret-key-at-least-32-bytes");
 /// let token = config.create_user_token(user_id)?;
 /// ```
 #[derive(Clone)]
@@ -54,8 +52,6 @@ pub struct JwtConfig {
     decoding_key: DecodingKey,
     /// User token expiration duration in seconds
     user_expiration_secs: u64,
-    /// Service token expiration duration in seconds
-    service_expiration_secs: u64,
     /// Leeway for token expiration validation (seconds)
     leeway: u64,
 }
@@ -70,27 +66,16 @@ impl JwtConfig {
     ///
     /// * `secret` - The secret key bytes. Should be at least 32 bytes for security.
     pub fn from_secret(secret: &[u8]) -> Self {
+        assert!(
+            secret.len() >= 32,
+            "JWT secret should be at least 32 bytes for security"
+        );
         Self {
             encoding_key: EncodingKey::from_secret(secret),
             decoding_key: DecodingKey::from_secret(secret),
             user_expiration_secs: DEFAULT_JWT_USER_EXPIRATION_SECS,
-            service_expiration_secs: DEFAULT_JWT_SERVICE_EXPIRATION_SECS,
             leeway: 0,
         }
-    }
-
-    /// Creates a new JWT configuration from an environment variable.
-    ///
-    /// Reads the secret from the specified environment variable.
-    /// Panics if the variable is not set (fail-fast for configuration errors).
-    ///
-    /// # Arguments
-    ///
-    /// * `env_var` - The name of the environment variable containing the secret.
-    pub fn from_env(env_var: &str) -> Self {
-        let secret = std::env::var(env_var)
-            .unwrap_or_else(|_| panic!("{env_var} environment variable must be set"));
-        Self::from_secret(secret.as_bytes())
     }
 
     /// Sets a custom expiration duration for user tokens.
@@ -102,18 +87,6 @@ impl JwtConfig {
     /// * `secs` - The expiration duration in seconds.
     pub fn with_user_expiration_secs(mut self, secs: u64) -> Self {
         self.user_expiration_secs = secs;
-        self
-    }
-
-    /// Sets a custom expiration duration for service tokens.
-    ///
-    /// This is a builder method that returns self for chaining.
-    ///
-    /// # Arguments
-    ///
-    /// * `secs` - The expiration duration in seconds.
-    pub fn with_service_expiration_secs(mut self, secs: u64) -> Self {
-        self.service_expiration_secs = secs;
         self
     }
 
@@ -133,11 +106,6 @@ impl JwtConfig {
     /// Returns the configured user token expiration duration in seconds.
     pub fn user_expiration_secs(&self) -> u64 {
         self.user_expiration_secs
-    }
-
-    /// Returns the configured service token expiration duration in seconds.
-    pub fn service_expiration_secs(&self) -> u64 {
-        self.service_expiration_secs
     }
 
     /// Creates a JWT token for the given user ID.
@@ -168,50 +136,12 @@ impl JwtConfig {
     /// The decoded claims, or an error if validation fails.
     pub fn decode_user_token(&self, token: &str) -> Result<JwtUserClaims, AuthError> {
         let mut validation = Validation::new(Algorithm::HS256);
-        // We only require exp claim (which is validated automatically)
+
         validation.required_spec_claims.clear();
         validation.required_spec_claims.insert("exp".to_string());
         validation.leeway = self.leeway;
 
         let token_data = decode::<JwtUserClaims>(token, &self.decoding_key, &validation)?;
-        Ok(token_data.claims)
-    }
-
-    /// Creates a JWT token for a service account.
-    ///
-    /// Service tokens identify backend processes (e.g., "illuminator", "scheduler")
-    /// and grant admin-level access for system operations.
-    ///
-    /// # Arguments
-    ///
-    /// * `service_name` - Identifier for the service
-    ///
-    /// # Returns
-    ///
-    /// The encoded JWT string, or an error if encoding fails.
-    pub fn create_service_token(&self, service_name: &str) -> Result<String, AuthError> {
-        let now = jsonwebtoken::get_current_timestamp();
-        let claims = JwtServiceClaims {
-            service_name: service_name.to_string(),
-            exp: now + self.service_expiration_secs,
-            iat: now,
-        };
-
-        encode(&Header::default(), &claims, &self.encoding_key).map_err(AuthError::from)
-    }
-
-    /// Validates and decodes a service JWT token.
-    ///
-    /// # Returns
-    ///
-    /// The decoded service claims, or an error if validation fails.
-    pub fn decode_service_token(&self, token: &str) -> Result<JwtServiceClaims, AuthError> {
-        let mut validation = Validation::new(Algorithm::HS256);
-        validation.required_spec_claims.clear();
-        validation.required_spec_claims.insert("exp".to_string());
-        validation.leeway = self.leeway;
-
-        let token_data = decode::<JwtServiceClaims>(token, &self.decoding_key, &validation)?;
         Ok(token_data.claims)
     }
 }
@@ -220,7 +150,6 @@ impl std::fmt::Debug for JwtConfig {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("JwtConfig")
             .field("user_expiration_secs", &self.user_expiration_secs)
-            .field("service_expiration_secs", &self.service_expiration_secs)
             .field("leeway", &self.leeway)
             .field("encoding_key", &"<redacted>")
             .field("decoding_key", &"<redacted>")
@@ -248,27 +177,6 @@ impl JwtUserClaims {
     /// Returns the user ID from the claims.
     pub fn user_id(&self) -> i32 {
         self.sub
-    }
-}
-/// Claims embedded in a service JWT token.
-///
-/// Service tokens identify backend processes rather than users.
-/// They are used for system-to-system authentication.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct JwtServiceClaims {
-    /// The name of the service (e.g., "illuminator", "scheduler")
-    pub service_name: String,
-    /// Expiration time as UTC timestamp (seconds since epoch)
-    pub exp: u64,
-    /// Issued-at time as UTC timestamp
-    pub iat: u64,
-}
-
-impl JwtServiceClaims {
-    /// Returns the service name from the claims.
-    pub fn service_name(&self) -> &str {
-        &self.service_name
     }
 }
 
@@ -329,19 +237,21 @@ where
 /// Apply this layer to routes that need JWT authentication:
 ///
 /// ```ignore
-/// let config = Arc::new(JwtConfig::from_env("JWT_SECRET"));
+/// let config = JwtConfig::from_secret("your-very-long-secret-key-32-bytes");
 /// let app = Router::new()
 ///     .route("/protected", get(handler))
 ///     .layer(JwtAxumLayer::new(config));
 /// ```
 #[derive(Clone)]
 pub struct JwtAxumLayer {
-    config: JwtConfig,
+    config: Arc<JwtConfig>,
 }
 
 impl JwtAxumLayer {
     pub fn new(config: JwtConfig) -> Self {
-        Self { config }
+        Self {
+            config: Arc::new(config),
+        }
     }
 }
 
@@ -360,7 +270,7 @@ impl<S> tower::Layer<S> for JwtAxumLayer {
 #[derive(Clone)]
 pub struct JwtAxumMiddleware<S> {
     inner: S,
-    config: JwtConfig,
+    config: Arc<JwtConfig>,
 }
 
 impl<S, B> tower::Service<axum::http::Request<B>> for JwtAxumMiddleware<S>
@@ -379,6 +289,7 @@ where
     }
 
     fn call(&mut self, mut req: axum::http::Request<B>) -> Self::Future {
+        // Note that self.config is an Arc<JwtConfig> here
         req.extensions_mut().insert(self.config.clone());
         self.inner.call(req)
     }
@@ -418,8 +329,8 @@ mod tests {
 
     #[test]
     fn test_user_token_wrong_secret_rejected() {
-        let config1 = JwtConfig::from_secret(b"secret-one-at-least-32-bytes!!!");
-        let config2 = JwtConfig::from_secret(b"secret-two-at-least-32-bytes!!!");
+        let config1 = JwtConfig::from_secret(b"test-secret-one-at-least-32-bytes!");
+        let config2 = JwtConfig::from_secret(b"test-secret-two-at-least-32-bytes!");
 
         let user = DreamscrollAuthUser::new_test_session(42);
         let token = config1
@@ -444,151 +355,5 @@ mod tests {
 
         assert_eq!(claims.sub, 99);
         assert!(claims.exp > claims.iat);
-    }
-
-    // ========================================================================
-    // Service Token Tests
-    // ========================================================================
-
-    #[test]
-    fn test_service_token_create_and_decode() {
-        let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!");
-
-        let token = config
-            .create_service_token("illuminator")
-            .expect("should create service token");
-        assert!(!token.is_empty());
-
-        let claims = config
-            .decode_service_token(&token)
-            .expect("should decode service token");
-        assert_eq!(claims.service_name(), "illuminator");
-    }
-
-    #[test]
-    fn test_service_token_invalid_rejected() {
-        let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!");
-
-        let result = config.decode_service_token("invalid.token.here");
-        assert!(matches!(result, Err(AuthError::InvalidToken)));
-    }
-
-    #[test]
-    fn test_service_token_wrong_secret_rejected() {
-        let config1 = JwtConfig::from_secret(b"secret-one-at-least-32-bytes!!!");
-        let config2 = JwtConfig::from_secret(b"secret-two-at-least-32-bytes!!!");
-
-        let token = config1
-            .create_service_token("scheduler")
-            .expect("should create service token");
-
-        let result = config2.decode_service_token(&token);
-        assert!(matches!(result, Err(AuthError::InvalidToken)));
-    }
-
-    #[test]
-    fn test_service_token_contains_correct_claims() {
-        let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!");
-
-        let token = config
-            .create_service_token("notifier")
-            .expect("should create service token");
-        let claims = config
-            .decode_service_token(&token)
-            .expect("should decode service token");
-
-        assert_eq!(claims.service_name, "notifier");
-        assert!(claims.exp > claims.iat);
-    }
-
-    // ========================================================================
-    // Token Type Isolation Tests
-    // These verify that user and service tokens cannot be confused.
-    // ========================================================================
-
-    #[test]
-    fn test_user_token_cannot_be_decoded_as_service_token() {
-        let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!");
-        let user = DreamscrollAuthUser::new_test_session(42);
-
-        let user_token = config
-            .create_user_token(user)
-            .expect("should create user token");
-
-        // Attempting to decode a user token as a service token should fail
-        let result = config.decode_service_token(&user_token);
-        assert!(
-            result.is_err(),
-            "user token should not decode as service token"
-        );
-    }
-
-    #[test]
-    fn test_service_token_cannot_be_decoded_as_user_token() {
-        let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!");
-
-        let service_token = config
-            .create_service_token("illuminator")
-            .expect("should create service token");
-
-        // Attempting to decode a service token as a user token should fail
-        let result = config.decode_user_token(&service_token);
-        assert!(
-            result.is_err(),
-            "service token should not decode as user token"
-        );
-    }
-
-    // ========================================================================
-    // Token Expiration Tests
-    // These verify that expired tokens are rejected.
-    // ========================================================================
-
-    #[test]
-    fn test_user_token_expires() {
-        // Create config with 1 second expiration
-        let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!")
-            .with_user_expiration_secs(1);
-        let user = DreamscrollAuthUser::new_test_session(42);
-
-        let token = config
-            .create_user_token(user)
-            .expect("should create user token");
-
-        // Token should be valid immediately
-        let result = config.decode_user_token(&token);
-        assert!(result.is_ok(), "token should be valid immediately");
-
-        // Wait for token to expire
-        std::thread::sleep(std::time::Duration::from_secs(2));
-
-        // Token should now be expired
-        let result = config.decode_user_token(&token);
-        assert!(result.is_err(), "token should be expired after waiting");
-    }
-
-    #[test]
-    fn test_service_token_expires() {
-        // Create config with 1 second service token expiration
-        let config = JwtConfig::from_secret(b"test-secret-key-at-least-32-bytes!")
-            .with_service_expiration_secs(1);
-
-        let token = config
-            .create_service_token("illuminator")
-            .expect("should create service token");
-
-        // Token should be valid immediately
-        let result = config.decode_service_token(&token);
-        assert!(result.is_ok(), "service token should be valid immediately");
-
-        // Wait for token to expire
-        std::thread::sleep(std::time::Duration::from_secs(2));
-
-        // Token should now be expired
-        let result = config.decode_service_token(&token);
-        assert!(
-            result.is_err(),
-            "service token should be expired after waiting"
-        );
     }
 }

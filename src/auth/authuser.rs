@@ -149,10 +149,12 @@ impl axum_login::AuthUser for DreamscrollAuthUser {
         match &self.method {
             AuthMethod::Session { session_hash } => session_hash.as_bytes(),
             AuthMethod::Jwt { .. } => {
-                // JWT users shouldn't be seen in a session validation context.
-                tracing::error!("session_auth_hash called on JWT-auth user {:?}", self);
-                debug_assert!(false, "session_auth_hash called on JWT-auth user");
-                b""
+                // JWT users (via api token) should never be seen in a session validation context.
+                tracing::error!(
+                    "session_auth_hash called on JWT-auth user {:?}, should never happen",
+                    self
+                );
+                panic!("session_auth_hash called on JWT-auth user, should never happen");
             }
         }
     }
@@ -164,7 +166,7 @@ impl From<JwtUserClaims> for DreamscrollAuthUser {
         DreamscrollAuthUser {
             id,
             username: format!("jwtuser{}", id),
-            is_admin: false, // TODO currently no is_admin info in JWT claims
+            is_admin: false, // currently admin rights are not encoded in JWT
             method: AuthMethod::Jwt { claims },
         }
     }
@@ -263,21 +265,18 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(
-        debug_assertions,
-        should_panic(expected = "session_auth_hash called on JWT-auth user")
-    )]
+    #[should_panic(expected = "session_auth_hash called on JWT-auth user")]
     fn test_session_auth_hash_for_jwt() {
-        // JWT users should return empty bytes when session_auth_hash is called
-        // In debug builds, this will panic due to debug_assert!
-        // In release builds, it returns b"" and logs an error
+        // JWT users are for API usage and should never be present in the web
+        // auth session store. If this method is called on a JWT user, it
+        // indicates a significant logic error and should panic.
         let claims = JwtUserClaims {
             sub: 123,
             exp: 9999,
             iat: 1000,
         };
         let user = DreamscrollAuthUser::new_test_jwt(123, claims);
-        assert_eq!(user.session_auth_hash(), b"");
+        let _ = user.session_auth_hash(); // will panic
     }
 
     #[test]

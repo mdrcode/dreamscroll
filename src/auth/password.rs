@@ -17,7 +17,14 @@ pub fn hash(password: &str) -> Result<String, AuthError> {
 pub async fn verify(db: &DbHandle, u: &str, p: &str) -> Result<DreamscrollAuthUser, AuthError> {
     let db_user = match user::Entity::find_by_username(u).one(&db.conn).await? {
         Some(user) => user,
-        None => return Err(AuthError::InvalidCredentials),
+        None => {
+            // Dummy hash verification to mitigate timing attacks that
+            // could reveal valid usernames.
+            const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+            let parsed = PasswordHash::new(DUMMY_HASH).unwrap();
+            let _ = Argon2::default().verify_password(p.as_bytes(), &parsed);
+            return Err(AuthError::InvalidCredentials);
+        }
     };
 
     let parsed_hash = PasswordHash::new(&db_user.password_hash)?;
