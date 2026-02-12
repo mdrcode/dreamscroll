@@ -228,21 +228,29 @@
                 </a>
             </div>
 
-            {% if entity.capture.k_nodes | length > 0 or entity.capture.social_medias | length > 0 %}
+            {% set has_entities = false %}
+            {% for illum in entity.capture.illuminations %}
+                {% if illum.k_nodes | length > 0 or illum.social_medias | length > 0 %}
+                    {% set_global has_entities = true %}
+                {% endif %}
+            {% endfor %}
+            {% if has_entities %}
             <div class="other-entities-section">
                 <div class="source-section-label">Related Entities from this Capture</div>
                 <div class="other-entities">
-                    {% for node in entity.capture.k_nodes %}
+                    {% for illum in entity.capture.illuminations %}
+                    {% for node in illum.k_nodes %}
                     <a href="/entity/knode/{{ node.id }}" class="other-entity {% if entity.entity_type == 'KNode' and entity.id == node.id %}current{% endif %}">
                         <span class="other-entity-type">{{ node.k_type }}</span>
                         <span class="other-entity-name">{{ node.name }}</span>
                     </a>
                     {% endfor %}
-                    {% for sm in entity.capture.social_medias %}
+                    {% for sm in illum.social_medias %}
                     <a href="/entity/social/{{ sm.id }}" class="other-entity {% if entity.entity_type == 'SocialMedia' and entity.id == sm.id %}current{% endif %}">
                         <span class="other-entity-type">{{ sm.platform }}</span>
                         <span class="other-entity-name">{{ sm.display_name }}</span>
                     </a>
+                    {% endfor %}
                     {% endfor %}
                 </div>
             </div>

@@ -185,19 +185,19 @@
                 <div class="detail-details">{{ illum.details }}</div>
                 {% endif %}
 
-                {% if capture.x_queries | length > 0 %}
+                {% if illum.x_queries | length > 0 %}
                 <div class="detail-section-label">Suggested Searches</div>
                 <div class="detail-queries">
-                    {% for query in capture.x_queries %}
+                    {% for query in illum.x_queries %}
                     <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="detail-query-pill">{{ query }}</a>
                     {% endfor %}
                 </div>
                 {% endif %}
 
-                {% if capture.k_nodes | length > 0 %}
+                {% if illum.k_nodes | length > 0 %}
                 <div class="detail-section-label">Entities</div>
                 <div class="detail-entities">
-                    {% for node in capture.k_nodes %}
+                    {% for node in illum.k_nodes %}
                     <a href="/entity/knode/{{ node.id }}" class="detail-entity">
                         <span class="detail-entity-type">{{ node.k_type }}</span>
                         <span class="detail-entity-name">{{ node.name }}</span>
@@ -206,10 +206,10 @@
                 </div>
                 {% endif %}
 
-                {% if capture.social_medias | length > 0 %}
+                {% if illum.social_medias | length > 0 %}
                 <div class="detail-section-label">Social Media</div>
                 <div class="detail-entities">
-                    {% for node in capture.social_medias %}
+                    {% for node in illum.social_medias %}
                     <a href="/entity/social/{{ node.id }}" class="detail-entity">
                         <span class="detail-entity-type">{{ node.platform }}</span>
                         <span class="detail-entity-name">{{ node.display_name }}</span>
