@@ -55,7 +55,7 @@ impl IlluminatorWorker for SimpleWorker {
                 );
             }
 
-            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
         }
     }
 }
