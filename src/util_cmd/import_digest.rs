@@ -38,6 +38,10 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
     );
 
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
+    let user_shard = user
+        .storage_shard()
+        .expect("User must have a storage shard")
+        .to_owned();
 
     let mut imported_captures = 0;
 
@@ -55,7 +59,7 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
             anyhow::bail!("Media file not found: {}", media_path.display());
         }
 
-        let storage_id = state.stg.store_from_local_path(&media_path).await?;
+        let storage_id = state.stg.store_from_local_path(&media_path, &user_shard).await?;
 
         state
             .import_api

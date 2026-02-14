@@ -36,6 +36,7 @@ pub struct DreamscrollAuthUser {
     id: i32,
     username: String,
     is_admin: bool,
+    storage_shard: Option<String>,
     method: AuthMethod,
 }
 
@@ -54,6 +55,10 @@ impl DreamscrollAuthUser {
 
     pub fn auth_method(&self) -> &AuthMethod {
         &self.method
+    }
+
+    pub fn storage_shard(&self) -> Option<&str> {
+        self.storage_shard.as_deref()
     }
 
     pub fn jwt_claims(&self) -> Option<&JwtUserClaims> {
@@ -79,6 +84,7 @@ impl DreamscrollAuthUser {
             id: user_model.id,
             username: user_model.username,
             is_admin: user_model.is_admin,
+            storage_shard: Some(user_model.storage_shard),
             method: AuthMethod::Session {
                 session_hash: user_model.password_hash,
             },
@@ -91,6 +97,7 @@ impl DreamscrollAuthUser {
             id,
             username: format!("testuser{}", id),
             is_admin: false,
+            storage_shard: Some(format!("testshard{}", id)),
             method: AuthMethod::Session {
                 session_hash: format!("test-hash-{}", id),
             },
@@ -103,6 +110,7 @@ impl DreamscrollAuthUser {
             id,
             username: format!("jwtuser{}", id),
             is_admin: false,
+            storage_shard: None,
             method: AuthMethod::Jwt { claims },
         }
     }
@@ -167,6 +175,7 @@ impl From<JwtUserClaims> for DreamscrollAuthUser {
             id,
             username: format!("jwtuser{}", id),
             is_admin: false, // currently admin rights are not encoded in JWT
+            storage_shard: None, // JWT users must look up shard from DB if needed
             method: AuthMethod::Jwt { claims },
         }
     }
@@ -302,6 +311,7 @@ mod tests {
             id: 42,
             username: "shorthashuser".to_string(),
             is_admin: false,
+            storage_shard: Some("testshrd".to_string()),
             method: AuthMethod::Session {
                 session_hash: "abc".to_string(),
             },

@@ -51,7 +51,7 @@ pub async fn run(state: CmdState, args: ExportUniqArgs) -> anyhow::Result<()> {
     let mut exported = 0;
 
     for media in medias {
-        let storage_id = &media.storage_uuid;
+        let storage_id = media.storage_uuid.to_string();
 
         // TODO obviously this will break when not using local storage...
         let storage_path = PathBuf::from(format!("localdev/media/{}", &storage_id));
@@ -62,7 +62,7 @@ pub async fn run(state: CmdState, args: ExportUniqArgs) -> anyhow::Result<()> {
             continue;
         }
 
-        let filename = Path::new(storage_id);
+        let filename = Path::new(&*storage_id);
         let dest_path = export_dir.join(filename);
 
         std::fs::copy(&storage_path, &dest_path)?;

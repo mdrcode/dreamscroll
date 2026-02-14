@@ -1,4 +1,5 @@
 use sea_orm::entity::prelude::*;
+use uuid::Uuid;
 
 use super::*;
 
@@ -18,11 +19,12 @@ pub struct Model {
     pub capture: HasOne<capture::Entity>,
 
     // Path is conceptually [storage_bucket/][storage_user_shard/]storage_uuid
-    // but different providers may modify that mapping.
+    // but different providers may modify that mapping. UrlMaker converts
+    // these fields to an actual URL for the browser or API.
     pub storage_provider: String,
     pub storage_bucket: Option<String>,
     pub storage_user_shard: Option<String>,
-    pub storage_uuid: String,
+    pub storage_uuid: Uuid,
 
     pub hash_blake3: Option<String>,
 }

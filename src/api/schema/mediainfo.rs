@@ -1,9 +1,10 @@
 use serde::Serialize;
+use uuid::Uuid;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct MediaInfo {
     pub id: i32,
-    pub storage_id: String,
+    pub storage_uuid: Uuid,
     pub url: String,
 
     #[serde(skip)]

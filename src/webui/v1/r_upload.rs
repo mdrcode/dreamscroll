@@ -22,6 +22,11 @@ pub async fn upload(
     let user = auth.user.unwrap();
     tracing::debug!("Processing upload for user ID {}", user.id());
 
+    let user_shard = user
+        .storage_shard()
+        .expect("Authenticated user must have a storage shard")
+        .to_owned();
+
     let media_bytes = match extract_bytes(multipart, "image").await? {
         Some(bytes) => bytes,
         None => {
@@ -36,7 +41,7 @@ pub async fn upload(
         )));
     }
 
-    let media_handle = state.storage.store_bytes(&media_bytes).await?;
+    let media_handle = state.storage.store_bytes(&media_bytes, &user_shard).await?;
 
     state
         .user_api

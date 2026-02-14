@@ -30,7 +30,10 @@ impl UrlMaker {
     }
 
     pub fn make_local_url(&self, id: &StorageHandle) -> String {
-        format!("{}/{}", self.local_url_prefix, id.uuid)
+        match &id.user_shard {
+            Some(shard) => format!("{}/{}/{}", self.local_url_prefix, shard, id.uuid),
+            None => format!("{}/{}", self.local_url_prefix, id.uuid),
+        }
     }
 
     pub fn make_gcloud_url(&self, id: &StorageHandle) -> String {
@@ -43,19 +46,19 @@ impl UrlMaker {
                 id.user_shard
                     .as_ref()
                     .map(|shard| format!("{}/{}", shard, id.uuid))
-                    .unwrap_or_else(|| id.uuid.clone())
+                    .unwrap_or_else(|| id.uuid.to_string())
             )
         } else {
             // For production GCS, return the public URL format
             // Note: The object must be publicly accessible for this URL to work
-            // TODO: Consider signed URLs for controlled access
+            // TODO: Consider signed URLs or signed cookies for controlled access
             format!(
                 "https://storage.googleapis.com/{}/{}",
                 id.bucket.as_ref().unwrap(),
                 id.user_shard
                     .as_ref()
                     .map(|shard| format!("{}/{}", shard, id.uuid))
-                    .unwrap_or_else(|| id.uuid.clone())
+                    .unwrap_or_else(|| id.uuid.to_string())
             )
         }
     }

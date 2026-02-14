@@ -1,3 +1,5 @@
+use uuid::Uuid;
+
 use crate::{api, model, storage};
 
 #[derive(Debug, Clone)]
@@ -6,7 +8,7 @@ pub struct StorageHandle {
 
     pub bucket: Option<String>,
     pub user_shard: Option<String>,
-    pub uuid: String,
+    pub uuid: Uuid,
 }
 
 impl std::fmt::Display for StorageHandle {
@@ -42,7 +44,7 @@ impl From<&api::MediaInfo> for StorageHandle {
             provider: media.storage_provider.clone(),
             bucket: media.storage_bucket.clone(),
             user_shard: media.storage_shard.clone(),
-            uuid: media.storage_id.clone(),
+            uuid: media.storage_uuid,
         }
     }
 }

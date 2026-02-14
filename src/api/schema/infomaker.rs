@@ -53,7 +53,7 @@ impl InfoMaker {
             storage_provider: media_model.storage_provider,
             storage_bucket: media_model.storage_bucket,
             storage_shard: media_model.storage_user_shard,
-            storage_id: media_model.storage_uuid,
+            storage_uuid: media_model.storage_uuid,
         }
     }
 

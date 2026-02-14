@@ -33,12 +33,16 @@ pub async fn run(state: CmdState, args: ImportArgs) -> anyhow::Result<()> {
     tracing::info!("Found {} to import from {}.", paths.len(), dir.display());
 
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
+    let user_shard = user
+        .storage_shard()
+        .expect("User must have a storage shard")
+        .to_owned();
     let user_context = auth::Context::from(user);
 
     let mut imported = 0;
 
     for path in paths {
-        let storage_id = state.stg.store_from_local_path(&path).await?;
+        let storage_id = state.stg.store_from_local_path(&path, &user_shard).await?;
 
         let capture_info = state
             .user_api

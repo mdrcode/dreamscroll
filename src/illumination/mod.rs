@@ -19,7 +19,7 @@ pub fn make_illuminator(
 ) -> Box<dyn Illuminator> {
     match model_name {
         "grok" => Box::new(grok::GrokIlluminator::default()),
-        "gemini" => Box::new(gemini::GeminiIlluminator::default()),
+        "gemini" => Box::new(gemini::GeminiIlluminator::new(storage)),
         "geministructured" => Box::new(geministructured::GeminiStructuredIlluminator::new(storage)),
         "loremipsum" => Box::new(loremipsum::LoremIpsumIlluminator::default()),
         other => panic!(

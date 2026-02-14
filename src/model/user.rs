@@ -17,6 +17,11 @@ pub struct Model {
 
     #[sea_orm(column_type = "Boolean", default_value = "false")]
     pub is_admin: bool,
+
+    /// Opaque 8-character base36 prefix for this user's uploads in storage.
+    /// Generated once at account creation. Used to scope storage access.
+    #[sea_orm(unique)]
+    pub storage_shard: String,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

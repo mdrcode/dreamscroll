@@ -81,13 +81,13 @@ pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> 
         let bytes = state.stg.retrieve_bytes(&storage_handle).await?;
 
         // Copy to export directory
-        let dest_path = export_dir.join(&media.storage_id);
+        let dest_path = export_dir.join(media.storage_uuid.to_string());
         std::fs::write(&dest_path, bytes)?;
 
         digest.captures.push(CaptureDigestEntry {
             original_id: capture.id,
             created_at: capture.created_at,
-            media_files: vec![media.storage_id.clone()],
+            media_files: vec![media.storage_uuid.to_string()],
         });
     }
 

@@ -18,6 +18,10 @@ impl Context {
     pub fn user_id(&self) -> i32 {
         self.user.user_id()
     }
+
+    pub fn storage_shard(&self) -> Option<&str> {
+        self.user.storage_shard()
+    }
 }
 
 /// Converts a `DreamscrollAuthUser` into a `Context::User`. This is the

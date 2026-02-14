@@ -20,22 +20,30 @@ impl LocalStorageProvider {
 
 #[async_trait]
 impl StorageProvider for LocalStorageProvider {
-    async fn store_bytes(&self, bytes: &[u8]) -> anyhow::Result<StorageHandle> {
-        let uuid = Uuid::new_v4().to_string();
-        let upload_path = Path::new(&self.path).join(uuid.as_str());
+    async fn store_bytes(&self, bytes: &[u8], user_shard: &str) -> anyhow::Result<StorageHandle> {
+        let uuid = Uuid::new_v4();
+        let shard_dir = Path::new(&self.path).join(user_shard);
+        tokio::fs::create_dir_all(&shard_dir).await?;
+        let upload_path = shard_dir.join(uuid.to_string());
         tokio::fs::write(&upload_path, &bytes).await?;
         Ok(StorageHandle {
             provider: "local".to_string(),
-            uuid: uuid,
-            user_shard: None,
+            uuid,
+            user_shard: Some(user_shard.to_string()),
             bucket: None,
         })
     }
 
-    async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageHandle> {
-        let uuid = Uuid::new_v4().to_string();
-        let upload_path = Path::new(&self.path).join(uuid.as_str());
-        tracing::warn!(
+    async fn store_from_local_path(
+        &self,
+        path: &PathBuf,
+        user_shard: &str,
+    ) -> anyhow::Result<StorageHandle> {
+        let uuid = Uuid::new_v4();
+        let shard_dir = Path::new(&self.path).join(user_shard);
+        tokio::fs::create_dir_all(&shard_dir).await?;
+        let upload_path = shard_dir.join(uuid.to_string());
+        tracing::info!(
             "Storing from local path {:?} to local storage {}.",
             path,
             upload_path.display()
@@ -44,14 +52,18 @@ impl StorageProvider for LocalStorageProvider {
 
         Ok(StorageHandle {
             provider: "local".to_string(),
-            uuid: uuid,
-            user_shard: None,
+            uuid,
+            user_shard: Some(user_shard.to_string()),
             bucket: None,
         })
     }
 
     async fn retrieve_bytes(&self, id: &StorageHandle) -> anyhow::Result<Vec<u8>> {
-        let file_path = Path::new(&self.path).join(&id.uuid);
+        let mut file_path = PathBuf::from(&self.path);
+        if let Some(ref shard) = id.user_shard {
+            file_path = file_path.join(shard);
+        }
+        file_path = file_path.join(id.uuid.to_string());
         let bytes = tokio::fs::read(&file_path).await?;
         Ok(bytes)
     }

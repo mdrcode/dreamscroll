@@ -1,10 +1,10 @@
-use std::{env, io::Read, path::PathBuf};
+use std::env;
 
 use base64::Engine;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::api;
+use crate::{api, storage};
 
 use super::*;
 
@@ -47,13 +47,14 @@ I can use to learn more about the image content, by ending the line item with
 #[derive(Clone)]
 pub struct GeminiIlluminator {
     api_key: String,
+    storage: Box<dyn storage::StorageProvider>,
 }
 
-impl Default for GeminiIlluminator {
-    fn default() -> Self {
+impl GeminiIlluminator {
+    pub fn new(storage: Box<dyn storage::StorageProvider>) -> Self {
         let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not found in env.");
 
-        GeminiIlluminator { api_key }
+        GeminiIlluminator { api_key, storage }
     }
 }
 
@@ -65,16 +66,21 @@ impl Illuminator for GeminiIlluminator {
 
     async fn illuminate(&self, capture: &api::CaptureInfo) -> anyhow::Result<Illumination> {
         tracing::info!("GeminiIlluminator: Illuminating capture ID {}", capture.id);
+        let media1 = capture
+            .medias
+            .get(0)
+            .ok_or_else(|| anyhow::anyhow!("Capture has no media"))?;
 
-        let media1 = capture.medias.get(0).expect("No media found for capture.");
-        let media1_path = PathBuf::from(format!("localdev/media/{}", &media1.storage_id));
-        tracing::info!("GeminiIlluminator: Using media at path {:?}", media1_path);
+        let storage_handle = storage::StorageHandle::from(media1);
+        let buffer = self.storage.retrieve_bytes(&storage_handle).await?;
 
-        let mut file = std::fs::File::open(media1_path)?;
-        let mut buffer = Vec::new();
-        file.read_to_end(&mut buffer)?;
-        let enc = base64::engine::general_purpose::STANDARD.encode(&buffer);
-        tracing::info!("GeminiIlluminator: media base64 bytes {}", enc.len());
+        let enc = base64::engine::general_purpose::STANDARD.encode(buffer);
+        tracing::info!(
+            "GeminiIlluminator: capture {} media {} base64 bytes {}",
+            capture.id,
+            media1.id,
+            enc.len()
+        );
 
         let client = Client::new();
 

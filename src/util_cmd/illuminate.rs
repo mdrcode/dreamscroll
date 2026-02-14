@@ -60,7 +60,7 @@ pub async fn run(state: CmdState, args: IlluminateArgs) -> anyhow::Result<()> {
             .iter()
             .filter_map(|media| {
                 let source_path =
-                    std::path::PathBuf::from(format!("localdev/media/{}", media.storage_id));
+                    std::path::PathBuf::from(format!("localdev/media/{}", media.storage_uuid));
 
                 match std::fs::read(&source_path) {
                     Ok(bytes) => {
@@ -68,7 +68,7 @@ pub async fn run(state: CmdState, args: IlluminateArgs) -> anyhow::Result<()> {
                         Some(format!("data:image/jpeg;base64,{}", base64_data))
                     }
                     Err(e) => {
-                        tracing::warn!("Failed to read media file {}: {}", media.storage_id, e);
+                        tracing::warn!("Failed to read media file {}: {}", media.storage_uuid, e);
                         None
                     }
                 }

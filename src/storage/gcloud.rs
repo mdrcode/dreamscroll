@@ -43,12 +43,13 @@ impl GCloudStorageProvider {
 
 #[async_trait]
 impl provider::StorageProvider for GCloudStorageProvider {
-    async fn store_bytes(&self, data: &[u8]) -> anyhow::Result<StorageHandle> {
-        let uuid = Uuid::new_v4().to_string();
+    async fn store_bytes(&self, data: &[u8], user_shard: &str) -> anyhow::Result<StorageHandle> {
+        let uuid = Uuid::new_v4();
+        let object_key = format!("{}/{}", user_shard, uuid);
         let bytes_data = Bytes::copy_from_slice(data);
 
         self.gcloud_client
-            .write_object(&self.bucket_path, &uuid, bytes_data)
+            .write_object(&self.bucket_path, &object_key, bytes_data)
             .send_buffered()
             .await
             .map_err(|e| {
@@ -56,28 +57,29 @@ impl provider::StorageProvider for GCloudStorageProvider {
                 anyhow::anyhow!("Failed to store object in GCS: {}", e)
             })?;
 
-        tracing::debug!("Stored object {} in bucket {}", uuid, self.bucket_name);
+        tracing::debug!("Stored object {} in bucket {}", object_key, self.bucket_name);
         Ok(StorageHandle {
             provider: "gcloud".to_string(),
-            uuid: uuid,
-            user_shard: None,
+            uuid,
+            user_shard: Some(user_shard.to_string()),
             bucket: Some(self.bucket_name.clone()),
         })
     }
 
-    async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageHandle> {
-        let uuid = Uuid::new_v4().to_string();
+    async fn store_from_local_path(&self, path: &PathBuf, user_shard: &str) -> anyhow::Result<StorageHandle> {
+        let uuid = Uuid::new_v4();
+        let object_key = format!("{}/{}", user_shard, uuid);
 
         tracing::info!(
             "Storing from local path {:?} to GCS bucket {} as {}",
             path,
             self.bucket_name,
-            uuid
+            object_key
         );
 
         let file = tokio::fs::File::open(path).await?;
         self.gcloud_client
-            .write_object(&self.bucket_path, &uuid, file)
+            .write_object(&self.bucket_path, &object_key, file)
             .send_unbuffered()
             .await
             .map_err(|e| {
@@ -85,19 +87,24 @@ impl provider::StorageProvider for GCloudStorageProvider {
                 anyhow::anyhow!("GCS write error: {}", e)
             })?;
 
-        tracing::debug!("Stored object {} in bucket {}", uuid, self.bucket_name);
+        tracing::debug!("Stored object {} in bucket {}", object_key, self.bucket_name);
         Ok(StorageHandle {
             provider: "gcloud".to_string(),
-            uuid: uuid,
-            user_shard: None,
+            uuid,
+            user_shard: Some(user_shard.to_string()),
             bucket: Some(self.bucket_name.clone()),
         })
     }
 
     async fn retrieve_bytes(&self, id: &StorageHandle) -> anyhow::Result<Vec<u8>> {
+        let object_key = match &id.user_shard {
+            Some(shard) => format!("{}/{}", shard, id.uuid),
+            None => id.uuid.to_string(),
+        };
+
         let mut reader = self
             .gcloud_client
-            .read_object(&self.bucket_path, &id.uuid)
+            .read_object(&self.bucket_path, &object_key)
             .send()
             .await
             .map_err(|e| {
