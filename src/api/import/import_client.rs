@@ -4,19 +4,13 @@ use crate::{api::*, database, storage};
 
 pub struct ImportApiClient {
     db: database::DbHandle,
-    _storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
 }
 
 impl ImportApiClient {
-    pub fn new(
-        db: database::DbHandle,
-        storage: Box<dyn storage::StorageProvider>,
-        url_maker: storage::UrlMaker,
-    ) -> Self {
+    pub fn new(db: database::DbHandle, url_maker: storage::UrlMaker) -> Self {
         Self {
             db,
-            _storage: storage,
             info_maker: InfoMaker::new(url_maker),
         }
     }
@@ -25,7 +19,7 @@ impl ImportApiClient {
     pub async fn import_capture(
         &self,
         user_id: i32,
-        media1: storage::StorageIdentity,
+        media1: storage::StorageHandle,
         created_at: DateTime<Utc>,
     ) -> Result<schema::CaptureInfo, ApiError> {
         let capture_model = super::import_capture(&self.db, user_id, media1, created_at).await?;

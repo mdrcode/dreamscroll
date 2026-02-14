@@ -36,15 +36,11 @@ pub async fn upload(
         )));
     }
 
-    let storage_id = state
-        .user_api
-        .storage
-        .store_from_bytes(&media_bytes)
-        .await?;
+    let media_handle = state.storage.store_bytes(&media_bytes).await?;
 
     state
         .user_api
-        .insert_capture(&user.into(), storage_id)
+        .insert_capture(&user.into(), media_handle)
         .await?;
 
     // Redirect to home page to show the timeline

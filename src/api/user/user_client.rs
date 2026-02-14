@@ -2,23 +2,15 @@ use crate::{api::*, auth, database, storage};
 
 #[derive(Clone)]
 pub struct UserApiClient {
-    // TODO hack this is currently public for auth verification in rest/r_token.rs
+    // TODO hack db is currently public for auth verification in rest/r_token.rs
     pub db: database::DbHandle,
-
-    // TODO hack this is public for r_upload.rs, fix later
-    pub storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
 }
 
 impl UserApiClient {
-    pub fn new(
-        db: database::DbHandle,
-        storage: Box<dyn storage::StorageProvider>,
-        url_maker: storage::UrlMaker,
-    ) -> Self {
+    pub fn new(db: database::DbHandle, url_maker: storage::UrlMaker) -> Self {
         Self {
             db,
-            storage,
             info_maker: schema::InfoMaker::new(url_maker),
         }
     }
@@ -99,7 +91,7 @@ impl UserApiClient {
     pub async fn insert_capture(
         &self,
         context: &auth::Context,
-        media1: storage::StorageIdentity,
+        media1: storage::StorageHandle,
     ) -> Result<schema::CaptureInfo, ApiError> {
         let capture_model = super::insert_capture(&self.db, context, media1).await?;
 

@@ -44,7 +44,7 @@ impl InfoMaker {
     }
 
     pub fn make_media_info(&self, media_model: model::media::ModelEx) -> MediaInfo {
-        let storage_id = storage::StorageIdentity::from(&media_model);
+        let storage_id = storage::StorageHandle::from(&media_model);
 
         MediaInfo {
             id: media_model.id,
@@ -52,8 +52,8 @@ impl InfoMaker {
 
             storage_provider: media_model.storage_provider,
             storage_bucket: media_model.storage_bucket,
-            storage_shard: media_model.storage_shard,
-            storage_id: media_model.storage_id,
+            storage_shard: media_model.storage_user_shard,
+            storage_id: media_model.storage_uuid,
         }
     }
 

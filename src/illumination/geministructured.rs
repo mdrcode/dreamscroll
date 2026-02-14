@@ -134,7 +134,7 @@ impl Illuminator for GeminiStructuredIlluminator {
             .get(0)
             .ok_or_else(|| anyhow::anyhow!("Capture has no media"))?;
 
-        let storage_handle = storage::StorageIdentity::from(media1);
+        let storage_handle = storage::StorageHandle::from(media1);
         let buffer = self.storage.retrieve_bytes(&storage_handle).await?;
 
         let enc = base64::engine::general_purpose::STANDARD.encode(buffer);

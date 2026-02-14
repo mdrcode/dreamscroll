@@ -43,7 +43,7 @@ impl GCloudStorageProvider {
 
 #[async_trait]
 impl provider::StorageProvider for GCloudStorageProvider {
-    async fn store_from_bytes(&self, data: &[u8]) -> anyhow::Result<StorageIdentity> {
+    async fn store_bytes(&self, data: &[u8]) -> anyhow::Result<StorageHandle> {
         let uuid = Uuid::new_v4().to_string();
         let bytes_data = Bytes::copy_from_slice(data);
 
@@ -57,15 +57,15 @@ impl provider::StorageProvider for GCloudStorageProvider {
             })?;
 
         tracing::debug!("Stored object {} in bucket {}", uuid, self.bucket_name);
-        Ok(StorageIdentity {
-            storage_provider: "gcloud".to_string(),
-            provider_id: uuid,
-            provider_shard: None,
-            provider_bucket: Some(self.bucket_name.clone()),
+        Ok(StorageHandle {
+            provider: "gcloud".to_string(),
+            uuid: uuid,
+            user_shard: None,
+            bucket: Some(self.bucket_name.clone()),
         })
     }
 
-    async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageIdentity> {
+    async fn store_from_local_path(&self, path: &PathBuf) -> anyhow::Result<StorageHandle> {
         let uuid = Uuid::new_v4().to_string();
 
         tracing::info!(
@@ -86,18 +86,18 @@ impl provider::StorageProvider for GCloudStorageProvider {
             })?;
 
         tracing::debug!("Stored object {} in bucket {}", uuid, self.bucket_name);
-        Ok(StorageIdentity {
-            storage_provider: "gcloud".to_string(),
-            provider_id: uuid,
-            provider_shard: None,
-            provider_bucket: Some(self.bucket_name.clone()),
+        Ok(StorageHandle {
+            provider: "gcloud".to_string(),
+            uuid: uuid,
+            user_shard: None,
+            bucket: Some(self.bucket_name.clone()),
         })
     }
 
-    async fn retrieve_bytes(&self, id: &StorageIdentity) -> anyhow::Result<Vec<u8>> {
+    async fn retrieve_bytes(&self, id: &StorageHandle) -> anyhow::Result<Vec<u8>> {
         let mut reader = self
             .gcloud_client
-            .read_object(&self.bucket_path, &id.provider_id)
+            .read_object(&self.bucket_path, &id.uuid)
             .send()
             .await
             .map_err(|e| {

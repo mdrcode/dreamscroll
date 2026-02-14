@@ -77,7 +77,7 @@ pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> 
             }
         };
 
-        let storage_handle = storage::StorageIdentity::from(media);
+        let storage_handle = storage::StorageHandle::from(media);
         let bytes = state.stg.retrieve_bytes(&storage_handle).await?;
 
         // Copy to export directory

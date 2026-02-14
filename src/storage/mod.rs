@@ -1,8 +1,8 @@
 mod gcloud;
 pub use gcloud::*;
 
-mod identity;
-pub use identity::*;
+mod handle;
+pub use handle::*;
 
 mod local;
 pub use local::*;

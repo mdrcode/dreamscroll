@@ -6,7 +6,7 @@ use crate::{api, database::DbHandle, model, storage};
 pub async fn import_capture(
     db: &DbHandle,
     user_id: i32,
-    media1: storage::StorageIdentity,
+    media1: storage::StorageHandle,
     created_at: chrono::DateTime<Utc>,
 ) -> Result<model::capture::ModelEx, api::ApiError> {
     let media = model::media::ActiveModelEx::from(media1);

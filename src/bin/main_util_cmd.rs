@@ -17,13 +17,13 @@ struct Args {
 enum Command {
     BackfillSearch(backfill_search::BackfillSearchArgs),
     CreateUser(create_user::CreateUserArgs),
+    Enums(enums::EnumsArgs),
     Eval(eval::EvalArgs),
-    ExportUniq(export_uniq::ExportUniqArgs),
     ExportDigest(export_digest::ExportDigestArgs),
+    ExportUniq(export_uniq::ExportUniqArgs),
     Illuminate(illuminate::IlluminateArgs),
     Import(import::ImportArgs),
     ImportDigest(import_digest::ImportDigestArgs),
-    Enums(enums::EnumsArgs),
 }
 
 #[tokio::main]
@@ -44,8 +44,8 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone());
-    let import_api = api::ImportApiClient::new(db.clone(), stg.clone(), url_maker.clone());
+    let user_api = api::UserApiClient::new(db.clone(), url_maker.clone());
+    let import_api = api::ImportApiClient::new(db.clone(), url_maker.clone());
 
     let cmd_state = CmdState {
         user_api,
@@ -56,13 +56,13 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::BackfillSearch(args) => backfill_search::run(cmd_state, args).await,
-        Command::Eval(args) => eval::run(cmd_state, args).await,
         Command::CreateUser(args) => create_user::run(cmd_state, args).await,
+        Command::Enums(args) => enums::run(cmd_state, args).await,
+        Command::Eval(args) => eval::run(cmd_state, args).await,
+        Command::ExportUniq(args) => export_uniq::run(cmd_state, args).await,
+        Command::ExportDigest(args) => export_digest::run(cmd_state, args).await,
         Command::Illuminate(args) => illuminate::run(cmd_state, args).await,
         Command::Import(args) => import::run(cmd_state, args).await,
         Command::ImportDigest(args) => import_digest::run(cmd_state, args).await,
-        Command::ExportUniq(args) => export_uniq::run(cmd_state, args).await,
-        Command::ExportDigest(args) => export_digest::run(cmd_state, args).await,
-        Command::Enums(args) => enums::run(cmd_state, args).await,
     }
 }
