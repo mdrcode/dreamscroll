@@ -25,3 +25,22 @@ pub struct Model {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+/// Generates a random base36 string (a-z, 0-9) of num_chars length for use as
+/// a user's storage shard prefix. Uses UUID v4 bytes as the entropy source.
+/// Collisions will happen when number of users is low millions. If too many
+/// collisions, just increase num_chars.
+pub fn generate_storage_shard(num_chars: usize) -> String {
+    if num_chars > 12 {
+        panic!("generate_storage_shard: num_chars too large for current entropy source, max is 12");
+    }
+    let bytes = uuid::Uuid::new_v4();
+    let mut value = u64::from_le_bytes(bytes.as_bytes()[..8].try_into().unwrap());
+    let charset = b"abcdefghijklmnopqrstuvwxyz0123456789";
+    let mut result = String::with_capacity(num_chars);
+    for _ in 0..num_chars {
+        result.push(charset[(value % 36) as usize] as char);
+        value /= 36;
+    }
+    result
+}

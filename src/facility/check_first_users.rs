@@ -1,6 +1,6 @@
 use sea_orm::prelude::*;
 
-use crate::{auth, database::DbHandle, model};
+use crate::{api, auth, database::DbHandle, model};
 
 pub async fn check_first_users(db: &DbHandle) -> anyhow::Result<()> {
     let user_count = model::user::Entity::find().count(&db.conn).await?;
@@ -31,6 +31,7 @@ pub async fn check_first_users(db: &DbHandle) -> anyhow::Result<()> {
     let new_user = model::user::ActiveModel::builder()
         .set_username(username.clone())
         .set_password_hash(hash)
+        .set_storage_shard(model::user::generate_storage_shard(8))
         .set_is_admin(true)
         .save(&db.conn)
         .await?;

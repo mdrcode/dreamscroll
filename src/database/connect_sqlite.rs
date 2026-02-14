@@ -5,6 +5,7 @@ use sqlx;
 use crate::auth;
 
 pub async fn create_sqlite_pool(path: &str) -> anyhow::Result<sqlx::sqlite::SqlitePool> {
+    tracing::info!("Connecting to SQLite database at path: {}", path);
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(20)
         .connect(&path)
