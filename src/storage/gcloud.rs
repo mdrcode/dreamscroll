@@ -54,6 +54,9 @@ impl provider::StorageProvider for GCloudStorageProvider {
             object_key,
             data.len()
         );
+
+        // BUG currently if the GCS client cannot connect to the emulator
+        // endpoint, it will hang indefinitely rather than timeout.
         self.gcloud_client
             .write_object(&self.bucket_path, &object_key, bytes_data)
             .send_buffered()
