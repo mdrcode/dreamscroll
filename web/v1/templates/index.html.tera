@@ -191,7 +191,7 @@
             <div class="capturelist-row-image-container">
                 <a href="/detail/{{ capture.id }}" style="text-decoration: none; color: inherit;">
                     <img class="capturelist-row-image" src="{{ capture.medias[0].url }}"
-                        alt="image {{ capture.medias[0].storage_id }}">
+                        alt="image {{ capture.medias[0].storage_uuid }}">
                 </a>
             </div>
             <div class="capturelist-row-metadata-container">

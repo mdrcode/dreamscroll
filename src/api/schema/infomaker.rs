@@ -44,11 +44,11 @@ impl InfoMaker {
     }
 
     pub fn make_media_info(&self, media_model: model::media::ModelEx) -> MediaInfo {
-        let storage_id = storage::StorageHandle::from(&media_model);
+        let handle = storage::StorageHandle::from(&media_model);
 
         MediaInfo {
             id: media_model.id,
-            url: self.url_maker.make_url(&storage_id),
+            url: self.url_maker.make_url(&handle),
 
             storage_provider: media_model.storage_provider,
             storage_bucket: media_model.storage_bucket,

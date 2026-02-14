@@ -8,7 +8,7 @@ pub async fn insert_capture(
     user_context: &auth::Context,
     media1: storage::StorageHandle,
 ) -> Result<model::capture::ModelEx, ApiError> {
-    let media = model::media::ActiveModelEx::from(media1);
+    let media = model::media::ActiveModelEx::from(media1).set_user_id(user_context.user_id());
 
     let active_model = model::capture::ActiveModel::builder()
         .set_user_id(user_context.user_id())

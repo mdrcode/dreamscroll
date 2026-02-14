@@ -18,12 +18,12 @@ impl std::fmt::Display for StorageHandle {
 }
 
 impl From<storage::StorageHandle> for model::media::ActiveModelEx {
-    fn from(storage_id: storage::StorageHandle) -> Self {
+    fn from(handle: storage::StorageHandle) -> Self {
         model::media::ActiveModel::builder()
-            .set_storage_provider(storage_id.provider)
-            .set_storage_bucket(storage_id.bucket)
-            .set_storage_user_shard(storage_id.user_shard)
-            .set_storage_uuid(storage_id.uuid)
+            .set_storage_provider(handle.provider)
+            .set_storage_bucket(handle.bucket)
+            .set_storage_user_shard(handle.user_shard)
+            .set_storage_uuid(handle.uuid)
     }
 }
 

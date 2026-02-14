@@ -2,7 +2,6 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 
-
 use super::*;
 
 #[derive(FromArgs)]
@@ -57,11 +56,14 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
             anyhow::bail!("Media file not found: {}", media_path.display());
         }
 
-        let storage_id = state.stg.store_from_local_path(&media_path, &user_shard).await?;
+        let storage_handle = state
+            .stg
+            .store_from_local_path(&media_path, &user_shard)
+            .await?;
 
         state
             .import_api
-            .import_capture(user_id, storage_id, entry.created_at)
+            .import_capture(user_id, storage_handle, entry.created_at)
             .await
             .map_err(|e| {
                 anyhow::anyhow!(

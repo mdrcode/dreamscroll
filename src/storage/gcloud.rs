@@ -48,6 +48,12 @@ impl provider::StorageProvider for GCloudStorageProvider {
         let object_key = format!("{}/{}", user_shard, uuid);
         let bytes_data = Bytes::copy_from_slice(data);
 
+        tracing::info!(
+            "Storing bytes to GCS bucket {} as {} ({} bytes)",
+            self.bucket_name,
+            object_key,
+            data.len()
+        );
         self.gcloud_client
             .write_object(&self.bucket_path, &object_key, bytes_data)
             .send_buffered()

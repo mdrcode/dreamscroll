@@ -19,7 +19,10 @@ pub async fn upload(
     State(state): State<Arc<WebState>>,
     multipart: Multipart,
 ) -> Result<Response, api::ApiError> {
+    eprintln!("Received upload request");
+
     let user = auth.user.unwrap();
+    eprintln!("Authenticated user ID: {}", user.id());
     tracing::debug!("Processing upload for user ID {}", user.id());
 
     let media_bytes = match extract_bytes(multipart, "image").await? {
@@ -36,15 +39,23 @@ pub async fn upload(
         )));
     }
 
+    eprintln!(
+        "Storing media for user ID {} ({} bytes)",
+        user.id(),
+        media_bytes.len()
+    );
     let media_handle = state
         .storage
         .store_bytes(&media_bytes, user.storage_shard())
         .await?;
 
+    eprintln!("Media stored with handle: {:?}", media_handle);
     state
         .user_api
         .insert_capture(&user.into(), media_handle)
         .await?;
+
+    eprintln!("Capture inserted for user ID");
 
     // Redirect to home page to show the timeline
     Ok(Redirect::to("/").into_response())

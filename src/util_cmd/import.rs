@@ -39,17 +39,17 @@ pub async fn run(state: CmdState, args: ImportArgs) -> anyhow::Result<()> {
     let mut imported = 0;
 
     for path in paths {
-        let storage_id = state.stg.store_from_local_path(&path, &user_shard).await?;
+        let storage_handle = state.stg.store_from_local_path(&path, &user_shard).await?;
 
         let capture_info = state
             .user_api
-            .insert_capture(&user_context, storage_id.clone())
+            .insert_capture(&user_context, storage_handle.clone())
             .await?;
 
         tracing::info!(
             "Imported new capture {} media with storage {}",
             capture_info.id,
-            storage_id,
+            storage_handle,
         );
 
         imported += 1;
