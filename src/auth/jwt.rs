@@ -124,6 +124,7 @@ impl JwtConfig {
             sub: user.user_id(),
             exp: now + self.user_expiration_secs,
             iat: now,
+            storage_shard: user.storage_shard().to_owned(),
         };
 
         encode(&Header::default(), &claims, &self.encoding_key).map_err(AuthError::from)
@@ -171,13 +172,8 @@ pub struct JwtUserClaims {
     pub exp: u64,
     /// Issued-at time as UTC timestamp
     pub iat: u64,
-}
-
-impl JwtUserClaims {
-    /// Returns the user ID from the claims.
-    pub fn user_id(&self) -> i32 {
-        self.sub
-    }
+    /// User's storage shard for GCS prefix-based access control
+    pub storage_shard: String,
 }
 
 /// Axum extractor that validates JWT tokens from the Authorization header.
@@ -316,7 +312,7 @@ mod tests {
         let claims = config
             .decode_user_token(&token)
             .expect("should decode user token");
-        assert_eq!(claims.user_id(), user.user_id());
+        assert_eq!(claims.sub, user.user_id());
     }
 
     #[test]

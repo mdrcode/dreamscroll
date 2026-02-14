@@ -57,16 +57,24 @@ impl provider::StorageProvider for GCloudStorageProvider {
                 anyhow::anyhow!("Failed to store object in GCS: {}", e)
             })?;
 
-        tracing::debug!("Stored object {} in bucket {}", object_key, self.bucket_name);
+        tracing::debug!(
+            "Stored object {} in bucket {}",
+            object_key,
+            self.bucket_name
+        );
         Ok(StorageHandle {
             provider: "gcloud".to_string(),
             uuid,
-            user_shard: Some(user_shard.to_string()),
+            user_shard: user_shard.to_string(),
             bucket: Some(self.bucket_name.clone()),
         })
     }
 
-    async fn store_from_local_path(&self, path: &PathBuf, user_shard: &str) -> anyhow::Result<StorageHandle> {
+    async fn store_from_local_path(
+        &self,
+        path: &PathBuf,
+        user_shard: &str,
+    ) -> anyhow::Result<StorageHandle> {
         let uuid = Uuid::new_v4();
         let object_key = format!("{}/{}", user_shard, uuid);
 
@@ -87,20 +95,21 @@ impl provider::StorageProvider for GCloudStorageProvider {
                 anyhow::anyhow!("GCS write error: {}", e)
             })?;
 
-        tracing::debug!("Stored object {} in bucket {}", object_key, self.bucket_name);
+        tracing::debug!(
+            "Stored object {} in bucket {}",
+            object_key,
+            self.bucket_name
+        );
         Ok(StorageHandle {
             provider: "gcloud".to_string(),
             uuid,
-            user_shard: Some(user_shard.to_string()),
+            user_shard: user_shard.to_string(),
             bucket: Some(self.bucket_name.clone()),
         })
     }
 
     async fn retrieve_bytes(&self, id: &StorageHandle) -> anyhow::Result<Vec<u8>> {
-        let object_key = match &id.user_shard {
-            Some(shard) => format!("{}/{}", shard, id.uuid),
-            None => id.uuid.to_string(),
-        };
+        let object_key = format!("{}/{}", id.user_shard, id.uuid);
 
         let mut reader = self
             .gcloud_client

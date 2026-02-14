@@ -19,7 +19,7 @@ impl Context {
         self.user.user_id()
     }
 
-    pub fn storage_shard(&self) -> Option<&str> {
+    pub fn storage_shard(&self) -> &str {
         self.user.storage_shard()
     }
 }
@@ -57,6 +57,7 @@ mod tests {
             sub: 123,
             exp: 9999999999,
             iat: 1000000000,
+            storage_shard: "testshard".to_string(),
         };
         let user = DreamscrollAuthUser::new_test_jwt(123, claims);
         let context = Context::from(user);

@@ -7,7 +7,7 @@ pub struct StorageHandle {
     pub provider: String,
 
     pub bucket: Option<String>,
-    pub user_shard: Option<String>,
+    pub user_shard: String,
     pub uuid: Uuid,
 }
 

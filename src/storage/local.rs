@@ -29,7 +29,7 @@ impl StorageProvider for LocalStorageProvider {
         Ok(StorageHandle {
             provider: "local".to_string(),
             uuid,
-            user_shard: Some(user_shard.to_string()),
+            user_shard: user_shard.to_string(),
             bucket: None,
         })
     }
@@ -53,17 +53,15 @@ impl StorageProvider for LocalStorageProvider {
         Ok(StorageHandle {
             provider: "local".to_string(),
             uuid,
-            user_shard: Some(user_shard.to_string()),
+            user_shard: user_shard.to_string(),
             bucket: None,
         })
     }
 
     async fn retrieve_bytes(&self, id: &StorageHandle) -> anyhow::Result<Vec<u8>> {
-        let mut file_path = PathBuf::from(&self.path);
-        if let Some(ref shard) = id.user_shard {
-            file_path = file_path.join(shard);
-        }
-        file_path = file_path.join(id.uuid.to_string());
+        let file_path = PathBuf::from(&self.path)
+            .join(&id.user_shard)
+            .join(id.uuid.to_string());
         let bytes = tokio::fs::read(&file_path).await?;
         Ok(bytes)
     }

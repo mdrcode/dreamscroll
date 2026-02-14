@@ -36,7 +36,7 @@ pub struct DreamscrollAuthUser {
     id: i32,
     username: String,
     is_admin: bool,
-    storage_shard: Option<String>,
+    storage_shard: String,
     method: AuthMethod,
 }
 
@@ -57,8 +57,8 @@ impl DreamscrollAuthUser {
         &self.method
     }
 
-    pub fn storage_shard(&self) -> Option<&str> {
-        self.storage_shard.as_deref()
+    pub fn storage_shard(&self) -> &str {
+        &self.storage_shard
     }
 
     pub fn jwt_claims(&self) -> Option<&JwtUserClaims> {
@@ -84,7 +84,7 @@ impl DreamscrollAuthUser {
             id: user_model.id,
             username: user_model.username,
             is_admin: user_model.is_admin,
-            storage_shard: Some(user_model.storage_shard),
+            storage_shard: user_model.storage_shard,
             method: AuthMethod::Session {
                 session_hash: user_model.password_hash,
             },
@@ -97,7 +97,7 @@ impl DreamscrollAuthUser {
             id,
             username: format!("testuser{}", id),
             is_admin: false,
-            storage_shard: Some(format!("testshard{}", id)),
+            storage_shard: format!("testshard{}", id),
             method: AuthMethod::Session {
                 session_hash: format!("test-hash-{}", id),
             },
@@ -110,7 +110,7 @@ impl DreamscrollAuthUser {
             id,
             username: format!("jwtuser{}", id),
             is_admin: false,
-            storage_shard: None,
+            storage_shard: claims.storage_shard.clone(),
             method: AuthMethod::Jwt { claims },
         }
     }
@@ -171,11 +171,15 @@ impl axum_login::AuthUser for DreamscrollAuthUser {
 impl From<JwtUserClaims> for DreamscrollAuthUser {
     fn from(claims: JwtUserClaims) -> Self {
         let id = claims.sub;
+        let storage_shard = claims.storage_shard.clone();
         DreamscrollAuthUser {
             id,
-            username: format!("jwtuser{}", id),
-            is_admin: false, // currently admin rights are not encoded in JWT
-            storage_shard: None, // JWT users must look up shard from DB if needed
+            username: format!("jwtuser{}", id), // TODO BUG
+
+            // currently admin rights are not encoding in JWT, so the API does not support
+            // admin credentials at all
+            is_admin: false,
+            storage_shard,
             method: AuthMethod::Jwt { claims },
         }
     }
@@ -198,6 +202,7 @@ mod tests {
             sub: 123,
             exp: 9999,
             iat: 1000,
+            storage_shard: "testshard".to_string(),
         };
         let user = DreamscrollAuthUser::new_test_jwt(123, claims);
         assert_eq!(user.user_id(), 123);
@@ -220,6 +225,7 @@ mod tests {
             sub: 123,
             exp: 9999,
             iat: 1000,
+            storage_shard: "testshard".to_string(),
         };
         let user = DreamscrollAuthUser::new_test_jwt(123, claims.clone());
         match user.auth_method() {
@@ -239,6 +245,7 @@ mod tests {
             sub: 123,
             exp: 9999,
             iat: 1000,
+            storage_shard: "testshard".to_string(),
         };
         let user = DreamscrollAuthUser::new_test_jwt(123, claims);
         let retrieved_claims = user.jwt_claims();
@@ -258,6 +265,7 @@ mod tests {
             sub: 456,
             exp: 8888,
             iat: 1111,
+            storage_shard: "testshard".to_string(),
         };
         let user = DreamscrollAuthUser::from(claims.clone());
 
@@ -283,6 +291,7 @@ mod tests {
             sub: 123,
             exp: 9999,
             iat: 1000,
+            storage_shard: "testshard".to_string(),
         };
         let user = DreamscrollAuthUser::new_test_jwt(123, claims);
         let _ = user.session_auth_hash(); // will panic
@@ -311,7 +320,7 @@ mod tests {
             id: 42,
             username: "shorthashuser".to_string(),
             is_admin: false,
-            storage_shard: Some("testshrd".to_string()),
+            storage_shard: "testshrd".to_string(),
             method: AuthMethod::Session {
                 session_hash: "abc".to_string(),
             },
@@ -329,6 +338,7 @@ mod tests {
             sub: 123,
             exp: 9999,
             iat: 1000,
+            storage_shard: "testshard".to_string(),
         };
         let user = DreamscrollAuthUser::new_test_jwt(123, claims);
         let debug_str = format!("{:?}", user);
@@ -358,6 +368,7 @@ mod tests {
             sub: 123,
             exp: 9999,
             iat: 1000,
+            storage_shard: "testshard".to_string(),
         };
         let user = DreamscrollAuthUser::new_test_jwt(123, claims);
         let cloned = user.clone();

@@ -38,10 +38,8 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
     );
 
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
-    let user_shard = user
-        .storage_shard()
-        .expect("User must have a storage shard")
-        .to_owned();
+    let user_shard = user.storage_shard().to_owned();
+    let user_id = user.user_id();
 
     let mut imported_captures = 0;
 
@@ -63,7 +61,7 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
 
         state
             .import_api
-            .import_capture(user.user_id(), storage_id, entry.created_at)
+            .import_capture(user_id, storage_id, entry.created_at)
             .await
             .map_err(|e| {
                 anyhow::anyhow!(

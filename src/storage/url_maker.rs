@@ -30,35 +30,28 @@ impl UrlMaker {
     }
 
     pub fn make_local_url(&self, id: &StorageHandle) -> String {
-        match &id.user_shard {
-            Some(shard) => format!("{}/{}/{}", self.local_url_prefix, shard, id.uuid),
-            None => format!("{}/{}", self.local_url_prefix, id.uuid),
-        }
+        format!("{}/{}/{}", self.local_url_prefix, id.user_shard, id.uuid)
     }
 
     pub fn make_gcloud_url(&self, id: &StorageHandle) -> String {
         // For emulator, return emulator URL
         if let Some(ref endpoint) = self.gcloud_emulator_endpoint {
             format!(
-                "{}/storage/v1/b/{}/o/{}?alt=media",
+                "{}/storage/v1/b/{}/o/{}%2F{}?alt=media",
                 endpoint,
                 id.bucket.as_ref().unwrap(),
-                id.user_shard
-                    .as_ref()
-                    .map(|shard| format!("{}/{}", shard, id.uuid))
-                    .unwrap_or_else(|| id.uuid.to_string())
+                id.user_shard,
+                id.uuid
             )
         } else {
             // For production GCS, return the public URL format
             // Note: The object must be publicly accessible for this URL to work
             // TODO: Consider signed URLs or signed cookies for controlled access
             format!(
-                "https://storage.googleapis.com/{}/{}",
+                "https://storage.googleapis.com/{}/{}/{}",
                 id.bucket.as_ref().unwrap(),
-                id.user_shard
-                    .as_ref()
-                    .map(|shard| format!("{}/{}", shard, id.uuid))
-                    .unwrap_or_else(|| id.uuid.to_string())
+                id.user_shard,
+                id.uuid
             )
         }
     }
