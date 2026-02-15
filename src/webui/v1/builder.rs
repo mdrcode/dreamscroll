@@ -26,7 +26,10 @@ pub fn make_ui_router(
 
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 
+    // Note, this will hang forever if templates fail to load (waiting on iterator)
     let tera = Tera::new("web/v1/templates/*.tera").expect("Failed to load templates");
+    tracing::info!("Loaded tera templates");
+
     let state = Arc::new(WebState {
         user_api,
         storage,

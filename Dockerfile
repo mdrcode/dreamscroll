@@ -12,7 +12,7 @@ COPY Cargo.toml Cargo.lock ./
 RUN mkdir src/
 RUN mkdir src/bin
 RUN touch src/lib.rs
-RUN echo 'fn main() { println!("dummy build for dependency caching"); }' > src/bin/dreamscroll_localdev.rs  # (print to avoid silent failure)
+RUN echo 'fn main() { println!("dummy build for dependency caching"); }' > src/bin/dreamscroll_localdev.rs
 RUN cargo build --release
 RUN rm src/lib.rs src/bin/dreamscroll_localdev.rs  # clean up dummy
 
@@ -24,7 +24,18 @@ RUN cargo build --release --bin dreamscroll_cloudrun
 
 # Runtime stage (unchanged)
 FROM debian:trixie-slim
-RUN apt-get update && apt-get install -y libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/dreamscroll_cloudrun /usr/local/bin/dreamscroll_cloudrun
-EXPOSE $PORT
-CMD ["dreamscroll_cloudrun"]
+WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && apt-get clean
+
+COPY --from=builder /app/target/release/dreamscroll_cloudrun /app/dreamscroll_cloudrun
+COPY web/v1 /app/web/v1
+
+# TODO run as non-root, need to research this
+# RUN addgroup --system --gid 1001 appgroup \
+#     && adduser --system --uid 1001 --gid 1001 --no-create-home appuser
+# USER appuser
+
+CMD ["/app/dreamscroll_cloudrun"]
