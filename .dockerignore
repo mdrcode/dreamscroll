@@ -1,0 +1,13 @@
+.DS_Store
+
+target/
+
+.git/
+.gitignore
+
+_project_meta/
+localdev/
+
+*secret*
+*.env
+!ds_config.env

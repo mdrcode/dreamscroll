@@ -14,11 +14,11 @@ RUN rm src/main.rs  # Clean up dummy
 COPY src ./src/
 # If you have other dirs (e.g., tests, benches), COPY them here too
 RUN touch src/main.rs  # Optional: Force Cargo to detect changes if needed
-RUN cargo build --release --bin your-app-name  # Replace with your binary name
+RUN cargo build --release --bin dreamscroll_cloudrun  # Replace with your binary name
 
 # Runtime stage (unchanged)
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
-COPY --from=builder /app/target/release/your-app-name /usr/local/bin/your-app-name
+COPY --from=builder /app/target/release/dreamscroll_cloudrun /usr/local/bin/dreamscroll_cloudrun
 EXPOSE $PORT
-CMD ["your-app-name"]
+CMD ["dreamscroll_cloudrun"]
