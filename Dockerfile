@@ -3,18 +3,24 @@ FROM rust:slim AS builder
 
 WORKDIR /app
 
-# Step 1: Copy manifests and create dummy src to cache deps
+# Step 1: Copy manifests and create a dummy src to cache deps. Note, we must
+# create our dummy at src/bin/dreamscroll_localdev.rs because that's referenced
+# in Cargo.toml as the default-run binary and cargo will fail if it doesn't
+# exist. But below, when actually building the real source, we only build the 
+# dreamscroll_cloudrun binary.
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src/
-RUN echo 'fn main() { println!("dummy build for dependency caching"); }' > src/main.rs  # (print to avoid silent failure)
+RUN mkdir src/bin
+RUN touch src/lib.rs
+RUN echo 'fn main() { println!("dummy build for dependency caching"); }' > src/bin/dreamscroll_localdev.rs  # (print to avoid silent failure)
 RUN cargo build --release
-RUN rm src/main.rs  # Clean up dummy
+RUN rm src/lib.rs src/bin/dreamscroll_localdev.rs  # clean up dummy
 
 # Step 2: Copy real source and rebuild (reuses dep cache)
 COPY src ./src/
-# If you have other dirs (e.g., tests, benches), COPY them here too
-RUN touch src/main.rs  # Optional: Force Cargo to detect changes if needed
-RUN cargo build --release --bin dreamscroll_cloudrun  # Replace with your binary name
+RUN touch src/bin/dreamscroll_cloudrun.rs  # ensure timestamp is updated for cargo to detect changes
+RUN touch src/lib.rs
+RUN cargo build --release --bin dreamscroll_cloudrun
 
 # Runtime stage (unchanged)
 FROM debian:bookworm-slim
