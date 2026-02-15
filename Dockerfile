@@ -22,7 +22,7 @@ RUN touch src/bin/dreamscroll_cloudrun.rs  # ensure timestamp is updated for car
 RUN touch src/lib.rs
 RUN cargo build --release --bin dreamscroll_cloudrun
 
-# Runtime stage (unchanged)
+# Runtime stage
 FROM debian:trixie-slim
 WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -33,9 +33,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /app/target/release/dreamscroll_cloudrun /app/dreamscroll_cloudrun
 COPY web/v1 /app/web/v1
 
-# TODO run as non-root, need to research this
-# RUN addgroup --system --gid 1001 appgroup \
-#     && adduser --system --uid 1001 --gid 1001 --no-create-home appuser
-# USER appuser
+# Create non-root user
+RUN groupadd --system --gid 1001 appgroup \
+    && useradd --system --uid 1001 --gid 1001 --no-create-home --shell /usr/sbin/nologin appuser
+
+# Grant appuser ownership of /app (TODO eventually can remove this, only need for local sqlite)
+RUN chown -R appuser:appgroup /app && chmod -R 755 /app 
+
+USER appuser
 
 CMD ["/app/dreamscroll_cloudrun"]

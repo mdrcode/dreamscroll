@@ -1,5 +1,6 @@
 use anyhow::Context;
 use tokio::net::TcpListener;
+use tokio_util::sync::CancellationToken;
 
 use dreamscroll::{api, auth, database, facility, rest, storage, webui};
 
@@ -9,8 +10,9 @@ async fn main() -> anyhow::Result<()> {
     //  - ds_config.env
     //  - ds_secrets.env (.gitignored for API keys, etc)
     // But for production, the configuration should come externally via the
-    // environment, set by Google Cloud Secret Manager, etc. When testing
-    // the Docker image locally, can run docker with
+    // environment, set by Google Cloud Secret Manager, etc.
+    //
+    // When testing the Docker image locally, can run docker with
     //  `--env-file ds_config.env --env-file ds_secrets.env`
 
     let config = facility::make_config();
@@ -43,11 +45,25 @@ async fn main() -> anyhow::Result<()> {
     router = router.nest("/api", api_router);
     tracing::info!("Initialized REST API router");
 
-    let host_port = format!("0.0.0.0:{}", config.port);
-    let listener = TcpListener::bind(&host_port).await.unwrap();
-    tracing::info!("Bound listener on {}, will now start serving...", host_port);
+    let cancel = CancellationToken::new();
+    let cancel_clone = cancel.clone();
 
-    axum::serve(listener, router).await?;
+    let t = tokio::spawn(async move {
+        let host_port = format!("0.0.0.0:{}", config.port);
+        let listener = TcpListener::bind(&host_port).await.unwrap();
+        tracing::info!("Bound listener on {}, will start serving...", host_port);
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async move {
+                cancel_clone.cancelled().await;
+            })
+            .await
+            .expect("Failed to serve web.");
+    });
+
+    tokio::signal::ctrl_c().await?;
+    tracing::info!("Received SIGINT (CTRL+C), shutting down...");
+    cancel.cancel();
+    let _ = tokio::join!(t);
 
     Ok(())
 }
