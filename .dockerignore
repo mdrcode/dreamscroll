@@ -9,5 +9,5 @@ _project_meta/
 localdev/
 
 *secret*
-*.env
+*.env*
 !ds_config.env

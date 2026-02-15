@@ -5,13 +5,16 @@ use dreamscroll::{api, auth, database, facility, rest, storage, webui};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    // For localdev, in addition ds_config.env we directly load ds_secrets.env
+    // But obviously that's not for production, where secrets should come via
+    // external service (e.g. Google Cloud Secret Manager) or if testing the
+    // Docker image locally, you can run with `--env-file ds_secrets.env`
     dotenvy::from_filename("ds_config.env").ok();
 
     let config = facility::make_config();
     facility::init_tracing(&config);
 
-    // Verify secrets. In localdev these can come from .env, but in prod
-    // they must be set as env vars (e.g. using Google Cloud's Secret Manager).
+    // Verify secrets are available
     config
         .jwt_secret
         .as_ref()
