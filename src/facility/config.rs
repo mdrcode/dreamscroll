@@ -5,7 +5,8 @@ use crate::{database, storage};
 
 #[derive(Deserialize)]
 pub struct Config {
-    pub web_port: u16,
+    pub port: u16,
+
     #[serde(deserialize_with = "deserialize_tracing_level")]
     pub tracing_max_level: tracing::Level,
 
@@ -27,7 +28,13 @@ pub struct Config {
 }
 
 pub fn make_config() -> Config {
-    let config = envy::prefixed("DREAMSCROLL_").from_env::<Config>().unwrap();
+    let mut config = envy::prefixed("DREAMSCROLL_").from_env::<Config>().unwrap();
+
+    // If $PORT is set, takes precedence over DREAMSCROLL_PORT for environments
+    // like Google Cloud Run
+    if std::env::var("PORT").is_ok() {
+        config.port = std::env::var("PORT").unwrap().parse().unwrap();
+    }
 
     config
 }

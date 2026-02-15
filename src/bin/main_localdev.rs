@@ -47,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
         );
 
         let cancel = cancel_token.clone();
-        let host_port = format!("0.0.0.0:{}", config.web_port);
+        let host_port = format!("0.0.0.0:{}", config.port);
         tokio::spawn(async move {
             let listener = TcpListener::bind(host_port).await.unwrap();
             axum::serve(listener, router)
@@ -58,10 +58,7 @@ async fn main() -> anyhow::Result<()> {
                 .expect("Failed to serve Web.");
         })
     };
-    println!(
-        "Web UI serving locally at http://localhost:{}",
-        config.web_port
-    );
+    println!("Web UI serving locally at http://localhost:{}", config.port);
 
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
     let thread_illuminator = {
@@ -76,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
         })
     };
 
-    let _ = webbrowser::open(&format!("http://localhost:{}", config.web_port));
+    let _ = webbrowser::open(&format!("http://localhost:{}", config.port));
 
     tokio::signal::ctrl_c().await?;
     println!("Shutting down...");

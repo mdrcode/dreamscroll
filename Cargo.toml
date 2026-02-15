@@ -2,22 +2,26 @@
 name = "dreamscroll"
 version = "0.1.0"
 edition = "2024"
-default-run = "localdev"
+default-run = "dreamscroll_localdev"
 
 [lib]
 name = "dreamscroll"
 path = "src/lib.rs"
 
 [[bin]]
-name = "localdev"
+name = "dreamscroll_localdev"
 path = "src/bin/main_localdev.rs"
 
 [[bin]]
-name = "dreamscroll_util"
-path = "src/bin/main_util_cmd.rs"
+name = "dreamscroll_cloudrun"
+path = "src/bin/main_cloudrun.rs"
 
 [[bin]]
-name = "worker"
+name = "dreamscroll_util"
+path = "src/bin/main_util.rs"
+
+[[bin]]
+name = "dreamscroll_worker"
 path = "src/bin/main_worker.rs"
 
 [dependencies]
