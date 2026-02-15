@@ -6,6 +6,12 @@ use crate::auth;
 
 pub async fn create_sqlite_pool(path: &str) -> anyhow::Result<sqlx::sqlite::SqlitePool> {
     tracing::info!("Connecting to SQLite database at path: {}", path);
+
+    // create dirs if they don't exist
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(20)
         .connect(&path)

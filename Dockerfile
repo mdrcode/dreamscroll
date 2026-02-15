@@ -23,8 +23,8 @@ RUN touch src/lib.rs
 RUN cargo build --release --bin dreamscroll_cloudrun
 
 # Runtime stage (unchanged)
-FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y libssl-dev ca-certificates && rm -rf /var/lib/apt/lists/*
+FROM debian:trixie-slim
+RUN apt-get update && apt-get install -y libssl3 ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY --from=builder /app/target/release/dreamscroll_cloudrun /usr/local/bin/dreamscroll_cloudrun
 EXPOSE $PORT
 CMD ["dreamscroll_cloudrun"]
