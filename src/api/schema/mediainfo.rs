@@ -9,6 +9,8 @@ pub struct MediaInfo {
     pub url: String,
 
     pub mime_type: Option<String>,
+
+    #[serde(skip)]
     pub hash_blake3: Option<String>,
 
     #[serde(skip)]

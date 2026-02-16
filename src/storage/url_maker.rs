@@ -37,11 +37,15 @@ impl UrlMaker {
         // For emulator, return emulator URL
         if let Some(ref endpoint) = self.gcloud_emulator_endpoint {
             format!(
-                "{}/storage/v1/b/{}/o/{}%2F{}?alt=media",
+                "{}/storage/v1/b/{}/o/{}%2F{}{}?alt=media",
                 endpoint,
                 id.bucket.as_ref().unwrap(),
                 id.user_shard,
-                id.uuid
+                id.uuid,
+                id.extension
+                    .as_ref()
+                    .map(|ext| format!(".{}", ext))
+                    .unwrap_or_default()
             )
         } else {
             // For production GCS, return the public URL format
