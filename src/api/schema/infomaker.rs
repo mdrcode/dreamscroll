@@ -50,6 +50,9 @@ impl InfoMaker {
             id: media_model.id,
             url: self.url_maker.make_url(&handle),
 
+            mime_type: media_model.mime_type,
+            hash_blake3: media_model.hash_blake3,
+
             storage_provider: media_model.storage_provider,
             storage_bucket: media_model.storage_bucket,
             storage_shard: media_model.storage_user_shard,

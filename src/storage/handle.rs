@@ -1,6 +1,6 @@
 use uuid::Uuid;
 
-use crate::{api, model, storage};
+use crate::{api, model};
 
 #[derive(Debug, Clone)]
 pub struct StorageHandle {
@@ -21,16 +21,6 @@ impl std::fmt::Display for StorageHandle {
             self.provider,
             self.bucket.as_deref().unwrap_or("")
         )
-    }
-}
-
-impl From<storage::StorageHandle> for model::media::ActiveModelEx {
-    fn from(handle: storage::StorageHandle) -> Self {
-        model::media::ActiveModel::builder()
-            .set_storage_provider(handle.provider)
-            .set_storage_bucket(handle.bucket)
-            .set_storage_user_shard(handle.user_shard)
-            .set_storage_uuid(handle.uuid)
     }
 }
 

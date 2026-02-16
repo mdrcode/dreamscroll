@@ -5,7 +5,7 @@ use axum::{
 
 #[derive(Debug)]
 pub struct ApiError {
-    status_code: StatusCode,
+    pub status_code: StatusCode,
     error: anyhow::Error,
 }
 

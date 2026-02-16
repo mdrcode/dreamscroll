@@ -6,19 +6,17 @@ use tera::Tera;
 use tower_http::services::ServeDir;
 use tower_sessions::SessionManagerLayer;
 
-use crate::{api, auth, storage};
+use crate::{api, auth};
 
 use super::*;
 
 pub struct WebState {
     pub user_api: api::UserApiClient,
-    pub storage: Box<dyn storage::StorageProvider>,
     pub tera: Tera,
 }
 
 pub fn make_ui_router(
     user_api: api::UserApiClient,
-    storage: Box<dyn storage::StorageProvider>,
     session_store: auth::SessionStoreWrapper,
     auth_backend: auth::WebAuthBackend,
 ) -> Router {
@@ -30,11 +28,7 @@ pub fn make_ui_router(
     let tera = Tera::new("web/v1/templates/*.tera").expect("Failed to load templates");
     tracing::info!("Loaded tera templates");
 
-    let state = Arc::new(WebState {
-        user_api,
-        storage,
-        tera,
-    });
+    let state = Arc::new(WebState { user_api, tera });
 
     let mut router = Router::new()
         .route("/login", get(login_page).post(login_handler))

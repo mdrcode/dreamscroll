@@ -33,8 +33,7 @@ async fn main() -> anyhow::Result<()> {
 
     let thread_webui = {
         // Web UI routes (Session-auth protected) + static JS/CSS serving
-        let mut router =
-            webui::v1::make_ui_router(user_api.clone(), stg.clone(), session_store, auth_backend);
+        let mut router = webui::v1::make_ui_router(user_api.clone(), session_store, auth_backend);
 
         // REST API routes (JWT-protected)
         let api_router = rest::make_api_router(user_api.clone(), jwt.clone());

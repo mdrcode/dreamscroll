@@ -10,7 +10,11 @@ pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub user_id: i32,
-    pub capture_id: Option<i32>,
+    pub capture_id: i32,
+
+    pub bytes: i64,
+    pub mime_type: Option<String>,
+    pub hash_blake3: Option<String>,
 
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
     pub user: HasOne<user::Entity>,
@@ -26,10 +30,6 @@ pub struct Model {
     pub storage_user_shard: String,
     pub storage_uuid: Uuid,
     pub storage_extension: Option<String>,
-
-    pub bytes: i64,
-
-    pub hash_blake3: Option<String>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

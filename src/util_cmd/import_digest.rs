@@ -57,17 +57,24 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
             anyhow::bail!("Media file not found: {}", media_path.display());
         }
 
-        state
+        match state
             .import_api
             .import_capture(&user_context, entry.created_at, &media_path)
             .await
-            .map_err(|e| {
-                anyhow::anyhow!(
-                    "Failed to import capture (original id: {}): {:?}",
-                    entry.original_id,
-                    e
-                )
-            })?;
+        {
+            Err(e) => {
+                if e.status_code == axum::http::StatusCode::CONFLICT {
+                    eprintln!(
+                        "Skipped capture {} because media hash already exists.",
+                        entry.original_id
+                    );
+                    continue;
+                } else {
+                    anyhow::bail!("Failed to import capture {}: {:?}", entry.original_id, e);
+                }
+            }
+            _ => (),
+        }
 
         imported_captures += 1;
     }

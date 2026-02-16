@@ -35,8 +35,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving
     let auth_backend = auth::WebAuthBackend::new(db.clone());
-    let mut router =
-        webui::v1::make_ui_router(user_api.clone(), stg.clone(), session_store, auth_backend);
+    let mut router = webui::v1::make_ui_router(user_api.clone(), session_store, auth_backend);
     tracing::info!("Initialized web UI router");
 
     // REST API routes (JWT-protected)

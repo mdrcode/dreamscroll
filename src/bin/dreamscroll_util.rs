@@ -20,7 +20,6 @@ enum Command {
     Enums(enums::EnumsArgs),
     Eval(eval::EvalArgs),
     ExportDigest(export_digest::ExportDigestArgs),
-    ExportUniq(export_uniq::ExportUniqArgs),
     Illuminate(illuminate::IlluminateArgs),
     ImportDigest(import_digest::ImportDigestArgs),
 }
@@ -58,7 +57,6 @@ async fn main() -> anyhow::Result<()> {
         Command::CreateUser(args) => create_user::run(cmd_state, args).await,
         Command::Enums(args) => enums::run(cmd_state, args).await,
         Command::Eval(args) => eval::run(cmd_state, args).await,
-        Command::ExportUniq(args) => export_uniq::run(cmd_state, args).await,
         Command::ExportDigest(args) => export_digest::run(cmd_state, args).await,
         Command::Illuminate(args) => illuminate::run(cmd_state, args).await,
         Command::ImportDigest(args) => import_digest::run(cmd_state, args).await,
