@@ -1,5 +1,4 @@
-mod admin_client;
-pub use admin_client::AdminApiClient;
+pub mod client;
 
 mod create_user;
 pub use create_user::create_user;

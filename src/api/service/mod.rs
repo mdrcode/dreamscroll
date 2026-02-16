@@ -1,5 +1,4 @@
-mod service_client;
-pub use service_client::ServiceApiClient;
+pub mod client;
 
 mod get_capture;
 pub use get_capture::get_captures;

@@ -1,5 +1,4 @@
-mod user_client;
-pub use user_client::*;
+pub mod client;
 
 mod get_capture;
 pub use get_capture::*;

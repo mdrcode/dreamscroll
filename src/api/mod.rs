@@ -5,13 +5,13 @@ mod schema;
 pub use schema::*;
 
 mod admin;
-pub use admin::AdminApiClient;
+pub use admin::client::AdminApiClient;
 
 mod import;
-pub use import::ImportApiClient;
+pub use import::client::ImportApiClient;
 
 mod service;
-pub use service::ServiceApiClient;
+pub use service::client::ServiceApiClient;
 
 mod user;
-pub use user::UserApiClient;
+pub use user::client::UserApiClient;

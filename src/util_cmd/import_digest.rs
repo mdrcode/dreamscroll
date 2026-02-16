@@ -42,6 +42,7 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
     let user_context: auth::Context = user.into();
 
     let mut imported_captures = 0;
+    let mut skipped_captures = 0;
 
     for entry in &digest.captures {
         if entry.media_files.is_empty() {
@@ -68,6 +69,7 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
                         "Skipped capture {} because media hash already exists.",
                         entry.original_id
                     );
+                    skipped_captures += 1;
                     continue;
                 } else {
                     anyhow::bail!("Failed to import capture {}: {:?}", entry.original_id, e);
@@ -79,7 +81,12 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
         imported_captures += 1;
     }
 
-    println!("Successfully imported {} captures.", imported_captures);
+    println!(
+        "Complete. digest contained: {} imported: {} skipped: {}",
+        digest.captures.len(),
+        imported_captures,
+        skipped_captures
+    );
 
     Ok(())
 }
