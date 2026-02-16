@@ -15,4 +15,7 @@ pub struct MediaInfo {
 
     #[serde(skip)]
     pub storage_shard: String,
+
+    #[serde(skip)]
+    pub storage_extension: Option<String>,
 }

@@ -22,7 +22,6 @@ enum Command {
     ExportDigest(export_digest::ExportDigestArgs),
     ExportUniq(export_uniq::ExportUniqArgs),
     Illuminate(illuminate::IlluminateArgs),
-    Import(import::ImportArgs),
     ImportDigest(import_digest::ImportDigestArgs),
 }
 
@@ -44,8 +43,8 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let user_api = api::UserApiClient::new(db.clone(), url_maker.clone());
-    let import_api = api::ImportApiClient::new(db.clone(), url_maker.clone());
+    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone());
+    let import_api = api::ImportApiClient::new(db.clone(), stg.clone(), url_maker.clone());
 
     let cmd_state = CmdState {
         user_api,
@@ -62,7 +61,6 @@ async fn main() -> anyhow::Result<()> {
         Command::ExportUniq(args) => export_uniq::run(cmd_state, args).await,
         Command::ExportDigest(args) => export_digest::run(cmd_state, args).await,
         Command::Illuminate(args) => illuminate::run(cmd_state, args).await,
-        Command::Import(args) => import::run(cmd_state, args).await,
         Command::ImportDigest(args) => import_digest::run(cmd_state, args).await,
     }
 }

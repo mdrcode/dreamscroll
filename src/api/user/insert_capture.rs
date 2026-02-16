@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use chrono::Utc;
 use sea_orm::TryIntoModel;
 
@@ -5,19 +6,44 @@ use crate::{api::*, auth, database::DbHandle, model, storage};
 
 pub async fn insert_capture(
     db: &DbHandle,
+    storage: &Box<dyn storage::StorageProvider>,
     user_context: &auth::Context,
-    media1: storage::StorageHandle,
+    media_bytes: &[u8],
 ) -> Result<model::capture::ModelEx, ApiError> {
-    let media = model::media::ActiveModelEx::from(media1).set_user_id(user_context.user_id());
+    let user_id = user_context.user_id();
+    let shard = user_context.storage_shard();
 
-    let active_model = model::capture::ActiveModel::builder()
+    if !infer::is_image(&media_bytes) {
+        return Err(ApiError::bad_request(anyhow!(
+            "Uploaded media is not an image."
+        )));
+    }
+
+    let media_type = infer::get(&media_bytes).ok_or_else(|| anyhow!("Could not infer media type."))?;
+    tracing::info!("Media type inferred as {}", media_type.mime_type());
+
+    let handle = storage
+        .store_bytes(&media_bytes, shard, Some(media_type.extension()))
+        .await?;
+    tracing::info!("Stored media user:{} handle: {:?}", user_id, &handle);
+
+    let media_builder = model::media::ActiveModel::builder()
+        .set_user_id(user_id)
+        .set_storage_provider(handle.provider)
+        .set_storage_bucket(handle.bucket)
+        .set_storage_user_shard(handle.user_shard)
+        .set_storage_uuid(handle.uuid)
+        .set_storage_extension(handle.extension)
+        .set_bytes(media_bytes.len() as i64);
+
+    let capture = model::capture::ActiveModel::builder()
         .set_user_id(user_context.user_id())
         .set_created_at(Utc::now())
-        .add_media(media)
+        .add_media(media_builder)
         .save(&db.conn)
         .await?;
 
-    let model = active_model.try_into_model()?;
+    let model = capture.try_into_model()?;
 
     Ok(model)
 }

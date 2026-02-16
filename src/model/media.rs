@@ -25,6 +25,9 @@ pub struct Model {
     pub storage_bucket: Option<String>,
     pub storage_user_shard: String,
     pub storage_uuid: Uuid,
+    pub storage_extension: Option<String>,
+
+    pub bytes: i64,
 
     pub hash_blake3: Option<String>,
 }

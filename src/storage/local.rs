@@ -20,48 +20,64 @@ impl LocalStorageProvider {
 
 #[async_trait]
 impl StorageProvider for LocalStorageProvider {
-    async fn store_bytes(&self, bytes: &[u8], user_shard: &str) -> anyhow::Result<StorageHandle> {
-        let uuid = Uuid::new_v4();
+    async fn store_bytes(
+        &self,
+        bytes: &[u8],
+        user_shard: &str,
+        ext: Option<&str>,
+    ) -> anyhow::Result<StorageHandle> {
         let shard_dir = Path::new(&self.path).join(user_shard);
         tokio::fs::create_dir_all(&shard_dir).await?;
-        let upload_path = shard_dir.join(uuid.to_string());
-        tokio::fs::write(&upload_path, &bytes).await?;
+
+        let uuid = Uuid::new_v4();
+        let file_path = shard_dir
+            .join(uuid.to_string())
+            .with_extension(ext.unwrap_or(""));
+        tokio::fs::write(&file_path, &bytes).await?;
+
         Ok(StorageHandle {
             provider: "local".to_string(),
             uuid,
             user_shard: user_shard.to_string(),
             bucket: None,
+            extension: ext.map(|s| s.to_string()),
         })
     }
 
     async fn store_from_local_path(
         &self,
-        path: &PathBuf,
+        source_path: &PathBuf,
         user_shard: &str,
+        ext: Option<&str>,
     ) -> anyhow::Result<StorageHandle> {
-        let uuid = Uuid::new_v4();
         let shard_dir = Path::new(&self.path).join(user_shard);
         tokio::fs::create_dir_all(&shard_dir).await?;
-        let upload_path = shard_dir.join(uuid.to_string());
+
+        let uuid = Uuid::new_v4();
+        let file_path = shard_dir
+            .join(uuid.to_string())
+            .with_extension(ext.unwrap_or(""));
         tracing::info!(
             "Storing from local path {:?} to local storage {}.",
-            path,
-            upload_path.display()
+            source_path,
+            file_path.display()
         );
-        tokio::fs::copy(path, &upload_path).await?;
+        tokio::fs::copy(source_path, &file_path).await?;
 
         Ok(StorageHandle {
             provider: "local".to_string(),
             uuid,
             user_shard: user_shard.to_string(),
             bucket: None,
+            extension: ext.map(|s| s.to_string()),
         })
     }
 
-    async fn retrieve_bytes(&self, id: &StorageHandle) -> anyhow::Result<Vec<u8>> {
+    async fn retrieve_bytes(&self, h: &StorageHandle) -> anyhow::Result<Vec<u8>> {
         let file_path = PathBuf::from(&self.path)
-            .join(&id.user_shard)
-            .join(id.uuid.to_string());
+            .join(&h.user_shard)
+            .join(h.uuid.to_string())
+            .with_extension(h.extension.as_deref().unwrap_or(""));
         let bytes = tokio::fs::read(&file_path).await?;
         Ok(bytes)
     }

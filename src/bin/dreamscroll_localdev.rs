@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let user_api = api::UserApiClient::new(db.clone(), url_maker.clone());
+    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone());
 
     let jwt_secret = config.jwt_secret.unwrap_or_else(|| {
         tracing::warn!("JWT secret not set, using default for localdev. NOT FOR PROD!");

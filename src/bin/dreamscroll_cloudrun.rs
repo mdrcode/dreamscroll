@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let user_api = api::UserApiClient::new(db.clone(), url_maker.clone());
+    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone());
     tracing::info!("Initialized storage and API client");
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving

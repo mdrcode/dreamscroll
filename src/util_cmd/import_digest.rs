@@ -2,6 +2,8 @@ use std::path::PathBuf;
 
 use argh::FromArgs;
 
+use crate::auth;
+
 use super::*;
 
 #[derive(FromArgs)]
@@ -37,8 +39,7 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
     );
 
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
-    let user_shard = user.storage_shard().to_owned();
-    let user_id = user.user_id();
+    let user_context: auth::Context = user.into();
 
     let mut imported_captures = 0;
 
@@ -48,7 +49,7 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
         }
 
         // For now, we only import the first media file as the primary capture
-        // TODO: Support multiple media files per capture if needed
+        // TODO: Support multiple media files per capture if needed?
         let first_media = &entry.media_files[0];
         let media_path = export_dir.join(first_media);
 
@@ -56,14 +57,9 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
             anyhow::bail!("Media file not found: {}", media_path.display());
         }
 
-        let storage_handle = state
-            .stg
-            .store_from_local_path(&media_path, &user_shard)
-            .await?;
-
         state
             .import_api
-            .import_capture(user_id, storage_handle, entry.created_at)
+            .import_capture(&user_context, entry.created_at, &media_path)
             .await
             .map_err(|e| {
                 anyhow::anyhow!(

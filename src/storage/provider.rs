@@ -9,12 +9,20 @@ use super::*;
 
 #[async_trait]
 pub trait StorageProvider: DynClone + Send + Sync {
-    async fn store_bytes(&self, bytes: &[u8], user_shard: &str) -> anyhow::Result<StorageHandle>;
+    async fn store_bytes(
+        &self,
+        bytes: &[u8],
+        user_shard: &str,
+        ext: Option<&str>,
+    ) -> anyhow::Result<StorageHandle>;
+
     async fn store_from_local_path(
         &self,
         path: &PathBuf,
         user_shard: &str,
+        ext: Option<&str>,
     ) -> anyhow::Result<StorageHandle>;
+
     async fn retrieve_bytes(&self, id: &StorageHandle) -> anyhow::Result<Vec<u8>>;
 }
 

@@ -4,13 +4,19 @@ use crate::{api::*, auth, database, storage};
 pub struct UserApiClient {
     // TODO hack db is currently public for auth verification in rest/r_token.rs
     pub db: database::DbHandle,
+    storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
 }
 
 impl UserApiClient {
-    pub fn new(db: database::DbHandle, url_maker: storage::UrlMaker) -> Self {
+    pub fn new(
+        db: database::DbHandle,
+        storage: Box<dyn storage::StorageProvider>,
+        url_maker: storage::UrlMaker,
+    ) -> Self {
         Self {
             db,
+            storage,
             info_maker: schema::InfoMaker::new(url_maker),
         }
     }
@@ -87,13 +93,14 @@ impl UserApiClient {
             .collect())
     }
 
-    #[tracing::instrument(skip(self, context, media1))]
+    #[tracing::instrument(skip(self, context, media_bytes))]
     pub async fn insert_capture(
         &self,
         context: &auth::Context,
-        media1: storage::StorageHandle,
+        media_bytes: &[u8],
     ) -> Result<schema::CaptureInfo, ApiError> {
-        let capture_model = super::insert_capture(&self.db, context, media1).await?;
+        let capture_model =
+            super::insert_capture(&self.db, &self.storage, context, media_bytes).await?;
 
         Ok(self.info_maker.make_capture_info(capture_model))
     }

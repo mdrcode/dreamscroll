@@ -41,22 +41,35 @@ impl GCloudStorageProvider {
     }
 }
 
+fn make_object_key(uuid: Uuid, shard: &str, ext: Option<&str>) -> String {
+    let object_key = match ext {
+        Some(e) => format!("{}/{}.{}", shard, uuid, e),
+        None => format!("{}/{}", shard, uuid),
+    };
+    object_key
+}
+
 #[async_trait]
 impl provider::StorageProvider for GCloudStorageProvider {
-    async fn store_bytes(&self, data: &[u8], user_shard: &str) -> anyhow::Result<StorageHandle> {
+    async fn store_bytes(
+        &self,
+        data: &[u8],
+        user_shard: &str,
+        ext: Option<&str>,
+    ) -> anyhow::Result<StorageHandle> {
         let uuid = Uuid::new_v4();
-        let object_key = format!("{}/{}", user_shard, uuid);
+        let object_key = make_object_key(uuid, user_shard, ext);
         let bytes_data = Bytes::copy_from_slice(data);
 
         tracing::info!(
-            "Storing bytes to GCS bucket {} as {} ({} bytes)",
+            "Storing {} bytes to GCS bucket {} as {}",
+            data.len(),
             self.bucket_name,
             object_key,
-            data.len()
         );
 
         // BUG currently if the GCS client cannot connect to the emulator
-        // endpoint, it will hang indefinitely rather than timeout.
+        // endpoint, it will hang indefinitely rather than timeout :-/
         self.gcloud_client
             .write_object(&self.bucket_path, &object_key, bytes_data)
             .send_buffered()
@@ -66,16 +79,14 @@ impl provider::StorageProvider for GCloudStorageProvider {
                 anyhow::anyhow!("Failed to store object in GCS: {}", e)
             })?;
 
-        tracing::debug!(
-            "Stored object {} in bucket {}",
-            object_key,
-            self.bucket_name
-        );
+        tracing::debug!("Stored {} in bucket {}", object_key, self.bucket_name);
+
         Ok(StorageHandle {
             provider: "gcloud".to_string(),
-            uuid,
-            user_shard: user_shard.to_string(),
             bucket: Some(self.bucket_name.clone()),
+            user_shard: user_shard.to_string(),
+            uuid,
+            extension: ext.map(|s| s.to_string()),
         })
     }
 
@@ -83,9 +94,10 @@ impl provider::StorageProvider for GCloudStorageProvider {
         &self,
         path: &PathBuf,
         user_shard: &str,
+        ext: Option<&str>,
     ) -> anyhow::Result<StorageHandle> {
         let uuid = Uuid::new_v4();
-        let object_key = format!("{}/{}", user_shard, uuid);
+        let object_key = make_object_key(uuid, user_shard, ext);
 
         tracing::info!(
             "Storing from local path {:?} to GCS bucket {} as {}",
@@ -114,11 +126,12 @@ impl provider::StorageProvider for GCloudStorageProvider {
             uuid,
             user_shard: user_shard.to_string(),
             bucket: Some(self.bucket_name.clone()),
+            extension: ext.map(|s| s.to_string()),
         })
     }
 
-    async fn retrieve_bytes(&self, id: &StorageHandle) -> anyhow::Result<Vec<u8>> {
-        let object_key = format!("{}/{}", id.user_shard, id.uuid);
+    async fn retrieve_bytes(&self, h: &StorageHandle) -> anyhow::Result<Vec<u8>> {
+        let object_key = make_object_key(h.uuid, &h.user_shard, h.extension.as_deref());
 
         let mut reader = self
             .gcloud_client

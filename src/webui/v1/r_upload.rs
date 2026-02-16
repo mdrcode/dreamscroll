@@ -29,20 +29,17 @@ pub async fn upload(
         }
     };
 
-    // Limit to 5MB TODO currently this is already limited by axum body limit layer
+    // Limit to 5MB. TODO currently this is already limited by axum body limit layer?
     if media_bytes.len() > 5 * 1024 * 1024 {
         return Err(api::ApiError::payload_too_large(anyhow!(
             "Payload too large."
         )));
     }
 
-    let handle = state
-        .storage
-        .store_bytes(&media_bytes, user.storage_shard())
+    let cap = state
+        .user_api
+        .insert_capture(&user.into(), &media_bytes)
         .await?;
-    tracing::info!("Media stored for u {} handle: {:?}", user.id(), &handle);
-
-    let cap = state.user_api.insert_capture(&user.into(), handle).await?;
     tracing::info!("Capture {} inserted via upload", cap.id);
 
     // Redirect to home page to show the timeline

@@ -54,6 +54,7 @@ impl InfoMaker {
             storage_bucket: media_model.storage_bucket,
             storage_shard: media_model.storage_user_shard,
             storage_uuid: media_model.storage_uuid,
+            storage_extension: media_model.storage_extension,
         }
     }
 
