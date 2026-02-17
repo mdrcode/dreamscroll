@@ -1,12 +1,12 @@
 services:
-  dreamscroll:
+  app:
     build:
       context: .
     restart: unless-stopped
     ports:
       - "8080:8080" # Adjust to whatever port your Rust app listens on
     environment:
-      DREAMSCROLL_PORT: 8080
+      PORT: 8080
       DREAMSCROLL_DB_BACKEND: postgres
       DREAMSCROLL_DB_URL_POSTGRES: postgres://dreamscroll_pg_user:dreamwscroll_pg_strong_password@db:5432/dreamscroll_dev1
       DREAMSCROLL_STORAGE_BACKEND: gcloud
@@ -48,7 +48,7 @@ services:
   #
   # curl -X POST -H "Content-Type: application/json" \
   #   http://localhost:4443/storage/v1/b \
-  #   -d '{"name": "dreamscroll-test1"}'
+  #   -d '{"name": "dreamscroll-dev-media1"}'
   #
   # You can list current buckets with:
   # curl http://localhost:4443/storage/v1/b
@@ -61,7 +61,7 @@ services:
     volumes:
       - ./localdev/gcloud_storage:/storage
     command: -scheme http -data /storage
-    # This was super flaky
+    # This was super flaky, just forget it
     # healthcheck:
     #   test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4443//_internal/healthcheck" ]
     #   interval: 10s

@@ -37,9 +37,6 @@ COPY web/v1 /app/web/v1
 RUN groupadd --system --gid 1001 appgroup \
     && useradd --system --uid 1001 --gid 1001 --no-create-home --shell /usr/sbin/nologin appuser
 
-# Grant appuser ownership of /app (TODO eventually can remove this, only need for local sqlite)
-RUN chown -R appuser:appgroup /app && chmod -R 755 /app 
-
 USER appuser
 
 CMD ["/app/dreamscroll_cloudrun"]
