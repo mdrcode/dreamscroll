@@ -20,7 +20,7 @@ RUN rm src/lib.rs src/bin/dreamscroll_localdev.rs  # clean up dummy
 COPY src ./src/
 RUN touch src/bin/dreamscroll_cloudrun.rs  # ensure timestamp is updated for cargo to detect changes
 RUN touch src/lib.rs
-RUN cargo build --release --bin dreamscroll_cloudrun
+RUN cargo build --release --bin dreamscroll_cloudrun --bin dreamscroll_util
 
 # Runtime stage
 FROM debian:trixie-slim
@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean
 
 COPY --from=builder /app/target/release/dreamscroll_cloudrun /app/dreamscroll_cloudrun
+COPY --from=builder /app/target/release/dreamscroll_util /app/dreamscroll_util
 COPY web/v1 /app/web/v1
 
 # Create non-root user

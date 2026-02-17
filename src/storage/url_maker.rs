@@ -45,10 +45,11 @@ impl UrlMaker {
 
     pub fn make_gcloud_url(&self, id: &StorageHandle) -> String {
         // For emulator, return emulator URL
-        if let Some(ref endpoint) = self.gcloud_emulator_endpoint {
+        if let Some(_) = self.gcloud_emulator_endpoint {
             format!(
                 "{}/storage/v1/b/{}/o/{}%2F{}{}?alt=media",
-                endpoint,
+                "http://localhost:4443", // TODO hardcode localhost for now
+                //endpoint,
                 id.bucket.as_ref().unwrap(),
                 id.user_shard,
                 id.uuid,

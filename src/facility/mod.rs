@@ -1,5 +1,5 @@
-mod check_first_users;
-pub use check_first_users::check_first_users;
+mod check_first_user;
+pub use check_first_user::check_first_user;
 
 mod config;
 pub use config::{Config, make_config};

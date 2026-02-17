@@ -15,7 +15,7 @@ async fn main() -> anyhow::Result<()> {
     let (db_connection, session_store) = database::connect(&config).await?;
     let db = database::DbHandle::new(db_connection);
 
-    facility::check_first_users(&db).await?;
+    facility::check_first_user(&db).await?;
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);

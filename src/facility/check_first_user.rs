@@ -2,7 +2,7 @@ use sea_orm::prelude::*;
 
 use crate::{auth, database::DbHandle, model};
 
-pub async fn check_first_users(db: &DbHandle) -> anyhow::Result<()> {
+pub async fn check_first_user(db: &DbHandle) -> anyhow::Result<()> {
     let user_count = model::user::Entity::find().count(&db.conn).await?;
 
     if user_count > 0 {
