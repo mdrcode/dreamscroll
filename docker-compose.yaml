@@ -4,16 +4,15 @@ services:
       context: .
     restart: unless-stopped
     ports:
-      - "8080:8080" # Adjust to whatever port your Rust app listens on
+      - "8080:8080"
     environment:
-      PORT: 8080
       DREAMSCROLL_DB_BACKEND: postgres
       DREAMSCROLL_DB_URL_POSTGRES: postgres://dreamscroll_pg_user:dreamwscroll_pg_strong_password@db:5432/dreamscroll_dev1
       DREAMSCROLL_STORAGE_BACKEND: gcloud
-      DREAMSCROLL_STORAGE_GCLOUD_EMULATOR_ENDPOINT: http://localhost:4443
+      DREAMSCROLL_STORAGE_GCLOUD_EMULATOR_ENDPOINT: http://fake-gcs:4443
       DREAMSCROLL_STORAGE_GCLOUD_BUCKET_NAME: "dreamscroll-dev-media1"
     env_file:
-      - ds_secrets.env
+      - ds_secrets.env # .gitignore'd !
 
     depends_on:
       db:
