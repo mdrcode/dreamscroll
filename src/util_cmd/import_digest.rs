@@ -82,7 +82,7 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
     }
 
     println!(
-        "Complete. digest contained: {} imported: {} skipped: {}",
+        "Complete. digest [contained: {}] [imported: {}] [skipped: {}]",
         digest.captures.len(),
         imported_captures,
         skipped_captures

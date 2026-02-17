@@ -39,7 +39,7 @@ pub fn make_config() -> Config {
     if std::env::var("PORT").is_ok() {
         config.port = std::env::var("PORT").unwrap().parse().unwrap();
         tracing::info!(
-            "$PORT environment variable found, will listen on: {}",
+            "$PORT environment variable found, will use: {}",
             config.port
         );
     }

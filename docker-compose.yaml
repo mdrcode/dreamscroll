@@ -6,6 +6,7 @@ services:
     ports:
       - "8080:8080"
     environment:
+      RUST_LOG: info
       DREAMSCROLL_DB_BACKEND: postgres
       DREAMSCROLL_DB_URL_POSTGRES: postgres://dreamscroll_pg_user:dreamwscroll_pg_strong_password@db:5432/dreamscroll_dev1
       DREAMSCROLL_STORAGE_BACKEND: gcloud
@@ -13,6 +14,10 @@ services:
       DREAMSCROLL_STORAGE_GCLOUD_BUCKET_NAME: "dreamscroll-dev-media1"
     env_file:
       - ds_secrets.env # .gitignore'd !
+
+    # Cute way to import/export data from the docker environment
+    volumes:
+      - ~/Documents/dreamscroll_export:/app/export
 
     depends_on:
       db:
@@ -31,7 +36,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres-data:/var/lib/postgresql
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U dreamscroll_pg_user -d dreamscroll_dev1" ]
       interval: 5s
@@ -58,7 +63,7 @@ services:
     ports:
       - "4443:4443"
     volumes:
-      - ./localdev/gcloud_storage:/storage
+      - gcloud_storage_data:/storage
     command: -scheme http -data /storage
     # This was super flaky, just forget it
     # healthcheck:
@@ -69,4 +74,7 @@ services:
     #   start_period: 5s
 
 volumes:
-  postgres-data:
+  gcloud_storage_data:
+  postgres_data:
+
+
