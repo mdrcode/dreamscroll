@@ -9,7 +9,11 @@ pub async fn connect(
 ) -> anyhow::Result<(sea_orm::DatabaseConnection, auth::SessionStoreWrapper)> {
     match config.db_backend {
         DbBackend::Sqlite => {
-            let pool = create_sqlite_pool(&config.db_url_sqlite).await?;
+            let url = config
+                .db_url_sqlite
+                .as_ref()
+                .expect("DB Backend is sqlite but no url");
+            let pool = create_sqlite_pool(url).await?;
             let db_connection = connect_sqlite_db(pool.clone()).await?;
             let session_store = connect_sqlite_session_store(pool.clone()).await?;
             Ok((db_connection, session_store))

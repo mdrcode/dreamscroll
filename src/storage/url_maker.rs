@@ -5,7 +5,7 @@ use crate::facility;
 #[derive(Clone)]
 pub struct UrlMaker {
     // "/media" if full URL is something like http://localhost:8000/media/foo.jpg
-    pub local_url_prefix: String,
+    pub local_url_prefix: Option<String>,
     // e.g. "http://localhost:4443 if running fake-gcs via Docker
     pub gcloud_emulator_endpoint: Option<String>,
 }
@@ -30,7 +30,17 @@ impl UrlMaker {
     }
 
     pub fn make_local_url(&self, id: &StorageHandle) -> String {
-        format!("{}/{}/{}", self.local_url_prefix, id.user_shard, id.uuid)
+        if self.local_url_prefix.is_none() {
+            tracing::error!("Asked to make local URL but local URL prefix is not configured");
+            panic!("Local URL prefix is not configured");
+        }
+
+        format!(
+            "{}/{}/{}",
+            self.local_url_prefix.as_ref().unwrap(),
+            id.user_shard,
+            id.uuid
+        )
     }
 
     pub fn make_gcloud_url(&self, id: &StorageHandle) -> String {

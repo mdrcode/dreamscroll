@@ -13,7 +13,8 @@ http://localhost:4443/storage/v1/b \
 
 # NOTE, if you get "Not Found" errors when attempting to upload to emulator
 # You probably need to create the bucket manually, since the emulator
-# apparently does not (always?) automatically create the bucket for you:
+# apparently does not (always?) automatically create the bucket for you.
+# After `docker compose up fake-gcs`, can run:
 #
 # curl -X POST -H "Content-Type: application/json" \
 #   http://localhost:4443/storage/v1/b \

@@ -6,11 +6,11 @@ use dreamscroll::{api, auth, database, facility, illumination, rest, storage, we
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    dotenvy::from_filename("ds_config.env").ok();
+    dotenvy::from_filename("ds_config_local.env").ok();
     let _ = dotenvy::from_filename("ds_secrets.env"); // gitignored for api keys
 
+    facility::init_tracing();
     let config = facility::make_config();
-    facility::init_tracing(&config);
 
     let (db_connection, session_store) = database::connect(&config).await?;
     let db = database::DbHandle::new(db_connection);
@@ -41,8 +41,8 @@ async fn main() -> anyhow::Result<()> {
 
         // Web serving for media assets stored with the local storage provider
         router = router.nest_service(
-            &config.storage_local_url_prefix,
-            ServeDir::new(&config.storage_local_file_path),
+            &config.storage_local_url_prefix.unwrap(),
+            ServeDir::new(&config.storage_local_file_path.unwrap()),
         );
 
         let cancel = cancel_token.clone();

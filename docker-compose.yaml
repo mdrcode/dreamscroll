@@ -1,0 +1,73 @@
+services:
+  dreamscroll:
+    build:
+      context: .
+    restart: unless-stopped
+    ports:
+      - "8080:8080" # Adjust to whatever port your Rust app listens on
+    environment:
+      DREAMSCROLL_PORT: 8080
+      DREAMSCROLL_DB_BACKEND: postgres
+      DREAMSCROLL_DB_URL_POSTGRES: postgres://dreamscroll_pg_user:dreamwscroll_pg_strong_password@db:5432/dreamscroll_dev1
+      DREAMSCROLL_STORAGE_BACKEND: gcloud
+      DREAMSCROLL_STORAGE_GCLOUD_EMULATOR_ENDPOINT: http://localhost:4443
+      DREAMSCROLL_STORAGE_GCLOUD_BUCKET_NAME: "dreamscroll-dev-media1"
+    env_file:
+      - ds_secrets.env
+
+    depends_on:
+      db:
+        condition: service_healthy
+      fake-gcs:
+        condition: service_started
+
+  db:
+    image: postgres:18
+    restart: always
+    shm_size: 128mb
+    environment:
+      POSTGRES_USER: dreamscroll_pg_user
+      POSTGRES_PASSWORD: dreamwscroll_pg_strong_password
+      POSTGRES_DB: dreamscroll_dev1
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U dreamscroll_pg_user -d dreamscroll_dev1" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Fake-GCS server for local emulation of Google Cloud Storage. 
+  #
+  # NOTE, if you get "Not Found" errors when attempting to upload to emulator
+  # You probably need to create the bucket manually, since the emulator
+  # apparently does not (always?) automatically create the bucket for you.
+  # After `docker compose up fake-gcs`, can run:
+  #
+  # curl -X POST -H "Content-Type: application/json" \
+  #   http://localhost:4443/storage/v1/b \
+  #   -d '{"name": "dreamscroll-test1"}'
+  #
+  # You can list current buckets with:
+  # curl http://localhost:4443/storage/v1/b
+
+  fake-gcs:
+    image: fsouza/fake-gcs-server:latest
+    restart: unless-stopped
+    ports:
+      - "4443:4443"
+    volumes:
+      - ./localdev/gcloud_storage:/storage
+    command: -scheme http -data /storage
+    # This was super flaky
+    # healthcheck:
+    #   test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4443//_internal/healthcheck" ]
+    #   interval: 10s
+    #   timeout: 10s
+    #   retries: 3
+    #   start_period: 5s
+
+volumes:
+  postgres-data:

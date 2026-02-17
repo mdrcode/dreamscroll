@@ -15,8 +15,8 @@ async fn main() -> anyhow::Result<()> {
     // When testing the Docker image locally, can run docker with
     //  `--env-file ds_config.env --env-file ds_secrets.env`
 
+    facility::init_tracing();
     let config = facility::make_config();
-    facility::init_tracing(&config);
 
     // Verify secrets are available
     config

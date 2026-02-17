@@ -26,16 +26,16 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    dotenvy::from_filename("ds_config.env").ok();
+    dotenvy::from_filename("ds_config_local.env").ok();
     let _ = dotenvy::from_filename("ds_secrets.env"); // gitignored for api keys
-    let mut config = facility::make_config();
 
     let args: Args = argh::from_env();
     if args.verbose {
-        config.tracing_max_level = tracing::Level::DEBUG;
-    }
+        // TODO fix this back up later
+    };
 
-    facility::init_tracing(&config);
+    facility::init_tracing();
+    let config = facility::make_config();
 
     let (db_connection, _) = database::connect(&config).await?;
     let db = database::DbHandle::new(db_connection);
