@@ -92,9 +92,9 @@ services:
     # ./localdev/pubsub_init.sh
     #
     # The default push endpoint targets the app container route:
-    # /internal/illumination/push
+    # /webhook/illumination/push
     #
-    # Note: `/internal` is a path convention only; not a network boundary.
+    # Note: `/webhook` is a path convention only; not a network boundary.
     # In localdev we intentionally allow unauthenticated pushes to this path.
   pubsub-emulator:
     image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators

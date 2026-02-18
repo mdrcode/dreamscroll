@@ -10,7 +10,7 @@ use super::*;
 #[derive(Clone)]
 pub enum WebhookAuth {
     None,
-    PubSubOidc(std::sync::Arc<gcloud::PubSubOidcVerifier>),
+    PubSubOidc(gcloud::PubSubOidcVerifier),
 }
 
 impl WebhookAuth {
@@ -20,6 +20,7 @@ impl WebhookAuth {
             WebhookAuth::PubSubOidc(verifier) => {
                 let token = gcloud::extract_bearer_token(headers)?;
                 verifier.verify_bearer_token(token).await.map_err(|err| {
+                    tracing::warn!("Pub/Sub OIDC verification failed: {}", err);
                     api::ApiError::unauthorized(anyhow!(
                         "OIDC verification failed for Pub/Sub webhook: {}",
                         err
@@ -33,9 +34,10 @@ impl WebhookAuth {
 pub struct WebhookState {
     // This processor is intentionally backed by ServiceApiClient and therefore
     // does not require user auth/JWT context. Internal background services are
-    // treated as elevated trusted components.
-    pub processor: task::processor::CaptureIlluminationProcessor,
+    // treated as elevated trusted components because they have DB access.
+    pub _service_api: api::ServiceApiClient,
     pub auth: WebhookAuth,
+    pub processor: task::processor::CaptureIlluminationProcessor,
 }
 
 pub fn make_router(
@@ -48,7 +50,11 @@ pub fn make_router(
         illumination::make_illuminator("geministructured", stg.clone()),
     );
 
-    let state = Arc::new(WebhookState { processor, auth });
+    let state = Arc::new(WebhookState {
+        _service_api: service_api,
+        auth,
+        processor,
+    });
 
     Router::new()
         .route("/illumination/push", post(r_wh_illuminate::post))

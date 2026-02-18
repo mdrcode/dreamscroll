@@ -3,9 +3,7 @@ use sea_orm::prelude::*;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use dreamscroll::{
-    api, auth, database, facility, illumination, model, rest, storage, task, webhook, webui,
-};
+use dreamscroll::{api, auth, database, facility, model, rest, storage, task, webhook, webui};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -57,36 +55,30 @@ async fn main() -> anyhow::Result<()> {
     // Web UI routes (Session-auth protected) + static JS/CSS serving
     let auth_backend = auth::WebAuthBackend::new(db.clone());
     let mut router = webui::v1::make_ui_router(user_api.clone(), session_store, auth_backend);
-    tracing::info!("Initialized web UI router");
+    tracing::info!("Initialized web UI routes");
 
     // REST API routes (JWT-protected)
     let jwt = auth::JwtConfig::from_secret(config.jwt_secret.as_ref().unwrap().as_bytes());
     let api_router = rest::make_api_router(user_api.clone(), jwt.clone());
     router = router.nest("/api", api_router);
-    tracing::info!("Initialized REST API router");
+    tracing::info!("Initialized REST API routes");
 
     // PubSub Webhook Routes
-    let webhook_auth_verifier = match config.pubsub_push_oidc_audience.clone() {
-        Some(audience) => {
-            let verifier = webhook::gcloud::PubSubOidcVerifier::new(
-                audience,
-                config.pubsub_push_oidc_service_account_email.clone(),
-                config.pubsub_push_oidc_jwks_url.clone(),
-            );
-            tracing::info!("Internal Pub/Sub webhook auth mode: OIDC verification enabled");
-            webhook::WebhookAuth::PubSubOidc(std::sync::Arc::new(verifier))
-        }
-        None => {
-            anyhow::bail!(
-                "Refusing to start Cloud Run server without internal webhook auth. Set DREAMSCROLL_PUBSUB_PUSH_OIDC_AUDIENCE (recommended) or DREAMSCROLL_PUBSUB_WEBHOOK_BEARER_TOKEN."
-            );
-        }
+    let webhook_auth = {
+        let verifier = webhook::gcloud::PubSubOidcVerifier::new(
+            config
+                .pubsub_push_oidc_audience
+                .expect("DREAMSCROLL_PUBSUB_PUSH_OIDC_AUDIENCE missing"),
+            config.pubsub_push_oidc_service_account_email.clone(),
+            config.pubsub_push_oidc_jwks_url.clone(),
+        );
+        webhook::WebhookAuth::PubSubOidc(verifier)
     };
-
     router = router.nest(
-        "/internal",
-        webhook::make_router(service_api.clone(), stg.clone(), webhook_auth_verifier),
+        "/webhook",
+        webhook::make_router(service_api.clone(), stg.clone(), webhook_auth),
     );
+    tracing::info!("Initialized pub/sub webhook OIDC verification");
 
     let cancel = CancellationToken::new();
     let cancel_clone = cancel.clone();

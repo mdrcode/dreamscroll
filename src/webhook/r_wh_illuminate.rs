@@ -17,22 +17,13 @@ pub struct IlluminationTaskPayload {
     pub capture_id: i32,
 }
 
-/// Internal push endpoint for illumination tasks.
+/// Webhook POST endpoint for illumination tasks.
 ///
-/// This endpoint intentionally bypasses user credentials and runs via the
-/// ServiceApi-backed illumination processor.
-///
-/// Effective URL composition:
-/// - Route segment defined in this module: `/illumination/push`
-/// - Mounted by `make_internal_router()` under caller-provided prefix
-/// - Cloudrun binary mounts internal router at `/internal`
-/// - Therefore production path is: `/internal/illumination/push`
 ///
 /// For Cloud Run deployments, Pub/Sub push subscriptions should target:
-/// `https://<cloud-run-service-host>/internal/illumination/push`
+/// `https://<cloud-run-service-host>/webhook/illumination/push`
 ///
-/// Authentication is enforced by `InternalWebhookAuth` mode selected at app
-/// startup by runtime configuration.
+/// Authentication is enforced by `WebhookAuth` configured in `maker::make_router`.
 #[tracing::instrument(skip(state, headers, body), fields(capture_id))]
 pub async fn post(
     State(state): State<Arc<WebhookState>>,

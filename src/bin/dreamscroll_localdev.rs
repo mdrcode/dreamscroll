@@ -46,11 +46,12 @@ async fn main() -> anyhow::Result<()> {
     let api_router = rest::make_api_router(user_api.clone(), jwt.clone());
     router = router.nest("/api", api_router);
 
-    // PubSub Webhook Routes
+    // PubSub Webhook Routes (no auth for localdev)
     router = router.nest(
-        "/internal",
+        "/webhook",
         webhook::make_router(service_api.clone(), stg.clone(), webhook::WebhookAuth::None),
     );
+    tracing::warn!("Initialized pub/sub webhook routes with NO AUTH (for local development only)");
 
     let cancel_token = CancellationToken::new();
     let cancel = cancel_token.clone();

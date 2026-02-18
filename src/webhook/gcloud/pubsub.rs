@@ -3,7 +3,7 @@ use axum::http::HeaderMap;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 
-use crate::api;
+use crate::api::ApiError;
 
 #[derive(Debug, Deserialize)]
 pub struct PubSubPushBody {
@@ -18,47 +18,34 @@ pub struct PubSubMessage {
     pub message_id: Option<String>,
 }
 
-pub fn decode_payload<P>(encoded: &str) -> Result<P, api::ApiError>
+pub fn decode_payload<P>(encoded: &str) -> Result<P, ApiError>
 where
     P: serde::de::DeserializeOwned,
 {
     let bytes = STANDARD.decode(encoded).map_err(|err| {
-        api::ApiError::bad_request(anyhow!("Invalid base64 in Pub/Sub message data: {err}"))
+        ApiError::bad_request(anyhow!("Invalid base64 in Pub/Sub message data: {err}"))
     })?;
 
     serde_json::from_slice::<P>(&bytes).map_err(|err| {
-        api::ApiError::bad_request(anyhow!(
+        ApiError::bad_request(anyhow!(
             "Invalid JSON payload in Pub/Sub message data: {err}"
         ))
     })
 }
 
-pub fn validate_bearer_token(
-    headers: &HeaderMap,
-    expected_token: &str,
-) -> Result<(), api::ApiError> {
-    let token = extract_bearer_token(headers)?;
-
-    if token != expected_token {
-        return Err(api::ApiError::unauthorized(anyhow!("Invalid bearer token")));
-    }
-
-    Ok(())
-}
-
-pub fn extract_bearer_token(headers: &HeaderMap) -> Result<&str, api::ApiError> {
+pub fn extract_bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
     let Some(value) = headers.get(axum::http::header::AUTHORIZATION) else {
-        return Err(api::ApiError::unauthorized(anyhow!(
+        return Err(ApiError::unauthorized(anyhow!(
             "Missing Authorization header"
         )));
     };
 
-    let actual = value.to_str().map_err(|_| {
-        api::ApiError::unauthorized(anyhow!("Invalid Authorization header encoding"))
-    })?;
+    let actual = value
+        .to_str()
+        .map_err(|_| ApiError::unauthorized(anyhow!("Invalid Authorization header encoding")))?;
 
     let Some(token) = actual.strip_prefix("Bearer ") else {
-        return Err(api::ApiError::unauthorized(anyhow!(
+        return Err(ApiError::unauthorized(anyhow!(
             "Authorization must be Bearer token"
         )));
     };

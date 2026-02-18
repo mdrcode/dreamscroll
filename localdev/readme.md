@@ -18,19 +18,19 @@ to avoid divergence in illumination behavior.
 
 ## Pub/Sub push endpoint mapping (important)
 
-The handler for Pub/Sub push lives in `src/rest/r_pubsub.rs` and defines route
+The handler for Pub/Sub push lives in `src/webhook/r_wh_illuminate.rs` and defines route
 segment `/illumination/push`.
 
-That segment is mounted by the internal router, and the cloudrun binary nests
-that internal router at `/internal`.
+That segment is mounted by `webhook::make_router()` and both binaries nest that
+router at `/webhook`.
 
 So the effective production path is always:
 
-- `/internal/illumination/push`
+- `/webhook/illumination/push`
 
 And the full Cloud Run URL shape is:
 
-- `https://<your-cloud-run-host>/internal/illumination/push`
+- `https://<your-cloud-run-host>/webhook/illumination/push`
 
 This is the URL you should configure as the Pub/Sub push subscription endpoint.
 
@@ -43,7 +43,7 @@ To test push-driven illumination locally with Docker Compose:
 3. `./localdev/pubsub_init.sh`
 
 The script creates a topic + push subscription in the emulator and targets the
-internal webhook at `/internal/illumination/push` on the `app` service.
+webhook endpoint at `/webhook/illumination/push` on the `app` service.
 
 When a new capture is inserted, the app publishes an illumination task to the
 configured Pub/Sub topic. For localdev, the internal webhook is intentionally
@@ -74,14 +74,10 @@ Set these in production runtime config:
 - `DREAMSCROLL_PUBSUB_PUSH_OIDC_JWKS_URL` (optional, defaults to Google certs)
 
 If OIDC audience is configured, Cloudrun binary enables OIDC verification for
-`/internal/illumination/push`.
+`/webhook/illumination/push`.
 
-### Fallback modes
-
-If OIDC audience is not set:
-
-- If `DREAMSCROLL_PUBSUB_WEBHOOK_BEARER_TOKEN` is set, static bearer auth is used.
-- Otherwise cloudrun startup fails fast and refuses to run.
+Cloudrun requires OIDC audience configuration and fails fast at startup if it
+is missing.
 
 ### Notes on localdev
 
@@ -94,7 +90,7 @@ Use this sequence when wiring production:
 
 1. Deploy Cloud Run service and note host URL.
 2. Choose push endpoint URL:
-	- `https://<cloud-run-host>/internal/illumination/push`
+	- `https://<cloud-run-host>/webhook/illumination/push`
 3. Configure runtime env vars on Cloud Run:
 	- `DREAMSCROLL_PUBSUB_PROJECT_ID`
 	- `DREAMSCROLL_PUBSUB_TOPIC_ID`
@@ -112,6 +108,6 @@ Use this sequence when wiring production:
 
 ## Security note
 
-The `/internal` path is a naming convention, not an automatic network boundary.
+The `/webhook` path is a naming convention, not an automatic network boundary.
 Treat it as externally reachable unless ingress/network policy says otherwise.
 The security boundary for this endpoint is the configured webhook auth mode.
