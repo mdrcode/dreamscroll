@@ -3,7 +3,7 @@ use sea_orm::prelude::*;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use dreamscroll::{api, auth, database, facility, model, rest, storage, webui};
+use dreamscroll::{api, auth, database, facility, illumination, model, rest, storage, task, webui};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -41,14 +41,14 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let task_publisher = dreamscroll::illumination::make_task_publisher(&config);
-    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone())
-        .with_task_publisher(task_publisher);
-    let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
-    let internal_processor = dreamscroll::illumination::make_processor(
-        service_api,
-        dreamscroll::illumination::make_illuminator("geministructured", stg.clone()),
+    let task_publisher = task::task_publisher::make_task_publisher(&config);
+    let user_api = api::UserApiClient::new(
+        db.clone(),
+        stg.clone(),
+        url_maker.clone(),
+        task_publisher.clone(),
     );
+
     tracing::info!("Initialized storage and API client");
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving
@@ -72,21 +72,21 @@ async fn main() -> anyhow::Result<()> {
             config.pubsub_push_oidc_jwks_url.clone(),
         );
         tracing::info!("Internal Pub/Sub webhook auth mode: OIDC verification enabled");
-        rest::InternalWebhookAuth::PubSubOidc(std::sync::Arc::new(verifier))
-    } else if let Some(token) = config.pubsub_webhook_bearer_token.clone() {
-        tracing::warn!(
-            "Internal Pub/Sub webhook auth mode: static bearer token (consider OIDC for production)"
-        );
-        rest::InternalWebhookAuth::BearerToken(token)
+        task::webhook::InternalWebhookAuth::PubSubOidc(std::sync::Arc::new(verifier))
     } else {
         anyhow::bail!(
             "Refusing to start Cloud Run server without internal webhook auth. Set DREAMSCROLL_PUBSUB_PUSH_OIDC_AUDIENCE (recommended) or DREAMSCROLL_PUBSUB_WEBHOOK_BEARER_TOKEN."
         );
     };
 
+    let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
+    let processor = task::processor::CaptureIlluminationProcessor::new(
+        service_api.clone(),
+        illumination::make_illuminator("geministructured", stg.clone()),
+    );
     router = router.nest(
         "/internal",
-        rest::make_internal_router(internal_processor, internal_webhook_auth),
+        task::webhook::make_internal_router(processor, internal_webhook_auth),
     );
     tracing::info!(
         "Internal Pub/Sub webhook route enabled at /internal/illumination/push (production endpoint path)"

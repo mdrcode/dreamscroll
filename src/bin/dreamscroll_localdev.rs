@@ -1,10 +1,8 @@
-use core::task;
-
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
 
-use dreamscroll::{api, auth, database, facility, illumination, rest, storage, webui};
+use dreamscroll::{api, auth, database, facility, illumination, rest, storage, task, webui};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -21,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let task_publisher = illumination::make_task_publisher(&config);
+    let task_publisher = task::task_publisher::make_task_publisher(&config);
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving
     let user_api = api::UserApiClient::new(
@@ -32,13 +30,13 @@ async fn main() -> anyhow::Result<()> {
     );
     let auth_backend = auth::WebAuthBackend::new(db.clone());
     let mut router = webui::v1::make_ui_router(user_api.clone(), session_store, auth_backend);
-    
+
     // Web serving for media assets stored with the local storage provider
     router = router.nest_service(
         &config.storage_local_url_prefix.unwrap(),
         ServeDir::new(&config.storage_local_file_path.unwrap()),
     );
-    
+
     // REST API routes (JWT-protected)
     let jwt_secret = config.jwt_secret.expect("DREAMSCROLL_JWT_SECRET missing");
     let jwt = auth::JwtConfig::from_secret(jwt_secret.as_bytes());
@@ -47,13 +45,16 @@ async fn main() -> anyhow::Result<()> {
 
     // PubSub Webhook Routes
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
-    let internal_processor = illumination::make_processor(
+    let processor = task::processor::CaptureIlluminationProcessor::new(
         service_api.clone(),
         illumination::make_illuminator("geministructured", stg.clone()),
     );
     router = router.nest(
         "/internal",
-        rest::make_internal_router(internal_processor.clone(), rest::InternalWebhookAuth::None),
+        task::webhook::make_internal_router(
+            processor.clone(),
+            task::webhook::InternalWebhookAuth::None,
+        ),
     );
 
     let cancel_token = CancellationToken::new();
@@ -72,7 +73,7 @@ async fn main() -> anyhow::Result<()> {
 
     let thread_illuminator = {
         let gemini = illumination::make_illuminator("geministructured", stg.clone());
-        let worker = illumination::make_worker(service_api, gemini);
+        let worker = task::orchestrator::make_worker(service_api, gemini);
         let cancel = cancel_token.clone();
         tokio::spawn(async move {
             tokio::select! {

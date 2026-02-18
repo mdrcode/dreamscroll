@@ -1,6 +1,6 @@
-use crate::api;
+use crate::{api, illumination, task};
 
-use super::{illuminator::*, simpleworker};
+use super::*;
 
 #[async_trait::async_trait]
 pub trait IlluminatorWorker: Send + Sync {
@@ -9,8 +9,8 @@ pub trait IlluminatorWorker: Send + Sync {
 
 pub fn make_worker(
     service_api: api::ServiceApiClient,
-    ill: Box<dyn Illuminator>,
+    ill: Box<dyn illumination::Illuminator>,
 ) -> Box<dyn IlluminatorWorker> {
-    let processor = CaptureIlluminationProcessor::new(service_api, ill);
+    let processor = task::processor::CaptureIlluminationProcessor::new(service_api, ill);
     Box::new(simpleworker::SimpleWorker::new(processor))
 }

@@ -3,8 +3,8 @@ pub mod webhook;
 mod maker;
 pub use maker::*;
 
-mod processor;
-pub use processor::*;
+pub mod orchestrator;
 
-mod task_publisher;
-pub use task_publisher::*;
+pub mod processor;
+
+pub mod task_publisher;

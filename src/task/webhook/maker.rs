@@ -20,12 +20,12 @@ pub struct InternalRestState {
     // This processor is intentionally backed by ServiceApiClient and therefore
     // does not require user auth/JWT context. Internal background services are
     // treated as elevated trusted components.
-    pub processor: task::CaptureIlluminationProcessor,
+    pub processor: task::processor::CaptureIlluminationProcessor,
     pub webhook_auth: InternalWebhookAuth,
 }
 
 pub fn make_internal_router(
-    processor: task::CaptureIlluminationProcessor,
+    processor: task::processor::CaptureIlluminationProcessor,
     webhook_auth: InternalWebhookAuth,
 ) -> Router {
     let state = Arc::new(InternalRestState {

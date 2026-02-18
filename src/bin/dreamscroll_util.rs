@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use dreamscroll::{api, database, facility, storage, util_cmd::*};
+use dreamscroll::{api, database, facility, storage, task, util_cmd::*};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll admin utility")]
@@ -43,7 +43,13 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone());
+    let task_publisher = task::task_publisher::make_task_publisher(&config);
+    let user_api = api::UserApiClient::new(
+        db.clone(),
+        stg.clone(),
+        url_maker.clone(),
+        task_publisher.clone(),
+    );
     let import_api = api::ImportApiClient::new(db.clone(), stg.clone(), url_maker.clone());
 
     let cmd_state = CmdState {

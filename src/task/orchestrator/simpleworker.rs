@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use crate::{api, common};
+use crate::{api, common, task};
 
 use super::*;
 
 pub struct SimpleWorker {
-    processor: CaptureIlluminationProcessor,
+    processor: task::processor::CaptureIlluminationProcessor,
     queue: Arc<common::OneShotQueue<i32>>,
 }
 
@@ -19,7 +19,7 @@ impl Clone for SimpleWorker {
 }
 
 impl SimpleWorker {
-    pub fn new(processor: CaptureIlluminationProcessor) -> Self {
+    pub fn new(processor: task::processor::CaptureIlluminationProcessor) -> Self {
         Self {
             processor,
             queue: Arc::new(common::OneShotQueue::new()),

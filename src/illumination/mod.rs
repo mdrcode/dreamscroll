@@ -1,12 +1,7 @@
 // core traits
 mod illuminator;
 pub use illuminator::*;
-mod worker;
-pub use worker::*;
 
-
-// simple local worker implementation
-mod simpleworker;
 
 // illuminator implementations
 pub mod gemini;

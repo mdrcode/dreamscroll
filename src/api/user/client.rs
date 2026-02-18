@@ -8,7 +8,7 @@ pub struct UserApiClient {
     pub db: database::DbHandle,
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
-    task_publisher: Arc<dyn task::IlluminationTaskPublisher>,
+    task_publisher: Arc<dyn task::task_publisher::IlluminationTaskPublisher>,
 }
 
 impl UserApiClient {
@@ -16,7 +16,7 @@ impl UserApiClient {
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
-        task_publisher: Arc<dyn task::IlluminationTaskPublisher>,
+        task_publisher: Arc<dyn task::task_publisher::IlluminationTaskPublisher>,
     ) -> Self {
         Self {
             db,
