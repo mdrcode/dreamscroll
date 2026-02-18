@@ -1,5 +1,22 @@
 # Dreamscroll Development Log
 
+## 2026-02-18
+
+Been a busy week (but neglected to update the log). The app now fully runs
+container-ized in preparation for Cloud Run and it works with postgres.
+
+The only remaining blocker to running in Google Cloud is leveraging a pub
+sub queue for driving the illuminator workflow. Once that is done, then
+the app will be ready for (at least alpha-level) testing in gcloud environment.
+
+Pending backlog:
+
+- [ ] Re-architect the illuminator workflow to be webhooks driven by a queue
+  (pub sub) invoker.
+- [ ] Figure out signed cookie protection for media URLs (since currently) they are
+  publicly visible but should be locked down.
+- [ ] Improve illuminator flow to use Vertex API instead of DMZ API.
+
 ## 2026-02-7
 
 Up next:

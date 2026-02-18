@@ -28,7 +28,7 @@ enum Command {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::from_filename("ds_config_local.env").ok();
-    let _ = dotenvy::from_filename("ds_secrets.env"); // gitignored for api keys
+    let _ = dotenvy::from_filename(".env"); // gitignored for api keys
 
     let args: Args = argh::from_env();
     if args.verbose {

@@ -29,7 +29,7 @@ pub trait StorageProvider: DynClone + Send + Sync {
 dyn_clone::clone_trait_object!(StorageProvider);
 
 pub async fn make_provider(config: &facility::Config) -> Box<dyn StorageProvider> {
-    match config.storage_backend {
+    let provider = match config.storage_backend {
         StorageBackend::Local => {
             let local_file_path = config
                 .storage_local_file_path
@@ -52,5 +52,12 @@ pub async fn make_provider(config: &facility::Config) -> Box<dyn StorageProvider
             .await;
             Box::new(gcloud) as Box<dyn StorageProvider>
         }
-    }
+    };
+
+    tracing::info!(
+        "Successfully created storage provider: {:?}",
+        config.storage_backend
+    );
+
+    provider
 }

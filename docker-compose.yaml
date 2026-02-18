@@ -5,20 +5,25 @@ services:
     restart: unless-stopped
     ports:
       - "8080:8080"
+    env_file:
+      - .env # .gitignored for secrets like DREAMSCROLL_JWT_SECRET_KEY
     environment:
       PORT: 8080
       RUST_LOG: info
       DREAMSCROLL_DB_BACKEND: postgres
-      DREAMSCROLL_DB_URL_POSTGRES: postgres://dreamscroll_pg_user:dreamwscroll_pg_strong_password@db:5432/dreamscroll_dev1
+      # The POSTGRES_ vars should be defined in a .gitignored `.env` file.
+      # This URL is defined twice: (1) in .env, (for locally running via
+      # `cargo run`) it is defined to reference localhost. But here in 
+      # docker-compose.yaml, it is redefined to point to the "db" service
+      # defined below.
+      DREAMSCROLL_DB_URL_POSTGRES: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       DREAMSCROLL_STORAGE_BACKEND: gcloud
       DREAMSCROLL_STORAGE_GCLOUD_EMULATOR_ENDPOINT: http://fake-gcs:4443
       DREAMSCROLL_STORAGE_GCLOUD_BUCKET_NAME: "dreamscroll-dev-media1"
-    env_file:
-      - ds_secrets.env # .gitignore'd !
 
     # Cute way to import/export data from the docker environment
     volumes:
-      - ~/Documents/dreamscroll_export:/app/export
+      - ${EXPORT_DIR:-~/Documents/dreamscroll_export}:/app/export
 
     depends_on:
       db:
@@ -30,16 +35,18 @@ services:
     image: postgres:18
     restart: always
     shm_size: 128mb
-    environment:
-      POSTGRES_USER: dreamscroll_pg_user
-      POSTGRES_PASSWORD: dreamwscroll_pg_strong_password
-      POSTGRES_DB: dreamscroll_dev1
+    env_file:
+      - .env
+    # These should be defined in .env
+    # POSTGRES_USER
+    # POSTGRES_PASSWORD
+    # POSTGRES_DB
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U dreamscroll_pg_user -d dreamscroll_dev1" ]
+      test: [ "CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}", "-q" ]
       interval: 5s
       timeout: 5s
       retries: 5

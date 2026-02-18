@@ -23,7 +23,7 @@ impl ImportApiClient {
         }
     }
 
-    #[tracing::instrument(skip(self, created_at, path))]
+    #[tracing::instrument(skip(self, user_context, created_at, path))]
     pub async fn import_capture(
         &self,
         user_context: &auth::Context,

@@ -1,19 +1,21 @@
 use anyhow::Context;
+use sea_orm::prelude::*;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use dreamscroll::{api, auth, database, facility, rest, storage, webui};
+use dreamscroll::{api, auth, database, facility, model, rest, storage, webui};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     // For localdev, we explicity call dotenvy::from_filename() to load:
+    //  - .env (secrets, .gitignored for API keys, etc)
     //  - ds_config.env
-    //  - ds_secrets.env (.gitignored for API keys, etc)
+    //
     // But for production, the configuration should come externally via the
     // environment, set by Google Cloud Secret Manager, etc.
     //
-    // When testing the Docker image locally, can run docker with
-    //  `--env-file ds_config.env --env-file ds_secrets.env`
+    // To run the Docker container locally, use docker compose (the correct
+    // configuration is loaded by the docker-compose.yaml).
 
     facility::init_tracing();
     let config = facility::make_config();
@@ -27,6 +29,15 @@ async fn main() -> anyhow::Result<()> {
     let (db_connection, session_store) = database::connect(&config).await?;
     let db = database::DbHandle::new(db_connection);
     tracing::info!("Connected to database");
+
+    let user_count = model::user::Entity::find().count(&db.conn).await?;
+    if user_count == 0 {
+        tracing::error!(
+            "No users found in db! Create a user with `dreamscroll_util check_first_user`."
+        );
+    } else {
+        tracing::info!("Found {} users in database", user_count);
+    }
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);

@@ -36,10 +36,14 @@ impl UrlMaker {
         }
 
         format!(
-            "{}/{}/{}",
+            "{}/{}/{}{}",
             self.local_url_prefix.as_ref().unwrap(),
             id.user_shard,
-            id.uuid
+            id.uuid,
+            id.extension
+                .as_ref()
+                .map(|ext| format!(".{}", ext))
+                .unwrap_or_default()
         )
     }
 
@@ -63,10 +67,14 @@ impl UrlMaker {
             // Note: The object must be publicly accessible for this URL to work
             // TODO: Consider signed URLs or signed cookies for controlled access
             format!(
-                "https://storage.googleapis.com/{}/{}/{}",
+                "https://storage.googleapis.com/{}/{}/{}{}",
                 id.bucket.as_ref().unwrap(),
                 id.user_shard,
-                id.uuid
+                id.uuid,
+                id.extension
+                    .as_ref()
+                    .map(|ext| format!(".{}", ext))
+                    .unwrap_or_default()
             )
         }
     }

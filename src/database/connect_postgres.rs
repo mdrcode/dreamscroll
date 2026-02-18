@@ -10,6 +10,7 @@ pub async fn create_postgres_pool(url: &str) -> anyhow::Result<sqlx::postgres::P
         .connect(url)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
+    tracing::info!("Successfully created Postgres connection pool");
     Ok(pool)
 }
 
@@ -21,6 +22,8 @@ pub async fn connect_postgres_db(
     conn.get_schema_registry("dreamscroll::model::*")
         .sync(&conn)
         .await?;
+
+    tracing::info!("Successfully synchronized Postgres database schema");
 
     Ok(conn)
 }
