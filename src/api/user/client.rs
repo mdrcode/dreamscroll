@@ -8,7 +8,7 @@ pub struct UserApiClient {
     pub db: database::DbHandle,
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
-    task_publisher: Arc<dyn task::task_publisher::IlluminationTaskPublisher>,
+    task_publisher: Arc<dyn task::task_publisher::TaskPublisher>,
 }
 
 impl UserApiClient {
@@ -16,7 +16,7 @@ impl UserApiClient {
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
-        task_publisher: Arc<dyn task::task_publisher::IlluminationTaskPublisher>,
+        task_publisher: Arc<dyn task::task_publisher::TaskPublisher>,
     ) -> Self {
         Self {
             db,
@@ -109,7 +109,7 @@ impl UserApiClient {
 
         if let Err(err) = self
             .task_publisher
-            .publish_capture_id(capture_model.id)
+            .enqueue_illumination(capture_model.id)
             .await
         {
             tracing::error!(

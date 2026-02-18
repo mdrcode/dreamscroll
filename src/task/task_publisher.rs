@@ -5,16 +5,16 @@ use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Serialize;
 
 #[async_trait::async_trait]
-pub trait IlluminationTaskPublisher: Send + Sync {
-    async fn publish_capture_id(&self, capture_id: i32) -> anyhow::Result<()>;
+pub trait TaskPublisher: Send + Sync {
+    async fn enqueue_illumination(&self, capture_id: i32) -> anyhow::Result<()>;
 }
 
 #[derive(Default)]
 pub struct NoopTaskPublisher;
 
 #[async_trait::async_trait]
-impl IlluminationTaskPublisher for NoopTaskPublisher {
-    async fn publish_capture_id(&self, _capture_id: i32) -> anyhow::Result<()> {
+impl TaskPublisher for NoopTaskPublisher {
+    async fn enqueue_illumination(&self, _capture_id: i32) -> anyhow::Result<()> {
         Ok(())
     }
 }
@@ -51,8 +51,8 @@ struct PublishRequest {
 }
 
 #[async_trait::async_trait]
-impl IlluminationTaskPublisher for PubSubHttpTaskPublisher {
-    async fn publish_capture_id(&self, capture_id: i32) -> anyhow::Result<()> {
+impl TaskPublisher for PubSubHttpTaskPublisher {
+    async fn enqueue_illumination(&self, capture_id: i32) -> anyhow::Result<()> {
         let payload = serde_json::to_vec(&TaskPayload { capture_id })?;
         let encoded = STANDARD.encode(payload);
 
@@ -85,7 +85,7 @@ impl IlluminationTaskPublisher for PubSubHttpTaskPublisher {
     }
 }
 
-pub fn make_task_publisher(config: &crate::facility::Config) -> Arc<dyn IlluminationTaskPublisher> {
+pub fn make_task_publisher(config: &crate::facility::Config) -> Arc<dyn TaskPublisher> {
     let Some(project_id) = &config.pubsub_project_id else {
         tracing::info!("Pub/Sub task publisher disabled (DREAMSCROLL_PUBSUB_PROJECT_ID missing)");
         return Arc::new(NoopTaskPublisher);
