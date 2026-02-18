@@ -1,4 +1,4 @@
-use crate::{api, illumination, task};
+use crate::{api, illumination};
 
 use super::*;
 
@@ -11,6 +11,5 @@ pub fn make_worker(
     service_api: api::ServiceApiClient,
     ill: Box<dyn illumination::Illuminator>,
 ) -> Box<dyn IlluminatorWorker> {
-    let processor = task::processor::CaptureIlluminationProcessor::new(service_api, ill);
-    Box::new(simpleworker::SimpleWorker::new(processor))
+    Box::new(simpleworker::SimpleWorker::new(service_api, ill))
 }

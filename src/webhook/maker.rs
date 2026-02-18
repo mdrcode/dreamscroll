@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use axum::{Router, routing::post};
 
-use crate::{api, illumination, storage, task};
+use crate::{api, illumination, storage};
 
 use super::*;
 
@@ -35,9 +35,9 @@ pub struct WebhookState {
     // This processor is intentionally backed by ServiceApiClient and therefore
     // does not require user auth/JWT context. Internal background services are
     // treated as elevated trusted components because they have DB access.
-    pub _service_api: api::ServiceApiClient,
+    pub service_api: api::ServiceApiClient,
     pub auth: WebhookAuth,
-    pub processor: task::processor::CaptureIlluminationProcessor,
+    pub illuminator: Box<dyn illumination::Illuminator>,
 }
 
 pub fn make_router(
@@ -45,15 +45,10 @@ pub fn make_router(
     stg: Box<dyn storage::StorageProvider>,
     auth: WebhookAuth,
 ) -> Router {
-    let processor = task::processor::CaptureIlluminationProcessor::new(
-        service_api.clone(),
-        illumination::make_illuminator("geministructured", stg.clone()),
-    );
-
     let state = Arc::new(WebhookState {
-        _service_api: service_api,
+        service_api: service_api,
         auth,
-        processor,
+        illuminator: illumination::make_illuminator("geministructured", stg.clone()),
     });
 
     Router::new()

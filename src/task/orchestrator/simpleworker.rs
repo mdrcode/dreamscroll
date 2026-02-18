@@ -1,27 +1,30 @@
 use std::sync::Arc;
 
-use crate::{api, common, task};
+use crate::{api, common, illumination, webhook::r_wh_illuminate};
 
 use super::*;
 
 pub struct SimpleWorker {
-    processor: task::processor::CaptureIlluminationProcessor,
+    service_api: api::ServiceApiClient,
+    illuminator: Box<dyn illumination::Illuminator>,
     queue: Arc<common::OneShotQueue<i32>>,
 }
 
 impl Clone for SimpleWorker {
     fn clone(&self) -> Self {
         Self {
-            processor: self.processor.clone(),
+            service_api: self.service_api.clone(),
+            illuminator: self.illuminator.clone(),
             queue: Arc::clone(&self.queue),
         }
     }
 }
 
 impl SimpleWorker {
-    pub fn new(processor: task::processor::CaptureIlluminationProcessor) -> Self {
+    pub fn new(service_api: api::ServiceApiClient, illuminator: Box<dyn illumination::Illuminator>) -> Self {
         Self {
-            processor,
+            service_api,
+            illuminator,
             queue: Arc::new(common::OneShotQueue::new()),
         }
     }
@@ -39,7 +42,7 @@ impl IlluminatorWorker for SimpleWorker {
         });
 
         loop {
-            let ids = self.processor.get_captures_need_illum().await?;
+            let ids = self.service_api.get_captures_need_illum().await?;
             let n = ids.len();
             let nq = self.queue.enqueue_iter(ids);
 
@@ -65,11 +68,16 @@ impl SimpleWorkerThread {
     // note this consumes self
     async fn run(self) -> anyhow::Result<(), api::ApiError> {
         let queue = &self.parent_arc.queue;
-        let processor = &self.parent_arc.processor;
 
         loop {
             if let Some(cap_id) = queue.pop_next() {
-                match processor.process_capture_id(cap_id).await {
+                match r_wh_illuminate::execute(
+                    &self.parent_arc.service_api,
+                    &self.parent_arc.illuminator,
+                    cap_id,
+                )
+                .await
+                {
                     Ok(()) => {
                         queue.complete(cap_id);
                     }
