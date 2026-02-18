@@ -6,7 +6,7 @@ pub struct UserApiClient {
     pub db: database::DbHandle,
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
-    taskqueue: Box<dyn task::TaskQueue>,
+    beacon: task::Beacon,
 }
 
 impl UserApiClient {
@@ -14,13 +14,13 @@ impl UserApiClient {
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
-        taskqueue: Box<dyn task::TaskQueue>,
+        beacon: task::Beacon,
     ) -> Self {
         Self {
             db,
             storage,
             info_maker: schema::InfoMaker::new(url_maker),
-            taskqueue: taskqueue,
+            beacon,
         }
     }
 
@@ -105,7 +105,7 @@ impl UserApiClient {
         let capture_model =
             super::insert_capture(&self.db, &self.storage, context, media_bytes).await?;
 
-        if let Err(err) = self.taskqueue.enqueue_illumination(capture_model.id).await {
+        if let Err(err) = self.beacon.signal_new_capture(capture_model.id).await {
             tracing::error!(
                 capture_id = capture_model.id,
                 error = ?err,

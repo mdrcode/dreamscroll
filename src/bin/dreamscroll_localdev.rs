@@ -21,13 +21,11 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let taskqueue = task::make_taskqueue(&config);
-    let user_api = api::UserApiClient::new(
-        db.clone(),
-        stg.clone(),
-        url_maker.clone(),
-        taskqueue.clone(),
-    );
+    let beacon = task::Beacon::builder()
+        .illumination_queue(task::make_taskqueue(&config))
+        .build();
+    let user_api =
+        api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon.clone());
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving

@@ -59,7 +59,7 @@ struct PublishRequest {
 
 #[async_trait::async_trait]
 impl task::TaskQueue for PubSubHttpTaskQueue {
-    async fn enqueue_illumination(&self, capture_id: i32) -> anyhow::Result<()> {
+    async fn enqueue(&self, capture_id: i32) -> anyhow::Result<()> {
         let payload = serde_json::to_vec(&TaskPayload { capture_id })?;
         let encoded = STANDARD.encode(payload);
 
