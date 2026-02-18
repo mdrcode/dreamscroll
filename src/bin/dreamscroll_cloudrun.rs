@@ -50,6 +50,7 @@ async fn main() -> anyhow::Result<()> {
         url_maker.clone(),
         task_publisher.clone(),
     );
+    let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
 
     tracing::info!("Initialized storage and API client");
 
@@ -62,11 +63,9 @@ async fn main() -> anyhow::Result<()> {
     let jwt = auth::JwtConfig::from_secret(config.jwt_secret.as_ref().unwrap().as_bytes());
     let api_router = rest::make_api_router(user_api.clone(), jwt.clone());
     router = router.nest("/api", api_router);
+    tracing::info!("Initialized REST API router");
 
-    // Internal background processing webhook auth policy (production):
-    // 1) OIDC (preferred, production-grade)
-
-    // 3) No auth: disallowed by startup guard below
+    // PubSub Webhook Routes
     let webhook_auth_verifier = match config.pubsub_push_oidc_audience.clone() {
         Some(audience) => {
             let verifier = webhook::gcloud::PubSubOidcVerifier::new(
@@ -75,7 +74,7 @@ async fn main() -> anyhow::Result<()> {
                 config.pubsub_push_oidc_jwks_url.clone(),
             );
             tracing::info!("Internal Pub/Sub webhook auth mode: OIDC verification enabled");
-            webhook::InternalWebhookAuth::PubSubOidc(std::sync::Arc::new(verifier))
+            webhook::WebhookAuth::PubSubOidc(std::sync::Arc::new(verifier))
         }
         None => {
             anyhow::bail!(
@@ -84,19 +83,10 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
-    let processor = task::processor::CaptureIlluminationProcessor::new(
-        service_api.clone(),
-        illumination::make_illuminator("geministructured", stg.clone()),
-    );
     router = router.nest(
         "/internal",
-        webhook::make_internal_router(processor, webhook_auth_verifier),
+        webhook::make_router(service_api.clone(), stg.clone(), webhook_auth_verifier),
     );
-    tracing::info!(
-        "Internal Pub/Sub webhook route enabled at /internal/illumination/push (production endpoint path)"
-    );
-    tracing::info!("Initialized REST API router");
 
     let cancel = CancellationToken::new();
     let cancel_clone = cancel.clone();

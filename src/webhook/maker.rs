@@ -3,21 +3,21 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use axum::{Router, routing::post};
 
-use crate::{api, task};
+use crate::{api, illumination, storage, task};
 
 use super::*;
 
 #[derive(Clone)]
-pub enum InternalWebhookAuth {
+pub enum WebhookAuth {
     None,
     PubSubOidc(std::sync::Arc<gcloud::PubSubOidcVerifier>),
 }
 
-impl InternalWebhookAuth {
-    pub async fn validate(&self, headers: &axum::http::HeaderMap) -> Result<(), api::ApiError> {
+impl WebhookAuth {
+    pub async fn verify(&self, headers: &axum::http::HeaderMap) -> Result<(), api::ApiError> {
         match self {
-            InternalWebhookAuth::None => Ok(()),
-            InternalWebhookAuth::PubSubOidc(verifier) => {
+            WebhookAuth::None => Ok(()),
+            WebhookAuth::PubSubOidc(verifier) => {
                 let token = gcloud::extract_bearer_token(headers)?;
                 verifier.verify_bearer_token(token).await.map_err(|err| {
                     api::ApiError::unauthorized(anyhow!(
@@ -30,22 +30,25 @@ impl InternalWebhookAuth {
     }
 }
 
-pub struct InternalRestState {
+pub struct WebhookState {
     // This processor is intentionally backed by ServiceApiClient and therefore
     // does not require user auth/JWT context. Internal background services are
     // treated as elevated trusted components.
     pub processor: task::processor::CaptureIlluminationProcessor,
-    pub webhook_auth: InternalWebhookAuth,
+    pub auth: WebhookAuth,
 }
 
-pub fn make_internal_router(
-    processor: task::processor::CaptureIlluminationProcessor,
-    webhook_auth: InternalWebhookAuth,
+pub fn make_router(
+    service_api: api::ServiceApiClient,
+    stg: Box<dyn storage::StorageProvider>,
+    auth: WebhookAuth,
 ) -> Router {
-    let state = Arc::new(InternalRestState {
-        processor,
-        webhook_auth,
-    });
+    let processor = task::processor::CaptureIlluminationProcessor::new(
+        service_api.clone(),
+        illumination::make_illuminator("geministructured", stg.clone()),
+    );
+
+    let state = Arc::new(WebhookState { processor, auth });
 
     Router::new()
         .route("/illumination/push", post(r_wh_illuminate::post))

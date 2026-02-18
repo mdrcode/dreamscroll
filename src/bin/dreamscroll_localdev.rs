@@ -22,14 +22,15 @@ async fn main() -> anyhow::Result<()> {
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
     let task_publisher = task::task_publisher::make_task_publisher(&config);
-
-    // Web UI routes (Session-auth protected) + static JS/CSS serving
     let user_api = api::UserApiClient::new(
         db.clone(),
         stg.clone(),
         url_maker.clone(),
         task_publisher.clone(),
     );
+    let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
+
+    // Web UI routes (Session-auth protected) + static JS/CSS serving
     let auth_backend = auth::WebAuthBackend::new(db.clone());
     let mut router = webui::v1::make_ui_router(user_api.clone(), session_store, auth_backend);
 
@@ -46,17 +47,9 @@ async fn main() -> anyhow::Result<()> {
     router = router.nest("/api", api_router);
 
     // PubSub Webhook Routes
-    let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
-    let processor = task::processor::CaptureIlluminationProcessor::new(
-        service_api.clone(),
-        illumination::make_illuminator("geministructured", stg.clone()),
-    );
     router = router.nest(
         "/internal",
-        webhook::make_internal_router(
-            processor.clone(),
-            webhook::InternalWebhookAuth::None,
-        ),
+        webhook::make_router(service_api.clone(), stg.clone(), webhook::WebhookAuth::None),
     );
 
     let cancel_token = CancellationToken::new();

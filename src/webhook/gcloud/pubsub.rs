@@ -5,8 +5,6 @@ use serde::Deserialize;
 
 use crate::api;
 
-use super::*;
-
 #[derive(Debug, Deserialize)]
 pub struct PubSubPushBody {
     pub message: PubSubMessage,
