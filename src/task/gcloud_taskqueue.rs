@@ -5,23 +5,23 @@ use serde::Serialize;
 use crate::{facility, task};
 
 #[derive(Clone)]
-pub struct PubSubHttpTaskPublisher {
+pub struct PubSubHttpTaskQueue {
     client: reqwest::Client,
     publish_url: String,
     bearer_token: Option<String>,
 }
 
-impl PubSubHttpTaskPublisher {
+impl PubSubHttpTaskQueue {
     pub fn from_config(config: &facility::Config) -> Self {
         let project_id = config
             .pubsub_project_id
             .as_ref()
-            .expect("Pub/Sub task publisher disabled (DREAMSCROLL_PUBSUB_PROJECT_ID missing)");
+            .expect("PubSubHttpTaskQueue creation fatal: DREAMSCROLL_PUBSUB_PROJECT_ID missing");
 
         let topic_id = config
             .pubsub_topic_id
             .as_ref()
-            .expect("Pub/Sub task publisher disabled (DREAMSCROLL_PUBSUB_TOPIC_ID missing)");
+            .expect("PubSubHttpTaskQueue creation fatal: DREAMSCROLL_PUBSUB_TOPIC_ID missing");
 
         let base_url = config
             .pubsub_api_base_url
@@ -33,8 +33,6 @@ impl PubSubHttpTaskPublisher {
             "{}/v1/projects/{}/topics/{}:publish",
             base_url, project_id, topic_id
         );
-
-        tracing::info!(publish_url, "Pub/Sub task publisher enabled");
 
         Self {
             client: reqwest::Client::new(),
@@ -60,7 +58,7 @@ struct PublishRequest {
 }
 
 #[async_trait::async_trait]
-impl task::TaskPublisher for PubSubHttpTaskPublisher {
+impl task::TaskQueue for PubSubHttpTaskQueue {
     async fn enqueue_illumination(&self, capture_id: i32) -> anyhow::Result<()> {
         let payload = serde_json::to_vec(&TaskPayload { capture_id })?;
         let encoded = STANDARD.encode(payload);

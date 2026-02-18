@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use crate::{api::*, auth, database, storage, task};
 
 #[derive(Clone)]
@@ -8,7 +6,7 @@ pub struct UserApiClient {
     pub db: database::DbHandle,
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
-    task_publisher: Box<dyn task::TaskPublisher>,
+    taskqueue: Box<dyn task::TaskQueue>,
 }
 
 impl UserApiClient {
@@ -16,13 +14,13 @@ impl UserApiClient {
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
-        task_publisher: Box<dyn task::TaskPublisher>,
+        taskqueue: Box<dyn task::TaskQueue>,
     ) -> Self {
         Self {
             db,
             storage,
             info_maker: schema::InfoMaker::new(url_maker),
-            task_publisher,
+            taskqueue: taskqueue,
         }
     }
 
@@ -107,11 +105,7 @@ impl UserApiClient {
         let capture_model =
             super::insert_capture(&self.db, &self.storage, context, media_bytes).await?;
 
-        if let Err(err) = self
-            .task_publisher
-            .enqueue_illumination(capture_model.id)
-            .await
-        {
+        if let Err(err) = self.taskqueue.enqueue_illumination(capture_model.id).await {
             tracing::error!(
                 capture_id = capture_model.id,
                 error = ?err,
