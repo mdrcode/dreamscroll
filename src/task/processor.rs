@@ -1,6 +1,4 @@
-use crate::api;
-
-use super::Illuminator;
+use crate::{api, illumination::Illuminator};
 
 #[derive(Clone)]
 pub struct CaptureIlluminationProcessor {
@@ -17,7 +15,10 @@ impl CaptureIlluminationProcessor {
     }
 
     pub async fn process_capture_id(&self, capture_id: i32) -> anyhow::Result<(), api::ApiError> {
-        let fetch = self.service_api.get_captures(Some(vec![capture_id])).await?;
+        let fetch = self
+            .service_api
+            .get_captures(Some(vec![capture_id]))
+            .await?;
 
         let Some(capture) = fetch.into_iter().next() else {
             tracing::warn!(capture_id, "Capture not found during illumination");

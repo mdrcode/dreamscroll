@@ -7,5 +7,6 @@ pub mod illumination;
 pub mod model;
 pub mod rest;
 pub mod storage;
+pub mod task;
 pub mod util_cmd;
 pub mod webui;

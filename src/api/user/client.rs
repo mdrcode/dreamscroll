@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{api::*, auth, database, illumination, storage};
+use crate::{api::*, auth, database, illumination, storage, task};
 
 #[derive(Clone)]
 pub struct UserApiClient {
@@ -8,7 +8,7 @@ pub struct UserApiClient {
     pub db: database::DbHandle,
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
-    task_publisher: Arc<dyn illumination::IlluminationTaskPublisher>,
+    task_publisher: Arc<dyn task::IlluminationTaskPublisher>,
 }
 
 impl UserApiClient {
@@ -16,21 +16,14 @@ impl UserApiClient {
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
+        task_publisher: Arc<dyn task::IlluminationTaskPublisher>,
     ) -> Self {
         Self {
             db,
             storage,
             info_maker: schema::InfoMaker::new(url_maker),
-            task_publisher: Arc::new(illumination::NoopTaskPublisher),
+            task_publisher,
         }
-    }
-
-    pub fn with_task_publisher(
-        mut self,
-        task_publisher: Arc<dyn illumination::IlluminationTaskPublisher>,
-    ) -> Self {
-        self.task_publisher = task_publisher;
-        self
     }
 
     #[tracing::instrument(skip(self, context, ids))]
@@ -114,7 +107,11 @@ impl UserApiClient {
         let capture_model =
             super::insert_capture(&self.db, &self.storage, context, media_bytes).await?;
 
-        if let Err(err) = self.task_publisher.publish_capture_id(capture_model.id).await {
+        if let Err(err) = self
+            .task_publisher
+            .publish_capture_id(capture_model.id)
+            .await
+        {
             tracing::error!(
                 capture_id = capture_model.id,
                 error = ?err,

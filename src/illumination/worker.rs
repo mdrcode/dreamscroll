@@ -1,6 +1,6 @@
 use crate::api;
 
-use super::{CaptureIlluminationProcessor, illuminator::*, simpleworker};
+use super::{illuminator::*, simpleworker};
 
 #[async_trait::async_trait]
 pub trait IlluminatorWorker: Send + Sync {

@@ -1,3 +1,5 @@
+use core::task;
+
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
@@ -20,58 +22,52 @@ async fn main() -> anyhow::Result<()> {
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
     let task_publisher = illumination::make_task_publisher(&config);
-    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone())
-        .with_task_publisher(task_publisher);
 
-    let jwt_secret = config.jwt_secret.unwrap_or_else(|| {
-        tracing::warn!("JWT secret not set, using default for localdev. NOT FOR PROD!");
-        "dreamscroll-local-jwt-secret-not-for-prod".to_string()
-    });
-    let jwt = auth::JwtConfig::from_secret(jwt_secret.as_bytes());
-
-    let cancel_token = CancellationToken::new();
-
+    // Web UI routes (Session-auth protected) + static JS/CSS serving
+    let user_api = api::UserApiClient::new(
+        db.clone(),
+        stg.clone(),
+        url_maker.clone(),
+        task_publisher.clone(),
+    );
     let auth_backend = auth::WebAuthBackend::new(db.clone());
+    let mut router = webui::v1::make_ui_router(user_api.clone(), session_store, auth_backend);
+    
+    // Web serving for media assets stored with the local storage provider
+    router = router.nest_service(
+        &config.storage_local_url_prefix.unwrap(),
+        ServeDir::new(&config.storage_local_file_path.unwrap()),
+    );
+    
+    // REST API routes (JWT-protected)
+    let jwt_secret = config.jwt_secret.expect("DREAMSCROLL_JWT_SECRET missing");
+    let jwt = auth::JwtConfig::from_secret(jwt_secret.as_bytes());
+    let api_router = rest::make_api_router(user_api.clone(), jwt.clone());
+    router = router.nest("/api", api_router);
 
+    // PubSub Webhook Routes
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
     let internal_processor = illumination::make_processor(
         service_api.clone(),
         illumination::make_illuminator("geministructured", stg.clone()),
     );
+    router = router.nest(
+        "/internal",
+        rest::make_internal_router(internal_processor.clone(), rest::InternalWebhookAuth::None),
+    );
 
-    let thread_webui = {
-        // Web UI routes (Session-auth protected) + static JS/CSS serving
-        let mut router = webui::v1::make_ui_router(user_api.clone(), session_store, auth_backend);
-
-        // REST API routes (JWT-protected)
-        let api_router = rest::make_api_router(user_api.clone(), jwt.clone());
-        router = router.nest("/api", api_router);
-        router = router.nest(
-            "/internal",
-            rest::make_internal_router(internal_processor.clone(), rest::InternalWebhookAuth::None),
-        );
-        tracing::info!(
-            "Internal Pub/Sub webhook route enabled at /internal/illumination/push (no auth in localdev)"
-        );
-
-        // Web serving for media assets stored with the local storage provider
-        router = router.nest_service(
-            &config.storage_local_url_prefix.unwrap(),
-            ServeDir::new(&config.storage_local_file_path.unwrap()),
-        );
-
-        let cancel = cancel_token.clone();
-        let host_port = format!("0.0.0.0:{}", config.port);
-        tokio::spawn(async move {
-            let listener = TcpListener::bind(host_port).await.unwrap();
-            axum::serve(listener, router)
-                .with_graceful_shutdown(async move {
-                    cancel.cancelled().await;
-                })
-                .await
-                .expect("Failed to serve Web.");
-        })
-    };
+    let cancel_token = CancellationToken::new();
+    let cancel = cancel_token.clone();
+    let host_port = format!("0.0.0.0:{}", config.port);
+    let thread_web = tokio::spawn(async move {
+        let listener = TcpListener::bind(host_port).await.unwrap();
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async move {
+                cancel.cancelled().await;
+            })
+            .await
+            .expect("Failed to serve Web.");
+    });
     println!("Web UI serving locally at http://localhost:{}", config.port);
 
     let thread_illuminator = {
@@ -91,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::signal::ctrl_c().await?;
     println!("Shutting down...");
     cancel_token.cancel();
-    let _ = tokio::join!(thread_webui, thread_illuminator);
+    let _ = tokio::join!(thread_web, thread_illuminator);
 
     Ok(())
 }
