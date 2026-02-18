@@ -12,19 +12,19 @@ pub struct PubSubHttpTaskQueue {
 }
 
 impl PubSubHttpTaskQueue {
-    pub fn from_config(config: &facility::Config) -> Self {
+    pub fn from_config(config: &facility::DreamscrollPubSubConfig) -> Self {
         let project_id = config
-            .pubsub_project_id
+            .project_id
             .as_ref()
-            .expect("PubSubHttpTaskQueue creation fatal: DREAMSCROLL_PUBSUB_PROJECT_ID missing");
+            .expect("PubSubHttpTaskQueue creation fatal: PUBSUB_PROJECT_ID missing");
 
         let topic_id = config
-            .pubsub_topic_id
+            .topic_id
             .as_ref()
-            .expect("PubSubHttpTaskQueue creation fatal: DREAMSCROLL_PUBSUB_TOPIC_ID missing");
+            .expect("PubSubHttpTaskQueue creation fatal: PUBSUB_TOPIC_ID missing");
 
         let base_url = config
-            .pubsub_api_base_url
+            .api_base_url
             .as_deref()
             .unwrap_or("https://pubsub.googleapis.com")
             .trim_end_matches('/');
@@ -37,7 +37,7 @@ impl PubSubHttpTaskQueue {
         Self {
             client: reqwest::Client::new(),
             publish_url,
-            bearer_token: config.pubsub_publish_bearer_token.clone(),
+            bearer_token: config.publish_bearer_token.clone(),
         }
     }
 }

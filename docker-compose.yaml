@@ -6,23 +6,23 @@ services:
     ports:
       - "8080:8080"
     env_file:
-      - .env # .gitignored for secrets like DREAMSCROLL_JWT_SECRET_KEY
+      - .env # .gitignored for secrets like JWT_SECRET_KEY
     environment:
       PORT: 8080
       RUST_LOG: info
-      DREAMSCROLL_DB_BACKEND: postgres
-      DREAMSCROLL_PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-dreamscroll-local}
-      DREAMSCROLL_PUBSUB_TOPIC_ID: ${PUBSUB_TOPIC_ID:-dreamscroll-illumination}
-      DREAMSCROLL_PUBSUB_API_BASE_URL: http://pubsub-emulator:8085
+      DB_BACKEND: postgres
+      PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-dreamscroll-local}
+      PUBSUB_TOPIC_ID: ${PUBSUB_TOPIC_ID:-dreamscroll-illumination}
+      PUBSUB_API_BASE_URL: http://pubsub-emulator:8085
       # The POSTGRES_ vars should be defined in a .gitignored `.env` file.
       # This URL is defined twice: (1) in .env, (for locally running via
       # `cargo run`) it is defined to reference localhost. But here in 
       # docker-compose.yaml, it is redefined to point to the "db" service
       # defined below.
-      DREAMSCROLL_DB_URL_POSTGRES: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      DREAMSCROLL_STORAGE_BACKEND: gcloud
-      DREAMSCROLL_STORAGE_GCLOUD_EMULATOR_ENDPOINT: http://fake-gcs:4443
-      DREAMSCROLL_STORAGE_GCLOUD_BUCKET_NAME: "dreamscroll-dev-media1"
+      DB_URL_POSTGRES: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      STORAGE_BACKEND: gcloud
+      STORAGE_GCLOUD_EMULATOR_ENDPOINT: http://fake-gcs:4443
+      STORAGE_GCLOUD_BUCKET_NAME: "dreamscroll-dev-media1"
 
     # Cute way to import/export data from the docker environment
     volumes:

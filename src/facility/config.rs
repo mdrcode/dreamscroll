@@ -1,26 +1,16 @@
 use core::panic;
 
 use serde::Deserialize;
-use tracing;
 
 use crate::{database, storage};
 
 #[derive(Deserialize)]
-pub struct Config {
-    #[serde(default = "default_port")]
+pub struct DreamscrollConfig {
     pub port: u16,
 
     pub jwt_secret: Option<String>,
 
     pub illuminator_gemini_key: Option<String>,
-    pub pubsub_webhook_bearer_token: Option<String>,
-    pub pubsub_project_id: Option<String>,
-    pub pubsub_topic_id: Option<String>,
-    pub pubsub_api_base_url: Option<String>,
-    pub pubsub_publish_bearer_token: Option<String>,
-    pub pubsub_push_oidc_audience: Option<String>,
-    pub pubsub_push_oidc_service_account_email: Option<String>,
-    pub pubsub_push_oidc_jwks_url: Option<String>,
 
     pub db_backend: database::DbBackend,
     pub db_url_sqlite: Option<String>,
@@ -33,34 +23,39 @@ pub struct Config {
 
     pub storage_gcloud_emulator_endpoint: Option<String>,
     pub storage_gcloud_bucket_name: Option<String>,
+
+    pub pubsub: Option<DreamscrollPubSubConfig>,
 }
 
-fn default_port() -> u16 {
-    8080
+#[derive(Deserialize)]
+pub struct DreamscrollPubSubConfig {
+    pub webhook_bearer_token: Option<String>,
+    pub project_id: Option<String>,
+    pub api_base_url: Option<String>,
+    pub publish_bearer_token: Option<String>,
+    pub push_oidc_audience: Option<String>,
+    pub push_oidc_service_account_email: Option<String>,
+    pub push_oidc_jwks_url: Option<String>,
+
+    pub topic_id: Option<String>,
 }
 
-pub fn make_config() -> Config {
-    let mut config = envy::prefixed("DREAMSCROLL_").from_env::<Config>().unwrap();
-
-    // If $PORT is set, takes precedence over (prefixed) DREAMSCROLL_PORT for
-    // environments like Google Cloud Run
-    if std::env::var("PORT").is_ok() {
-        config.port = std::env::var("PORT").unwrap().parse().unwrap();
-        tracing::info!(
-            "$PORT environment variable found, will use: {}",
-            config.port
-        );
-    }
+pub fn make_config() -> DreamscrollConfig {
+    let mut config = envy::from_env::<DreamscrollConfig>().unwrap();
+    let pubsub_config = envy::prefixed("PUBSUB_")
+        .from_env::<DreamscrollPubSubConfig>()
+        .unwrap();
+    config.pubsub = Some(pubsub_config);
 
     match config.db_backend {
         database::DbBackend::Sqlite => {
             if config.db_url_sqlite.is_none() {
-                panic!("DB_BACKEND is sqlite but no DREAMSCROLL_DB_URL_SQLITE");
+                panic!("DB_BACKEND is sqlite but no DB_URL_SQLITE");
             }
         }
         database::DbBackend::Postgres => {
             if config.db_url_postgres.is_none() {
-                panic!("DB_BACKEND is postgres but no DREAMSCROLL_DB_URL_POSTGRES");
+                panic!("DB_BACKEND is postgres but no DB_URL_POSTGRES");
             }
         }
     }
@@ -68,15 +63,15 @@ pub fn make_config() -> Config {
     match config.storage_backend {
         storage::StorageBackend::Local => {
             if config.storage_local_file_path.is_none() {
-                panic!("STORAGE_BACKEND is local but no DREAMSCROLL_STORAGE_LOCAL_FILE_PATH");
+                panic!("STORAGE_BACKEND is local but no STORAGE_LOCAL_FILE_PATH");
             }
             if config.storage_local_url_prefix.is_none() {
-                panic!("STORAGE_BACKEND is local but no DREAMSCROLL_STORAGE_LOCAL_URL_PREFIX");
+                panic!("STORAGE_BACKEND is local but no STORAGE_LOCAL_URL_PREFIX");
             }
         }
         storage::StorageBackend::GCloud => {
             if config.storage_gcloud_bucket_name.is_none() {
-                panic!("STORAGE_BACKEND is gcloud but no DREAMSCROLL_STORAGE_GCLOUD_BUCKET_NAME");
+                panic!("STORAGE_BACKEND is gcloud but no STORAGE_GCLOUD_BUCKET_NAME");
             }
         }
     }

@@ -44,7 +44,7 @@ async fn main() -> anyhow::Result<()> {
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
     let beacon = task::Beacon::builder()
-        .illumination_queue(task::make_taskqueue(&config))
+        .illumination_queue(task::make_taskqueue(&config.pubsub.as_ref().unwrap()))
         .build();
     let user_api =
         api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon.clone());

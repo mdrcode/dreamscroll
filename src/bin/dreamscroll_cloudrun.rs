@@ -21,10 +21,7 @@ async fn main() -> anyhow::Result<()> {
     let config = facility::make_config();
 
     // Verify secrets are available
-    config
-        .jwt_secret
-        .as_ref()
-        .context("DREAMSCROLL_JWT_SECRET missing")?;
+    config.jwt_secret.as_ref().context("JWT_SECRET missing")?;
 
     let (db_connection, session_store) = database::connect(&config).await?;
     let db = database::DbHandle::new(db_connection);
@@ -42,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
     let beacon = task::Beacon::builder()
-        .illumination_queue(task::make_taskqueue(&config))
+        .illumination_queue(task::make_taskqueue(&config.pubsub.as_ref().unwrap()))
         .build();
     let user_api =
         api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon.clone());
@@ -63,12 +60,17 @@ async fn main() -> anyhow::Result<()> {
 
     // PubSub Webhook Routes
     let webhook_auth = {
+        let pubsub_config = config
+            .pubsub
+            .as_ref()
+            .context("PubSub configuration missing")?;
         let verifier = webhook::gcloud::PubSubOidcVerifier::new(
-            config
-                .pubsub_push_oidc_audience
-                .expect("DREAMSCROLL_PUBSUB_PUSH_OIDC_AUDIENCE missing"),
-            config.pubsub_push_oidc_service_account_email.clone(),
-            config.pubsub_push_oidc_jwks_url.clone(),
+            pubsub_config
+                .push_oidc_audience
+                .clone()
+                .expect("PUBSUB_PUSH_OIDC_AUDIENCE missing"),
+            pubsub_config.push_oidc_service_account_email.clone(),
+            pubsub_config.push_oidc_jwks_url.clone(),
         );
         webhook::WebhookAuth::PubSubOidc(verifier)
     };

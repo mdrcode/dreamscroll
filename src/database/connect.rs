@@ -5,7 +5,7 @@ use crate::{auth, facility};
 use super::*;
 
 pub async fn connect(
-    config: &facility::Config,
+    config: &facility::DreamscrollConfig,
 ) -> anyhow::Result<(sea_orm::DatabaseConnection, auth::SessionStoreWrapper)> {
     let db_tuple = match config.db_backend {
         DbBackend::Sqlite => {

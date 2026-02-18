@@ -9,6 +9,6 @@ pub use gcloud_taskqueue::*;
 mod taskqueue;
 pub use taskqueue::*;
 
-pub fn make_taskqueue(config: &crate::facility::Config) -> Box<dyn TaskQueue> {
+pub fn make_taskqueue(config: &crate::facility::DreamscrollPubSubConfig) -> Box<dyn TaskQueue> {
     Box::new(PubSubHttpTaskQueue::from_config(config))
 }

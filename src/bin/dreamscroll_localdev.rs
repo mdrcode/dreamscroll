@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
     let beacon = task::Beacon::builder()
-        .illumination_queue(task::make_taskqueue(&config))
+        .illumination_queue(task::make_taskqueue(&config.pubsub.as_ref().unwrap()))
         .build();
     let user_api =
         api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon.clone());
@@ -39,7 +39,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // REST API routes (JWT-protected)
-    let jwt_secret = config.jwt_secret.expect("DREAMSCROLL_JWT_SECRET missing");
+    let jwt_secret = config.jwt_secret.expect("JWT_SECRET missing");
     let jwt = auth::JwtConfig::from_secret(jwt_secret.as_bytes());
     let api_router = rest::make_api_router(user_api.clone(), jwt.clone());
     router = router.nest("/api", api_router);
