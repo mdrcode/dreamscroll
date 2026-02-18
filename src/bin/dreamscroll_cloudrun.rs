@@ -65,20 +65,23 @@ async fn main() -> anyhow::Result<()> {
 
     // Internal background processing webhook auth policy (production):
     // 1) OIDC (preferred, production-grade)
-    // 2) Static bearer token (legacy fallback)
+
     // 3) No auth: disallowed by startup guard below
-    let internal_webhook_auth = if let Some(audience) = config.pubsub_push_oidc_audience.clone() {
-        let verifier = auth::PubSubOidcVerifier::new(
-            audience,
-            config.pubsub_push_oidc_service_account_email.clone(),
-            config.pubsub_push_oidc_jwks_url.clone(),
-        );
-        tracing::info!("Internal Pub/Sub webhook auth mode: OIDC verification enabled");
-        webhook::gcloud_pubsub::InternalWebhookAuth::PubSubOidc(std::sync::Arc::new(verifier))
-    } else {
-        anyhow::bail!(
-            "Refusing to start Cloud Run server without internal webhook auth. Set DREAMSCROLL_PUBSUB_PUSH_OIDC_AUDIENCE (recommended) or DREAMSCROLL_PUBSUB_WEBHOOK_BEARER_TOKEN."
-        );
+    let webhook_auth_verifier = match config.pubsub_push_oidc_audience.clone() {
+        Some(audience) => {
+            let verifier = webhook::gcloud::PubSubOidcVerifier::new(
+                audience,
+                config.pubsub_push_oidc_service_account_email.clone(),
+                config.pubsub_push_oidc_jwks_url.clone(),
+            );
+            tracing::info!("Internal Pub/Sub webhook auth mode: OIDC verification enabled");
+            webhook::InternalWebhookAuth::PubSubOidc(std::sync::Arc::new(verifier))
+        }
+        None => {
+            anyhow::bail!(
+                "Refusing to start Cloud Run server without internal webhook auth. Set DREAMSCROLL_PUBSUB_PUSH_OIDC_AUDIENCE (recommended) or DREAMSCROLL_PUBSUB_WEBHOOK_BEARER_TOKEN."
+            );
+        }
     };
 
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
@@ -88,7 +91,7 @@ async fn main() -> anyhow::Result<()> {
     );
     router = router.nest(
         "/internal",
-        webhook::make_internal_router(processor, internal_webhook_auth),
+        webhook::make_internal_router(processor, webhook_auth_verifier),
     );
     tracing::info!(
         "Internal Pub/Sub webhook route enabled at /internal/illumination/push (production endpoint path)"

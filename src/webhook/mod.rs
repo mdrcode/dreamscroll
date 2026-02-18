@@ -1,4 +1,4 @@
-pub mod gcloud_pubsub;
+pub mod gcloud;
 
 mod maker;
 pub use maker::*;

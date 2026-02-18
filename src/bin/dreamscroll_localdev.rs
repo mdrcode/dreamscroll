@@ -55,7 +55,7 @@ async fn main() -> anyhow::Result<()> {
         "/internal",
         webhook::make_internal_router(
             processor.clone(),
-            webhook::gcloud_pubsub::InternalWebhookAuth::None,
+            webhook::InternalWebhookAuth::None,
         ),
     );
 

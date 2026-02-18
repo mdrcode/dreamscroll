@@ -1,14 +1,11 @@
 use anyhow::anyhow;
-use axum::{
-    Json,
-    extract::State,
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
-};
+use axum::http::HeaderMap;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 
-use crate::{api, auth};
+use crate::api;
+
+use super::*;
 
 #[derive(Debug, Deserialize)]
 pub struct PubSubPushBody {
@@ -36,34 +33,6 @@ where
             "Invalid JSON payload in Pub/Sub message data: {err}"
         ))
     })
-}
-
-#[derive(Clone)]
-pub enum InternalWebhookAuth {
-    None,
-    BearerToken(String),
-    PubSubOidc(std::sync::Arc<auth::PubSubOidcVerifier>),
-}
-
-pub async fn validate_internal_webhook_auth(
-    headers: &HeaderMap,
-    auth: &InternalWebhookAuth,
-) -> Result<(), api::ApiError> {
-    match auth {
-        InternalWebhookAuth::None => Ok(()),
-        InternalWebhookAuth::BearerToken(expected_token) => {
-            validate_bearer_token(headers, expected_token)
-        }
-        InternalWebhookAuth::PubSubOidc(verifier) => {
-            let token = extract_bearer_token(headers)?;
-            verifier.verify_bearer_token(token).await.map_err(|err| {
-                api::ApiError::unauthorized(anyhow!(
-                    "OIDC verification failed for Pub/Sub webhook: {}",
-                    err
-                ))
-            })
-        }
-    }
 }
 
 pub fn validate_bearer_token(

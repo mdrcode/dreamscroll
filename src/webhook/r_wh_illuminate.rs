@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use crate::api;
 
-use super::{InternalRestState, gcloud_pubsub};
+use super::{InternalRestState, gcloud};
 
 #[derive(Debug, Deserialize)]
 pub struct IlluminationTaskPayload {
@@ -37,11 +37,11 @@ pub struct IlluminationTaskPayload {
 pub async fn post(
     State(state): State<Arc<InternalRestState>>,
     headers: HeaderMap,
-    Json(body): Json<gcloud_pubsub::PubSubPushBody>,
+    Json(body): Json<gcloud::PubSubPushBody>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    gcloud_pubsub::validate_internal_webhook_auth(&headers, &state.webhook_auth).await?;
+    state.webhook_auth.validate(&headers).await?;
 
-    let payload = gcloud_pubsub::decode_payload::<IlluminationTaskPayload>(&body.message.data)?;
+    let payload = gcloud::decode_payload::<IlluminationTaskPayload>(&body.message.data)?;
 
     tracing::Span::current().record("capture_id", payload.capture_id);
 
