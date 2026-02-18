@@ -109,7 +109,7 @@ impl UserApiClient {
             tracing::error!(
                 capture_id = capture_model.id,
                 error = ?err,
-                "Failed to publish illumination task; capture remains saved"
+                "Beacon failed to signal new capture!"
             );
         }
 
