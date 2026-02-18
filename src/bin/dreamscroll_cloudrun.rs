@@ -3,7 +3,9 @@ use sea_orm::prelude::*;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 
-use dreamscroll::{api, auth, database, facility, illumination, model, rest, storage, task, webui};
+use dreamscroll::{
+    api, auth, database, facility, illumination, model, rest, storage, task, webhook, webui,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -72,7 +74,7 @@ async fn main() -> anyhow::Result<()> {
             config.pubsub_push_oidc_jwks_url.clone(),
         );
         tracing::info!("Internal Pub/Sub webhook auth mode: OIDC verification enabled");
-        task::webhook::InternalWebhookAuth::PubSubOidc(std::sync::Arc::new(verifier))
+        webhook::gcloud_pubsub::InternalWebhookAuth::PubSubOidc(std::sync::Arc::new(verifier))
     } else {
         anyhow::bail!(
             "Refusing to start Cloud Run server without internal webhook auth. Set DREAMSCROLL_PUBSUB_PUSH_OIDC_AUDIENCE (recommended) or DREAMSCROLL_PUBSUB_WEBHOOK_BEARER_TOKEN."
@@ -86,7 +88,7 @@ async fn main() -> anyhow::Result<()> {
     );
     router = router.nest(
         "/internal",
-        task::webhook::make_internal_router(processor, internal_webhook_auth),
+        webhook::make_internal_router(processor, internal_webhook_auth),
     );
     tracing::info!(
         "Internal Pub/Sub webhook route enabled at /internal/illumination/push (production endpoint path)"

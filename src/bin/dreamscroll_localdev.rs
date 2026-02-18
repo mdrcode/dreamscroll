@@ -2,7 +2,9 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::services::ServeDir;
 
-use dreamscroll::{api, auth, database, facility, illumination, rest, storage, task, webui};
+use dreamscroll::{
+    api, auth, database, facility, illumination, rest, storage, task, webhook, webui,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -51,9 +53,9 @@ async fn main() -> anyhow::Result<()> {
     );
     router = router.nest(
         "/internal",
-        task::webhook::make_internal_router(
+        webhook::make_internal_router(
             processor.clone(),
-            task::webhook::InternalWebhookAuth::None,
+            webhook::gcloud_pubsub::InternalWebhookAuth::None,
         ),
     );
 

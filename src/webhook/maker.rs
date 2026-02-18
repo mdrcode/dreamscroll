@@ -1,32 +1,22 @@
 use std::sync::Arc;
 
-use axum::{
-    Router,
-    routing::{get, post},
-};
+use axum::{Router, routing::post};
 
-use crate::{api, auth, illumination::Illuminator, task};
+use crate::{auth, task};
 
 use super::*;
-
-#[derive(Clone)]
-pub enum InternalWebhookAuth {
-    None,
-    BearerToken(String),
-    PubSubOidc(std::sync::Arc<auth::PubSubOidcVerifier>),
-}
 
 pub struct InternalRestState {
     // This processor is intentionally backed by ServiceApiClient and therefore
     // does not require user auth/JWT context. Internal background services are
     // treated as elevated trusted components.
     pub processor: task::processor::CaptureIlluminationProcessor,
-    pub webhook_auth: InternalWebhookAuth,
+    pub webhook_auth: gcloud_pubsub::InternalWebhookAuth,
 }
 
 pub fn make_internal_router(
     processor: task::processor::CaptureIlluminationProcessor,
-    webhook_auth: InternalWebhookAuth,
+    webhook_auth: gcloud_pubsub::InternalWebhookAuth,
 ) -> Router {
     let state = Arc::new(InternalRestState {
         processor,
@@ -34,6 +24,6 @@ pub fn make_internal_router(
     });
 
     Router::new()
-        .route("/illumination/push", post(r_pubsub::post))
+        .route("/illumination/push", post(r_wh_illuminate::post))
         .with_state(state)
 }
