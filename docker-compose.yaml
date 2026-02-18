@@ -11,6 +11,9 @@ services:
       PORT: 8080
       RUST_LOG: info
       DREAMSCROLL_DB_BACKEND: postgres
+      DREAMSCROLL_PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-dreamscroll-local}
+      DREAMSCROLL_PUBSUB_TOPIC_ID: ${PUBSUB_TOPIC_ID:-dreamscroll-illumination}
+      DREAMSCROLL_PUBSUB_API_BASE_URL: http://pubsub-emulator:8085
       # The POSTGRES_ vars should be defined in a .gitignored `.env` file.
       # This URL is defined twice: (1) in .env, (for locally running via
       # `cargo run`) it is defined to reference localhost. But here in 
@@ -29,6 +32,8 @@ services:
       db:
         condition: service_healthy
       fake-gcs:
+        condition: service_started
+      pubsub-emulator:
         condition: service_started
 
   db:
@@ -80,6 +85,24 @@ services:
     #   timeout: 10s
     #   retries: 3
     #   start_period: 5s
+
+    # Google Pub/Sub emulator for local testing of push subscriptions.
+    #
+    # After `docker compose up pubsub-emulator app`, initialize topic/subscription:
+    # ./localdev/pubsub_init.sh
+    #
+    # The default push endpoint targets the app container route:
+    # /internal/illumination/push
+    #
+    # Note: `/internal` is a path convention only; not a network boundary.
+    # In localdev we intentionally allow unauthenticated pushes to this path.
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
+    restart: unless-stopped
+    command: >-
+      gcloud beta emulators pubsub start --project=${PUBSUB_PROJECT_ID:-dreamscroll-local} --host-port=0.0.0.0:8085
+    ports:
+      - "8085:8085"
 
 volumes:
   gcloud_storage_data:

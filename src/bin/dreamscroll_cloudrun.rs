@@ -41,7 +41,14 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone());
+    let task_publisher = dreamscroll::illumination::make_task_publisher(&config);
+    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone())
+        .with_task_publisher(task_publisher);
+    let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
+    let internal_processor = dreamscroll::illumination::make_processor(
+        service_api,
+        dreamscroll::illumination::make_illuminator("geministructured", stg.clone()),
+    );
     tracing::info!("Initialized storage and API client");
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving
@@ -53,6 +60,37 @@ async fn main() -> anyhow::Result<()> {
     let jwt = auth::JwtConfig::from_secret(config.jwt_secret.as_ref().unwrap().as_bytes());
     let api_router = rest::make_api_router(user_api.clone(), jwt.clone());
     router = router.nest("/api", api_router);
+
+    // Internal background processing webhook auth policy (production):
+    // 1) OIDC (preferred, production-grade)
+    // 2) Static bearer token (legacy fallback)
+    // 3) No auth: disallowed by startup guard below
+    let internal_webhook_auth = if let Some(audience) = config.pubsub_push_oidc_audience.clone() {
+        let verifier = auth::PubSubOidcVerifier::new(
+            audience,
+            config.pubsub_push_oidc_service_account_email.clone(),
+            config.pubsub_push_oidc_jwks_url.clone(),
+        );
+        tracing::info!("Internal Pub/Sub webhook auth mode: OIDC verification enabled");
+        rest::InternalWebhookAuth::PubSubOidc(std::sync::Arc::new(verifier))
+    } else if let Some(token) = config.pubsub_webhook_bearer_token.clone() {
+        tracing::warn!(
+            "Internal Pub/Sub webhook auth mode: static bearer token (consider OIDC for production)"
+        );
+        rest::InternalWebhookAuth::BearerToken(token)
+    } else {
+        anyhow::bail!(
+            "Refusing to start Cloud Run server without internal webhook auth. Set DREAMSCROLL_PUBSUB_PUSH_OIDC_AUDIENCE (recommended) or DREAMSCROLL_PUBSUB_WEBHOOK_BEARER_TOKEN."
+        );
+    };
+
+    router = router.nest(
+        "/internal",
+        rest::make_internal_router(internal_processor, internal_webhook_auth),
+    );
+    tracing::info!(
+        "Internal Pub/Sub webhook route enabled at /internal/illumination/push (production endpoint path)"
+    );
     tracing::info!("Initialized REST API router");
 
     let cancel = CancellationToken::new();

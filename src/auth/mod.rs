@@ -10,6 +10,9 @@ pub use context::Context;
 mod jwt;
 pub use jwt::{JwtAxumLayer, JwtConfig, JwtUserClaims};
 
+mod pubsub_oidc;
+pub use pubsub_oidc::PubSubOidcVerifier;
+
 pub mod password;
 
 mod sessionstorewrapper;

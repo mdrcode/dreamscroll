@@ -1,4 +1,6 @@
-use crate::{api::*, auth, database, storage};
+use std::sync::Arc;
+
+use crate::{api::*, auth, database, illumination, storage};
 
 #[derive(Clone)]
 pub struct UserApiClient {
@@ -6,6 +8,7 @@ pub struct UserApiClient {
     pub db: database::DbHandle,
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
+    task_publisher: Arc<dyn illumination::IlluminationTaskPublisher>,
 }
 
 impl UserApiClient {
@@ -18,7 +21,16 @@ impl UserApiClient {
             db,
             storage,
             info_maker: schema::InfoMaker::new(url_maker),
+            task_publisher: Arc::new(illumination::NoopTaskPublisher),
         }
+    }
+
+    pub fn with_task_publisher(
+        mut self,
+        task_publisher: Arc<dyn illumination::IlluminationTaskPublisher>,
+    ) -> Self {
+        self.task_publisher = task_publisher;
+        self
     }
 
     #[tracing::instrument(skip(self, context, ids))]
@@ -101,6 +113,14 @@ impl UserApiClient {
     ) -> Result<schema::CaptureInfo, ApiError> {
         let capture_model =
             super::insert_capture(&self.db, &self.storage, context, media_bytes).await?;
+
+        if let Err(err) = self.task_publisher.publish_capture_id(capture_model.id).await {
+            tracing::error!(
+                capture_id = capture_model.id,
+                error = ?err,
+                "Failed to publish illumination task; capture remains saved"
+            );
+        }
 
         Ok(self.info_maker.make_capture_info(capture_model))
     }

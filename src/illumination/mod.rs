@@ -3,6 +3,10 @@ mod illuminator;
 pub use illuminator::*;
 mod worker;
 pub use worker::*;
+mod processor;
+pub use processor::*;
+mod task_publisher;
+pub use task_publisher::*;
 
 // simple local worker implementation
 mod simpleworker;
@@ -12,6 +16,13 @@ pub mod gemini;
 pub mod geministructured;
 pub mod grok;
 pub mod loremipsum;
+
+pub fn make_processor(
+    service_api: crate::api::ServiceApiClient,
+    illuminator: Box<dyn Illuminator>,
+) -> CaptureIlluminationProcessor {
+    CaptureIlluminationProcessor::new(service_api, illuminator)
+}
 
 pub fn make_illuminator(
     model_name: &str,

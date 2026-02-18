@@ -13,6 +13,14 @@ pub struct Config {
     pub jwt_secret: Option<String>,
 
     pub illuminator_gemini_key: Option<String>,
+    pub pubsub_webhook_bearer_token: Option<String>,
+    pub pubsub_project_id: Option<String>,
+    pub pubsub_topic_id: Option<String>,
+    pub pubsub_api_base_url: Option<String>,
+    pub pubsub_publish_bearer_token: Option<String>,
+    pub pubsub_push_oidc_audience: Option<String>,
+    pub pubsub_push_oidc_service_account_email: Option<String>,
+    pub pubsub_push_oidc_jwks_url: Option<String>,
 
     pub db_backend: database::DbBackend,
     pub db_url_sqlite: Option<String>,

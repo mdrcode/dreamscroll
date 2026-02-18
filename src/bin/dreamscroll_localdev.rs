@@ -19,7 +19,9 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone());
+    let task_publisher = illumination::make_task_publisher(&config);
+    let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone())
+        .with_task_publisher(task_publisher);
 
     let jwt_secret = config.jwt_secret.unwrap_or_else(|| {
         tracing::warn!("JWT secret not set, using default for localdev. NOT FOR PROD!");
@@ -31,6 +33,12 @@ async fn main() -> anyhow::Result<()> {
 
     let auth_backend = auth::WebAuthBackend::new(db.clone());
 
+    let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
+    let internal_processor = illumination::make_processor(
+        service_api.clone(),
+        illumination::make_illuminator("geministructured", stg.clone()),
+    );
+
     let thread_webui = {
         // Web UI routes (Session-auth protected) + static JS/CSS serving
         let mut router = webui::v1::make_ui_router(user_api.clone(), session_store, auth_backend);
@@ -38,6 +46,13 @@ async fn main() -> anyhow::Result<()> {
         // REST API routes (JWT-protected)
         let api_router = rest::make_api_router(user_api.clone(), jwt.clone());
         router = router.nest("/api", api_router);
+        router = router.nest(
+            "/internal",
+            rest::make_internal_router(internal_processor.clone(), rest::InternalWebhookAuth::None),
+        );
+        tracing::info!(
+            "Internal Pub/Sub webhook route enabled at /internal/illumination/push (no auth in localdev)"
+        );
 
         // Web serving for media assets stored with the local storage provider
         router = router.nest_service(
@@ -59,7 +74,6 @@ async fn main() -> anyhow::Result<()> {
     };
     println!("Web UI serving locally at http://localhost:{}", config.port);
 
-    let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
     let thread_illuminator = {
         let gemini = illumination::make_illuminator("geministructured", stg.clone());
         let worker = illumination::make_worker(service_api, gemini);
