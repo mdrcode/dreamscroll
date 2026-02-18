@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let task_publisher = task::task_publisher::make_task_publisher(&config);
+    let task_publisher = task::make_taskqueue(&config);
     let user_api = api::UserApiClient::new(
         db.clone(),
         stg.clone(),
