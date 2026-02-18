@@ -71,7 +71,7 @@ async fn main() -> anyhow::Result<()> {
         let cancel = cancel_token.clone();
         tokio::spawn(async move {
             tokio::select! {
-                _ = worker.run() => {}
+                //_ = worker.run() => {}
                 _ = cancel.cancelled() => {}
             }
         })
