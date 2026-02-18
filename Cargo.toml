@@ -25,7 +25,7 @@ envy = "0.4.2"
 google-cloud-auth = { version = "1.5.0", features = ["idtoken"] }
 google-cloud-storage = "1.7.0"
 infer = "0.19.0"
-jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
+jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
 reqwest = { version="0.13.1", features =["json"]}
 rpassword = "7.4.0"
 sea-orm = { version = "2.0.0-rc.27", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls", "macros", "schema-sync", "entity-registry"] }
