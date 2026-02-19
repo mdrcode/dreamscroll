@@ -9,7 +9,7 @@ services:
       - .env # .gitignored for secrets like JWT_SECRET_KEY
     environment:
       PORT: 8080
-      RUST_LOG: info
+      RUST_LOG: debug
 
       # The POSTGRES_ vars should be defined in a .gitignored `.env` file.
       # DB_URL_POSTGRES specifically is defined twice: (1) in .env, (for
@@ -23,9 +23,12 @@ services:
       STORAGE_GCLOUD_EMULATOR_ENDPOINT: http://fake-gcs:4443
       STORAGE_GCLOUD_BUCKET_NAME: "dreamscroll-dev-media1"
 
-      PUBSUB_API_BASE_URL: http://pubsub-emulator:8085
-      PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-dreamscroll-local}
-      PUBSUB_TOPIC_ID: ${PUBSUB_TOPIC_ID:-dreamscroll-illumination}
+      # Pub/Sub emulator should be invoked manually external of Docker, via
+      # `gcloud beta emulators pubsub start --host-port=localhost:8085`
+      PUBSUB_API_BASE_URL: http://host.docker.internal:8085
+      PUBSUB_PROJECT_ID: dreamscroll-local
+
+      PUBSUB_ILLUMINATION_TOPIC_ID: dreamscroll-illumination
 
       PUBSUB_PUSH_OIDC_AUDIENCE: thisisnotactuallyusedlocallybytheemulator
 
@@ -37,8 +40,6 @@ services:
       db:
         condition: service_healthy
       fake-gcs:
-        condition: service_started
-      pubsub:
         condition: service_started
 
   db:
@@ -90,5 +91,9 @@ services:
     #   timeout: 10s
     #   retries: 3
     #   start_period: 5s
+
+volumes:
+  postgres_data:
+  gcloud_storage_data:
 
 

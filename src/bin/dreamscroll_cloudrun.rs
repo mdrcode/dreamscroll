@@ -7,15 +7,14 @@ use dreamscroll::{api, auth, database, facility, model, rest, storage, task, web
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // For localdev, we explicity call dotenvy::from_filename() to load:
+    // For localdev, we call dotenvy::from_filename() to load explicitly:
     //  - .env (secrets, .gitignored for API keys, etc)
     //  - ds_config.env
     //
     // But for production, the configuration should come externally via the
     // environment, set by Google Cloud Secret Manager, etc.
     //
-    // To run the Docker container locally, use docker compose (the correct
-    // configuration is loaded by the docker-compose.yaml).
+    // For running within Docker Compose, the config from docker-compose.yaml.
 
     facility::init_tracing();
     let config = facility::make_config();
@@ -30,7 +29,7 @@ async fn main() -> anyhow::Result<()> {
     let user_count = model::user::Entity::find().count(&db.conn).await?;
     if user_count == 0 {
         tracing::error!(
-            "No users found in db! Create a user with `dreamscroll_util check_first_user`."
+            "No users found in db! Create first user with `dreamscroll_util check_first_user`."
         );
     } else {
         tracing::info!("Found {} users in database", user_count);
@@ -70,27 +69,36 @@ async fn main() -> anyhow::Result<()> {
     router = router.nest("/api", api_router);
     tracing::info!("Initialized REST API routes");
 
-    // PubSub Webhook Routes
+    // PubSub Webhook Routes (OIDC-protected in prod, no auth for localdev)
     let webhook_auth = {
         let pubsub_config = config
             .pubsub
             .as_ref()
             .context("PubSub configuration missing")?;
-        let verifier = webhook::gcloud::PubSubOidcVerifier::new(
-            pubsub_config
-                .push_oidc_audience
-                .clone()
-                .expect("PUBSUB_PUSH_OIDC_AUDIENCE missing"),
-            pubsub_config.push_oidc_service_account_email.clone(),
-            pubsub_config.push_oidc_jwks_url.clone(),
-        );
-        webhook::WebhookAuth::PubSubOidc(verifier)
+        match pubsub_config.push_oidc_audience.as_deref() {
+            // OIDC audience provided, so webhook auth will be enforced
+            Some(audience) => {
+                let verifier = webhook::gcloud::PubSubOidcVerifier::new(
+                    audience.to_owned(),
+                    pubsub_config.push_oidc_service_account_email.clone(),
+                    pubsub_config.push_oidc_jwks_url.clone(),
+                );
+                tracing::info!("WebhookAuth: Pub/Sub OIDC verification enabled");
+                webhook::WebhookAuth::PubSubOidc(verifier)
+            }
+            // No OIDC audience so we skip auth for localdev/emulator
+            None => {
+                tracing::warn!(
+                    "WebhookAuth: PUBSUB_PUSH_OIDC_AUDIENCE not set, so webhook auth is DISABLED. Fine for local dev but NOT for prod."
+                );
+                webhook::WebhookAuth::None
+            }
+        }
     };
     router = router.nest(
         "/webhook",
         webhook::make_router(service_api.clone(), stg.clone(), webhook_auth),
     );
-    tracing::info!("Initialized pub/sub webhook OIDC verification");
 
     let cancel = CancellationToken::new();
     let cancel_clone = cancel.clone();

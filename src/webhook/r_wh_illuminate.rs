@@ -30,9 +30,16 @@ pub async fn post(
     headers: HeaderMap,
     Json(body): Json<gcloud::PubSubPushBody>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    state.auth.verify(&headers).await?;
+    state.auth.verify(&headers).await.map_err(|err| {
+        tracing::error!(error = ?err, "Webhook authentication failed");
+        api::ApiError::unauthorized(err)
+    })?;
 
-    let payload = gcloud::decode_payload::<IlluminationTaskPayload>(&body.message.data)?;
+    let payload =
+        gcloud::decode_payload::<IlluminationTaskPayload>(&body.message.data).map_err(|err| {
+            tracing::error!(error = ?err, "Failed to decode Pub/Sub message payload");
+            api::ApiError::bad_request(err)
+        })?;
 
     tracing::Span::current().record("capture_id", payload.capture_id);
 
