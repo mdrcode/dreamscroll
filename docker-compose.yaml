@@ -92,25 +92,3 @@ services:
     #   start_period: 5s
 
 
-
-    # Google Pub/Sub emulator for local testing of push subscriptions.
-    #
-    # After `docker compose up pubsub-emulator`, initialize topic/subscription:
-    # ./localdev/emulator_init_pubsub.sh
-    #
-    # As far as I can tell, the --data-dir=/data option does not actually work
-    # and the emulator does not persist data across restarts. So, must run the
-    # init script every time after starting the emulator. Bummer.
-
-  pubsub:
-    image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
-    restart: unless-stopped
-    ports:
-      - "8085:8085"
-    command: >-
-      gcloud beta emulators pubsub start --host-port=0.0.0.0:8085
-volumes:
-  postgres_data:
-  gcloud_storage_data:
-
-
