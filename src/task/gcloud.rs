@@ -10,7 +10,7 @@ pub struct PubSubHttpBaseUrl {
 }
 
 impl PubSubHttpBaseUrl {
-    pub fn from_config(config: &facility::DreamscrollPubSubConfig) -> Self {
+    pub fn from_config(config: &facility::PubSubConfig) -> Self {
         Self {
             publish_base_url: format!(
                 "{}/v1/projects/{}/topics", // note no trailing /

@@ -5,7 +5,7 @@ use serde::Deserialize;
 use crate::{database, storage};
 
 #[derive(Deserialize)]
-pub struct DreamscrollConfig {
+pub struct Config {
     pub port: u16,
 
     pub jwt_secret: Option<String>,
@@ -24,11 +24,12 @@ pub struct DreamscrollConfig {
     pub storage_gcloud_emulator_endpoint: Option<String>,
     pub storage_gcloud_bucket_name: Option<String>,
 
-    pub pubsub: Option<DreamscrollPubSubConfig>,
+    #[serde(skip)]
+    pub pubsub: PubSubConfig,
 }
 
-#[derive(Deserialize)]
-pub struct DreamscrollPubSubConfig {
+#[derive(Default, Deserialize)]
+pub struct PubSubConfig {
     pub api_base_url: String,
     pub project_id: String,
 
@@ -39,12 +40,15 @@ pub struct DreamscrollPubSubConfig {
     pub push_oidc_jwks_url: Option<String>,
 }
 
-pub fn make_config() -> DreamscrollConfig {
-    let mut config = envy::from_env::<DreamscrollConfig>().unwrap();
-    let pubsub_config = envy::prefixed("PUBSUB_")
-        .from_env::<DreamscrollPubSubConfig>()
-        .unwrap();
-    config.pubsub = Some(pubsub_config);
+fn make_pubsub_config() -> PubSubConfig {
+    envy::prefixed("PUBSUB_")
+        .from_env::<PubSubConfig>()
+        .expect("Failed to load PUBSUB_ env config (need PUBSUB_API_BASE_URL, PUBSUB_PROJECT_ID, PUBSUB_ILLUMINATION_TOPIC_ID)")
+}
+
+pub fn make_config() -> Config {
+    let mut config = envy::from_env::<Config>().unwrap();
+    config.pubsub = make_pubsub_config();
 
     match config.db_backend {
         database::DbBackend::Sqlite => {

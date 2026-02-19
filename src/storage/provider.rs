@@ -28,7 +28,7 @@ pub trait StorageProvider: DynClone + Send + Sync {
 
 dyn_clone::clone_trait_object!(StorageProvider);
 
-pub async fn make_provider(config: &facility::DreamscrollConfig) -> Box<dyn StorageProvider> {
+pub async fn make_provider(config: &facility::Config) -> Box<dyn StorageProvider> {
     let provider = match config.storage_backend {
         StorageBackend::Local => {
             let local_file_path = config
@@ -36,7 +36,7 @@ pub async fn make_provider(config: &facility::DreamscrollConfig) -> Box<dyn Stor
                 .as_ref()
                 .expect("Storage backend is local but no file path configured");
             let local = local::LocalStorageProvider::new(local_file_path.clone());
-            // explicit type annotation is needed here because the other match arm is async
+            // explicit type annotation below, because other match arm is async
             Box::new(local) as Box<dyn StorageProvider>
         }
 

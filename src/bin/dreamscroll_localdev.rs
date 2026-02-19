@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     // task::Beacon is the abstraction by which the app signals that tasks
     // should be enqueued in response to logical events
     let beacon = {
-        let pubsub_config = config.pubsub.as_ref().unwrap();
+        let pubsub_config = &config.pubsub;
         let pubsub_base_url = task::PubSubHttpBaseUrl::from_config(pubsub_config);
         let illumination_queue: Box<dyn task::TopicQueue> =
             Box::new(task::PubSubHttpTaskQueue::new(

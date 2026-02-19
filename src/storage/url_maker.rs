@@ -11,7 +11,7 @@ pub struct UrlMaker {
 }
 
 impl UrlMaker {
-    pub fn new(config: &facility::DreamscrollConfig) -> Self {
+    pub fn new(config: &facility::Config) -> Self {
         Self {
             local_url_prefix: config.storage_local_url_prefix.clone(),
             gcloud_emulator_endpoint: config.storage_gcloud_emulator_endpoint.clone(),

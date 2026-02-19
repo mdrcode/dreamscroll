@@ -38,12 +38,11 @@ async fn main() -> anyhow::Result<()> {
     // task::Beacon is the abstraction by which the app signals that tasks
     // should be enqueued in response to logical events
     let beacon = {
-        let pubsub_config = config.pubsub.as_ref().unwrap();
-        let pubsub_base_url = task::PubSubHttpBaseUrl::from_config(pubsub_config);
+        let pubsub_base_url = task::PubSubHttpBaseUrl::from_config(&config.pubsub);
         let illumination_queue: Box<dyn task::TopicQueue> =
             Box::new(task::PubSubHttpTaskQueue::new(
                 pubsub_base_url.clone(),
-                pubsub_config.illumination_topic_id.as_str(),
+                config.pubsub.illumination_topic_id.as_str(),
             ));
         task::Beacon::builder()
             .illumination_queue(illumination_queue)
@@ -71,17 +70,13 @@ async fn main() -> anyhow::Result<()> {
 
     // PubSub Webhook Routes (OIDC-protected in prod, no auth for localdev)
     let webhook_auth = {
-        let pubsub_config = config
-            .pubsub
-            .as_ref()
-            .context("PubSub configuration missing")?;
-        match pubsub_config.push_oidc_audience.as_deref() {
+        match config.pubsub.push_oidc_audience.as_deref() {
             // OIDC audience provided, so webhook auth will be enforced
             Some(audience) => {
                 let verifier = webhook::gcloud::PubSubOidcVerifier::new(
                     audience.to_owned(),
-                    pubsub_config.push_oidc_service_account_email.clone(),
-                    pubsub_config.push_oidc_jwks_url.clone(),
+                    config.pubsub.push_oidc_service_account_email.clone(),
+                    config.pubsub.push_oidc_jwks_url.clone(),
                 );
                 tracing::info!("WebhookAuth: Pub/Sub OIDC verification enabled");
                 webhook::WebhookAuth::PubSubOidc(verifier)
