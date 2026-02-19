@@ -67,7 +67,7 @@ async fn main() -> anyhow::Result<()> {
 
     let thread_illuminator = {
         let gemini = illumination::make_illuminator("geministructured", stg.clone());
-        let worker = task::orchestrator::make_worker(service_api, gemini);
+        let _worker = task::orchestrator::make_worker(service_api, gemini);
         let cancel = cancel_token.clone();
         tokio::spawn(async move {
             tokio::select! {

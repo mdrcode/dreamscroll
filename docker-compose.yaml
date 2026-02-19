@@ -11,14 +11,14 @@ services:
       PORT: 8080
       RUST_LOG: info
       DB_BACKEND: postgres
+      PUBSUB_API_BASE_URL: http://pubsub-emulator:8085
       PUBSUB_PROJECT_ID: ${PUBSUB_PROJECT_ID:-dreamscroll-local}
       PUBSUB_TOPIC_ID: ${PUBSUB_TOPIC_ID:-dreamscroll-illumination}
-      PUBSUB_API_BASE_URL: http://pubsub-emulator:8085
       # The POSTGRES_ vars should be defined in a .gitignored `.env` file.
-      # This URL is defined twice: (1) in .env, (for locally running via
-      # `cargo run`) it is defined to reference localhost. But here in 
-      # docker-compose.yaml, it is redefined to point to the "db" service
-      # defined below.
+      # DB_URL_POSTGRES specifically is defined twice: (1) in .env, (for
+      # locally running via `cargo run`) it is defined to reference localhost.
+      # But here in docker-compose.yaml, it is redefined to point to the "db"
+      # service defined below.
       DB_URL_POSTGRES: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       STORAGE_BACKEND: gcloud
       STORAGE_GCLOUD_EMULATOR_ENDPOINT: http://fake-gcs:4443
@@ -33,7 +33,7 @@ services:
         condition: service_healthy
       fake-gcs:
         condition: service_started
-      pubsub-emulator:
+      pubsub:
         condition: service_started
 
   db:
@@ -76,8 +76,8 @@ services:
     ports:
       - "4443:4443"
     volumes:
-      - gcloud_storage_data:/storage
-    command: -scheme http -data /storage
+      - gcloud_storage_data:/data
+    command: -scheme http -data /data
     # This was super flaky, just forget it
     # healthcheck:
     #   test: [ "CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:4443//_internal/healthcheck" ]
@@ -86,26 +86,25 @@ services:
     #   retries: 3
     #   start_period: 5s
 
+
+
     # Google Pub/Sub emulator for local testing of push subscriptions.
     #
     # After `docker compose up pubsub-emulator app`, initialize topic/subscription:
     # ./localdev/pubsub_init.sh
-    #
-    # The default push endpoint targets the app container route:
-    # /webhook/illumination/push
-    #
-    # Note: `/webhook` is a path convention only; not a network boundary.
-    # In localdev we intentionally allow unauthenticated pushes to this path.
-  pubsub-emulator:
+
+  pubsub:
     image: gcr.io/google.com/cloudsdktool/google-cloud-cli:emulators
     restart: unless-stopped
-    command: >-
-      gcloud beta emulators pubsub start --project=${PUBSUB_PROJECT_ID:-dreamscroll-local} --host-port=0.0.0.0:8085
     ports:
       - "8085:8085"
-
+    volumes:
+      - gcloud_pubsub_data:/data
+    command: >-
+      gcloud beta emulators pubsub start --data-dir=/data --host-port=0.0.0.0:8085 --project=${PUBSUB_PROJECT_ID:-dreamscroll-local}
 volumes:
-  gcloud_storage_data:
   postgres_data:
+  gcloud_pubsub_data:
+  gcloud_storage_data:
 
 

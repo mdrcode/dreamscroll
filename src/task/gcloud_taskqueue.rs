@@ -8,36 +8,20 @@ use crate::{facility, task};
 pub struct PubSubHttpTaskQueue {
     client: reqwest::Client,
     publish_url: String,
-    bearer_token: Option<String>,
 }
 
 impl PubSubHttpTaskQueue {
     pub fn from_config(config: &facility::DreamscrollPubSubConfig) -> Self {
-        let project_id = config
-            .project_id
-            .as_ref()
-            .expect("PubSubHttpTaskQueue creation fatal: PUBSUB_PROJECT_ID missing");
-
-        let topic_id = config
-            .topic_id
-            .as_ref()
-            .expect("PubSubHttpTaskQueue creation fatal: PUBSUB_TOPIC_ID missing");
-
-        let base_url = config
-            .api_base_url
-            .as_deref()
-            .unwrap_or("https://pubsub.googleapis.com")
-            .trim_end_matches('/');
-
         let publish_url = format!(
             "{}/v1/projects/{}/topics/{}:publish",
-            base_url, project_id, topic_id
+            config.api_base_url, config.project_id, config.topic_id
         );
+
+        tracing::info!(publish_url, "Configured Pub/Sub HTTP task queue");
 
         Self {
             client: reqwest::Client::new(),
             publish_url,
-            bearer_token: config.publish_bearer_token.clone(),
         }
     }
 }
@@ -67,10 +51,11 @@ impl task::TaskQueue for PubSubHttpTaskQueue {
             messages: vec![PublishMessage { data: encoded }],
         };
 
-        let mut request = self.client.post(&self.publish_url).json(&body);
-        if let Some(token) = &self.bearer_token {
-            request = request.bearer_auth(token);
-        }
+        let request = self.client.post(&self.publish_url).json(&body);
+
+        // if let Some(token) = &self.bearer_token {
+        //     request = request.bearer_auth(token);
+        // }
 
         let response = request.send().await?;
         let status = response.status();

@@ -29,15 +29,13 @@ pub struct DreamscrollConfig {
 
 #[derive(Deserialize)]
 pub struct DreamscrollPubSubConfig {
-    pub webhook_bearer_token: Option<String>,
-    pub project_id: Option<String>,
-    pub api_base_url: Option<String>,
-    pub publish_bearer_token: Option<String>,
+    pub api_base_url: String,
+    pub project_id: String,
+    pub topic_id: String,
+
     pub push_oidc_audience: Option<String>,
     pub push_oidc_service_account_email: Option<String>,
     pub push_oidc_jwks_url: Option<String>,
-
-    pub topic_id: Option<String>,
 }
 
 pub fn make_config() -> DreamscrollConfig {
