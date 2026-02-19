@@ -31,7 +31,8 @@ pub struct DreamscrollConfig {
 pub struct DreamscrollPubSubConfig {
     pub api_base_url: String,
     pub project_id: String,
-    pub topic_id: String,
+
+    pub illumination_topic_id: String,
 
     pub push_oidc_audience: Option<String>,
     pub push_oidc_service_account_email: Option<String>,

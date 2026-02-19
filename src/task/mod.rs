@@ -1,14 +1,13 @@
 pub mod orchestrator;
 
+// An abstraction for queuing tasks
+mod topicqueue;
+pub use topicqueue::*;
+
+// Gcloud Pub/Sub implementation of the TopicQueue
+mod gcloud;
+pub use gcloud::*;
+// A handle which converts logical signals (e.g. "new capture 323") into
+// concrete tasks (e.g. "enqueue capture 323 for illumination")
 mod beacon;
 pub use beacon::*;
-
-mod gcloud_taskqueue;
-pub use gcloud_taskqueue::*;
-
-mod taskqueue;
-pub use taskqueue::*;
-
-pub fn make_taskqueue(config: &crate::facility::DreamscrollPubSubConfig) -> Box<dyn TaskQueue> {
-    Box::new(PubSubHttpTaskQueue::from_config(config))
-}

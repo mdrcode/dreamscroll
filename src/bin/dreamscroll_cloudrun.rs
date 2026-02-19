@@ -36,11 +36,23 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Found {} users in database", user_count);
     }
 
+    // task::Beacon is the abstraction by which the app signals that tasks
+    // should be enqueued in response to logical events
+    let beacon = {
+        let pubsub_config = config.pubsub.as_ref().unwrap();
+        let pubsub_base_url = task::PubSubHttpBaseUrl::from_config(pubsub_config);
+        let illumination_queue: Box<dyn task::TopicQueue> =
+            Box::new(task::PubSubHttpTaskQueue::new(
+                pubsub_base_url.clone(),
+                pubsub_config.illumination_topic_id.as_str(),
+            ));
+        task::Beacon::builder()
+            .illumination_queue(illumination_queue)
+            .build()
+    };
+
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let beacon = task::Beacon::builder()
-        .illumination_queue(task::make_taskqueue(&config.pubsub.as_ref().unwrap()))
-        .build();
     let user_api =
         api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon.clone());
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());

@@ -5,17 +5,30 @@ use serde::Serialize;
 use crate::{facility, task};
 
 #[derive(Clone)]
+pub struct PubSubHttpBaseUrl {
+    publish_base_url: String,
+}
+
+impl PubSubHttpBaseUrl {
+    pub fn from_config(config: &facility::DreamscrollPubSubConfig) -> Self {
+        Self {
+            publish_base_url: format!(
+                "{}/v1/projects/{}/topics", // note no trailing /
+                config.api_base_url, config.project_id
+            ),
+        }
+    }
+}
+
+#[derive(Clone)]
 pub struct PubSubHttpTaskQueue {
-    client: reqwest::Client,
     publish_url: String,
+    client: reqwest::Client,
 }
 
 impl PubSubHttpTaskQueue {
-    pub fn from_config(config: &facility::DreamscrollPubSubConfig) -> Self {
-        let publish_url = format!(
-            "{}/v1/projects/{}/topics/{}:publish",
-            config.api_base_url, config.project_id, config.topic_id
-        );
+    pub fn new(base: PubSubHttpBaseUrl, topic_id: &str) -> Self {
+        let publish_url = format!("{}/{}:publish", base.publish_base_url, topic_id);
 
         tracing::info!(publish_url, "Configured Pub/Sub HTTP task queue");
 
@@ -42,7 +55,7 @@ struct PublishRequest {
 }
 
 #[async_trait::async_trait]
-impl task::TaskQueue for PubSubHttpTaskQueue {
+impl task::TopicQueue for PubSubHttpTaskQueue {
     async fn enqueue(&self, capture_id: i32) -> anyhow::Result<()> {
         let payload = serde_json::to_vec(&TaskPayload { capture_id })?;
         let encoded = STANDARD.encode(payload);

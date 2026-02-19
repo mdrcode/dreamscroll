@@ -43,11 +43,12 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::new(&config);
-    let beacon = task::Beacon::builder()
-        .illumination_queue(task::make_taskqueue(&config.pubsub.as_ref().unwrap()))
-        .build();
+
+    // We use an empty beacon for the util commands, so no background tasks
+    // will be enqueued.
+    let empty_beacon = task::Beacon::default();
     let user_api =
-        api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon.clone());
+        api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), empty_beacon);
     let import_api = api::ImportApiClient::new(db.clone(), stg.clone(), url_maker.clone());
 
     let cmd_state = CmdState {

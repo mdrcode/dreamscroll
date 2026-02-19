@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use super::*;
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct Beacon {
-    illumination_queue: Option<Arc<dyn TaskQueue>>,
+    illumination_queue: Option<Arc<dyn TopicQueue>>,
 }
 
 impl Beacon {
@@ -15,10 +15,11 @@ impl Beacon {
     pub async fn signal_new_capture(&self, capture_id: i32) -> anyhow::Result<()> {
         if let Some(queue) = &self.illumination_queue {
             queue.enqueue(capture_id).await?;
+            tracing::info!(capture_id, "Enqueued for illumination");
         } else {
-            tracing::warn!(
+            tracing::info!(
                 capture_id,
-                "New capture created but no illumination queue configured, skipping enqueue."
+                "New capture created but no illumination queue configured, skipping."
             );
         }
         Ok(())
@@ -27,11 +28,11 @@ impl Beacon {
 
 #[derive(Default)]
 pub struct BeaconBuilder {
-    illumination_queue: Option<Arc<dyn TaskQueue>>,
+    illumination_queue: Option<Arc<dyn TopicQueue>>,
 }
 
 impl BeaconBuilder {
-    pub fn illumination_queue(mut self, illumination_queue: Box<dyn TaskQueue>) -> Self {
+    pub fn illumination_queue(mut self, illumination_queue: Box<dyn TopicQueue>) -> Self {
         self.illumination_queue = Some(Arc::from(illumination_queue));
         self
     }
