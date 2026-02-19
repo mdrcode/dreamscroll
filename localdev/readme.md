@@ -39,8 +39,8 @@ This is the URL you should configure as the Pub/Sub push subscription endpoint.
 To test push-driven illumination locally with Docker Compose:
 
 1. `docker compose up app pubsub-emulator`
-2. `chmod +x ./localdev/pubsub_init.sh`
-3. `./localdev/pubsub_init.sh`
+2. `chmod +x ./localdev/emulator_init_pubsub.sh`
+3. `./localdev/emulator_init_pubsub.sh`
 
 The script creates a topic + push subscription in the emulator and targets the
 webhook endpoint at `/webhook/illumination/push` on the `app` service.
