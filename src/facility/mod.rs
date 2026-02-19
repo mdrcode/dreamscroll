@@ -5,4 +5,4 @@ mod config;
 pub use config::*;
 
 mod tracing;
-pub use tracing::init_tracing;
+pub use tracing::*;

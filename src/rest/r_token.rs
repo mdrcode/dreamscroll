@@ -52,7 +52,6 @@ pub struct TokenResponse {
 /// ```
 ///
 /// On failure: HTTP 401 Unauthorized
-#[tracing::instrument(skip(state, request), fields(username = %request.username))]
 pub async fn post(
     State(state): State<Arc<RestState>>,
     Json(request): Json<TokenRequest>,

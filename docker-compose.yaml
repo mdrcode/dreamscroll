@@ -9,13 +9,12 @@ services:
       - .env # .gitignored for secrets like JWT_SECRET_KEY
     environment:
       PORT: 8080
-      RUST_LOG: debug
+      RUST_LOG: info,axum_login=warn,tower_sessions=warn
 
-      # The POSTGRES_ vars should be defined in a .gitignored `.env` file.
-      # DB_URL_POSTGRES specifically is defined twice: (1) in .env, (for
-      # locally running via `cargo run`) it is defined to reference localhost.
-      # But here in docker-compose.yaml, it is redefined to point to the "db"
-      # service defined below.
+      # The POSTGRES_ vars should be defined in a `.env` file (gitignored).
+      # DB_URL_POSTGRES specifically is defined twice: (1) in .env, for
+      # locally running via `cargo run`, it references localhost. But here it
+      # is overridden to point to "db" within the Docker network.
       DB_BACKEND: postgres
       DB_URL_POSTGRES: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
 
@@ -28,12 +27,12 @@ services:
       PUBSUB_API_BASE_URL: http://host.docker.internal:8085
       PUBSUB_PROJECT_ID: dreamscroll-local
 
+      #PUBSUB_PUSH_OIDC_AUDIENCE: not used in localdev but required for Cloud Run
+
       PUBSUB_ILLUMINATION_TOPIC_ID: dreamscroll-illumination
 
-      PUBSUB_PUSH_OIDC_AUDIENCE: thisisnotactuallyusedlocallybytheemulator
-
-    # Cute way to import/export data from the docker environment
     volumes:
+      # Cute way to import/export data from the docker environment
       - ${EXPORT_DIR:-~/Documents/dreamscroll_export}:/app/export
 
     depends_on:
@@ -48,7 +47,7 @@ services:
     shm_size: 128mb
     env_file:
       - .env
-    # These should be defined in .env
+    # These should be defined in .env which Docker automatically sources
     # POSTGRES_USER
     # POSTGRES_PASSWORD
     # POSTGRES_DB

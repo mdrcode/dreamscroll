@@ -28,7 +28,6 @@ pub struct CaptureQuery {
 /// associated media and illuminations.
 ///
 /// Requires JWT authentication.
-#[tracing::instrument(skip(user, state))]
 pub async fn get(
     user: DreamscrollAuthUser,
     State(state): State<Arc<RestState>>,

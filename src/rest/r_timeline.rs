@@ -12,7 +12,6 @@ use super::RestState;
 /// media and illuminations, ordered by creation date (newest first).
 ///
 /// Requires JWT authentication.
-#[tracing::instrument(skip(user, state), fields(user_id = %user.user_id()))]
 pub async fn get(
     user: auth::DreamscrollAuthUser,
     State(state): State<Arc<RestState>>,

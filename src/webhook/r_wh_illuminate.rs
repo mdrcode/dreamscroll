@@ -24,7 +24,6 @@ pub struct IlluminationTaskPayload {
 /// `https://<cloud-run-service-host>/webhook/illumination/push`
 ///
 /// Authentication is enforced by `WebhookAuth` configured in `maker::make_router`.
-#[tracing::instrument(skip(state, headers, body), fields(capture_id))]
 pub async fn post(
     State(state): State<Arc<WebhookState>>,
     headers: HeaderMap,

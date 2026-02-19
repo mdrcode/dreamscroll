@@ -37,7 +37,7 @@ tera = "1.19"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7.17"
 tower = "0.5"
-tower-http = { version = "0.6", features = ["fs"] }
+tower-http = { version = "0.6", features = ["fs", "trace"] }
 tower-sessions = "0.14.0"
 tower-sessions-sqlx-store = { version = "0.15.0", features = ["postgres", "sqlite"]}
 tracing = "0.1.44"

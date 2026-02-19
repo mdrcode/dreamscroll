@@ -19,7 +19,6 @@ pub struct SearchParams {
     q: String,
 }
 
-#[tracing::instrument(skip(auth, state, params))]
 pub async fn search(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,

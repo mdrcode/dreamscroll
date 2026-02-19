@@ -1,7 +1,12 @@
+use std::time::Duration;
+
 use anyhow::Context;
+use axum::http;
 use sea_orm::prelude::*;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
+use tower_http::trace::TraceLayer;
+use tracing::Span;
 
 use dreamscroll::{api, auth, database, facility, model, rest, storage, task, webhook, webui};
 
@@ -93,6 +98,34 @@ async fn main() -> anyhow::Result<()> {
     router = router.nest(
         "/webhook",
         webhook::make_router(service_api.clone(), stg.clone(), webhook_auth),
+    );
+
+    let router = router.layer(
+        TraceLayer::new_for_http()
+            .make_span_with(|request: &http::Request<_>| {
+                tracing::info_span!(
+                    "http_request",
+                    method = %request.method(),
+                    uri = %request.uri(),
+                    http_status = tracing::field::Empty,
+                    latency = tracing::field::Empty,
+                    error = tracing::field::Empty,
+                )
+            })
+            .on_response(
+                |response: &http::Response<_>, latency: Duration, span: &Span| {
+                    span.record("http_status", response.status().as_u16());
+                    span.record("latency", latency.as_millis() as u64);
+                },
+            )
+            .on_failure(
+                |error: tower_http::classify::ServerErrorsFailureClass,
+                 latency: Duration,
+                 span: &Span| {
+                    span.record("latency", latency.as_millis() as u64);
+                    span.record("error", format!("{:?}", error));
+                },
+            ),
     );
 
     let cancel = CancellationToken::new();

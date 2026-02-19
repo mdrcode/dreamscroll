@@ -12,7 +12,6 @@ use crate::{api, auth};
 
 use super::WebState;
 
-#[tracing::instrument(skip(auth, state, id))]
 pub async fn entity_knode(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
@@ -30,7 +29,6 @@ pub async fn entity_knode(
     render_entity(&state, entity_info)
 }
 
-#[tracing::instrument(skip(auth, state, id))]
 pub async fn entity_social_media(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,

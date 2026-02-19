@@ -12,7 +12,6 @@ use crate::{api, auth};
 
 use super::WebState;
 
-#[tracing::instrument(skip(auth, state))]
 pub async fn index(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
