@@ -19,11 +19,11 @@ pub async fn connect(
             (db_connection, session_store)
         }
         DbBackend::Postgres => {
-            let url = config
-                .db_url_postgres
+            let postgres_config = config
+                .db_postgres
                 .as_ref()
                 .expect("DB Backend is postgres but no url");
-            let pool = create_postgres_pool(url).await?;
+            let pool = create_postgres_pool(postgres_config).await?;
             let db_connection = connect_postgres_db(pool.clone()).await?;
             let session_store = connect_postgres_session_store(pool.clone()).await?;
             (db_connection, session_store)

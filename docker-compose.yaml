@@ -11,12 +11,13 @@ services:
       PORT: 8080
       RUST_LOG: info,axum_login=warn,tower_sessions=warn
 
-      # The POSTGRES_ vars should be defined in a `.env` file (gitignored).
-      # DB_URL_POSTGRES specifically is defined twice: (1) in .env, for
-      # locally running via `cargo run`, it references localhost. But here it
-      # is overridden to point to "db" within the Docker network.
       DB_BACKEND: postgres
-      DB_URL_POSTGRES: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+
+      # note that these are redundantly defined below for db as well
+      POSTGRES_USER: dreamscroll_pg_user
+      #POSTGRES_PASSWORD: NOT HERE SHOULD COME FROM .env file
+      POSTGRES_HOST_PORT: db:5432 # note 'db' within Docker network, not localhost
+      POSTGRES_DB: dreamscroll_dev1
 
       STORAGE_BACKEND: gcloud
       STORAGE_GCLOUD_EMULATOR_ENDPOINT: http://fake-gcs:4443
@@ -24,7 +25,7 @@ services:
 
       # Pub/Sub emulator should be invoked manually external of Docker, via
       # `gcloud beta emulators pubsub start --host-port=localhost:8085`
-      PUBSUB_API_BASE_URL: http://host.docker.internal:8085
+      PUBSUB_EMULATOR_URL_BASE: http://host.docker.internal:8085
       PUBSUB_PROJECT_ID: dreamscroll-local
 
       #PUBSUB_PUSH_OIDC_AUDIENCE: not used in localdev but required for Cloud Run
@@ -46,17 +47,19 @@ services:
     restart: always
     shm_size: 128mb
     env_file:
-      - .env
-    # These should be defined in .env which Docker automatically sources
-    # POSTGRES_USER
-    # POSTGRES_PASSWORD
-    # POSTGRES_DB
+      - .env # POSTGRES_PASSWORD comes from secrets here
+    environment:
+      # Defined redundantly here (should be same as `app` above) so that the 
+      # Postgres image can use them to initialize itself upon first run
+      POSTGRES_USER: dreamscroll_pg_user
+      #POSTGRES_PASSWORD: NOT HERE SHOULD COME FROM .env file
+      POSTGRES_DB: dreamscroll_dev1
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql
     healthcheck:
-      test: [ "CMD", "pg_isready", "-U", "${POSTGRES_USER}", "-d", "${POSTGRES_DB}", "-q" ]
+      test: [ "CMD", "pg_isready", "-U", "dreamscroll_pg_user", "-d", "dreamscroll_dev1", "-q" ]
       interval: 5s
       timeout: 5s
       retries: 5

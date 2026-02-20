@@ -11,10 +11,15 @@ pub struct PubSubHttpBaseUrl {
 
 impl PubSubHttpBaseUrl {
     pub fn from_config(config: &facility::PubSubConfig) -> Self {
+        let url_base = config
+            .emulator_url_base
+            .as_deref()
+            .unwrap_or("https://pubsub.googleapis.com");
+
         Self {
             publish_base_url: format!(
                 "{}/v1/projects/{}/topics", // note no trailing /
-                config.api_base_url, config.project_id
+                url_base, config.project_id
             ),
         }
     }

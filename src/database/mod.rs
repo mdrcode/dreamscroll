@@ -9,7 +9,7 @@ pub use connect_postgres::*;
 
 use serde::Deserialize;
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum DbBackend {
     Sqlite,

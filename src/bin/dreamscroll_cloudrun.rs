@@ -2,6 +2,7 @@ use std::time::Duration;
 
 use anyhow::Context;
 use axum::http;
+use rustls::crypto;
 use sea_orm::prelude::*;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -12,6 +13,9 @@ use dreamscroll::{api, auth, database, facility, model, rest, storage, task, web
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    crypto::CryptoProvider::install_default(crypto::aws_lc_rs::default_provider())
+        .expect("Failed to install aws_lc_rs as default crypto provider");
+
     // For localdev, we call dotenvy::from_filename() to load explicitly:
     //  - .env (secrets, .gitignored for API keys, etc)
     //  - ds_config.env
