@@ -25,14 +25,14 @@ impl UrlMaker {
         match id.provider.as_str() {
             "local" => self.make_local_url(id),
             "gcloud" => self.make_gcloud_url(id),
-            other => panic!("Unknown storage provider: {}", other),
+            other => unimplemented!("Unknown storage provider: {}", other),
         }
     }
 
     pub fn make_local_url(&self, id: &StorageHandle) -> String {
         if self.local_url_prefix.is_none() {
             tracing::error!("Asked to make local URL but local URL prefix is not configured");
-            panic!("Local URL prefix is not configured");
+            unimplemented!("Local URL prefix is not configured");
         }
 
         format!(

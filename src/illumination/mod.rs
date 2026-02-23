@@ -17,7 +17,7 @@ pub fn make_illuminator(
         "geministructured" => Box::new(geministructured::GeminiStructuredIlluminator::new(storage)),
         "grok" => Box::new(grok::GrokIlluminator::default()),
         "loremipsum" => Box::new(loremipsum::LoremIpsumIlluminator::default()),
-        other => panic!(
+        other => unimplemented!(
             "Unknown illuminator model '{}'. Supported: grok, gemini, geministructured, loremipsum.",
             other
         ),

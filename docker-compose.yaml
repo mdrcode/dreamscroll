@@ -8,10 +8,9 @@ services:
     env_file:
       - .env # .gitignored for secrets like JWT_SECRET_KEY
     environment:
+      NO_LOCAL_CONFIG_FILES: 1
       PORT: 8080
       RUST_LOG: info,axum_login=warn,tower_sessions=warn
-
-      NO_LOCAL_CONFIG: true
 
       DB_BACKEND: postgres
 

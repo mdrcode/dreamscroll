@@ -17,13 +17,14 @@ async fn main() -> anyhow::Result<()> {
     crypto::CryptoProvider::install_default(crypto::aws_lc_rs::default_provider())
         .expect("Failed to install aws_lc_rs as default crypto provider");
 
-    facility::init_tracing();
-
-    // Containerized environments should set NO_LOCAL_CONFIG=1 to skip local config files.
-    // But we load them for convenience when running via `cargo run`
-    if std::env::var("NO_LOCAL_CONFIG").is_err() {
+    // Containerized environments should set NO_LOCAL_CONFIG_FILES=1 to skip
+    // local config files. But we load them when running via `cargo run`
+    if std::env::var("NO_LOCAL_CONFIG_FILES").is_err() {
         load_local_config_files();
     }
+
+    facility::init_tracing();
+    tracing::info!("Starting dreamscroll_web...");
 
     let config = facility::make_config()?;
 
@@ -94,47 +95,40 @@ async fn main() -> anyhow::Result<()> {
     // HTTP tracing (method, status, latency, etc) for all routes
     let router = add_trace_layer(router);
 
-    let cancel = CancellationToken::new();
-
     let host_port = format!("0.0.0.0:{}", config.port);
     let listener = TcpListener::bind(&host_port)
         .await
         .context("Failed to bind TCP listener")?;
     tracing::info!("Bound listener on {}, will start serving...", host_port);
-    let cancel_clone = cancel.clone();
-    let cancel_clone2 = cancel.clone();
-
-    let t = tokio::spawn(async move {
-        axum::serve(listener, router)
-            .with_graceful_shutdown(async move {
-                cancel_clone.cancelled().await;
-            })
-            .await
-            .inspect_err(|e| {
-                tracing::error!("Failed to serve routes: {:?}", e);
-                cancel_clone2.cancel();
-            })
-    });
-
-    tokio::signal::ctrl_c().await?;
-    tracing::info!("Received SIGINT (CTRL+C), shutting down...");
-    cancel.cancel();
-    let _ = tokio::join!(t);
+    let cancel = CancellationToken::new();
+    axum::serve(listener, router)
+        .with_graceful_shutdown(wait_for_shutdown(cancel.clone()))
+        .await
+        .context("Failed to serve routes")?;
 
     Ok(())
 }
 
 fn load_local_config_files() {
-    dotenvy::from_filename("ds_config_local.env")
-        .inspect_err(|_| tracing::warn!("Didn't find ds_local_config.env, will rely on env vars."))
-        .ok();
+    let _ = dotenvy::from_filename("ds_config_local.env")
+        .inspect_err(|_| tracing::warn!("Didn't find ds_local_config.env, will rely on env vars."));
 
     // secrets from .env (gitignored for api keys, etc)
-    dotenvy::from_filename(".env")
-        .inspect_err(|_| {
-            tracing::warn!("Didn't find .env, will rely on env vars for secrets instead")
-        })
-        .ok();
+    let _ = dotenvy::from_filename(".env").inspect_err(|_| {
+        tracing::warn!("Didn't find .env, will rely on env vars for secrets instead")
+    });
+}
+
+async fn wait_for_shutdown(cancel: CancellationToken) {
+    tokio::select! {
+        _ = tokio::signal::ctrl_c() => {
+            tracing::info!("Received SIGINT (CTRL+C), shutting down...");
+            cancel.cancel();
+        }
+        _ = cancel.cancelled() => {
+            tracing::info!("Cancellation requested, shutting down...");
+        }
+    }
 }
 
 fn add_trace_layer(router: axum::Router) -> axum::Router {

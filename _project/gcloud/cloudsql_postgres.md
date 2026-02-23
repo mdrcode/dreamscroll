@@ -25,7 +25,7 @@ gcloud services vpc-peerings connect \
   --ranges=google-managed-services-default \
   --network=default
 
-# 3. Enable Cloud IP on the instance via the Console
+# 3. Enable Private IP on the database instance via the Console
 # (just checking a box for Private IP, accept defaults otherwise)
 # (this may take some time)
 
