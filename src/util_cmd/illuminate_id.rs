@@ -7,9 +7,9 @@ use crate::illumination::*;
 use super::*;
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "illuminate")]
+#[argh(subcommand, name = "illuminate_id")]
 #[argh(description = "Illuminate one or more captures without saving to the database.")]
-pub struct IlluminateArgs {
+pub struct IlluminateIdArgs {
     #[argh(positional)]
     #[argh(description = "ID(s) of the capture(s) to illuminate")]
     ids: Vec<i32>,
@@ -24,7 +24,7 @@ pub struct IlluminateArgs {
     model: String,
 }
 
-pub async fn run(state: CmdState, args: IlluminateArgs) -> anyhow::Result<()> {
+pub async fn run(state: CmdState, args: IlluminateIdArgs) -> anyhow::Result<()> {
     if args.ids.is_empty() {
         return Err(anyhow!("At least one capture ID must be provided."));
     }

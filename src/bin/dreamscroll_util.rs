@@ -3,13 +3,10 @@ use argh::FromArgs;
 use dreamscroll::{api, database, facility, storage, task, util_cmd::*};
 
 #[derive(FromArgs)]
-#[argh(description = "dreamscroll admin utility")]
+#[argh(description = "dreamscroll cmd line utility")]
 struct Args {
     #[argh(subcommand)]
     command: Command,
-
-    #[argh(switch, long = "verbose", description = "enable verbose logging")]
-    verbose: bool,
 }
 
 #[derive(FromArgs)]
@@ -21,19 +18,20 @@ enum Command {
     Eval(eval::EvalArgs),
     ExportDigest(export_digest::ExportDigestArgs),
     FirstUser(first_user::FirstUserArgs),
-    Illuminate(illuminate::IlluminateArgs),
+    IlluminateAll(illuminate_all::IlluminateAllArgs),
+    IlluminateId(illuminate_id::IlluminateIdArgs),
     ImportDigest(import_digest::ImportDigestArgs),
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    dotenvy::from_filename("ds_config_local.env").ok();
-    let _ = dotenvy::from_filename(".env"); // gitignored for api keys
+    // Containerized environments should set NO_LOCAL_CONFIG_FILES=1 to skip
+    // local config files. But we load them when running via `cargo run`
+    if std::env::var("NO_LOCAL_CONFIG_FILES").is_err() {
+        facility::load_local_config_files();
+    }
 
     let args: Args = argh::from_env();
-    if args.verbose {
-        // TODO fix this back up later
-    };
 
     facility::init_tracing();
     let config = facility::make_config()?;
@@ -50,10 +48,12 @@ async fn main() -> anyhow::Result<()> {
     let user_api =
         api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), empty_beacon);
     let import_api = api::ImportApiClient::new(db.clone(), stg.clone(), url_maker.clone());
+    let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
 
     let cmd_state = CmdState {
         user_api,
         import_api,
+        service_api,
         db,
         stg: stg,
     };
@@ -65,7 +65,8 @@ async fn main() -> anyhow::Result<()> {
         Command::Eval(args) => eval::run(cmd_state, args).await,
         Command::ExportDigest(args) => export_digest::run(cmd_state, args).await,
         Command::FirstUser(args) => first_user::run(cmd_state, args).await,
-        Command::Illuminate(args) => illuminate::run(cmd_state, args).await,
+        Command::IlluminateAll(args) => illuminate_all::run(cmd_state, args).await,
+        Command::IlluminateId(args) => illuminate_id::run(cmd_state, args).await,
         Command::ImportDigest(args) => import_digest::run(cmd_state, args).await,
     }
 }

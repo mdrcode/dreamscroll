@@ -20,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
     // Containerized environments should set NO_LOCAL_CONFIG_FILES=1 to skip
     // local config files. But we load them when running via `cargo run`
     if std::env::var("NO_LOCAL_CONFIG_FILES").is_err() {
-        load_local_config_files();
+        facility::load_local_config_files();
     }
 
     facility::init_tracing();
@@ -107,16 +107,6 @@ async fn main() -> anyhow::Result<()> {
         .context("Failed to serve routes")?;
 
     Ok(())
-}
-
-fn load_local_config_files() {
-    let _ = dotenvy::from_filename("ds_config_local.env")
-        .inspect_err(|_| tracing::warn!("Didn't find ds_local_config.env, will rely on env vars."));
-
-    // secrets from .env (gitignored for api keys, etc)
-    let _ = dotenvy::from_filename(".env").inspect_err(|_| {
-        tracing::warn!("Didn't find .env, will rely on env vars for secrets instead")
-    });
 }
 
 async fn wait_for_shutdown(cancel: CancellationToken) {
