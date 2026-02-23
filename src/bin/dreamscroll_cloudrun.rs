@@ -3,7 +3,6 @@ use std::time::Duration;
 use anyhow::Context;
 use axum::http;
 use rustls::crypto;
-use sea_orm::prelude::*;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
@@ -35,14 +34,7 @@ async fn main() -> anyhow::Result<()> {
     let db = database::DbHandle::new(db_connection);
     tracing::info!("Connected to database");
 
-    let user_count = model::user::Entity::find().count(&db.conn).await?;
-    if user_count == 0 {
-        tracing::error!(
-            "No users found in db! Create first user with `dreamscroll_util check_first_user`."
-        );
-    } else {
-        tracing::info!("Found {} users in database", user_count);
-    }
+    facility::check_users(&db).await?;
 
     // task::Beacon is the abstraction by which the app signals that tasks
     // should be enqueued in response to logical events
