@@ -1,4 +1,5 @@
 pub mod backfill_search;
+pub mod check_first_user;
 pub mod create_user;
 pub mod enums;
 pub mod eval;

@@ -13,6 +13,7 @@ struct Args {
 #[argh(subcommand)]
 enum Command {
     BackfillSearch(backfill_search::BackfillSearchArgs),
+    CheckFirstUser(check_first_user::CheckFirstUserArgs),
     CreateUser(create_user::CreateUserArgs),
     Enums(enums::EnumsArgs),
     Eval(eval::EvalArgs),
@@ -60,6 +61,7 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::BackfillSearch(args) => backfill_search::run(cmd_state, args).await,
+        Command::CheckFirstUser(args) => check_first_user::run(cmd_state, args).await,
         Command::CreateUser(args) => create_user::run(cmd_state, args).await,
         Command::Enums(args) => enums::run(cmd_state, args).await,
         Command::Eval(args) => eval::run(cmd_state, args).await,
