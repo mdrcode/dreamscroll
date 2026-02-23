@@ -31,7 +31,7 @@ services:
 
       #PUBSUB_PUSH_OIDC_AUDIENCE: not used in localdev but required for Cloud Run
 
-      PUBSUB_ILLUMINATION_TOPIC_ID: dreamscroll-illumination
+      PUBSUB_TOPIC_ID_NEW_CAPTURE: dreamscroll-new_capture
 
     volumes:
       # Cute way to import/export data from the docker environment

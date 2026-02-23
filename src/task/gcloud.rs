@@ -31,7 +31,7 @@ pub struct PubSubTopicQueue {
 }
 
 impl PubSubTopicQueue {
-    pub fn new(base: PubSubBaseUrl, topic_id: &str) -> Self {
+    pub fn new(base: &PubSubBaseUrl, topic_id: &str) -> Self {
         let publish_url = format!("{}/{}:publish", base.publish_base_url, topic_id);
 
         tracing::info!(publish_url, "Configured Pub/Sub HTTP topic queue");

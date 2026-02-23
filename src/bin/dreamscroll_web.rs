@@ -17,8 +17,8 @@ async fn main() -> anyhow::Result<()> {
     crypto::CryptoProvider::install_default(crypto::aws_lc_rs::default_provider())
         .expect("Failed to install aws_lc_rs as default crypto provider");
 
-    // Containerized environments should set NO_LOCAL_CONFIG_FILES=1 to skip
-    // local config files. But we load them when running via `cargo run`
+    // Containerized environments should set NO_LOCAL_CONFIG_FILES=1 to skip.
+    // But when running via `cargo run` we load local files as a convenience.
     if std::env::var("NO_LOCAL_CONFIG_FILES").is_err() {
         facility::load_local_config_files();
     }
@@ -37,16 +37,16 @@ async fn main() -> anyhow::Result<()> {
     // task::Beacon is the abstraction by which the app signals that tasks
     // should be enqueued in response to logical events
     let beacon = {
-        let pubsub_base_url = task::PubSubBaseUrl::new(
+        let pubsub_url_base = task::PubSubBaseUrl::new(
             config.pubsub.project_id.as_str(),
             config.pubsub.emulator_url_base.as_deref(),
         );
-        let illumination_queue: Box<dyn task::TopicQueue> = Box::new(task::PubSubTopicQueue::new(
-            pubsub_base_url.clone(),
-            config.pubsub.illumination_topic_id.as_str(),
-        ));
+        let new_capture_topic = task::PubSubTopicQueue::new(
+            &pubsub_url_base,
+            config.pubsub.topic_id_new_capture.as_str(),
+        );
         task::Beacon::builder()
-            .illumination_queue(illumination_queue)
+            .new_capture_topic(Box::new(new_capture_topic) as Box<dyn task::TopicQueue>)
             .build()
     };
 

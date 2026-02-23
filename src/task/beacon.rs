@@ -32,7 +32,7 @@ pub struct BeaconBuilder {
 }
 
 impl BeaconBuilder {
-    pub fn illumination_queue(mut self, illumination_queue: Box<dyn TopicQueue>) -> Self {
+    pub fn new_capture_topic(mut self, illumination_queue: Box<dyn TopicQueue>) -> Self {
         self.illumination_queue = Some(Arc::from(illumination_queue));
         self
     }
