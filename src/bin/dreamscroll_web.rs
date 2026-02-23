@@ -8,7 +8,9 @@ use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
-use dreamscroll::{api, auth, database, facility, rest, storage, task, webhook, webui};
+use dreamscroll::{
+    api, auth, database, facility, illumination, rest, storage, task, webhook, webui,
+};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -18,7 +20,7 @@ async fn main() -> anyhow::Result<()> {
     facility::init_tracing();
 
     // Containerized environments should set NO_LOCAL_CONFIG=1 to skip local config files.
-    // But when running via `cargo run`, we rely on the files for convenience.
+    // But we load them for convenience when running via `cargo run`
     if std::env::var("NO_LOCAL_CONFIG").is_err() {
         load_local_config_files();
     }
@@ -34,12 +36,14 @@ async fn main() -> anyhow::Result<()> {
     // task::Beacon is the abstraction by which the app signals that tasks
     // should be enqueued in response to logical events
     let beacon = {
-        let pubsub_base_url = task::PubSubHttpBaseUrl::from_config(&config.pubsub);
-        let illumination_queue: Box<dyn task::TopicQueue> =
-            Box::new(task::PubSubHttpTaskQueue::new(
-                pubsub_base_url.clone(),
-                config.pubsub.illumination_topic_id.as_str(),
-            ));
+        let pubsub_base_url = task::PubSubBaseUrl::new(
+            config.pubsub.project_id.as_str(),
+            config.pubsub.emulator_url_base.as_deref(),
+        );
+        let illumination_queue: Box<dyn task::TopicQueue> = Box::new(task::PubSubTopicQueue::new(
+            pubsub_base_url.clone(),
+            config.pubsub.illumination_topic_id.as_str(),
+        ));
         task::Beacon::builder()
             .illumination_queue(illumination_queue)
             .build()
@@ -81,9 +85,10 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     };
+    let illuminator = illumination::make_illuminator("geministructured", stg.clone());
     router = router.nest(
         "/webhook",
-        webhook::make_router(service_api.clone(), stg.clone(), webhook_auth),
+        webhook::make_router(webhook_auth, service_api.clone(), illuminator),
     );
 
     // HTTP tracing (method, status, latency, etc) for all routes

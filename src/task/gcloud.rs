@@ -2,40 +2,39 @@ use anyhow::anyhow;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Serialize;
 
-use crate::{task, webhook};
+use super::*;
 
 #[derive(Clone)]
-pub struct PubSubHttpBaseUrl {
+pub struct PubSubBaseUrl {
     publish_base_url: String,
 }
 
-impl PubSubHttpBaseUrl {
-    pub fn from_config(config: &webhook::gcloud::PubSubConfig) -> Self {
-        let url_base = config
-            .emulator_url_base
+impl PubSubBaseUrl {
+    pub fn new(project_id: &str, emulator_url_base: Option<&str>) -> Self {
+        let url_base = emulator_url_base
             .as_deref()
             .unwrap_or("https://pubsub.googleapis.com");
 
         Self {
             publish_base_url: format!(
                 "{}/v1/projects/{}/topics", // note no trailing /
-                url_base, config.project_id
+                url_base, project_id
             ),
         }
     }
 }
 
 #[derive(Clone)]
-pub struct PubSubHttpTaskQueue {
+pub struct PubSubTopicQueue {
     publish_url: String,
     client: reqwest::Client,
 }
 
-impl PubSubHttpTaskQueue {
-    pub fn new(base: PubSubHttpBaseUrl, topic_id: &str) -> Self {
+impl PubSubTopicQueue {
+    pub fn new(base: PubSubBaseUrl, topic_id: &str) -> Self {
         let publish_url = format!("{}/{}:publish", base.publish_base_url, topic_id);
 
-        tracing::info!(publish_url, "Configured Pub/Sub HTTP task queue");
+        tracing::info!(publish_url, "Configured Pub/Sub HTTP topic queue");
 
         Self {
             client: reqwest::Client::new(),
@@ -60,7 +59,7 @@ struct PublishRequest {
 }
 
 #[async_trait::async_trait]
-impl task::TopicQueue for PubSubHttpTaskQueue {
+impl TopicQueue for PubSubTopicQueue {
     async fn enqueue(&self, capture_id: i32) -> anyhow::Result<()> {
         let payload = serde_json::to_vec(&TaskPayload { capture_id })?;
         let encoded = STANDARD.encode(payload);
