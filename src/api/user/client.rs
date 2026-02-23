@@ -109,7 +109,7 @@ impl UserApiClient {
             tracing::error!(
                 capture_id = capture_model.id,
                 error = ?err,
-                "Beacon failed to signal new capture!"
+                "Beacon failed to signal new capture"
             );
         }
 

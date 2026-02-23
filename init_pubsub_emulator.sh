@@ -9,7 +9,7 @@ set -euo pipefail
 
 PUBSUB_EMULATOR_BASE_URL="${PUBSUB_EMULATOR_BASE_URL:-http://localhost:8085}"
 PUBSUB_PROJECT_ID="${PUBSUB_PROJECT_ID:-dreamscroll-local}"
-PUBSUB_TOPIC_ID="${PUBSUB_TOPIC_ID:-dreamscroll-illumination}"
+PUBSUB_TOPIC_ID="${PUBSUB_TOPIC_ID:-dreamscroll-new_capture}"
 PUBSUB_SUBSCRIPTION_ID="${PUBSUB_SUBSCRIPTION_ID:-dreamscroll-illumination-push}"
 PUBSUB_PUSH_ENDPOINT="${PUBSUB_PUSH_ENDPOINT:-http://localhost:8080/webhook/illumination/push}"
 
