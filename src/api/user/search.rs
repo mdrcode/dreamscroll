@@ -1,4 +1,8 @@
-use sea_orm::{EntityTrait, QuerySelect, prelude::*};
+use sea_orm::{
+    EntityTrait, ExprTrait, QueryFilter, QuerySelect,
+    prelude::*,
+    sea_query::{Expr, Func},
+};
 
 use crate::{api, auth, database::DbHandle, model};
 
@@ -13,7 +17,10 @@ pub async fn search_by_illuminations(
 
     let iids_matching = model::search_index::Entity::find()
         .filter(model::search_index::Column::UserId.eq(user_context.user_id()))
-        .filter(model::search_index::Column::Content.contains(query))
+        .filter(
+            Expr::expr(Func::lower(Expr::col(model::search_index::Column::Content)))
+                .like(format!("%{}%", query.to_lowercase())),
+        )
         .column(model::search_index::Column::IlluminationId)
         .distinct()
         .all(&db.conn)
