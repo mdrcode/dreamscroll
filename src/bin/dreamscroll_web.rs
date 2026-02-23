@@ -8,27 +8,22 @@ use tokio_util::sync::CancellationToken;
 use tower_http::trace::TraceLayer;
 use tracing::Span;
 
-use dreamscroll::{api, auth, database, facility, model, rest, storage, task, webhook, webui};
+use dreamscroll::{api, auth, database, facility, rest, storage, task, webhook, webui};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     crypto::CryptoProvider::install_default(crypto::aws_lc_rs::default_provider())
         .expect("Failed to install aws_lc_rs as default crypto provider");
 
-    // For localdev, we call dotenvy::from_filename() to load explicitly:
-    //  - .env (secrets, .gitignored for API keys, etc)
-    //  - ds_config.env
-    //
-    // But for production, the configuration should come externally via the
-    // environment, set by Google Cloud Secret Manager, etc.
-    //
-    // For running within Docker Compose, the config from docker-compose.yaml.
-
     facility::init_tracing();
-    let config = facility::make_config();
 
-    // Verify secrets are available
-    config.jwt_secret.as_ref().context("JWT_SECRET missing")?;
+    // Containerized environments should set NO_LOCAL_CONFIG=1 to skip local config files.
+    // But when running via `cargo run`, we rely on the files for convenience.
+    if std::env::var("NO_LOCAL_CONFIG").is_err() {
+        load_local_config_files();
+    }
+
+    let config = facility::make_config()?;
 
     let (db_connection, session_store) = database::connect(&config).await?;
     let db = database::DbHandle::new(db_connection);
@@ -55,8 +50,7 @@ async fn main() -> anyhow::Result<()> {
     let user_api =
         api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon.clone());
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
-
-    tracing::info!("Initialized storage and API client");
+    tracing::info!("Initialized storage and API clients");
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving
     let auth_backend = auth::WebAuthBackend::new(db.clone());
@@ -69,23 +63,19 @@ async fn main() -> anyhow::Result<()> {
     router = router.nest("/api", api_router);
     tracing::info!("Initialized REST API routes");
 
-    // PubSub Webhook Routes (OIDC-protected in prod, no auth for localdev)
+    // PubSub Webhook Routes (no auth for localdev emulator, Pub/Sub OIDC for prod)
     let webhook_auth = {
-        match config.pubsub.push_oidc_audience.as_deref() {
-            // OIDC audience provided, so webhook auth will be enforced
-            Some(audience) => {
-                let verifier = webhook::gcloud::PubSubOidcVerifier::new(
-                    audience.to_owned(),
-                    config.pubsub.push_oidc_service_account_email.clone(),
-                    config.pubsub.push_oidc_jwks_url.clone(),
-                );
-                tracing::info!("WebhookAuth: Pub/Sub OIDC verification enabled");
-                webhook::WebhookAuth::PubSubOidc(verifier)
-            }
-            // No OIDC audience so we skip auth for localdev/emulator
+        match config.pubsub.emulator_url_base.as_deref() {
             None => {
+                tracing::info!("WebhookAuth: Pub/Sub OIDC verification enabled");
+                webhook::WebhookAuth::PubSubOidc(
+                    webhook::gcloud::PubSubOidcVerifier::from_config(&config.pubsub)
+                        .expect("Failed to create PubSubOidcVerifier"),
+                )
+            }
+            Some(_) => {
                 tracing::warn!(
-                    "WebhookAuth: PUBSUB_PUSH_OIDC_AUDIENCE not set, so webhook auth is DISABLED. Fine for local dev but NOT for prod."
+                    "WebhookAuth: PUBSUB_EMULATOR_URL_BASE is set, so webhook auth is DISABLED. Fine for local dev but NOT for prod."
                 );
                 webhook::WebhookAuth::None
             }
@@ -96,7 +86,54 @@ async fn main() -> anyhow::Result<()> {
         webhook::make_router(service_api.clone(), stg.clone(), webhook_auth),
     );
 
-    let router = router.layer(
+    // HTTP tracing (method, status, latency, etc) for all routes
+    let router = add_trace_layer(router);
+
+    let cancel = CancellationToken::new();
+
+    let host_port = format!("0.0.0.0:{}", config.port);
+    let listener = TcpListener::bind(&host_port)
+        .await
+        .context("Failed to bind TCP listener")?;
+    tracing::info!("Bound listener on {}, will start serving...", host_port);
+    let cancel_clone = cancel.clone();
+    let cancel_clone2 = cancel.clone();
+
+    let t = tokio::spawn(async move {
+        axum::serve(listener, router)
+            .with_graceful_shutdown(async move {
+                cancel_clone.cancelled().await;
+            })
+            .await
+            .inspect_err(|e| {
+                tracing::error!("Failed to serve routes: {:?}", e);
+                cancel_clone2.cancel();
+            })
+    });
+
+    tokio::signal::ctrl_c().await?;
+    tracing::info!("Received SIGINT (CTRL+C), shutting down...");
+    cancel.cancel();
+    let _ = tokio::join!(t);
+
+    Ok(())
+}
+
+fn load_local_config_files() {
+    dotenvy::from_filename("ds_config_local.env")
+        .inspect_err(|_| tracing::warn!("Didn't find ds_local_config.env, will rely on env vars."))
+        .ok();
+
+    // secrets from .env (gitignored for api keys, etc)
+    dotenvy::from_filename(".env")
+        .inspect_err(|_| {
+            tracing::warn!("Didn't find .env, will rely on env vars for secrets instead")
+        })
+        .ok();
+}
+
+fn add_trace_layer(router: axum::Router) -> axum::Router {
+    router.layer(
         TraceLayer::new_for_http()
             .make_span_with(|request: &http::Request<_>| {
                 tracing::info_span!(
@@ -122,27 +159,5 @@ async fn main() -> anyhow::Result<()> {
                     span.record("error", format!("{:?}", error));
                 },
             ),
-    );
-
-    let cancel = CancellationToken::new();
-    let cancel_clone = cancel.clone();
-
-    let t = tokio::spawn(async move {
-        let host_port = format!("0.0.0.0:{}", config.port);
-        let listener = TcpListener::bind(&host_port).await.unwrap();
-        tracing::info!("Bound listener on {}, will start serving...", host_port);
-        axum::serve(listener, router)
-            .with_graceful_shutdown(async move {
-                cancel_clone.cancelled().await;
-            })
-            .await
-            .expect("Failed to serve web.");
-    });
-
-    tokio::signal::ctrl_c().await?;
-    tracing::info!("Received SIGINT (CTRL+C), shutting down...");
-    cancel.cancel();
-    let _ = tokio::join!(t);
-
-    Ok(())
+    )
 }

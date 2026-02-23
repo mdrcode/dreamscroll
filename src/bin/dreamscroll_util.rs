@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     facility::init_tracing();
-    let config = facility::make_config();
+    let config = facility::make_config()?;
 
     let (db_connection, _) = database::connect(&config).await?;
     let db = database::DbHandle::new(db_connection);

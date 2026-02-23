@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Serialize;
 
-use crate::{facility, task};
+use crate::{task, webhook};
 
 #[derive(Clone)]
 pub struct PubSubHttpBaseUrl {
@@ -10,7 +10,7 @@ pub struct PubSubHttpBaseUrl {
 }
 
 impl PubSubHttpBaseUrl {
-    pub fn from_config(config: &facility::PubSubConfig) -> Self {
+    pub fn from_config(config: &webhook::gcloud::PubSubConfig) -> Self {
         let url_base = config
             .emulator_url_base
             .as_deref()

@@ -1,3 +1,6 @@
+mod config;
+pub use config::*;
+
 mod pubsub;
 pub use pubsub::*;
 

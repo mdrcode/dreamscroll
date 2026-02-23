@@ -11,6 +11,8 @@ services:
       PORT: 8080
       RUST_LOG: info,axum_login=warn,tower_sessions=warn
 
+      NO_LOCAL_CONFIG: true
+
       DB_BACKEND: postgres
 
       # note that these are redundantly defined below for db as well

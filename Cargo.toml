@@ -2,7 +2,7 @@
 name = "dreamscroll"
 version = "0.1.0"
 edition = "2024"
-default-run = "dreamscroll_localdev"
+default-run = "dreamscroll_web"
 
 [lib]
 name = "dreamscroll"
