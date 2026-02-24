@@ -1,8 +1,8 @@
 mod config;
 pub use config::*;
 
-mod pubsub;
-pub use pubsub::*;
-
 mod oidc_verifier;
 pub use oidc_verifier::*;
+
+mod pubsubtopicqueue;
+pub use pubsubtopicqueue::*;

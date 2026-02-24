@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use serde::Deserialize;
 
-use crate::{database, storage, webhook};
+use crate::{database, pubsub, storage};
 
 #[derive(Deserialize)]
 pub struct Config {
@@ -29,7 +29,7 @@ pub struct Config {
     pub storage_gcloud_bucket_name: Option<String>,
 
     #[serde(skip)]
-    pub pubsub: webhook::gcloud::PubSubConfig,
+    pub pubsub: pubsub::gcloud::PubSubConfig,
 }
 
 pub fn make_config() -> anyhow::Result<Config> {
@@ -37,7 +37,7 @@ pub fn make_config() -> anyhow::Result<Config> {
         .context("Failed to load config (missing required vars or invalid values)")?;
 
     config.pubsub = envy::prefixed("PUBSUB_")
-        .from_env::<webhook::gcloud::PubSubConfig>()
+        .from_env::<pubsub::gcloud::PubSubConfig>()
         .context("Failed to load PUBSUB_ env config (need PUBSUB_API_BASE_URL, PUBSUB_PROJECT_ID, PUBSUB_ILLUMINATION_TOPIC_ID)")?;
 
     if config.db_backend == database::DbBackend::Postgres {

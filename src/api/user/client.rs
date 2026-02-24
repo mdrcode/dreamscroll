@@ -1,4 +1,4 @@
-use crate::{api::*, auth, database, storage, task};
+use crate::{api::*, auth, database, pubsub, storage};
 
 #[derive(Clone)]
 pub struct UserApiClient {
@@ -6,7 +6,7 @@ pub struct UserApiClient {
     pub db: database::DbHandle,
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
-    beacon: task::Beacon,
+    beacon: pubsub::Beacon,
 }
 
 impl UserApiClient {
@@ -14,7 +14,7 @@ impl UserApiClient {
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
-        beacon: task::Beacon,
+        beacon: pubsub::Beacon,
     ) -> Self {
         Self {
             db,

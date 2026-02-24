@@ -5,6 +5,7 @@ pub mod database;
 pub mod facility;
 pub mod illumination;
 pub mod model;
+pub mod pubsub;
 pub mod rest;
 pub mod storage;
 pub mod task;

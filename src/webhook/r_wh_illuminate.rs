@@ -10,10 +10,10 @@ use serde::Deserialize;
 
 use crate::{api, illumination};
 
-use super::{WebhookState, gcloud};
+use super::*;
 
 #[derive(Debug, Deserialize)]
-pub struct IlluminationTaskPayload {
+pub struct IlluminationPayload {
     pub capture_id: i32,
 }
 
@@ -27,18 +27,17 @@ pub struct IlluminationTaskPayload {
 pub async fn post(
     State(state): State<Arc<WebhookState>>,
     headers: HeaderMap,
-    Json(body): Json<gcloud::PubSubPushBody>,
+    Json(body): Json<PushBody>,
 ) -> Result<impl IntoResponse, api::ApiError> {
     state.auth.verify(&headers).await.map_err(|err| {
         tracing::error!(error = ?err, "Webhook authentication failed");
         api::ApiError::unauthorized(err)
     })?;
 
-    let payload =
-        gcloud::decode_payload::<IlluminationTaskPayload>(&body.message.data).map_err(|err| {
-            tracing::error!(error = ?err, "Failed to decode Pub/Sub message payload");
-            api::ApiError::bad_request(err)
-        })?;
+    let payload = decode_payload::<IlluminationPayload>(&body.message.data).map_err(|err| {
+        tracing::error!(error = ?err, "Failed to decode Pub/Sub message payload");
+        api::ApiError::bad_request(err)
+    })?;
 
     tracing::Span::current().record("capture_id", payload.capture_id);
 

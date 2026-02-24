@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Serialize;
 
-use super::*;
+use crate::pubsub;
 
 #[derive(Clone)]
 pub struct PubSubBaseUrl {
@@ -59,7 +59,7 @@ struct PublishRequest {
 }
 
 #[async_trait::async_trait]
-impl TopicQueue for PubSubTopicQueue {
+impl pubsub::TopicQueue for PubSubTopicQueue {
     async fn enqueue(&self, capture_id: i32) -> anyhow::Result<()> {
         let payload = serde_json::to_vec(&TaskPayload { capture_id })?;
         let encoded = STANDARD.encode(payload);
