@@ -1,6 +1,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use dyn_clone::DynClone;
 
 use crate::facility;
@@ -11,7 +12,7 @@ use super::*;
 pub trait StorageProvider: DynClone + Send + Sync {
     async fn store_bytes(
         &self,
-        bytes: &[u8],
+        bytes: Bytes,
         user_shard: &str,
         ext: Option<&str>,
     ) -> anyhow::Result<StorageHandle>;

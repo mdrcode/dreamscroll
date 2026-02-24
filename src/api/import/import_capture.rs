@@ -36,10 +36,11 @@ pub async fn import_capture(
     }
 
     let media_type = infer::get(&bytes).ok_or_else(|| anyhow!("Could not infer media type."))?;
+    let bytes_len = bytes.len();
 
     let handle = storage
         .store_bytes(
-            &bytes,
+            bytes::Bytes::from(bytes),
             user_context.storage_shard(),
             Some(media_type.extension()),
         )
@@ -47,7 +48,7 @@ pub async fn import_capture(
 
     let media_builder = model::media::ActiveModel::builder()
         .set_user_id(user_context.user_id())
-        .set_bytes(bytes.len() as i64)
+        .set_bytes(bytes_len as i64)
         .set_mime_type(Some(media_type.mime_type().to_string()))
         .set_hash_blake3(Some(hash_blake3.to_hex().to_string()))
         .set_storage_provider(handle.provider)

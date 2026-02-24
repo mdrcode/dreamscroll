@@ -37,7 +37,7 @@ pub async fn upload(
 
     let cap = state
         .user_api
-        .insert_capture(&user.into(), &media_bytes)
+        .insert_capture(&user.into(), media_bytes)
         .await?;
     tracing::info!("Capture {} inserted via upload", cap.id);
 

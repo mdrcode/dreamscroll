@@ -100,7 +100,7 @@ impl UserApiClient {
     pub async fn insert_capture(
         &self,
         context: &auth::Context,
-        media_bytes: &[u8],
+        media_bytes: bytes::Bytes,
     ) -> Result<schema::CaptureInfo, ApiError> {
         let capture_model =
             super::insert_capture(&self.db, &self.storage, context, media_bytes).await?;

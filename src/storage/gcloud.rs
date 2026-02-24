@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use async_trait::async_trait;
-use axum::body::Bytes;
+use bytes::Bytes;
 use google_cloud_auth::credentials;
 use google_cloud_storage::client::Storage;
 use uuid::Uuid;
@@ -57,17 +57,16 @@ fn make_object_key(uuid: Uuid, shard: &str, ext: Option<&str>) -> String {
 impl provider::StorageProvider for GCloudStorageProvider {
     async fn store_bytes(
         &self,
-        data: &[u8],
+        bytes: Bytes,
         user_shard: &str,
         ext: Option<&str>,
     ) -> anyhow::Result<StorageHandle> {
         let uuid = Uuid::new_v4();
         let object_key = make_object_key(uuid, user_shard, ext);
-        let bytes_data = Bytes::copy_from_slice(data);
 
         tracing::info!(
             "Storing {} bytes to GCS bucket {} as {}",
-            data.len(),
+            bytes.len(),
             self.bucket_name,
             object_key,
         );
@@ -75,8 +74,8 @@ impl provider::StorageProvider for GCloudStorageProvider {
         // BUG currently if the GCS client cannot connect to the emulator
         // endpoint, it will hang indefinitely rather than timeout :-/
         self.gcloud_client
-            .write_object(&self.bucket_path, &object_key, bytes_data)
-            .with_resumable_upload_threshold(5 * 1024 * 1024_usize)
+            .write_object(&self.bucket_path, &object_key, bytes)
+            .with_resumable_upload_threshold(5 * 1024 * 1024_usize) // TODO this having any effect?
             .send_unbuffered()
             .await
             .map_err(|e| {

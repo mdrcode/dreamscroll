@@ -10,6 +10,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1.0.100"
+bytes = "1"
 argh = "0.1.13"
 argon2 = "0.5.3"
 async-trait = "0.1"

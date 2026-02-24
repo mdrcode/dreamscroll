@@ -1,4 +1,5 @@
 use anyhow::anyhow;
+use bytes::Bytes;
 use chrono::Utc;
 use sea_orm::TryIntoModel;
 
@@ -8,7 +9,7 @@ pub async fn insert_capture(
     db: &DbHandle,
     storage: &Box<dyn storage::StorageProvider>,
     user_context: &auth::Context,
-    media_bytes: &[u8],
+    media_bytes: Bytes,
 ) -> Result<model::capture::ModelEx, ApiError> {
     let user_id = user_context.user_id();
     let shard = user_context.storage_shard();
@@ -27,15 +28,16 @@ pub async fn insert_capture(
     // duplicates during development. We might remove this in the future or move hash
     // computation to an async background job if it becomes a bottleneck.
     let hash_blake3 = blake3::hash(&media_bytes);
+    let bytes_len = media_bytes.len();
 
     let handle = storage
-        .store_bytes(&media_bytes, shard, Some(media_type.extension()))
+        .store_bytes(media_bytes, shard, Some(media_type.extension()))
         .await?;
     tracing::info!("Stored media user:{} handle: {:?}", user_id, &handle);
 
     let media_builder = model::media::ActiveModel::builder()
         .set_user_id(user_id)
-        .set_bytes(media_bytes.len() as i64)
+        .set_bytes(bytes_len as i64)
         .set_mime_type(Some(media_type.mime_type().to_string()))
         .set_hash_blake3(Some(hash_blake3.to_hex().to_string()))
         .set_storage_provider(handle.provider)

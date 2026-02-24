@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
+use bytes::Bytes;
 use uuid::Uuid;
 
 use super::*;
@@ -22,7 +23,7 @@ impl LocalStorageProvider {
 impl StorageProvider for LocalStorageProvider {
     async fn store_bytes(
         &self,
-        bytes: &[u8],
+        bytes: Bytes,
         user_shard: &str,
         ext: Option<&str>,
     ) -> anyhow::Result<StorageHandle> {
