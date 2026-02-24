@@ -6,15 +6,15 @@ set -euo pipefail
 #
 # and then execute this script to create the topics/subscriptions
 
+PROJECT_ID="${PUBSUB_PROJECT_ID:-dreamscroll_local}"
 
 PUBSUB_EMULATOR_BASE_URL="${PUBSUB_EMULATOR_BASE_URL:-http://localhost:8085}"
-PUBSUB_PROJECT_ID="${PUBSUB_PROJECT_ID:-dreamscroll-local}"
 PUBSUB_TOPIC_ID="${PUBSUB_TOPIC_ID:-dreamscroll-new_capture}"
 PUBSUB_SUBSCRIPTION_ID="${PUBSUB_SUBSCRIPTION_ID:-dreamscroll-illumination-push}"
 PUBSUB_PUSH_ENDPOINT="${PUBSUB_PUSH_ENDPOINT:-http://localhost:8080/webhook/illumination/push}"
 
-TOPIC_PATH="projects/${PUBSUB_PROJECT_ID}/topics/${PUBSUB_TOPIC_ID}"
-SUB_PATH="projects/${PUBSUB_PROJECT_ID}/subscriptions/${PUBSUB_SUBSCRIPTION_ID}"
+TOPIC_PATH="projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC_ID}"
+SUB_PATH="projects/${PROJECT_ID}/subscriptions/${PUBSUB_SUBSCRIPTION_ID}"
 
 echo "Creating topic: ${TOPIC_PATH}"
 curl -sS -X PUT "${PUBSUB_EMULATOR_BASE_URL}/v1/${TOPIC_PATH}" \

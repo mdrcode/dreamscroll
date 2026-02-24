@@ -8,7 +8,9 @@ services:
     env_file:
       - .env # .gitignored for secrets like JWT_SECRET_KEY
     environment:
+      PROJECT_ID: dreamscroll_local
       NO_LOCAL_CONFIG_FILES: 1
+
       PORT: 8080
       RUST_LOG: info,axum_login=warn,tower_sessions=warn
 
@@ -27,8 +29,6 @@ services:
       # Pub/Sub emulator should be invoked manually external of Docker, via
       # `gcloud beta emulators pubsub start --host-port=localhost:8085`
       PUBSUB_EMULATOR_BASE_URL: http://host.docker.internal:8085
-      PUBSUB_PROJECT_ID: dreamscroll-local
-
       #PUBSUB_PUSH_OIDC_AUDIENCE: not used in localdev but required for Cloud Run
 
       PUBSUB_TOPIC_ID_NEW_CAPTURE: dreamscroll-new_capture
