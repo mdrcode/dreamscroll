@@ -8,7 +8,7 @@ use crate::{api::ApiError, pubsub};
 #[derive(Clone)]
 pub enum WebhookAuth {
     None,
-    PubSubOidc(pubsub::gcloud::PubSubOidcVerifier),
+    PubSubOidc(pubsub::gcloud::OidcVerifier),
 }
 
 impl WebhookAuth {

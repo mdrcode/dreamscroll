@@ -8,7 +8,6 @@ pub mod model;
 pub mod pubsub;
 pub mod rest;
 pub mod storage;
-pub mod task;
 pub mod util_cmd;
 pub mod webhook;
 pub mod webui;

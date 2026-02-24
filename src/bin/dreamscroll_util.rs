@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use dreamscroll::{api, database, facility, storage, task, util_cmd::*};
+use dreamscroll::{api, database, facility, pubsub, storage, util_cmd::*};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll cmd line utility")]
@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
 
     // We use an empty beacon for the util commands, so no background tasks
     // will be enqueued.
-    let empty_beacon = task::Beacon::default();
+    let empty_beacon = pubsub::Beacon::default();
     let user_api =
         api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), empty_beacon);
     let import_api = api::ImportApiClient::new(db.clone(), stg.clone(), url_maker.clone());

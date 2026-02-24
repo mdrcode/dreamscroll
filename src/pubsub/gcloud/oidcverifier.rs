@@ -5,11 +5,11 @@ use google_cloud_auth::credentials::idtoken::verifier;
 use super::*;
 
 #[derive(Clone)]
-pub struct PubSubOidcVerifier {
+pub struct OidcVerifier {
     verifier: Arc<verifier::Verifier>,
 }
 
-impl PubSubOidcVerifier {
+impl OidcVerifier {
     /// Creates an OIDC verifier for Pub/Sub push authenticated webhooks.
     ///
     /// This is a thin adapter around the official Google Rust auth verifier:

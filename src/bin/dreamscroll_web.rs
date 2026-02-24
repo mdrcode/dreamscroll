@@ -5,11 +5,11 @@ use axum::http;
 use rustls::crypto;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use tower_http::trace::TraceLayer;
+use tower_http::{services::ServeDir, trace::TraceLayer};
 use tracing::Span;
 
 use dreamscroll::{
-    api, auth, database, facility, illumination, rest, storage, task, webhook, webui,
+    api, auth, database, facility, illumination, pubsub, rest, storage, webhook, webui,
 };
 
 #[tokio::main]
@@ -34,19 +34,19 @@ async fn main() -> anyhow::Result<()> {
 
     facility::check_users(&db).await?;
 
-    // task::Beacon is the abstraction by which the app signals that tasks
+    // pubsub::Beacon is the abstraction by which the app signals that tasks
     // should be enqueued in response to logical events
     let beacon = {
-        let pubsub_url_base = task::PubSubBaseUrl::new(
+        let base_url = pubsub::gcloud::PubSubBaseUrl::new(
             config.project_id.as_str(),
-            config.pubsub.emulator_url_base.as_deref(),
+            config.pubsub.emulator_base_url.as_deref(),
         );
-        let new_capture_topic = task::PubSubTopicQueue::new(
-            &pubsub_url_base,
+        let new_capture_topic = pubsub::gcloud::PubSubTopicQueue::new(
+            &base_url,
             config.pubsub.topic_id_new_capture.as_str(),
         );
-        task::Beacon::builder()
-            .new_capture_topic(Box::new(new_capture_topic) as Box<dyn task::TopicQueue>)
+        pubsub::Beacon::builder()
+            .new_capture_topic(Box::new(new_capture_topic) as Box<dyn pubsub::TopicQueue>)
             .build()
     };
 
@@ -62,6 +62,15 @@ async fn main() -> anyhow::Result<()> {
     let mut router = webui::v1::make_ui_router(user_api.clone(), session_store, auth_backend);
     tracing::info!("Initialized web UI routes");
 
+    // If using the local Storage provider, we must serve media files manually
+    if config.storage_backend == storage::StorageBackend::Local {
+        router = router.nest_service(
+            &config.storage_local_url_prefix.unwrap(),
+            ServeDir::new(&config.storage_local_file_path.unwrap()),
+        );
+        tracing::info!("Mounted media file serving routes for local storage");
+    }
+
     // REST API routes (JWT-protected)
     let jwt = auth::JwtConfig::from_secret(config.jwt_secret.as_ref().unwrap().as_bytes());
     let api_router = rest::make_api_router(user_api.clone(), jwt.clone());
@@ -70,17 +79,17 @@ async fn main() -> anyhow::Result<()> {
 
     // PubSub Webhook Routes (no auth for localdev emulator, Pub/Sub OIDC for prod)
     let webhook_auth = {
-        match config.pubsub.emulator_url_base.as_deref() {
+        match config.pubsub.emulator_base_url.as_deref() {
             None => {
                 tracing::info!("WebhookAuth: Pub/Sub OIDC verification enabled");
                 webhook::WebhookAuth::PubSubOidc(
-                    webhook::gcloud::PubSubOidcVerifier::from_config(&config.pubsub)
+                    pubsub::gcloud::OidcVerifier::from_config(&config.pubsub)
                         .expect("Failed to create PubSubOidcVerifier"),
                 )
             }
             Some(_) => {
                 tracing::warn!(
-                    "WebhookAuth: PUBSUB_EMULATOR_URL_BASE is set, so webhook auth is DISABLED. Fine for local dev but NOT for prod."
+                    "WebhookAuth: PUBSUB_EMULATOR_BASE_URL is set, so webhook auth is DISABLED. Fine for local dev but NOT for prod."
                 );
                 webhook::WebhookAuth::None
             }

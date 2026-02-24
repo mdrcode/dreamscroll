@@ -26,7 +26,7 @@ services:
 
       # Pub/Sub emulator should be invoked manually external of Docker, via
       # `gcloud beta emulators pubsub start --host-port=localhost:8085`
-      PUBSUB_EMULATOR_URL_BASE: http://host.docker.internal:8085
+      PUBSUB_EMULATOR_BASE_URL: http://host.docker.internal:8085
       PUBSUB_PROJECT_ID: dreamscroll-local
 
       #PUBSUB_PUSH_OIDC_AUDIENCE: not used in localdev but required for Cloud Run

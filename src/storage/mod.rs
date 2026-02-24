@@ -15,7 +15,7 @@ pub use url_maker::*;
 
 use serde::Deserialize;
 
-#[derive(Deserialize, Debug)]
+#[derive(Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum StorageBackend {
     Local,
