@@ -24,6 +24,10 @@ impl GCloudStorageProvider {
             builder = builder
                 .with_endpoint(endpoint.clone())
                 .with_credentials(credentials::anonymous::Builder::default().build());
+        } else {
+            // TODO trying a regional endpoint for now, this should
+            // come from a config
+            builder = builder.with_endpoint("https://storage.us-central1.rep.googleapis.com");
         }
 
         let gcloud_client = builder
@@ -72,7 +76,8 @@ impl provider::StorageProvider for GCloudStorageProvider {
         // endpoint, it will hang indefinitely rather than timeout :-/
         self.gcloud_client
             .write_object(&self.bucket_path, &object_key, bytes_data)
-            .send_buffered()
+            .with_resumable_upload_threshold(5 * 1024 * 1024_usize)
+            .send_unbuffered()
             .await
             .map_err(|e| {
                 tracing::error!("Failed to store object in GCS: {:?}", e);
