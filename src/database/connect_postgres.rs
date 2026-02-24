@@ -2,10 +2,12 @@ use anyhow;
 use sea_orm::{self, DbErr};
 use sqlx;
 
-use crate::{auth, facility};
+use crate::auth;
+
+use super::*;
 
 pub async fn create_postgres_pool(
-    config: &facility::PostgresConfig,
+    config: &PostgresConfig,
 ) -> anyhow::Result<sqlx::postgres::PgPool> {
     let url = make_url(config, false);
     let url_redacted = make_url(config, true);
@@ -45,7 +47,7 @@ pub async fn connect_postgres_session_store(
     Ok(auth::SessionStoreWrapper::Postgres(store))
 }
 
-fn make_url(config: &facility::PostgresConfig, redacted: bool) -> String {
+fn make_url(config: &PostgresConfig, redacted: bool) -> String {
     // e.g. "sslmode=require"
     let params = config
         .connection_params
@@ -68,11 +70,10 @@ fn make_url(config: &facility::PostgresConfig, redacted: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::make_url;
-    use crate::facility;
+    use super::*;
 
-    fn test_config(connection_params: Option<&str>) -> facility::PostgresConfig {
-        facility::PostgresConfig {
+    fn test_config(connection_params: Option<&str>) -> PostgresConfig {
+        PostgresConfig {
             user: "alice".to_string(),
             password: "secret".to_string(),
             host_port: "db.internal:5432".to_string(),

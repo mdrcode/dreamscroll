@@ -5,6 +5,8 @@ use crate::{database, storage, webhook};
 
 #[derive(Deserialize)]
 pub struct Config {
+    pub project_id: String, // for Gcloud services (logs, pubsub, storage)
+
     pub port: u16,
 
     pub jwt_secret: Option<String>,
@@ -12,9 +14,11 @@ pub struct Config {
     pub illuminator_gemini_key: Option<String>,
 
     pub db_backend: database::DbBackend,
+
     pub db_url_sqlite: Option<String>,
+
     #[serde(skip)]
-    pub db_postgres: Option<PostgresConfig>,
+    pub db_postgres: Option<database::PostgresConfig>,
 
     pub storage_backend: storage::StorageBackend,
 
@@ -28,16 +32,6 @@ pub struct Config {
     pub pubsub: webhook::gcloud::PubSubConfig,
 }
 
-#[derive(Default, Deserialize)]
-pub struct PostgresConfig {
-    pub user: String,
-    pub password: String,
-    pub host_port: String, // e.g. "localhost:5432" or "db:5432"
-    pub db: String,
-
-    pub connection_params: Option<String>, // e.g. "sslmode=require"
-}
-
 pub fn make_config() -> anyhow::Result<Config> {
     let mut config = envy::from_env::<Config>()
         .context("Failed to load config (missing required vars or invalid values)")?;
@@ -48,7 +42,7 @@ pub fn make_config() -> anyhow::Result<Config> {
 
     if config.db_backend == database::DbBackend::Postgres {
         let postgres_config = envy::prefixed("POSTGRES_")
-            .from_env::<PostgresConfig>()
+            .from_env::<database::PostgresConfig>()
             .context("DB_BACKEND is postgres but missing full POSTGRES_ config (need POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST, POSTGRES_DATABASE_NAME)")?;
         config.db_postgres = Some(postgres_config);
     }

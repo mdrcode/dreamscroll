@@ -38,7 +38,7 @@ async fn main() -> anyhow::Result<()> {
     // should be enqueued in response to logical events
     let beacon = {
         let pubsub_url_base = task::PubSubBaseUrl::new(
-            config.pubsub.project_id.as_str(),
+            config.project_id.as_str(),
             config.pubsub.emulator_url_base.as_deref(),
         );
         let new_capture_topic = task::PubSubTopicQueue::new(

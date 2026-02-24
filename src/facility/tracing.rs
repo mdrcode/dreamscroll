@@ -1,5 +1,5 @@
+use anyhow::Context;
 use opentelemetry_gcloud_trace::GcpCloudTraceExporterBuilder;
-use opentelemetry_sdk::trace::Tracer;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_stackdriver::{CloudTraceConfiguration, layer};
 use tracing_subscriber::{
@@ -9,10 +9,15 @@ use tracing_subscriber::{
 };
 
 pub async fn init_tracing() -> anyhow::Result<()> {
+    // Extract project_id manually because config is not available yet
+    let project_id =
+        std::env::var("PROJECT_ID").context("PROJECT_ID env var required but not set")?;
+
     let env_filter = EnvFilter::from_default_env();
 
     if std::env::var("K_SERVICE").is_ok() {
-        let project_id = "mdrcode".to_string(); // TODO env var
+        // Running within Cloud Run, so enable Cloud Trace and Stackdriver
+        // for integrated tracing + logging with trace/span IDs. Theoretically.
 
         // 1. Cloud Trace exporter
         let exporter = GcpCloudTraceExporterBuilder::new(project_id.clone());
@@ -21,7 +26,7 @@ pub async fn init_tracing() -> anyhow::Result<()> {
         opentelemetry::global::set_tracer_provider(provider.clone());
 
         // 2. Layers
-        let telemetry_layer = OpenTelemetryLayer::new(tracer); // sends spans to Cloud Trace
+        let telemetry_layer = OpenTelemetryLayer::new(tracer); // spans to Cloud Trace
 
         let stackdriver_layer = layer().with_cloud_trace(CloudTraceConfiguration {
             project_id: project_id.clone(),
