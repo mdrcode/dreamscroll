@@ -26,6 +26,9 @@ google-cloud-auth = { version = "1.5.0", features = ["idtoken"] }
 google-cloud-storage = "1.7.0"
 infer = "0.19.0"
 jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
+opentelemetry = { version = "0.31.0", features = ["trace"] }
+opentelemetry-gcloud-trace = "0.22.0"
+opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "trace"] }
 reqwest = { version = "0.13.1", features = ["json"] }
 rpassword = "7.4.0"
 rustls = { version = "0.23"}
@@ -42,6 +45,8 @@ tower-http = { version = "0.6", features = ["fs", "trace"] }
 tower-sessions = "0.14.0"
 tower-sessions-sqlx-store = { version = "0.15.0", features = ["postgres", "sqlite"]}
 tracing = "0.1.44"
-tracing-subscriber = { version ="0.3.22", features = ["chrono", "env-filter", "registry"]}
+tracing-opentelemetry = "0.32.1"
+tracing-stackdriver = { version = "0.10.0", features = ["opentelemetry"] }
+tracing-subscriber = { version ="0.3.22", features = ["chrono", "env-filter", "json", "registry"]}
 uuid = { version = "1.0", features = ["v4"] }
 webbrowser = "1.0.6"

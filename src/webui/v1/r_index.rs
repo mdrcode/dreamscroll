@@ -17,9 +17,15 @@ pub async fn index(
     State(state): State<Arc<WebState>>,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
-    tracing::debug!("Rendering index for user ID {}", user.id());
+    let user_id = user.id();
 
     let capture_infos = state.user_api.get_timeline(&user.into()).await?;
+    tracing::info!(
+        "Got {} capture infos for user ID {}",
+        capture_infos.len(),
+        user_id
+    );
+
     let mut context = Context::new();
     context.insert("capture_infos", &capture_infos);
 

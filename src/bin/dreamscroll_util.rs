@@ -34,7 +34,7 @@ async fn main() -> anyhow::Result<()> {
 
     let args: Args = argh::from_env();
 
-    facility::init_tracing();
+    facility::init_tracing().await?;
     let config = facility::make_config()?;
 
     let (db_connection, _) = database::connect(&config).await?;

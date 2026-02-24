@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
         facility::load_local_config_files();
     }
 
-    facility::init_tracing();
+    facility::init_tracing().await?;
     tracing::info!("Starting dreamscroll_web...");
 
     let config = facility::make_config()?;
@@ -93,7 +93,7 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // HTTP tracing (method, status, latency, etc) for all routes
-    let router = add_trace_layer(router);
+    //let router = add_trace_layer(router);
 
     let host_port = format!("0.0.0.0:{}", config.port);
     let listener = TcpListener::bind(&host_port)
