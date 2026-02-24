@@ -9,15 +9,19 @@ use tracing_subscriber::{
 };
 
 pub async fn init_tracing() -> anyhow::Result<()> {
-    // Extract project_id manually because config is not available yet
-    let project_id =
-        std::env::var("PROJECT_ID").context("PROJECT_ID env var required but not set")?;
-
-    let env_filter = EnvFilter::from_default_env();
-
     if std::env::var("K_SERVICE").is_ok() {
         // Running within Cloud Run, so enable Cloud Trace and Stackdriver
-        // for integrated tracing + logging with trace/span IDs. Theoretically.
+        // for integrated tracing + logging with trace/span IDs.
+
+        // Extract project_id manually because config is not available yet
+        let project_id =
+            std::env::var("PROJECT_ID").context("PROJECT_ID env var required but not set")?;
+
+        // Register the W3C traceparent propagator so incoming Cloud Run request
+        // headers can be extracted and used as span parents.
+        opentelemetry::global::set_text_map_propagator(
+            opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+        );
 
         // 1. Cloud Trace exporter
         let exporter = GcpCloudTraceExporterBuilder::new(project_id.clone());
@@ -28,9 +32,9 @@ pub async fn init_tracing() -> anyhow::Result<()> {
         // 2. Layers
         let telemetry_layer = OpenTelemetryLayer::new(tracer); // spans to Cloud Trace
 
-        let stackdriver_layer = layer().with_cloud_trace(CloudTraceConfiguration {
-            project_id: project_id.clone(),
-        });
+        let stackdriver_layer = layer()
+            .with_writer(std::io::stderr)
+            .with_cloud_trace(CloudTraceConfiguration { project_id });
 
         let subscriber = Registry::default()
             .with(EnvFilter::from_default_env())
@@ -44,7 +48,7 @@ pub async fn init_tracing() -> anyhow::Result<()> {
 
         tracing_subscriber::fmt()
             .compact()
-            .with_env_filter(env_filter)
+            .with_env_filter(EnvFilter::from_default_env())
             .with_span_events(FmtSpan::CLOSE)
             .with_target(true)
             .with_timer(timer)

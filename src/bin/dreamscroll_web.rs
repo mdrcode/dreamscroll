@@ -1,12 +1,10 @@
-use std::time::Duration;
-
 use anyhow::Context;
 use axum::http;
 use rustls::crypto;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower_http::{services::ServeDir, trace::TraceLayer};
-use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use dreamscroll::{
     api, auth, database, facility, illumination, pubsub, rest, storage, webhook, webui,
@@ -101,8 +99,7 @@ async fn main() -> anyhow::Result<()> {
         webhook::make_router(webhook_auth, service_api.clone(), illuminator),
     );
 
-    // HTTP tracing (method, status, latency, etc) for all routes
-    //let router = add_trace_layer(router);
+    let router = add_trace_layer(router);
 
     let host_port = format!("0.0.0.0:{}", config.port);
     let listener = TcpListener::bind(&host_port)
@@ -130,32 +127,29 @@ async fn wait_for_shutdown(cancel: CancellationToken) {
     }
 }
 
+struct HeaderExtractor<'a>(&'a http::HeaderMap);
+
+impl opentelemetry::propagation::Extractor for HeaderExtractor<'_> {
+    fn get(&self, key: &str) -> Option<&str> {
+        self.0.get(key).and_then(|v| v.to_str().ok())
+    }
+    fn keys(&self) -> Vec<&str> {
+        self.0.keys().map(|k| k.as_str()).collect()
+    }
+}
+
 fn add_trace_layer(router: axum::Router) -> axum::Router {
     router.layer(
-        TraceLayer::new_for_http()
-            .make_span_with(|request: &http::Request<_>| {
-                tracing::info_span!(
-                    "http_request",
-                    method = %request.method(),
-                    uri = %request.uri(),
-                    http_status = tracing::field::Empty,
-                    latency = tracing::field::Empty,
-                    error = tracing::field::Empty,
-                )
-            })
-            .on_response(
-                |response: &http::Response<_>, latency: Duration, span: &Span| {
-                    span.record("http_status", response.status().as_u16());
-                    span.record("latency", latency.as_millis() as u64);
-                },
-            )
-            .on_failure(
-                |error: tower_http::classify::ServerErrorsFailureClass,
-                 latency: Duration,
-                 span: &Span| {
-                    span.record("latency", latency.as_millis() as u64);
-                    span.record("error", format!("{:?}", error));
-                },
-            ),
+        TraceLayer::new_for_http().make_span_with(|request: &http::Request<_>| {
+            // Extract the W3C traceparent header injected by Cloud Run so that
+            // our spans are children of the infrastructure-level request trace.
+            let parent_cx = opentelemetry::global::get_text_map_propagator(|prop| {
+                prop.extract(&HeaderExtractor(request.headers()))
+            });
+            let span = tracing::info_span!("http_request");
+
+            let _ = span.set_parent(parent_cx);
+            span
+        }),
     )
 }
