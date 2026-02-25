@@ -8,6 +8,7 @@ use axum::{
 use axum_login::AuthSession;
 use serde::Deserialize;
 use tera::Context;
+use tower_sessions::Session;
 
 use crate::{api, auth};
 
@@ -20,10 +21,19 @@ pub struct LoginParams {
 
 pub async fn login_page(
     auth: AuthSession<auth::WebAuthBackend>,
+    session: Session,
     Query(params): Query<LoginParams>,
     State(state): State<Arc<WebState>>,
 ) -> Result<Response, api::ApiError> {
     let mut context = Context::new();
+
+    // CSRF token: generate a fresh one on every GET and store it in the session.
+    let csrf_token = uuid::Uuid::new_v4().to_string();
+    session
+        .insert("login_csrf_token", &csrf_token)
+        .await
+        .map_err(|e| anyhow!("Session error storing CSRF token: {}", e))?;
+    context.insert("csrf_token", &csrf_token);
 
     // Check if user is already logged in
     if let Some(user) = auth.user {

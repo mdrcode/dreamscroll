@@ -43,7 +43,8 @@ pub fn make_ui_router(
 
     let mut router = Router::new()
         .route("/login", get(login_page).post(login_handler))
-        .route("/logout", get(logout_handler))
+        // POST-only: prevents forced-logout via navigation/redirect CSRF.
+        .route("/logout", post(logout_handler))
         .route(
             "/",
             get(index).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
