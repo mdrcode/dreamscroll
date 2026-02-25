@@ -24,8 +24,6 @@
 //!   display_name, handle, and platform
 //!
 
-use std::env;
-
 use base64::Engine;
 use reqwest::Client;
 use serde::Deserialize;
@@ -109,12 +107,9 @@ pub struct GeminiStructuredIlluminator {
 }
 
 impl GeminiStructuredIlluminator {
-    pub fn new(storage: Box<dyn storage::StorageProvider>) -> Self {
-        // TODO this should come from config
-        let api_key = env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY not found in env.");
-
+    pub fn new(gemini_api_key: String, storage: Box<dyn storage::StorageProvider>) -> Self {
         GeminiStructuredIlluminator {
-            gemini_api_key: api_key,
+            gemini_api_key,
             storage,
         }
     }

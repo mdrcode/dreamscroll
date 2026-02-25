@@ -57,14 +57,19 @@ async fn main() -> anyhow::Result<()> {
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving
     let auth_backend = auth::WebAuthBackend::new(db.clone());
-    let mut router = webui::v1::make_ui_router(user_api.clone(), session_store, auth_backend);
+    let mut router = webui::v1::make_ui_router(
+        user_api.clone(),
+        session_store,
+        auth_backend,
+        config.cookie_secure,
+    );
     tracing::info!("Initialized web UI routes");
 
     // If using the local Storage provider, we must serve media files manually
     if config.storage_backend == storage::StorageBackend::Local {
         router = router.nest_service(
-            &config.storage_local_url_prefix.unwrap(),
-            ServeDir::new(&config.storage_local_file_path.unwrap()),
+            &config.storage_local_url_prefix.clone().unwrap(),
+            ServeDir::new(&config.storage_local_file_path.clone().unwrap()),
         );
         tracing::info!("Mounted media file serving routes for local storage");
     }
@@ -93,7 +98,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     };
-    let illuminator = illumination::make_illuminator("geministructured", stg.clone());
+    let illuminator = illumination::make_illuminator(&config, "geministructured", stg.clone());
     router = router.nest(
         "/webhook",
         webhook::make_router(webhook_auth, service_api.clone(), illuminator),

@@ -19,8 +19,19 @@ pub fn make_ui_router(
     user_api: api::UserApiClient,
     session_store: auth::SessionStoreWrapper,
     auth_backend: auth::WebAuthBackend,
+    cookie_secure: bool,
 ) -> Router {
-    let session_layer = SessionManagerLayer::new(session_store).with_secure(false);
+    let session_layer = SessionManagerLayer::new(session_store)
+        // true == only send cookies over HTTPS (production)
+        // false == allow cookies over HTTP (local dev)
+        .with_secure(cookie_secure)
+        // true == JS cannot access cookies
+        .with_http_only(true)
+        // SameSite::Lax: cookie is sent on top-level GET navigations (links)
+        // but NOT on cross-site form POSTs or subresource requests, providing
+        // CSRF mitigation without breaking normal browser navigation.
+        .with_same_site(tower_sessions::cookie::SameSite::Lax)
+        .with_name("dreamscroll_session");
 
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 

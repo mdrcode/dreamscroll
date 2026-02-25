@@ -3,15 +3,22 @@ use serde::Deserialize;
 
 use crate::{database, pubsub, storage};
 
+fn default_cookie_secure() -> bool {
+    true
+}
+
 #[derive(Deserialize)]
 pub struct Config {
     pub project_id: String, // for Gcloud services (logs, pubsub, storage)
 
     pub port: u16,
 
-    pub jwt_secret: Option<String>,
+    #[serde(default = "default_cookie_secure")]
+    pub cookie_secure: bool, // true == only send cookies over HTTPS (production)
 
-    pub illuminator_gemini_key: Option<String>,
+    pub jwt_secret: Option<String>, // must be 32+ bytes for HS256 signing
+
+    pub gemini_api_key: Option<String>,
 
     pub db_backend: database::DbBackend,
 

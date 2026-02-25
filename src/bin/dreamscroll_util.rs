@@ -51,7 +51,8 @@ async fn main() -> anyhow::Result<()> {
     let import_api = api::ImportApiClient::new(db.clone(), stg.clone(), url_maker.clone());
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
 
-    let cmd_state = CmdState {
+    let state = CmdState {
+        config,
         user_api,
         import_api,
         service_api,
@@ -60,15 +61,15 @@ async fn main() -> anyhow::Result<()> {
     };
 
     match args.command {
-        Command::BackfillSearch(args) => backfill_search::run(cmd_state, args).await,
-        Command::CheckFirstUser(args) => check_first_user::run(cmd_state, args).await,
-        Command::CreateUser(args) => create_user::run(cmd_state, args).await,
-        Command::Enums(args) => enums::run(cmd_state, args).await,
-        Command::Eval(args) => eval::run(cmd_state, args).await,
-        Command::ExportDigest(args) => export_digest::run(cmd_state, args).await,
-        Command::FirstUser(args) => first_user::run(cmd_state, args).await,
-        Command::IlluminateAll(args) => illuminate_all::run(cmd_state, args).await,
-        Command::IlluminateId(args) => illuminate_id::run(cmd_state, args).await,
-        Command::ImportDigest(args) => import_digest::run(cmd_state, args).await,
+        Command::BackfillSearch(args) => backfill_search::run(state, args).await,
+        Command::CheckFirstUser(args) => check_first_user::run(state, args).await,
+        Command::CreateUser(args) => create_user::run(state, args).await,
+        Command::Enums(args) => enums::run(state, args).await,
+        Command::Eval(args) => eval::run(state, args).await,
+        Command::ExportDigest(args) => export_digest::run(state, args).await,
+        Command::FirstUser(args) => first_user::run(state, args).await,
+        Command::IlluminateAll(args) => illuminate_all::run(state, args).await,
+        Command::IlluminateId(args) => illuminate_id::run(state, args).await,
+        Command::ImportDigest(args) => import_digest::run(state, args).await,
     }
 }

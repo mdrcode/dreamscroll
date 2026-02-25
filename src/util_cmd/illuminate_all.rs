@@ -17,7 +17,8 @@ pub struct IlluminateAllArgs {}
 pub async fn run(state: CmdState, _args: IlluminateAllArgs) -> anyhow::Result<()> {
     const MAX_CONCURRENT: usize = 2;
 
-    let illuminator = illumination::make_illuminator("geministructured", state.stg.clone());
+    let illuminator =
+        illumination::make_illuminator(&state.config, "geministructured", state.stg.clone());
 
     let capture_ids = state.service_api.get_captures_need_illum().await?;
 
