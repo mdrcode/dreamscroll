@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn test_user_context_from_jwt_auth() {
         let claims = JwtUserClaims {
-            sub: 123,
+            sub: "123".to_string(),
             exp: 9999999999,
             iat: 1000000000,
             storage_shard: "testshard".to_string(),

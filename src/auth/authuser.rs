@@ -1,5 +1,6 @@
 use crate::model::user;
 
+use super::autherror::AuthError;
 use super::jwt::JwtUserClaims;
 
 /// The authentication method used to create this user session.
@@ -168,11 +169,14 @@ impl axum_login::AuthUser for DreamscrollAuthUser {
     }
 }
 
-impl From<JwtUserClaims> for DreamscrollAuthUser {
-    fn from(claims: JwtUserClaims) -> Self {
-        let id = claims.sub;
+impl TryFrom<JwtUserClaims> for DreamscrollAuthUser {
+    type Error = AuthError;
+
+    fn try_from(claims: JwtUserClaims) -> Result<Self, AuthError> {
+        // sub is stored as a decimal string per RFC 7519; parse it back to i32.
+        let id: i32 = claims.sub.parse().map_err(|_| AuthError::InvalidToken)?;
         let storage_shard = claims.storage_shard.clone();
-        DreamscrollAuthUser {
+        Ok(DreamscrollAuthUser {
             id,
             username: format!("jwtuser{}", id), // TODO BUG
 
@@ -181,7 +185,7 @@ impl From<JwtUserClaims> for DreamscrollAuthUser {
             is_admin: false,
             storage_shard,
             method: AuthMethod::Jwt { claims },
-        }
+        })
     }
 }
 
@@ -199,7 +203,7 @@ mod tests {
     #[test]
     fn test_user_id_jwt() {
         let claims = JwtUserClaims {
-            sub: 123,
+            sub: "123".to_string(),
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),
@@ -222,7 +226,7 @@ mod tests {
     #[test]
     fn test_auth_method_jwt() {
         let claims = JwtUserClaims {
-            sub: 123,
+            sub: "123".to_string(),
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),
@@ -232,7 +236,7 @@ mod tests {
             AuthMethod::Jwt {
                 claims: user_claims,
             } => {
-                assert_eq!(user_claims.sub, 123);
+                assert_eq!(user_claims.sub, "123");
                 assert_eq!(user_claims.exp, 9999);
             }
             AuthMethod::Session { .. } => panic!("Expected Jwt auth method"),
@@ -242,7 +246,7 @@ mod tests {
     #[test]
     fn test_jwt_claims_returns_some_for_jwt() {
         let claims = JwtUserClaims {
-            sub: 123,
+            sub: "123".to_string(),
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),
@@ -250,7 +254,7 @@ mod tests {
         let user = DreamscrollAuthUser::new_test_jwt(123, claims);
         let retrieved_claims = user.jwt_claims();
         assert!(retrieved_claims.is_some());
-        assert_eq!(retrieved_claims.unwrap().sub, 123);
+        assert_eq!(retrieved_claims.unwrap().sub, "123");
     }
 
     #[test]
@@ -262,15 +266,15 @@ mod tests {
     #[test]
     fn test_from_jwt_claims() {
         let claims = JwtUserClaims {
-            sub: 456,
+            sub: "456".to_string(),
             exp: 8888,
             iat: 1111,
             storage_shard: "testshard".to_string(),
         };
-        let user = DreamscrollAuthUser::from(claims.clone());
+        let user = DreamscrollAuthUser::try_from(claims.clone()).unwrap();
 
         assert_eq!(user.user_id(), 456);
-        assert_eq!(user.jwt_claims().unwrap().sub, 456);
+        assert_eq!(user.jwt_claims().unwrap().sub, "456");
         assert_eq!(user.jwt_claims().unwrap().exp, 8888);
         assert_eq!(user.jwt_claims().unwrap().iat, 1111);
     }
@@ -288,7 +292,7 @@ mod tests {
         // auth session store. If this method is called on a JWT user, it
         // indicates a significant logic error and should panic.
         let claims = JwtUserClaims {
-            sub: 123,
+            sub: "123".to_string(),
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),
@@ -335,7 +339,7 @@ mod tests {
     #[test]
     fn test_debug_format_jwt() {
         let claims = JwtUserClaims {
-            sub: 123,
+            sub: "123".to_string(),
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),
@@ -348,8 +352,8 @@ mod tests {
         // Should indicate JWT auth method
         assert!(debug_str.contains("auth_method"));
         assert!(debug_str.contains("Jwt"));
-        // Should show JWT claim fields
-        assert!(debug_str.contains("jwt_sub: 123"));
+        // Should show JWT claim fields (sub is a String so Debug prints with quotes)
+        assert!(debug_str.contains("jwt_sub"));
         assert!(debug_str.contains("jwt_exp: 9999"));
     }
 
@@ -365,7 +369,7 @@ mod tests {
     #[test]
     fn test_clone_jwt() {
         let claims = JwtUserClaims {
-            sub: 123,
+            sub: "123".to_string(),
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),

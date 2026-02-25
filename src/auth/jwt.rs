@@ -121,7 +121,7 @@ impl JwtConfig {
     pub fn create_user_token(&self, user: DreamscrollAuthUser) -> Result<String, AuthError> {
         let now = jsonwebtoken::get_current_timestamp();
         let claims = JwtUserClaims {
-            sub: user.user_id(),
+            sub: user.user_id().to_string(),
             exp: now + self.user_expiration_secs,
             iat: now,
             storage_shard: user.storage_shard().to_owned(),
@@ -137,9 +137,7 @@ impl JwtConfig {
     /// The decoded claims, or an error if validation fails.
     pub fn decode_user_token(&self, token: &str) -> Result<JwtUserClaims, AuthError> {
         let mut validation = Validation::new(Algorithm::HS256);
-
-        validation.required_spec_claims.clear();
-        validation.required_spec_claims.insert("exp".to_string());
+        validation.set_required_spec_claims(&["exp", "sub"]);
         validation.leeway = self.leeway;
 
         let token_data = decode::<JwtUserClaims>(token, &self.decoding_key, &validation)?;
@@ -166,8 +164,11 @@ impl std::fmt::Debug for JwtConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct JwtUserClaims {
-    /// Subject: the user ID this token represents
-    pub sub: i32,
+    /// Subject: the user ID this token represents.
+    /// Stored as a String per RFC 7519 §4.1.2, which defines `sub` as StringOrURI.
+    /// The user ID is serialized as a decimal string (e.g. "42") and
+    /// deserialized back to i32 by `DreamscrollAuthUser::try_from`.
+    pub sub: String,
     /// Expiration time as UTC timestamp (seconds since epoch)
     pub exp: u64,
     /// Issued-at time as UTC timestamp
@@ -224,7 +225,7 @@ where
         // Decode and validate the token
         let claims = jwt_config.decode_user_token(bearer.token())?;
 
-        Ok(DreamscrollAuthUser::from(claims))
+        Ok(DreamscrollAuthUser::try_from(claims)?)
     }
 }
 
@@ -312,7 +313,7 @@ mod tests {
         let claims = config
             .decode_user_token(&token)
             .expect("should decode user token");
-        assert_eq!(claims.sub, user.user_id());
+        assert_eq!(claims.sub, user.user_id().to_string());
     }
 
     #[test]
@@ -349,7 +350,7 @@ mod tests {
             .decode_user_token(&token)
             .expect("should decode user token");
 
-        assert_eq!(claims.sub, 99);
+        assert_eq!(claims.sub, "99");
         assert!(claims.exp > claims.iat);
     }
 }
