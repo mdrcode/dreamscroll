@@ -1,4 +1,3 @@
-
 use axum_login::UserId;
 use sea_orm::EntityTrait;
 use serde::Deserialize;
@@ -33,9 +32,15 @@ impl axum_login::AuthnBackend for WebAuthBackend {
         &self,
         creds: Self::Credentials,
     ) -> Result<Option<Self::User>, Self::Error> {
-        let auth_user = auth::password::verify(&self.db, &creds.username, &creds.password).await?;
-
-        Ok(Some(auth_user))
+        // axum-login convention:
+        //   Ok(Some(user)) — authenticated successfully
+        //   Ok(None)       — credentials rejected (wrong password / unknown user)
+        //   Err(e)         — system failure (DB error, hash error, etc.)
+        match auth::password::verify(&self.db, &creds.username, &creds.password).await {
+            Ok(user) => Ok(Some(user)),
+            Err(AuthError::InvalidCredentials) => Ok(None),
+            Err(e) => Err(e),
+        }
     }
 
     async fn get_user(&self, user_id: &UserId<Self>) -> Result<Option<Self::User>, Self::Error> {
