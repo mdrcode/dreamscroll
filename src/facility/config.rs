@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use serde::Deserialize;
 
-use crate::{database, pubsub, storage};
+use crate::{database, storage};
 
 fn default_cookie_secure() -> bool {
     true
@@ -14,7 +14,7 @@ pub struct Config {
     pub port: u16,
 
     #[serde(default = "default_cookie_secure")]
-    pub cookie_secure: bool, // true == only send cookies over HTTPS (production)
+    pub cookie_secure: bool, // true == only send cookies over HTTPS
 
     pub jwt_secret: Option<String>, // must be 32+ bytes for HS256 signing
 
@@ -33,19 +33,16 @@ pub struct Config {
     pub storage_local_url_prefix: Option<String>,
 
     pub storage_gcloud_emulator_endpoint: Option<String>,
+    pub storage_gcloud_prod_endpoint: Option<String>,
     pub storage_gcloud_bucket_name: Option<String>,
 
-    #[serde(skip)]
-    pub pubsub: pubsub::gcloud::PubSubConfig,
+    pub pubsub_emulator_base_url: Option<String>, // e.g. "http://localhost:8085"
+    pub pubsub_topic_id_new_capture: String,
 }
 
 pub fn make_config() -> anyhow::Result<Config> {
     let mut config = envy::from_env::<Config>()
-        .context("Failed to load config (missing required vars or invalid values)")?;
-
-    config.pubsub = envy::prefixed("PUBSUB_")
-        .from_env::<pubsub::gcloud::PubSubConfig>()
-        .context("Failed to load PUBSUB_ env config (need PUBSUB_API_BASE_URL, PUBSUB_PROJECT_ID, PUBSUB_ILLUMINATION_TOPIC_ID)")?;
+        .context("Failed to load config (missing required env vars or invalid values)")?;
 
     if config.db_backend == database::DbBackend::Postgres {
         let postgres_config = envy::prefixed("POSTGRES_")

@@ -2,8 +2,6 @@ use std::sync::Arc;
 
 use google_cloud_auth::credentials::idtoken::verifier;
 
-use super::*;
-
 #[derive(Clone)]
 pub struct OidcVerifier {
     verifier: Arc<verifier::Verifier>,
@@ -37,16 +35,16 @@ impl OidcVerifier {
         }
     }
 
-    pub fn from_config(config: &PubSubConfig) -> Result<Self, ()> {
-        Ok(Self::new(
-            config
-                .push_oidc_audience
-                .clone()
-                .expect("PUBSUB_PUSH_OIDC_AUDIENCE must be set for prod"),
-            config.push_oidc_service_account_email.clone(),
-            config.push_oidc_jwks_url.clone(),
-        ))
-    }
+    // pub fn from_config(config: &PubSubConfig) -> Result<Self, ()> {
+    //     Ok(Self::new(
+    //         config
+    //             .push_oidc_audience
+    //             .clone()
+    //             .expect("PUBSUB_PUSH_OIDC_AUDIENCE must be set for prod"),
+    //         config.push_oidc_service_account_email.clone(),
+    //         config.push_oidc_jwks_url.clone(),
+    //     ))
+    // }
 
     pub async fn verify_bearer_token(&self, bearer_token: &str) -> anyhow::Result<()> {
         self.verifier.verify(bearer_token).await?;

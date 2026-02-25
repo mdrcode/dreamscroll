@@ -40,7 +40,6 @@ sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs",
 strum = {version = "0.27.2", features = ["derive"]}
 tera = "1.19"
 tokio = { version = "1", features = ["full"] }
-tokio-util = "0.7.17"
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 tower-sessions = "0.14.0"

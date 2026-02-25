@@ -30,10 +30,5 @@ pub async fn connect(
         }
     };
 
-    tracing::info!(
-        "Successfully connected to database backend: {:?}",
-        config.db_backend
-    );
-
     Ok(db_tuple)
 }

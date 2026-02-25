@@ -22,6 +22,11 @@ pub fn make_router(
         illuminator,
     });
 
+    tracing::warn!(
+        "Initializing webhook routes with NO AUTH requirement. \
+        Prod auth should be enforced by Google Cloud IAM and/or API Gateway."
+    );
+
     Router::new()
         .route("/illumination/push", post(r_wh_illuminate::post))
         .with_state(state)

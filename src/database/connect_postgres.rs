@@ -14,7 +14,7 @@ pub async fn create_postgres_pool(
 
     tracing::info!(
         url_redacted = %url_redacted,
-        "Attempting to establish Postgres connection pool"
+        "Connecting to Postgres connection pool..."
     );
 
     let pool = sqlx::postgres::PgPoolOptions::new()

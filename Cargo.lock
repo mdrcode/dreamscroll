@@ -937,7 +937,6 @@ dependencies = [
  "strum",
  "tera",
  "tokio",
- "tokio-util",
  "tower",
  "tower-http",
  "tower-sessions",

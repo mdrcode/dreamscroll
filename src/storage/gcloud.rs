@@ -16,18 +16,25 @@ pub struct GCloudStorageProvider {
 }
 
 impl GCloudStorageProvider {
-    pub async fn new(emulator_endpoint: Option<String>, bucket_name: String) -> Self {
+    pub async fn new(
+        emulator_endpoint: Option<String>,
+        prod_endpoint: Option<String>,
+        bucket_name: String,
+    ) -> Self {
         let mut builder = Storage::builder();
 
-        // Infer that we are using the emulator if .emulator_endpoint is set
+        // Infer that we are using the emulator if emulator_endpoint is set.
+        // This takes precedence over prod_endpoint if both are set.
         if let Some(endpoint) = emulator_endpoint {
             builder = builder
                 .with_endpoint(endpoint.clone())
                 .with_credentials(credentials::anonymous::Builder::default().build());
+            tracing::info!("GCloudStorageProvider using emulator at: {}", endpoint);
+        } else if let Some(endpoint) = prod_endpoint {
+            builder = builder.with_endpoint(endpoint.clone());
+            tracing::info!("GCloudStorageProvider using production at: {}", endpoint);
         } else {
-            // TODO trying a regional endpoint for now, this should
-            // come from a config
-            builder = builder.with_endpoint("https://storage.us-central1.rep.googleapis.com");
+            tracing::info!("GCloudStorageProvider using production with default endpoint");
         }
 
         let gcloud_client = builder
@@ -75,7 +82,7 @@ impl provider::StorageProvider for GCloudStorageProvider {
         // endpoint, it will hang indefinitely rather than timeout :-/
         self.gcloud_client
             .write_object(&self.bucket_path, &object_key, bytes)
-            .with_resumable_upload_threshold(5 * 1024 * 1024_usize) // TODO this having any effect?
+            //.with_resumable_upload_threshold(5 * 1024 * 1024_usize) // TODO investigate this?
             .send_unbuffered()
             .await
             .map_err(|e| {
@@ -117,7 +124,7 @@ impl provider::StorageProvider for GCloudStorageProvider {
             .await
             .map_err(|e| {
                 tracing::error!("Failed to store object from path in GCS: {:?}", e);
-                anyhow::anyhow!("GCS write error: {}", e)
+                anyhow::anyhow!("Failed to store object from path in GCS: {}", e)
             })?;
 
         tracing::debug!(

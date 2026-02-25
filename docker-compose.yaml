@@ -10,8 +10,8 @@ services:
     environment:
       PROJECT_ID: dreamscroll_local
       RUST_LOG: info,axum_login=warn,tower_sessions=warn
-      
-      NO_LOCAL_CONFIG_FILES: 1 # any value interpreted as affirmative
+
+      NO_LOCAL_CONFIG_FILES: 1 # any value works
 
       PORT: 8080
       COOKIE_SECURE: false
@@ -26,13 +26,12 @@ services:
 
       STORAGE_BACKEND: gcloud
       STORAGE_GCLOUD_EMULATOR_ENDPOINT: http://fake-gcs:4443
+      STORAGE_GCLOUD_PROD_ENDPOINT: 
       STORAGE_GCLOUD_BUCKET_NAME: "dreamscroll-dev-media1"
 
       # Pub/Sub emulator should be invoked manually external of Docker, via
       # `gcloud beta emulators pubsub start --host-port=localhost:8085`
       PUBSUB_EMULATOR_BASE_URL: http://host.docker.internal:8085
-      #PUBSUB_PUSH_OIDC_AUDIENCE: not used in localdev but required for Cloud Run
-
       PUBSUB_TOPIC_ID_NEW_CAPTURE: dreamscroll-new_capture
 
     volumes:
