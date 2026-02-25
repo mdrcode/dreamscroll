@@ -9,10 +9,11 @@ services:
       - .env # .gitignored for secrets like JWT_SECRET_KEY
     environment:
       PROJECT_ID: dreamscroll_local
-      PORT: 8080
       RUST_LOG: info,axum_login=warn,tower_sessions=warn
+      
+      NO_LOCAL_CONFIG_FILES: 1 # any value interpreted as affirmative
 
-      NO_LOCAL_CONFIG_FILES: 1
+      PORT: 8080
       COOKIE_SECURE: false
 
       DB_BACKEND: postgres
