@@ -16,8 +16,8 @@ pub async fn init_tracing() -> anyhow::Result<()> {
         // for integrated tracing + logging with trace/span IDs.
 
         // Extract project_id manually because config is not available yet
-        let project_id =
-            std::env::var("PROJECT_ID").context("PROJECT_ID env var required but not set")?;
+        let project_id = std::env::var("GCLOUD_PROJECT_ID")
+            .context("GCLOUD_PROJECT_ID env var required but not set")?;
 
         // Register the W3C traceparent propagator so incoming Cloud Run request
         // headers can be extracted and used as span parents.
