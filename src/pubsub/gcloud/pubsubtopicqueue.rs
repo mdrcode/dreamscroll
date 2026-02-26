@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Serialize;
 
-use crate::pubsub;
+use crate::{facility, pubsub};
 
 #[derive(Clone)]
 pub struct PubSubBaseUrl {
@@ -40,6 +40,14 @@ impl PubSubTopicQueue {
             client: reqwest::Client::new(),
             publish_url,
         }
+    }
+
+    pub fn from_config(config: &facility::Config) -> Self {
+        let base = PubSubBaseUrl::new(
+            config.gcloud_project_id.as_str(),
+            config.pubsub_emulator_base_url.as_deref(),
+        );
+        Self::new(&base, config.pubsub_topic_id_new_capture.as_str())
     }
 }
 

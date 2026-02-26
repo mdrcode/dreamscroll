@@ -6,18 +6,15 @@ use crate::{api, illumination};
 use super::*;
 
 pub struct WebhookState {
-    pub auth: WebhookAuth,
     pub service_api: api::ServiceApiClient,
     pub illuminator: Box<dyn illumination::Illuminator>,
 }
 
 pub fn make_router(
-    auth: WebhookAuth,
     service_api: api::ServiceApiClient,
     illuminator: Box<dyn illumination::Illuminator>,
 ) -> Router {
     let state = Arc::new(WebhookState {
-        auth,
         service_api,
         illuminator,
     });

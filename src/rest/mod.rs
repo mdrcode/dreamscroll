@@ -24,7 +24,7 @@ pub struct RestState {
 /// `Authorization: Bearer <token>` header.
 ///
 /// The `/token` endpoint is public and used to obtain JWT tokens.
-pub fn make_api_router(user_api: api::UserApiClient, jwt_config: auth::JwtConfig) -> Router {
+pub fn make_router(user_api: api::UserApiClient, jwt_config: auth::JwtConfig) -> Router {
     let state = Arc::new(RestState {
         user_api,
         jwt_config: jwt_config.clone(),

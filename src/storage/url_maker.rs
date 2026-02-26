@@ -5,13 +5,13 @@ use crate::facility;
 #[derive(Clone)]
 pub struct UrlMaker {
     // "/media" if full URL is something like http://localhost:8000/media/foo.jpg
-    pub local_url_prefix: Option<String>,
+    local_url_prefix: Option<String>,
     // e.g. "http://localhost:4443 if running fake-gcs via Docker
-    pub gcloud_emulator_endpoint: Option<String>,
+    gcloud_emulator_endpoint: Option<String>,
 }
 
 impl UrlMaker {
-    pub fn new(config: &facility::Config) -> Self {
+    pub fn from_config(config: &facility::Config) -> Self {
         Self {
             local_url_prefix: config.storage_local_url_prefix.clone(),
             gcloud_emulator_endpoint: config.storage_gcloud_emulator_endpoint.clone(),

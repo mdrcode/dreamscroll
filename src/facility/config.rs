@@ -1,7 +1,18 @@
+use std::str::FromStr;
+
 use anyhow::{Context, bail};
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
+use strum::{Display, EnumString};
 
 use crate::{database, storage};
+
+#[derive(Debug, Display, EnumString, PartialEq)]
+#[strum(serialize_all = "lowercase")]
+pub enum Service {
+    WebUI,
+    API,
+    Webhook,
+}
 
 fn default_cookie_secure() -> bool {
     true
@@ -9,7 +20,10 @@ fn default_cookie_secure() -> bool {
 
 #[derive(Deserialize)]
 pub struct Config {
-    pub project_id: String, // for Gcloud services (logs, pubsub, storage)
+    #[serde(deserialize_with = "deserialize_comma_list")]
+    pub services: Vec<Service>,
+
+    pub gcloud_project_id: String, // for Gcloud services (logs, pubsub, storage)
 
     pub port: u16,
 
@@ -85,4 +99,16 @@ fn require_some<T>(value: &Option<T>, message: &str) -> anyhow::Result<()> {
         bail!("{}", message);
     }
     Ok(())
+}
+
+fn deserialize_comma_list<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: FromStr,
+    <T as FromStr>::Err: std::fmt::Display,
+{
+    String::deserialize(deserializer)?
+        .split(',')
+        .map(|item| item.trim().parse::<T>().map_err(serde::de::Error::custom))
+        .collect()
 }

@@ -8,17 +8,19 @@ services:
     env_file:
       - .env # .gitignored for secrets like JWT_SECRET_KEY
     environment:
-      PROJECT_ID: dreamscroll_local
+      SERVICES: webui,api,webhook
       RUST_LOG: info,axum_login=warn,tower_sessions=warn
 
       NO_LOCAL_CONFIG_FILES: 1 # any value works
 
+      GCLOUD_PROJECT_ID: dreamscroll_local
       PORT: 8080
-      COOKIE_SECURE: false
+
+      COOKIE_SECURE: false # false for local dev to allow non-HTTPS (localhost)
 
       DB_BACKEND: postgres
 
-      # note that these are redundantly defined below for db as well
+      # note that these must be redundantly defined below for db as well
       POSTGRES_USER: dreamscroll_pg_user
       #POSTGRES_PASSWORD: NOT HERE SHOULD COME FROM .env file
       POSTGRES_HOST_PORT: db:5432 # note 'db' within Docker network, not localhost
@@ -26,7 +28,7 @@ services:
 
       STORAGE_BACKEND: gcloud
       STORAGE_GCLOUD_EMULATOR_ENDPOINT: http://fake-gcs:4443
-      STORAGE_GCLOUD_PROD_ENDPOINT: 
+      STORAGE_GCLOUD_PROD_ENDPOINT:
       STORAGE_GCLOUD_BUCKET_NAME: "dreamscroll-dev-media1"
 
       # Pub/Sub emulator should be invoked manually external of Docker, via

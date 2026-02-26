@@ -41,7 +41,7 @@ async fn main() -> anyhow::Result<()> {
     let db = database::DbHandle::new(db_connection);
 
     let stg = storage::make_provider(&config).await;
-    let url_maker = storage::UrlMaker::new(&config);
+    let url_maker = storage::UrlMaker::from_config(&config);
 
     // We use an empty beacon for the util commands, so no background tasks
     // will be enqueued.

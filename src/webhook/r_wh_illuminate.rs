@@ -1,11 +1,6 @@
 use std::sync::Arc;
 
-use axum::{
-    Json,
-    extract::State,
-    http::{HeaderMap, StatusCode},
-    response::IntoResponse,
-};
+use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::Deserialize;
 
 use crate::{api, illumination};
@@ -21,19 +16,13 @@ pub struct IlluminationPayload {
 ///
 ///
 /// For Cloud Run deployments, Pub/Sub push subscriptions should target:
-/// `https://<cloud-run-service-host>/webhook/illumination/push`
+/// `https://<cloud-run-service-host>/_wh/illumination/push`
 ///
 /// Authentication is enforced by `WebhookAuth` configured in `maker::make_router`.
 pub async fn post(
     State(state): State<Arc<WebhookState>>,
-    headers: HeaderMap,
     Json(body): Json<PushBody>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    state.auth.verify(&headers).await.map_err(|err| {
-        tracing::error!(error = ?err, "Webhook authentication failed");
-        api::ApiError::unauthorized(err)
-    })?;
-
     let payload = decode_payload::<IlluminationPayload>(&body.message.data).map_err(|err| {
         tracing::error!(error = ?err, "Failed to decode Pub/Sub message payload");
         api::ApiError::bad_request(err)

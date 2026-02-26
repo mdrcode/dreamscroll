@@ -11,7 +11,7 @@ PROJECT_ID="${PUBSUB_PROJECT_ID:-dreamscroll_local}"
 PUBSUB_EMULATOR_BASE_URL="${PUBSUB_EMULATOR_BASE_URL:-http://localhost:8085}"
 PUBSUB_TOPIC_ID="${PUBSUB_TOPIC_ID:-dreamscroll-new_capture}"
 PUBSUB_SUBSCRIPTION_ID="${PUBSUB_SUBSCRIPTION_ID:-dreamscroll-illumination-push}"
-PUBSUB_PUSH_ENDPOINT="${PUBSUB_PUSH_ENDPOINT:-http://localhost:8080/webhook/illumination/push}"
+PUBSUB_PUSH_ENDPOINT="${PUBSUB_PUSH_ENDPOINT:-http://localhost:8080/_wh/illumination/push}"
 
 TOPIC_PATH="projects/${PROJECT_ID}/topics/${PUBSUB_TOPIC_ID}"
 SUB_PATH="projects/${PROJECT_ID}/subscriptions/${PUBSUB_SUBSCRIPTION_ID}"
