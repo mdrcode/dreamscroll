@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use crate::webhook::r_wh_illuminate::IlluminationPayload;
 
-use super::*;
+use super::TopicQueue;
 
 #[derive(Clone, Default)]
 pub struct Beacon {
-    illumination_queue: Option<Arc<PubSubTopicQueue<IlluminationPayload>>>,
+    illumination_queue: Option<Arc<dyn TopicQueue<Payload = IlluminationPayload>>>,
 }
 
 impl Beacon {
@@ -29,13 +29,13 @@ impl Beacon {
 
 #[derive(Default)]
 pub struct BeaconBuilder {
-    illumination_queue: Option<Arc<PubSubTopicQueue<IlluminationPayload>>>,
+    illumination_queue: Option<Arc<dyn TopicQueue<Payload = IlluminationPayload>>>,
 }
 
 impl BeaconBuilder {
     pub fn new_capture_topic(
         mut self,
-        illumination_queue: PubSubTopicQueue<IlluminationPayload>,
+        illumination_queue: impl TopicQueue<Payload = IlluminationPayload> + 'static,
     ) -> Self {
         self.illumination_queue = Some(Arc::new(illumination_queue));
         self
