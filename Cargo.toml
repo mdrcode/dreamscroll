@@ -24,6 +24,9 @@ dotenvy = "0.15.7"
 dyn-clone = "1.0"
 envy = "0.4.2"
 google-cloud-auth = { version = "1.5.0", features = ["idtoken"] }
+google-cloud-gax = "0.19.2"
+google-cloud-googleapis = { version = "0.16.1", features = ["pubsub"] }
+google-cloud-pubsub = { version = "0.30.0", default-features = false, features = ["auth", "rustls-tls"] }
 google-cloud-storage = "1.7.0"
 infer = "0.19.0"
 jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
@@ -50,6 +53,4 @@ tracing-stackdriver = { version = "0.10.0", features = ["opentelemetry"] }
 tracing-subscriber = { version ="0.3.22", features = ["chrono", "env-filter", "json", "registry"]}
 uuid = { version = "1.0", features = ["v4"] }
 webbrowser = "1.0.6"
-google-cloud-pubsub = { version = "0.30.0", features = ["auth"] }
-google-cloud-googleapis = { version = "0.16.1", features = ["pubsub"] }
-google-cloud-gax = "0.19.2"
+

@@ -55,9 +55,14 @@ impl<TPayload> PubSubTopicQueue<TPayload> {
                 .map_err(|err| anyhow!("Failed to initialize Google Pub/Sub auth: {}", err))?;
         }
 
-        let client = Client::new(config)
-            .await
-            .map_err(|err| anyhow!("Failed to create Pub/Sub client: {}", err))?;
+        let environment_debug = format!("{:?}", config.environment);
+        let client = Client::new(config).await.map_err(|err| {
+            anyhow!(
+                "Failed to connect Pub/Sub client (environment: {}): {}",
+                environment_debug,
+                err
+            )
+        })?;
 
         let topic = client.topic(topic_id);
         let topic_exists = topic
