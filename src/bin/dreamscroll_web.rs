@@ -35,7 +35,7 @@ async fn main() -> anyhow::Result<()> {
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
     let new_capture_topic = pubsub::PubSubTopicQueue::connect(
-        config.pubsub_emulator_base_url.as_deref(),
+        config.pubsub_emulator.as_deref(),
         config.gcloud_project_id.as_str(),
         config.pubsub_topic_id_new_capture.as_str(),
     )

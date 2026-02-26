@@ -25,14 +25,14 @@ impl GCloudStorageProvider {
 
         // Infer that we are using the emulator if emulator_endpoint is set.
         // This takes precedence over prod_endpoint if both are set.
-        if let Some(endpoint) = emulator_endpoint {
+        if let Some(emulator) = emulator_endpoint {
             builder = builder
-                .with_endpoint(endpoint.clone())
+                .with_endpoint(emulator.clone())
                 .with_credentials(credentials::anonymous::Builder::default().build());
-            tracing::info!("GCloudStorageProvider using emulator at: {}", endpoint);
-        } else if let Some(endpoint) = prod_endpoint {
-            builder = builder.with_endpoint(endpoint.clone());
-            tracing::info!("GCloudStorageProvider using production at: {}", endpoint);
+            tracing::info!("GCloudStorageProvider using emulator at: {}", emulator);
+        } else if let Some(prod) = prod_endpoint {
+            builder = builder.with_endpoint(prod.clone());
+            tracing::info!("GCloudStorageProvider using production at: {}", prod);
         } else {
             tracing::info!("GCloudStorageProvider using production with default endpoint");
         }

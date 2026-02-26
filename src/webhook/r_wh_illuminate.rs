@@ -12,13 +12,12 @@ pub struct IlluminationPayload {
     pub capture_id: i32,
 }
 
-/// Webhook POST endpoint for illumination tasks.
-///
+/// Webhook POST route for illumination tasks.
 ///
 /// For Cloud Run deployments, Pub/Sub push subscriptions should target:
 /// `https://<cloud-run-service-host>/_wh/illumination/push`
 ///
-/// Authentication is enforced by `WebhookAuth` configured in `maker::make_router`.
+/// There is NO AUTHENTICATION here, it should be enforced externally by GCloud ADC.
 pub async fn post(
     State(state): State<Arc<WebhookState>>,
     Json(body): Json<PushBody>,

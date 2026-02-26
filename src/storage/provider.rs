@@ -47,7 +47,7 @@ pub async fn make_provider(config: &facility::Config) -> Box<dyn StorageProvider
                 .as_ref()
                 .expect("Storage backend is gcloud but no bucket name configured");
             let gcloud = gcloud::GCloudStorageProvider::new(
-                config.storage_gcloud_emulator_endpoint.clone(),
+                config.storage_gcloud_emulator.clone(),
                 config.storage_gcloud_prod_endpoint.clone(),
                 bucket_name.clone(),
             )

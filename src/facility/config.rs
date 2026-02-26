@@ -46,11 +46,11 @@ pub struct Config {
     pub storage_local_file_path: Option<String>,
     pub storage_local_url_prefix: Option<String>,
 
-    pub storage_gcloud_emulator_endpoint: Option<String>,
+    pub storage_gcloud_emulator: Option<String>, // e.g. "http://localhost:4443"
     pub storage_gcloud_prod_endpoint: Option<String>,
     pub storage_gcloud_bucket_name: Option<String>,
 
-    pub pubsub_emulator_base_url: Option<String>, // e.g. "http://localhost:8085"
+    pub pubsub_emulator: Option<String>, // e.g. "http://localhost:8085"
     pub pubsub_topic_id_new_capture: String,
 }
 
