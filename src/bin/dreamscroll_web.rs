@@ -34,11 +34,13 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
-    let new_capture_topic = pubsub::PubSubTopicQueue::new(
+    let new_capture_topic = pubsub::PubSubTopicQueue::connect(
         config.pubsub_emulator_base_url.as_deref(),
         config.gcloud_project_id.as_str(),
         config.pubsub_topic_id_new_capture.as_str(),
-    );
+    )
+    .await
+    .context("Failed to initialize Pub/Sub topic queue")?;
     let beacon = pubsub::Beacon::builder()
         .new_capture_topic(new_capture_topic)
         .build();

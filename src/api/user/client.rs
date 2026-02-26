@@ -105,6 +105,7 @@ impl UserApiClient {
         let capture_model =
             super::insert_capture(&self.db, &self.storage, context, media_bytes).await?;
 
+        // TODO Should this live inside the inner insert_capture function instead?
         match self.beacon.signal_new_capture(capture_model.id).await {
             Ok(_) => {
                 tracing::info!(

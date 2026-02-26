@@ -24,9 +24,10 @@ pub async fn insert_capture(
         infer::get(&media_bytes).ok_or_else(|| anyhow!("Could not infer media type."))?;
     tracing::info!("Media type inferred as {}", media_type.mime_type());
 
-    // Currently we compute a hash when storing media as a convenience to avoid re-importing
-    // duplicates during development. We might remove this in the future or move hash
-    // computation to an async background job if it becomes a bottleneck.
+    // Currently we compute a hash when storing media as a convenience to
+    // avoid re-importing duplicates during development. We might remove this
+    // in the future or move hash computation to an async background job if it
+    // becomes a bottleneck.
     let hash_blake3 = blake3::hash(&media_bytes);
     let bytes_len = media_bytes.len();
 
