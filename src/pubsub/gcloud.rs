@@ -10,7 +10,7 @@ use google_cloud_pubsub::{
 use serde::Serialize;
 use tokio::sync::OnceCell;
 
-use crate::{facility, pubsub};
+use super::*;
 
 #[derive(Clone)]
 pub struct PubSubTopicQueue<TPayload> {
@@ -19,60 +19,42 @@ pub struct PubSubTopicQueue<TPayload> {
 }
 
 struct PubSubTopicQueueInner {
+    emulator_host: Option<String>,
     project_id: String,
     topic_id: String,
-    topic_fqn: String,
-    publish_url: String,
-    emulator_host: Option<String>,
     publisher: OnceCell<Publisher>,
 }
 
 impl<TPayload> std::fmt::Debug for PubSubTopicQueue<TPayload> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PubSubTopicQueue")
-            .field("topic_fqn", &self.inner.topic_fqn)
-            .field("publish_url", &self.inner.publish_url)
+            .field("project_id", &self.inner.project_id)
+            .field("topic_id", &self.inner.topic_id)
             .field("emulator_host", &self.inner.emulator_host)
             .finish()
     }
 }
 
 impl<TPayload> PubSubTopicQueue<TPayload> {
-    pub fn new(project_id: &str, topic_id: &str, emulator_url_base: Option<&str>) -> Self {
-        let topic_fqn = format!("projects/{}/topics/{}", project_id, topic_id);
-        let publish_url = format!(
-            "{}/v1/{}:publish",
-            emulator_url_base.unwrap_or("https://pubsub.googleapis.com"),
-            topic_fqn
-        );
+    pub fn new(emulator_url_base: Option<&str>, project_id: &str, topic_id: &str) -> Self {
         let emulator_host = emulator_url_base.map(emulator_host_from_base_url);
 
         tracing::info!(
-            topic_fqn,
-            publish_url,
+            project_id = ?project_id,
+            topic_id = ?topic_id,
             emulator_host = ?emulator_host,
             "Configured Pub/Sub topic queue"
         );
 
         Self {
             inner: Arc::new(PubSubTopicQueueInner {
+                emulator_host,
                 project_id: project_id.to_string(),
                 topic_id: topic_id.to_string(),
-                topic_fqn,
-                publish_url,
-                emulator_host,
                 publisher: OnceCell::new(),
             }),
             _payload: PhantomData,
         }
-    }
-
-    pub fn from_config(config: &facility::Config) -> Self {
-        Self::new(
-            config.gcloud_project_id.as_str(),
-            config.pubsub_topic_id_new_capture.as_str(),
-            config.pubsub_emulator_base_url.as_deref(),
-        )
     }
 
     async fn publisher(&self) -> anyhow::Result<&Publisher> {
@@ -116,7 +98,7 @@ fn emulator_host_from_base_url(url_base: &str) -> String {
 }
 
 #[async_trait::async_trait]
-impl<TPayload: Serialize + Send + Sync + 'static> pubsub::TopicQueue for PubSubTopicQueue<TPayload> {
+impl<TPayload: Serialize + Send + Sync + 'static> TopicQueue for PubSubTopicQueue<TPayload> {
     type Payload = TPayload;
 
     async fn enqueue(&self, payload: TPayload) -> anyhow::Result<()> {

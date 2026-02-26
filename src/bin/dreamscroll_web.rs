@@ -34,12 +34,17 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
+    let new_capture_topic = pubsub::PubSubTopicQueue::new(
+        config.pubsub_emulator_base_url.as_deref(),
+        config.gcloud_project_id.as_str(),
+        config.pubsub_topic_id_new_capture.as_str(),
+    );
     let beacon = pubsub::Beacon::builder()
-        .new_capture_topic(pubsub::gcloud::PubSubTopicQueue::from_config(&config))
+        .new_capture_topic(new_capture_topic)
         .build();
     let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon);
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
-    tracing::info!("Initialized storage and API clients");
+    tracing::info!("Initialized storage, pubsub beacon, and API clients");
 
     // Base router with propagation layer for Cloud Run trace headers
     let mut router = facility::add_trace_propagation_layer(axum::Router::new());
