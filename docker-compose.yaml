@@ -8,8 +8,8 @@ services:
     env_file:
       - .env # .gitignored for secrets like JWT_SECRET_KEY
     environment:
-      SERVICES: webui,api,webhook
       RUST_LOG: info,axum_login=warn,tower_sessions=warn
+      SERVICES: webui,api,webhook
 
       NO_LOCAL_CONFIG_FILES: 1 # any value works
 
