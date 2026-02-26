@@ -63,6 +63,15 @@ pub async fn execute(
         return Ok(());
     };
 
+    if !capture.illuminations.is_empty() {
+        tracing::info!(
+            capture_id,
+            illumination_count = capture.illuminations.len(),
+            "Idempotency guard: illumination already exists for capture; skipping"
+        );
+        return Ok(());
+    }
+
     let illumination = match illuminator.illuminate(&capture).await {
         Ok(value) => value,
         Err(err) => {

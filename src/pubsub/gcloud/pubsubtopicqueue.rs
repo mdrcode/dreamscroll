@@ -30,6 +30,14 @@ pub struct PubSubTopicQueue {
     client: reqwest::Client,
 }
 
+impl std::fmt::Debug for PubSubTopicQueue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PubSubTopicQueue")
+            .field("publish_url", &self.publish_url)
+            .finish()
+    }
+}
+
 impl PubSubTopicQueue {
     pub fn new(base: &PubSubBaseUrl, topic_id: &str) -> Self {
         let publish_url = format!("{}/{}:publish", base.publish_base_url, topic_id);

@@ -105,12 +105,19 @@ impl UserApiClient {
         let capture_model =
             super::insert_capture(&self.db, &self.storage, context, media_bytes).await?;
 
-        if let Err(err) = self.beacon.signal_new_capture(capture_model.id).await {
-            tracing::error!(
-                capture_id = capture_model.id,
-                error = ?err,
-                "Beacon failed to signal new capture"
-            );
+        match self.beacon.signal_new_capture(capture_model.id).await {
+            Ok(_) => {
+                tracing::info!(
+                    capture_id = capture_model.id,
+                    "Successfully signaled new capture to beacon"
+                )
+            }
+            Err(_) => {
+                tracing::warn!(
+                    "Ignoring error signaling new capture to beacon for capture_id {}",
+                    capture_model.id
+                );
+            }
         }
 
         Ok(self.info_maker.make_capture_info(capture_model))
