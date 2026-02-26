@@ -5,50 +5,6 @@ use serde::Deserialize;
 
 use crate::{api::ApiError, pubsub};
 
-#[derive(Clone)]
-pub enum WebhookAuth {
-    None,
-    PubSubOidc(pubsub::gcloud::OidcVerifier),
-}
-
-impl WebhookAuth {
-    pub async fn verify(&self, headers: &axum::http::HeaderMap) -> Result<(), ApiError> {
-        match self {
-            WebhookAuth::None => Ok(()),
-            WebhookAuth::PubSubOidc(verifier) => {
-                let token = extract_bearer_token(headers)?;
-                verifier.verify_bearer_token(token).await.map_err(|err| {
-                    tracing::warn!("Pub/Sub OIDC verification failed: {}", err);
-                    ApiError::unauthorized(anyhow!(
-                        "OIDC verification failed for Pub/Sub webhook: {}",
-                        err
-                    ))
-                })
-            }
-        }
-    }
-}
-
-pub fn extract_bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
-    let Some(value) = headers.get(axum::http::header::AUTHORIZATION) else {
-        return Err(ApiError::unauthorized(anyhow!(
-            "Missing Authorization header"
-        )));
-    };
-
-    let actual = value
-        .to_str()
-        .map_err(|_| ApiError::unauthorized(anyhow!("Invalid Authorization header encoding")))?;
-
-    let Some(token) = actual.strip_prefix("Bearer ") else {
-        return Err(ApiError::unauthorized(anyhow!(
-            "Authorization must be Bearer token"
-        )));
-    };
-
-    Ok(token)
-}
-
 #[derive(Debug, Deserialize)]
 pub struct PushBody {
     pub message: PushMessage,
