@@ -1,6 +1,13 @@
 use std::sync::Arc;
 
+use serde::Serialize;
+
 use super::*;
+
+#[derive(Serialize)]
+struct NewCapturePayload {
+    capture_id: i32,
+}
 
 #[derive(Clone, Default)]
 pub struct Beacon {
@@ -14,7 +21,9 @@ impl Beacon {
 
     pub async fn signal_new_capture(&self, capture_id: i32) -> anyhow::Result<()> {
         if let Some(queue) = self.illumination_queue.as_ref() {
-            queue.enqueue(capture_id).await.inspect_err(
+            enqueue_serializable(queue.as_ref(), &NewCapturePayload { capture_id })
+                .await
+                .inspect_err(
                 |err| tracing::error!(queue = ?queue, capture_id, error = ?err, "Failed to enqueue capture for illumination"),
             )?;
         } else {

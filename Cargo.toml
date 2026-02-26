@@ -50,3 +50,6 @@ tracing-stackdriver = { version = "0.10.0", features = ["opentelemetry"] }
 tracing-subscriber = { version ="0.3.22", features = ["chrono", "env-filter", "json", "registry"]}
 uuid = { version = "1.0", features = ["v4"] }
 webbrowser = "1.0.6"
+google-cloud-pubsub = { version = "0.30.0", features = ["auth"] }
+google-cloud-googleapis = { version = "0.16.1", features = ["pubsub"] }
+google-cloud-gax = "0.19.2"
