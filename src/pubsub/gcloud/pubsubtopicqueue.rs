@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{marker::PhantomData, sync::Arc};
 
 use anyhow::{Context, anyhow};
 use google_cloud_gax::conn::Environment;
@@ -7,13 +7,15 @@ use google_cloud_pubsub::{
     client::{Client, ClientConfig},
     publisher::Publisher,
 };
+use serde::Serialize;
 use tokio::sync::OnceCell;
 
 use crate::{facility, pubsub};
 
 #[derive(Clone)]
-pub struct PubSubTopicQueue {
+pub struct PubSubTopicQueue<TPayload> {
     inner: Arc<PubSubTopicQueueInner>,
+    _payload: PhantomData<TPayload>,
 }
 
 struct PubSubTopicQueueInner {
@@ -25,7 +27,7 @@ struct PubSubTopicQueueInner {
     publisher: OnceCell<Publisher>,
 }
 
-impl std::fmt::Debug for PubSubTopicQueue {
+impl<TPayload> std::fmt::Debug for PubSubTopicQueue<TPayload> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PubSubTopicQueue")
             .field("topic_fqn", &self.inner.topic_fqn)
@@ -35,7 +37,7 @@ impl std::fmt::Debug for PubSubTopicQueue {
     }
 }
 
-impl PubSubTopicQueue {
+impl<TPayload> PubSubTopicQueue<TPayload> {
     pub fn new(project_id: &str, topic_id: &str, emulator_url_base: Option<&str>) -> Self {
         let topic_fqn = format!("projects/{}/topics/{}", project_id, topic_id);
         let publish_url = format!(
@@ -61,6 +63,7 @@ impl PubSubTopicQueue {
                 emulator_host,
                 publisher: OnceCell::new(),
             }),
+            _payload: PhantomData,
         }
     }
 
@@ -113,8 +116,11 @@ fn emulator_host_from_base_url(url_base: &str) -> String {
 }
 
 #[async_trait::async_trait]
-impl pubsub::TopicQueue for PubSubTopicQueue {
-    async fn enqueue_payload(&self, payload_json: Vec<u8>) -> anyhow::Result<()> {
+impl<TPayload: Serialize + Send + Sync + 'static> pubsub::TopicQueue for PubSubTopicQueue<TPayload> {
+    type Payload = TPayload;
+
+    async fn enqueue(&self, payload: TPayload) -> anyhow::Result<()> {
+        let payload_json = serde_json::to_vec(&payload)?;
         let publisher = self.publisher().await?;
 
         let awaiter = publisher

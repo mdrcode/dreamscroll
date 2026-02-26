@@ -1,13 +1,13 @@
 use std::sync::Arc;
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{api, illumination};
 
 use super::*;
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IlluminationPayload {
     pub capture_id: i32,
 }

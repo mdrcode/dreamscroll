@@ -9,3 +9,4 @@ pub use beacon::*;
 
 // Gcloud Pub/Sub implementation
 pub mod gcloud;
+pub use gcloud::*;

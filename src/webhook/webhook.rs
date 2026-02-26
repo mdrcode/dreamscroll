@@ -1,9 +1,8 @@
 use anyhow::anyhow;
-use axum::http::HeaderMap;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde::Deserialize;
 
-use crate::{api::ApiError, pubsub};
+use crate::api::ApiError;
 
 #[derive(Debug, Deserialize)]
 pub struct PushBody {
