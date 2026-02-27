@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 TAG=$(git rev-parse --short HEAD)
 IMAGE_NAME="dreamscroll-web"
 
