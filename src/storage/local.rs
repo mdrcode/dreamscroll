@@ -82,4 +82,8 @@ impl StorageProvider for LocalStorageProvider {
         let bytes = tokio::fs::read(&file_path).await?;
         Ok(bytes)
     }
+
+    fn make_prod_uri(&self, _handle: &StorageHandle) -> anyhow::Result<String> {
+        unimplemented!()
+    }
 }

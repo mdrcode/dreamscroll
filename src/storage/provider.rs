@@ -25,6 +25,8 @@ pub trait StorageProvider: DynClone + Send + Sync {
     ) -> anyhow::Result<StorageHandle>;
 
     async fn retrieve_bytes(&self, id: &StorageHandle) -> anyhow::Result<Vec<u8>>;
+
+    fn make_prod_uri(&self, handle: &StorageHandle) -> anyhow::Result<String>;
 }
 
 dyn_clone::clone_trait_object!(StorageProvider);

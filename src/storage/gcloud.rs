@@ -52,7 +52,7 @@ impl GCloudStorageProvider {
     }
 }
 
-fn make_object_key(uuid: Uuid, shard: &str, ext: Option<&str>) -> String {
+pub fn make_object_key(uuid: Uuid, shard: &str, ext: Option<&str>) -> String {
     let object_key = match ext {
         Some(e) => format!("{}/{}.{}", shard, uuid, e),
         None => format!("{}/{}", shard, uuid),
@@ -159,5 +159,16 @@ impl provider::StorageProvider for GCloudStorageProvider {
             contents.extend_from_slice(&chunk);
         }
         Ok(contents)
+    }
+
+    fn make_prod_uri(&self, handle: &StorageHandle) -> anyhow::Result<String> {
+        let key = make_object_key(handle.uuid, &handle.user_shard, handle.extension.as_deref());
+
+        let bucket = handle
+            .bucket
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Cannot construct GCS URI without a bucket"))?;
+
+        Ok(format!("gs://{}/{}", bucket, key))
     }
 }
