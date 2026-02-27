@@ -8,22 +8,27 @@ pub mod loremipsum;
 
 pub fn make_illuminator(
     config: &crate::facility::Config,
-    model_name: &str,
+    illuminator_name: &str,
     storage: Box<dyn crate::storage::StorageProvider>,
 ) -> Box<dyn Illuminator> {
-    match model_name {
-        "gemini" => Box::new(gemini::legacy_unstructured::GeminiIlluminator::new(storage)),
-        "geministructured" => Box::new(gemini::GeminiPublicApiIlluminator::new(
+    match illuminator_name {
+        "gemini" => Box::new(gemini::legacy::GeminiIlluminator::new(storage)),
+        "geminipublicapi" => Box::new(gemini::GeminiPublicApiIlluminator::new(
             config
                 .gemini_api_key
-                .clone()
+                .as_deref()
                 .expect("GEMINI_API_KEY required but missing from config."),
+            storage,
+        )),
+        "geminivertexapi" => Box::new(gemini::GeminiVertexApiIlluminator::new(
+            &config.gcloud_project_id,
+            "gemini-3-flash-preview",
             storage,
         )),
         "grok" => Box::new(grok::GrokIlluminator::default()),
         "loremipsum" => Box::new(loremipsum::LoremIpsumIlluminator::default()),
         other => unimplemented!(
-            "Unknown illuminator model '{}'. Supported: grok, gemini, geministructured, loremipsum.",
+            "Unknown illuminator model '{}'. Supported: grok, gemini, geminipublicapi, loremipsum.",
             other
         ),
     }

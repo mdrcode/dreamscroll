@@ -15,9 +15,9 @@ pub struct GeminiPublicApiIlluminator {
 }
 
 impl GeminiPublicApiIlluminator {
-    pub fn new(gemini_api_key: String, storage: Box<dyn storage::StorageProvider>) -> Self {
+    pub fn new(gemini_api_key: &str, storage: Box<dyn storage::StorageProvider>) -> Self {
         GeminiPublicApiIlluminator {
-            gemini_api_key,
+            gemini_api_key: gemini_api_key.to_string(),
             storage,
         }
     }

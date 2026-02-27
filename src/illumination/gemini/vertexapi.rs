@@ -9,25 +9,21 @@ use super::*;
 /// and passes a Google Storage URI instead of raw bytes.
 #[derive(Clone)]
 pub struct GeminiVertexApiIlluminator {
-    _project_id: String,
-    _model: String,
-    model_path: String,
+    model_path_full: String,
     storage: Box<dyn storage::StorageProvider>,
 }
 
 impl GeminiVertexApiIlluminator {
-    pub fn new(
-        project_id: String,
-        model: String,
-        storage: Box<dyn storage::StorageProvider>,
-    ) -> Self {
-        GeminiVertexApiIlluminator {
-            model_path: format!(
-                "projects/{}/locations/global/publishers/google/models/{}",
-                project_id, model
-            ),
-            _project_id: project_id,
-            _model: model,
+    pub fn new(project_id: &str, model: &str, storage: Box<dyn storage::StorageProvider>) -> Self {
+        let model_path_full = format!(
+            "projects/{}/locations/global/publishers/google/models/{}",
+            project_id, model
+        );
+
+        tracing::info!(model_path_full, "GeminiVertexApiIlluminator initialized");
+
+        Self {
+            model_path_full,
             storage,
         }
     }
@@ -83,7 +79,7 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
 
         let response = client
             .generate_content()
-            .set_model(&self.model_path)
+            .set_model(&self.model_path_full)
             .set_contents(vec![request_content])
             .set_generation_config(generation_config)
             .send()

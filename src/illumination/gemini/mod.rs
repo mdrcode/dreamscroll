@@ -1,7 +1,7 @@
 mod prompts;
 mod response;
 
-pub mod legacy_unstructured;
+pub mod legacy;
 
 mod publicapi;
 pub use publicapi::*;
