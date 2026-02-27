@@ -13,7 +13,7 @@ pub fn make_illuminator(
 ) -> Box<dyn Illuminator> {
     match model_name {
         "gemini" => Box::new(gemini::legacy_unstructured::GeminiIlluminator::new(storage)),
-        "geministructured" => Box::new(gemini::GeminiStructuredIlluminator::new(
+        "geministructured" => Box::new(gemini::GeminiPublicApiIlluminator::new(
             config
                 .gemini_api_key
                 .clone()

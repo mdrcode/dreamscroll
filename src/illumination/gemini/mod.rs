@@ -3,5 +3,6 @@ mod response;
 
 pub mod legacy_unstructured;
 
-mod structured;
-pub use structured::*;
+
+mod publicapi;
+pub use publicapi::*;

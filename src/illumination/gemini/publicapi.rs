@@ -6,16 +6,17 @@ use crate::{api, illumination, storage};
 
 use super::*;
 
-/// Gemini-based illuminator that leverages the public Gemini API to return a GeminiStructuredResponse.
+/// Gemini-based illumination powered by the public API. Uses an explicit API
+/// key and passes JSON with base64-encoded media.
 #[derive(Clone)]
-pub struct GeminiStructuredIlluminator {
+pub struct GeminiPublicApiIlluminator {
     gemini_api_key: String,
     storage: Box<dyn storage::StorageProvider>,
 }
 
-impl GeminiStructuredIlluminator {
+impl GeminiPublicApiIlluminator {
     pub fn new(gemini_api_key: String, storage: Box<dyn storage::StorageProvider>) -> Self {
-        GeminiStructuredIlluminator {
+        GeminiPublicApiIlluminator {
             gemini_api_key,
             storage,
         }
@@ -23,9 +24,9 @@ impl GeminiStructuredIlluminator {
 }
 
 #[async_trait::async_trait]
-impl illumination::Illuminator for GeminiStructuredIlluminator {
+impl illumination::Illuminator for GeminiPublicApiIlluminator {
     fn name(&self) -> &'static str {
-        "geministructured"
+        "geminipublicapi"
     }
 
     /// Illuminates a capture and returns the structured response directly.
@@ -53,7 +54,7 @@ impl illumination::Illuminator for GeminiStructuredIlluminator {
 
         let client = Client::new();
 
-        // Prepare request with text + image and structured output config
+        // Prepare request with inlined, base64-encoded image bytes
         let request_body = json!({
             "contents": [{
                 "role": "user",
@@ -76,7 +77,7 @@ impl illumination::Illuminator for GeminiStructuredIlluminator {
         });
 
         // Gemini endpoint with model in URL
-        let model = "gemini-3-flash-preview";
+        let model = "gemini-3-flash-preview"; // TODO this could be parameter
         let url = format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
             model
