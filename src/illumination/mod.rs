@@ -1,10 +1,8 @@
 // core traits
 mod illuminator;
 pub use illuminator::*;
-
 // illuminator implementations
 pub mod gemini;
-pub mod geministructured;
 pub mod grok;
 pub mod loremipsum;
 
@@ -14,8 +12,8 @@ pub fn make_illuminator(
     storage: Box<dyn crate::storage::StorageProvider>,
 ) -> Box<dyn Illuminator> {
     match model_name {
-        "gemini" => Box::new(gemini::GeminiIlluminator::new(storage)),
-        "geministructured" => Box::new(geministructured::GeminiStructuredIlluminator::new(
+        "gemini" => Box::new(gemini::legacy_unstructured::GeminiIlluminator::new(storage)),
+        "geministructured" => Box::new(gemini::GeminiStructuredIlluminator::new(
             config
                 .gemini_api_key
                 .clone()

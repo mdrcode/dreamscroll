@@ -4,9 +4,7 @@ use base64::Engine;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::{api, storage};
-
-use super::*;
+use crate::{api, illumination::*, storage};
 
 const PROMPT: &str = r#"
 You are a virtual research assistant helping me to explore my world by analyzing
