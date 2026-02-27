@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Start the pubsub emulator using:
-# `gcloud beta emulators pubsub start --host-port=localhost:8085``
+# `gcloud beta emulators pubsub start --host-port=localhost:8085`
 #
 # and then execute this script to create the topics/subscriptions
 
