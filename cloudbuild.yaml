@@ -1,7 +1,25 @@
-# gcloud builds submit --config cloudbuild.yaml
+# Build with both `latest` and an immutable tag.
+#
+# Typical manual usage:
+# (bash/zsh):
+# gcloud builds submit --config cloudbuild.yaml --substitutions=_IMAGE_TAG=$(git rev-parse --short HEAD)
+# (fish):
+# gcloud builds submit --config cloudbuild.yaml --substitutions=_IMAGE_TAG=(git rev-parse --short HEAD)
+#
+# If _IMAGE_TAG is not provided, it defaults to "manual".
+substitutions:
+  _IMAGE_TAG: 'manual'
+
 steps:
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'us-central1-docker.pkg.dev/mdrcode/dreamscroll-repo/dreamscroll-web:latest', '.']
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/mdrcode/dreamscroll-repo/dreamscroll-web:latest'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/mdrcode/dreamscroll-repo/dreamscroll-web:${_IMAGE_TAG}'
+      - '.'
 
 images:
   - 'us-central1-docker.pkg.dev/mdrcode/dreamscroll-repo/dreamscroll-web:latest'
+  - 'us-central1-docker.pkg.dev/mdrcode/dreamscroll-repo/dreamscroll-web:${_IMAGE_TAG}'

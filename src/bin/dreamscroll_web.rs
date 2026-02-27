@@ -73,7 +73,13 @@ async fn main() -> anyhow::Result<()> {
 
     // REST API routes (JWT-protected)
     if config.services.contains(&facility::Service::API) {
-        let jwt = auth::JwtConfig::from_secret(config.jwt_secret.as_ref().unwrap().as_bytes());
+        let jwt = auth::JwtConfig::from_secret(
+            config
+                .jwt_secret
+                .as_ref()
+                .context("JWT_SECRET not set, required for API")?
+                .as_bytes(),
+        );
         let api_router = rest::make_router(user_api.clone(), jwt);
         router = router.nest("/api", api_router);
         tracing::info!("Initialized REST API routes");

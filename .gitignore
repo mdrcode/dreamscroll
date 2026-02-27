@@ -1,6 +1,10 @@
-.env
-
 .DS_Store
+
+.vscode
+
 /target
+
 /localdev/*
 !/localdev/readme.txt
+
+.env
