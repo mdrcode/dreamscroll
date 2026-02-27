@@ -8,10 +8,9 @@ pub mod loremipsum;
 
 pub fn make_illuminator(
     config: &crate::facility::Config,
-    illuminator_name: &str,
     storage: Box<dyn crate::storage::StorageProvider>,
 ) -> Box<dyn Illuminator> {
-    match illuminator_name {
+    match config.illuminator.as_str() {
         "gemini" => Box::new(gemini::legacy::GeminiIlluminator::new(storage)),
         "geminipublicapi" => Box::new(gemini::GeminiPublicApiIlluminator::new(
             config

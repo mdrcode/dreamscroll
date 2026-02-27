@@ -32,6 +32,7 @@ pub struct Config {
 
     pub jwt_secret: Option<String>, // must be 32+ bytes for HS256 signing
 
+    pub illuminator: String,
     pub gemini_api_key: Option<String>,
 
     pub db_backend: database::DbBackend,

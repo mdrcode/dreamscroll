@@ -87,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Webhook routes (no auth, protected by GCloud IAM in prod)
     if config.services.contains(&facility::Service::Webhook) {
-        let illuminator = illumination::make_illuminator(&config, "geministructured", stg.clone());
+        let illuminator = illumination::make_illuminator(&config, stg.clone());
         router = router.nest("/_wh", webhook::make_router(service_api, illuminator));
         tracing::info!("Initialized webhook routes");
     }
