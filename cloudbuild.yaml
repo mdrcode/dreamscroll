@@ -6,20 +6,25 @@
 # (fish):
 # gcloud builds submit --config cloudbuild.yaml --substitutions=_IMAGE_TAG=(git rev-parse --short HEAD)
 #
-# If _IMAGE_TAG is not provided, it defaults to "manual".
+# If substitutions are not provided, defaults below are used.
 substitutions:
   _IMAGE_TAG: 'manual'
+  _LOCATION: 'us-central1'
+  _REPOSITORY: 'dreamscroll-repo'
+  _IMAGE_NAME: 'dreamscroll-web'
 
 steps:
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
+      - '--platform'
+      - 'linux/amd64'
       - '-t'
-      - 'us-central1-docker.pkg.dev/mdrcode/dreamscroll-repo/dreamscroll-web:latest'
+      - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:latest'
       - '-t'
-      - 'us-central1-docker.pkg.dev/mdrcode/dreamscroll-repo/dreamscroll-web:${_IMAGE_TAG}'
+      - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}'
       - '.'
 
 images:
-  - 'us-central1-docker.pkg.dev/mdrcode/dreamscroll-repo/dreamscroll-web:latest'
-  - 'us-central1-docker.pkg.dev/mdrcode/dreamscroll-repo/dreamscroll-web:${_IMAGE_TAG}'
+  - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:latest'
+  - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}'

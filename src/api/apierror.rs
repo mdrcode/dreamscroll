@@ -3,6 +3,8 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
+use crate::facility;
+
 #[derive(Debug)]
 pub struct ApiError {
     pub status_code: StatusCode,
@@ -51,9 +53,32 @@ impl ApiError {
 }
 
 impl IntoResponse for ApiError {
-    // TODO should only show detailed error in dev mode
     fn into_response(self) -> Response {
-        let body = format!("Error: {:?}", self.error);
+        let report_id = uuid::Uuid::new_v4().to_string();
+        let trace_id = facility::current_trace_id();
+
+        tracing::error!(
+            status_code = self.status_code.as_u16(),
+            report_id = %report_id,
+            trace_id = trace_id.as_deref().unwrap_or("none"),
+            error = ?self.error,
+            "API request failed"
+        );
+
+        let body = match trace_id {
+            Some(trace_id) => format!(
+                "Request failed. status={} report_id={} trace_id={}",
+                self.status_code.as_u16(),
+                report_id,
+                trace_id
+            ),
+            None => format!(
+                "Request failed. status={} report_id={}",
+                self.status_code.as_u16(),
+                report_id
+            ),
+        };
+
         (self.status_code, body).into_response()
     }
 }

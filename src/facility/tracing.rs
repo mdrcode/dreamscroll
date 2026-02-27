@@ -1,5 +1,6 @@
 use anyhow::Context;
 use axum::http;
+use opentelemetry::trace::TraceContextExt;
 use opentelemetry_gcloud_trace::GcpCloudTraceExporterBuilder;
 use tower_http::trace::TraceLayer;
 use tracing_opentelemetry::{OpenTelemetryLayer, OpenTelemetrySpanExt};
@@ -87,4 +88,16 @@ pub fn add_trace_propagation_layer(router: axum::Router) -> axum::Router {
             span
         }),
     )
+}
+
+pub fn current_trace_id() -> Option<String> {
+    let context = tracing::Span::current().context();
+    let span = context.span();
+    let span_context = span.span_context();
+
+    if span_context.is_valid() {
+        Some(span_context.trace_id().to_string())
+    } else {
+        None
+    }
 }
