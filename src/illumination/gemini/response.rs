@@ -1,10 +1,67 @@
+//! This module provides a well-defined JSON response schema when using
+//! the Gemini API's structured output feature for Illumination tasks.
+//!
+//! ## Structured Output
+//!
+//! The Gemini API supports structured outputs via JSON Schema. By setting:
+//! - `generationConfig.responseMimeType` to `"application/json"`
+//! - `generationConfig.responseSchema` to a valid OpenAPI 3.0-style schema
+//!
+//! The model will return a response that strictly conforms to the schema.
+//!
+//! ## Response Structure
+//!
+//! The structured response for Illumination tasks contains:
+//! - `summary`: A concise 1-2 sentence summary (max ~240 chars)
+//! - `details`: A more detailed multi-paragraph description
+//! - `suggested_searches`: A list of search queries to learn more
+//! - `entities`: A list of notable entities with descriptions and types
+//!   (person, place, book, movie, television_show, etc). See `EntityType`
+//!   enum for full list)
+//! - `social_media_accounts`: A list of social media accounts with
+//!   display_name, handle, and platform
+//!
+
 use serde::Deserialize;
 use serde_json::json;
+use strum::IntoEnumIterator;
 
-pub fn make_response_schema(
-    knode_types: Vec<String>,
-    social_platform_types: Vec<String>,
-) -> serde_json::Value {
+use crate::illumination;
+
+#[derive(Deserialize, Debug)]
+pub struct GeminiStructuredResponse {
+    pub summary: String,
+    pub details: String,
+    pub suggested_searches: Vec<String>,
+    pub entities: Vec<illumination::Entity>,
+    pub social_media_accounts: Vec<illumination::SocialMediaAccount>,
+}
+
+impl From<GeminiStructuredResponse> for illumination::Illumination {
+    fn from(resp: GeminiStructuredResponse) -> Self {
+        illumination::Illumination {
+            meta: illumination::IlluminationMeta {
+                provider_name: "geministructured".to_string(),
+            },
+            summary: resp.summary,
+            details: resp.details,
+            suggested_searches: resp.suggested_searches,
+            entities: resp.entities,
+            social_media_accounts: resp.social_media_accounts,
+        }
+    }
+}
+
+// Build the JSON schema for the structured response
+// Following the OpenAPI 3.0 schema format that Gemini expects
+pub fn make_response_schema() -> serde_json::Value {
+    let knode_types: Vec<String> = illumination::EntityType::iter()
+        .map(|e| e.as_ref().to_string())
+        .collect();
+    let social_platform_types: Vec<String> = illumination::SocialMediaPlatform::iter()
+        .map(|e| e.as_ref().to_string())
+        .collect();
+
     json!({
         "type": "OBJECT",
         "properties": {
@@ -72,4 +129,24 @@ pub fn make_response_schema(
         },
         "required": ["summary", "details", "suggested_searches", "entities", "social_media_accounts"]
     })
+}
+
+#[derive(Deserialize, Debug)]
+pub struct GeminiRawContent {
+    pub candidates: Vec<RawContentCandidate>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct RawContentCandidate {
+    pub content: RawContentParts,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct RawContentParts {
+    pub parts: Vec<RawPart>,
+}
+
+#[derive(Deserialize, Debug)]
+pub struct RawPart {
+    pub text: String,
 }
