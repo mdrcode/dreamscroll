@@ -17,6 +17,7 @@ pub fn make_illuminator(
                 .gemini_api_key
                 .as_deref()
                 .expect("GEMINI_API_KEY required but missing from config."),
+            "gemini-3-flash-preview",
             storage,
         )),
         "geminivertexapi" => Box::new(gemini::GeminiVertexApiIlluminator::new(

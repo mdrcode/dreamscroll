@@ -9,21 +9,25 @@ use super::*;
 /// and passes a Google Storage URI instead of raw bytes.
 #[derive(Clone)]
 pub struct GeminiVertexApiIlluminator {
-    model_path_full: String,
+    model_full_path: String,
     storage: Box<dyn storage::StorageProvider>,
 }
 
 impl GeminiVertexApiIlluminator {
-    pub fn new(project_id: &str, model: &str, storage: Box<dyn storage::StorageProvider>) -> Self {
-        let model_path_full = format!(
+    pub fn new(
+        project_id: &str,
+        model_id: &str,
+        storage: Box<dyn storage::StorageProvider>,
+    ) -> Self {
+        let model_full_path = format!(
             "projects/{}/locations/global/publishers/google/models/{}",
-            project_id, model
+            project_id, model_id
         );
 
-        tracing::info!(model_path_full, "GeminiVertexApiIlluminator initialized");
+        tracing::info!(model_full_path, "GeminiVertexApiIlluminator initialized");
 
         Self {
-            model_path_full,
+            model_full_path,
             storage,
         }
     }
@@ -79,12 +83,15 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
 
         let response = client
             .generate_content()
-            .set_model(&self.model_path_full)
+            .set_model(&self.model_full_path)
             .set_contents(vec![request_content])
             .set_generation_config(generation_config)
             .send()
             .await
-            .map_err(|e| anyhow::anyhow!("Vertex AI API error: {}", e))?;
+            .map_err(|e| {
+                tracing::error!(capture.id, error_text = ?e, "GeminiVertexApiIlluminator: API request error");
+                anyhow::anyhow!("Vertex AI API error: {}", e)
+            })?;
 
         let json_text = response
             .candidates

@@ -11,13 +11,26 @@ use super::*;
 #[derive(Clone)]
 pub struct GeminiPublicApiIlluminator {
     gemini_api_key: String,
+    model_url: String,
     storage: Box<dyn storage::StorageProvider>,
 }
 
 impl GeminiPublicApiIlluminator {
-    pub fn new(gemini_api_key: &str, storage: Box<dyn storage::StorageProvider>) -> Self {
+    pub fn new(
+        gemini_api_key: &str,
+        model_id: &str, // e.g. "gemini-3-flash-preview"
+        storage: Box<dyn storage::StorageProvider>,
+    ) -> Self {
+        let model_full_url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
+            model_id
+        );
+
+        tracing::info!(model_id, "GeminiPublicApiIlluminator initialized");
+
         GeminiPublicApiIlluminator {
             gemini_api_key: gemini_api_key.to_string(),
+            model_url: model_full_url,
             storage,
         }
     }
@@ -46,10 +59,10 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
         let enc = base64::engine::general_purpose::STANDARD.encode(buffer);
 
         tracing::info!(
-            "GeminiStructuredIlluminator: capture {} media {} base64 bytes {}",
             capture.id,
             media1.id,
-            enc.len()
+            base64_bytes = enc.len(),
+            "GeminiPublicApiIlluminator: preparing for illumination",
         );
 
         let client = Client::new();
@@ -64,7 +77,7 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
                     },
                     {
                         "inlineData": {
-                            "mimeType": "image/jpeg",
+                            "mimeType": media1.mime_type.clone().unwrap_or("image/jpeg".to_string()),
                             "data": enc
                         }
                     }
@@ -76,16 +89,9 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
             }
         });
 
-        // Gemini endpoint with model in URL
-        let model = "gemini-3-flash-preview"; // TODO this could be parameter
-        let url = format!(
-            "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
-            model
-        );
-
         // Send request
         let response = client
-            .post(&url)
+            .post(&self.model_url)
             .header("x-goog-api-key", &self.gemini_api_key)
             .header("Content-Type", "application/json")
             .json(&request_body)
@@ -99,11 +105,11 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
                 .map_err(|e| anyhow::anyhow!("Failed to parse structured response: {}", e))?;
 
             tracing::info!(
-                "GeminiStructuredIlluminator: Successfully parsed response for capture {} with {} entities, {} social media accounts, and {} suggested searches",
                 capture.id,
-                structured.entities.len(),
-                structured.social_media_accounts.len(),
-                structured.suggested_searches.len()
+                num_entities = ?structured.entities.len(),
+                num_social_media_accounts = ?structured.social_media_accounts.len(),
+                num_suggested_searches = ?structured.suggested_searches.len(),
+                "GeminiPublicApiIlluminator: Successfully parsed illumination response",
             );
 
             Ok(illumination::Illumination::from(structured))
@@ -111,10 +117,10 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
             let status_code = response.status();
             let error_text = response.text().await?;
             tracing::error!(
-                "GeminiStructuredIlluminator: API failed for capture {} with status {}, error text: {}",
                 capture.id,
-                status_code,
-                error_text
+                error_text,
+                status_code = ?status_code,
+                "GeminiPublicApiIlluminator: API request error"
             );
             Err(anyhow::anyhow!(
                 "Gemini API Error status {}: {}",
