@@ -81,6 +81,7 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
             .set_response_mime_type("application/json")
             .set_response_json_schema(response::make_response_schema());
 
+        let inference_start = std::time::Instant::now();
         let response = client
             .generate_content()
             .set_model(&self.model_full_path)
@@ -92,6 +93,7 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
                 tracing::error!(capture.id, error_text = ?e, "GeminiVertexApiIlluminator: API request error");
                 anyhow::anyhow!("Vertex AI API error: {}", e)
             })?;
+        let inference_duration = inference_start.elapsed();
 
         let json_text = response
             .candidates
@@ -106,10 +108,11 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
 
         tracing::info!(
             capture.id,
+            illumination_inference_ms = inference_duration.as_millis(),
             num_entities = ?structured.entities.len(),
             num_social_media_accounts = ?structured.social_media_accounts.len(),
             num_suggested_searches = ?structured.suggested_searches.len(),
-            "GeminiVertexApiIlluminator: Successfully parsed illumination response",
+            "GeminiVertexApiIlluminator: Success",
         );
 
         Ok(illumination::Illumination::from(structured))

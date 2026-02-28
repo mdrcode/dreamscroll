@@ -18,6 +18,8 @@ services:
 
       COOKIE_SECURE: false # false for local dev to allow non-HTTPS (localhost)
 
+      ILLUMINATOR: geminipublicapi
+
       DB_BACKEND: postgres
 
       # note that these must be redundantly defined below for db as well
