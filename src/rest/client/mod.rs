@@ -122,6 +122,12 @@ fn normalize_base_url(host: &str) -> String {
     let trimmed = host.trim().trim_end_matches('/');
     if trimmed.contains("://") {
         format!("{trimmed}/api")
+    } else if trimmed.eq_ignore_ascii_case("localhost")
+        || trimmed.starts_with("localhost:")
+        || trimmed.starts_with("127.0.0.1")
+        || trimmed.starts_with("[::1]")
+    {
+        format!("http://{trimmed}/api")
     } else {
         format!("https://{trimmed}/api")
     }

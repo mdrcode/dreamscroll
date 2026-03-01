@@ -1,10 +1,11 @@
 use std::path::PathBuf;
 
+use anyhow::Context;
 use argh::FromArgs;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::storage;
+use crate::rest;
 
 use super::*;
 
@@ -15,6 +16,14 @@ pub struct ExportDigestArgs {
     #[argh(positional)]
     #[argh(description = "root directory where export folder will be created")]
     root_dir: PathBuf,
+
+    #[argh(
+        option,
+        long = "host",
+        default = "String::from(\"localhost\")",
+        description = "REST API host (default: localhost)"
+    )]
+    host: String,
 }
 
 /// Represents a single capture in the export digest.
@@ -51,8 +60,10 @@ impl FullDigest {
     }
 }
 
-pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> {
-    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
+pub async fn run(_state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> {
+    let (username, password) = auth_helper::prompt_credentials_stdin()?;
+    let rest_client = rest::client::Client::connect(&args.host, &username, &password).await?;
+    let media_http = reqwest::Client::new();
 
     // Create export folder with timestamp
     let root_dir = &args.root_dir;
@@ -61,8 +72,8 @@ pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> 
     std::fs::create_dir_all(&export_dir)?;
     println!("Created export directory: {}", export_dir.display());
 
-    // Fetch all capture_infos from API for this user
-    let capture_infos = state.user_api.get_captures(&user.into(), None).await?;
+    // Fetch all capture_infos from REST API for this user
+    let capture_infos = rest_client.get_captures(None).await?;
 
     println!("Found {} captures to export.", capture_infos.len());
 
@@ -77,8 +88,26 @@ pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> 
             }
         };
 
-        let storage_handle = storage::StorageHandle::from(media);
-        let bytes = state.stg.retrieve_bytes(&storage_handle).await?;
+        let media_response = media_http
+            .get(&media.url)
+            .send()
+            .await
+            .with_context(|| format!("failed to fetch media from {}", media.url))?;
+
+        let status = media_response.status();
+        if !status.is_success() {
+            anyhow::bail!(
+                "failed to fetch media for capture {} from {}: status {}",
+                capture.id,
+                media.url,
+                status
+            );
+        }
+
+        let bytes = media_response
+            .bytes()
+            .await
+            .with_context(|| format!("failed reading media body from {}", media.url))?;
 
         // Copy to export directory
         let dest_path = export_dir

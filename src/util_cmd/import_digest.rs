@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
 use argh::FromArgs;
+use reqwest::StatusCode;
 
-use crate::auth;
+use crate::rest;
 
 use super::*;
 
@@ -13,9 +14,17 @@ pub struct ImportDigestArgs {
     #[argh(positional)]
     #[argh(description = "path to the export directory containing digest.json")]
     export_dir: PathBuf,
+
+    #[argh(
+        option,
+        long = "host",
+        default = "String::from(\"localhost\")",
+        description = "REST API host (default: localhost)"
+    )]
+    host: String,
 }
 
-pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> {
+pub async fn run(_state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> {
     let export_dir = &args.export_dir;
 
     if !export_dir.is_dir() {
@@ -38,8 +47,8 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
         digest.captures.len()
     );
 
-    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
-    let user_context: auth::Context = user.into();
+    let (username, password) = auth_helper::prompt_credentials_stdin()?;
+    let rest_client = rest::client::Client::connect(&args.host, &username, &password).await?;
 
     let mut imported_captures = 0;
     let mut skipped_captures = 0;
@@ -60,13 +69,14 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
 
         let media_bytes = tokio::fs::read(&media_path).await?.into();
 
-        match state
-            .user_api
-            .import_capture(&user_context, media_bytes, entry.created_at)
+        match rest_client
+            .import_capture(media_bytes, entry.created_at)
             .await
         {
             Err(e) => {
-                if e.status_code == axum::http::StatusCode::CONFLICT {
+                if e.to_string()
+                    .contains(&format!("status {}", StatusCode::CONFLICT.as_u16()))
+                {
                     eprintln!(
                         "Skipped capture {} because media hash already exists.",
                         entry.original_id
