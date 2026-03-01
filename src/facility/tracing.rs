@@ -74,7 +74,7 @@ impl opentelemetry::propagation::Extractor for HeaderExtractor<'_> {
     }
 }
 
-pub fn add_trace_propagation_layer(router: axum::Router) -> axum::Router {
+pub fn add_trace_propagation(router: axum::Router) -> axum::Router {
     router.layer(
         TraceLayer::new_for_http().make_span_with(|request: &http::Request<_>| {
             // Extract the W3C traceparent header injected by Cloud Run so that

@@ -3,11 +3,11 @@ use anyhow::anyhow;
 use crate::{auth, database::DbHandle};
 
 pub fn prompt_credentials_stdin() -> anyhow::Result<(String, String)> {
-    println!("Enter username: ");
+    println!("👤 Enter username: ");
     let mut username = String::new();
     std::io::stdin().read_line(&mut username)?;
 
-    println!("Enter password: ");
+    println!("🔒 Enter password: ");
     let password = rpassword::read_password()?;
 
     Ok((username.trim().to_string(), password))

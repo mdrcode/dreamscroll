@@ -18,8 +18,8 @@ pub struct ImportDigestArgs {
     #[argh(
         option,
         long = "host",
-        default = "String::from(\"localhost\")",
-        description = "REST API host (default: localhost)"
+        default = "String::from(\"localhost:8080\")",
+        description = "REST API host (default: localhost:8080)"
     )]
     host: String,
 }

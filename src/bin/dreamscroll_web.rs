@@ -48,8 +48,7 @@ async fn main() -> anyhow::Result<()> {
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
     tracing::info!("Initialized storage, pubsub beacon, and API clients");
 
-    // Base router with propagation layer for Cloud Run trace headers
-    let mut router = facility::add_trace_propagation_layer(axum::Router::new());
+    let mut router = axum::Router::new();
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving
     if config.services.contains(&facility::Service::WebUI) {

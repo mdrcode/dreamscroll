@@ -23,7 +23,7 @@ pub async fn insert_capture(
     }
 
     let media_type = infer::get(&bytes).ok_or_else(|| anyhow!("Could not infer media type."))?;
-    tracing::info!("Media type inferred as {}", media_type.mime_type());
+    tracing::debug!("Media type inferred as {}", media_type.mime_type());
 
     // Optionally prevent duplicate imports as a convenience.
     let hash_blake3 = blake3::hash(&bytes);

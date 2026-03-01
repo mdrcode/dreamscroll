@@ -2,10 +2,11 @@ use std::sync::Arc;
 
 use axum::{
     Router,
+    extract::DefaultBodyLimit,
     routing::{get, post},
 };
 
-use crate::{api, auth};
+use crate::{api, auth, facility};
 
 use super::*;
 
@@ -30,19 +31,23 @@ pub fn make_router(user_api: api::UserApiClient, jwt_config: auth::JwtConfig) ->
         jwt_config: jwt_config.clone(),
     });
 
-    // Public routes (no authentication required)
-    let public_routes = Router::new().route("/token", post(r_token::post));
+    let router_noauth = Router::new().route("/token", post(r_token::post));
 
-    // Routes that require JWT authentication
-    let protected_routes = Router::new()
+    let router_auth = Router::new()
         .route("/captures", get(r_capture::get))
         .route("/captures/import", post(r_import_capture::post))
         .route("/dummy", get(r_dummy::get))
         .route("/timeline", get(r_timeline::get))
         .layer(auth::JwtAxumLayer::new(jwt_config));
 
-    Router::new()
-        .merge(protected_routes)
-        .merge(public_routes)
-        .with_state(state)
+    let mut router = Router::new()
+        .merge(router_auth)
+        .merge(router_noauth)
+        .with_state(state);
+
+    router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));
+
+    router = facility::add_trace_propagation(router); // Cloud Run trace headers
+
+    router
 }

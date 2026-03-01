@@ -1,7 +1,12 @@
 use std::sync::Arc;
 
 use anyhow::anyhow;
-use axum::{Json, body, extract::State, response::IntoResponse};
+use axum::{
+    Json, body,
+    extract::State,
+    http::StatusCode,
+    response::{IntoResponse, Response},
+};
 use axum_extra::extract::Multipart;
 use chrono::{DateTime, Utc};
 
@@ -21,7 +26,7 @@ pub async fn post(
     user: DreamscrollAuthUser,
     State(state): State<Arc<RestState>>,
     multipart: Multipart,
-) -> Result<impl IntoResponse, api::ApiError> {
+) -> Result<Response, api::ApiError> {
     let import_form = extract_import_form(multipart)
         .await
         .map_err(api::ApiError::bad_request)?;
@@ -33,16 +38,26 @@ pub async fn post(
         )));
     }
 
-    let cap = state
+    let result = state
         .user_api
         .import_capture(
             &user.into(),
             import_form.media_bytes,
             import_form.created_at,
         )
-        .await?;
+        .await;
 
-    Ok(Json(cap))
+    match result {
+        Ok(cap) => Ok(Json(cap).into_response()),
+        Err(e) => {
+            if e.status_code == StatusCode::CONFLICT {
+                Ok(StatusCode::CONFLICT.into_response())
+            } else {
+                tracing::error!(error = ?e, "Import capture failed");
+                Err(e)
+            }
+        }
+    }
 }
 
 struct ImportForm {

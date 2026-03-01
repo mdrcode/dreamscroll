@@ -6,7 +6,7 @@ use tera::Tera;
 use tower_http::services::ServeDir;
 use tower_sessions::SessionManagerLayer;
 
-use crate::{api, auth};
+use crate::{api, auth, facility};
 
 use super::*;
 
@@ -43,7 +43,7 @@ pub fn make_ui_router(
 
     let mut router = Router::new()
         .route("/login", get(login_page).post(login_handler))
-        // POST-only: prevents forced-logout via navigation/redirect CSRF.
+        // logout is POST-only: prevents forced-logout via navigation/redirect CSRF.
         .route("/logout", post(logout_handler))
         .route(
             "/",
@@ -71,11 +71,14 @@ pub fn make_ui_router(
             post(upload).layer(login_required!(auth::WebAuthBackend, login_url = "/login")),
         )
         .layer(auth_layer)
-        .layer(DefaultBodyLimit::max(5 * 1024 * 1024)) // 5 MB
         .with_state(state);
 
     // For local dev, we serve static JS/CSS files directly
     router = router.nest_service("/static", ServeDir::new("web/v1/static"));
+
+    router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));
+
+    let router = facility::add_trace_propagation(router); // Cloud Run trace headers
 
     router
 }
