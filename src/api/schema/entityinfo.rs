@@ -1,7 +1,7 @@
 use crate::api;
 
 /// Represents either a KNode or SocialMedia entity with its associated capture
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(tag = "entity_type")]
 pub enum EntityInfo {
     KNode {
