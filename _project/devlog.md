@@ -1,5 +1,26 @@
 # Dreamscroll Development Log
 
+## 2026-02-27
+
+The app now works in production. dreamscroll.ai is live in prod.
+
+Accomplishments over the past couple weeks:
+
+- Fully Docker-ized container build and deploy
+- Full deployment via Google Cloud Run
+- Google Cloud Storage working end to end
+- Async Illumination working via PubSub
+- Illumination now uses Vertex AI endpoint when in prod
+
+Important pending work before we can declare version 0.1 complete:
+
+- [ ] Import via API, so can drive imports from local digest to prod
+- [ ] Generate alternate resolutions, including thumbnails, of media
+- [ ] Signed cookie protection on access to cloud storage bucket
+- [ ] OpenTelemetry metrics
+- [ ] Cached prompts with Vertex AI
+- [ ] Better UI on mobile web (white space too aggressive at present)
+
 ## 2026-02-18
 
 Been a busy week (but neglected to update the log). The app now fully runs
@@ -11,11 +32,11 @@ the app will be ready for (at least alpha-level) testing in gcloud environment.
 
 Pending backlog:
 
-- [ ] Re-architect the illuminator workflow to be webhooks driven by a queue
+- [X] Re-architect the illuminator workflow to be webhooks driven by a queue
   (pub sub) invoker.
 - [ ] Figure out signed cookie protection for media URLs (since currently) they are
   publicly visible but should be locked down.
-- [ ] Improve illuminator flow to use Vertex API instead of DMZ API.
+- [X] Improve illuminator flow to use Vertex API instead of DMZ API.
 
 ## 2026-02-7
 
@@ -23,7 +44,7 @@ Up next:
 
 - [X] Use a proper backing SessionStore for Auth
 - [X] Port the config structure over to envy and dotenvy
-- [ ] Get GCloud storage working end to end
+- [X] Get GCloud storage working end to end
 
 ## 2026-02-06
 
@@ -46,12 +67,12 @@ file-backed sqlite.
 
 The next step is to get it running in a fully "cloud-native" configuration like:
 
-- Use postgres in the cloud
-- Use prod GCloud storage (and possibly sign URLs)
-- Investigate using a more durable session store than just in-process-memory
-- Possibly this work will necessitate adopting a more flexible config solution
+- [X] Use postgres in the cloud
+- [X] Use prod GCloud storage (and possibly sign URLs)
+- [X] Investigate using a more durable session store than just in-process-memory
+- [X] Possibly this work will necessitate adopting a more flexible config solution
    like dotenvy
-- Use Cloud Run instead of manually deploying and running on an unmanaged instance
+- [X] Use Cloud Run instead of manually deploying and running on an unmanaged instance
 
 ## 2026-01-29
 

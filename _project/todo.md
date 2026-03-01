@@ -19,12 +19,14 @@
 - [ ] Save illumination llm metadata like tokens, compressed image bytes, base64 encoded bytes, etc
   - [added: 2026-01-02]
 
-- [ ] Illumination worker threads should handle errors gracefully and keep chugging
+- [X] Illumination worker threads should handle errors gracefully and keep chugging
   - [added: 2025-12-31]
+  - [resolved: 2026-02-10]
   - Currently afaict a single error (like a 400 Bad Request from API) and the thread finishes
 
-- [ ] Illuminator should not talk to DB directly (internally).
+- [X] Illuminator should not talk to DB directly (internally).
   - [added: 2025-12-30]
+  - [resolved: 2026-02-10]
   - Ideally the illuminator should not know about DB internals or controller logic. Some
     external entity should monitor/poll the DB and enqueue into Illuminator.
 
@@ -32,10 +34,11 @@
   - [added: 2025-12-28]
   - [resolved: 2026-01-10]
 
-- [ ] AppError should automatically trace internally as a convenence
+- [X] AppError should automatically trace internally as a convenence
   - [added: 2025-12-28]
+  - [resolved: 2026-02-27]
 
-- [ ] Extend the "body" of index.html to bottom of viewport always.
+- [] Extend the "body" of index.html to bottom of viewport always.
   - [added: 2025-12-19]
   - Currently when the timeline is empty (no images have been uploaded), the "body" of the HTML page is quite short vertically and so does not serve as a drag-and-drop target. You must drag the image to the very top of the page where the header is in order to trigger the drop behavior.
 
