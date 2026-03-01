@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use bytes::Bytes;
 use chrono::Utc;
-use sea_orm::TryIntoModel;
+use sea_orm::{TryIntoModel, prelude::*};
 
 use crate::{api::*, auth, database::DbHandle, model, storage};
 
@@ -9,32 +9,41 @@ pub async fn insert_capture(
     db: &DbHandle,
     storage: &Box<dyn storage::StorageProvider>,
     user_context: &auth::Context,
-    media_bytes: Bytes,
+    bytes: Bytes,
+    dedupe: bool,
+    created_at: Option<chrono::DateTime<Utc>>,
 ) -> Result<model::capture::ModelEx, ApiError> {
     let user_id = user_context.user_id();
     let shard = user_context.storage_shard();
 
-    if !infer::is_image(&media_bytes) {
+    if !infer::is_image(&bytes) {
         return Err(ApiError::bad_request(anyhow!(
             "Uploaded media is not an image."
         )));
     }
 
-    let media_type =
-        infer::get(&media_bytes).ok_or_else(|| anyhow!("Could not infer media type."))?;
+    let media_type = infer::get(&bytes).ok_or_else(|| anyhow!("Could not infer media type."))?;
     tracing::info!("Media type inferred as {}", media_type.mime_type());
 
-    // Currently we compute a hash when storing media as a convenience to
-    // avoid re-importing duplicates during development. We might remove this
-    // in the future or move hash computation to an async background job if it
-    // becomes a bottleneck.
-    let hash_blake3 = blake3::hash(&media_bytes);
-    let bytes_len = media_bytes.len();
+    // Optionally prevent duplicate imports as a convenience.
+    let hash_blake3 = blake3::hash(&bytes);
+    if dedupe
+        && model::media::Entity::find()
+            .filter(model::media::Column::HashBlake3.eq(hash_blake3.to_hex().to_string()))
+            .one(&db.conn)
+            .await?
+            .is_some()
+    {
+        return Err(ApiError::conflict(anyhow!(
+            "An image with the same blake3 content hash already exists in the database."
+        )));
+    }
 
+    let bytes_len = bytes.len();
     let handle = storage
-        .store_bytes(media_bytes, shard, Some(media_type.extension()))
+        .store_bytes(bytes, shard, Some(media_type.extension()))
         .await?;
-    tracing::info!("Stored media user:{} handle: {:?}", user_id, &handle);
+    tracing::info!(user_id, handle = ?handle, "Stored media");
 
     let media_builder = model::media::ActiveModel::builder()
         .set_user_id(user_id)
@@ -47,9 +56,11 @@ pub async fn insert_capture(
         .set_storage_uuid(handle.uuid)
         .set_storage_extension(handle.extension);
 
+    let created_at = created_at.unwrap_or_else(Utc::now);
+
     let capture = model::capture::ActiveModel::builder()
         .set_user_id(user_context.user_id())
-        .set_created_at(Utc::now())
+        .set_created_at(created_at)
         .add_media(media_builder)
         .save(&db.conn)
         .await?;

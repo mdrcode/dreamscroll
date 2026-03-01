@@ -1,3 +1,5 @@
+use chrono::{DateTime, Utc};
+
 use crate::{api::*, auth, database, pubsub, storage};
 
 #[derive(Clone)]
@@ -96,29 +98,62 @@ impl UserApiClient {
             .collect())
     }
 
-    #[tracing::instrument(skip(self, context, media_bytes))]
-    pub async fn insert_capture(
+    /// import_capture has two novel behaviors compared to insert_capture:
+    /// 1. It fails if the media hash already exists (to prevent duplicates)
+    /// 2. It allows specifying the creation timestamp of the capture
+    #[tracing::instrument(skip(self, user_context, media_bytes, created_at))]
+    pub async fn import_capture(
         &self,
-        context: &auth::Context,
+        user_context: &auth::Context,
         media_bytes: bytes::Bytes,
+        created_at: DateTime<Utc>,
     ) -> Result<schema::CaptureInfo, ApiError> {
-        let capture_model =
-            super::insert_capture(&self.db, &self.storage, context, media_bytes).await?;
+        let capture_model = super::insert_capture(
+            &self.db,
+            &self.storage,
+            user_context,
+            media_bytes,
+            true, // fail on media dupes
+            Some(created_at),
+        )
+        .await?;
 
         // TODO Should this live inside the inner insert_capture function instead?
-        match self.beacon.signal_new_capture(capture_model.id).await {
-            Ok(_) => {
-                tracing::info!(
-                    capture_id = capture_model.id,
-                    "Successfully signaled new capture to beacon"
-                )
-            }
-            Err(_) => {
-                tracing::warn!(
-                    "Ignoring error signaling new capture to beacon for capture_id {}",
-                    capture_model.id
-                );
-            }
+        if let Err(e) = self.beacon.signal_new_capture(capture_model.id).await {
+            tracing::warn!(
+                capture_id = capture_model.id,
+                error = ?e,
+                "Ignoring error signaling new capture to beacon",
+            );
+        }
+
+        Ok(self.info_maker.make_capture_info(capture_model))
+    }
+
+    #[tracing::instrument(skip(self, user_context, media_bytes))]
+
+    pub async fn insert_capture(
+        &self,
+        user_context: &auth::Context,
+        media_bytes: bytes::Bytes,
+    ) -> Result<schema::CaptureInfo, ApiError> {
+        let capture_model = super::insert_capture(
+            &self.db,
+            &self.storage,
+            user_context,
+            media_bytes,
+            false, // allow media dupes
+            None,
+        )
+        .await?;
+
+        // TODO Should this live inside the inner insert_capture function instead?
+        if let Err(e) = self.beacon.signal_new_capture(capture_model.id).await {
+            tracing::warn!(
+                capture_id = capture_model.id,
+                error = ?e,
+                "Ignoring error signaling new capture to beacon",
+            );
         }
 
         Ok(self.info_maker.make_capture_info(capture_model))

@@ -7,9 +7,6 @@ pub use schema::*;
 mod admin;
 pub use admin::client::AdminApiClient;
 
-mod import;
-pub use import::client::ImportApiClient;
-
 mod service;
 pub use service::client::ServiceApiClient;
 

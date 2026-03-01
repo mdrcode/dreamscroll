@@ -58,9 +58,11 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
             anyhow::bail!("Media file not found: {}", media_path.display());
         }
 
+        let media_bytes = tokio::fs::read(&media_path).await?.into();
+
         match state
-            .import_api
-            .import_capture(&user_context, entry.created_at, &media_path)
+            .user_api
+            .import_capture(&user_context, media_bytes, entry.created_at)
             .await
         {
             Err(e) => {

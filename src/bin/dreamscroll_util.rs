@@ -48,13 +48,11 @@ async fn main() -> anyhow::Result<()> {
     let empty_beacon = pubsub::Beacon::default();
     let user_api =
         api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), empty_beacon);
-    let import_api = api::ImportApiClient::new(db.clone(), stg.clone(), url_maker.clone());
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
 
     let state = CmdState {
         config,
         user_api,
-        import_api,
         service_api,
         db,
         stg: stg,
