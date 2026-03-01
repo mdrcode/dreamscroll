@@ -9,6 +9,7 @@ use crate::{api, auth};
 
 pub mod r_capture;
 pub mod r_dummy;
+pub mod r_import_capture;
 
 pub mod r_timeline;
 pub mod r_token;
@@ -40,6 +41,7 @@ pub fn make_router(user_api: api::UserApiClient, jwt_config: auth::JwtConfig) ->
     // Routes that require JWT authentication
     let protected_routes = Router::new()
         .route("/captures", get(r_capture::get))
+        .route("/captures/import", post(r_import_capture::post))
         .route("/dummy", get(r_dummy::get))
         .route("/timeline", get(r_timeline::get))
         .layer(auth::JwtAxumLayer::new(jwt_config));

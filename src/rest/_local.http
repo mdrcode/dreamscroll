@@ -27,3 +27,19 @@ Authorization: Bearer {{token.response.body.access_token}}
 
 GET http://localhost:8888/api/captures
 Authorization: Bearer {{token.response.body.access_token}}
+
+###
+POST http://localhost:8888/api/captures/import
+Authorization: Bearer {{token.response.body.access_token}}
+Content-Type: multipart/form-data; boundary=----dreamscrollboundary
+
+------dreamscrollboundary
+Content-Disposition: form-data; name="created_at"
+
+2024-01-02T03:04:05Z
+------dreamscrollboundary
+Content-Disposition: form-data; name="image"; filename="capture.jpg"
+Content-Type: image/jpeg
+
+< ./sample.jpg
+------dreamscrollboundary--
