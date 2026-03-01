@@ -35,9 +35,9 @@ async fn main() -> anyhow::Result<()> {
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
     let new_capture_topic = pubsub::PubSubTopicQueue::connect(
-        config.pubsub_emulator.as_deref(),
         config.gcloud_project_id.as_str(),
         config.pubsub_topic_id_new_capture.as_str(),
+        config.pubsub_emulator.as_deref(),
     )
     .await
     .context("Failed to initialize Pub/Sub topic queue")?;
@@ -79,8 +79,7 @@ async fn main() -> anyhow::Result<()> {
                 .context("JWT_SECRET not set, required for API")?
                 .as_bytes(),
         );
-        let api_router = rest::make_router(user_api.clone(), jwt);
-        router = router.nest("/api", api_router);
+        router = router.nest("/api", rest::make_router(user_api.clone(), jwt));
         tracing::info!("Initialized REST API routes");
     }
 

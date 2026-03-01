@@ -36,9 +36,9 @@ impl<TPayload> std::fmt::Debug for PubSubTopicQueue<TPayload> {
 
 impl<TPayload> PubSubTopicQueue<TPayload> {
     pub async fn connect(
-        emulator_endpoint: Option<&str>,
         project_id: &str,
         topic_id: &str,
+        emulator_endpoint: Option<&str>,
     ) -> anyhow::Result<Self> {
         let mut config = ClientConfig::default();
         config.project_id = Some(project_id.to_string());

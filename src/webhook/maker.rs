@@ -29,8 +29,6 @@ pub fn make_router(
         .with_state(state);
 
     router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));
-
     router = facility::add_trace_propagation(router); // Cloud Run trace headers
-
     router
 }

@@ -75,10 +75,7 @@ pub fn make_ui_router(
 
     // For local dev, we serve static JS/CSS files directly
     router = router.nest_service("/static", ServeDir::new("web/v1/static"));
-
     router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));
-
-    let router = facility::add_trace_propagation(router); // Cloud Run trace headers
-
+    router = facility::add_trace_propagation(router); // Cloud Run trace headers
     router
 }
