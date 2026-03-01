@@ -1,0 +1,26 @@
+# Dreamscroll production API requests
+#
+# 1) Generate or refresh token file:
+#    ./prod-api-token.sh
+#    (prompts for username + hidden password)
+#
+# 2) This file reads `PROD_API_TOKEN` from `.env` in this same folder (`src/rest/.env`).
+#    `prod-api-token.sh` writes that file for you, and it is gitignored.
+
+@token = {{$dotenv PROD_API_TOKEN}}
+
+###
+GET https://dreamscroll.ai/api/dummy
+Authorization: Bearer {{token}}
+
+###
+GET https://dreamscroll.ai/api/timeline
+Authorization: Bearer {{token}}
+
+###
+GET https://dreamscroll.ai/api/captures?id=1
+Authorization: Bearer {{token}}
+
+###
+GET https://dreamscroll.ai/api/captures
+Authorization: Bearer {{token}}

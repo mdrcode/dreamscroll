@@ -1,6 +1,9 @@
 .DS_Store
+.vscode/
+
 .git/
 .gitignore
+
 _project/
 localdev/
 target/

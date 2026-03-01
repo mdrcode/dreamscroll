@@ -7,4 +7,7 @@
 /localdev/*
 !/localdev/readme.txt
 
+.api-token.prod.env
+
 .env
+src/rest/.env
