@@ -1,15 +1,24 @@
 use google_cloud_aiplatform_v1::client::PredictionService;
-use google_cloud_aiplatform_v1::model::{Content, FileData, GenerationConfig, Part};
+use google_cloud_aiplatform_v1::model::{Blob, Content, FileData, GenerationConfig, Part};
+use serde::{Deserialize, Serialize};
 
 use crate::{api, illumination, storage};
 
 use super::*;
 
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PayloadMethod {
+    FileUri,
+    Inline,
+}
+
 /// Gemini-based illumination powered by the Vertex AI API. Uses Application Default Credentials
-/// and passes a Google Storage URI instead of raw bytes.
+/// and can pass either a GCS file URI or inline image bytes.
 #[derive(Clone)]
 pub struct GeminiVertexApiIlluminator {
     model_full_path: String,
+    payload_method: PayloadMethod,
     storage: Box<dyn storage::StorageProvider>,
 }
 
@@ -17,6 +26,7 @@ impl GeminiVertexApiIlluminator {
     pub fn new(
         project_id: &str,
         model_id: &str,
+        payload_method: PayloadMethod,
         storage: Box<dyn storage::StorageProvider>,
     ) -> Self {
         let model_full_path = format!(
@@ -28,7 +38,57 @@ impl GeminiVertexApiIlluminator {
 
         Self {
             model_full_path,
+            payload_method,
             storage,
+        }
+    }
+}
+
+pub async fn make_media_payload(
+    payload_method: PayloadMethod,
+    media: &api::MediaInfo,
+    storage: &dyn storage::StorageProvider,
+) -> anyhow::Result<Part> {
+    let storage_handle = storage::StorageHandle::from(media);
+    let mime_type = media.mime_type.clone().unwrap_or("image/jpeg".to_string());
+
+    match payload_method {
+        PayloadMethod::FileUri => {
+            let gcs_uri = storage
+                .make_prod_uri(&storage_handle)
+                .map_err(|e| anyhow::anyhow!("Failed to make GCS URI: {}", e))?;
+
+            tracing::info!(
+                mime_type,
+                storage_uuid = %storage_handle.uuid,
+                gcs_uri,
+                "Preparing file URI media payload for Illumination"
+            );
+
+            Ok(Part::new().set_file_data(
+                FileData::new()
+                    .set_mime_type(mime_type.clone())
+                    .set_file_uri(gcs_uri),
+            ))
+        }
+        PayloadMethod::Inline => {
+            let storage_handle = storage::StorageHandle::from(media);
+            let image_bytes = storage.retrieve_bytes(&storage_handle).await?;
+
+            tracing::info!(
+                mime_type,
+                storage_uuid = %storage_handle.uuid,
+                image_bytes_len = image_bytes.len(),
+                "Preparing inline data media payload for Illumination"
+            );
+
+            // Blob.data is raw bytes — gRPC/protobuf transport handles binary
+            // natively; base64 encoding only needed for REST/JSON endpoints.
+            Ok(Part::new().set_inline_data(
+                Blob::new()
+                    .set_mime_type(mime_type.clone())
+                    .set_data(image_bytes),
+            ))
         }
     }
 }
@@ -50,20 +110,6 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
             .get(0)
             .ok_or_else(|| anyhow::anyhow!("Capture has no media"))?;
 
-        let storage_handle = storage::StorageHandle::from(media1);
-        let gcs_uri = self
-            .storage
-            .make_prod_uri(&storage_handle)
-            .map_err(|e| anyhow::anyhow!("Failed to make GCS URI: {}", e))?;
-
-        tracing::info!(
-            capture.id,
-            media1.id,
-            gcs_uri,
-            mime_type = ?media1.mime_type,
-            "GeminiVertexApiIlluminator: preparing for illumination",
-        );
-
         let client = PredictionService::builder()
             .build()
             .await
@@ -71,11 +117,7 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
 
         let request_content = Content::new().set_role("user").set_parts(vec![
             Part::new().set_text(prompts::PROMPT.to_string()),
-            Part::new().set_file_data(
-                FileData::new()
-                    .set_mime_type(media1.mime_type.clone().unwrap_or("image/jpeg".to_string()))
-                    .set_file_uri(gcs_uri),
-            ),
+            make_media_payload(self.payload_method, &media1, self.storage.as_ref()).await?,
         ]);
 
         let generation_config = GenerationConfig::new()
@@ -94,7 +136,10 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
         let inference_duration = inference_start.elapsed();
 
         let first_candidate = response.candidates.first().ok_or_else(|| {
-            anyhow::anyhow!("Vertex AI did not return response candidate: {:?}", response)
+            anyhow::anyhow!(
+                "Vertex AI did not return response candidate: {:?}",
+                response
+            )
         })?;
 
         let json_text = first_candidate
@@ -104,23 +149,23 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
             .and_then(|part| part.text())
             .ok_or_else(|| {
                 anyhow::anyhow!(
-                    "Vertext AI did not return response JSON text \
-                    finish_reason: {:?}. Vertex AI response: {:?}",
+                    "Vertex AI did not return JSON text finish_reason: {:?}. Vertex AI response: {:?}",
                     first_candidate.finish_reason,
                     response
                 )
             })?;
 
         let structured: response::GeminiStructuredResponse = serde_json::from_str(json_text)
-            .map_err(|e| anyhow::anyhow!("Failed to parse structured response: {}", e))?;
+            .map_err(|e| anyhow::anyhow!("Vertex AI did not return structured response: {}", e))?;
 
         tracing::info!(
             capture.id,
-            illumination_inference_ms = inference_duration.as_millis(),
+            illumination_vertexapi_ms = inference_duration.as_millis(),
             num_entities = ?structured.entities.len(),
             num_social_media_accounts = ?structured.social_media_accounts.len(),
             num_suggested_searches = ?structured.suggested_searches.len(),
-            "GeminiVertexApiIlluminator: Success",
+            "GeminiVertexApiIlluminator: Success for capture {}",
+            capture.id
         );
 
         Ok(illumination::Illumination::from(structured))

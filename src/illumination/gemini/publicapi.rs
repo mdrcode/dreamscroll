@@ -55,15 +55,15 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
 
         let storage_handle = storage::StorageHandle::from(media1);
         let buffer = self.storage.retrieve_bytes(&storage_handle).await?;
-
         let enc = base64::engine::general_purpose::STANDARD.encode(buffer);
 
         tracing::info!(
             capture.id,
             media1.id,
+            storage_uuid = %storage_handle.uuid,
             base64_bytes = enc.len(),
             mime_type = ?media1.mime_type,
-            "GeminiPublicApiIlluminator: preparing for illumination",
+            "GeminiPublicApiIlluminator: preparing for illumination of capture {}", capture.id,
         );
 
         let client = Client::new();
@@ -91,6 +91,7 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
         });
 
         // Send request
+        let inference_start = std::time::Instant::now();
         let response = client
             .post(&self.model_url)
             .header("x-goog-api-key", &self.gemini_api_key)
@@ -98,6 +99,7 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
             .json(&request_body)
             .send()
             .await?;
+        let inference_duration = inference_start.elapsed();
 
         if response.status().is_success() {
             let parse: response::GeminiRawContent = response.json().await?;
@@ -110,7 +112,9 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
                 num_entities = ?structured.entities.len(),
                 num_social_media_accounts = ?structured.social_media_accounts.len(),
                 num_suggested_searches = ?structured.suggested_searches.len(),
-                "GeminiPublicApiIlluminator: Successfully parsed illumination response",
+                illumination_publicapi_ms = inference_duration.as_millis(),
+                "GeminiPublicApiIlluminator: Success for capture {}",
+                capture.id
             );
 
             Ok(illumination::Illumination::from(structured))

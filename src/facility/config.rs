@@ -4,7 +4,7 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Deserializer};
 use strum::{Display, EnumString};
 
-use crate::{database, storage};
+use crate::{database, illumination, storage};
 
 #[derive(Debug, Display, EnumString, PartialEq)]
 #[strum(serialize_all = "lowercase")]
@@ -16,6 +16,10 @@ pub enum Service {
 
 fn default_cookie_secure() -> bool {
     true
+}
+
+fn default_gemini_payload_method() -> illumination::gemini::PayloadMethod {
+    illumination::gemini::PayloadMethod::Inline
 }
 
 #[derive(Deserialize)]
@@ -34,6 +38,8 @@ pub struct Config {
 
     pub illuminator: String,
     pub gemini_api_key: Option<String>,
+    #[serde(default = "default_gemini_payload_method")]
+    pub gemini_payload_method: illumination::gemini::PayloadMethod,
 
     pub db_backend: database::DbBackend,
 
