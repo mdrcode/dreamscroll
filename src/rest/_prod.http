@@ -44,5 +44,5 @@ Content-Type: image/jpeg
 
 ###
 # Returns 204 No Content on success
-DELETE https://dreamscroll.ai/api/captures/1
+DELETE https://dreamscroll.ai/api/captures/575
 Authorization: Bearer {{token}}

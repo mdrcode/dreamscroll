@@ -1,7 +1,7 @@
 # @name token
 # @prompt username
 # @prompt password
-POST http://localhost:8888/api/token HTTP/1.1
+POST http://localhost:8080/api/token HTTP/1.1
 Content-Type: application/json
 
 {
@@ -10,26 +10,26 @@ Content-Type: application/json
 }
 ###
 
-GET http://localhost:8888/api/dummy
+GET http://localhost:8080/api/dummy
 Authorization: Bearer {{token.response.body.access_token}}
 
 ###
 
-GET http://localhost:8888/api/timeline
+GET http://localhost:8080/api/timeline
 Authorization: Bearer {{token.response.body.access_token}}
 
 ###
 
-GET http://localhost:8888/api/captures?id=1
+GET http://localhost:8080/api/captures?id=1
 Authorization: Bearer {{token.response.body.access_token}}
 
 ###
 
-GET http://localhost:8888/api/captures
+GET http://localhost:8080/api/captures
 Authorization: Bearer {{token.response.body.access_token}}
 
 ###
-POST http://localhost:8888/api/captures/import
+POST http://localhost:8080/api/captures/import
 Authorization: Bearer {{token.response.body.access_token}}
 Content-Type: multipart/form-data; boundary=----dreamscrollboundary
 
@@ -46,5 +46,5 @@ Content-Type: image/jpeg
 
 ###
 # Returns 204 No Content on success
-DELETE http://localhost:8888/api/captures/1
+DELETE http://localhost:8080/api/captures/527
 Authorization: Bearer {{token.response.body.access_token}}

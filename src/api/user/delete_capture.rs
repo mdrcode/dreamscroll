@@ -26,6 +26,8 @@ pub async fn delete_capture(
         )));
     }
 
+    // TODO this should happen via cascading deletes in the database
+
     let illumination_ids = model::illumination::Entity::find()
         .filter(model::illumination::Column::UserId.eq(context.user_id()))
         .filter(model::illumination::Column::CaptureId.eq(capture_id))

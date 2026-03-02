@@ -62,6 +62,8 @@ pub async fn delete(
         .delete_capture(&user.into(), capture_id)
         .await?;
 
+    tracing::info!("Deleted capture {} successfully", capture_id);
+
     Ok(StatusCode::NO_CONTENT)
 }
 
