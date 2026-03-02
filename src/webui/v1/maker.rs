@@ -40,9 +40,12 @@ pub fn make_ui_router(
         .with_name("dreamscroll_session");
 
     let state = Arc::new(WebState { user_api, tera });
+    let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 
-    let routes_open =
-        Router::new().route("/login", get(r_login_page::get).post(r_auth::login_post));
+    let routes_open = Router::new()
+        .route("/login", get(r_login_page::get).post(r_auth::login_post))
+        // AuthManagerLayer needs to be enabled even though login not required
+        .layer(auth_layer.clone());
 
     let routes_protected = Router::new()
         .route("/", get(r_index::get))
@@ -53,7 +56,7 @@ pub fn make_ui_router(
         .route("/upload", post(r_upload::post))
         .route("/logout", post(r_auth::logout_post))
         .layer(login_required!(auth::WebAuthBackend, login_url = "/login")) // MUST come first
-        .layer(AuthManagerLayerBuilder::new(auth_backend, session_layer).build());
+        .layer(auth_layer);
 
     let mut router = axum::Router::new()
         .merge(routes_protected)

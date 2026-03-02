@@ -14,7 +14,7 @@ Accomplishments over the past couple weeks:
 
 Important pending work before we can declare version 0.1 complete:
 
-- [ ] Import via API, so can drive imports from local digest to prod
+- [X] Import via API, so can drive imports from local digest to prod
 - [ ] Generate alternate resolutions, including thumbnails, of media
 - [ ] Signed cookie protection on access to cloud storage bucket
 - [ ] OpenTelemetry metrics
