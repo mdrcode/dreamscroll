@@ -82,19 +82,21 @@ pub async fn run(_state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()>
                         entry.original_id
                     );
                     skipped_captures += 1;
-                    continue;
                 } else {
+                    tracing::error!("Failed to import capture {}: {:?}", entry.original_id, e);
                     anyhow::bail!("Failed to import capture {}: {:?}", entry.original_id, e);
                 }
             }
-            _ => (),
-        }
-
-        imported_captures += 1;
+            Ok(_) => {
+                tracing::info!("Imported capture {}", entry.original_id);
+                imported_captures += 1;
+            }
+        };
     }
 
     println!(
-        "Complete. [digest_contained: {}] [imported: {}] [skipped: {}]",
+        "Complete for host: {} digest_contained: {} imported: {} skipped: {}",
+        args.host,
         digest.captures.len(),
         imported_captures,
         skipped_captures

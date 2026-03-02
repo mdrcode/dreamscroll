@@ -50,8 +50,8 @@ pub fn make_ui_router(
         .route("/entity/social/{id}", get(r_entity::get_social_media))
         .route("/upload", post(r_upload::post))
         .route("/logout", post(r_auth::logout_post))
-        .layer(AuthManagerLayerBuilder::new(auth_backend, session_layer).build())
-        .layer(login_required!(auth::WebAuthBackend, login_url = "/login"));
+        .layer(login_required!(auth::WebAuthBackend, login_url = "/login")) // MUST come first
+        .layer(AuthManagerLayerBuilder::new(auth_backend, session_layer).build());
 
     let mut router = axum::Router::new()
         .merge(routes_protected)
