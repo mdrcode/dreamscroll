@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{
     Router,
     extract::DefaultBodyLimit,
-    routing::{get, post},
+    routing::{delete, get, post},
 };
 
 use crate::{api, auth, facility};
@@ -35,6 +35,7 @@ pub fn make_api_router(user_api: api::UserApiClient, jwt_config: auth::JwtConfig
 
     let routes_protected = Router::new()
         .route("/captures", get(r_capture::get))
+        .route("/captures/{capture_id}", delete(r_capture::delete))
         .route("/captures/import", post(r_import_capture::post))
         .route("/dummy", get(r_dummy::get))
         .route("/timeline", get(r_timeline::get))

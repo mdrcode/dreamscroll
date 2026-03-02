@@ -113,6 +113,27 @@ impl Client {
         Self::parse_json_response(response).await
     }
 
+    pub async fn delete_capture(&self, capture_id: i32) -> anyhow::Result<()> {
+        let response = self
+            .reqwest_client
+            .delete(format!("{}/captures/{}", self.base_url, capture_id))
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .context("failed to call delete capture endpoint")?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::NO_CONTENT {
+            Ok(())
+        } else if status == reqwest::StatusCode::UNAUTHORIZED {
+            let body = read_error_body(response).await;
+            Err(anyhow!("unauthorized (401): {}", body))
+        } else {
+            let body = read_error_body(response).await;
+            Err(anyhow!("request failed with status {}: {}", status, body))
+        }
+    }
+
     pub fn access_token(&self) -> &str {
         &self.access_token
     }

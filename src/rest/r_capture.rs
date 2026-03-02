@@ -1,6 +1,11 @@
 use std::sync::Arc;
 
-use axum::{Json, extract::State, response::IntoResponse};
+use axum::{
+    Json,
+    extract::{Path, State},
+    http::StatusCode,
+    response::IntoResponse,
+};
 use axum_extra::extract::Query;
 use serde::Deserialize;
 
@@ -42,6 +47,22 @@ pub async fn get(
     let capture_infos = state.user_api.get_captures(&user.into(), ids).await?;
 
     Ok(Json(capture_infos))
+}
+
+/// DELETE /api/captures/{capture_id} - Delete a capture and its associated data
+///
+/// Requires JWT authentication. The capture must belong to the authenticated user.
+pub async fn delete(
+    user: DreamscrollAuthUser,
+    State(state): State<Arc<RestState>>,
+    Path(capture_id): Path<i32>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    state
+        .user_api
+        .delete_capture(&user.into(), capture_id)
+        .await?;
+
+    Ok(StatusCode::NO_CONTENT)
 }
 
 #[cfg(test)]

@@ -160,6 +160,15 @@ impl UserApiClient {
     }
 
     #[tracing::instrument(skip(self, context))]
+    pub async fn delete_capture(
+        &self,
+        context: &auth::Context,
+        capture_id: i32,
+    ) -> Result<(), ApiError> {
+        super::delete_capture(&self.db, context, capture_id).await
+    }
+
+    #[tracing::instrument(skip(self, context))]
     pub async fn search(
         &self,
         context: &auth::Context,

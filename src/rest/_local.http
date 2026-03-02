@@ -43,3 +43,8 @@ Content-Type: image/jpeg
 
 < ./sample.jpg
 ------dreamscrollboundary--
+
+###
+# Returns 204 No Content on success
+DELETE http://localhost:8888/api/captures/1
+Authorization: Bearer {{token.response.body.access_token}}
