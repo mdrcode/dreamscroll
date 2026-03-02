@@ -4,7 +4,7 @@ use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use tera::Tera;
 use tower_http::services::ServeDir;
-use tower_sessions::SessionManagerLayer;
+use tower_sessions::{Expiry, SessionManagerLayer, cookie};
 
 use crate::{api, auth, facility};
 
@@ -26,6 +26,8 @@ pub fn make_ui_router(
     tracing::info!("Loaded tera templates");
 
     let session_layer = SessionManagerLayer::new(session_store)
+        // Expire session after two days of inactivity
+        .with_expiry(Expiry::OnInactivity(cookie::time::Duration::days(2)))
         // true == only send cookies over HTTPS (production)
         // false == allow cookies over HTTP (local dev)
         .with_secure(cookie_secure)
