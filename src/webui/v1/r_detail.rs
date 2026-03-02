@@ -13,7 +13,7 @@ use crate::{api, auth};
 use super::WebState;
 
 
-pub async fn detail(
+pub async fn get(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     Path(id): Path<i32>,

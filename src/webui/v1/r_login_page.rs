@@ -19,7 +19,7 @@ pub struct LoginParams {
     error: Option<String>,
 }
 
-pub async fn login_page(
+pub async fn get(
     auth: AuthSession<auth::WebAuthBackend>,
     session: Session,
     Query(params): Query<LoginParams>,

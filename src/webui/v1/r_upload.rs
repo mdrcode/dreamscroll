@@ -13,7 +13,7 @@ use crate::{api, auth};
 
 use super::WebState;
 
-pub async fn upload(
+pub async fn post(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     multipart: Multipart,

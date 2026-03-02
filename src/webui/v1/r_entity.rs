@@ -12,7 +12,7 @@ use crate::{api, auth};
 
 use super::WebState;
 
-pub async fn entity_knode(
+pub async fn get_knode(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     Path(id): Path<i32>,
@@ -29,7 +29,7 @@ pub async fn entity_knode(
     render_entity(&state, entity_info)
 }
 
-pub async fn entity_social_media(
+pub async fn get_social_media(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     Path(id): Path<i32>,

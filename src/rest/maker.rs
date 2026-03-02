@@ -25,15 +25,15 @@ pub struct RestState {
 /// Note that these routes are at top level within the returned router.
 /// Expectation is that they are nested under `/api`, etc in the main
 /// router.
-pub fn make_router(user_api: api::UserApiClient, jwt_config: auth::JwtConfig) -> Router {
+pub fn make_api_router(user_api: api::UserApiClient, jwt_config: auth::JwtConfig) -> Router {
     let state = Arc::new(RestState {
         user_api,
         jwt_config: jwt_config.clone(),
     });
 
-    let router_noauth = Router::new().route("/token", post(r_token::post));
+    let routes_open = Router::new().route("/token", post(r_token::post));
 
-    let router_auth = Router::new()
+    let routes_protected = Router::new()
         .route("/captures", get(r_capture::get))
         .route("/captures/import", post(r_import_capture::post))
         .route("/dummy", get(r_dummy::get))
@@ -41,8 +41,8 @@ pub fn make_router(user_api: api::UserApiClient, jwt_config: auth::JwtConfig) ->
         .layer(auth::JwtAxumLayer::new(jwt_config));
 
     let mut router = Router::new()
-        .merge(router_auth)
-        .merge(router_noauth)
+        .merge(routes_protected)
+        .merge(routes_open)
         .with_state(state);
 
     router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));

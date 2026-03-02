@@ -19,7 +19,7 @@ pub struct SearchParams {
     q: String,
 }
 
-pub async fn search(
+pub async fn get(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     Query(params): Query<SearchParams>,

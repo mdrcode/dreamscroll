@@ -79,14 +79,17 @@ async fn main() -> anyhow::Result<()> {
                 .context("JWT_SECRET not set, required for API")?
                 .as_bytes(),
         );
-        router = router.nest("/api", rest::make_router(user_api.clone(), jwt));
+        router = router.nest("/api", rest::make_api_router(user_api.clone(), jwt));
         tracing::info!("Initialized REST API routes");
     }
 
     // Webhook routes (no auth, protected by GCloud IAM in prod)
     if config.services.contains(&facility::Service::Webhook) {
         let illuminator = illumination::make_illuminator(&config, stg.clone());
-        router = router.nest("/_wh", webhook::make_router(service_api, illuminator));
+        router = router.nest(
+            "/_wh",
+            webhook::make_webhook_router(service_api, illuminator),
+        );
         tracing::info!("Initialized webhook routes");
     }
 

@@ -13,7 +13,7 @@ pub struct LoginFormData {
     pub csrf_token: String,
 }
 
-pub async fn login_handler(
+pub async fn login_post(
     mut auth: AuthSession<auth::WebAuthBackend>,
     session: Session,
     Form(form): Form<LoginFormData>,
@@ -63,7 +63,7 @@ pub async fn login_handler(
 /// Logout is POST-only. This, combined with `SameSite=Lax` on the session
 /// cookie, prevents forced-logout CSRF attacks since cross-site POSTs cannot carry
 /// the session cookie.
-pub async fn logout_handler(
+pub async fn logout_post(
     mut auth: AuthSession<auth::WebAuthBackend>,
 ) -> Result<Redirect, StatusCode> {
     if auth.logout().await.is_err() {
