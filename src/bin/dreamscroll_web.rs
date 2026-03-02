@@ -97,7 +97,11 @@ async fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind(&host_port)
         .await
         .context("Failed to bind TCP listener")?;
-    tracing::info!("Bound listener on {}, will start serving...", host_port);
+    tracing::info!(
+        "Bound listener on {}, will start serving {:?}...",
+        host_port,
+        config.services
+    );
     axum::serve(listener, router)
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;

@@ -62,6 +62,7 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
             capture.id,
             media1.id,
             base64_bytes = enc.len(),
+            mime_type = ?media1.mime_type,
             "GeminiPublicApiIlluminator: preparing for illumination",
         );
 

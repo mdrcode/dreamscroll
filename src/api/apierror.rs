@@ -62,7 +62,7 @@ impl IntoResponse for ApiError {
             report_id = %report_id,
             trace_id = trace_id.as_deref().unwrap_or("none"),
             error = ?self.error,
-            "ApiError rendered into Axum Response"
+            "ApiError: {:?}", self.error
         );
 
         let body = match trace_id {

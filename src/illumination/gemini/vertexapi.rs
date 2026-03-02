@@ -60,6 +60,7 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
             capture.id,
             media1.id,
             gcs_uri,
+            mime_type = ?media1.mime_type,
             "GeminiVertexApiIlluminator: preparing for illumination",
         );
 
@@ -89,19 +90,26 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
             .set_generation_config(generation_config)
             .send()
             .await
-            .map_err(|e| {
-                tracing::error!(capture.id, error_text = ?e, "GeminiVertexApiIlluminator: API request error");
-                anyhow::anyhow!("Vertex AI API error: {}", e)
-            })?;
+            .map_err(|e| anyhow::anyhow!("Vertex AI API error: {}", e))?;
         let inference_duration = inference_start.elapsed();
 
-        let json_text = response
-            .candidates
-            .first()
-            .and_then(|c| c.content.as_ref())
+        let first_candidate = response.candidates.first().ok_or_else(|| {
+            anyhow::anyhow!("Vertex AI did not return response candidate: {:?}", response)
+        })?;
+
+        let json_text = first_candidate
+            .content
+            .as_ref()
             .and_then(|content| content.parts.first())
             .and_then(|part| part.text())
-            .ok_or_else(|| anyhow::anyhow!("No text content in Vertex AI response"))?;
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Vertext AI did not return response JSON text \
+                    finish_reason: {:?}. Vertex AI response: {:?}",
+                    first_candidate.finish_reason,
+                    response
+                )
+            })?;
 
         let structured: response::GeminiStructuredResponse = serde_json::from_str(json_text)
             .map_err(|e| anyhow::anyhow!("Failed to parse structured response: {}", e))?;

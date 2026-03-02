@@ -27,25 +27,7 @@ pub async fn post(
         api::ApiError::bad_request(err)
     })?;
 
-    tracing::Span::current().record("capture_id", payload.capture_id);
-
-    if let Some(message_id) = &body.message.message_id {
-        tracing::info!(message_id, "Processing Pub/Sub illumination push message");
-    }
-    if let Some(subscription) = &body.subscription {
-        tracing::debug!(subscription, "Pub/Sub subscription source");
-    }
-
-    execute(&state.service_api, &state.illuminator, payload.capture_id)
-        .await
-        .map_err(|err| {
-            tracing::error!(
-                capture_id = payload.capture_id,
-                error = ?err,
-                "Failed processing Pub/Sub illumination task"
-            );
-            err
-        })?;
+    execute(&state.service_api, &state.illuminator, payload.capture_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
@@ -55,6 +37,8 @@ pub async fn execute(
     illuminator: &Box<dyn illumination::Illuminator>,
     capture_id: i32,
 ) -> Result<(), api::ApiError> {
+    tracing::Span::current().record("capture_id", capture_id);
+
     let fetch = service_api.get_captures(Some(vec![capture_id])).await?;
 
     let Some(capture) = fetch.into_iter().next() else {
@@ -71,22 +55,13 @@ pub async fn execute(
         return Ok(());
     }
 
-    let illumination = match illuminator.illuminate(&capture).await {
-        Ok(value) => value,
-        Err(err) => {
-            tracing::error!(
-                capture_id,
-                error = ?err,
-                "Illumination model call failed for capture"
-            );
-            return Err(api::ApiError::internal(err));
-        }
-    };
+    let illumination = illuminator.illuminate(&capture).await?;
 
     service_api
         .insert_illumination(&capture, illumination)
         .await?;
 
     tracing::info!(capture_id, "Illumination completed and inserted");
+
     Ok(())
 }
