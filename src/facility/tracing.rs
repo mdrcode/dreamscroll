@@ -1,20 +1,20 @@
+use super::cloud_logging_format::CloudLoggingFormat;
 use anyhow::Context;
 use axum::http;
 use opentelemetry::trace::TraceContextExt;
 use opentelemetry_gcloud_trace::GcpCloudTraceExporterBuilder;
 use tower_http::trace::TraceLayer;
 use tracing_opentelemetry::{OpenTelemetryLayer, OpenTelemetrySpanExt};
-use tracing_stackdriver::{CloudTraceConfiguration, layer};
 use tracing_subscriber::{
     EnvFilter, Registry,
-    fmt::{format::FmtSpan, time::ChronoLocal},
+    fmt::{self, format::FmtSpan, time::ChronoLocal},
     layer::SubscriberExt,
 };
 
 pub async fn init_tracing() -> anyhow::Result<()> {
     if std::env::var("K_SERVICE").is_ok() {
-        // Running within Cloud Run, so enable Cloud Trace and Stackdriver
-        // for integrated tracing + logging with trace/span IDs.
+        // Running within Cloud Run, so enable Cloud Trace/Logging with
+        // integrated trace/span IDs and Cloud Logging JSON formatting.
 
         // Extract project_id manually because config is not available yet
         let project_id = std::env::var("GCLOUD_PROJECT_ID")
@@ -33,16 +33,17 @@ pub async fn init_tracing() -> anyhow::Result<()> {
         opentelemetry::global::set_tracer_provider(provider.clone());
 
         // 2. Layers
-        let telemetry_layer = OpenTelemetryLayer::new(tracer); // spans to Cloud Trace
+        let telemetry_layer = OpenTelemetryLayer::new(tracer); // spans → Cloud Trace
 
-        let stackdriver_layer = layer()
+        // Cloud Logging JSON formatter that reads OTel trace context directly
+        let cloud_logging_layer = fmt::layer()
             .with_writer(std::io::stderr)
-            .with_cloud_trace(CloudTraceConfiguration { project_id });
+            .event_format(CloudLoggingFormat { project_id });
 
         let subscriber = Registry::default()
             .with(EnvFilter::from_default_env())
             .with(telemetry_layer) // tracing spans → Cloud Trace
-            .with(stackdriver_layer); // events + spans → Cloud Logging (with traceId/spanId)
+            .with(cloud_logging_layer); // events → Cloud Logging (with traceId/spanId)
 
         tracing::subscriber::set_global_default(subscriber)?;
     } else {

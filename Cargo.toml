@@ -50,7 +50,6 @@ tower-sessions = "0.14.0"
 tower-sessions-sqlx-store = { version = "0.15.0", features = ["postgres", "sqlite"]}
 tracing = "0.1.44"
 tracing-opentelemetry = "0.32.1"
-tracing-stackdriver = { version = "0.10.0", features = ["opentelemetry"] }
 tracing-subscriber = { version ="0.3.22", features = ["chrono", "env-filter", "json", "registry"]}
 uuid = { version = "1.0", features = ["v4"] }
 webbrowser = "1.0.6"
