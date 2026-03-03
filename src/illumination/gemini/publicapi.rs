@@ -103,20 +103,24 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
 
         if response.status().is_success() {
             let response_text = response.text().await?;
-            let parse: response::GeminiRawContent =
-                serde_json::from_str(&response_text).map_err(|e| {
+            let parse: response::GeminiRawContent = serde_json::from_str(&response_text)
+                .inspect_err(|e| {
                     tracing::warn!(
                         capture.id,
                         error = %e,
                         response_text = %response_text,
                         "Failed to parse GeminiRawContent JSON"
                     );
-                    anyhow::anyhow!("Failed to parse GeminiRawContent JSON: {}", e)
                 })?;
             let structured_json = &parse.candidates[0].content.parts[0].text;
             let structured: response::GeminiStructuredResponse =
-                serde_json::from_str(structured_json).map_err(|e| {
-                    anyhow::anyhow!("Failed to parse GeminiStructuredResponse JSON: {}", e)
+                serde_json::from_str(structured_json).inspect_err(|e| {
+                    tracing::warn!(
+                        capture.id,
+                        error = %e,
+                        structured_json = %structured_json,
+                        "Failed to parse GeminiStructuredResponse JSON"
+                    );
                 })?;
 
             tracing::info!(
