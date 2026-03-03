@@ -58,7 +58,7 @@ pub async fn make_media_payload(
                 .make_prod_uri(&storage_handle)
                 .map_err(|e| anyhow::anyhow!("Failed to make GCS URI: {}", e))?;
 
-            tracing::info!(
+            tracing::debug!(
                 mime_type,
                 storage_uuid = %storage_handle.uuid,
                 gcs_uri,
@@ -75,7 +75,7 @@ pub async fn make_media_payload(
             let storage_handle = storage::StorageHandle::from(media);
             let image_bytes = storage.retrieve_bytes(&storage_handle).await?;
 
-            tracing::info!(
+            tracing::debug!(
                 mime_type,
                 storage_uuid = %storage_handle.uuid,
                 image_bytes_len = image_bytes.len(),
@@ -124,6 +124,10 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
             .set_response_mime_type("application/json")
             .set_response_json_schema(response::make_response_schema());
 
+        tracing::info!(
+            "Starting illumination of capture {} via Gemini Vertex",
+            capture.id
+        );
         let inference_start = std::time::Instant::now();
         let response = client
             .generate_content()
@@ -156,7 +160,14 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
             })?;
 
         let structured: response::GeminiStructuredResponse = serde_json::from_str(json_text)
-            .map_err(|e| anyhow::anyhow!("Vertex AI did not return structured response: {}", e))?;
+            .inspect_err(|e| {
+                tracing::warn!(
+                    capture.id,
+                    error = %e,
+                    json_text = %json_text,
+                    "Failed to parse GeminiStructuredResponse JSON from Vertex AI"
+                );
+            })?;
 
         tracing::info!(
             capture.id,

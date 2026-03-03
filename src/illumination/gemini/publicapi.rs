@@ -57,7 +57,7 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
         let buffer = self.storage.retrieve_bytes(&storage_handle).await?;
         let enc = base64::engine::general_purpose::STANDARD.encode(buffer);
 
-        tracing::info!(
+        tracing::debug!(
             capture.id,
             media1.id,
             storage_uuid = %storage_handle.uuid,
@@ -91,6 +91,10 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
         });
 
         // Send request
+        tracing::info!(
+            "Starting illumination of capture {} via Gemini Public",
+            capture.id
+        );
         let inference_start = std::time::Instant::now();
         let response = client
             .post(&self.model_url)
