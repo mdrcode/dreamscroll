@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
 use axum_login::{AuthManagerLayerBuilder, login_required};
-use tera::Tera;
+use tera::{Context, Tera};
 use tower_http::services::ServeDir;
 use tower_sessions::{Expiry, SessionManagerLayer, cookie};
 
@@ -13,6 +13,15 @@ use super::*;
 pub struct WebState {
     pub user_api: api::UserApiClient,
     pub tera: Tera,
+    pub static_asset_version: String,
+}
+
+impl WebState {
+    pub fn template_context(&self) -> Context {
+        let mut context = Context::new();
+        context.insert("static_asset_version", &self.static_asset_version);
+        context
+    }
 }
 
 pub fn make_ui_router(
@@ -39,7 +48,16 @@ pub fn make_ui_router(
         .with_same_site(tower_sessions::cookie::SameSite::Lax)
         .with_name("dreamscroll_session");
 
-    let state = Arc::new(WebState { user_api, tera });
+    let static_asset_version = std::env::var("K_REVISION")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+
+    let state = Arc::new(WebState {
+        user_api,
+        tera,
+        static_asset_version,
+    });
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 
     let routes_open = Router::new()

@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>dreamscroll - {% if entity.entity_type == "KNode" %}{{ entity.name }}{% else %}{{ entity.display_name }}{% endif %}</title>
-    <link rel="stylesheet" href="/static/common.css">
+    <link rel="stylesheet" href="/static/common.css?v={{ static_asset_version | urlencode }}">
     <style>
         #page-content-container {
             max-width: 960px;

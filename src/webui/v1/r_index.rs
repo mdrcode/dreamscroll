@@ -6,7 +6,6 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use axum_login::{AuthSession, AuthUser};
-use tera::Context;
 
 use crate::{api, auth};
 
@@ -26,7 +25,7 @@ pub async fn get(
         user_id
     );
 
-    let mut context = Context::new();
+    let mut context = state.template_context();
     context.insert("capture_infos", &capture_infos);
 
     let rendered = state

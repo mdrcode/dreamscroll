@@ -7,7 +7,6 @@ use axum::{
 };
 use axum_login::{AuthSession, AuthUser};
 use serde::Deserialize;
-use tera::Context;
 
 use crate::{api, auth};
 
@@ -31,7 +30,7 @@ pub async fn get(
 
     let capture_infos: Vec<_> = state.user_api.search(&user.into(), query).await?;
 
-    let mut context = Context::new();
+    let mut context = state.template_context();
     context.insert("query", query);
     context.insert("result_count", &capture_infos.len());
     context.insert("capture_infos", &capture_infos);

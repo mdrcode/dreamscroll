@@ -7,7 +7,6 @@ use axum::{
 };
 use axum_login::AuthSession;
 use serde::Deserialize;
-use tera::Context;
 use tower_sessions::Session;
 
 use crate::{api, auth};
@@ -25,7 +24,7 @@ pub async fn get(
     Query(params): Query<LoginParams>,
     State(state): State<Arc<WebState>>,
 ) -> Result<Response, api::ApiError> {
-    let mut context = Context::new();
+    let mut context = state.template_context();
 
     // CSRF token: generate a fresh one on every GET and store it in the session.
     let csrf_token = uuid::Uuid::new_v4().to_string();

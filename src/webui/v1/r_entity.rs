@@ -6,7 +6,6 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use axum_login::{AuthSession, AuthUser};
-use tera::Context;
 
 use crate::{api, auth};
 
@@ -50,7 +49,7 @@ fn render_entity(
     state: &WebState,
     entity_info: api::EntityInfo,
 ) -> Result<Response, api::ApiError> {
-    let mut context = Context::new();
+    let mut context = state.template_context();
     context.insert("entity", &entity_info);
 
     let rendered = state

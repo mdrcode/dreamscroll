@@ -5,8 +5,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Search - dreamscroll</title>
-    <link rel="stylesheet" href="/static/common.css">
-    <link rel="stylesheet" href="/static/capturelist.css">
+    <link rel="stylesheet" href="/static/common.css?v={{ static_asset_version | urlencode }}">
+    <link rel="stylesheet" href="/static/capturelist.css?v={{ static_asset_version | urlencode }}">
     <style>
         #page-content-container {
             max-width: 800px;
@@ -74,7 +74,7 @@
             }
         }
     </style>
-    <script defer src="/static/webui.js"></script>
+    <script defer src="/static/webui.js?v={{ static_asset_version | urlencode }}"></script>
 </head>
 
 <body>
