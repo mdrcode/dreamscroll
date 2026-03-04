@@ -166,13 +166,13 @@
                 }
             });
 
-            // "See More"/"See Less" toggle for capture details
-            document.querySelectorAll('.capturelist-row-metadata-details-seemore').forEach(function (link) {
+            // "See More"/"See Less" toggle for capture cards (mobile)
+            document.querySelectorAll('.capturelist-row-seemore').forEach(function (link) {
                 link.addEventListener('click', function (e) {
                     e.preventDefault();
-                    const detailsText = this.previousElementSibling;
-                    detailsText.classList.toggle('expanded');
-                    this.textContent = detailsText.classList.contains('expanded') ? 'See Less...' : 'See More...';
+                    const row = this.closest('.capturelist-row');
+                    row.classList.toggle('expanded');
+                    this.textContent = row.classList.contains('expanded') ? 'See Less...' : 'See More...';
                 });
             });
 
@@ -221,47 +221,54 @@
             <div class="capturelist-row-metadata-container">
                 {% if capture.illuminations | length > 0 %}
                     {% set illum = capture.illuminations | first %}
+                    {% set knode_count = illum.k_nodes | length %}
+                    {% set social_count = illum.social_medias | length %}
+                    {% set query_count = illum.x_queries | length %}
+                    {% set has_expandable = illum.details or knode_count > 0 or social_count > 0 or query_count > 0 %}
 
                     {% if illum.summary %}
-                    <p class="capturelist-row-summary">{{ illum.summary }}</p>
+                    <p class="capturelist-row-summary">
+                        {{ illum.summary }}{% if has_expandable %}<a href="#" class="capturelist-row-seemore">See More...</a>{% endif %}
+                    </p>
                     {% endif %}
 
-                    {% if illum.details %}
-                    <div class="capturelist-row-metadata-details">
-                        <div class="capturelist-row-metadata-details-text">
+                    {% if has_expandable %}
+                    <div class="capturelist-row-expandable">
+                        {% if illum.details %}
+                        <div class="capturelist-row-metadata-details">
                             <p>{{ illum.details }}</p>
                         </div>
-                        <a href="#" class="capturelist-row-metadata-details-seemore">See More...</a>
-                    </div>
-                    {% endif %}
+                        {% endif %}
 
-                    {% if illum.k_nodes | length > 0 %}
-                    <div class="capturelist-row-entities">
-                        {% for node in illum.k_nodes %}
-                        <a href="/entity/knode/{{ node.id }}" class="capturelist-entity" title="{{ node.description }}">
-                            <div class="capturelist-entity-type">{{ node.k_type }}</div>
-                            <div class="capturelist-entity-name">{{ node.name }}</div>
-                        </a>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
+                        {% if knode_count > 0 %}
+                        <div class="capturelist-row-entities">
+                            {% for node in illum.k_nodes %}
+                            <a href="/entity/knode/{{ node.id }}" class="capturelist-entity" title="{{ node.description }}">
+                                <div class="capturelist-entity-type">{{ node.k_type }}</div>
+                                <div class="capturelist-entity-name">{{ node.name }}</div>
+                            </a>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
 
-                    {% if illum.social_medias | length > 0 %}
-                    <div class="capturelist-row-entities">
-                        {% for node in illum.social_medias %}
-                        <a href="/entity/social/{{ node.id }}" class="capturelist-entity" title="{{ node.handle }}">
-                            <div class="capturelist-entity-type">{{ node.platform }}</div>
-                            <div class="capturelist-entity-name">{{ node.display_name }}</div>
-                        </a>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
+                        {% if social_count > 0 %}
+                        <div class="capturelist-row-entities">
+                            {% for node in illum.social_medias %}
+                            <a href="/entity/social/{{ node.id }}" class="capturelist-entity" title="{{ node.handle }}">
+                                <div class="capturelist-entity-type">{{ node.platform }}</div>
+                                <div class="capturelist-entity-name">{{ node.display_name }}</div>
+                            </a>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
 
-                    {% if illum.x_queries | length > 0 %}
-                    <div class="capturelist-row-queries">
-                        {% for query in illum.x_queries %}
-                        <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="capturelist-query-pill">{{ query }}</a>
-                        {% endfor %}
+                        {% if query_count > 0 %}
+                        <div class="capturelist-row-queries">
+                            {% for query in illum.x_queries %}
+                            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="capturelist-query-pill">{{ query }}</a>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
                     </div>
                     {% endif %}
 
