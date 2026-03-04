@@ -94,6 +94,7 @@
     margin: 0;
     color: #1f2937;
     display: -webkit-box;
+    line-clamp: 3;
     -webkit-line-clamp: 3;
     -webkit-box-orient: vertical;
     overflow: hidden;
@@ -229,6 +230,14 @@
     margin-top: 8px;
 }
 
+.capturelist-row-metadata-details p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.35;
+    color: #1f2937;
+    white-space: pre-line;
+}
+
 .capturelist-row.expanded .capturelist-row-expandable {
     max-height: 900px;
     opacity: 1;
@@ -277,11 +286,15 @@
         color: inherit;
     }
 
+    .capturelist-row-chip-section {
+        border-top: none;
+    }
+
     .capturelist-row-timestamp {
         color: #888;
         margin-top: 8px;
         margin-bottom: 0;
-        align-self: flex-start;
+        align-self: flex-end;
     }
 
     .capturelist-row-summary {
@@ -289,26 +302,30 @@
         margin: 0 0 12px 0;
         color: inherit;
         display: block;
+        line-clamp: unset;
         -webkit-line-clamp: unset;
         -webkit-box-orient: initial;
         overflow: visible;
     }
 
-    .capturelist-row-seemore {
-        display: none;
-    }
-
-    .capturelist-row-expandable {
-        max-height: none;
-        opacity: 1;
-        overflow: visible;
-        transition: none;
+    .capturelist-row-metadata-details p {
+        line-height: 1.5;
+        color: inherit;
     }
 
     .capturelist-row-queries,
     .capturelist-row-entities,
     .capturelist-row-metadata-details {
         display: flex;
+    }
+
+    .capturelist-row-queries,
+    .capturelist-row-entities {
+        flex-wrap: wrap;
+        overflow-x: visible;
+        overflow-y: visible;
+        -webkit-overflow-scrolling: auto;
+        scrollbar-width: auto;
     }
 
     .capturelist-row-metadata-details {
