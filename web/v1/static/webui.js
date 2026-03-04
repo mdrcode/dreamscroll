@@ -47,6 +47,7 @@ function setupUploadInteractions() {
 
     const submitBtnContainer = document.getElementById('submit-btn-container');
     if (submitBtnContainer) {
+        // Redundant with default CSS in the template; kept as a defensive fallback.
         submitBtnContainer.style.display = 'none';
     }
 
