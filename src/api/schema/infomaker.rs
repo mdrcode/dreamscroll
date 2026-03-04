@@ -1,6 +1,7 @@
 use sea_orm::prelude::*;
 
 use crate::{
+    common,
     model::{self},
     storage,
 };
@@ -38,6 +39,7 @@ impl InfoMaker {
             id: capture_model.id,
             user_id: capture_model.user_id,
             created_at: capture_model.created_at,
+            created_at_human: common::humanize_datetime(capture_model.created_at),
             medias,
             illuminations,
         }

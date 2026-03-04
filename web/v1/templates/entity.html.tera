@@ -273,7 +273,7 @@
                     <img class="source-capture-image" src="{{ entity.capture.medias[0].url }}" alt="capture">
                     {% endif %}
                     <div class="source-capture-info">
-                        <span class="source-capture-timestamp">{{ entity.capture.created_at }}</span>
+                        <span class="source-capture-timestamp" title="{{ entity.capture.created_at }}">{{ entity.capture.created_at_human }}</span>
                         {% if entity.capture.illuminations | length > 0 %}
                         {% set illum = entity.capture.illuminations | first %}
                         {% if illum.summary %}

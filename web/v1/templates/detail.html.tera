@@ -224,7 +224,7 @@
                 </div>
                 <div class="metadata-row">
                     <span class="metadata-label">Uploaded:</span>
-                    <span class="detail-timestamp">{{ capture.created_at }}</span>
+                    <span class="detail-timestamp" title="{{ capture.created_at }}">{{ capture.created_at_human }}</span>
                 </div>
 
                 {% if capture.illuminations | length > 0 %}

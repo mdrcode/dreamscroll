@@ -286,7 +286,7 @@
 
                 {% endif %}
 
-                <span class="capturelist-row-timestamp">{{ capture.created_at }}</span>
+                <span class="capturelist-row-timestamp" title="{{ capture.created_at }}">{{ capture.created_at_human }}</span>
 
             </div>
         </div>

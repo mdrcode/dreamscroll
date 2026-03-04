@@ -1,5 +1,14 @@
 # Dreamscroll Development Log
 
+## 2026-03-04
+
+Using the prod app constantly now, it feels great. Rather urgent needs and
+painpoints from a dogfooding perspective:
+
+- [ ] A better UI on mobile. There is currently too much whitespace (padding,
+etc) and the text is too small. I might spin the vibe wheel on this and see if
+Codex can come up with something better.
+
 ## 2026-02-27
 
 The app now works in production. dreamscroll.ai is live in prod.
@@ -18,7 +27,7 @@ Important pending work before we can declare version 0.1 complete:
 - [ ] Generate alternate resolutions, including thumbnails, of media
 - [ ] Signed cookie protection on access to cloud storage bucket
 - [ ] OpenTelemetry metrics
-- [ ] Cached prompts with Vertex AI
+- [X] Cached prompts with Vertex AI (apparently "implicit" caching happens automatically?)
 - [ ] Better UI on mobile web (white space too aggressive at present)
 
 ## 2026-02-18
