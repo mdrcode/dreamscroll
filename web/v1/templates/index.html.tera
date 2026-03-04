@@ -51,6 +51,7 @@
             align-items: center;
             gap: 6px;
             border: 1px solid #ddd;
+            background-color: #fff;
             border-radius: 12px;
             padding: 4px 8px;
             cursor: pointer;
@@ -58,6 +59,7 @@
 
         #file-picker-label:hover {
             border-color: #999;
+            background-color: #f8fafc;
         }
 
         #drop-zone-row {

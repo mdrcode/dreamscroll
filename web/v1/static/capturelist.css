@@ -41,11 +41,7 @@
     object-fit: contain;
 
     cursor: pointer;
-    transition: transform 0.1s ease, box-shadow 0.1s ease;
-}
-
-.capturelist-row-image:hover {
-    box-shadow: 0 6px 10px rgba(0, 0, 0, 0.1);
+    transition: transform 0.1s ease;
 }
 
 .capturelist-row-metadata-container {
@@ -56,7 +52,6 @@
     margin-left: 0;
     position: static;
     padding: 10px 12px;
-    background: #f6f8fb;
     color: #2d3748;
     border-top: 1px solid #dbe2ea;
     box-sizing: border-box;
@@ -245,8 +240,18 @@
 }
 
 @media (max-width: 768px) {
+    .capturelist-row-image-container {
+        padding: 0;
+        box-sizing: border-box;
+    }
+
     .capturelist-row-image {
-        max-height: 720px;
+        max-height: 600px;
+        background: #fff;
+    }
+
+    .capturelist-row-metadata-container {
+        border-top: 1px solid #cfd8e3;
     }
 }
 
