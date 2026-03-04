@@ -242,7 +242,7 @@
                 <div class="detail-section-label">Suggested Searches</div>
                 <div class="detail-queries">
                     {% for query in illum.x_queries %}
-                    <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="detail-query-pill">{{ query }}</a>
+                    <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="detail-query-pill">{{ query }}</a>
                     {% endfor %}
                 </div>
                 {% endif %}

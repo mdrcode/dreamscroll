@@ -30,12 +30,12 @@
         {% if already_logged_in %}
         <div id="login-form">
             <p>You are currently logged in as user {{ username }}.</p>
-            <p>
+            <div>
                 {# Logout is a POST form — prevents forced-logout via navigation CSRF. #}
                 <form method="POST" action="/logout" style="display: inline;">
                     <button type="submit" style="background: none; border: none; padding: 0; color: inherit; text-decoration: underline; cursor: pointer; font-size: inherit;">logout</button>
                 </form>
-            </p>
+            </div>
         </div>
         {% else %}
         <div id="login-form">

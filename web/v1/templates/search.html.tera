@@ -74,29 +74,7 @@
             }
         }
     </style>
-    <script>
-        document.addEventListener('DOMContentLoaded', function () {
-            const searchInput = document.getElementById('search-input');
-
-            // Focus search input on "/" key press
-            document.addEventListener('keydown', function (e) {
-                if (e.key === '/' && document.activeElement !== searchInput) {
-                    e.preventDefault();
-                    searchInput.focus();
-                }
-            });
-
-            // "See More"/"See Less" toggle for capture cards (mobile)
-            document.querySelectorAll('.capturelist-row-seemore').forEach(function (link) {
-                link.addEventListener('click', function (e) {
-                    e.preventDefault();
-                    const row = this.closest('.capturelist-row');
-                    row.classList.toggle('expanded');
-                    this.textContent = row.classList.contains('expanded') ? 'See Less...' : 'See More...';
-                });
-            });
-        });
-    </script>
+    <script defer src="/static/webui.js"></script>
 </head>
 
 <body>
@@ -181,7 +159,7 @@
                         {% if query_count > 0 %}
                         <div class="capturelist-row-queries">
                             {% for query in illum.x_queries %}
-                            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="capturelist-query-pill"><span class="capturelist-query-text">{{ query }}</span></a>
+                            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="capturelist-query-pill"><span class="capturelist-query-text">{{ query }}</span></a>
                             {% endfor %}
                         </div>
                         {% endif %}
