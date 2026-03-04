@@ -224,22 +224,24 @@
                     {% set knode_count = illum.k_nodes | length %}
                     {% set social_count = illum.social_medias | length %}
                     {% set query_count = illum.x_queries | length %}
-                    {% set has_expandable = illum.details or knode_count > 0 or social_count > 0 or query_count > 0 %}
+                    {% set has_details = illum.details %}
 
                     {% if illum.summary %}
                     <p class="capturelist-row-summary">
-                        {{ illum.summary }}{% if has_expandable %}<a href="#" class="capturelist-row-seemore">See More...</a>{% endif %}
+                        {{ illum.summary }}{% if has_details %}<a href="#" class="capturelist-row-seemore">See More...</a>{% endif %}
                     </p>
                     {% endif %}
 
-                    {% if has_expandable %}
+                    {% if has_details %}
                     <div class="capturelist-row-expandable">
-                        {% if illum.details %}
                         <div class="capturelist-row-metadata-details">
                             <p>{{ illum.details }}</p>
                         </div>
-                        {% endif %}
+                    </div>
+                    {% endif %}
 
+                    {% if knode_count > 0 or social_count > 0 or query_count > 0 %}
+                    <div class="capturelist-row-chip-section">
                         {% if knode_count > 0 %}
                         <div class="capturelist-row-entities">
                             {% for node in illum.k_nodes %}
@@ -265,7 +267,7 @@
                         {% if query_count > 0 %}
                         <div class="capturelist-row-queries">
                             {% for query in illum.x_queries %}
-                            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="capturelist-query-pill">{{ query }}</a>
+                            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" class="capturelist-query-pill"><span class="capturelist-query-text">{{ query }}</span></a>
                             {% endfor %}
                         </div>
                         {% endif %}
