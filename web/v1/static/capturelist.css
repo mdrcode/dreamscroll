@@ -1,6 +1,7 @@
 .capturelist-row {
     width: 100%;
     max-width: 100%;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     border: 1px solid #cfd6df;
