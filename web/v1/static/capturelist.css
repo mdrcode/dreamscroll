@@ -243,13 +243,13 @@
     opacity: 1;
 }
 
-@media (max-width: 859px) {
+@media (max-width: 768px) {
     .capturelist-row-image {
         max-height: 720px;
     }
 }
 
-@media (min-width: 860px) {
+@media (min-width: 769px) {
     .capturelist-row {
         flex-direction: row;
         border-radius: 8px;

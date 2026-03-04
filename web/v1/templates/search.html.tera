@@ -58,7 +58,7 @@
             padding: 20px 0;
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 768px) {
             #search-form {
                 gap: 8px;
             }
