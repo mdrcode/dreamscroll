@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>dreamscroll - {% if entity.entity_type == "KNode" %}{{ entity.name }}{% else %}{{ entity.display_name }}{% endif %}</title>
     <link rel="stylesheet" href="/static/common.css">
     <style>
@@ -170,6 +171,61 @@
             padding: 4px 10px;
             color: #2d3748;
             font-weight: 500;
+        }
+
+        @media (max-width: 700px) {
+            #page-content-container {
+                max-width: 100%;
+            }
+
+            .entity-container {
+                gap: 12px;
+            }
+
+            .entity-header {
+                padding: 12px;
+                border-radius: 6px;
+            }
+
+            .entity-name {
+                font-size: 22px;
+                margin: 0 0 10px 0;
+            }
+
+            .entity-description {
+                font-size: 15px;
+                line-height: 1.5;
+            }
+
+            .source-section {
+                margin-top: 8px;
+            }
+
+            .source-capture {
+                flex-direction: column;
+                gap: 10px;
+                padding: 10px;
+                border-radius: 6px;
+            }
+
+            .source-capture-image {
+                width: 100%;
+                height: auto;
+                max-height: 48vh;
+                border-radius: 6px;
+            }
+
+            .source-capture-summary {
+                -webkit-line-clamp: 4;
+            }
+
+            .source-section-label {
+                margin-bottom: 8px;
+            }
+
+            .other-entities {
+                gap: 6px;
+            }
         }
     </style>
 </head>

@@ -3,6 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>dreamscroll - {{ capture.id }}</title>
     <link rel="stylesheet" href="/static/common.css">
     <style>
@@ -23,6 +24,7 @@
             border: 1px solid #ccc;
             border-radius: 8px;
             padding: 20px;
+            background: #fff;
         }
 
         .image-container img {
@@ -145,6 +147,57 @@
             font-size: 11px;
             color: #666;
             margin-top: 2px;
+        }
+
+        @media (max-width: 700px) {
+            #page-content-container {
+                max-width: 100%;
+            }
+
+            .detail-container {
+                gap: 12px;
+            }
+
+            .image-container {
+                border-radius: 6px;
+                padding: 4px;
+            }
+
+            .image-container img {
+                max-height: 74vh;
+            }
+
+            .metadata {
+                padding: 12px;
+                border-radius: 6px;
+            }
+
+            .metadata h2 {
+                font-size: 16px;
+                margin-bottom: 8px;
+            }
+
+            .metadata-row {
+                margin: 6px 0;
+            }
+
+            .detail-summary {
+                font-size: 15px;
+                line-height: 1.45;
+                margin: 10px 0;
+            }
+
+            .detail-details {
+                font-size: 14px;
+                line-height: 1.45;
+                margin: 10px 0;
+            }
+
+            .detail-queries,
+            .detail-entities {
+                margin: 10px 0;
+                gap: 6px;
+            }
         }
     </style>
 </head>

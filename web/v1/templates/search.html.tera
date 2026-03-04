@@ -3,13 +3,12 @@
 
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Search - dreamscroll</title>
     <link rel="stylesheet" href="/static/common.css">
     <link rel="stylesheet" href="/static/capturelist.css">
     <style>
         #page-content-container {
-            width: 80%;
-            min-width: 480px;
             max-width: 800px;
         }
 
@@ -17,8 +16,7 @@
             display: flex;
             flex-direction: row;
             gap: 10px;
-            /* due to mysterious padding issue in .capturelist ... */
-            width: calc(100% + 20px);
+            width: 100%;
             margin-bottom: 20px;
         }
 
@@ -58,6 +56,22 @@
             color: #666;
             font-style: italic;
             padding: 20px 0;
+        }
+
+        @media (max-width: 700px) {
+            #search-form {
+                gap: 8px;
+            }
+
+            #search-input {
+                padding: 9px 12px;
+                font-size: 15px;
+            }
+
+            #search-btn {
+                padding: 9px 12px;
+                font-size: 15px;
+            }
         }
     </style>
     <script>
@@ -119,8 +133,6 @@
                 </a>
             </div>
             <div class="capturelist-row-metadata-container">
-                <span class="capturelist-row-timestamp">{{ capture.created_at }}</span>
-
                 {% if capture.illuminations | length > 0 %}
                     {% set illum = capture.illuminations | first %}
 
@@ -167,6 +179,8 @@
                     </div>
                     {% endif %}
                 {% endif %}
+
+                <span class="capturelist-row-timestamp">{{ capture.created_at }}</span>
 
             </div>
         </div>

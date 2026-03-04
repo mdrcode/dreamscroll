@@ -1,26 +1,42 @@
 .capturelist-row {
     width: 100%;
+    max-width: 100%;
     display: flex;
-    flex-direction: row;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    gap: 10px;
-    padding: 10px;
-    margin-bottom: 10px;
-
+    flex-direction: column;
+    border: 1px solid #cfd6df;
+    border-radius: 10px;
+    gap: 0;
+    padding: 0;
+    margin-bottom: 8px;
+    background: #fff;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    overflow: hidden;
+    position: relative;
 }
 
 .capturelist-row-image-container {
-    width: 55%;
+    width: 100%;
+    max-width: 100%;
     display: flex;
     justify-content: center;
-    align-items: start;
+    align-items: flex-start;
+    aspect-ratio: auto;
+    overflow: hidden;
+}
+
+.capturelist-row-image-container a {
+    display: block;
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
 }
 
 .capturelist-row-image {
+    display: block;
     width: 100%;
+    max-width: 100%;
     height: auto;
-    max-height: 540px;
+    max-height: none;
     object-fit: contain;
 
     cursor: pointer;
@@ -32,11 +48,17 @@
 }
 
 .capturelist-row-metadata-container {
-    width: 45%;
+    width: auto;
     display: flex;
     flex-direction: column;
-    align-items: flex-start;
-    margin-left: 10px;
+    align-items: stretch;
+    margin-left: 0;
+    position: static;
+    padding: 10px 12px;
+    background: #f6f8fb;
+    color: #2d3748;
+    border-top: 1px solid #dbe2ea;
+    box-sizing: border-box;
 }
 
 .capturelist-row-metadata-details {
@@ -67,21 +89,28 @@
 
 /* Timestamp */
 .capturelist-row-timestamp {
-    font-size: 12px;
-    color: #888;
-    margin-bottom: 8px;
+    font-size: 11px;
+    color: #6b7280;
+    margin-top: 7px;
+    margin-bottom: 0;
+    align-self: flex-end;
 }
 
 /* Summary */
 .capturelist-row-summary {
-    font-size: 15px;
-    line-height: 1.5;
-    margin: 0 0 12px 0;
+    font-size: 14px;
+    line-height: 1.35;
+    margin: 0;
+    color: #1f2937;
+    display: -webkit-box;
+    -webkit-line-clamp: 3;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
 }
 
 /* Suggested searches (x_queries) */
 .capturelist-row-queries {
-    display: flex;
+    display: none;
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 12px;
@@ -106,7 +135,7 @@
 
 /* Entities (k_nodes and social) */
 .capturelist-row-entities {
-    display: flex;
+    display: none;
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 10px;
@@ -141,4 +170,79 @@
 .capturelist-entity-name {
     padding: 4px 10px;
     color: #4a5568;
+}
+
+.capturelist-row-metadata-details {
+    display: none;
+}
+
+@media (max-width: 859px) {
+    .capturelist-row-image {
+        max-height: 74vh;
+    }
+}
+
+@media (min-width: 860px) {
+    .capturelist-row {
+        flex-direction: row;
+        border-radius: 8px;
+        gap: 10px;
+        padding: 10px;
+        margin-bottom: 10px;
+        box-shadow: none;
+        overflow: visible;
+        position: static;
+    }
+
+    .capturelist-row-image-container {
+        width: 55%;
+        align-items: start;
+        aspect-ratio: auto;
+    }
+
+    .capturelist-row-image {
+        height: auto;
+        max-height: 540px;
+        object-fit: contain;
+    }
+
+    .capturelist-row-metadata-container {
+        width: 45%;
+        margin-left: 10px;
+        position: static;
+        left: auto;
+        right: auto;
+        bottom: auto;
+        padding: 0;
+        background: none;
+        border-top: none;
+        color: inherit;
+    }
+
+    .capturelist-row-timestamp {
+        color: #888;
+        margin-top: 8px;
+        margin-bottom: 0;
+        align-self: flex-start;
+    }
+
+    .capturelist-row-summary {
+        line-height: 1.5;
+        margin: 0 0 12px 0;
+        color: inherit;
+        display: block;
+        -webkit-line-clamp: unset;
+        -webkit-box-orient: initial;
+        overflow: visible;
+    }
+
+    .capturelist-row-queries,
+    .capturelist-row-entities,
+    .capturelist-row-metadata-details {
+        display: flex;
+    }
+
+    .capturelist-row-metadata-details {
+        display: block;
+    }
 }
