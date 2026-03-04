@@ -33,7 +33,7 @@ body {
 
 #page-title {
     margin: 0;
-    font-size: clamp(1.8rem, 5vw, 3rem);
+    font-size: clamp(2.2rem, 5vw, 3rem);
     line-height: 1.0;
 }
 

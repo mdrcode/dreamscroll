@@ -12,21 +12,19 @@
             max-width: 800px;
         }
 
-        #header-action-bar {
-            display: flex;
-            flex-direction: row;
-            align-items: flex-end;
-            gap: 12px;
-            padding-bottom: 2px;
-        }
-
         #header-search-form {
             display: flex;
             flex-direction: row;
             gap: 10px;
+            flex: 1;
+            min-width: 0;
+            max-width: 420px;
+            margin-bottom: 0;
         }
 
         #header-search-input {
+            width: 100%;
+            box-sizing: border-box;
             padding: 7px 14px;
             font-size: 16px;
             border: 1px solid #ccc;
@@ -45,6 +43,9 @@
         }
 
         #file-picker-label {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
             border: 1px solid #ddd;
             border-radius: 12px;
             padding: 4px 8px;
@@ -77,16 +78,19 @@
         }
 
         @media (max-width: 700px) {
-            #header-action-bar {
-                width: 100%;
-                flex-direction: column;
-                align-items: stretch;
-                gap: 8px;
-                padding-bottom: 0;
+            #header-row {
+                flex-wrap: wrap;
+                align-items: center;
+                row-gap: 2px;
             }
 
             #header-search-form {
                 width: 100%;
+                max-width: none;
+                flex-basis: 100%;
+                order: 3;
+                margin-top: 6px;
+                margin-bottom: 4px;
             }
 
             #header-search-input {
@@ -98,6 +102,16 @@
 
             #file-picker-label {
                 padding: 6px 10px;
+            }
+
+            .file-picker-text {
+                display: none;
+            }
+
+            #file-picker-label {
+                gap: 0;
+                min-width: 34px;
+                justify-content: center;
             }
         }
     </style>
@@ -187,22 +201,18 @@
         <div id="header-row">
             <h1 id="page-title">dreamscroll</h1>
 
-            <div id="header-action-bar">
+            <form id="file-upload-form" action="/upload" method="post" enctype="multipart/form-data">
+                <input id="file-picker" type="file" name="image" accept="image/*" style="display: none;" required>
+                <label id="file-picker-label" for="file-picker"><span class="file-picker-text">Upload</span><span class="file-picker-icon">⇧</span></label>
+                <div id="submit-btn-container">
+                    <br>
+                    <input id="submit-btn" type="submit" value="Submit">
+                </div>
+            </form>
 
-                <form id="file-upload-form" action="/upload" method="post" enctype="multipart/form-data">
-                    <input id="file-picker" type="file" name="image" accept="image/*" style="display: none;" required>
-                    <label id="file-picker-label" for="file-picker">Upload ⇧</label>
-                    <div id="submit-btn-container">
-                        <br>
-                        <input id="submit-btn" type="submit" value="Submit">
-                    </div>
-                </form>
-
-                <form id="header-search-form" action="/search" method="get">
-                    <input id="header-search-input" type="text" name="q" placeholder="search...">
-                </form>
-
-            </div>
+            <form id="header-search-form" action="/search" method="get">
+                <input id="header-search-input" type="text" name="q" placeholder="search...">
+            </form>
         </div>
 
         <div id="drop-zone-row">
