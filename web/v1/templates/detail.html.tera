@@ -164,7 +164,7 @@
             }
 
             .image-container img {
-                max-height: 1200px;
+                max-height: 960px;
             }
 
             .metadata {

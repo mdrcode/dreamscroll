@@ -211,7 +211,7 @@
             .source-capture-image {
                 width: 100%;
                 height: auto;
-                max-height: 800px;
+                max-height: 640px;
                 border-radius: 6px;
             }
 
