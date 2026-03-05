@@ -168,11 +168,7 @@ body {
 
 /* Summary */
 .capturelist-row-summary {
-    display: -webkit-box;
-    line-clamp: 5;
-    -webkit-line-clamp: 5;
-    -webkit-box-orient: vertical;
-    overflow: hidden;
+    display: block;
 }
 
 .capturelist-row-expandable {
@@ -251,7 +247,7 @@ body {
     align-items: center;
     flex: 0 0 auto;
     color: var(--color-pill-text);
-    font-size: 10px;
+    font-size: 13px;
     border: 1px solid var(--color-pill-border);
     border-radius: 10px;
     background: var(--color-pill-bg);
@@ -280,7 +276,7 @@ body {
     background: var(--color-pill-prefix-bg);
     color: var(--color-pill-prefix-text);
     text-transform: lowercase;
-    font-size: 9px;
+    font-size: 14px;
     letter-spacing: 0.2px;
     line-height: 1;
 }
@@ -386,11 +382,6 @@ body {
     .capturelist-row-summary {
         line-height: 1.5;
         margin: 0 0 12px 0;
-        display: block;
-        line-clamp: unset;
-        -webkit-line-clamp: unset;
-        -webkit-box-orient: initial;
-        overflow: visible;
     }
 
     .capturelist-row-summary,
