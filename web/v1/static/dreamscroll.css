@@ -1,6 +1,4 @@
 :root {
-    /* Historical capture row border option: #cfd6df */
-
     /* --color-page-bg: #eef2f7; */
     /* --color-page-bg: #7764a0; */
     --color-page-bg: #50406c;
@@ -18,6 +16,8 @@
     --color-pill-hover-bg: #f0f4f8;
     --color-pill-prefix-bg: #f1f5f9;
     --color-pill-prefix-text: #6b7280;
+
+    /* Historical capture row border option: #cfd6df */
 }
 
 body {
@@ -38,7 +38,7 @@ body {
     width: 100%;
     max-width: 800px;
     min-width: 0;
-    padding: 10px;
+    padding: 6px 10px;
     box-sizing: border-box;
 }
 
@@ -73,7 +73,6 @@ body {
     text-decoration: underline;
 }
 
-/* Consolidated from capturelist.css */
 .capturelist-row {
     width: 100%;
     max-width: 100%;
@@ -140,8 +139,6 @@ body {
     white-space: nowrap;
 }
 
-.capturelist-row-seemore:hover {}
-
 /* Timestamp */
 .capturelist-row-timestamp {
     font-size: 11px;
@@ -150,11 +147,16 @@ body {
     align-self: flex-end;
 }
 
-/* Summary */
-.capturelist-row-summary {
+/* Metadata text */
+.capturelist-row-summary,
+.capturelist-row-metadata-details p {
     font-size: 15px;
     line-height: 1.35;
     margin: 0;
+}
+
+/* Summary */
+.capturelist-row-summary {
     display: -webkit-box;
     line-clamp: 3;
     -webkit-line-clamp: 3;
@@ -278,9 +280,6 @@ body {
 }
 
 .capturelist-row-metadata-details p {
-    margin: 0;
-    font-size: 15px;
-    line-height: 1.35;
     white-space: pre-line;
 }
 
@@ -292,11 +291,11 @@ body {
 /* mobile */
 @media (max-width: 768px) {
     #page-content-container {
-        padding: 0px 12px 0px 12px;
+        padding: 6px 12px;
     }
 
     #page-title {
-        font-size: 2.4rem;
+        font-size: 2.5rem;
     }
 
     #header-row {
@@ -320,7 +319,9 @@ body {
         border-radius: 8px;
     }
 
-    .capturelist-row-metadata-container {}
+    .capturelist-row-metadata-container {
+        padding: 6px 12px;
+    }
 }
 
 /* desktop */
@@ -374,6 +375,7 @@ body {
         overflow: visible;
     }
 
+    .capturelist-row-summary,
     .capturelist-row-metadata-details p {
         line-height: 1.5;
     }
