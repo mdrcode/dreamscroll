@@ -23,6 +23,12 @@
     --color-pill-prefix-bg: #f1f5f9;
     --color-pill-prefix-text: #6b7280;
 
+    /* Chip typography controls */
+    --font-size-chip: 13px;
+    --font-size-chip-prefix: 11px;
+    --font-size-chip-desc: 11px;
+    --font-size-chip-badge: 12px;
+
     /* Historical capture row border option: #cfd6df */
 }
 
@@ -82,6 +88,30 @@ body {
 
 #file-picker-label {
     color: var(--color-upload-text);
+}
+
+/* Chip typography: edit font-size variables in :root above to tune all chips. */
+.capturelist-query-pill,
+.capturelist-entity,
+.detail-query-pill,
+.detail-entity,
+.other-entity {
+    font-size: var(--font-size-chip);
+}
+
+.capturelist-entity-type,
+.capturelist-query-pill::before,
+.detail-entity-type,
+.other-entity-type {
+    font-size: var(--font-size-chip-prefix);
+}
+
+.detail-entity-desc {
+    font-size: var(--font-size-chip-desc);
+}
+
+.entity-type-badge {
+    font-size: var(--font-size-chip-badge);
 }
 
 .capturelist-row {
@@ -229,7 +259,6 @@ body {
     display: inline-flex;
     align-items: center;
     flex: 0 0 auto;
-    font-size: 13px;
     color: var(--color-pill-text);
     background: var(--color-pill-bg);
     padding: 0;
@@ -286,7 +315,6 @@ body {
     align-items: center;
     flex: 0 0 auto;
     color: var(--color-pill-text);
-    font-size: 13px;
     border: 1px solid var(--color-pill-border);
     border-radius: 10px;
     background: var(--color-pill-bg);
@@ -315,7 +343,6 @@ body {
     background: var(--color-pill-prefix-bg);
     color: var(--color-pill-prefix-text);
     text-transform: lowercase;
-    font-size: 14px;
     letter-spacing: 0.2px;
     line-height: 1;
 }

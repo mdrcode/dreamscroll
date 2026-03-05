@@ -59,11 +59,15 @@ impl Client {
         })
     }
 
-    pub async fn get_timeline(&self) -> anyhow::Result<Vec<api::CaptureInfo>> {
-        let response = self
-            .reqwest_client
-            .get(format!("{}/timeline", self.base_url))
-            .bearer_auth(&self.access_token)
+    pub async fn get_timeline(&self, limit: Option<u64>) -> anyhow::Result<Vec<api::CaptureInfo>> {
+        let url = format!("{}/timeline", self.base_url);
+        let mut request = self.reqwest_client.get(url).bearer_auth(&self.access_token);
+
+        if let Some(limit) = limit {
+            request = request.query(&[("limit", limit)]);
+        }
+
+        let response = request
             .send()
             .await
             .context("failed to call timeline endpoint")?;

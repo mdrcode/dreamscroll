@@ -89,8 +89,9 @@ impl UserApiClient {
     pub async fn get_timeline(
         &self,
         context: &auth::Context,
+        limit: Option<u64>,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
-        let captures = super::get_timeline(&self.db, context).await;
+        let captures = super::get_timeline(&self.db, context, limit).await;
 
         Ok(captures?
             .into_iter()

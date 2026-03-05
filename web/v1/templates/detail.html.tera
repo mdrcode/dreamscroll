@@ -90,7 +90,6 @@
         }
 
         .detail-query-pill {
-            font-size: 10px;
             color: var(--color-pill-text);
             background: var(--color-pill-bg);
             padding: 3px 8px;
@@ -115,7 +114,6 @@
         .detail-entity {
             display: inline-flex;
             align-items: center;
-            font-size: 10px;
             border: 1px solid var(--color-pill-border);
             border-radius: 10px;
             background: var(--color-pill-bg);
@@ -134,7 +132,6 @@
             color: var(--color-pill-prefix-text);
             padding: 3px 6px;
             text-transform: lowercase;
-            font-size: 9px;
             letter-spacing: 0.2px;
             line-height: 1;
             border-right: 1px solid var(--color-pill-border);
@@ -148,7 +145,6 @@
 
         .detail-entity-desc {
             display: block;
-            font-size: 11px;
             color: #666;
             margin-top: 2px;
         }
