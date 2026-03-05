@@ -132,7 +132,6 @@
                     {% endif %}
 
                     {% if knode_count > 0 or social_count > 0 or query_count > 0 %}
-                    <div class="capturelist-row-chip-section">
                         {% if knode_count > 0 %}
                         <div class="capturelist-row-entities">
                             {% for node in illum.k_nodes %}
@@ -162,7 +161,6 @@
                             {% endfor %}
                         </div>
                         {% endif %}
-                    </div>
                     {% endif %}
                 {% endif %}
 
