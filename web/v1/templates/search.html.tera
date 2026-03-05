@@ -126,7 +126,7 @@
                     {% if has_details %}
                     <div class="capturelist-row-expandable">
                         <div class="capturelist-row-metadata-details">
-                            <p>{{ illum.details }}</p>
+                            <p class="capturelist-row-details">{{ illum.details }}</p>
                         </div>
                     </div>
                     {% endif %}

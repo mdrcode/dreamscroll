@@ -1,13 +1,17 @@
 :root {
     /* --color-page-bg: #eef2f7; */
     /* --color-page-bg: #50406c; */
-    --color-page-bg: #7764a0;
+    /* --color-page-bg: #7764a0; */
+    --color-page-bg: #17182e;
+    /* --color-page-title: #ffffffde; */
+    --color-page-title: #f582ab;
     --color-page-text: #e4e2e9;
     --color-link: #0066cc;
     --color-upload-text: #4b5563;
 
     /* --color-capture-row-bg: #fff */
     /* --color-capture-row-bg: #aa6da9; */
+    /* --color-capture-row-bg: #7764a0; */
     /* --color-capture-row-bg: #7764a0; */
     --color-capture-row-bg: #50406c;
     --color-capture-row-shadow: rgba(0, 0, 0, 0.08);
@@ -59,6 +63,7 @@ body {
     margin: 0;
     font-size: clamp(2.2rem, 5vw, 3rem);
     line-height: 1.0;
+    color: var(--color-page-title);
 }
 
 .back-link {
@@ -140,14 +145,14 @@ body {
     color: var(--color-page-text);
     cursor: pointer;
     text-decoration: underline;
-    font-size: 12px;
+    font-size: 13px;
     margin-left: 4px;
     white-space: nowrap;
 }
 
 /* Timestamp */
 .capturelist-row-timestamp {
-    font-size: 11px;
+    font-size: 12px;
     margin-top: 7px;
     margin-bottom: 0;
     align-self: flex-end;
@@ -155,8 +160,8 @@ body {
 
 /* Metadata text */
 .capturelist-row-summary,
-.capturelist-row-metadata-details p {
-    font-size: 15px;
+.capturelist-row-details {
+    font-size: 16px;
     line-height: 1.35;
     margin: 0;
 }
@@ -164,8 +169,8 @@ body {
 /* Summary */
 .capturelist-row-summary {
     display: -webkit-box;
-    line-clamp: 3;
-    -webkit-line-clamp: 3;
+    line-clamp: 5;
+    -webkit-line-clamp: 5;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
@@ -197,7 +202,7 @@ body {
     display: inline-flex;
     align-items: center;
     flex: 0 0 auto;
-    font-size: 10px;
+    font-size: 13px;
     color: var(--color-pill-text);
     background: var(--color-pill-bg);
     padding: 0;
@@ -230,7 +235,7 @@ body {
     display: flex;
     flex-wrap: nowrap;
     gap: 5px;
-    margin-top: 8px;
+    margin-top: 10px;
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
@@ -285,7 +290,7 @@ body {
     margin-top: 8px;
 }
 
-.capturelist-row-metadata-details p {
+.capturelist-row-details {
     white-space: pre-line;
 }
 
@@ -389,7 +394,7 @@ body {
     }
 
     .capturelist-row-summary,
-    .capturelist-row-metadata-details p {
+    .capturelist-row-details {
         line-height: 1.5;
     }
 

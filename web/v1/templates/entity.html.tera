@@ -19,17 +19,17 @@
 
         .entity-header {
             padding: 24px;
-            border: 1px solid #ccc;
-            border-radius: 8px;
-            background: #fafafa;
+            border-radius: 10px;
+            background: var(--color-capture-row-bg);
+            box-shadow: 0 1px 4px var(--color-capture-row-shadow);
         }
 
         .entity-type-badge {
             display: inline-block;
             font-size: 12px;
             font-weight: 600;
-            color: #718096;
-            background: #edf2f7;
+            color: var(--color-pill-prefix-text);
+            background: var(--color-pill-prefix-bg);
             padding: 4px 10px;
             border-radius: 4px;
             text-transform: lowercase;
@@ -41,25 +41,25 @@
             font-size: 28px;
             font-weight: 600;
             margin: 0 0 16px 0;
-            color: #1a202c;
+            color: var(--color-page-text);
         }
 
         .entity-description {
-            font-size: 16px;
-            line-height: 1.7;
-            color: #4a5568;
+            font-size: 15px;
+            line-height: 1.35;
+            color: var(--color-page-text);
             margin: 0;
-            white-space: pre-wrap;
+            white-space: pre-line;
         }
 
         .entity-handle {
             font-size: 14px;
-            color: #718096;
+            color: var(--color-page-text);
             margin-top: 8px;
         }
 
         .entity-handle a {
-            color: #4299e1;
+            color: var(--color-link);
             text-decoration: none;
         }
 
@@ -69,12 +69,16 @@
 
         .source-section {
             margin-top: 20px;
+            padding: 16px;
+            border-radius: 10px;
+            background: var(--color-capture-row-bg);
+            box-shadow: 0 1px 4px var(--color-capture-row-shadow);
         }
 
         .source-section-label {
             font-size: 12px;
             font-weight: 600;
-            color: #888;
+            color: var(--color-page-text);
             text-transform: uppercase;
             letter-spacing: 0.5px;
             margin-bottom: 12px;
@@ -83,24 +87,24 @@
         .source-capture {
             display: flex;
             gap: 16px;
-            padding: 16px;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
+            padding: 0;
+            border: none;
+            border-radius: 0;
+            background: none;
             text-decoration: none;
             color: inherit;
-            transition: border-color 0.15s ease, box-shadow 0.15s ease;
+            transition: opacity 0.15s ease;
         }
 
         .source-capture:hover {
-            border-color: #cbd5e0;
-            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+            opacity: 0.9;
         }
 
         .source-capture-image {
             width: 120px;
             height: 90px;
             object-fit: cover;
-            border-radius: 4px;
+            border-radius: 10px;
             flex-shrink: 0;
         }
 
@@ -113,13 +117,13 @@
 
         .source-capture-timestamp {
             font-size: 12px;
-            color: #888;
+            color: var(--color-page-text);
         }
 
         .source-capture-summary {
-            font-size: 14px;
-            line-height: 1.5;
-            color: #4a5568;
+            font-size: 15px;
+            line-height: 1.35;
+            color: var(--color-page-text);
             overflow: hidden;
             text-overflow: ellipsis;
             display: -webkit-box;
@@ -129,6 +133,10 @@
 
         .other-entities-section {
             margin-top: 8px;
+            padding: 12px;
+            border-radius: 10px;
+            background: var(--color-capture-row-bg);
+            box-shadow: 0 1px 4px var(--color-capture-row-shadow);
         }
 
         .other-entities {
@@ -140,36 +148,39 @@
         .other-entity {
             display: inline-flex;
             align-items: center;
-            font-size: 12px;
-            border: 1px solid #e2e8f0;
-            border-radius: 4px;
+            font-size: 10px;
+            border: 1px solid var(--color-pill-border);
+            border-radius: 10px;
+            background: var(--color-pill-bg);
             overflow: hidden;
             text-decoration: none;
             color: inherit;
-            transition: border-color 0.15s ease;
+            transition: background 0.15s ease, border-color 0.15s ease;
         }
 
         .other-entity:hover {
-            border-color: #cbd5e0;
+            background: var(--color-pill-hover-bg);
         }
 
         .other-entity.current {
-            border-color: #4299e1;
-            background: #ebf8ff;
+            border-color: var(--color-link);
+            background: var(--color-pill-hover-bg);
         }
 
         .other-entity-type {
-            background: #f7fafc;
-            color: #718096;
-            padding: 4px 8px;
+            background: var(--color-pill-prefix-bg);
+            color: var(--color-pill-prefix-text);
+            padding: 3px 6px;
             text-transform: lowercase;
-            font-size: 11px;
-            letter-spacing: 0.3px;
+            font-size: 9px;
+            letter-spacing: 0.2px;
+            line-height: 1;
+            border-right: 1px solid var(--color-pill-border);
         }
 
         .other-entity-name {
-            padding: 4px 10px;
-            color: #2d3748;
+            padding: 3px 8px;
+            color: var(--color-pill-text);
             font-weight: 500;
         }
 
@@ -184,7 +195,7 @@
 
             .entity-header {
                 padding: 12px;
-                border-radius: 6px;
+                border-radius: 10px;
             }
 
             .entity-name {
@@ -194,25 +205,26 @@
 
             .entity-description {
                 font-size: 15px;
-                line-height: 1.5;
             }
 
             .source-section {
                 margin-top: 8px;
+                padding: 12px;
+                border-radius: 10px;
             }
 
             .source-capture {
                 flex-direction: column;
                 gap: 10px;
-                padding: 10px;
-                border-radius: 6px;
+                padding: 0;
+                border-radius: 0;
             }
 
             .source-capture-image {
                 width: 100%;
                 height: auto;
                 max-height: 640px;
-                border-radius: 6px;
+                border-radius: 10px;
             }
 
             .source-capture-summary {
@@ -225,6 +237,17 @@
 
             .other-entities {
                 gap: 6px;
+            }
+
+            .other-entities-section {
+                border-radius: 10px;
+            }
+        }
+
+        @media (min-width: 769px) {
+            .entity-description,
+            .source-capture-summary {
+                line-height: 1.5;
             }
         }
     </style>
