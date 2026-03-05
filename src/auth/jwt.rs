@@ -112,6 +112,8 @@ impl JwtConfig {
     ///
     /// The token includes:
     /// - `sub`: The user ID as the subject
+    /// - `username`: Username at token issuance time
+    /// - `is_admin`: Admin permission bit at token issuance time
     /// - `exp`: Expiration timestamp
     /// - `iat`: Issued-at timestamp
     ///
@@ -122,6 +124,8 @@ impl JwtConfig {
         let now = jsonwebtoken::get_current_timestamp();
         let claims = JwtUserClaims {
             sub: user.user_id().to_string(),
+            username: user.username().to_owned(),
+            is_admin: user.is_admin(),
             exp: now + self.user_expiration_secs,
             iat: now,
             storage_shard: user.storage_shard().to_owned(),
@@ -169,6 +173,10 @@ pub struct JwtUserClaims {
     /// The user ID is serialized as a decimal string (e.g. "42") and
     /// deserialized back to i32 by `DreamscrollAuthUser::try_from`.
     pub sub: String,
+    /// Username snapshot at token issuance time
+    pub username: String,
+    /// Whether the user has admin permissions
+    pub is_admin: bool,
     /// Expiration time as UTC timestamp (seconds since epoch)
     pub exp: u64,
     /// Issued-at time as UTC timestamp
@@ -351,6 +359,8 @@ mod tests {
             .expect("should decode user token");
 
         assert_eq!(claims.sub, "99");
+        assert_eq!(claims.username, "testuser99");
+        assert!(!claims.is_admin);
         assert!(claims.exp > claims.iat);
     }
 }

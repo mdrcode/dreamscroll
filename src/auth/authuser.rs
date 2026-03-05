@@ -109,8 +109,8 @@ impl DreamscrollAuthUser {
     pub fn new_test_jwt(id: i32, claims: JwtUserClaims) -> Self {
         Self {
             id,
-            username: format!("jwtuser{}", id),
-            is_admin: false,
+            username: claims.username.clone(),
+            is_admin: claims.is_admin,
             storage_shard: claims.storage_shard.clone(),
             method: AuthMethod::Jwt { claims },
         }
@@ -137,6 +137,8 @@ impl std::fmt::Debug for DreamscrollAuthUser {
             AuthMethod::Jwt { claims } => {
                 debug.field("auth_method", &"Jwt");
                 debug.field("jwt_sub", &claims.sub);
+                debug.field("jwt_username", &claims.username);
+                debug.field("jwt_is_admin", &claims.is_admin);
                 debug.field("jwt_exp", &claims.exp);
                 debug.field("jwt_iat", &claims.iat);
             }
@@ -178,11 +180,8 @@ impl TryFrom<JwtUserClaims> for DreamscrollAuthUser {
         let storage_shard = claims.storage_shard.clone();
         Ok(DreamscrollAuthUser {
             id,
-            username: format!("jwtuser{}", id), // TODO BUG
-
-            // currently admin rights are not encoding in JWT, so the API does not support
-            // admin credentials at all
-            is_admin: false,
+            username: claims.username.clone(),
+            is_admin: claims.is_admin,
             storage_shard,
             method: AuthMethod::Jwt { claims },
         })
@@ -204,6 +203,8 @@ mod tests {
     fn test_user_id_jwt() {
         let claims = JwtUserClaims {
             sub: "123".to_string(),
+            username: "jwtuser123".to_string(),
+            is_admin: false,
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),
@@ -227,6 +228,8 @@ mod tests {
     fn test_auth_method_jwt() {
         let claims = JwtUserClaims {
             sub: "123".to_string(),
+            username: "jwtuser123".to_string(),
+            is_admin: false,
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),
@@ -247,6 +250,8 @@ mod tests {
     fn test_jwt_claims_returns_some_for_jwt() {
         let claims = JwtUserClaims {
             sub: "123".to_string(),
+            username: "jwtuser123".to_string(),
+            is_admin: false,
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),
@@ -267,6 +272,8 @@ mod tests {
     fn test_from_jwt_claims() {
         let claims = JwtUserClaims {
             sub: "456".to_string(),
+            username: "alice".to_string(),
+            is_admin: true,
             exp: 8888,
             iat: 1111,
             storage_shard: "testshard".to_string(),
@@ -274,6 +281,8 @@ mod tests {
         let user = DreamscrollAuthUser::try_from(claims.clone()).unwrap();
 
         assert_eq!(user.user_id(), 456);
+        assert_eq!(user.username(), "alice");
+        assert!(user.is_admin());
         assert_eq!(user.jwt_claims().unwrap().sub, "456");
         assert_eq!(user.jwt_claims().unwrap().exp, 8888);
         assert_eq!(user.jwt_claims().unwrap().iat, 1111);
@@ -293,6 +302,8 @@ mod tests {
         // indicates a significant logic error and should panic.
         let claims = JwtUserClaims {
             sub: "123".to_string(),
+            username: "jwtuser123".to_string(),
+            is_admin: false,
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),
@@ -340,6 +351,8 @@ mod tests {
     fn test_debug_format_jwt() {
         let claims = JwtUserClaims {
             sub: "123".to_string(),
+            username: "jwtuser123".to_string(),
+            is_admin: false,
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),
@@ -370,6 +383,8 @@ mod tests {
     fn test_clone_jwt() {
         let claims = JwtUserClaims {
             sub: "123".to_string(),
+            username: "jwtuser123".to_string(),
+            is_admin: false,
             exp: 9999,
             iat: 1000,
             storage_shard: "testshard".to_string(),
