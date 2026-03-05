@@ -71,11 +71,25 @@ body {
     gap: 10px;
 }
 
+#header-row>* {
+    margin: 0;
+}
+
+#header-row form {
+    /* align vertically with title glyphs */
+    margin-bottom: 4px;
+}
+
 #page-title {
     margin: 0;
     font-size: clamp(2.2rem, 5vw, 3rem);
     line-height: 1.0;
     color: var(--color-page-title);
+}
+
+.header-title-link {
+    text-decoration: none;
+    color: inherit;
 }
 
 .back-link {
