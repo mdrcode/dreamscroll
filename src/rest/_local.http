@@ -48,3 +48,15 @@ Content-Type: image/jpeg
 # Returns 204 No Content on success
 DELETE http://localhost:8080/api/captures/529
 Authorization: Bearer {{token.response.body.access_token}}
+
+###
+# Requires an admin JWT token
+POST http://localhost:8080/api/admin/users
+Authorization: Bearer {{token.response.body.access_token}}
+Content-Type: application/json
+
+{
+    "username": "newuser01",
+    "password": "change-me",
+    "email": "newuser01@example.com"
+}
