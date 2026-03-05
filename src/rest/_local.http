@@ -46,5 +46,5 @@ Content-Type: image/jpeg
 
 ###
 # Returns 204 No Content on success
-DELETE http://localhost:8080/api/captures/527
+DELETE http://localhost:8080/api/captures/529
 Authorization: Bearer {{token.response.body.access_token}}

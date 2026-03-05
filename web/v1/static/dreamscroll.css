@@ -2,20 +2,22 @@
     /* Historical capture row border option: #cfd6df */
 
     /* --color-page-bg: #eef2f7; */
-    --color-page-bg: #7764a0;
+    /* --color-page-bg: #7764a0; */
+    --color-page-bg: #50406c;
     --color-page-text: #e4e2e9;
     --color-link: #0066cc;
 
     /* --color-capture-row-bg: #fff */
-    --color-capture-row-bg: #aa6da9;
+    /* --color-capture-row-bg: #aa6da9; */
+    --color-capture-row-bg: #7764a0;
     --color-capture-row-shadow: rgba(0, 0, 0, 0.08);
-    --color-capture-meta-text: #2d3748;
+    --color-capture-meta-text: var(--color-page-text);
     --color-capture-meta-border: #dbe2ea;
 
     --color-seemore: #5b6570;
     --color-seemore-hover: #2f3a46;
     --color-timestamp: #6b7280;
-    --color-summary-text: #1f2937;
+    --color-summary-text: var(--color-page-text);
     --color-chip-section-border: #e6ebf2;
 
     --color-pill-text: #4b5563;
@@ -185,7 +187,7 @@ body {
 
 /* Summary */
 .capturelist-row-summary {
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.35;
     margin: 0;
     color: var(--color-summary-text);
@@ -328,7 +330,7 @@ body {
 
 .capturelist-row-metadata-details p {
     margin: 0;
-    font-size: 14px;
+    font-size: 15px;
     line-height: 1.35;
     color: var(--color-summary-text);
     white-space: pre-line;
@@ -340,8 +342,12 @@ body {
 }
 
 @media (max-width: 768px) {
+    .capturelist-row {
+        padding-top: 6px;
+    }
+
     .capturelist-row-image-container {
-        padding: 0;
+        padding: 0 6px;
         box-sizing: border-box;
     }
 
@@ -350,7 +356,18 @@ body {
     }
 
     .capturelist-row-metadata-container {
-        border-top: 1px solid var(--color-mobile-meta-border);
+        border-top: none;
+    }
+
+    .capturelist-row-metadata-container::before {
+        content: "";
+        display: block;
+        border-top: 1px solid var(--color-capture-row-bg);
+        margin-bottom: 8px;
+    }
+
+    .capturelist-row-chip-section {
+        border-top-color: var(--color-capture-row-bg);
     }
 }
 
@@ -388,7 +405,6 @@ body {
         padding: 0;
         background: none;
         border-top: none;
-        color: inherit;
     }
 
     .capturelist-row-chip-section {
@@ -405,7 +421,6 @@ body {
     .capturelist-row-summary {
         line-height: 1.5;
         margin: 0 0 12px 0;
-        color: inherit;
         display: block;
         line-clamp: unset;
         -webkit-line-clamp: unset;
@@ -415,7 +430,6 @@ body {
 
     .capturelist-row-metadata-details p {
         line-height: 1.5;
-        color: inherit;
     }
 
     .capturelist-row-queries,
