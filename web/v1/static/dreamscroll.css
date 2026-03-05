@@ -84,23 +84,6 @@ body {
     text-decoration: underline;
 }
 
-@media (max-width: 768px) {
-    #page-content-container {
-        padding: 8px;
-    }
-
-    #page-title {
-        font-size: 2.4rem;
-    }
-
-    #header-row {
-        align-items: flex-start;
-        flex-wrap: wrap;
-        margin-bottom: 10px;
-        gap: 8px;
-    }
-}
-
 /* Consolidated from capturelist.css */
 .capturelist-row {
     width: 100%;
@@ -325,7 +308,23 @@ body {
     opacity: 1;
 }
 
+/* Responsive layout */
 @media (max-width: 768px) {
+    #page-content-container {
+        padding: 8px;
+    }
+
+    #page-title {
+        font-size: 2.4rem;
+    }
+
+    #header-row {
+        align-items: flex-start;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+        gap: 8px;
+    }
+
     .capturelist-row {
         padding-top: 6px;
     }
