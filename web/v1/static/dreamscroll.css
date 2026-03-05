@@ -177,12 +177,13 @@ body {
 .capturelist-row-seemore-row {
     display: flex;
     justify-content: center;
-    margin-top: 8px;
+    margin: 12px 0 14px;
 }
 
 /* Timestamp */
 .capturelist-row-timestamp {
     font-size: 12px;
+    font-style: italic;
     margin-top: 7px;
     margin-bottom: 0;
     align-self: flex-end;
@@ -213,7 +214,7 @@ body {
     display: flex;
     flex-wrap: nowrap;
     gap: 6px;
-    margin-top: 8px;
+    margin-top: 0;
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
@@ -261,7 +262,7 @@ body {
     display: flex;
     flex-wrap: nowrap;
     gap: 5px;
-    margin-top: 10px;
+    margin-top: 0;
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
@@ -270,6 +271,14 @@ body {
 
 .capturelist-row-entities::-webkit-scrollbar {
     display: none;
+}
+
+/* Space between multiple pill groups, but not before the first one. */
+.capturelist-row-entities+.capturelist-row-entities,
+.capturelist-row-entities+.capturelist-row-queries,
+.capturelist-row-queries+.capturelist-row-entities,
+.capturelist-row-queries+.capturelist-row-queries {
+    margin-top: 8px;
 }
 
 .capturelist-entity {
@@ -313,7 +322,8 @@ body {
 
 .capturelist-row-metadata-details {
     display: block;
-    margin-top: 8px;
+    margin-top: 0;
+    margin-bottom: 10px;
 }
 
 .capturelist-row-details {
@@ -366,6 +376,10 @@ body {
     .capturelist-row-metadata-container {
         padding: 6px 12px;
     }
+
+    .capturelist-row-seemore-row {
+        margin: 10px 0 14px;
+    }
 }
 
 /* desktop */
@@ -411,7 +425,7 @@ body {
 
     .capturelist-row-summary {
         line-height: 1.5;
-        margin: 0 0 12px 0;
+        margin: 0;
     }
 
     .capturelist-row-summary,
