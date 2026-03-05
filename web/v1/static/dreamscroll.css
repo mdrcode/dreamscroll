@@ -32,9 +32,15 @@
     /* Historical capture row border option: #cfd6df */
 }
 
+html,
+body {
+    min-height: 100%;
+}
+
 body {
     display: flex;
     justify-content: center;
+    min-height: 100vh;
     margin: 0;
     padding: 0;
     background: var(--color-page-bg);

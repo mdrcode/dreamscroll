@@ -52,8 +52,16 @@ function setupUploadInteractions() {
     }
 
     let dragCounter = 0;
+    const dragTarget = document;
 
-    document.body.addEventListener('dragenter', function (e) {
+    function isFileDrag(e) {
+        return !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+    }
+
+    dragTarget.addEventListener('dragenter', function (e) {
+        if (!isFileDrag(e)) {
+            return;
+        }
         e.preventDefault();
         e.stopPropagation();
         dragCounter++;
@@ -63,22 +71,31 @@ function setupUploadInteractions() {
         }
     });
 
-    document.body.addEventListener('dragover', function (e) {
+    dragTarget.addEventListener('dragover', function (e) {
+        if (!isFileDrag(e)) {
+            return;
+        }
         e.preventDefault();
         e.stopPropagation();
     });
 
-    document.body.addEventListener('dragleave', function (e) {
+    dragTarget.addEventListener('dragleave', function (e) {
+        if (!isFileDrag(e)) {
+            return;
+        }
         e.preventDefault();
         e.stopPropagation();
-        dragCounter--;
+        dragCounter = Math.max(0, dragCounter - 1);
         if (dragCounter === 0) {
             dropZone.style.display = 'none';
             dropZone.classList.remove('drag-over');
         }
     });
 
-    document.body.addEventListener('drop', function (e) {
+    dragTarget.addEventListener('drop', function (e) {
+        if (!isFileDrag(e)) {
+            return;
+        }
         e.preventDefault();
         e.stopPropagation();
         dragCounter = 0;

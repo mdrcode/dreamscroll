@@ -46,3 +46,15 @@ Content-Type: image/jpeg
 # Returns 204 No Content on success
 DELETE https://dreamscroll.ai/api/captures/605
 Authorization: Bearer {{token}}
+
+###
+# Requires an admin JWT token
+POST https://dreamscroll.ai/api/admin/users
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+    "username": "mdr3",
+    "password": ,
+    "email": 
+}
