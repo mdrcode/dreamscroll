@@ -173,8 +173,14 @@
 
                     {% if illum.summary %}
                     <p class="capturelist-row-summary">
-                        {{ illum.summary }}{% if has_details %}<a href="#" class="capturelist-row-seemore">See More...</a>{% endif %}
+                        {{ illum.summary }}
                     </p>
+                    {% endif %}
+
+                    {% if has_details %}
+                    <div class="capturelist-row-seemore-row">
+                        <a href="#" class="capturelist-row-seemore">More</a>
+                    </div>
                     {% endif %}
 
                     {% if has_details %}

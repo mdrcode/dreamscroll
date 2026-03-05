@@ -28,7 +28,7 @@ function setupCaptureExpandToggle() {
             }
 
             row.classList.toggle('expanded');
-            this.textContent = row.classList.contains('expanded') ? 'See Less...' : 'See More...';
+            this.textContent = row.classList.contains('expanded') ? 'Less' : 'More';
         });
     });
 }

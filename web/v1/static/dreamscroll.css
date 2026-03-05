@@ -142,12 +142,42 @@ body {
 }
 
 .capturelist-row-seemore {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
     color: var(--color-page-text);
     cursor: pointer;
-    text-decoration: underline;
-    font-size: 13px;
-    margin-left: 4px;
+    text-decoration: none;
+    font-size: 12px;
+    letter-spacing: 0.2px;
+    text-transform: uppercase;
+    line-height: 1;
+    padding: 2px 0;
     white-space: nowrap;
+    transition: opacity 0.15s ease;
+}
+
+.capturelist-row-seemore:hover {
+    opacity: 0.75;
+}
+
+.capturelist-row-seemore::after {
+    content: "\203A";
+    font-size: 14px;
+    line-height: 1;
+    transform: rotate(90deg);
+    transition: transform 0.18s ease;
+}
+
+.capturelist-row.expanded .capturelist-row-seemore::after {
+    transform: rotate(-90deg);
+}
+
+.capturelist-row-seemore-row {
+    display: flex;
+    justify-content: center;
+    margin-top: 8px;
 }
 
 /* Timestamp */
