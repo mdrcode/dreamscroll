@@ -1,15 +1,97 @@
+/* Common styles for dreamscroll */
+
+body {
+    display: flex;
+    justify-content: center;
+    margin: 0;
+    padding: 0;
+    /* background: #eef2f7; */
+    /* background: #50406c; */
+    /* background: #8564a2; */
+    /* background: #aa6da9; */
+    background: #7764a0;
+    color: #e4e2e9;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Helvetica Neue', Arial, sans-serif;
+    font-weight: 400;
+    line-height: 1.6;
+}
+
+#page-content-container {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 800px;
+    min-width: 0;
+    padding: 10px;
+    box-sizing: border-box;
+}
+
+#header-row {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+    margin-top: 6px;
+    margin-bottom: 12px;
+    align-items: flex-end;
+    gap: 10px;
+}
+
+#page-title {
+    margin: 0;
+    font-size: clamp(2.2rem, 5vw, 3rem);
+    line-height: 1.0;
+}
+
+.back-link {
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.back-link a {
+    color: #0066cc;
+    text-decoration: none;
+}
+
+.back-link a:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 768px) {
+    #page-content-container {
+        padding: 8px;
+    }
+
+    #page-title {
+        font-size: 2.4rem;
+    }
+
+    #header-row {
+        align-items: flex-start;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+        gap: 8px;
+    }
+}
+
+/* Consolidated from capturelist.css */
 .capturelist-row {
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    border: 1px solid #cfd6df;
+    /* border: 1px solid #cfd6df; */
     border-radius: 10px;
     gap: 0;
     padding: 0;
     margin-bottom: 8px;
-    background: #fff;
+    /* background: #fff; */
+    /* background: #8564a2; */
+    /* background: #50406c; */
+    /* background: #91599c; */
+    /* background: #7764a0; */
+    background: #aa6da9;
     box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
     overflow: hidden;
     position: relative;
@@ -247,7 +329,6 @@
 
     .capturelist-row-image {
         max-height: 600px;
-        background: #fff;
     }
 
     .capturelist-row-metadata-container {
