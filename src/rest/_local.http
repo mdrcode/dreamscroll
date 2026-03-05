@@ -56,7 +56,7 @@ Authorization: Bearer {{token.response.body.access_token}}
 Content-Type: application/json
 
 {
-    "username": "newuser01",
-    "password": "change-me",
-    "email": "newuser01@example.com"
+    "username": "mike2",
+    "password": "asdfasdfasdf",
+    "email": "mike2@dreamscroll.ai"
 }

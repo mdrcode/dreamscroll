@@ -34,7 +34,7 @@ pub fn make_api_router(user_api: api::UserApiClient, jwt_config: auth::JwtConfig
     let routes_open = Router::new().route("/token", post(r_token::post));
 
     let routes_protected = Router::new()
-        .route("/admin/users", post(r_admin_user::post))
+        .route("/admin/users", post(r_create_user::post))
         .route("/captures", get(r_capture::get))
         .route("/captures/{capture_id}", delete(r_capture::delete))
         .route("/captures/import", post(r_import_capture::post))
