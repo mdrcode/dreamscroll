@@ -163,7 +163,7 @@
                         {% if query_count > 0 %}
                         <div class="capturelist-row-queries">
                             {% for query in illum.x_queries %}
-                            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="capturelist-query-pill"><span class="capturelist-query-text">{{ query }}</span></a>
+                            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="capturelist-query-pill"><span class="capturelist-entity-type">⌕</span><span class="capturelist-query-text">{{ query }}</span></a>
                             {% endfor %}
                         </div>
                         {% endif %}

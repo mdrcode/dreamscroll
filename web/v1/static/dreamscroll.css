@@ -75,11 +75,6 @@ body {
     margin: 0;
 }
 
-#header-row form {
-    /* align vertically with title glyphs */
-    margin-bottom: 4px;
-}
-
 #page-title {
     margin: 0;
     font-size: clamp(2.2rem, 5vw, 3rem);
@@ -120,7 +115,6 @@ body {
 }
 
 .capturelist-entity-type,
-.capturelist-query-pill::before,
 .detail-entity-type,
 .other-entity-type {
     font-size: var(--font-size-chip-prefix);
@@ -288,15 +282,6 @@ body {
     transition: background 0.15s ease, border-color 0.15s ease;
 }
 
-.capturelist-query-pill::before {
-    content: "⌕";
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    text-transform: lowercase;
-    border-right: 1px solid var(--color-pill-border);
-}
-
 .capturelist-query-text {
     padding: 3px 8px;
     color: var(--color-pill-text);
@@ -358,7 +343,7 @@ body {
 }
 
 .capturelist-entity-type,
-.capturelist-query-pill::before {
+.capturelist-entity-type {
     padding: 3px 6px;
     background: var(--color-pill-prefix-bg);
     color: var(--color-pill-prefix-text);
@@ -385,7 +370,7 @@ body {
 /* mobile */
 @media (max-width: 768px) {
     #page-content-container {
-        padding: 6px 12px;
+        padding: 6px 16px;
     }
 
     #page-title {
@@ -431,6 +416,12 @@ body {
 
 /* desktop */
 @media (min-width: 769px) {
+
+    #header-row form {
+        /* align the form vertically with title text glyphs */
+        margin-bottom: 4px;
+    }
+
     .capturelist-row {
         flex-direction: row;
         border-radius: 8px;
