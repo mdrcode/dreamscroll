@@ -104,7 +104,7 @@
         {% for capture in capture_infos %}
         <div class="capturelist-row">
             <div class="capturelist-row-image-container">
-                <a href="/detail/{{ capture.id }}" style="text-decoration: none; color: inherit;">
+                <a class="capturelist-row-image-link" href="/detail/{{ capture.id }}" style="text-decoration: none; color: inherit;">
                     <img class="capturelist-row-image" src="{{ capture.medias[0].url }}"
                         alt="image {{ capture.medias[0].url }}">
                 </a>
