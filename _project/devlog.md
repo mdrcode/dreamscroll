@@ -1,5 +1,21 @@
 # Dreamscroll Development Log
 
+## 2027-03-06
+
+This week saw significant progress on the mobile layout and overall
+responsiveness of the app. The content cards on a canvas paradigm has been
+solidified, providing a consistent experience across devices.
+
+Next up, a few big things on the horizon:
+
+- Implement a prototype of the "spark" concept, by which multiple illuminations
+  can be combined as a prompt-context to generate new insights, actions, and
+  follow up. This is the key "second half" of the flywheel.
+- Thread real-time "push" updates to the app so the user sees the progress of
+  the illumination pipeline. So imagine you upload an image and you see whether
+  it is queued or currently being illuminated, and maybe even we project an ETA
+  using trailing average of past illuminations.
+
 ## 2027-03-05
 
 Tons of Codex-led iteration on mobile and we have a slick, responsive layout.
