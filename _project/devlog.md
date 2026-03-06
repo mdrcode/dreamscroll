@@ -1,11 +1,18 @@
 # Dreamscroll Development Log
 
+## 2027-03-05
+
+Tons of Codex-led iteration on mobile and we have a slick, responsive layout.
+Not perfect but 10x better than what we had before. We have settled into a
+fundamental paradigm of content cards on a canvas. On Desktop the cards are two
+column, then they collapse down to single column on mobile.
+
 ## 2026-03-04
 
 Using the prod app constantly now, it feels great. Rather urgent needs and
 painpoints from a dogfooding perspective:
 
-- [ ] A better UI on mobile. There is currently too much whitespace (padding,
+- [X] A better UI on mobile. There is currently too much whitespace (padding,
 etc) and the text is too small. I might spin the vibe wheel on this and see if
 Codex can come up with something better.
 
