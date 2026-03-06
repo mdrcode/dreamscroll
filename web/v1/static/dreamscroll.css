@@ -234,7 +234,8 @@ body {
 .capturelist-row-timestamp {
     font-size: 12px;
     font-style: italic;
-    margin-top: 7px;
+    margin-top: auto;
+    padding-top: 8px;
     margin-bottom: 0;
     align-self: flex-end;
 }
@@ -449,6 +450,7 @@ body {
 
     .capturelist-row-metadata-container {
         width: 45%;
+        align-self: stretch;
         margin-left: 10px;
         position: static;
         left: auto;
@@ -456,12 +458,6 @@ body {
         bottom: auto;
         padding: 0;
         background: none;
-    }
-
-    .capturelist-row-timestamp {
-        margin-top: 8px;
-        margin-bottom: 0;
-        align-self: flex-end;
     }
 
     .capturelist-row-summary {
