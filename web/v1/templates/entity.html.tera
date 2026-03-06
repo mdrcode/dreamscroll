@@ -226,24 +226,6 @@
                 {% endif %}
             </div>
 
-            <div class="source-section">
-                <div class="section-label">Source Capture</div>
-                <a href="/detail/{{ entity.capture.id }}" class="source-capture">
-                    {% if entity.capture.medias | length > 0 %}
-                    <img class="source-capture-image" src="{{ entity.capture.medias[0].url }}" alt="capture">
-                    {% endif %}
-                    <div class="source-capture-info">
-                        <span class="source-capture-timestamp" title="{{ entity.capture.created_at }}">{{ entity.capture.created_at_human }}</span>
-                        {% if entity.capture.illuminations | length > 0 %}
-                        {% set illum = entity.capture.illuminations | first %}
-                        {% if illum.summary %}
-                        <p class="source-capture-summary">{{ illum.summary }}</p>
-                        {% endif %}
-                        {% endif %}
-                    </div>
-                </a>
-            </div>
-
             {% set has_entities = false %}
             {% for illum in entity.capture.illuminations %}
                 {% if illum.k_nodes | length > 0 or illum.social_medias | length > 0 %}
@@ -252,7 +234,7 @@
             {% endfor %}
             {% if has_entities %}
             <div class="other-entities-section">
-                <div class="section-label">Related Entities from this Capture</div>
+                <div class="section-label">Related Entities from same Capture</div>
                 <div class="pill-group pill-group--wrap">
                     {% for illum in entity.capture.illuminations %}
                     {% for node in illum.k_nodes %}
@@ -271,6 +253,24 @@
                 </div>
             </div>
             {% endif %}
+
+            <div class="source-section">
+                <div class="section-label">Source Capture</div>
+                <a href="/detail/{{ entity.capture.id }}" class="source-capture">
+                    {% if entity.capture.medias | length > 0 %}
+                    <img class="source-capture-image" src="{{ entity.capture.medias[0].url }}" alt="capture">
+                    {% endif %}
+                    <div class="source-capture-info">
+                        <span class="source-capture-timestamp" title="{{ entity.capture.created_at }}">{{ entity.capture.created_at_human }}</span>
+                        {% if entity.capture.illuminations | length > 0 %}
+                        {% set illum = entity.capture.illuminations | first %}
+                        {% if illum.summary %}
+                        <p class="source-capture-summary">{{ illum.summary }}</p>
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                </a>
+            </div>
         </div>
     </div>
 </body>
