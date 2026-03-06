@@ -1,14 +1,18 @@
 :root {
     --color-page-bg: #ffffffd4;
-
     --color-page-title: #171820;
     --color-page-text: #171820;
-    --color-upload-text: #4b5563;
 
     --color-capture-row-bg: #dedbea;
     --color-capture-row-shadow: rgba(0, 0, 0, 0.08);
 
     --color-link: #0066cc;
+
+    --color-upload-text: #4b5563;
+    --color-upload-bg: #fff;
+    --color-upload-border: #ddd;
+    --color-upload-hover-bg: #fff;
+    --color-upload-hover-border: #171820;
 
     --color-pill-text: #4e516b;
     --color-pill-bg: #f8fafc;

@@ -49,16 +49,16 @@
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            border: 1px solid #ddd;
-            background-color: #fff;
+            border: 1px solid var(--color-upload-border);
+            background-color: var(--color-upload-bg);
             border-radius: 12px;
             padding: 4px 8px;
             cursor: pointer;
         }
 
         #file-picker-label:hover {
-            border-color: #999;
-            background-color: #f8fafc;
+            border-color: var(--color-upload-hover-border);
+            background-color: var(--color-upload-hover-bg);
         }
 
         #drop-zone-row {
