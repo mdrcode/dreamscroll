@@ -74,15 +74,6 @@
             box-shadow: 0 1px 4px var(--color-capture-row-shadow);
         }
 
-        .source-section-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--color-page-text);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 12px;
-        }
-
         .source-capture {
             display: flex;
             gap: 16px;
@@ -138,49 +129,6 @@
             box-shadow: 0 1px 4px var(--color-capture-row-shadow);
         }
 
-        .other-entities {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-
-        .other-entity {
-            display: inline-flex;
-            align-items: center;
-            border: 1px solid var(--color-pill-border);
-            border-radius: 10px;
-            background: var(--color-pill-bg);
-            overflow: hidden;
-            text-decoration: none;
-            color: inherit;
-            transition: background 0.15s ease, border-color 0.15s ease;
-        }
-
-        .other-entity:hover {
-            background: var(--color-pill-hover-bg);
-        }
-
-        .other-entity.current {
-            border-color: var(--color-link);
-            background: var(--color-pill-hover-bg);
-        }
-
-        .other-entity-type {
-            background: var(--color-pill-prefix-bg);
-            color: var(--color-pill-prefix-text);
-            padding: 3px 6px;
-            text-transform: lowercase;
-            letter-spacing: 0.2px;
-            line-height: 1;
-            border-right: 1px solid var(--color-pill-border);
-        }
-
-        .other-entity-name {
-            padding: 3px 8px;
-            color: var(--color-pill-text);
-            font-weight: 500;
-        }
-
         @media (max-width: 768px) {
             #page-content-container {
                 max-width: 100%;
@@ -228,12 +176,8 @@
                 -webkit-line-clamp: 4;
             }
 
-            .source-section-label {
+            .section-label {
                 margin-bottom: 8px;
-            }
-
-            .other-entities {
-                gap: 6px;
             }
 
             .other-entities-section {
@@ -283,7 +227,7 @@
             </div>
 
             <div class="source-section">
-                <div class="source-section-label">Source Capture</div>
+                <div class="section-label">Source Capture</div>
                 <a href="/detail/{{ entity.capture.id }}" class="source-capture">
                     {% if entity.capture.medias | length > 0 %}
                     <img class="source-capture-image" src="{{ entity.capture.medias[0].url }}" alt="capture">
@@ -308,19 +252,19 @@
             {% endfor %}
             {% if has_entities %}
             <div class="other-entities-section">
-                <div class="source-section-label">Related Entities from this Capture</div>
-                <div class="other-entities">
+                <div class="section-label">Related Entities from this Capture</div>
+                <div class="pill-group pill-group--wrap">
                     {% for illum in entity.capture.illuminations %}
                     {% for node in illum.k_nodes %}
-                    <a href="/entity/knode/{{ node.id }}" class="other-entity {% if entity.entity_type == 'KNode' and entity.id == node.id %}current{% endif %}">
-                        <span class="other-entity-type">{{ node.k_type }}</span>
-                        <span class="other-entity-name">{{ node.name }}</span>
+                    <a href="/entity/knode/{{ node.id }}" class="pill {% if entity.entity_type == 'KNode' and entity.id == node.id %}pill--current{% endif %}">
+                        <span class="pill__prefix">{{ node.k_type }}</span>
+                        <span class="pill__label">{{ node.name }}</span>
                     </a>
                     {% endfor %}
                     {% for sm in illum.social_medias %}
-                    <a href="/entity/social/{{ sm.id }}" class="other-entity {% if entity.entity_type == 'SocialMedia' and entity.id == sm.id %}current{% endif %}">
-                        <span class="other-entity-type">{{ sm.platform }}</span>
-                        <span class="other-entity-name">{{ sm.display_name }}</span>
+                    <a href="/entity/social/{{ sm.id }}" class="pill {% if entity.entity_type == 'SocialMedia' and entity.id == sm.id %}pill--current{% endif %}">
+                        <span class="pill__prefix">{{ sm.platform }}</span>
+                        <span class="pill__label">{{ sm.display_name }}</span>
                     </a>
                     {% endfor %}
                     {% endfor %}

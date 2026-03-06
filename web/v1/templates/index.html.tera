@@ -194,31 +194,31 @@
 
                     {% if knode_count > 0 or social_count > 0 or query_count > 0 %}
                         {% if knode_count > 0 %}
-                        <div class="capturelist-row-entities">
+                        <div class="pill-group pill-group--scroll pill-group--entities pill-group--stack">
                             {% for node in illum.k_nodes %}
-                            <a href="/entity/knode/{{ node.id }}" class="capturelist-entity" title="{{ node.description }}">
-                                <div class="capturelist-entity-type">{{ node.k_type }}</div>
-                                <div class="capturelist-entity-name">{{ node.name }}</div>
+                            <a href="/entity/knode/{{ node.id }}" class="pill" title="{{ node.description }}">
+                                <span class="pill__prefix">{{ node.k_type }}</span>
+                                <span class="pill__label">{{ node.name }}</span>
                             </a>
                             {% endfor %}
                         </div>
                         {% endif %}
 
                         {% if social_count > 0 %}
-                        <div class="capturelist-row-entities">
+                        <div class="pill-group pill-group--scroll pill-group--entities pill-group--stack">
                             {% for node in illum.social_medias %}
-                            <a href="/entity/social/{{ node.id }}" class="capturelist-entity" title="{{ node.handle }}">
-                                <div class="capturelist-entity-type">{{ node.platform }}</div>
-                                <div class="capturelist-entity-name">{{ node.display_name }}</div>
+                            <a href="/entity/social/{{ node.id }}" class="pill" title="{{ node.handle }}">
+                                <span class="pill__prefix">{{ node.platform }}</span>
+                                <span class="pill__label">{{ node.display_name }}</span>
                             </a>
                             {% endfor %}
                         </div>
                         {% endif %}
 
                         {% if query_count > 0 %}
-                        <div class="capturelist-row-queries">
+                        <div class="pill-group pill-group--scroll pill-group--queries pill-group--stack">
                             {% for query in illum.x_queries %}
-                            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="capturelist-query-pill"><span class="capturelist-entity-type">⌕</span><span class="capturelist-query-text">{{ query }}</span></a>
+                            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="pill"><span class="pill__prefix">⌕</span><span class="pill__label">{{ query }}</span></a>
                             {% endfor %}
                         </div>
                         {% endif %}

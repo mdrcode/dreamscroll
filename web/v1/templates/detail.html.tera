@@ -73,82 +73,6 @@
             white-space: pre-line;
         }
 
-        .detail-section-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--color-page-text);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
-        }
-
-        .detail-queries {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin: 16px 0;
-        }
-
-        .detail-query-pill {
-            color: var(--color-pill-text);
-            background: var(--color-pill-bg);
-            padding: 3px 8px;
-            border: 1px solid var(--color-pill-border);
-            border-radius: 10px;
-            text-decoration: none;
-            transition: background 0.15s ease, border-color 0.15s ease;
-        }
-
-        .detail-query-pill:hover {
-            background: var(--color-pill-hover-bg);
-            color: var(--color-pill-text);
-        }
-
-        .detail-entities {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 8px;
-            margin: 16px 0;
-        }
-
-        .detail-entity {
-            display: inline-flex;
-            align-items: center;
-            border: 1px solid var(--color-pill-border);
-            border-radius: 10px;
-            background: var(--color-pill-bg);
-            overflow: hidden;
-            text-decoration: none;
-            color: inherit;
-            transition: background 0.15s ease, border-color 0.15s ease;
-        }
-
-        .detail-entity:hover {
-            background: var(--color-pill-hover-bg);
-        }
-
-        .detail-entity-type {
-            background: var(--color-pill-prefix-bg);
-            color: var(--color-pill-prefix-text);
-            padding: 3px 6px;
-            text-transform: lowercase;
-            letter-spacing: 0.2px;
-            line-height: 1;
-            border-right: 1px solid var(--color-pill-border);
-        }
-
-        .detail-entity-name {
-            padding: 3px 8px;
-            color: var(--color-pill-text);
-            font-weight: 500;
-        }
-
-        .detail-entity-desc {
-            display: block;
-            color: #666;
-            margin-top: 2px;
-        }
-
         @media (max-width: 768px) {
             #page-content-container {
                 max-width: 100%;
@@ -191,11 +115,6 @@
                 margin: 10px 0;
             }
 
-            .detail-queries,
-            .detail-entities {
-                margin: 10px 0;
-                gap: 6px;
-            }
         }
 
         @media (min-width: 769px) {
@@ -240,33 +159,33 @@
                 {% endif %}
 
                 {% if illum.x_queries | length > 0 %}
-                <div class="detail-section-label">Suggested Searches</div>
-                <div class="detail-queries">
+                <div class="section-label">Suggested Searches</div>
+                <div class="pill-group pill-group--wrap pill-group--queries pill-group--section">
                     {% for query in illum.x_queries %}
-                    <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="detail-query-pill">{{ query }}</a>
+                    <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="pill"><span class="pill__label">{{ query }}</span></a>
                     {% endfor %}
                 </div>
                 {% endif %}
 
                 {% if illum.k_nodes | length > 0 %}
-                <div class="detail-section-label">Entities</div>
-                <div class="detail-entities">
+                <div class="section-label">Entities</div>
+                <div class="pill-group pill-group--wrap pill-group--section">
                     {% for node in illum.k_nodes %}
-                    <a href="/entity/knode/{{ node.id }}" class="detail-entity">
-                        <span class="detail-entity-type">{{ node.k_type }}</span>
-                        <span class="detail-entity-name">{{ node.name }}</span>
+                    <a href="/entity/knode/{{ node.id }}" class="pill">
+                        <span class="pill__prefix">{{ node.k_type }}</span>
+                        <span class="pill__label">{{ node.name }}</span>
                     </a>
                     {% endfor %}
                 </div>
                 {% endif %}
 
                 {% if illum.social_medias | length > 0 %}
-                <div class="detail-section-label">Social Media</div>
-                <div class="detail-entities">
+                <div class="section-label">Social Media</div>
+                <div class="pill-group pill-group--wrap pill-group--section">
                     {% for node in illum.social_medias %}
-                    <a href="/entity/social/{{ node.id }}" class="detail-entity">
-                        <span class="detail-entity-type">{{ node.platform }}</span>
-                        <span class="detail-entity-name">{{ node.display_name }}</span>
+                    <a href="/entity/social/{{ node.id }}" class="pill">
+                        <span class="pill__prefix">{{ node.platform }}</span>
+                        <span class="pill__label">{{ node.display_name }}</span>
                     </a>
                     {% endfor %}
                 </div>
