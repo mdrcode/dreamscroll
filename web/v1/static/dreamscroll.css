@@ -3,7 +3,9 @@
     /* --color-page-bg: #50406c; */
     /* --color-page-bg: #7764a0; */
     --color-page-bg: #17182e;
+
     /* --color-page-title: #ffffffde; */
+    /* --color-page-title: #cdac5e; */
     --color-page-title: #f582ab;
     --color-page-text: #e4e2e9;
     --color-link: #0066cc;
@@ -13,7 +15,9 @@
     /* --color-capture-row-bg: #aa6da9; */
     /* --color-capture-row-bg: #7764a0; */
     /* --color-capture-row-bg: #7764a0; */
-    --color-capture-row-bg: #50406c;
+    /* --color-capture-row-bg: #50406c; */
+    /* --color-capture-row-bg: #497283; */
+    --color-capture-row-bg: #363565;
     --color-capture-row-shadow: rgba(0, 0, 0, 0.08);
 
     --color-pill-text: #4b5563;
@@ -158,6 +162,8 @@ body {
     width: 100%;
     max-width: 100%;
     min-width: 0;
+    border-radius: 10px;
+    overflow: hidden;
 }
 
 .capturelist-row-image {
@@ -393,7 +399,6 @@ body {
         width: auto;
         max-width: 100%;
         max-height: 600px;
-        border-radius: 10px;
         object-fit: initial;
     }
 
@@ -401,8 +406,6 @@ body {
         display: inline-block;
         width: auto;
         max-width: 100%;
-        border-radius: 10px;
-        overflow: hidden;
     }
 
     .capturelist-row-metadata-container {
