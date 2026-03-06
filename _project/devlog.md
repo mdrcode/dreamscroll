@@ -35,7 +35,7 @@ Important pending work before we can declare version 0.1 complete:
 - [ ] Signed cookie protection on access to cloud storage bucket
 - [ ] OpenTelemetry metrics
 - [X] Cached prompts with Vertex AI (apparently "implicit" caching happens automatically?)
-- [ ] Better UI on mobile web (white space too aggressive at present)
+- [X] Better UI on mobile web (white space too aggressive at present)
 
 ## 2026-02-18
 

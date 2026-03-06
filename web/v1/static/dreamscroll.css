@@ -20,7 +20,6 @@
     /* Global font-size controls */
     --font-size-page-title: clamp(2.2rem, 5vw, 3rem);
     --font-size-page-title-mobile: 2.5rem;
-    --font-size-back-link: 14px;
     --font-size-capture-seemore: 12px;
     --font-size-capture-seemore-arrow: 14px;
     --font-size-capture-timestamp: 12px;
@@ -88,20 +87,6 @@ body {
 .header-title-link {
     text-decoration: none;
     color: inherit;
-}
-
-.back-link {
-    margin-bottom: 20px;
-    font-size: var(--font-size-back-link);
-}
-
-.back-link a {
-    color: var(--color-link);
-    text-decoration: none;
-}
-
-.back-link a:hover {
-    text-decoration: underline;
 }
 
 #file-picker-label {

@@ -210,11 +210,7 @@
 <body>
     <div id="page-content-container">
         <div id="header-row">
-            <h1 id="page-title">dreamscroll - {{ capture.id }}</h1>
-        </div>
-
-        <div class="back-link">
-            <a href="/">← Back</a>
+            <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll</a> - {{ capture.id }}</h1>
         </div>
 
         <div class="detail-container">
