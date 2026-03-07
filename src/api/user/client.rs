@@ -1,6 +1,6 @@
 use chrono::{DateTime, Utc};
 
-use crate::{api::*, auth, database, pubsub, storage};
+use crate::{api::*, auth, database, storage, task};
 
 #[derive(Clone)]
 pub struct UserApiClient {
@@ -8,7 +8,7 @@ pub struct UserApiClient {
     pub db: database::DbHandle,
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
-    beacon: pubsub::Beacon,
+    beacon: task::Beacon,
 }
 
 impl UserApiClient {
@@ -16,7 +16,7 @@ impl UserApiClient {
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
-        beacon: pubsub::Beacon,
+        beacon: task::Beacon,
     ) -> Self {
         Self {
             db,

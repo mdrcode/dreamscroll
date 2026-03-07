@@ -4,7 +4,7 @@ use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 
 use dreamscroll::{
-    api, auth, database, facility, illumination, pubsub, rest, storage, webhook, webui,
+    api, auth, database, facility, illumination, rest, storage, task, webhook, webui,
 };
 
 #[tokio::main]
@@ -34,14 +34,14 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
-    let new_capture_topic = pubsub::PubSubTaskQueue::connect(
+    let new_capture_topic = task::PubSubTaskQueue::connect(
         config.gcloud_project_id.as_str(),
         config.pubsub_topic_id_new_capture.as_str(),
         config.pubsub_emulator.as_deref(),
     )
     .await
     .context("Failed to initialize Pub/Sub topic queue")?;
-    let beacon = pubsub::Beacon::builder()
+    let beacon = task::Beacon::builder()
         .new_capture_topic(new_capture_topic)
         .build();
     let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon);

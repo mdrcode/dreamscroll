@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 
-use crate::{api, illumination, pubsub};
+use crate::{api, illumination, task};
 
 use super::*;
 
@@ -12,7 +12,7 @@ pub struct IlluminationTask {
     pub capture_id: i32,
 }
 
-impl pubsub::TaskId for IlluminationTask {
+impl task::TaskId for IlluminationTask {
     fn id(&self) -> String {
         self.capture_id.to_string()
     }
