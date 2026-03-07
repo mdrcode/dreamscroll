@@ -12,21 +12,21 @@ use serde::Serialize;
 use super::*;
 
 #[derive(Clone)]
-pub struct PubSubTopicQueue<TPayload> {
-    inner: Arc<PubSubTopicQueueInner>,
-    _payload: PhantomData<TPayload>,
+pub struct PubSubTaskQueue<TTask> {
+    inner: Arc<PubSubTaskQueueInner>,
+    _task: PhantomData<TTask>,
 }
 
-struct PubSubTopicQueueInner {
+struct PubSubTaskQueueInner {
     project_id: String,
     topic_id: String,
     emulator_host: Option<String>,
     publisher: Publisher,
 }
 
-impl<TPayload> std::fmt::Debug for PubSubTopicQueue<TPayload> {
+impl<TTask> std::fmt::Debug for PubSubTaskQueue<TTask> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("PubSubTopicQueue")
+        f.debug_struct("PubSubTaskQueue")
             .field("project_id", &self.inner.project_id)
             .field("topic_id", &self.inner.topic_id)
             .field("emulator_host", &self.inner.emulator_host)
@@ -34,7 +34,7 @@ impl<TPayload> std::fmt::Debug for PubSubTopicQueue<TPayload> {
     }
 }
 
-impl<TPayload> PubSubTopicQueue<TPayload> {
+impl<TTask> PubSubTaskQueue<TTask> {
     pub async fn connect(
         project_id: &str,
         topic_id: &str,
@@ -83,17 +83,17 @@ impl<TPayload> PubSubTopicQueue<TPayload> {
             project_id = ?project_id,
             topic_id = ?topic_id,
             emulator_host = ?emulator_host,
-            "Configured Pub/Sub topic queue"
+            "Configured Pub/Sub task queue"
         );
 
         Ok(Self {
-            inner: Arc::new(PubSubTopicQueueInner {
+            inner: Arc::new(PubSubTaskQueueInner {
                 project_id: project_id.to_string(),
                 topic_id: topic_id.to_string(),
                 emulator_host,
                 publisher,
             }),
-            _payload: PhantomData,
+            _task: PhantomData,
         })
     }
 }
@@ -134,17 +134,17 @@ mod tests {
 }
 
 #[async_trait::async_trait]
-impl<TPayload: Serialize + Send + Sync + 'static> TopicQueue for PubSubTopicQueue<TPayload> {
-    type Payload = TPayload;
+impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for PubSubTaskQueue<TTask> {
+    type Task = TTask;
 
-    async fn enqueue(&self, payload: TPayload) -> anyhow::Result<()> {
-        let payload_json = serde_json::to_vec(&payload)?;
+    async fn enqueue(&self, task: TTask) -> anyhow::Result<()> {
+        let task_json = serde_json::to_vec(&task)?;
 
         let awaiter = self
             .inner
             .publisher
             .publish(PubsubMessage {
-                data: payload_json.into(),
+                data: task_json.into(),
                 ..Default::default()
             })
             .await;
@@ -154,7 +154,11 @@ impl<TPayload: Serialize + Send + Sync + 'static> TopicQueue for PubSubTopicQueu
             .await
             .map_err(|err| anyhow!("Pub/Sub publish failed: {}", err))?;
 
-        tracing::debug!(message_id, "Published payload to Pub/Sub");
+        tracing::debug!(message_id, "Published task to Pub/Sub");
         Ok(())
+    }
+
+    async fn get_status(&self, task_id: &str) -> anyhow::Result<TaskStatus> {
+        unimplemented!();
     }
 }

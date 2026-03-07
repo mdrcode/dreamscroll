@@ -17,17 +17,17 @@ pub struct PushMessage {
     pub message_id: Option<String>,
 }
 
-pub fn decode_payload<P>(encoded: &str) -> Result<P, ApiError>
+pub fn decode_message_data<P>(data: &str) -> Result<P, ApiError>
 where
     P: serde::de::DeserializeOwned,
 {
-    let bytes = STANDARD.decode(encoded).map_err(|err| {
+    let bytes = STANDARD.decode(data).map_err(|err| {
         ApiError::bad_request(anyhow!("Invalid base64 in Pub/Sub message data: {err}"))
     })?;
 
     serde_json::from_slice::<P>(&bytes).map_err(|err| {
         ApiError::bad_request(anyhow!(
-            "Invalid JSON payload in Pub/Sub message data: {err}"
+            "JSON deserialization error in Pub/Sub message data: {err}"
         ))
     })
 }

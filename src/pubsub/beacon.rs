@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use crate::webhook::r_wh_illuminate::IlluminationPayload;
+use crate::webhook::r_wh_illuminate::IlluminationTask;
 
-use super::TopicQueue;
+use super::*;
 
 #[derive(Clone, Default)]
 pub struct Beacon {
-    illumination_queue: Option<Arc<dyn TopicQueue<Payload = IlluminationPayload>>>,
+    illumination_queue: Option<Arc<dyn TaskQueue<Task = IlluminationTask>>>,
 }
 
 impl Beacon {
@@ -16,7 +16,7 @@ impl Beacon {
 
     pub async fn signal_new_capture(&self, capture_id: i32) -> anyhow::Result<()> {
         if let Some(queue) = self.illumination_queue.as_ref() {
-            queue.enqueue(IlluminationPayload { capture_id }).await.inspect_err(
+            queue.enqueue(IlluminationTask { capture_id }).await.inspect_err(
                 |err| tracing::error!(queue = ?queue, capture_id, error = ?err, "Failed to enqueue capture for illumination"),
             )?;
         } else {
@@ -29,13 +29,13 @@ impl Beacon {
 
 #[derive(Default)]
 pub struct BeaconBuilder {
-    illumination_queue: Option<Arc<dyn TopicQueue<Payload = IlluminationPayload>>>,
+    illumination_queue: Option<Arc<dyn TaskQueue<Task = IlluminationTask>>>,
 }
 
 impl BeaconBuilder {
     pub fn new_capture_topic(
         mut self,
-        illumination_queue: impl TopicQueue<Payload = IlluminationPayload> + 'static,
+        illumination_queue: impl TaskQueue<Task = IlluminationTask> + 'static,
     ) -> Self {
         self.illumination_queue = Some(Arc::new(illumination_queue));
         self
@@ -52,7 +52,7 @@ impl BeaconBuilder {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use crate::webhook::r_wh_illuminate::IlluminationPayload;
+    use crate::webhook::r_wh_illuminate::IlluminationTask;
 
     use super::*;
 
@@ -63,10 +63,10 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl TopicQueue for RecordingQueue {
-        type Payload = IlluminationPayload;
+    impl TaskQueue for RecordingQueue {
+        type Task = IlluminationTask;
 
-        async fn enqueue(&self, payload: Self::Payload) -> anyhow::Result<()> {
+        async fn enqueue(&self, task: Self::Task) -> anyhow::Result<()> {
             if self.fail {
                 anyhow::bail!("enqueue failed")
             }
@@ -75,13 +75,17 @@ mod tests {
                 .captures
                 .lock()
                 .expect("RecordingQueue captures mutex should not be poisoned");
-            captures.push(payload.capture_id);
+            captures.push(task.capture_id);
             Ok(())
+        }
+
+        async fn get_status(&self, task_id: &str) -> anyhow::Result<TaskStatus> {
+            unimplemented!();
         }
     }
 
     #[tokio::test]
-    async fn signal_new_capture_enqueues_payload() {
+    async fn signal_new_capture_enqueues_task() {
         let captures = Arc::new(Mutex::new(Vec::new()));
         let queue = RecordingQueue {
             captures: Arc::clone(&captures),

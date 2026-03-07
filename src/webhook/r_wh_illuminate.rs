@@ -3,13 +3,19 @@ use std::sync::Arc;
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 use serde::{Deserialize, Serialize};
 
-use crate::{api, illumination};
+use crate::{api, illumination, pubsub};
 
 use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IlluminationPayload {
+pub struct IlluminationTask {
     pub capture_id: i32,
+}
+
+impl pubsub::TaskId for IlluminationTask {
+    fn id(&self) -> String {
+        self.capture_id.to_string()
+    }
 }
 
 /// Webhook POST route for illumination tasks.
@@ -22,12 +28,12 @@ pub async fn post(
     State(state): State<Arc<WebhookState>>,
     Json(body): Json<PushBody>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let payload = decode_payload::<IlluminationPayload>(&body.message.data).map_err(|err| {
-        tracing::error!(error = ?err, "Failed to decode Pub/Sub message payload");
+    let task = decode_message_data::<IlluminationTask>(&body.message.data).map_err(|err| {
+        tracing::error!(error = ?err, "Failed to decode Pub/Sub message task");
         api::ApiError::bad_request(err)
     })?;
 
-    execute(&state.service_api, &state.illuminator, payload.capture_id).await?;
+    execute(&state.service_api, &state.illuminator, task.capture_id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }
