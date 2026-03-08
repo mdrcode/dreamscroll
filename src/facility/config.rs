@@ -60,7 +60,10 @@ pub struct Config {
     pub pubsub_emulator: Option<String>, // e.g. "http://localhost:8085"
     pub pubsub_topic_id_new_capture: String,
 
-    pub firestore_emulator: Option<String>, // e.g. "http://localhost:8081"
+    pub cloud_tasks_emulator: Option<String>, // e.g. "http://localhost:8081"
+    pub cloud_tasks_region: String,
+    pub cloud_tasks_illumination_queue_id: String,
+    pub cloud_tasks_illumination_url: String,
 }
 
 pub fn make_config() -> anyhow::Result<Config> {

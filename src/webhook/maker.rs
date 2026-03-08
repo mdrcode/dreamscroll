@@ -26,6 +26,10 @@ pub fn make_webhook_router(
 
     let mut router = Router::new()
         .route("/illumination/push", post(r_wh_illuminate::post))
+        .route(
+            "/illumination/cloudtask",
+            post(r_wh_illuminate_cloudtask::post),
+        )
         .with_state(state);
 
     router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));

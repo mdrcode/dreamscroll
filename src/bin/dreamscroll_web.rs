@@ -34,13 +34,15 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
-    let new_capture_topic = task::PubSubTaskQueue::connect(
+    let new_capture_topic = task::FirestoreTaskQueue::connect(
         config.gcloud_project_id.as_str(),
-        config.pubsub_topic_id_new_capture.as_str(),
-        config.pubsub_emulator.as_deref(),
+        config.cloud_tasks_region.as_str(),
+        config.cloud_tasks_illumination_queue_id.as_str(),
+        config.cloud_tasks_illumination_url.as_str(),
+        config.cloud_tasks_emulator.as_deref(),
     )
     .await
-    .context("Failed to initialize Pub/Sub topic queue")?;
+    .context("Failed to initialize Cloud Tasks queue")?;
     let beacon = task::Beacon::builder()
         .new_capture_topic(new_capture_topic)
         .build();

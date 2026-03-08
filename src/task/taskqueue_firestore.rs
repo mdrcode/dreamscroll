@@ -18,7 +18,7 @@ struct FirestoreTaskQueueInner {
     project_id: String,
     queue_path: String,
     task_webhook_url: String,
-    emulator_host: Option<String>,
+    emulator_endpoint: Option<String>,
     client: CloudTasks,
 }
 
@@ -28,7 +28,7 @@ impl<TTask> std::fmt::Debug for FirestoreTaskQueue<TTask> {
             .field("project_id", &self.inner.project_id)
             .field("queue_path", &self.inner.queue_path)
             .field("task_webhook_url", &self.inner.task_webhook_url)
-            .field("emulator_host", &self.inner.emulator_host)
+            .field("emulator_host", &self.inner.emulator_endpoint)
             .finish()
     }
 }
@@ -41,27 +41,25 @@ impl<TTask> FirestoreTaskQueue<TTask> {
         task_webhook_url: &str,
         emulator_endpoint: Option<&str>,
     ) -> anyhow::Result<Self> {
-        let emulator_host = emulator_endpoint.map(util::trim_protocol_and_slash);
+        let client = {
+            let mut builder = CloudTasks::builder();
+            if let Some(emulator) = emulator_endpoint {
+                builder = builder.with_endpoint(emulator);
+            }
+            builder.build().await?
+        };
 
         let queue_path = format!(
             "projects/{}/locations/{}/queues/{}",
             project_id, region, queue_id
         );
 
-        let client = {
-            let mut builder = CloudTasks::builder();
-            if let Some(emulator) = emulator_host.as_deref() {
-                builder = builder.with_endpoint(emulator);
-            }
-            builder.build().await?
-        };
-
         Ok(Self {
             inner: Arc::new(FirestoreTaskQueueInner {
                 project_id: project_id.to_string(),
                 queue_path,
                 task_webhook_url: task_webhook_url.to_string(),
-                emulator_host,
+                emulator_endpoint: emulator_endpoint.map(|s| s.to_string()),
                 client,
             }),
             _task: PhantomData,
