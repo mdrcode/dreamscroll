@@ -59,6 +59,8 @@ pub struct Config {
 
     pub pubsub_emulator: Option<String>, // e.g. "http://localhost:8085"
     pub pubsub_topic_id_new_capture: String,
+
+    pub firestore_emulator: Option<String>, // e.g. "http://localhost:8081"
 }
 
 pub fn make_config() -> anyhow::Result<Config> {

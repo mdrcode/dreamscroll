@@ -943,6 +943,7 @@ dependencies = [
  "google-cloud-googleapis",
  "google-cloud-pubsub",
  "google-cloud-storage",
+ "google-cloud-tasks-v2",
  "infer",
  "jsonwebtoken 10.3.0",
  "opentelemetry",
@@ -1332,7 +1333,7 @@ dependencies = [
  "google-cloud-gax 0.24.0",
  "google-cloud-gax-internal 0.5.1",
  "google-cloud-iam-v1 0.4.5",
- "google-cloud-location",
+ "google-cloud-location 0.4.5",
  "google-cloud-longrunning 0.25.5",
  "google-cloud-lro 0.3.5",
  "google-cloud-rpc 0.4.5",
@@ -1608,6 +1609,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "google-cloud-location"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "86c138736ce3dc6b2cf0eacf34d47c39364194ede3c02eb0f7786889b2ba024c"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax 1.7.0",
+ "google-cloud-gax-internal 0.7.9",
+ "google-cloud-wkt 1.2.1",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
+]
+
+[[package]]
 name = "google-cloud-longrunning"
 version = "0.25.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1771,6 +1790,27 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "google-cloud-tasks-v2"
+version = "1.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c3782190bb3a72f484f74451795b216ed297fcb2d29ebb102cd500cc5cd38ea"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "google-cloud-gax 1.7.0",
+ "google-cloud-gax-internal 0.7.9",
+ "google-cloud-iam-v1 1.5.0",
+ "google-cloud-location 1.5.0",
+ "google-cloud-rpc 1.2.0",
+ "google-cloud-wkt 1.2.1",
+ "lazy_static",
+ "serde",
+ "serde_json",
+ "serde_with",
+ "tracing",
 ]
 
 [[package]]
