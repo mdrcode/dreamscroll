@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::webhook::r_wh_illuminate::IlluminationTask;
+use crate::webhook::logic::illuminate::IlluminationTask;
 
 use super::*;
 
@@ -53,7 +53,7 @@ impl BeaconBuilder {
 mod tests {
     use std::sync::{Arc, Mutex};
 
-    use crate::webhook::r_wh_illuminate::IlluminationTask;
+    //use crate::webhook::r_wh_illuminate::IlluminationTask;
 
     use super::*;
 

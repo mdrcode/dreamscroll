@@ -49,8 +49,12 @@ pub async fn run(state: CmdState, _args: IlluminateAllArgs) -> anyhow::Result<()
 
                 match next_capture_id {
                     Some(id) => {
-                        match webhook::r_wh_illuminate::execute(&service_api, &illuminator, id)
-                            .await
+                        match webhook::logic::illuminate::exec(
+                            &service_api,
+                            &illuminator,
+                            webhook::logic::illuminate::IlluminationTask { capture_id: id },
+                        )
+                        .await
                         {
                             Ok(_) => {
                                 worker_success += 1;

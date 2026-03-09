@@ -1,9 +1,7 @@
+pub mod logic;
+
+pub mod cloudtask;
+pub mod pubsub;
+
 mod maker;
 pub use maker::*;
-
-mod webhook;
-pub use webhook::*;
-
-// Webhook handlers
-pub mod r_wh_illuminate;
-pub mod r_wh_illuminate_cloudtask;
