@@ -73,10 +73,13 @@ impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for CloudTaskQ
             .await
             .map_err(|err| anyhow!("Cloud Tasks create_task failed for {}: {}", task_name, err))?;
 
-        tracing::debug!(
+        tracing::info!(
             queue = %self.inner.queue_path,
             task_name = %created_task.name,
-            "Enqueued task to Cloud Tasks"
+            "Enqueued capture_id {} to queue: {} with task_name: {}",
+            task.id(),
+            self.inner.queue_path,
+            created_task.name
         );
 
         Ok(())
