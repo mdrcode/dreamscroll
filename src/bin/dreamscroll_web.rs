@@ -72,18 +72,17 @@ async fn main() -> anyhow::Result<()> {
 
     // REST API routes (JWT-protected)
     if config.services.contains(&facility::Service::API) {
-        let jwt = auth::JwtConfig::from_secret(
-            config
-                .jwt_secret
-                .as_ref()
-                .context("JWT_SECRET not set, required for API")?
-                .as_bytes(),
-        );
+        let secret = config
+            .jwt_secret
+            .as_ref()
+            .context("JWT_SECRET not set, required for API")?
+            .as_bytes();
+        let jwt = auth::JwtConfig::from_secret(secret);
         router = router.nest("/api", rest::make_api_router(user_api.clone(), jwt));
         tracing::info!("Initialized REST API routes");
     }
 
-    // Webhook routes (no auth, protected by GCloud IAM in prod)
+    // Webhook routes (no auth locally, protected by GCloud IAM/OIDC in prod)
     if config.services.contains(&facility::Service::Webhook) {
         let illuminator = illumination::make_illuminator(&config, stg.clone());
         router = router.nest(
