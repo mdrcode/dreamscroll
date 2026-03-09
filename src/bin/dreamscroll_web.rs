@@ -34,12 +34,11 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
-    let new_capture_topic = task::FirestoreTaskQueue::connect(
+    let new_capture_topic = task::CloudTaskQueue::connect(
         config.gcloud_project_id.as_str(),
-        config.cloud_tasks_region.as_str(),
+        config.gcloud_project_region.as_str(),
         config.cloud_tasks_illumination_queue_id.as_str(),
-        config.cloud_tasks_illumination_url.as_str(),
-        config.cloud_tasks_emulator.as_deref(),
+        config.cloud_tasks_illumination_queue_url.as_str(),
     )
     .await
     .context("Failed to initialize Cloud Tasks queue")?;

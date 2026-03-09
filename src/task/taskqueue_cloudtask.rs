@@ -8,44 +8,36 @@ use serde::Serialize;
 use super::*;
 
 #[derive(Clone)]
-pub struct FirestoreTaskQueue<TTask> {
-    inner: Arc<FirestoreTaskQueueInner>,
+pub struct CloudTaskQueue<TTask> {
+    inner: Arc<CloudTaskQueueInner>,
     _task: PhantomData<TTask>,
 }
 
 #[derive(Debug)]
-struct FirestoreTaskQueueInner {
-    project_id: String,
+struct CloudTaskQueueInner {
     queue_path: String,
     task_webhook_url: String,
-    emulator_endpoint: Option<String>,
     client: CloudTasks,
 }
 
-impl<TTask> std::fmt::Debug for FirestoreTaskQueue<TTask> {
+impl<TTask> std::fmt::Debug for CloudTaskQueue<TTask> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("FirestoreTaskQueue")
-            .field("project_id", &self.inner.project_id)
+        f.debug_struct("CloudTaskQueue")
             .field("queue_path", &self.inner.queue_path)
             .field("task_webhook_url", &self.inner.task_webhook_url)
-            .field("emulator_host", &self.inner.emulator_endpoint)
             .finish()
     }
 }
 
-impl<TTask> FirestoreTaskQueue<TTask> {
+impl<TTask> CloudTaskQueue<TTask> {
     pub async fn connect(
         project_id: &str,
         region: &str,
         queue_id: &str,
         task_webhook_url: &str,
-        emulator_endpoint: Option<&str>,
     ) -> anyhow::Result<Self> {
         let client = {
             let mut builder = CloudTasks::builder();
-            if let Some(emulator) = emulator_endpoint {
-                builder = builder.with_endpoint(emulator);
-            }
             builder.build().await?
         };
 
@@ -55,11 +47,9 @@ impl<TTask> FirestoreTaskQueue<TTask> {
         );
 
         Ok(Self {
-            inner: Arc::new(FirestoreTaskQueueInner {
-                project_id: project_id.to_string(),
+            inner: Arc::new(CloudTaskQueueInner {
                 queue_path,
                 task_webhook_url: task_webhook_url.to_string(),
-                emulator_endpoint: emulator_endpoint.map(|s| s.to_string()),
                 client,
             }),
             _task: PhantomData,
@@ -68,14 +58,14 @@ impl<TTask> FirestoreTaskQueue<TTask> {
 }
 
 #[async_trait::async_trait]
-impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for FirestoreTaskQueue<TTask> {
+impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for CloudTaskQueue<TTask> {
     type Task = TTask;
 
     async fn enqueue(&self, task: TTask) -> anyhow::Result<()> {
         let task_id = task.id();
-        let body = serde_json::to_vec(&task).context("Failed to serialize task payload to JSON")?;
-
         let task_name = format!("{}/tasks/{}", self.inner.queue_path, task_id);
+
+        let body = serde_json::to_vec(&task).context("Failed to serialize task payload to JSON")?;
 
         let webhook_request = HttpRequest::new()
             .set_url(&self.inner.task_webhook_url)

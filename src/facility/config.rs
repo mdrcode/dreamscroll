@@ -27,7 +27,8 @@ pub struct Config {
     #[serde(deserialize_with = "deserialize_comma_list")]
     pub services: Vec<Service>,
 
-    pub gcloud_project_id: String, // for Gcloud services (logs, pubsub, storage)
+    pub gcloud_project_id: String,
+    pub gcloud_project_region: String,
 
     pub port: u16,
 
@@ -61,9 +62,8 @@ pub struct Config {
     pub pubsub_topic_id_new_capture: String,
 
     pub cloud_tasks_emulator: Option<String>, // e.g. "http://localhost:8081"
-    pub cloud_tasks_region: String,
     pub cloud_tasks_illumination_queue_id: String,
-    pub cloud_tasks_illumination_url: String,
+    pub cloud_tasks_illumination_queue_url: String,
 }
 
 pub fn make_config() -> anyhow::Result<Config> {

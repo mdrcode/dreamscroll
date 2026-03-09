@@ -6,8 +6,8 @@ pub use beacon::*;
 mod taskqueue;
 pub use taskqueue::*;
 
-mod taskqueue_firestore;
-pub use taskqueue_firestore::*;
+mod taskqueue_cloudtask;
+pub use taskqueue_cloudtask::*;
 
 pub mod taskqueue_pubsub;
 pub use taskqueue_pubsub::*;
