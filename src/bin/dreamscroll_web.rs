@@ -34,16 +34,15 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
-    let new_capture_topic = task::CloudTaskQueue::connect(
+    let illumination_queue = task::CloudTaskQueue::connect(
         config.gcloud_project_id.as_str(),
         config.gcloud_project_region.as_str(),
         config.cloud_tasks_illumination_queue_id.as_str(),
-        config.cloud_tasks_illumination_queue_url.as_str(),
     )
     .await
     .context("Failed to initialize Cloud Tasks queue")?;
     let beacon = task::Beacon::builder()
-        .new_capture_topic(new_capture_topic)
+        .illumination_queue(illumination_queue)
         .build();
     let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon);
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());

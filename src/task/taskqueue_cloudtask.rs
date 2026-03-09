@@ -16,7 +16,6 @@ pub struct CloudTaskQueue<TTask> {
 #[derive(Debug)]
 struct CloudTaskQueueInner {
     queue_path: String,
-    task_webhook_url: String,
     client: CloudTasks,
 }
 
@@ -24,22 +23,13 @@ impl<TTask> std::fmt::Debug for CloudTaskQueue<TTask> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CloudTaskQueue")
             .field("queue_path", &self.inner.queue_path)
-            .field("task_webhook_url", &self.inner.task_webhook_url)
             .finish()
     }
 }
 
 impl<TTask> CloudTaskQueue<TTask> {
-    pub async fn connect(
-        project_id: &str,
-        region: &str,
-        queue_id: &str,
-        task_webhook_url: &str,
-    ) -> anyhow::Result<Self> {
-        let client = {
-            let mut builder = CloudTasks::builder();
-            builder.build().await?
-        };
+    pub async fn connect(project_id: &str, region: &str, queue_id: &str) -> anyhow::Result<Self> {
+        let client = CloudTasks::builder().build().await?;
 
         let queue_path = format!(
             "projects/{}/locations/{}/queues/{}",
@@ -47,11 +37,7 @@ impl<TTask> CloudTaskQueue<TTask> {
         );
 
         Ok(Self {
-            inner: Arc::new(CloudTaskQueueInner {
-                queue_path,
-                task_webhook_url: task_webhook_url.to_string(),
-                client,
-            }),
+            inner: Arc::new(CloudTaskQueueInner { queue_path, client }),
             _task: PhantomData,
         })
     }
@@ -68,7 +54,7 @@ impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for CloudTaskQ
         let body = serde_json::to_vec(&task).context("Failed to serialize task payload to JSON")?;
 
         let webhook_request = HttpRequest::new()
-            .set_url(&self.inner.task_webhook_url)
+            .set_url("https://dummy-url-should-be-overridden-by-queue-config.dreamscroll.ai")
             .set_http_method(HttpMethod::Post)
             .set_headers([("Content-Type", "application/json")])
             .set_body(body);

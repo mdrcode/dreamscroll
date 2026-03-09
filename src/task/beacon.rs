@@ -17,7 +17,7 @@ impl Beacon {
     pub async fn signal_new_capture(&self, capture_id: i32) -> anyhow::Result<()> {
         if let Some(queue) = self.illumination_queue.as_ref() {
             queue.enqueue(IlluminationTask { capture_id }).await.inspect_err(
-                |err| tracing::error!(queue = ?queue, capture_id, error = ?err, "Failed to enqueue capture for illumination"),
+                |err| tracing::error!(queue = ?queue, capture_id, error = ?err, "Failed to enqueue capture for illumination: {}", err),
             )?;
         } else {
             tracing::warn!("New capture created but no topic configured, skipping enqueue.");
@@ -33,7 +33,7 @@ pub struct BeaconBuilder {
 }
 
 impl BeaconBuilder {
-    pub fn new_capture_topic(
+    pub fn illumination_queue(
         mut self,
         illumination_queue: impl TaskQueue<Task = IlluminationTask> + 'static,
     ) -> Self {
@@ -92,7 +92,7 @@ mod tests {
             fail: false,
         };
 
-        let beacon = Beacon::builder().new_capture_topic(queue).build();
+        let beacon = Beacon::builder().illumination_queue(queue).build();
 
         beacon
             .signal_new_capture(42)
@@ -122,7 +122,7 @@ mod tests {
             captures: Arc::new(Mutex::new(Vec::new())),
             fail: true,
         };
-        let beacon = Beacon::builder().new_capture_topic(queue).build();
+        let beacon = Beacon::builder().illumination_queue(queue).build();
 
         let result = beacon.signal_new_capture(9).await;
         assert!(result.is_err());
