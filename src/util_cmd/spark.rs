@@ -1,9 +1,32 @@
 use anyhow::anyhow;
 use argh::FromArgs;
+use std::io::Write;
 
 use crate::ignition::{Firestarter, grok::GrokFirestarter};
 
 use super::*;
+
+const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+
+async fn run_spinner(mut stop_rx: tokio::sync::oneshot::Receiver<()>) {
+    let mut idx = 0usize;
+
+    loop {
+        tokio::select! {
+            _ = &mut stop_rx => {
+                print!("\r✓ Spark inference complete.                    \n");
+                let _ = std::io::stdout().flush();
+                break;
+            }
+            _ = tokio::time::sleep(std::time::Duration::from_millis(90)) => {
+                let frame = SPINNER_FRAMES[idx % SPINNER_FRAMES.len()];
+                print!("\r{} Sending spark for inference...", frame);
+                let _ = std::io::stdout().flush();
+                idx += 1;
+            }
+        }
+    }
+}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "spark")]
@@ -34,10 +57,15 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
     let capture_count = captures.len();
 
     let firestarter = GrokFirestarter::new(api_key);
-    println!("Sending spark for inference...");
+    let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+    let spinner_task = tokio::spawn(run_spinner(stop_rx));
 
     let spark_start = std::time::Instant::now();
-    let spark = firestarter.spark(captures).await?;
+    let spark_result = firestarter.spark(captures).await;
+    let _ = stop_tx.send(());
+    let _ = spinner_task.await;
+
+    let spark = spark_result?;
     let spark_duration = spark_start.elapsed();
 
     let requested_ids = args
