@@ -20,6 +20,9 @@ struct Args {
     )]
     prod: bool,
 
+    #[argh(option, long = "user", description = "username for API auth")]
+    user: Option<String>,
+
     #[argh(subcommand)]
     command: Command,
 }
@@ -69,6 +72,7 @@ async fn main() -> anyhow::Result<()> {
     let Args {
         host,
         prod,
+        user,
         command,
     } = args;
 
@@ -81,7 +85,15 @@ async fn main() -> anyhow::Result<()> {
     };
     println!("Using REST host: {}", rest_host);
 
-    let username = prompt_username_stdin()?;
+    let username = if let Some(user) = user {
+        user.trim().to_string()
+    } else {
+        prompt_username_stdin()?
+    };
+
+    if username.is_empty() {
+        anyhow::bail!("Username cannot be empty. Provide --user or enter a username.");
+    }
 
     let command = match command {
         Command::ClearToken(clear_args) => {
