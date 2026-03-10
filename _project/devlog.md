@@ -1,5 +1,18 @@
 # Dreamscroll Development Log
 
+## 2026-03-10
+
+Gonna take a break from the UI work and get back to the actual data quality.
+Going to rough out the Igniter -> Spark concept which will take a set of
+captures (+illuminations) as input and then provide recommendations.
+
+## 2027-03-09
+
+Over the weekend I have migrated from Pub/Sub to using Cloud Tasks for the async
+workloads . This is motivated by Cloud Tasks support for low-cost querying of
+individual task status which can then be trivially broadcast to the client using
+Firebase SDK (hopefully...).
+
 ## 2027-03-06
 
 This week saw significant progress on the mobile layout and overall

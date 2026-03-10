@@ -42,6 +42,8 @@ pub struct Config {
     #[serde(default = "default_gemini_payload_method")]
     pub gemini_payload_method: illumination::gemini::PayloadMethod,
 
+    pub xai_api_key: Option<String>,
+
     pub db_backend: database::DbBackend,
 
     pub db_url_sqlite: Option<String>,

@@ -22,7 +22,7 @@ pub enum Status {
 }
 
 pub struct TaskStatus {
-    id: String,
-    attempts: u32,
-    status: Status,
+    _id: String,
+    _attempts: u32,
+    _status: Status,
 }

@@ -22,6 +22,7 @@ enum Command {
     IlluminateAll(illuminate_all::IlluminateAllArgs),
     IlluminateId(illuminate_id::IlluminateIdArgs),
     ImportDigest(import_digest::ImportDigestArgs),
+    Spark(spark::SparkArgs),
 }
 
 #[tokio::main]
@@ -69,5 +70,6 @@ async fn main() -> anyhow::Result<()> {
         Command::IlluminateAll(args) => illuminate_all::run(state, args).await,
         Command::IlluminateId(args) => illuminate_id::run(state, args).await,
         Command::ImportDigest(args) => import_digest::run(state, args).await,
+        Command::Spark(args) => spark::run(state, args).await,
     }
 }

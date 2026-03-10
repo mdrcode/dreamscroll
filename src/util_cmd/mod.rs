@@ -9,6 +9,7 @@ pub mod html_view;
 pub mod illuminate_all;
 pub mod illuminate_id;
 pub mod import_digest;
+pub mod spark;
 
 mod auth_helper;
 
