@@ -1,5 +1,6 @@
 pub mod backfill_search;
 pub mod check_first_user;
+pub mod clear_token;
 pub mod create_user;
 pub mod enums;
 // pub mod eval; ignore for now until refactoring allows creating multiple different illuminators
@@ -10,9 +11,12 @@ pub mod illuminate_all;
 pub mod illuminate_id;
 pub mod import_digest;
 pub mod spark;
+pub mod token_cache;
 
 mod auth_helper;
 pub use auth_helper::prompt_credentials_stdin;
+pub use auth_helper::prompt_password_stdin;
+pub use auth_helper::prompt_username_stdin;
 
 pub struct CmdState {
     pub config: crate::facility::Config,

@@ -59,6 +59,38 @@ impl Client {
         })
     }
 
+    pub fn connect_with_token(host: &str, access_token: String) -> anyhow::Result<Self> {
+        let base_url = normalize_base_url(host);
+        let reqwest_client = reqwest::Client::new();
+
+        Ok(Self {
+            reqwest_client,
+            base_url,
+            access_token,
+        })
+    }
+
+    pub async fn validate_auth(&self) -> anyhow::Result<()> {
+        let response = self
+            .reqwest_client
+            .get(format!("{}/dummy", self.base_url))
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .context("failed to call dummy endpoint")?;
+
+        let status = response.status();
+        if status.is_success() {
+            Ok(())
+        } else if status == reqwest::StatusCode::UNAUTHORIZED {
+            let body = read_error_body(response).await;
+            Err(anyhow!("unauthorized (401): {}", body))
+        } else {
+            let body = read_error_body(response).await;
+            Err(anyhow!("request failed with status {}: {}", status, body))
+        }
+    }
+
     pub async fn get_timeline(&self, limit: Option<u64>) -> anyhow::Result<Vec<api::CaptureInfo>> {
         let url = format!("{}/timeline", self.base_url);
         let mut request = self.reqwest_client.get(url).bearer_auth(&self.access_token);

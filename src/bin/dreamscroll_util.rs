@@ -1,3 +1,4 @@
+use anyhow::Context;
 use argh::FromArgs;
 
 use dreamscroll::{api, database, facility, rest, storage, task, util_cmd::*};
@@ -12,6 +13,13 @@ struct Args {
     )]
     host: Option<String>,
 
+    #[argh(
+        switch,
+        long = "prod",
+        description = "convenience shortcut for --host dreamscroll.ai"
+    )]
+    prod: bool,
+
     #[argh(subcommand)]
     command: Command,
 }
@@ -21,6 +29,7 @@ struct Args {
 enum Command {
     BackfillSearch(backfill_search::BackfillSearchArgs),
     CheckFirstUser(check_first_user::CheckFirstUserArgs),
+    ClearToken(clear_token::ClearTokenArgs),
     CreateUser(create_user::CreateUserArgs),
     Enums(enums::EnumsArgs),
     //Eval(eval::EvalArgs),
@@ -40,8 +49,6 @@ async fn main() -> anyhow::Result<()> {
         facility::load_local_config_files();
     }
 
-    let args: Args = argh::from_env();
-
     facility::init_tracing().await?;
     let config = facility::make_config()?;
 
@@ -58,14 +65,79 @@ async fn main() -> anyhow::Result<()> {
         api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), empty_beacon);
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
 
-    let rest_host = args
-        .host
-        .clone()
-        .unwrap_or_else(|| format!("localhost:{}", config.port));
+    let args: Args = argh::from_env();
+    let Args {
+        host,
+        prod,
+        command,
+    } = args;
+
+    let rest_host = if let Some(host) = host {
+        host
+    } else if prod {
+        "dreamscroll.ai".to_string()
+    } else {
+        format!("localhost:{}", config.port)
+    };
     println!("Using REST host: {}", rest_host);
 
-    let (username, password) = prompt_credentials_stdin()?;
-    let rest_client = rest::client::Client::connect(&rest_host, &username, &password).await?;
+    let username = prompt_username_stdin()?;
+
+    let command = match command {
+        Command::ClearToken(clear_args) => {
+            return clear_token::run(&rest_host, &username, clear_args).await;
+        }
+        other => other,
+    };
+
+    let rest_client = if let Some(cached_token) = token_cache::get_token(&rest_host, &username)? {
+        println!(
+            "Found cached API token for host='{}' username='{}'.",
+            rest_host, username
+        );
+        let cached_client = rest::client::Client::connect_with_token(&rest_host, cached_token)
+            .context("failed to initialize REST client from cached token")?;
+
+        match cached_client.validate_auth().await {
+            Ok(()) => {
+                println!("Cached API token is valid.");
+                cached_client
+            }
+            Err(err) => {
+                if err.to_string().contains("unauthorized (401)") {
+                    println!("Cached token expired or invalid; requesting a new token.");
+                    let _ = token_cache::delete_token(&rest_host, &username);
+                    let password = prompt_password_stdin()?;
+                    let fresh_client =
+                        rest::client::Client::connect(&rest_host, &username, &password).await?;
+                    println!("Successfully authenticated and retrieved API token.");
+                    if let Err(cache_err) =
+                        token_cache::set_token(&rest_host, &username, fresh_client.access_token())
+                    {
+                        eprintln!("Warning: unable to cache API token: {}", cache_err);
+                    } else {
+                        println!("Successfully cached API token.");
+                    }
+                    fresh_client
+                } else {
+                    println!("Cached token validation failed for a non-auth reason.");
+                    return Err(err).context("failed to validate cached API token");
+                }
+            }
+        }
+    } else {
+        let password = prompt_password_stdin()?;
+        let fresh_client = rest::client::Client::connect(&rest_host, &username, &password).await?;
+        println!("Successfully authenticated and retrieved API token.");
+        if let Err(cache_err) =
+            token_cache::set_token(&rest_host, &username, fresh_client.access_token())
+        {
+            eprintln!("Warning: unable to cache API token: {}", cache_err);
+        } else {
+            println!("Successfully cached API token.");
+        }
+        fresh_client
+    };
 
     let state = CmdState {
         config,
@@ -77,9 +149,10 @@ async fn main() -> anyhow::Result<()> {
         stg: stg,
     };
 
-    match args.command {
+    match command {
         Command::BackfillSearch(args) => backfill_search::run(state, args).await,
         Command::CheckFirstUser(args) => check_first_user::run(state, args).await,
+        Command::ClearToken(_) => anyhow::bail!("clear_token should have exited earlier"),
         Command::CreateUser(args) => create_user::run(state, args).await,
         Command::Enums(args) => enums::run(state, args).await,
         //Command::Eval(args) => eval::run(state, args).await,

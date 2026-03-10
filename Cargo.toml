@@ -31,6 +31,7 @@ google-cloud-storage = "1.7.0"
 google-cloud-aiplatform-v1 = { version = "0.4", features = ["prediction-service"] }
 infer = "0.19.0"
 jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
+keyring = { version = "3.6.2", features = ["apple-native"] }
 opentelemetry = { version = "0.31.0", features = ["trace"] }
 opentelemetry-gcloud-trace = "0.22.0"
 opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "trace"] }

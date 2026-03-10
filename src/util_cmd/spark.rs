@@ -34,7 +34,11 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
     let capture_count = captures.len();
 
     let firestarter = GrokFirestarter::new(api_key);
+    println!("Sending spark for inference...");
+
+    let spark_start = std::time::Instant::now();
     let spark = firestarter.spark(captures).await?;
+    let spark_duration = spark_start.elapsed();
 
     let requested_ids = args
         .ids
@@ -47,6 +51,8 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
     println!("- Host: {}", state.rest_host);
     println!("- Requested capture IDs: {}", requested_ids);
     println!("- Captures matched: {}", capture_count);
+    println!("- Spark duration: {:?}", spark_duration);
+
     println!();
 
     println!("{}", spark);

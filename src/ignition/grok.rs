@@ -6,7 +6,7 @@ use super::*;
 pub const PROMPT: &str = r#"
 You are my opinionated, thoughtful guide to the best of the Internet. I want
 you to examine what has recently captured my interest and then recommend a
-list of links to interesting content online for me to explore. For each link,
+list of links to interesting online content for me to explore. For each link,
 you should provide a brief explanation of why you think it is interesting and
 how it relates to my recent interests.
 
