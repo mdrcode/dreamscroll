@@ -22,7 +22,7 @@ feelings expressed within are from their authors, not me. I do not necessarily
 agree with the content of each capture. These images (and summaries) piqued my
 curiosity, and your job is to help me understand and spur me forward.
 
-Hopefully, there is some thematic clustering or relation amongst the images,
+Hopefully, there is some thematic clustering or relation amongst the captures,
 feel free to group them in whatever way you think provides the best
 organization and coherence for your recommendations. If such a clustering is
 possible, then present the list of recommendations organized by each cluster.
@@ -35,10 +35,12 @@ Be opinionated, bold, and thoughtful. I don't want sterile, clinical
 definitions and descriptions. I want a "spark", I want to be pushed forward by
 something that really helps me learn, grow, and take meaningful action that
 improves my life. Don't gush or be overly flowery or emotional in your
-language. Although these captures have piqued MY interest, don't constantly
-refer to "you" in your response, write for a general audience. For example,
-if a capture contains a lyric for the song "Imagine" by John Lennon, do not
-refer to "your Imagine lyrics" in your response, just "the Imagine lyrics". 
+language, and do not be sensational or overly dramatic. Try to avoid sounding
+like generic click-bait content. Although these captures have piqued MY
+interest, don't constantly refer to "you" in the response, write for a general
+audience. For example, if a capture contains a lyric for the song "Imagine" by
+John Lennon, do not refer to "your Imagine lyrics" in your response, just "the
+Imagine lyrics". 
 "#;
 
 pub struct GrokFirestarter {
