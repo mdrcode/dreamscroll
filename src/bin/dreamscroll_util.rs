@@ -1,10 +1,17 @@
 use argh::FromArgs;
 
-use dreamscroll::{api, database, facility, storage, task, util_cmd::*};
+use dreamscroll::{api, database, facility, rest, storage, task, util_cmd::*};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll cmd line utility")]
 struct Args {
+    #[argh(
+        option,
+        long = "host",
+        description = "REST API host override (default: localhost:<PORT from config>)"
+    )]
+    host: Option<String>,
+
     #[argh(subcommand)]
     command: Command,
 }
@@ -51,10 +58,21 @@ async fn main() -> anyhow::Result<()> {
         api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), empty_beacon);
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
 
+    let rest_host = args
+        .host
+        .clone()
+        .unwrap_or_else(|| format!("localhost:{}", config.port));
+    println!("Using REST host: {}", rest_host);
+
+    let (username, password) = prompt_credentials_stdin()?;
+    let rest_client = rest::client::Client::connect(&rest_host, &username, &password).await?;
+
     let state = CmdState {
         config,
         user_api,
         service_api,
+        rest_client,
+        rest_host,
         db,
         stg: stg,
     };

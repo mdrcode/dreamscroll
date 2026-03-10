@@ -5,8 +5,6 @@ use argh::FromArgs;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::rest;
-
 use super::*;
 
 #[derive(FromArgs)]
@@ -16,14 +14,6 @@ pub struct ExportDigestArgs {
     #[argh(positional)]
     #[argh(description = "root directory where export folder will be created")]
     root_dir: PathBuf,
-
-    #[argh(
-        option,
-        long = "host",
-        default = "String::from(\"localhost:8080\")",
-        description = "REST API host (default: localhost:8080)"
-    )]
-    host: String,
 }
 
 /// Represents a single capture in the export digest.
@@ -60,9 +50,7 @@ impl FullDigest {
     }
 }
 
-pub async fn run(_state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> {
-    let (username, password) = auth_helper::prompt_credentials_stdin()?;
-    let rest_client = rest::client::Client::connect(&args.host, &username, &password).await?;
+pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> {
     let media_http = reqwest::Client::new();
 
     // Create export folder with timestamp
@@ -73,7 +61,9 @@ pub async fn run(_state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()>
     println!("Created export directory: {}", export_dir.display());
 
     // Fetch all capture_infos from REST API for this user
-    let capture_infos = rest_client.get_captures(None).await?;
+    let capture_infos = state.rest_client.get_captures(None).await?;
+
+    println!("Using REST host: {}", state.rest_host);
 
     println!("Found {} captures to export.", capture_infos.len());
 

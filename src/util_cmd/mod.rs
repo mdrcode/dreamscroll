@@ -12,11 +12,14 @@ pub mod import_digest;
 pub mod spark;
 
 mod auth_helper;
+pub use auth_helper::prompt_credentials_stdin;
 
 pub struct CmdState {
     pub config: crate::facility::Config,
     pub user_api: crate::api::UserApiClient,
     pub service_api: crate::api::ServiceApiClient,
+    pub rest_client: crate::rest::client::Client,
+    pub rest_host: String,
     pub db: crate::database::DbHandle,
     pub stg: Box<dyn crate::storage::StorageProvider>,
 }

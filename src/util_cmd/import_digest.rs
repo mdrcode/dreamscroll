@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use argh::FromArgs;
 use reqwest::StatusCode;
 
-use crate::rest;
-
 use super::*;
 
 #[derive(FromArgs)]
@@ -14,17 +12,9 @@ pub struct ImportDigestArgs {
     #[argh(positional)]
     #[argh(description = "path to the export directory containing digest.json")]
     export_dir: PathBuf,
-
-    #[argh(
-        option,
-        long = "host",
-        default = "String::from(\"localhost:8080\")",
-        description = "REST API host (default: localhost:8080)"
-    )]
-    host: String,
 }
 
-pub async fn run(_state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> {
+pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> {
     let export_dir = &args.export_dir;
 
     if !export_dir.is_dir() {
@@ -47,9 +37,6 @@ pub async fn run(_state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()>
         digest.captures.len()
     );
 
-    let (username, password) = auth_helper::prompt_credentials_stdin()?;
-    let rest_client = rest::client::Client::connect(&args.host, &username, &password).await?;
-
     let mut imported_captures = 0;
     let mut skipped_captures = 0;
 
@@ -69,7 +56,8 @@ pub async fn run(_state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()>
 
         let media_bytes = tokio::fs::read(&media_path).await?.into();
 
-        match rest_client
+        match state
+            .rest_client
             .import_capture(media_bytes, entry.created_at)
             .await
         {
@@ -96,7 +84,7 @@ pub async fn run(_state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()>
 
     println!(
         "Complete for host: {} digest_contained: {} imported: {} skipped: {}",
-        args.host,
+        state.rest_host,
         digest.captures.len(),
         imported_captures,
         skipped_captures
