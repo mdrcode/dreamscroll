@@ -15,6 +15,7 @@ pub struct SparkResponse {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparkCluster {
+    pub title: String,
     pub summary: String,
     pub capture_ids: Vec<i32>,
     pub recommended_links: Vec<SparkRecommendedLink>,

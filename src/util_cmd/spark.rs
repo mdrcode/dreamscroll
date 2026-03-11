@@ -96,6 +96,7 @@ fn print_spark(spark: &SparkResponse) {
 
     for (cluster_idx, cluster) in spark.clusters.iter().enumerate() {
         println!("Cluster {}", cluster_idx + 1);
+        println!("Title: {}", cluster.title);
         println!("Summary: {}", cluster.summary);
 
         let capture_ids = cluster
