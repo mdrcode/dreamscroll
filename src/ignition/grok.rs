@@ -1,14 +1,18 @@
+use std::fs;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
+
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 
 use super::*;
 
 pub const PROMPT: &str = r#"
 You are my opinionated, thoughtful guide to the best of the Internet. I want
 you to examine what has recently captured my interest and then recommend a
-list of links to interesting content online for me to explore. For each link,
-you should provide a brief explanation of why you think it is interesting and
-how it relates to my captured interests.
+list of links to interesting content online for me to explore, along with 
+concise but informative and stimulating commentary for each link.
 
 I will provide you with a list of summaries of recent things which have
 captured my interest online, along with a unique identifier or "capture ID".
@@ -17,30 +21,36 @@ an AI tool to describe the contents of the image. What I include below are
 these AI-generated "capture" summaries, which are intended to give you a sense
 of what has piqued my curiosity. The contents of the images should not be
 interpreted as "my opinion" or "my statement" - I am capturing this from around
-the Internet, frequently from social media, and so the statements, opinions, or
+the Internet (frequently from social media) and so the statements, opinions, or
 feelings expressed within are from their authors, not me. I do not necessarily
 agree with the content of each capture. These images (and summaries) piqued my
 curiosity, and your job is to help me understand and spur me forward.
 
-Hopefully, there is some thematic clustering or relation amongst the captures,
-feel free to group them in whatever way you think provides the best
-organization and coherence for your recommendations. If such a clustering is
-possible, then present the list of recommendations organized by each cluster.
-For each cluster, provide a brief name, description, the list of the capture
-IDs which belong to that cluster, and then the actual link recommendations.
-It's fine for a capture to belong to more than one cluster; what matters most
-is that the clusters drive understanding and insight.
+You should group the captures and their corresponding recommendations into
+clusters that drive understanding and insight. If there is truly no meaningful
+clustering possible (or if even the best possible clustering would create
+meaningless or trivial clusters), you may return a single cluster containing
+all captures.
 
-Be opinionated, bold, and thoughtful. I don't want sterile, clinical
-definitions and descriptions. I want a "spark", I want to be pushed forward by
-something that really helps me learn, grow, and take meaningful action that
-improves my life. Don't gush or be overly flowery or emotional in your
-language, and do not be sensational or overly dramatic. Try to avoid sounding
-like generic click-bait content. Although these captures have piqued MY
-interest, don't constantly refer to "you" in the response, write for a general
-audience. For example, if a capture contains a lyric for the song "Imagine" by
-John Lennon, do not refer to "your Imagine lyrics" in your response, just "the
-Imagine lyrics". 
+Each cluster must include:
+- a summary (plain text)
+- a list of capture IDs as integers (capture_ids)
+- a list of recommended links (recommended_links) where each recommendation has:
+    - url
+    - commentary
+
+You must return valid JSON only, matching the provided schema exactly.
+
+Be opinionated, bold, and thoughtful. Do not provide sterile, clinical
+definitions and boring descriptions. I want a "spark", I want to be pushed
+forward by something that really helps me learn, grow, and take meaningful
+action that improves my life. Don't gush or be overly flowery or emotional in
+your language, and do not be sensational or overly dramatic. Try to avoid
+sounding like generic click-bait content. Although these captures have piqued
+MY interest, don't constantly refer to "you" in the response, write for a
+general audience. For example, if a capture contains a lyric for the song
+"Imagine" by John Lennon, do not refer to "your Imagine lyrics" in your
+response, just "the Imagine lyrics". 
 "#;
 
 pub struct GrokFirestarter {
@@ -59,10 +69,11 @@ impl Firestarter for GrokFirestarter {
         "GrokFirestarter"
     }
 
-    async fn spark(&self, captures: Vec<crate::api::CaptureInfo>) -> anyhow::Result<String> {
+    async fn spark(&self, captures: Vec<crate::api::CaptureInfo>) -> anyhow::Result<SparkResponse> {
         let captures_section = captures
             .iter()
             .enumerate()
+            .filter(|(_, capture)| !capture.illuminations.is_empty())
             .map(|(idx, capture)| {
                 let illumination = capture.illuminations.first();
                 let summary = illumination
@@ -94,6 +105,14 @@ impl Firestarter for GrokFirestarter {
                 role: "user".to_string(),
                 content: user_prompt,
             }],
+            response_format: ResponseFormat {
+                response_type: "json_schema".to_string(),
+                json_schema: JsonSchemaSpec {
+                    name: "spark_output".to_string(),
+                    strict: true,
+                    schema: spark_output_schema(),
+                },
+            },
         };
 
         let client = Client::new();
@@ -122,14 +141,91 @@ impl Firestarter for GrokFirestarter {
             anyhow::bail!("XAI API returned an empty response body");
         }
 
-        Ok(content)
+        let output: SparkResponse = match serde_json::from_str(&content) {
+            Ok(it) => it,
+            Err(err) => {
+                let dump_path = dump_raw_response_to_tmp(&content);
+                return Err(match dump_path {
+                    Ok(path) => anyhow::anyhow!(
+                        "Failed to parse structured spark response: {}. Raw JSON saved to {}",
+                        err,
+                        path.display()
+                    ),
+                    Err(dump_err) => anyhow::anyhow!(
+                        "Failed to parse structured spark response: {}. Also failed to write raw JSON to tmp: {}",
+                        err,
+                        dump_err
+                    ),
+                });
+            }
+        };
+        Ok(output)
     }
+}
+
+fn dump_raw_response_to_tmp(content: &str) -> anyhow::Result<PathBuf> {
+    let ts = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+    let path = std::env::temp_dir().join(format!("dreamscroll-spark-response-{}.json", ts));
+    fs::write(&path, content)?;
+    Ok(path)
+}
+
+fn spark_output_schema() -> serde_json::Value {
+    json!({
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["clusters"],
+            "properties": {
+                    "clusters": {
+                            "type": "array",
+                            "items": {
+                                    "type": "object",
+                                    "additionalProperties": false,
+                                        "required": ["summary", "capture_ids", "recommended_links"],
+                                    "properties": {
+                                            "summary": { "type": "string" },
+                                            "capture_ids": {
+                                                    "type": "array",
+                                                    "items": { "type": "integer" }
+                                            },
+                                            "recommended_links": {
+                                                    "type": "array",
+                                                    "items": {
+                                                            "type": "object",
+                                                            "additionalProperties": false,
+                                                    "required": ["url", "commentary"],
+                                                            "properties": {
+                                                                    "url": { "type": "string" },
+                                                                    "commentary": { "type": "string" }
+                                                            }
+                                                    }
+                                            }
+                                    }
+                            }
+                    }
+            }
+    })
 }
 
 #[derive(Serialize)]
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<ChatMessage>,
+    response_format: ResponseFormat,
+}
+
+#[derive(Serialize)]
+struct ResponseFormat {
+    #[serde(rename = "type")]
+    response_type: String,
+    json_schema: JsonSchemaSpec,
+}
+
+#[derive(Serialize)]
+struct JsonSchemaSpec {
+    name: String,
+    strict: bool,
+    schema: serde_json::Value,
 }
 
 #[derive(Serialize)]

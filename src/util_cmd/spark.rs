@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use argh::FromArgs;
 use std::io::Write;
 
-use crate::ignition::{Firestarter, grok::GrokFirestarter};
+use crate::ignition::{Firestarter, SparkResponse, grok::GrokFirestarter};
 
 use super::*;
 
@@ -83,7 +83,41 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
 
     println!();
 
-    println!("{}", spark);
+    print_spark(&spark);
 
     Ok(())
+}
+
+fn print_spark(spark: &SparkResponse) {
+    if spark.clusters.is_empty() {
+        println!("No clusters returned.");
+        return;
+    }
+
+    for (cluster_idx, cluster) in spark.clusters.iter().enumerate() {
+        println!("Cluster {}", cluster_idx + 1);
+        println!("Summary: {}", cluster.summary);
+
+        let capture_ids = cluster
+            .capture_ids
+            .iter()
+            .map(std::string::ToString::to_string)
+            .collect::<Vec<_>>()
+            .join(", ");
+        println!("Capture IDs: {}", capture_ids);
+
+        if cluster.recommended_links.is_empty() {
+            println!("Recommendations: none");
+        } else {
+            println!("Recommendations:");
+            for (idx, rec) in cluster.recommended_links.iter().enumerate() {
+                println!("  {}. {}", idx + 1, rec.url);
+                println!("     {}", rec.commentary);
+            }
+        }
+
+        if cluster_idx + 1 < spark.clusters.len() {
+            println!();
+        }
+    }
 }
