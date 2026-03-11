@@ -1,69 +1,20 @@
-use std::fs;
-use std::path::PathBuf;
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use super::*;
 
-pub const PROMPT: &str = r#"
-You are my opinionated, thoughtful guide to the best of the Internet. I want
-you to examine what has recently captured my interest and then recommend to me
-a list of links to interesting and relevant content online, along with
-informative and stimulating commentary for each link.
-
-I will provide you with a list of summaries of recent things which have
-captured my interest, along with a unique identifier or "capture ID".
-Originally, I captured these things with a photo or screenshot, and then I used
-an AI tool to describe the contents of the image. What I include below are
-these AI-generated "capture" summaries, which are intended to give you a sense
-of what has piqued my curiosity. The contents of the summaries should NOT be
-interpreted as "my opinion" or "my statement" - I am capturing them from around
-the Internet (frequently from social media) and so the statements, opinions, and
-feelings expressed within are from their authors, not me. I do not necessarily
-agree with the content of each capture. These summaries piqued my curiosity,
-and your job is to help me understand and spur me forward.
-
-You should group the captures and their corresponding recommendations into
-clusters that drive insight and understanding. If there is truly no meaningful
-clustering possible (or if the best possible clustering would just create
-meaningless or trivial clusters), you may return a single "default" cluster
-containing all captures. It is fine for a capture to appear in multiple
-clusters if it is helpful and relevant.
-
-Each cluster must include:
-- a title (plain text)
-- a summary (plain text)
-- a list of capture IDs as integers (capture_ids)
-- a list of recommended links (recommended_links) where each recommendation has:
-    - url
-    - commentary
-
-You must return valid JSON only, matching the provided schema exactly.
-
-Be opinionated, bold, and thoughtful. Do not provide sterile, clinical
-definitions and boring descriptions. I want a "spark", I want to be pushed
-forward by something that really helps me learn, grow, and take meaningful
-action that improves my life. Don't gush or be overly flowery or emotional in
-your language, and do not be sensational or overly dramatic. Try to avoid
-sounding like generic click-bait content. Although these captures have piqued
-MY interest, don't constantly refer to "you" in the response, write for a
-general audience. For example, if a capture contains a lyric for the song
-"Imagine" by John Lennon, do not refer to "your Imagine lyrics" just "the
-Imagine lyrics". 
-
-Your thoughtful recommendations and insights will help me lead a richer life.
-"#;
-
 pub struct GrokFirestarter {
     api_key: String,
+    model_id: String,
 }
 
 impl GrokFirestarter {
     pub fn new(api_key: String) -> Self {
-        Self { api_key }
+        Self {
+            api_key,
+            model_id: "grok-4-1-fast-reasoning".to_string(),
+        }
     }
 }
 
@@ -74,37 +25,10 @@ impl Firestarter for GrokFirestarter {
     }
 
     async fn spark(&self, captures: Vec<crate::api::CaptureInfo>) -> anyhow::Result<SparkResponse> {
-        let captures_section = captures
-            .iter()
-            .enumerate()
-            .filter(|(_, capture)| !capture.illuminations.is_empty())
-            .map(|(idx, capture)| {
-                let illumination = capture.illuminations.first();
-                let summary = illumination
-                    .map(|it| it.summary.as_str())
-                    .unwrap_or("(no summary available)");
-                let details = illumination
-                    .map(|it| it.details.as_str())
-                    .unwrap_or("(no details available)");
-
-                format!(
-                    "{}. Capture ID {}\nSummary: {}\nDetails: {}",
-                    idx + 1,
-                    capture.id,
-                    summary,
-                    details,
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n");
-
-        let user_prompt = format!(
-            "{}\n\nRecent captures and summaries:\n\n{}",
-            PROMPT, captures_section
-        );
+        let user_prompt = util::append_captures_to_user_prompt(prompt::PROMPT, captures);
 
         let request_body = ChatCompletionRequest {
-            model: "grok-4-1-fast-reasoning".to_string(),
+            model: self.model_id.clone(),
             messages: vec![ChatMessage {
                 role: "user".to_string(),
                 content: user_prompt,
@@ -114,7 +38,7 @@ impl Firestarter for GrokFirestarter {
                 json_schema: JsonSchemaSpec {
                     name: "spark_output".to_string(),
                     strict: true,
-                    schema: spark_output_schema(),
+                    schema: spark_output_schema_grok(),
                 },
             },
         };
@@ -148,7 +72,8 @@ impl Firestarter for GrokFirestarter {
         let output: SparkResponse = match serde_json::from_str(&content) {
             Ok(it) => it,
             Err(err) => {
-                let dump_path = dump_raw_response_to_tmp(&content);
+                let dump_path =
+                    util::dump_raw_response_to_tmp(&content, "dreamscroll-spark-response");
                 return Err(match dump_path {
                     Ok(path) => anyhow::anyhow!(
                         "Failed to parse structured spark response: {}. Raw JSON saved to {}",
@@ -167,14 +92,7 @@ impl Firestarter for GrokFirestarter {
     }
 }
 
-fn dump_raw_response_to_tmp(content: &str) -> anyhow::Result<PathBuf> {
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
-    let path = std::env::temp_dir().join(format!("dreamscroll-spark-response-{}.json", ts));
-    fs::write(&path, content)?;
-    Ok(path)
-}
-
-fn spark_output_schema() -> serde_json::Value {
+fn spark_output_schema_grok() -> serde_json::Value {
     json!({
             "type": "object",
             "additionalProperties": false,

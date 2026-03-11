@@ -2,7 +2,9 @@ use anyhow::anyhow;
 use argh::FromArgs;
 use std::io::Write;
 
-use crate::ignition::{Firestarter, SparkResponse, grok::GrokFirestarter};
+use crate::ignition::{
+    Firestarter, SparkResponse, gemini::GeminiFirestarter, grok::GrokFirestarter,
+};
 
 use super::*;
 
@@ -35,6 +37,15 @@ pub struct SparkArgs {
     #[argh(positional)]
     #[argh(description = "ID(s) of the captures to spark from")]
     ids: Vec<i32>,
+
+    #[argh(
+        option,
+        long = "firestarter",
+        short = 'f',
+        default = "String::from(\"grok\")",
+        description = "firestarter provider (grok, gemini) [default: grok]"
+    )]
+    firestarter: String,
 }
 
 pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
@@ -48,15 +59,34 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
         return Err(anyhow!("No matching captures found for provided IDs."));
     }
 
-    let api_key = state
-        .config
-        .xai_api_key
-        .clone()
-        .ok_or_else(|| anyhow!("XAI_API_KEY is not configured"))?;
-
     let capture_count = captures.len();
 
-    let firestarter = GrokFirestarter::new(api_key);
+    let model = args.firestarter.trim().to_lowercase();
+    let firestarter: Box<dyn Firestarter> = match model.as_str() {
+        "grok" => {
+            let api_key = state
+                .config
+                .xai_api_key
+                .clone()
+                .ok_or_else(|| anyhow!("XAI_API_KEY is not configured"))?;
+            Box::new(GrokFirestarter::new(api_key))
+        }
+        "gemini" => {
+            let api_key = state
+                .config
+                .gemini_api_key
+                .clone()
+                .ok_or_else(|| anyhow!("GEMINI_API_KEY is not configured"))?;
+            Box::new(GeminiFirestarter::new(api_key))
+        }
+        _ => {
+            return Err(anyhow!(
+                "Unknown firestarter provider '{}'. Expected one of: grok, gemini",
+                args.firestarter
+            ));
+        }
+    };
+
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
     let spinner_task = tokio::spawn(run_spinner(stop_rx));
 
@@ -79,6 +109,7 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
     println!("- Host: {}", state.rest_host);
     println!("- Requested capture IDs: {}", requested_ids);
     println!("- Captures matched: {}", capture_count);
+    println!("- Firestarter: {}", firestarter.name());
     println!("- Spark duration: {:?}", spark_duration);
 
     println!();
