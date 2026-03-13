@@ -1,4 +1,4 @@
-use crate::{api::*, database, illumination, storage};
+use crate::{api::*, database, ignition, illumination, storage};
 
 #[derive(Clone)]
 pub struct ServiceApiClient {
@@ -33,5 +33,13 @@ impl ServiceApiClient {
         illumination: illumination::Illumination,
     ) -> Result<(), ApiError> {
         super::insert_illumination(&self.db, capture_info, illumination).await
+    }
+
+    pub async fn insert_spark(
+        &self,
+        user_id: i32,
+        spark: ignition::SparkResponse,
+    ) -> Result<(), ApiError> {
+        super::insert_spark(&self.db, user_id, spark).await
     }
 }

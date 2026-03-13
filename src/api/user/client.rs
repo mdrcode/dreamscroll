@@ -56,6 +56,20 @@ impl UserApiClient {
     }
 
     #[tracing::instrument(skip(self, context))]
+    pub async fn get_sparks(
+        &self,
+        context: &auth::Context,
+        spark_ids: Vec<i32>,
+    ) -> Result<Vec<schema::SparkInfo>, ApiError> {
+        let sparks = super::get_sparks(&self.db, context, spark_ids).await?;
+
+        Ok(sparks
+            .into_iter()
+            .map(|m| self.info_maker.make_spark_info(m))
+            .collect())
+    }
+
+    #[tracing::instrument(skip(self, context))]
     pub async fn get_illumination_ids_need_search(
         &self,
         context: &auth::Context,
