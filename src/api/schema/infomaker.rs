@@ -96,6 +96,44 @@ impl InfoMaker {
         }
     }
 
+    pub fn make_spark_info(&self, spark_model: model::spark::ModelEx) -> SparkInfo {
+        let spark_clusters = match spark_model.spark_clusters {
+            HasMany::Unloaded => vec![],
+            HasMany::Loaded(models) => models
+                .into_iter()
+                .map(|m| self.make_spark_cluster_info(m))
+                .collect(),
+        };
+
+        SparkInfo {
+            id: spark_model.id,
+            spark_clusters,
+        }
+    }
+
+    pub fn make_spark_cluster_info(
+        &self,
+        spark_cluster_model: model::spark_cluster::ModelEx,
+    ) -> SparkClusterInfo {
+        let spark_links = match spark_cluster_model.spark_links {
+            HasMany::Unloaded => vec![],
+            HasMany::Loaded(models) => models.into_iter().map(SparkLinkInfo::from).collect(),
+        };
+
+        let referenced_capture_ids = match spark_cluster_model.spark_cluster_refs {
+            HasMany::Unloaded => vec![],
+            HasMany::Loaded(models) => models.into_iter().map(|m| m.capture_id).collect(),
+        };
+
+        SparkClusterInfo {
+            id: spark_cluster_model.id,
+            title: spark_cluster_model.title,
+            summary: spark_cluster_model.summary,
+            referenced_capture_ids,
+            spark_links,
+        }
+    }
+
     pub fn make_knode_entity_info(
         &self,
         knode_model: model::knode::ModelEx,

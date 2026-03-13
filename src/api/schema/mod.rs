@@ -21,5 +21,14 @@ pub use mediainfo::MediaInfo;
 mod socialmediainfo;
 pub use socialmediainfo::SocialMediaInfo;
 
+mod sparklinkinfo;
+pub use sparklinkinfo::SparkLinkInfo;
+
+mod sparkclusterinfo;
+pub use sparkclusterinfo::SparkClusterInfo;
+
+mod sparkinfo;
+pub use sparkinfo::SparkInfo;
+
 mod userinfo;
 pub use userinfo::UserInfo;
