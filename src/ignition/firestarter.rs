@@ -10,11 +10,11 @@ pub trait Firestarter {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparkResponse {
-    pub clusters: Vec<SparkCluster>,
+    pub clusters: Vec<SparkRecommendedCluster>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SparkCluster {
+pub struct SparkRecommendedCluster {
     pub title: String,
     pub summary: String,
     pub capture_ids: Vec<i32>,
