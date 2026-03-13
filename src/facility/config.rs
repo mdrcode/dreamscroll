@@ -38,6 +38,7 @@ pub struct Config {
     pub jwt_secret: Option<String>, // must be 32+ bytes for HS256 signing
 
     pub illuminator: String,
+    pub firestarter: String,
     pub gemini_api_key: Option<String>,
     #[serde(default = "default_gemini_payload_method")]
     pub gemini_payload_method: illumination::gemini::PayloadMethod,

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::api;
 
 #[async_trait::async_trait]
-pub trait Firestarter {
+pub trait Firestarter: Send + Sync {
     fn name(&self) -> &str;
     async fn spark(&self, captures: Vec<api::CaptureInfo>) -> anyhow::Result<SparkResponse>;
 }
