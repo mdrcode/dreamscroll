@@ -3,14 +3,14 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use axum::{
     extract::{Query, State},
-    response::{Html, IntoResponse, Response},
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use axum_login::{AuthSession, AuthUser};
 use serde::Deserialize;
 
 use crate::{api, auth};
 
-use super::WebState;
+use super::*;
 
 #[derive(Deserialize)]
 pub struct SearchParams {
@@ -23,10 +23,14 @@ pub async fn get(
     State(state): State<Arc<WebState>>,
     Query(params): Query<SearchParams>,
 ) -> Result<Response, api::ApiError> {
-    let query = params.q.trim();
-
     let user = auth.user.unwrap();
+    let query = params.q.trim();
     tracing::debug!("Rendering search q: {} for user ID {}", query, user.id());
+
+    if query.starts_with("/") {
+        slash_command::process(query, &user.into(), state.clone()).await?;
+        return Ok(Redirect::to("/").into_response());
+    }
 
     let capture_infos: Vec<_> = state.user_api.search(&user.into(), query).await?;
 

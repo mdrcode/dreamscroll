@@ -1,12 +1,13 @@
 use std::sync::Arc;
 
-use crate::webhook::logic::illuminate::IlluminationTask;
+use crate::webhook::logic::{illuminate::IlluminationTask, spark::SparkTask};
 
 use super::*;
 
 #[derive(Clone, Default)]
 pub struct Beacon {
     illumination_queue: Option<Arc<dyn TaskQueue<Task = IlluminationTask>>>,
+    spark_queue: Option<Arc<dyn TaskQueue<Task = SparkTask>>>,
 }
 
 impl Beacon {
@@ -26,11 +27,43 @@ impl Beacon {
 
         Ok(())
     }
+
+    pub async fn signal_new_spark(&self, capture_ids: Vec<i32>) -> anyhow::Result<()> {
+        if capture_ids.is_empty() {
+            anyhow::bail!("signal_new_spark requires at least one capture_id");
+        }
+
+        let Some(queue) = self.spark_queue.as_ref() else {
+            tracing::warn!(
+                capture_ids = ?capture_ids,
+                "Spark requested but no spark queue configured, skipping enqueue."
+            );
+            return Ok(());
+        };
+
+        queue
+            .enqueue(SparkTask {
+                capture_ids: capture_ids.clone(),
+            })
+            .await
+            .inspect_err(|err| {
+                tracing::error!(
+                    queue = ?queue,
+                    capture_ids = ?capture_ids,
+                    error = ?err,
+                    "Failed to enqueue captures for spark: {}",
+                    err
+                )
+            })?;
+
+        Ok(())
+    }
 }
 
 #[derive(Default)]
 pub struct BeaconBuilder {
     illumination_queue: Option<Arc<dyn TaskQueue<Task = IlluminationTask>>>,
+    spark_queue: Option<Arc<dyn TaskQueue<Task = SparkTask>>>,
 }
 
 impl BeaconBuilder {
@@ -45,7 +78,13 @@ impl BeaconBuilder {
     pub fn build(self) -> Beacon {
         Beacon {
             illumination_queue: self.illumination_queue,
+            spark_queue: self.spark_queue,
         }
+    }
+
+    pub fn spark_queue(mut self, spark_queue: impl TaskQueue<Task = SparkTask> + 'static) -> Self {
+        self.spark_queue = Some(Arc::new(spark_queue));
+        self
     }
 }
 

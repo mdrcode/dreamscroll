@@ -64,7 +64,8 @@ pub struct Config {
     pub pubsub_emulator: Option<String>, // e.g. "http://localhost:8085"
     pub pubsub_topic_id_new_capture: String,
 
-    pub cloud_tasks_illumination_queue_id: String,
+    pub cloud_tasks_queue_id_illumination: String,
+    pub cloud_tasks_queue_id_spark: String,
 }
 
 pub fn make_config() -> anyhow::Result<Config> {

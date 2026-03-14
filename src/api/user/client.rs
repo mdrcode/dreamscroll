@@ -1,4 +1,7 @@
 use chrono::{DateTime, Utc};
+use std::collections::HashSet;
+
+use anyhow::anyhow;
 
 use crate::{api::*, auth, database, storage, task};
 
@@ -111,6 +114,34 @@ impl UserApiClient {
             .into_iter()
             .map(|m| self.info_maker.make_capture_info(m))
             .collect())
+    }
+
+    #[tracing::instrument(skip(self, context, capture_ids))]
+    pub async fn enqueue_spark(
+        &self,
+        context: &auth::Context,
+        capture_ids: Vec<i32>,
+    ) -> Result<(), ApiError> {
+        if capture_ids.is_empty() {
+            return Err(ApiError::bad_request(anyhow!(
+                "capture_ids must contain at least one capture ID"
+            )));
+        }
+
+        let requested_ids: HashSet<i32> = capture_ids.iter().copied().collect();
+        let found = super::get_captures(&self.db, context, Some(capture_ids.clone())).await?;
+        let found_ids: HashSet<i32> = found.into_iter().map(|c| c.id).collect();
+
+        if requested_ids != found_ids {
+            return Err(ApiError::not_found(anyhow!(
+                "One or more capture_ids were not found for this user"
+            )));
+        }
+
+        self.beacon
+            .signal_new_spark(capture_ids)
+            .await
+            .map_err(ApiError::internal)
     }
 
     /// import_capture has two novel behaviors compared to insert_capture:

@@ -37,13 +37,23 @@ async fn main() -> anyhow::Result<()> {
     let illumination_queue = task::CloudTaskQueue::connect(
         config.gcloud_project_id.as_str(),
         config.gcloud_project_region.as_str(),
-        config.cloud_tasks_illumination_queue_id.as_str(),
+        config.cloud_tasks_queue_id_illumination.as_str(),
     )
     .await
-    .context("Failed to initialize Cloud Tasks queue")?;
+    .context("Failed to initialize Cloud Tasks Queue: Illumination")?;
+    let spark_queue = task::CloudTaskQueue::connect(
+        config.gcloud_project_id.as_str(),
+        config.gcloud_project_region.as_str(),
+        config.cloud_tasks_queue_id_spark.as_str(),
+    )
+    .await
+    .context("Failed to initialize Cloud Tasks Queue: Spark")?;
+
     let beacon = task::Beacon::builder()
         .illumination_queue(illumination_queue)
+        .spark_queue(spark_queue)
         .build();
+
     let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon);
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
     tracing::info!("Initialized storage, pubsub beacon, and API clients");
