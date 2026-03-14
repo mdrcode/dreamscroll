@@ -24,7 +24,9 @@ impl Firestarter for GrokFirestarter {
         "GrokFirestarter"
     }
 
-    async fn spark(&self, captures: Vec<crate::api::CaptureInfo>) -> anyhow::Result<SparkResponse> {
+    async fn spark(&self, captures: Vec<crate::api::CaptureInfo>) -> anyhow::Result<SparkResult> {
+        let started = std::time::Instant::now();
+        let input_capture_count = captures.len() as i32;
         let user_prompt = util::append_captures_to_user_prompt(prompt::PROMPT, captures);
 
         let request_body = ChatCompletionRequest {
@@ -88,8 +90,47 @@ impl Firestarter for GrokFirestarter {
                 });
             }
         };
-        Ok(output)
+        let duration_ms = started.elapsed().as_millis() as i64;
+        let (input_tokens, output_tokens, total_tokens, provider_usage_json) =
+            parse_grok_usage(parsed.usage);
+
+        Ok(SparkResult {
+            spark: output,
+            meta: SparkMeta {
+                provider_name: self.name().to_string(),
+                duration_ms,
+                input_capture_count,
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                provider_usage_json,
+            },
+        })
     }
+}
+
+fn parse_grok_usage(
+    usage: Option<serde_json::Value>,
+) -> (Option<i32>, Option<i32>, Option<i32>, Option<String>) {
+    let Some(usage) = usage else {
+        return (None, None, None, None);
+    };
+
+    let input_tokens = usage
+        .get("prompt_tokens")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+    let output_tokens = usage
+        .get("completion_tokens")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+    let total_tokens = usage
+        .get("total_tokens")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+
+    let usage_json = serde_json::to_string(&usage).ok();
+    (input_tokens, output_tokens, total_tokens, usage_json)
 }
 
 fn spark_output_schema_grok() -> serde_json::Value {
@@ -160,6 +201,7 @@ struct ChatMessage {
 #[derive(Deserialize)]
 struct ChatCompletionResponse {
     choices: Vec<Choice>,
+    usage: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]

@@ -9,6 +9,7 @@ pub mod spark;
 pub mod spark_cluster;
 pub mod spark_input_ref;
 pub mod spark_link;
+pub mod spark_meta;
 pub mod spark_output_ref;
 pub mod user;
 pub mod xquery;

@@ -30,5 +30,8 @@ pub use sparkclusterinfo::SparkClusterInfo;
 mod sparkinfo;
 pub use sparkinfo::SparkInfo;
 
+mod sparkmetainfo;
+pub use sparkmetainfo::SparkMetaInfo;
+
 mod userinfo;
 pub use userinfo::UserInfo;

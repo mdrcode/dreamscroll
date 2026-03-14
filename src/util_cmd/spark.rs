@@ -95,7 +95,8 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
     let _ = stop_tx.send(());
     let _ = spinner_task.await;
 
-    let spark = spark_result?;
+    let spark_result = spark_result?;
+    let spark = spark_result.spark;
     let spark_duration = spark_start.elapsed();
 
     let requested_ids = args
@@ -111,6 +112,13 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
     println!("- Captures matched: {}", capture_count);
     println!("- Firestarter: {}", firestarter.name());
     println!("- Spark duration: {:?}", spark_duration);
+    println!(
+        "- Provider usage: in={:?} out={:?} total={:?} duration_ms={}",
+        spark_result.meta.input_tokens,
+        spark_result.meta.output_tokens,
+        spark_result.meta.total_tokens,
+        spark_result.meta.duration_ms
+    );
 
     println!();
 

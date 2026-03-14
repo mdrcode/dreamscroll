@@ -24,7 +24,9 @@ impl Firestarter for GeminiFirestarter {
         "GeminiFirestarter"
     }
 
-    async fn spark(&self, captures: Vec<crate::api::CaptureInfo>) -> anyhow::Result<SparkResponse> {
+    async fn spark(&self, captures: Vec<crate::api::CaptureInfo>) -> anyhow::Result<SparkResult> {
+        let started = std::time::Instant::now();
+        let input_capture_count = captures.len() as i32;
         let user_prompt = util::append_captures_to_user_prompt(prompt::PROMPT, captures);
 
         let request_body = GenerateContentRequest {
@@ -91,8 +93,47 @@ impl Firestarter for GeminiFirestarter {
             }
         };
 
-        Ok(output)
+        let duration_ms = started.elapsed().as_millis() as i64;
+        let (input_tokens, output_tokens, total_tokens, provider_usage_json) =
+            parse_gemini_usage(parsed.usage_metadata);
+
+        Ok(SparkResult {
+            spark: output,
+            meta: SparkMeta {
+                provider_name: self.name().to_string(),
+                duration_ms,
+                input_capture_count,
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                provider_usage_json,
+            },
+        })
     }
+}
+
+fn parse_gemini_usage(
+    usage: Option<serde_json::Value>,
+) -> (Option<i32>, Option<i32>, Option<i32>, Option<String>) {
+    let Some(usage) = usage else {
+        return (None, None, None, None);
+    };
+
+    let input_tokens = usage
+        .get("promptTokenCount")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+    let output_tokens = usage
+        .get("candidatesTokenCount")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+    let total_tokens = usage
+        .get("totalTokenCount")
+        .and_then(|v| v.as_i64())
+        .map(|v| v as i32);
+
+    let usage_json = serde_json::to_string(&usage).ok();
+    (input_tokens, output_tokens, total_tokens, usage_json)
 }
 
 fn spark_output_schema_gemini() -> serde_json::Value {
@@ -159,6 +200,7 @@ struct GeminiGenerationConfig {
 #[serde(rename_all = "camelCase")]
 struct GenerateContentResponse {
     candidates: Vec<GeminiCandidate>,
+    usage_metadata: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]

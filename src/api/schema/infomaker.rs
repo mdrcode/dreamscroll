@@ -118,9 +118,24 @@ impl InfoMaker {
                 .collect(),
         };
 
+        let meta = match spark_model.spark_meta {
+            HasOne::Unloaded => None,
+            HasOne::NotFound => None,
+            HasOne::Loaded(meta) => Some(SparkMetaInfo {
+                provider_name: meta.provider_name,
+                duration_ms: meta.duration_ms,
+                input_capture_count: meta.input_capture_count,
+                input_tokens: meta.input_tokens,
+                output_tokens: meta.output_tokens,
+                total_tokens: meta.total_tokens,
+                provider_usage_json: meta.provider_usage_json,
+            }),
+        };
+
         SparkInfo {
             id: spark_model.id,
             input_capture_ids,
+            meta,
             spark_clusters,
         }
     }

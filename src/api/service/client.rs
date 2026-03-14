@@ -38,9 +38,10 @@ impl ServiceApiClient {
     pub async fn insert_spark(
         &self,
         user_id: i32,
-        spark: ignition::SparkResponse,
         input_capture_ids: Vec<i32>,
+        spark: ignition::SparkResponse,
+        meta: ignition::SparkMeta,
     ) -> Result<(), ApiError> {
-        super::insert_spark(&self.db, user_id, spark, input_capture_ids).await
+        super::insert_spark(&self.db, user_id, input_capture_ids, spark, meta).await
     }
 }

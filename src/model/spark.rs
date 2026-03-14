@@ -25,6 +25,9 @@ pub struct Model {
 
     #[sea_orm(has_many)]
     pub spark_input_refs: HasMany<spark_input_ref::Entity>,
+
+    #[sea_orm(has_one)]
+    pub spark_meta: HasOne<spark_meta::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

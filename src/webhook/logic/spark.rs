@@ -34,8 +34,10 @@ pub async fn exec(
         .get_captures(Some(task.capture_ids.clone()))
         .await?;
     if captures.is_empty() {
-        tracing::warn!(capture_ids = ?task.capture_ids, "No captures found during spark inference");
-        return Ok(()); // TODO should this return a 404 instead?
+        return Err(api::ApiError::not_found(anyhow::anyhow!(
+            "No captures found for the provided capture IDs {:?}",
+            task.capture_ids
+        )));
     }
 
     let user_id = captures[0].user_id;
@@ -46,19 +48,20 @@ pub async fn exec(
     }
 
     let found_ids = captures.iter().map(|c| c.id).collect::<Vec<_>>();
-    tracing::info!(found_ids = ?found_ids, "Spark Webhook: found capture ids");
+    tracing::debug!(found_ids = ?found_ids, "Spark Webhook: found capture ids");
 
-    let spark = firestarter.spark(captures.clone()).await?;
+    let spark_result = firestarter.spark(captures.clone()).await?;
+    let spark_meta = spark_result.meta.clone();
+    let spark = spark_result.spark;
 
     let referenced_ids = spark
         .clusters
         .iter()
         .flat_map(|cluster| cluster.capture_ids.clone())
         .collect::<Vec<_>>();
-    tracing::info!(referenced_ids = ?referenced_ids, "Spark Webhook: inference referenced captures");
 
     service_api
-        .insert_spark(user_id, spark, task.capture_ids.clone())
+        .insert_spark(user_id, task.capture_ids.clone(), spark, spark_meta)
         .await?;
 
     tracing::info!(
