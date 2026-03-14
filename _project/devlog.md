@@ -1,5 +1,10 @@
 # Dreamscroll Development Log
 
+## 2026-03-14
+
+Sparks now running fully in the prod backend! Can be viewed on a special debug
+page /sparks. Next step is to wire them into the card-based timeline UI properly.
+
 ## 2026-03-12
 
 The beginning of a "Spark" flow are now in place in src/ignition, including both
@@ -7,9 +12,9 @@ a Grok and Gemini implementation. So far the quality is ... very good.
 
 Next up:
 
-- [ ] Add spark models to the database schema, and store
-- [ ] Async webhook for spark
-- [ ] API for triggering a spark (takes list of capture IDs)
+- [X] Add spark models to the database schema, and store
+- [X] Async webhook for spark
+- [X] API for triggering a spark (takes list of capture IDs)
 - [ ] Improve the UI architecture to support extensible "cards", which can be
   either "capture cards" (including an illumination) and "spark cards".
 - [ ] Show spark cards within the timeline feed.
