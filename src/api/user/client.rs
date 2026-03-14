@@ -59,7 +59,7 @@ impl UserApiClient {
     pub async fn get_sparks(
         &self,
         context: &auth::Context,
-        spark_ids: Vec<i32>,
+        spark_ids: Option<Vec<i32>>,
     ) -> Result<Vec<schema::SparkInfo>, ApiError> {
         let sparks = super::get_sparks(&self.db, context, spark_ids).await?;
 

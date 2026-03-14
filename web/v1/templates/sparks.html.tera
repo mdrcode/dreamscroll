@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sparks - dreamscroll</title>
+    <link rel="stylesheet" href="/static/dreamscroll.css?v={{ static_asset_version | urlencode }}">
+    <style>
+        #page-content-container {
+            max-width: 800px;
+        }
+
+        .sparks-layout {
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            gap: 14px;
+        }
+
+        .sparks-list,
+        .spark-detail {
+            background: var(--color-capture-row-bg);
+            border-radius: 10px;
+            box-shadow: 0 1px 4px var(--color-capture-row-shadow);
+            padding: 12px;
+        }
+
+        .sparks-list h2,
+        .spark-detail h2 {
+            margin: 0 0 10px 0;
+            font-size: 16px;
+        }
+
+        .spark-list-item {
+            display: block;
+            text-decoration: none;
+            color: inherit;
+            border: 1px solid var(--color-pill-border);
+            border-radius: 8px;
+            background: #fff;
+            padding: 8px;
+            margin-bottom: 8px;
+        }
+
+        .spark-list-item:hover {
+            border-color: var(--color-link);
+        }
+
+        .spark-list-item--active {
+            border-color: var(--color-link);
+            background: #f4f8ff;
+        }
+
+        .spark-list-item-title {
+            font-weight: 600;
+            font-size: 14px;
+            margin-bottom: 4px;
+        }
+
+        .spark-list-item-meta {
+            font-size: 12px;
+            opacity: 0.8;
+        }
+
+        .sparks-list-items {
+            display: block;
+        }
+
+        .spark-cluster {
+            border: 1px solid var(--color-pill-border);
+            border-radius: 8px;
+            background: #fff;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .spark-cluster-title {
+            font-size: 15px;
+            font-weight: 600;
+            margin: 0 0 6px 0;
+        }
+
+        .spark-cluster-summary {
+            margin: 0 0 10px 0;
+            white-space: pre-line;
+        }
+
+        .spark-links {
+            margin: 0;
+            padding-left: 20px;
+        }
+
+        .spark-links li {
+            margin: 0 0 8px 0;
+        }
+
+        .spark-links a {
+            color: var(--color-link);
+        }
+
+        .empty-state {
+            opacity: 0.8;
+            font-style: italic;
+        }
+
+        @media (max-width: 900px) {
+            .sparks-layout {
+                grid-template-columns: 1fr;
+            }
+
+            .sparks-list-items {
+                max-height: 38vh;
+                overflow-y: auto;
+                padding-right: 4px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div id="page-content-container">
+        <div id="header-row">
+            <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll</a> / sparks</h1>
+        </div>
+
+        <div class="sparks-layout">
+            <section class="sparks-list">
+                <h2>All Sparks</h2>
+                {% if sparks | length == 0 %}
+                <div class="empty-state">No sparks yet.</div>
+                {% else %}
+                <div class="sparks-list-items">
+                {% for spark in sparks %}
+                <a class="spark-list-item{% if selected_spark_id and selected_spark_id == spark.id %} spark-list-item--active{% endif %}" href="/sparks?id={{ spark.id }}">
+                    <div class="spark-list-item-title">Spark {{ spark.id }}</div>
+                    <div class="spark-list-item-meta">{{ spark.spark_clusters | length }} cluster{% if spark.spark_clusters | length != 1 %}s{% endif %}</div>
+                </a>
+                {% endfor %}
+                </div>
+                {% endif %}
+            </section>
+
+            <section class="spark-detail">
+                <h2>Spark Detail</h2>
+                {% if selected_spark %}
+                {% for cluster in selected_spark.spark_clusters %}
+                <article class="spark-cluster">
+                    <h3 class="spark-cluster-title">{{ cluster.title }}</h3>
+                    <p class="spark-cluster-summary">{{ cluster.summary }}</p>
+
+                    {% if cluster.referenced_capture_ids | length > 0 %}
+                    <div class="pill-group pill-group--wrap pill-group--queries pill-group--section">
+                        {% for capture_id in cluster.referenced_capture_ids %}
+                        <a href="/detail/{{ capture_id }}" class="pill"><span class="pill__prefix">capture</span><span class="pill__label">{{ capture_id }}</span></a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    {% if cluster.spark_links | length > 0 %}
+                    <ol class="spark-links">
+                        {% for link in cluster.spark_links %}
+                        <li>
+                            <div><a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.url }}</a></div>
+                            <div>{{ link.commentary }}</div>
+                        </li>
+                        {% endfor %}
+                    </ol>
+                    {% endif %}
+                </article>
+                {% endfor %}
+                {% else %}
+                <div class="empty-state">Select a spark from the list.</div>
+                {% endif %}
+            </section>
+        </div>
+    </div>
+</body>
+
+</html>

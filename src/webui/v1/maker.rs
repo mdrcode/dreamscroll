@@ -67,6 +67,7 @@ pub fn make_ui_router(
 
     let routes_protected = Router::new()
         .route("/", get(r_index::get))
+        .route("/sparks", get(r_sparks::get))
         .route("/search", get(r_search::get))
         .route("/detail/{capture_id}", get(r_detail::get))
         .route("/entity/knode/{id}", get(r_entity::get_knode))

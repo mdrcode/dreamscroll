@@ -36,6 +36,7 @@ pub async fn exec(
         return Ok(());
     }
 
+    tracing::debug!("Starting spark inference for captures: {:?}", captures);
     let spark = firestarter.spark(captures.clone()).await?;
 
     let user_id = captures[0].user_id;
@@ -48,8 +49,8 @@ pub async fn exec(
     service_api.insert_spark(user_id, spark).await?;
 
     tracing::info!(
-        capture_ids = ?task.capture_ids,
         user_id,
+        capture_ids = ?task.capture_ids,
         "Spark inference completed and inserted"
     );
 
