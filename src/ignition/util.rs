@@ -9,7 +9,17 @@ pub fn append_captures_to_user_prompt(
     let captures_section = captures
         .iter()
         .enumerate()
-        .filter(|(_, capture)| !capture.illuminations.is_empty())
+        .filter(|(_, capture)| {
+            if capture.illuminations.is_empty() {
+                tracing::warn!(
+                    capture_id = capture.id,
+                    "Spark ignoring capture with no illuminations"
+                );
+                false
+            } else {
+                true
+            }
+        })
         .map(|(idx, capture)| {
             let illumination = capture.illuminations.first();
             let summary = illumination
