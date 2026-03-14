@@ -6,12 +6,12 @@ Content-Type: application/json
  {
     "capture_id": 123
 }
- ###
+###
 
 POST http://localhost:8080/_wh/cloudtask/spark HTTP/1.1
 Content-Type: application/json
 
 {
-    "capture_ids": [123, 456]
+    "capture_ids": [537]
 }
 ###

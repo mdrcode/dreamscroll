@@ -70,16 +70,11 @@ impl provider::StorageProvider for GCloudStorageProvider {
     ) -> anyhow::Result<StorageHandle> {
         let uuid = Uuid::new_v4();
         let object_key = make_object_key(uuid, user_shard, ext);
-
-        tracing::info!(
-            "Storing {} bytes to GCS bucket {} as {}",
-            bytes.len(),
-            self.bucket_name,
-            object_key,
-        );
+        let n_bytes = bytes.len();
 
         // BUG currently if the GCS client cannot connect to the emulator
         // endpoint, it will hang indefinitely rather than timeout :-/
+        let write_start = std::time::Instant::now();
         self.gcloud_client
             .write_object(&self.bucket_path, &object_key, bytes)
             //.with_resumable_upload_threshold(5 * 1024 * 1024_usize) // TODO investigate this?
@@ -89,8 +84,18 @@ impl provider::StorageProvider for GCloudStorageProvider {
                 tracing::error!("Failed to store object in GCS: {:?}", e);
                 anyhow::anyhow!("Failed to store object in GCS: {}", e)
             })?;
+        let write_duration = write_start.elapsed();
 
-        tracing::debug!("Stored {} in bucket {}", object_key, self.bucket_name);
+        tracing::info!(
+            bucket = self.bucket_name,
+            object_key,
+            bytes = n_bytes,
+            duration_ms = write_duration.as_millis(),
+            "Stored object {} in bucket {} in {} ms",
+            object_key,
+            self.bucket_name,
+            write_duration.as_millis()
+        );
 
         Ok(StorageHandle {
             provider: "gcloud".to_string(),

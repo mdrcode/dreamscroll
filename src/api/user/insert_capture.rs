@@ -43,7 +43,6 @@ pub async fn insert_capture(
     let handle = storage
         .store_bytes(bytes, shard, Some(media_type.extension()))
         .await?;
-    tracing::info!(user_id, handle = ?handle, "Stored media");
 
     let media_builder = model::media::ActiveModel::builder()
         .set_user_id(user_id)
