@@ -85,6 +85,13 @@
             white-space: pre-line;
         }
 
+        .spark-input-note {
+            font-size: 11px;
+            opacity: 0.75;
+            margin: -2px 0 8px 0;
+            line-height: 1.25;
+        }
+
         .spark-capture-list {
             display: flex;
             flex-direction: column;
@@ -198,6 +205,14 @@
             <section class="spark-detail">
                 <h2>Spark Detail</h2>
                 {% if selected_spark %}
+                {% if selected_spark.input_capture_ids | length > 0 %}
+                <p class="spark-input-note">
+                    input captures:
+                    {% for capture_id in selected_spark.input_capture_ids %}
+                        {% if not loop.first %}, {% endif %}{{ capture_id }}
+                    {% endfor %}
+                </p>
+                {% endif %}
                 {% for cluster in selected_spark.spark_clusters %}
                 <article class="spark-cluster">
                     <h3 class="spark-cluster-title">{{ cluster.title }}</h3>

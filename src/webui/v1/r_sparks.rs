@@ -37,6 +37,7 @@ struct SparkClusterView {
 #[derive(Debug, Clone, Serialize)]
 struct SparkView {
     id: i32,
+    input_capture_ids: Vec<i32>,
     spark_clusters: Vec<SparkClusterView>,
 }
 
@@ -102,6 +103,7 @@ pub async fn get(
 
         Some(SparkView {
             id: spark.id,
+            input_capture_ids: spark.input_capture_ids,
             spark_clusters: spark
                 .spark_clusters
                 .into_iter()
