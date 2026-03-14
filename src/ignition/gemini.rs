@@ -11,10 +11,9 @@ pub struct GeminiFirestarter {
 
 impl GeminiFirestarter {
     pub fn new(api_key: String) -> Self {
-        Self {
-            api_key,
-            model_id: "gemini-3-flash-preview".to_string(),
-        }
+        let model_id = "gemini-3-flash-preview".to_string();
+        tracing::info!(model_id, "GeminiFirestarter initialized");
+        Self { api_key, model_id }
     }
 }
 

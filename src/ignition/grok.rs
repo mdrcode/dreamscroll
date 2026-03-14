@@ -11,10 +11,9 @@ pub struct GrokFirestarter {
 
 impl GrokFirestarter {
     pub fn new(api_key: String) -> Self {
-        Self {
-            api_key,
-            model_id: "grok-4-1-fast-reasoning".to_string(),
-        }
+        let model_id = "grok-4-1-fast-reasoning".to_string();
+        tracing::info!(model_id, "GrokFirestarter initialized");
+        Self { api_key, model_id }
     }
 }
 

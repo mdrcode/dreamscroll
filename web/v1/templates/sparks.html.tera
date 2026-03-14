@@ -205,6 +205,11 @@
             <section class="spark-detail">
                 <h2>Spark Detail</h2>
                 {% if selected_spark %}
+                {% if selected_spark.sparked_by %}
+                <p class="spark-input-note">
+                    sparked by {{ selected_spark.sparked_by }}
+                </p>
+                {% endif %}
                 {% if selected_spark.input_capture_ids | length > 0 %}
                 <p class="spark-input-note">
                     input captures:

@@ -38,6 +38,7 @@ struct SparkClusterView {
 struct SparkView {
     id: i32,
     input_capture_ids: Vec<i32>,
+    sparked_by: Option<String>,
     spark_clusters: Vec<SparkClusterView>,
 }
 
@@ -104,6 +105,7 @@ pub async fn get(
         Some(SparkView {
             id: spark.id,
             input_capture_ids: spark.input_capture_ids,
+            sparked_by: spark.meta.map(|m| m.provider_name),
             spark_clusters: spark
                 .spark_clusters
                 .into_iter()

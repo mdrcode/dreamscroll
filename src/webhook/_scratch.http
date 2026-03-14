@@ -4,7 +4,7 @@ POST http://localhost:8080/_wh/cloudtask/illuminate HTTP/1.1
 Content-Type: application/json
 
  {
-    "capture_id": 6
+    "capture_id": 536
 }
 
 ###
