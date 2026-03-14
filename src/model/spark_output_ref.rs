@@ -5,11 +5,12 @@ use super::*;
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "spark_cluster_refs")]
+#[sea_orm(table_name = "spark_output_refs")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub user_id: i32,
+    pub spark_id: i32,
     pub spark_cluster_id: i32,
     pub capture_id: i32,
 
@@ -18,6 +19,9 @@ pub struct Model {
 
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
     pub user: HasOne<user::Entity>,
+
+    #[sea_orm(belongs_to, from = "spark_id", to = "id")]
+    pub spark: HasOne<spark::Entity>,
 
     #[sea_orm(belongs_to, from = "spark_cluster_id", to = "id")]
     pub spark_cluster: HasOne<spark_cluster::Entity>,

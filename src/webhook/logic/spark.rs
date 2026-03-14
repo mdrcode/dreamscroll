@@ -57,11 +57,14 @@ pub async fn exec(
         .collect::<Vec<_>>();
     tracing::info!(referenced_ids = ?referenced_ids, "Spark Webhook: inference referenced captures");
 
-    service_api.insert_spark(user_id, spark).await?;
+    service_api
+        .insert_spark(user_id, spark, task.capture_ids.clone())
+        .await?;
 
     tracing::info!(
         user_id,
-        input_capture_ids = ?found_ids,
+        input_capture_ids = ?task.capture_ids,
+        found_capture_ids = ?found_ids,
         referenced_capture_ids = ?referenced_ids,
         "Spark inference completed and inserted"
     );

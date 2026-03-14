@@ -5,5 +5,6 @@ use super::SparkClusterInfo;
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct SparkInfo {
     pub id: i32,
+    pub input_capture_ids: Vec<i32>,
     pub spark_clusters: Vec<SparkClusterInfo>,
 }

@@ -97,6 +97,19 @@ impl InfoMaker {
     }
 
     pub fn make_spark_info(&self, spark_model: model::spark::ModelEx) -> SparkInfo {
+        let mut input_pairs = match spark_model.spark_input_refs {
+            HasMany::Unloaded => vec![],
+            HasMany::Loaded(models) => models
+                .into_iter()
+                .map(|m| (m.position, m.capture_id))
+                .collect::<Vec<_>>(),
+        };
+        input_pairs.sort_by_key(|(position, _)| *position);
+        let input_capture_ids = input_pairs
+            .into_iter()
+            .map(|(_, capture_id)| capture_id)
+            .collect::<Vec<_>>();
+
         let spark_clusters = match spark_model.spark_clusters {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(models) => models
@@ -107,6 +120,7 @@ impl InfoMaker {
 
         SparkInfo {
             id: spark_model.id,
+            input_capture_ids,
             spark_clusters,
         }
     }
@@ -120,7 +134,7 @@ impl InfoMaker {
             HasMany::Loaded(models) => models.into_iter().map(SparkLinkInfo::from).collect(),
         };
 
-        let referenced_capture_ids = match spark_cluster_model.spark_cluster_refs {
+        let referenced_capture_ids = match spark_cluster_model.spark_output_refs {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(models) => models.into_iter().map(|m| m.capture_id).collect(),
         };

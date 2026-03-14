@@ -16,11 +16,9 @@ pub async fn get_sparks(
 
     let loader = loader
         .with(model::spark_cluster::Entity)
+        .with(model::spark_input_ref::Entity)
         .with((model::spark_cluster::Entity, model::spark_link::Entity))
-        .with((
-            model::spark_cluster::Entity,
-            model::spark_cluster_ref::Entity,
-        ))
+        .with((model::spark_cluster::Entity, model::spark_output_ref::Entity))
         .all(&db.conn)
         .await?;
 

@@ -28,7 +28,7 @@ pub struct Model {
     pub spark_links: HasMany<spark_link::Entity>,
 
     #[sea_orm(has_many)]
-    pub spark_cluster_refs: HasMany<spark_cluster_ref::Entity>,
+    pub spark_output_refs: HasMany<spark_output_ref::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
