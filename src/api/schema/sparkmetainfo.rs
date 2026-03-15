@@ -9,4 +9,5 @@ pub struct SparkMetaInfo {
     pub output_tokens: Option<i32>,
     pub total_tokens: Option<i32>,
     pub provider_usage_json: Option<String>,
+    pub provider_grounding_json: Option<String>,
 }

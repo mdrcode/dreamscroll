@@ -129,6 +129,7 @@ impl InfoMaker {
                 output_tokens: meta.output_tokens,
                 total_tokens: meta.total_tokens,
                 provider_usage_json: meta.provider_usage_json,
+                provider_grounding_json: meta.provider_grounding_json,
             }),
         };
 

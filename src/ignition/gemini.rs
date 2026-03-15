@@ -33,6 +33,10 @@ impl Firestarter for GeminiFirestarter {
                 role: "user".to_string(),
                 parts: vec![GeminiPart { text: user_prompt }],
             }],
+            // Gemini grounding docs: https://ai.google.dev/gemini-api/docs/google-search
+            tools: vec![GeminiTool {
+                google_search: GeminiGoogleSearch::default(),
+            }],
             generation_config: GeminiGenerationConfig {
                 response_mime_type: "application/json".to_string(),
                 response_schema: spark_output_schema_gemini(),
@@ -95,6 +99,7 @@ impl Firestarter for GeminiFirestarter {
         let duration_ms = started.elapsed().as_millis() as i64;
         let (input_tokens, output_tokens, total_tokens, provider_usage_json) =
             parse_gemini_usage(parsed.usage_metadata);
+        let provider_grounding_json = parse_gemini_grounding(&parsed.candidates);
 
         Ok(SparkResult {
             spark: output,
@@ -106,6 +111,7 @@ impl Firestarter for GeminiFirestarter {
                 output_tokens,
                 total_tokens,
                 provider_usage_json,
+                provider_grounding_json,
             },
         })
     }
@@ -133,6 +139,19 @@ fn parse_gemini_usage(
 
     let usage_json = serde_json::to_string(&usage).ok();
     (input_tokens, output_tokens, total_tokens, usage_json)
+}
+
+fn parse_gemini_grounding(candidates: &[GeminiCandidate]) -> Option<String> {
+    let grounding = candidates
+        .iter()
+        .filter_map(|candidate| candidate.grounding_metadata.clone())
+        .collect::<Vec<_>>();
+
+    if grounding.is_empty() {
+        None
+    } else {
+        serde_json::to_string(&grounding).ok()
+    }
 }
 
 fn spark_output_schema_gemini() -> serde_json::Value {
@@ -174,8 +193,17 @@ fn spark_output_schema_gemini() -> serde_json::Value {
 #[serde(rename_all = "camelCase")]
 struct GenerateContentRequest {
     contents: Vec<GeminiContent>,
+    tools: Vec<GeminiTool>,
     generation_config: GeminiGenerationConfig,
 }
+
+#[derive(Serialize)]
+struct GeminiTool {
+    google_search: GeminiGoogleSearch,
+}
+
+#[derive(Serialize, Default)]
+struct GeminiGoogleSearch {}
 
 #[derive(Serialize)]
 struct GeminiContent {
@@ -205,6 +233,7 @@ struct GenerateContentResponse {
 #[derive(Deserialize)]
 struct GeminiCandidate {
     content: GeminiResponseContent,
+    grounding_metadata: Option<serde_json::Value>,
 }
 
 #[derive(Deserialize)]

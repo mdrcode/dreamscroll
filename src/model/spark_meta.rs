@@ -32,6 +32,9 @@ pub struct Model {
 
     #[sea_orm(nullable, column_type = "Text")]
     pub provider_usage_json: Option<String>,
+
+    #[sea_orm(nullable, column_type = "Text")]
+    pub provider_grounding_json: Option<String>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

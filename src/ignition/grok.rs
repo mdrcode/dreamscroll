@@ -34,6 +34,12 @@ impl Firestarter for GrokFirestarter {
                 role: "user".to_string(),
                 content: user_prompt,
             }],
+            // xAI search params docs: https://docs.x.ai/developers/rest-api-reference/inference/chat
+            search_parameters: GrokSearchParameters {
+                mode: "on".to_string(),
+                return_citations: true,
+                sources: vec!["web".to_string()],
+            },
             response_format: ResponseFormat {
                 response_type: "json_schema".to_string(),
                 json_schema: JsonSchemaSpec {
@@ -58,7 +64,8 @@ impl Firestarter for GrokFirestarter {
             anyhow::bail!("XAI API error: {}", error_text);
         }
 
-        let parsed: ChatCompletionResponse = response.json().await?;
+        let raw_response: serde_json::Value = response.json().await?;
+        let parsed: ChatCompletionResponse = serde_json::from_value(raw_response.clone())?;
         let content = parsed
             .choices
             .first()
@@ -92,6 +99,7 @@ impl Firestarter for GrokFirestarter {
         let duration_ms = started.elapsed().as_millis() as i64;
         let (input_tokens, output_tokens, total_tokens, provider_usage_json) =
             parse_grok_usage(parsed.usage);
+        let provider_grounding_json = parse_grok_grounding(&raw_response);
 
         Ok(SparkResult {
             spark: output,
@@ -103,6 +111,7 @@ impl Firestarter for GrokFirestarter {
                 output_tokens,
                 total_tokens,
                 provider_usage_json,
+                provider_grounding_json,
             },
         })
     }
@@ -130,6 +139,50 @@ fn parse_grok_usage(
 
     let usage_json = serde_json::to_string(&usage).ok();
     (input_tokens, output_tokens, total_tokens, usage_json)
+}
+
+fn parse_grok_grounding(raw_response: &serde_json::Value) -> Option<String> {
+    let first_choice = raw_response
+        .get("choices")
+        .and_then(|choices| choices.as_array())
+        .and_then(|choices| choices.first());
+    let message = first_choice.and_then(|choice| choice.get("message"));
+
+    let annotations = message.and_then(|m| m.get("annotations")).cloned();
+    let citations = message.and_then(|m| m.get("citations")).cloned();
+    let sources = message.and_then(|m| m.get("sources")).cloned();
+
+    let num_sources_used = raw_response
+        .get("usage")
+        .and_then(|usage| usage.get("num_sources_used"))
+        .cloned();
+
+    let web_search_calls = raw_response
+        .get("usage")
+        .and_then(|usage| usage.get("server_side_tool_usage_details"))
+        .and_then(|details| details.get(1))
+        .and_then(|tool_usage| tool_usage.get("web_search_calls"))
+        .cloned();
+
+    let has_grounding = annotations.is_some()
+        || citations.is_some()
+        || sources.is_some()
+        || num_sources_used.is_some()
+        || web_search_calls.is_some();
+
+    if !has_grounding {
+        return None;
+    }
+
+    let grounding = serde_json::json!({
+        "annotations": annotations,
+        "citations": citations,
+        "sources": sources,
+        "num_sources_used": num_sources_used,
+        "web_search_calls": web_search_calls,
+    });
+
+    serde_json::to_string(&grounding).ok()
 }
 
 fn spark_output_schema_grok() -> serde_json::Value {
@@ -174,7 +227,15 @@ fn spark_output_schema_grok() -> serde_json::Value {
 struct ChatCompletionRequest {
     model: String,
     messages: Vec<ChatMessage>,
+    search_parameters: GrokSearchParameters,
     response_format: ResponseFormat,
+}
+
+#[derive(Serialize)]
+struct GrokSearchParameters {
+    mode: String,
+    return_citations: bool,
+    sources: Vec<String>,
 }
 
 #[derive(Serialize)]

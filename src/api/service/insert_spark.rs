@@ -32,6 +32,7 @@ pub async fn insert_spark(
         .set_output_tokens(meta.output_tokens)
         .set_total_tokens(meta.total_tokens)
         .set_provider_usage_json(meta.provider_usage_json)
+        .set_provider_grounding_json(meta.provider_grounding_json)
         .save(&db.conn)
         .await?;
 
