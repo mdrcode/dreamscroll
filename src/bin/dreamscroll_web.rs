@@ -95,7 +95,7 @@ async fn main() -> anyhow::Result<()> {
     // Webhook routes (no auth locally, protected by GCloud IAM/OIDC in prod)
     if config.services.contains(&facility::Service::Webhook) {
         let illuminator = illumination::make_illuminator(&config, stg.clone());
-        let firestarter = dreamscroll::ignition::make_firestarter(&config);
+        let firestarter = dreamscroll::ignition::make_firestarter(&config)?;
         router = router.nest(
             "/_wh",
             webhook::make_webhook_router(service_api, illuminator, firestarter),

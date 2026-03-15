@@ -61,18 +61,26 @@ impl Firestarter for GrokFirestarter {
         }
 
         let raw_response: serde_json::Value = response.json().await?;
+        let raw_response_text = raw_response.to_string();
         let content = extract_grok_output_text(&raw_response)
             .map(str::trim)
             .unwrap_or("")
             .to_string();
 
         if content.is_empty() {
-            anyhow::bail!("XAI API returned an empty structured response");
+            anyhow::bail!(
+                "XAI API returned an empty structured response. Response excerpt: {}",
+                util::truncate_for_error(&raw_response_text, 600)
+            );
         }
 
         let output: SparkResponse = match serde_json::from_str(&content) {
             Ok(it) => it,
-            Err(err) => anyhow::bail!("Failed to parse structured spark response: {}", err),
+            Err(err) => anyhow::bail!(
+                "Failed to parse structured spark response: {}. Content excerpt: {}",
+                err,
+                util::truncate_for_error(&content, 600)
+            ),
         };
         let duration_ms = started.elapsed().as_millis() as i64;
         let (input_tokens, output_tokens, total_tokens, provider_usage_json) =

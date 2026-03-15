@@ -46,6 +46,14 @@ pub fn append_captures_to_user_prompt(
     )
 }
 
+pub fn truncate_for_error(text: &str, max_chars: usize) -> String {
+    let mut out = text.chars().take(max_chars).collect::<String>();
+    if text.chars().count() > max_chars {
+        out.push_str("...");
+    }
+    out
+}
+
 #[allow(dead_code)]
 pub fn dump_raw_response_to_tmp(content: &str, file_stem: &str) -> anyhow::Result<PathBuf> {
     let ts = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();

@@ -70,7 +70,14 @@ impl Firestarter for GeminiFirestarter {
         }
 
         let raw_response = response.text().await?;
-        let parsed: GenerateContentResponse = serde_json::from_str(&raw_response)?;
+        let parsed: GenerateContentResponse =
+            serde_json::from_str(&raw_response).map_err(|err| {
+                anyhow::anyhow!(
+                    "Failed to parse Gemini API response JSON: {}. Response excerpt: {}",
+                    err,
+                    util::truncate_for_error(&raw_response, 600)
+                )
+            })?;
         let content = parsed
             .candidates
             .first()
@@ -91,7 +98,11 @@ impl Firestarter for GeminiFirestarter {
 
         let output: SparkResponse = match serde_json::from_str(&content) {
             Ok(it) => it,
-            Err(err) => anyhow::bail!("Failed to parse Gemini structured spark response: {}", err),
+            Err(err) => anyhow::bail!(
+                "Failed to parse Gemini structured spark response: {}. Content excerpt: {}",
+                err,
+                util::truncate_for_error(&content, 600)
+            ),
         };
 
         let duration_ms = started.elapsed().as_millis() as i64;
