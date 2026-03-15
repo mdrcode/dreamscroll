@@ -7,11 +7,11 @@ set -euo pipefail
 # and then execute this script to create the topics/subscriptions
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-source "${SCRIPT_DIR}/ds_config_local.env"
+source "${SCRIPT_DIR}/config_local.env"
 
-: "${GCLOUD_PROJECT_ID:?GCLOUD_PROJECT_ID must be set in ds_config_local.env}"
-: "${PUBSUB_EMULATOR:?PUBSUB_EMULATOR must be set in ds_config_local.env}"
-: "${PUBSUB_TOPIC_ID_NEW_CAPTURE:?PUBSUB_TOPIC_ID_NEW_CAPTURE must be set in ds_config_local.env}"
+: "${GCLOUD_PROJECT_ID:?GCLOUD_PROJECT_ID must be set in config_local.env}"
+: "${PUBSUB_EMULATOR:?PUBSUB_EMULATOR must be set in config_local.env}"
+: "${PUBSUB_TOPIC_ID_NEW_CAPTURE:?PUBSUB_TOPIC_ID_NEW_CAPTURE must be set in config_local.env}"
 
 PUBSUB_SUBSCRIPTION_ID="dreamscroll-illumination-push"
 PUBSUB_PUSH_ENDPOINT="http://localhost:8080/_wh/illumination/push"

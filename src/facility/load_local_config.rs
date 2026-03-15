@@ -3,10 +3,10 @@ use dotenvy;
 pub fn load_local_config_files() {
     // Use (e)println! since tracing might not be initialized
 
-    match dotenvy::from_filename("ds_config_local.env") {
-        Ok(_) => println!("Loaded ds_config_local.env successfully"),
+    match dotenvy::from_filename("config_local.env") {
+        Ok(_) => println!("Loaded config_local.env successfully"),
         Err(err) => eprintln!(
-            "Failed to load ds_config_local.env, will rely on env vars. Error: {:?}",
+            "Failed to load config_local.env, will rely on env vars. Error: {:?}",
             err
         ),
     }
