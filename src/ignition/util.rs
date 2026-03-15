@@ -46,6 +46,7 @@ pub fn append_captures_to_user_prompt(
     )
 }
 
+#[allow(dead_code)]
 pub fn dump_raw_response_to_tmp(content: &str, file_stem: &str) -> anyhow::Result<PathBuf> {
     let ts = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
     let path = std::env::temp_dir().join(format!("{}-{}.json", file_stem, ts));

@@ -120,11 +120,12 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
         spark_result.meta.duration_ms
     );
     println!(
-        "- Provider grounding json:\n{}",
+        "- Grounding data present: {}",
         spark_result
             .meta
             .provider_grounding_json
-            .unwrap_or_default()
+            .as_deref()
+            .is_some()
     );
 
     println!();

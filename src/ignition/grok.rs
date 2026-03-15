@@ -61,51 +61,18 @@ impl Firestarter for GrokFirestarter {
         }
 
         let raw_response: serde_json::Value = response.json().await?;
-        let raw_response_text = serde_json::to_string_pretty(&raw_response)
-            .unwrap_or_else(|_| raw_response.to_string());
         let content = extract_grok_output_text(&raw_response)
             .map(str::trim)
             .unwrap_or("")
             .to_string();
 
         if content.is_empty() {
-            let dump_path = util::dump_raw_response_to_tmp(
-                &raw_response_text,
-                "dreamscroll-grok-empty-response",
-            );
-
-            return Err(match dump_path {
-                Ok(path) => anyhow::anyhow!(
-                    "XAI API returned an empty response body. Raw response saved to {}",
-                    path.display()
-                ),
-                Err(dump_err) => anyhow::anyhow!(
-                    "XAI API returned an empty response body. Also failed to write raw response to tmp: {}",
-                    dump_err
-                ),
-            });
+            anyhow::bail!("XAI API returned an empty structured response");
         }
 
         let output: SparkResponse = match serde_json::from_str(&content) {
             Ok(it) => it,
-            Err(err) => {
-                let dump_path = util::dump_raw_response_to_tmp(
-                    &raw_response_text,
-                    "dreamscroll-spark-response",
-                );
-                return Err(match dump_path {
-                    Ok(path) => anyhow::anyhow!(
-                        "Failed to parse structured spark response: {}. Full raw response saved to {}",
-                        err,
-                        path.display()
-                    ),
-                    Err(dump_err) => anyhow::anyhow!(
-                        "Failed to parse structured spark response: {}. Also failed to write full raw response to tmp: {}",
-                        err,
-                        dump_err
-                    ),
-                });
-            }
+            Err(err) => anyhow::bail!("Failed to parse structured spark response: {}", err),
         };
         let duration_ms = started.elapsed().as_millis() as i64;
         let (input_tokens, output_tokens, total_tokens, provider_usage_json) =

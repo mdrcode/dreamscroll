@@ -4,6 +4,13 @@ use serde_json::json;
 
 use super::*;
 
+// Unfortunately, the Gemini API continues to hallucinate recommended links at
+// an unacceptable rate, producing fabricated links and soft-404/homepage
+// fallbacks. Future hardening idea: have the model emit grounding chunk
+// references instead of free-form URLs, then resolve URLs from
+// groundingMetadata server-side. This prevents fabricated links and
+// soft-404/homepage fallbacks from passing as "valid" recommendations.
+
 pub struct GeminiFirestarter {
     api_key: String,
     model_id: String,
@@ -67,9 +74,15 @@ impl Firestarter for GeminiFirestarter {
         let content = parsed
             .candidates
             .first()
-            .and_then(|candidate| candidate.content.parts.first())
-            .map(|part| part.text.trim())
+            .and_then(|candidate| {
+                candidate
+                    .content
+                    .parts
+                    .iter()
+                    .find_map(|part| part.text.as_deref())
+            })
             .unwrap_or("")
+            .trim()
             .to_string();
 
         if content.is_empty() {
@@ -78,27 +91,13 @@ impl Firestarter for GeminiFirestarter {
 
         let output: SparkResponse = match serde_json::from_str(&content) {
             Ok(it) => it,
-            Err(err) => {
-                let dump_path =
-                    util::dump_raw_response_to_tmp(&content, "dreamscroll-gemini-spark-response");
-                return Err(match dump_path {
-                    Ok(path) => anyhow::anyhow!(
-                        "Failed to parse Gemini structured spark response: {}. Raw JSON saved to {}",
-                        err,
-                        path.display()
-                    ),
-                    Err(dump_err) => anyhow::anyhow!(
-                        "Failed to parse Gemini structured spark response: {}. Also failed to write raw JSON to tmp: {}",
-                        err,
-                        dump_err
-                    ),
-                });
-            }
+            Err(err) => anyhow::bail!("Failed to parse Gemini structured spark response: {}", err),
         };
 
         let duration_ms = started.elapsed().as_millis() as i64;
         let (input_tokens, output_tokens, total_tokens, provider_usage_json) =
             parse_gemini_usage(parsed.usage_metadata);
+
         let provider_grounding_json = parse_gemini_grounding(&parsed.candidates);
 
         Ok(SparkResult {
@@ -231,6 +230,7 @@ struct GenerateContentResponse {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct GeminiCandidate {
     content: GeminiResponseContent,
     grounding_metadata: Option<serde_json::Value>,
@@ -243,5 +243,5 @@ struct GeminiResponseContent {
 
 #[derive(Deserialize)]
 struct GeminiResponsePart {
-    text: String,
+    text: Option<String>,
 }
