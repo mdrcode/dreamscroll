@@ -137,13 +137,11 @@ fn parse_grok_usage_from_response(
     };
 
     let input_tokens = usage
-        .get("prompt_tokens")
-        .or_else(|| usage.get("input_tokens"))
+        .get("input_tokens")
         .and_then(|v| v.as_i64())
         .map(|v| v as i32);
     let output_tokens = usage
-        .get("completion_tokens")
-        .or_else(|| usage.get("output_tokens"))
+        .get("output_tokens")
         .and_then(|v| v.as_i64())
         .map(|v| v as i32);
     let total_tokens = usage
@@ -156,49 +154,10 @@ fn parse_grok_usage_from_response(
 }
 
 fn parse_grok_grounding(raw_response: &serde_json::Value) -> Option<String> {
-    let annotations = raw_response
-        .get("output")
-        .and_then(|v| v.as_array())
-        .and_then(|output| {
-            output.iter().find_map(|item| {
-                let is_message = item.get("type").and_then(|v| v.as_str()) == Some("message");
-                if !is_message {
-                    return None;
-                }
-
-                item.get("content")
-                    .and_then(|v| v.as_array())
-                    .and_then(|content| {
-                        content.iter().find_map(|part| {
-                            let is_output_text =
-                                part.get("type").and_then(|v| v.as_str()) == Some("output_text");
-                            if is_output_text {
-                                part.get("annotations").cloned()
-                            } else {
-                                None
-                            }
-                        })
-                    })
-            })
-        })
-        .or_else(|| {
-            raw_response
-                .get("choices")
-                .and_then(|choices| choices.as_array())
-                .and_then(|choices| choices.first())
-                .and_then(|choice| choice.get("message"))
-                .and_then(|m| m.get("annotations"))
-                .cloned()
-        });
-    let citations = raw_response.get("citations").cloned().or_else(|| {
-        raw_response
-            .get("choices")
-            .and_then(|choices| choices.as_array())
-            .and_then(|choices| choices.first())
-            .and_then(|choice| choice.get("message"))
-            .and_then(|m| m.get("citations"))
-            .cloned()
-    });
+    let annotations = find_grok_output_text_part(raw_response)
+        .and_then(|part| part.get("annotations"))
+        .cloned();
+    let citations = raw_response.get("citations").cloned();
     let sources = raw_response.get("sources").cloned();
 
     let num_sources_used = raw_response
@@ -209,15 +168,7 @@ fn parse_grok_grounding(raw_response: &serde_json::Value) -> Option<String> {
     let web_search_calls = raw_response
         .get("usage")
         .and_then(|usage| usage.get("server_side_tool_usage_details"))
-        .and_then(|details| {
-            details.get("web_search_calls").or_else(|| {
-                details.get(1).or_else(|| {
-                    details
-                        .as_array()
-                        .and_then(|arr| arr.iter().find(|it| it.get("web_search_calls").is_some()))
-                })
-            })
-        })
+        .and_then(|details| details.get("web_search_calls"))
         .cloned();
 
     let has_grounding = annotations.is_some()
@@ -248,6 +199,12 @@ fn extract_grok_output_text(raw_response: &serde_json::Value) -> Option<&str> {
         }
     }
 
+    find_grok_output_text_part(raw_response)
+        .and_then(|part| part.get("text"))
+        .and_then(|v| v.as_str())
+}
+
+fn find_grok_output_text_part(raw_response: &serde_json::Value) -> Option<&serde_json::Value> {
     raw_response
         .get("output")
         .and_then(|v| v.as_array())
@@ -261,14 +218,8 @@ fn extract_grok_output_text(raw_response: &serde_json::Value) -> Option<&str> {
                 item.get("content")
                     .and_then(|v| v.as_array())
                     .and_then(|content| {
-                        content.iter().find_map(|part| {
-                            let is_output_text =
-                                part.get("type").and_then(|v| v.as_str()) == Some("output_text");
-                            if is_output_text {
-                                part.get("text").and_then(|v| v.as_str())
-                            } else {
-                                None
-                            }
+                        content.iter().find(|part| {
+                            part.get("type").and_then(|v| v.as_str()) == Some("output_text")
                         })
                     })
             })
