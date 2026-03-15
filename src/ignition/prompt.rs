@@ -23,6 +23,11 @@ meaningless or trivial clusters), you may return a single "default" cluster
 containing all captures. It is fine for a capture to appear in multiple
 clusters if it is helpful and relevant.
 
+IMPORTANT: Only recommend links that you are confident actually exist, ideally
+verified from real-time search results. Do not invent URLs. If no reliable
+link exists, simply drop the cluster. It is better to omit a cluster entirely
+than to include unverified links.
+
 Each cluster must include:
 - a title (plain text)
 - a summary (plain text)
