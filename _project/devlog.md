@@ -1,5 +1,17 @@
 # Dreamscroll Development Log
 
+## 2026-03-16
+
+Initially, the spark quality was quite poor because the LLMs hallucinate the
+links! Many links (perhaps even a majority) were simply wrong, and many sites
+now return soft 404s - so you click a link expecting article X and you see
+completely unrelated article Y. Worked yesterday to enable web grounding which
+had surprisingly positive impact on Grok generated Sparks (but unfortunately not
+Gemini, which seems strange?). But bottom line, Spark quality is now great!
+
+The next big milestone will be evolving the timeline UI to be card-based so that
+we can have a single unified view of both capture cards and spark cards.
+
 ## 2026-03-14
 
 Sparks now running fully in the prod backend! Can be viewed on a special debug
