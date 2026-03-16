@@ -19,7 +19,10 @@ pub async fn get_sparks(
         .with(model::spark_input_ref::Entity)
         .with(model::spark_meta::Entity)
         .with((model::spark_cluster::Entity, model::spark_link::Entity))
-        .with((model::spark_cluster::Entity, model::spark_output_ref::Entity))
+        .with((
+            model::spark_cluster::Entity,
+            model::spark_output_ref::Entity,
+        ))
         .all(&db.conn)
         .await?;
 

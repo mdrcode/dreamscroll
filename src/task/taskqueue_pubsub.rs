@@ -162,5 +162,3 @@ mod tests {
         assert_eq!(trim_protocol_and_slash("localhost:8085"), "localhost:8085");
     }
 }
-
-
