@@ -131,6 +131,16 @@ where
     type Task = TTask;
 
     async fn enqueue(&self, task: Self::Task) -> anyhow::Result<()> {
+        let type_name = std::any::type_name::<TTask>()
+            .rsplit("::")
+            .next()
+            .unwrap_or("Task");
+        let task_str = format!(
+            "{} {}",
+            type_name,
+            serde_json::to_string(&task).unwrap_or_else(|_| "<serialization error>".to_string())
+        );
+        tracing::info!(task = %task_str, "Enqueuing task into LocalTaskQueue");
         self.inner
             .task_sender
             .send(task)

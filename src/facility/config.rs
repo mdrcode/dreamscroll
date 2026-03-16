@@ -53,21 +53,18 @@ pub struct Config {
     pub db_postgres: Option<database::PostgresConfig>,
 
     pub storage_backend: storage::StorageBackend,
-
     pub storage_local_file_path: Option<String>,
     pub storage_local_url_prefix: Option<String>,
-
     pub storage_gcloud_emulator: Option<String>, // e.g. "http://localhost:4443"
     pub storage_gcloud_prod_endpoint: Option<String>,
     pub storage_gcloud_bucket_name: Option<String>,
 
-    pub task_queue_backend: task::TaskQueueBackend,
-
-    pub pubsub_emulator: Option<String>, // e.g. "http://localhost:8085"
-    pub pubsub_topic_id_new_capture: String,
-
-    pub cloud_tasks_queue_id_illumination: String,
-    pub cloud_tasks_queue_id_spark: String,
+    pub task_backend: task::TaskQueueBackend,
+    pub task_pubsub_emulator: Option<String>, // e.g. "http://localhost:8085"
+    pub task_pubsub_topic_new_capture: Option<String>,
+    pub task_pubsub_topic_spark: Option<String>,
+    pub task_cloudtask_queue_illumination: Option<String>,
+    pub task_cloudtask_queue_spark: Option<String>,
 }
 
 pub fn make_config() -> anyhow::Result<Config> {

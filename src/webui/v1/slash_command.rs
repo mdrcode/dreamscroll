@@ -49,7 +49,6 @@ async fn command_spark(
         .enqueue_spark(context, actual_ids.clone())
         .await?;
 
-    tracing::info!("Enqueued spark for IDs: {:?}", actual_ids);
 
     Ok(())
 }

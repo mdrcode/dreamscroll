@@ -3,6 +3,7 @@ use rustls::crypto;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 
+use dreamscroll::webhook::logic::{illuminate::IlluminationTask, spark::SparkTask};
 use dreamscroll::{
     api, auth, database, facility, illumination, rest, storage, task, webhook, webui,
 };
@@ -34,25 +35,7 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
-    let illumination_queue = task::CloudTaskQueue::connect(
-        config.gcloud_project_id.as_str(),
-        config.gcloud_project_region.as_str(),
-        config.cloud_tasks_queue_id_illumination.as_str(),
-    )
-    .await
-    .context("Failed to initialize Cloud Tasks Queue: Illumination")?;
-    let spark_queue = task::CloudTaskQueue::connect(
-        config.gcloud_project_id.as_str(),
-        config.gcloud_project_region.as_str(),
-        config.cloud_tasks_queue_id_spark.as_str(),
-    )
-    .await
-    .context("Failed to initialize Cloud Tasks Queue: Spark")?;
-
-    let beacon = task::Beacon::builder()
-        .illumination_queue(illumination_queue)
-        .spark_queue(spark_queue)
-        .build();
+    let beacon = make_beacon(&config).await?;
 
     let user_api = api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), beacon);
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
@@ -121,4 +104,75 @@ async fn main() -> anyhow::Result<()> {
         .context("Failed to serve routes")?;
 
     Ok(())
+}
+
+async fn make_beacon(config: &facility::Config) -> anyhow::Result<task::Beacon> {
+    match config.task_backend {
+        task::TaskQueueBackend::Local => {
+            let illumination_queue =
+                task::LocalTaskQueue::connect(4, |_task: IlluminationTask| async move { Ok(()) });
+            let spark_queue =
+                task::LocalTaskQueue::connect(4, |_task: SparkTask| async move { Ok(()) });
+
+            Ok(task::Beacon::builder()
+                .illumination_queue(illumination_queue)
+                .spark_queue(spark_queue)
+                .build())
+        }
+        task::TaskQueueBackend::GCloudPubSub => {
+            let emulator = config.task_pubsub_emulator.as_deref();
+            let illumination_queue = task::PubSubTaskQueue::connect(
+                config.gcloud_project_id.as_str(),
+                config
+                    .task_pubsub_topic_new_capture
+                    .as_ref()
+                    .expect("TASK_PUBSUB_TOPIC_NEW_CAPTURE not set"),
+                emulator,
+            )
+            .await
+            .context("Failed to initialize Pub/Sub queue: Illumination")?;
+            let spark_queue = task::PubSubTaskQueue::connect(
+                config.gcloud_project_id.as_str(),
+                config
+                    .task_pubsub_topic_spark
+                    .as_ref()
+                    .expect("TASK_PUBSUB_TOPIC_SPARK not set"),
+                emulator,
+            )
+            .await
+            .context("Failed to initialize Pub/Sub queue: Spark")?;
+
+            Ok(task::Beacon::builder()
+                .illumination_queue(illumination_queue)
+                .spark_queue(spark_queue)
+                .build())
+        }
+        task::TaskQueueBackend::GCloudTasks => {
+            let illumination_queue = task::CloudTaskQueue::connect(
+                config.gcloud_project_id.as_str(),
+                config.gcloud_project_region.as_str(),
+                config
+                    .task_cloudtask_queue_illumination
+                    .as_ref()
+                    .expect("TASK_CLOUDTASK_QUEUE_ILLUMINATION not set"),
+            )
+            .await
+            .context("Failed to initialize Cloud Tasks Queue: Illumination")?;
+            let spark_queue = task::CloudTaskQueue::connect(
+                config.gcloud_project_id.as_str(),
+                config.gcloud_project_region.as_str(),
+                config
+                    .task_cloudtask_queue_spark
+                    .as_ref()
+                    .expect("TASK_CLOUDTASK_QUEUE_SPARK not set"),
+            )
+            .await
+            .context("Failed to initialize Cloud Tasks Queue: Spark")?;
+
+            Ok(task::Beacon::builder()
+                .illumination_queue(illumination_queue)
+                .spark_queue(spark_queue)
+                .build())
+        }
+    }
 }
