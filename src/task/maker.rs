@@ -1,7 +1,7 @@
 use anyhow::Context;
 
 use crate::facility;
-use crate::webhook::devclient::DevWebhookClient;
+use crate::webhook::localclient::LocalWebhookClient;
 use crate::webhook::logic::{illuminate::IlluminationTask, spark::SparkTask};
 
 use super::*;
@@ -11,13 +11,13 @@ pub async fn make_beacon(config: &facility::Config) -> anyhow::Result<Beacon> {
         TaskQueueBackend::Local => {
             let base_url = format!("http://localhost:{}", config.port);
 
-            let dev_client_illuminate = DevWebhookClient::new(&base_url);
+            let dev_client_illuminate = LocalWebhookClient::new(&base_url);
             let illumination_queue = LocalTaskQueue::connect(4, move |task: IlluminationTask| {
                 let client = dev_client_illuminate.clone();
                 async move { client.post_illuminate(&task).await }
             });
 
-            let dev_client_spark = DevWebhookClient::new(&base_url);
+            let dev_client_spark = LocalWebhookClient::new(&base_url);
             let spark_queue = LocalTaskQueue::connect(4, move |task: SparkTask| {
                 let client = dev_client_spark.clone();
                 async move { client.post_spark(&task).await }

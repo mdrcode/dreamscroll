@@ -3,12 +3,12 @@
 /// actually execute as close to the real prod flow as possible.
 /// No auth and assumes the server is running locally.
 #[derive(Clone, Debug)]
-pub struct DevWebhookClient {
+pub struct LocalWebhookClient {
     base_url: String,
     client: reqwest::Client,
 }
 
-impl DevWebhookClient {
+impl LocalWebhookClient {
     pub fn new(base_url: impl Into<String>) -> Self {
         Self {
             base_url: base_url.into(),
@@ -25,7 +25,11 @@ impl DevWebhookClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("DevWebhookClient illuminate failed ({}): {}", status, body);
+            anyhow::bail!(
+                "LocalWebhookClient illuminate failed ({}): {}",
+                status,
+                body
+            );
         }
         Ok(())
     }
@@ -36,7 +40,7 @@ impl DevWebhookClient {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("DevWebhookClient spark failed ({}): {}", status, body);
+            anyhow::bail!("LocalWebhookClient spark failed ({}): {}", status, body);
         }
         Ok(())
     }
