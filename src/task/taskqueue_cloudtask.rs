@@ -48,9 +48,6 @@ impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for CloudTaskQ
     type Task = TTask;
 
     async fn enqueue(&self, task: TTask) -> anyhow::Result<()> {
-        let task_id = task.id();
-        let task_name = format!("{}/tasks/{}", self.inner.queue_path, task_id);
-
         let body = serde_json::to_vec(&task).context("Failed to serialize task payload to JSON")?;
 
         let webhook_request = HttpRequest::new()
@@ -59,9 +56,7 @@ impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for CloudTaskQ
             .set_headers([("Content-Type", "application/json")])
             .set_body(body);
 
-        let pending_task = Task::new()
-            .set_name(task_name.clone())
-            .set_http_request(webhook_request);
+        let pending_task = Task::new().set_http_request(webhook_request);
 
         let created_task = self
             .inner
@@ -71,12 +66,18 @@ impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for CloudTaskQ
             .set_task(pending_task)
             .send()
             .await
-            .map_err(|err| anyhow!("Cloud Tasks create_task failed for {}: {}", task_name, err))?;
+            .map_err(|err| {
+                anyhow!(
+                    "Cloud Tasks create_task failed for task_id {}: {}",
+                    task.id(),
+                    err
+                )
+            })?;
 
         tracing::info!(
             queue = %self.inner.queue_path,
             task_name = %created_task.name,
-            "Enqueued capture_id {} to queue: {} with task_name: {}",
+            "Enqueued task id {} to queue: {} with task_name: {}",
             task.id(),
             self.inner.queue_path,
             created_task.name
