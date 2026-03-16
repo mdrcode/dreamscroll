@@ -1,7 +1,9 @@
-// A handle which converts logical signals (e.g. "new capture 323") into
-// concrete tasks (e.g. "enqueue capture 323 for illumination")
+// Beacon is the unifying abstraction for task queues
 mod beacon;
 pub use beacon::*;
+
+mod maker;
+pub use maker::*;
 
 mod taskqueue;
 pub use taskqueue::*;
@@ -12,7 +14,7 @@ pub use taskqueue_cloudtask::*;
 mod taskqueue_local;
 pub use taskqueue_local::*;
 
-pub mod taskqueue_pubsub;
+mod taskqueue_pubsub;
 pub use taskqueue_pubsub::*;
 
 use serde::Deserialize;
