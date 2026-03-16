@@ -4,7 +4,7 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Deserializer};
 use strum::{Display, EnumString};
 
-use crate::{database, illumination, storage};
+use crate::{database, illumination, storage, task};
 
 #[derive(Debug, Display, EnumString, PartialEq)]
 #[strum(serialize_all = "lowercase")]
@@ -60,6 +60,8 @@ pub struct Config {
     pub storage_gcloud_emulator: Option<String>, // e.g. "http://localhost:4443"
     pub storage_gcloud_prod_endpoint: Option<String>,
     pub storage_gcloud_bucket_name: Option<String>,
+
+    pub task_queue_backend: task::TaskQueueBackend,
 
     pub pubsub_emulator: Option<String>, // e.g. "http://localhost:8085"
     pub pubsub_topic_id_new_capture: String,
