@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use axum::{
     extract::{OriginalUri, Query, State},
-    http::HeaderMap,
+    http::{HeaderMap, HeaderValue},
     response::{Html, IntoResponse, Redirect, Response},
 };
 use axum_login::AuthSession;
@@ -54,6 +54,7 @@ pub async fn get(
     let limit = query.n.unwrap_or(30);
 
     let mode = resolve_mode(query.mode.as_deref());
+    let did_process_slash_command = q.starts_with('/');
 
     let cards = match mode {
         FeedMode::Sparks => load_spark_cards(&state.user_api, &context_user, 3).await?,
@@ -117,5 +118,13 @@ pub async fn get(
         .render("partials/feed.html.tera", &context)
         .map_err(|e| anyhow!("Failed to render template: {:?}", e))?;
 
-    Ok(Html(rendered).into_response())
+    let mut response = Html(rendered).into_response();
+    if did_process_slash_command {
+        response.headers_mut().insert(
+            "HX-Trigger",
+            HeaderValue::from_static("ds-clear-search-input"),
+        );
+    }
+
+    Ok(response)
 }

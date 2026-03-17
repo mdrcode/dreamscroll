@@ -1,27 +1,27 @@
-<article class="feed-card feed-card--capture capturelist-row">
-    <div class="capturelist-row-image-container">
-        <a class="capturelist-row-image-link" href="/detail/{{ card.capture.id }}">
-            <img class="capturelist-row-image" src="{{ card.capture.medias[0].url }}" alt="image {{ card.capture.medias[0].storage_uuid }}">
+<article class="feed-card feed-card--capture capture-card">
+    <div class="capture-card__image-container">
+        <a class="capture-card__image-link" href="/detail/{{ card.capture.id }}">
+            <img class="capture-card__image" src="{{ card.capture.medias[0].url }}" alt="image {{ card.capture.medias[0].storage_uuid }}">
         </a>
     </div>
 
-    <div class="capturelist-row-metadata-container">
+    <div class="capture-card__body">
         {% if card.capture.illuminations | length > 0 %}
         {% set illum = card.capture.illuminations | first %}
         {% set has_details = illum.details %}
 
         {% if illum.summary %}
-        <p class="capturelist-row-summary">{{ illum.summary }}</p>
+        <p class="capture-card__summary">{{ illum.summary }}</p>
         {% endif %}
 
         {% if has_details %}
-        <div class="capturelist-row-seemore-row">
-            <a href="#" class="capturelist-row-seemore">More</a>
+        <div class="capture-card__details-toggle-row">
+            <a href="#" class="capture-card__details-toggle">More</a>
         </div>
 
-        <div class="capturelist-row-expandable">
-            <div class="capturelist-row-metadata-details">
-                <p class="capturelist-row-details">{{ illum.details }}</p>
+        <div class="capture-card__details-panel">
+            <div class="capture-card__details-wrap">
+                <p class="capture-card__details">{{ illum.details }}</p>
             </div>
         </div>
         {% endif %}
@@ -60,6 +60,6 @@
         {% endif %}
         {% endif %}
 
-        <span class="capturelist-row-timestamp" title="{{ card.capture.created_at }}">{{ card.capture.created_at_human }}</span>
+        <span class="capture-card__timestamp" title="{{ card.capture.created_at }}">{{ card.capture.created_at_human }}</span>
     </div>
 </article>

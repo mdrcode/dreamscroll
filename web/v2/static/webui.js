@@ -2,6 +2,7 @@ document.addEventListener('DOMContentLoaded', function () {
     setupSearchShortcut();
     setupCaptureExpandToggle(document);
     setupFeedModeControls();
+    setupSearchClearOnSlashCommand();
     setupUploadInteractions();
 
     document.body.addEventListener('htmx:afterSwap', function (e) {
@@ -25,8 +26,18 @@ function setupSearchShortcut() {
     });
 }
 
+function setupSearchClearOnSlashCommand() {
+    document.body.addEventListener('ds-clear-search-input', function () {
+        const searchInput = document.getElementById('header-search-input');
+        if (!searchInput) {
+            return;
+        }
+        searchInput.value = '';
+    });
+}
+
 function setupCaptureExpandToggle(rootNode) {
-    rootNode.querySelectorAll('.capturelist-row-seemore').forEach(function (link) {
+    rootNode.querySelectorAll('.capture-card__details-toggle').forEach(function (link) {
         if (link.dataset.bound === 'true') {
             return;
         }
@@ -34,13 +45,13 @@ function setupCaptureExpandToggle(rootNode) {
         link.dataset.bound = 'true';
         link.addEventListener('click', function (e) {
             e.preventDefault();
-            const row = this.closest('.capturelist-row');
+            const row = this.closest('.capture-card');
             if (!row) {
                 return;
             }
 
-            row.classList.toggle('expanded');
-            this.textContent = row.classList.contains('expanded') ? 'Less' : 'More';
+            row.classList.toggle('is-expanded');
+            this.textContent = row.classList.contains('is-expanded') ? 'Less' : 'More';
         });
     });
 }
