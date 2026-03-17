@@ -58,6 +58,7 @@ function setupCaptureExpandToggle(rootNode) {
 
 function setupFeedModeControls() {
     const modeInput = document.getElementById('feed-mode-input');
+    const searchInput = document.getElementById('header-search-input');
     const modeButtons = Array.from(document.querySelectorAll('#feed-controls [data-feed-mode]'));
     if (!modeInput || modeButtons.length === 0) {
         return;
@@ -71,13 +72,40 @@ function setupFeedModeControls() {
         });
     }
 
+    function requestFeed(mode) {
+        const params = new URLSearchParams();
+        params.set('mode', mode);
+        params.set('n', '30');
+
+        const q = (searchInput && searchInput.value) ? searchInput.value.trim() : '';
+        if (q.length > 0) {
+            params.set('q', q);
+        }
+
+        const url = '/v2/cards/feed?' + params.toString();
+        if (window.htmx) {
+            window.htmx.ajax('GET', url, {
+                target: '#card-feed',
+                swap: 'innerHTML'
+            });
+            return;
+        }
+
+        window.location.href = '/v2?' + params.toString();
+    }
+
     modeButtons.forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            const mode = btn.getAttribute('data-feed-mode');
-            if (!mode) {
+        btn.addEventListener('click', function (e) {
+            e.preventDefault();
+
+            const clickedMode = btn.getAttribute('data-feed-mode');
+            if (!clickedMode) {
                 return;
             }
-            applyMode(mode);
+
+            const nextMode = modeInput.value === clickedMode ? 'blend' : clickedMode;
+            applyMode(nextMode);
+            requestFeed(nextMode);
         });
     });
 

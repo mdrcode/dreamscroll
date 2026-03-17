@@ -48,7 +48,7 @@ pub async fn load_spark_cards(
     limit: u64,
 ) -> Result<Vec<FeedCard>, api::ApiError> {
     let mut sparks = user_api.get_sparks(context, None).await?;
-    sparks.sort_by(|a, b| b.id.cmp(&a.id));
+    sparks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
     let selected_sparks: Vec<api::SparkInfo> = sparks.into_iter().take(limit as usize).collect();
 
     let referenced_capture_ids: Vec<i32> = selected_sparks
@@ -117,24 +117,16 @@ pub fn blend_capture_and_spark_cards(
     capture_cards: Vec<FeedCard>,
     spark_cards: Vec<FeedCard>,
 ) -> Vec<FeedCard> {
-    if spark_cards.is_empty() {
-        return capture_cards;
+    let mut cards = Vec::with_capacity(capture_cards.len() + spark_cards.len());
+    cards.extend(capture_cards);
+    cards.extend(spark_cards);
+    cards.sort_by(|a, b| feed_card_created_at(b).cmp(&feed_card_created_at(a)));
+    cards
+}
+
+fn feed_card_created_at(card: &FeedCard) -> chrono::DateTime<chrono::Utc> {
+    match card {
+        FeedCard::Capture(capture_card) => capture_card.capture.created_at,
+        FeedCard::Spark(spark_card) => spark_card.spark.created_at,
     }
-
-    let mut blended = Vec::with_capacity(capture_cards.len() + spark_cards.len());
-    let mut spark_iter = spark_cards.into_iter();
-
-    for (index, card) in capture_cards.into_iter().enumerate() {
-        blended.push(card);
-
-        // Keep the blend predictable: one spark card after every 4 capture cards.
-        if (index + 1) % 4 == 0 {
-            if let Some(spark_card) = spark_iter.next() {
-                blended.push(spark_card);
-            }
-        }
-    }
-
-    blended.extend(spark_iter);
-    blended
 }

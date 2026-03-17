@@ -1,19 +1,10 @@
 <article class="feed-card feed-card--spark spark-card">
-    <h2 class="spark-card-title">
-        <a href="/sparks?id={{ card.spark.id }}">
-            Spark {{ card.spark.id }}{% if card.spark.meta %} by {{ card.spark.meta.provider_name }}{% endif %}
-        </a>
-    </h2>
-
     {% if card.clusters | length == 0 %}
     <p class="spark-card-summary">No clusters found for this spark yet.</p>
     {% endif %}
 
     {% for cluster_card in card.clusters %}
     <article class="spark-cluster">
-        <h3 class="spark-cluster-title">{{ cluster_card.cluster.title }}</h3>
-        <p class="spark-cluster-summary">{{ cluster_card.cluster.summary }}</p>
-
         {% if cluster_card.capture_thumbs | length > 0 %}
         <div class="spark-capture-list">
             {% for capture in cluster_card.capture_thumbs %}
@@ -22,13 +13,15 @@
                     <img src="{{ capture.url }}" alt="capture {{ capture.id }}">
                 </div>
                 <div class="spark-capture-meta">
-                    <p class="spark-capture-meta-id">Capture {{ capture.id }}</p>
                     <p class="spark-capture-meta-summary">{{ capture.summary }}</p>
                 </div>
             </a>
             {% endfor %}
         </div>
         {% endif %}
+
+        <h3 class="spark-cluster-title">{{ cluster_card.cluster.title }}</h3>
+        <p class="spark-cluster-summary">{{ cluster_card.cluster.summary }}</p>
 
         {% if cluster_card.cluster.spark_links | length > 0 %}
         <ol class="spark-links">
@@ -42,4 +35,8 @@
         {% endif %}
     </article>
     {% endfor %}
+
+    <div class="card-footer">
+        <span class="card-timestamp" title="{{ card.spark.created_at }}">{% if card.spark.meta %}by {{ card.spark.meta.provider_name }} · {% endif %}{{ card.spark.created_at_human }}</span>
+    </div>
 </article>

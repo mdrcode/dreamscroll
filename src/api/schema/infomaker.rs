@@ -135,6 +135,8 @@ impl InfoMaker {
 
         SparkInfo {
             id: spark_model.id,
+            created_at: spark_model.created_at,
+            created_at_human: common::humanize_datetime(spark_model.created_at),
             input_capture_ids,
             meta,
             spark_clusters,

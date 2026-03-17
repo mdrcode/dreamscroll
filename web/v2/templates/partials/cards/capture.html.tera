@@ -60,6 +60,8 @@
         {% endif %}
         {% endif %}
 
-        <span class="capture-card__timestamp" title="{{ card.capture.created_at }}">{{ card.capture.created_at_human }}</span>
+        <div class="card-footer">
+            <span class="card-timestamp" title="{{ card.capture.created_at }}">{{ card.capture.created_at_human }}</span>
+        </div>
     </div>
 </article>

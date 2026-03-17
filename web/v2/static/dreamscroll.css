@@ -250,12 +250,16 @@ body {
     opacity: 1;
 }
 
-.capture-card__timestamp {
-    font-size: var(--font-size-capture-timestamp);
-    font-style: italic;
+.card-footer {
+    display: flex;
+    justify-content: flex-end;
     margin-top: auto;
     padding-top: 8px;
-    align-self: flex-end;
+}
+
+.card-timestamp {
+    font-size: var(--font-size-capture-timestamp);
+    font-style: italic;
 }
 
 .pill-group {
@@ -305,16 +309,6 @@ body {
 
 .spark-card {
     padding: 12px;
-}
-
-.spark-card-title {
-    font-size: 18px;
-    margin: 2px 0 8px;
-}
-
-.spark-card-title a {
-    color: inherit;
-    text-decoration: none;
 }
 
 .spark-card-summary {
