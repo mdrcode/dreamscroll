@@ -2,8 +2,9 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use axum::{
-    extract::{Query, State},
-    response::{Html, IntoResponse, Response},
+    extract::{OriginalUri, Query, State},
+    http::HeaderMap,
+    response::{Html, IntoResponse, Redirect, Response},
 };
 use axum_login::AuthSession;
 use serde::Deserialize;
@@ -26,6 +27,8 @@ pub struct FeedQuery {
 pub async fn get(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
+    original_uri: OriginalUri,
+    headers: HeaderMap,
     Query(query): Query<FeedQuery>,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
@@ -56,6 +59,20 @@ pub async fn get(
     } else {
         capture_cards
     };
+
+    let is_htmx = headers
+        .get("HX-Request")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    if !is_htmx {
+        let canonical = match original_uri.0.query() {
+            Some(query_string) if !query_string.is_empty() => format!("/v2?{}", query_string),
+            _ => "/v2".to_string(),
+        };
+        return Ok(Redirect::to(&canonical).into_response());
+    }
 
     let mut context = state.template_context();
     context.insert("cards", &cards);

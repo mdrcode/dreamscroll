@@ -34,7 +34,7 @@
                 hx-get="/v2/cards/feed"
                 hx-target="#card-feed"
                 hx-swap="innerHTML"
-                hx-push-url="true">
+                hx-push-url="false">
                 <input id="header-search-input"
                     type="text"
                     name="q"
@@ -44,7 +44,7 @@
                     hx-target="#card-feed"
                     hx-trigger="keyup changed delay:300ms"
                     hx-swap="innerHTML"
-                    hx-push-url="true">
+                    hx-push-url="false">
             </form>
         </div>
 
@@ -54,13 +54,13 @@
                 hx-get="/v2/cards/feed?n=30"
                 hx-target="#card-feed"
                 hx-swap="innerHTML"
-                hx-push-url="true">Captures Only</button>
+                hx-push-url="false">Captures Only</button>
             <button type="button"
                 class="feed-action"
                 hx-get="/v2/cards/feed?include_sparks=true&n=30"
                 hx-target="#card-feed"
                 hx-swap="innerHTML"
-                hx-push-url="true">Blend Spark Cards</button>
+                hx-push-url="false">Blend Spark Cards</button>
             <button type="button"
                 class="feed-action"
                 hx-get="/v2/cards/sparks?n=2"
