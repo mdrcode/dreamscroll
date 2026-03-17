@@ -9,7 +9,7 @@ use crate::auth;
 pub struct LoginFormData {
     pub username: String,
     pub password: String,
-    /// Single-use token matching the value stored in the session by GET /v2/login.
+    /// Single-use token matching the value stored in the session by GET /login.
     pub csrf_token: String,
 }
 
@@ -30,8 +30,8 @@ pub async fn login_post(
         Some(t) if t == form.csrf_token => {}
         _ => {
             // Token missing or mismatched — the form was not issued by us.
-            tracing::warn!("CSRF token mismatch on POST /v2/login");
-            return Ok(Redirect::to("/v2/login?error=Invalid+or+expired+form"));
+            tracing::warn!("CSRF token mismatch on POST /login");
+            return Ok(Redirect::to("/login?error=Invalid+or+expired+form"));
         }
     }
 
@@ -46,7 +46,7 @@ pub async fn login_post(
     let user = match authentication {
         Ok(Some(user)) => user,
         Ok(None) => {
-            return Ok(Redirect::to("/v2/login?error=Invalid+username+or+password"));
+            return Ok(Redirect::to("/login?error=Invalid+username+or+password"));
         }
         Err(_) => {
             return Err(StatusCode::INTERNAL_SERVER_ERROR);
@@ -57,7 +57,7 @@ pub async fn login_post(
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    Ok(Redirect::to("/v2"))
+    Ok(Redirect::to("/"))
 }
 
 /// Logout is POST-only. This, combined with `SameSite=Lax` on the session
@@ -70,5 +70,5 @@ pub async fn logout_post(
         return Err(StatusCode::INTERNAL_SERVER_ERROR);
     }
 
-    Ok(Redirect::to("/v2/login"))
+    Ok(Redirect::to("/login"))
 }

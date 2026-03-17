@@ -37,7 +37,7 @@ pub async fn post(
         .unwrap_or(false);
 
     if !is_htmx {
-        return Ok(Redirect::to("/v2").into_response());
+        return Ok(Redirect::to("/").into_response());
     }
 
     Ok(StatusCode::NO_CONTENT.into_response())

@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Login - dreamscroll v2</title>
-    <link rel="stylesheet" href="/v2/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}">
+    <link rel="stylesheet" href="/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}">
     <style>
         #login-panel {
             width: 100%;
@@ -76,15 +76,15 @@
 <body>
     <div id="page-content-container">
         <div id="header-row">
-            <h1 id="page-title"><a href="/v2" class="header-title-link">dreamscroll / v2</a></h1>
+            <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll / v2</a></h1>
         </div>
 
         <div id="login-panel">
             {% if already_logged_in %}
             <h2>Already Logged In</h2>
             <p>You are currently logged in as {{ username }}.</p>
-            <p><a href="/v2">Go to feed</a></p>
-            <form method="POST" action="/v2/logout">
+            <p><a href="/">Go to feed</a></p>
+            <form method="POST" action="/logout">
                 <button id="login-submit" type="submit">Logout</button>
             </form>
             {% else %}
@@ -94,7 +94,7 @@
             <div class="login-error">{{ error }}</div>
             {% endif %}
 
-            <form method="POST" action="/v2/login">
+            <form method="POST" action="/login">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 
                 <div class="login-form-group">

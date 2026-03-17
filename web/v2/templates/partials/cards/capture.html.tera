@@ -1,6 +1,6 @@
 <article class="feed-card feed-card--capture capture-card">
     <div class="capture-card__image-container">
-        <a class="capture-card__image-link" href="/detail/{{ card.capture.id }}">
+        <a class="capture-card__image-link" href="/v1/detail/{{ card.capture.id }}">
             <img class="capture-card__image" src="{{ card.capture.medias[0].url }}" alt="image {{ card.capture.medias[0].storage_uuid }}">
         </a>
     </div>
@@ -29,7 +29,7 @@
         {% if illum.k_nodes | length > 0 %}
         <div class="pill-group pill-group--scroll pill-group--entities pill-group--stack">
             {% for node in illum.k_nodes %}
-            <a href="/entity/knode/{{ node.id }}" class="pill" title="{{ node.description }}">
+            <a href="/v1/entity/knode/{{ node.id }}" class="pill" title="{{ node.description }}">
                 <span class="pill__prefix">{{ node.k_type }}</span>
                 <span class="pill__label">{{ node.name }}</span>
             </a>
@@ -40,7 +40,7 @@
         {% if illum.social_medias | length > 0 %}
         <div class="pill-group pill-group--scroll pill-group--entities pill-group--stack">
             {% for node in illum.social_medias %}
-            <a href="/entity/social/{{ node.id }}" class="pill" title="{{ node.handle }}">
+            <a href="/v1/entity/social/{{ node.id }}" class="pill" title="{{ node.handle }}">
                 <span class="pill__prefix">{{ node.platform }}</span>
                 <span class="pill__label">{{ node.display_name }}</span>
             </a>

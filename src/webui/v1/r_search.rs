@@ -29,7 +29,7 @@ pub async fn get(
 
     if query.starts_with("/") {
         crate::webui::slash_command::process(query, &user.into(), &state.user_api).await?;
-        return Ok(Redirect::to("/").into_response());
+        return Ok(Redirect::to("/v1").into_response());
     }
 
     let capture_infos: Vec<_> = state.user_api.search(&user.into(), query).await?;

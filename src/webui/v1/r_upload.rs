@@ -30,5 +30,5 @@ pub async fn post(
     tracing::info!("Capture {} inserted via upload", cap.id);
 
     // Redirect to home page to show the timeline
-    Ok(Redirect::to("/").into_response())
+    Ok(Redirect::to("/v1").into_response())
 }

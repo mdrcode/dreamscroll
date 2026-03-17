@@ -63,7 +63,7 @@ pub fn make_ui_router(
         .route("/command", post(r_command::post))
         .route("/upload", post(r_upload::post))
         .route("/logout", post(r_auth::logout_post))
-        .layer(login_required!(auth::WebAuthBackend, login_url = "/v2/login"))
+        .layer(login_required!(auth::WebAuthBackend, login_url = "/login"))
         .layer(auth_layer);
 
     let mut router = Router::new()

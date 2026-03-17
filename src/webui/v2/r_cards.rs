@@ -35,8 +35,8 @@ pub async fn get(
     let context_user = user.into();
 
     let canonical = match original_uri.0.query() {
-        Some(query_string) if !query_string.is_empty() => format!("/v2?{}", query_string),
-        _ => "/v2".to_string(),
+        Some(query_string) if !query_string.is_empty() => format!("/?{}", query_string),
+        _ => "/".to_string(),
     };
 
     let is_htmx = headers

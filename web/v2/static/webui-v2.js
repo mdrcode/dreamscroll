@@ -96,7 +96,7 @@ function setupSearchEndpointRouting() {
 
         e.preventDefault();
         if (window.htmx) {
-            window.htmx.ajax('POST', '/v2/command', {
+            window.htmx.ajax('POST', '/command', {
                 values: { q: q },
                 target: '#card-feed',
                 swap: 'none'
@@ -104,7 +104,7 @@ function setupSearchEndpointRouting() {
             return;
         }
 
-        fetch('/v2/command', {
+        fetch('/command', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
@@ -132,7 +132,7 @@ function setupSearchEndpointRouting() {
             return;
         }
 
-        e.detail.path = '/v2/cards';
+        e.detail.path = '/cards';
     });
 }
 
@@ -171,7 +171,7 @@ function buildFeedUrlFromCurrentState() {
         params.set('q', q);
     }
 
-    return '/v2/cards?' + params.toString();
+    return '/cards?' + params.toString();
 }
 
 function reloadFeedFrame() {
@@ -234,7 +234,7 @@ function setupFeedModeControls() {
             return;
         }
 
-        window.location.href = url.replace('/v2/cards?', '/v2?');
+        window.location.href = url.replace('/cards?', '/?');
     }
 
     modeButtons.forEach(function (btn) {
@@ -306,7 +306,7 @@ function setupUploadInteractions() {
         formData.append('image', file);
 
         const xhr = new XMLHttpRequest();
-        xhr.open('POST', '/v2/upload');
+        xhr.open('POST', '/upload');
         xhr.setRequestHeader('HX-Request', 'true');
         xhr.setRequestHeader('X-DS-Upload-Client', 'true');
 

@@ -44,15 +44,15 @@ async fn main() -> anyhow::Result<()> {
     // Web UI routes (Session-auth protected) + static JS/CSS serving
     if config.services.contains(&facility::Service::WebUI) {
         let auth_backend = auth::WebAuthBackend::new(db.clone());
-        router = router.merge(webui::v1::make_ui_router(
+        router = router.merge(webui::v2::make_ui_router(
             user_api.clone(),
             session_store.clone(),
             auth_backend.clone(),
             config.cookie_secure,
         ));
         router = router.nest(
-            "/v2",
-            webui::v2::make_ui_router(
+            "/v1",
+            webui::v1::make_ui_router(
                 user_api.clone(),
                 session_store,
                 auth_backend,
