@@ -407,6 +407,15 @@ body {
     color: var(--color-link);
 }
 
+.spark-links li>div:first-child a {
+    display: inline-block;
+    max-width: 100%;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    vertical-align: bottom;
+}
+
 .empty-state {
     opacity: 0.8;
     font-style: italic;
