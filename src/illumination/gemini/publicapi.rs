@@ -84,6 +84,9 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
                     }
                 ]
             }],
+            "tools": [{
+                "googleSearch": {}
+            }],
             "generationConfig": {
                 "responseMimeType": "application/json",
                 "responseSchema": response::make_response_schema()

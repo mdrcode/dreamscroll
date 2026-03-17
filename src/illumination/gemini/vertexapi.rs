@@ -1,5 +1,7 @@
 use google_cloud_aiplatform_v1::client::PredictionService;
-use google_cloud_aiplatform_v1::model::{Blob, Content, FileData, GenerationConfig, Part};
+use google_cloud_aiplatform_v1::model::{
+    Blob, Content, FileData, GenerationConfig, Part, Tool, tool,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::{api, illumination, storage};
@@ -124,6 +126,8 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
             .set_response_mime_type("application/json")
             .set_response_json_schema(response::make_response_schema());
 
+        let tools = vec![Tool::new().set_google_search(tool::GoogleSearch::new())];
+
         tracing::info!(
             "Starting illumination of capture {} via Gemini Vertex",
             capture.id
@@ -134,6 +138,7 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
             .set_model(&self.model_full_path)
             .set_contents(vec![request_content])
             .set_generation_config(generation_config)
+            .set_tools(tools)
             .send()
             .await
             .map_err(|e| anyhow::anyhow!("Vertex AI API error: {}", e))?;
