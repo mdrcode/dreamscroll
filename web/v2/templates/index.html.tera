@@ -5,9 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>dreamscroll v2</title>
-    <link rel="stylesheet" href="/v2/static/dreamscroll.css?v={{ static_asset_version | urlencode }}">
+    <link rel="stylesheet" href="/v2/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}">
     <script defer src="https://unpkg.com/htmx.org@2.0.7" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
-    <script defer src="/v2/static/webui.js?v={{ static_asset_version | urlencode }}"></script>
+    <script defer src="/v2/static/webui-v2.js?v={{ static_asset_version | urlencode }}"></script>
 </head>
 
 <body>

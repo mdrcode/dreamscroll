@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Login - dreamscroll v2</title>
-    <link rel="stylesheet" href="/v2/static/dreamscroll.css?v={{ static_asset_version | urlencode }}">
+    <link rel="stylesheet" href="/v2/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}">
     <style>
         #login-panel {
             width: 100%;
