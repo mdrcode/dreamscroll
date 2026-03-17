@@ -1,0 +1,125 @@
+document.addEventListener('DOMContentLoaded', function () {
+    setupSearchShortcut();
+    setupCaptureExpandToggle(document);
+    setupUploadInteractions();
+
+    document.body.addEventListener('htmx:afterSwap', function (e) {
+        if (e.target && e.target.id === 'card-feed') {
+            setupCaptureExpandToggle(e.target);
+        }
+    });
+});
+
+function setupSearchShortcut() {
+    const searchInput = document.getElementById('header-search-input');
+    if (!searchInput) {
+        return;
+    }
+
+    document.addEventListener('keydown', function (e) {
+        if (e.key === '/' && document.activeElement !== searchInput) {
+            e.preventDefault();
+            searchInput.focus();
+        }
+    });
+}
+
+function setupCaptureExpandToggle(rootNode) {
+    rootNode.querySelectorAll('.capturelist-row-seemore').forEach(function (link) {
+        if (link.dataset.bound === 'true') {
+            return;
+        }
+
+        link.dataset.bound = 'true';
+        link.addEventListener('click', function (e) {
+            e.preventDefault();
+            const row = this.closest('.capturelist-row');
+            if (!row) {
+                return;
+            }
+
+            row.classList.toggle('expanded');
+            this.textContent = row.classList.contains('expanded') ? 'Less' : 'More';
+        });
+    });
+}
+
+function setupUploadInteractions() {
+    const filePicker = document.getElementById('file-picker');
+    const uploadForm = document.getElementById('file-upload-form');
+    const dropZone = document.getElementById('drop-zone-row');
+    if (!filePicker || !uploadForm || !dropZone) {
+        return;
+    }
+
+    filePicker.addEventListener('change', function () {
+        if (window.htmx) {
+            window.htmx.trigger(uploadForm, 'submit');
+            return;
+        }
+        this.form.submit();
+    });
+
+    let dragCounter = 0;
+
+    function isFileDrag(e) {
+        return !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes('Files');
+    }
+
+    document.addEventListener('dragenter', function (e) {
+        if (!isFileDrag(e)) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter++;
+        if (dragCounter === 1) {
+            dropZone.style.display = 'block';
+            dropZone.classList.add('drag-over');
+        }
+    });
+
+    document.addEventListener('dragover', function (e) {
+        if (!isFileDrag(e)) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+    });
+
+    document.addEventListener('dragleave', function (e) {
+        if (!isFileDrag(e)) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter = Math.max(0, dragCounter - 1);
+        if (dragCounter === 0) {
+            dropZone.style.display = 'none';
+            dropZone.classList.remove('drag-over');
+        }
+    });
+
+    document.addEventListener('drop', function (e) {
+        if (!isFileDrag(e)) {
+            return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        dragCounter = 0;
+        dropZone.style.display = 'none';
+        dropZone.classList.remove('drag-over');
+
+        const files = e.dataTransfer.files;
+        if (files.length > 0 && files[0].type.startsWith('image/')) {
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(files[0]);
+            filePicker.files = dataTransfer.files;
+            if (window.htmx) {
+                window.htmx.trigger(uploadForm, 'submit');
+            } else {
+                uploadForm.submit();
+            }
+        }
+    });
+}

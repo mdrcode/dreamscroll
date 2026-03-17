@@ -1,0 +1,5 @@
+{% if card.kind == "capture" %}
+{% include "partials/cards/capture.html.tera" %}
+{% elif card.kind == "spark" %}
+{% include "partials/cards/spark.html.tera" %}
+{% endif %}

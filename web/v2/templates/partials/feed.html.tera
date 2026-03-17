@@ -1,0 +1,7 @@
+{% if cards | length == 0 %}
+<div class="empty-state">No cards to show.</div>
+{% endif %}
+
+{% for card in cards %}
+{% include "partials/card.html.tera" %}
+{% endfor %}

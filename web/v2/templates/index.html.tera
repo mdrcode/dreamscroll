@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>dreamscroll v2</title>
+    <link rel="stylesheet" href="/v2/static/dreamscroll.css?v={{ static_asset_version | urlencode }}">
+    <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script defer src="/v2/static/webui.js?v={{ static_asset_version | urlencode }}"></script>
+</head>
+
+<body>
+    <div id="page-content-container">
+        <div id="header-row">
+            <h1 id="page-title"><a href="/v2" class="header-title-link">dreamscroll / v2</a></h1>
+
+            <form id="file-upload-form"
+                action="/v2/upload"
+                method="post"
+                enctype="multipart/form-data"
+                hx-post="/v2/upload"
+                hx-encoding="multipart/form-data"
+                hx-target="#card-feed"
+                hx-swap="innerHTML">
+                <input id="file-picker" type="file" name="image" accept="image/*" style="display: none;" required>
+                <label id="file-picker-label" for="file-picker">
+                    <span class="file-picker-text">Upload</span>
+                    <span class="file-picker-icon">⇧</span>
+                </label>
+            </form>
+
+            <form id="header-search-form" action="/v2/cards/feed" method="get"
+                hx-get="/v2/cards/feed"
+                hx-target="#card-feed"
+                hx-swap="innerHTML"
+                hx-push-url="true">
+                <input id="header-search-input"
+                    type="text"
+                    name="q"
+                    value="{{ query }}"
+                    placeholder="search or slash command..."
+                    hx-get="/v2/cards/feed"
+                    hx-target="#card-feed"
+                    hx-trigger="keyup changed delay:300ms"
+                    hx-swap="innerHTML"
+                    hx-push-url="true">
+            </form>
+        </div>
+
+        <div id="feed-controls">
+            <button type="button"
+                class="feed-action"
+                hx-get="/v2/cards/feed?n=30"
+                hx-target="#card-feed"
+                hx-swap="innerHTML"
+                hx-push-url="true">Captures Only</button>
+            <button type="button"
+                class="feed-action"
+                hx-get="/v2/cards/feed?include_sparks=true&n=30"
+                hx-target="#card-feed"
+                hx-swap="innerHTML"
+                hx-push-url="true">Blend Spark Cards</button>
+            <button type="button"
+                class="feed-action"
+                hx-get="/v2/cards/sparks?n=2"
+                hx-target="#card-feed"
+                hx-swap="beforeend">Append Spark Cards</button>
+        </div>
+
+        <div id="drop-zone-row">Drop image anywhere to upload</div>
+
+        <div id="card-feed">
+            {% include "partials/feed.html.tera" %}
+        </div>
+    </div>
+</body>
+
+</html>

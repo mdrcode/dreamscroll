@@ -28,7 +28,7 @@ pub async fn get(
     tracing::debug!("Rendering search q: {} for user ID {}", query, user.id());
 
     if query.starts_with("/") {
-        slash_command::process(query, &user.into(), state.clone()).await?;
+        crate::webui::slash_command::process(query, &user.into(), &state.user_api).await?;
         return Ok(Redirect::to("/").into_response());
     }
 

@@ -46,10 +46,19 @@ async fn main() -> anyhow::Result<()> {
         let auth_backend = auth::WebAuthBackend::new(db.clone());
         router = router.merge(webui::v1::make_ui_router(
             user_api.clone(),
-            session_store,
-            auth_backend,
+            session_store.clone(),
+            auth_backend.clone(),
             config.cookie_secure,
         ));
+        router = router.nest(
+            "/v2",
+            webui::v2::make_ui_router(
+                user_api.clone(),
+                session_store,
+                auth_backend,
+                config.cookie_secure,
+            ),
+        );
 
         // If using the local Storage provider, we serve media files manually
         if let Some(local_url_prefix) = &config.storage_local_url_prefix {

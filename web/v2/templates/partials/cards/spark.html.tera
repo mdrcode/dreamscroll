@@ -1,0 +1,13 @@
+<article class="feed-card feed-card--spark spark-card">
+    <div class="spark-card-label">Spark Card</div>
+    <h2 class="spark-card-title"><a href="/sparks?id={{ card.spark_id }}">{{ card.title }}</a></h2>
+    <p class="spark-card-summary">{{ card.summary }}</p>
+
+    <div class="spark-card-meta">
+        <span>{{ card.cluster_count }} cluster{% if card.cluster_count != 1 %}s{% endif %}</span>
+        <span>{{ card.input_capture_count }} input{% if card.input_capture_count != 1 %}s{% endif %}</span>
+        {% if card.sparked_by %}
+        <span>by {{ card.sparked_by }}</span>
+        {% endif %}
+    </div>
+</article>

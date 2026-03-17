@@ -1,8 +1,6 @@
 mod maker;
 pub use maker::*;
 
-mod slash_command;
-
 mod r_auth;
 mod r_detail;
 mod r_entity;
