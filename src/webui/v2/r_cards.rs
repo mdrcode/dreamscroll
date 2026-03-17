@@ -13,11 +13,11 @@ use crate::{api, auth};
 
 use super::{
     WebState,
-    card::{FeedContent, search_cards, timeline_cards},
+    feed::{FeedContent, search_cards, timeline_cards},
 };
 
 #[derive(Debug, Deserialize)]
-pub struct IndexContentQuery {
+pub struct CardsContentQuery {
     #[serde(default)]
     pub q: String,
     pub n: u64,
@@ -29,7 +29,7 @@ pub async fn get(
     State(state): State<Arc<WebState>>,
     original_uri: OriginalUri,
     headers: HeaderMap,
-    Query(query): Query<IndexContentQuery>,
+    Query(query): Query<CardsContentQuery>,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
     let context_user = user.into();
@@ -51,7 +51,7 @@ pub async fn get(
     let q = query.q.trim();
 
     let cards = if q.is_empty() {
-        timeline_cards(&state, &context_user, query.content, query.n).await?
+        timeline_cards(&state.user_api, &context_user, query.content, query.n).await?
     } else {
         search_cards(&state.user_api, &context_user, q).await?
     };

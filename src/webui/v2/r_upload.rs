@@ -11,7 +11,7 @@ use axum_login::AuthSession;
 
 use crate::{api, auth};
 
-use super::{WebState, card::cards_from_captures};
+use super::{WebState, feed::cards_from_captures};
 
 pub async fn post(
     auth: AuthSession<auth::WebAuthBackend>,

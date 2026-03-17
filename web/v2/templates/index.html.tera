@@ -37,7 +37,7 @@
                 hx-push-url="false"
                 hx-trigger="input changed delay:300ms from:#header-search-input, search from:#header-search-input, submit">
                 <input type="hidden" name="n" value="30">
-                <input type="hidden" id="feed-mode-input" name="content" value="{{ _content_mode | default(value="blend") }}">
+                <input type="hidden" id="feed-mode-input" name="content" value="{{ content_mode | default(value="blend") }}">
                 <input id="header-search-input"
                     type="text"
                     name="q"
@@ -48,10 +48,10 @@
 
         <div id="feed-controls"{% if is_search_mode %} style="display: none;"{% endif %}>
             <button type="button"
-                class="feed-action{% if _content_mode == "captures" %} feed-action--active{% endif %}"
+                class="feed-action{% if content_mode == "captures" %} feed-action--active{% endif %}"
                 data-feed-mode="captures">Captures Only</button>
             <button type="button"
-                class="feed-action{% if _content_mode == "sparks" %} feed-action--active{% endif %}"
+                class="feed-action{% if content_mode == "sparks" %} feed-action--active{% endif %}"
                 data-feed-mode="sparks">Sparks Only</button>
         </div>
 

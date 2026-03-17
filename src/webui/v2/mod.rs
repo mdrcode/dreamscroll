@@ -1,6 +1,7 @@
-mod card;
 mod maker;
 pub use maker::*;
+
+mod feed;
 
 mod r_auth;
 mod r_cards;

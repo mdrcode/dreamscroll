@@ -12,7 +12,7 @@ use crate::{api, auth};
 
 use super::{
     WebState,
-    card::{FeedContent, search_cards, timeline_cards},
+    feed::{FeedContent, search_cards, timeline_cards},
 };
 
 #[derive(Debug, Deserialize)]
@@ -39,14 +39,14 @@ pub async fn get(
     let cards = if is_search_mode {
         search_cards(&state.user_api, &context_user, q).await?
     } else {
-        timeline_cards(&state, &context_user, content, limit).await?
+        timeline_cards(&state.user_api, &context_user, content, limit).await?
     };
 
     let mut context = state.template_context();
     context.insert("is_search_mode", &is_search_mode);
     context.insert("query", q);
     context.insert("cards", &cards);
-    context.insert("_content_mode", content.as_str());
+    context.insert("content_mode", content.as_str());
 
     let rendered = state
         .tera
