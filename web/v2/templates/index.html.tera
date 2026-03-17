@@ -30,12 +30,13 @@
                 </label>
             </form>
 
-            <form id="header-search-form" action="/v2/cards/feed" method="get"
-                hx-get="/v2/cards/feed"
+            <form id="header-search-form" action="/v2/cards/search" method="get"
+                hx-get="/v2/cards/search"
                 hx-target="#card-feed"
                 hx-swap="innerHTML"
                 hx-push-url="false"
                 hx-trigger="input changed delay:300ms from:#header-search-input, search from:#header-search-input, submit">
+                <input type="hidden" name="n" value="30">
                 <input type="hidden" id="feed-mode-input" name="mode" value="{{ feed_mode | default(value="blend") }}">
                 <input id="header-search-input"
                     type="text"

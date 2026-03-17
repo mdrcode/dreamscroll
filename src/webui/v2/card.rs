@@ -1,8 +1,18 @@
 use std::collections::{BTreeSet, HashMap};
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{api, auth};
+
+use super::WebState;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub(super) enum FeedContent {
+    Blend,
+    Captures,
+    Sparks,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -122,6 +132,33 @@ pub fn blend_capture_and_spark_cards(
     cards.extend(spark_cards);
     cards.sort_by(|a, b| feed_card_created_at(b).cmp(&feed_card_created_at(a)));
     cards
+}
+
+pub(super) async fn timeline_cards(
+    state: &WebState,
+    context_user: &auth::Context,
+    mode: FeedContent,
+    limit: u64,
+) -> Result<Vec<FeedCard>, api::ApiError> {
+    match mode {
+        FeedContent::Sparks => load_spark_cards(&state.user_api, context_user, 3).await,
+        FeedContent::Captures => {
+            let capture_infos = state
+                .user_api
+                .get_timeline(context_user, Some(limit))
+                .await?;
+            Ok(cards_from_captures(capture_infos))
+        }
+        FeedContent::Blend => {
+            let capture_infos = state
+                .user_api
+                .get_timeline(context_user, Some(limit))
+                .await?;
+            let capture_cards = cards_from_captures(capture_infos);
+            let spark_cards = load_spark_cards(&state.user_api, context_user, 3).await?;
+            Ok(blend_capture_and_spark_cards(capture_cards, spark_cards))
+        }
+    }
 }
 
 fn feed_card_created_at(card: &FeedCard) -> chrono::DateTime<chrono::Utc> {

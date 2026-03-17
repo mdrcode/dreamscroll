@@ -8,7 +8,7 @@ use tower_sessions::{Expiry, SessionManagerLayer, cookie};
 
 use crate::{api, auth, facility};
 
-use super::{r_auth, r_feed, r_index, r_upload};
+use super::{r_auth, r_command, r_index, r_search, r_timeline, r_upload};
 
 pub struct WebState {
     pub user_api: api::UserApiClient,
@@ -55,7 +55,9 @@ pub fn make_ui_router(
 
     let mut router = Router::new()
         .route("/", get(r_index::get))
-        .route("/cards/feed", get(r_feed::get))
+        .route("/cards/feed", get(r_timeline::get))
+        .route("/cards/command", post(r_command::post))
+        .route("/cards/search", get(r_search::get))
         .route("/upload", post(r_upload::post))
         .route("/logout", post(r_auth::logout_post))
         .layer(login_required!(auth::WebAuthBackend, login_url = "/login"))

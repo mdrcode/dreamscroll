@@ -12,7 +12,7 @@ use crate::{api, auth};
 
 use super::{
     WebState,
-    card::{blend_capture_and_spark_cards, cards_from_captures, load_spark_cards},
+    card::{FeedContent, blend_capture_and_spark_cards, cards_from_captures, load_spark_cards},
 };
 
 #[derive(Debug, Deserialize)]
@@ -23,14 +23,7 @@ pub struct IndexQuery {
     pub mode: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum FeedMode {
-    Blend,
-    Captures,
-    Sparks,
-}
-
-impl FeedMode {
+impl FeedContent {
     fn as_str(self) -> &'static str {
         match self {
             Self::Blend => "blend",
@@ -40,12 +33,12 @@ impl FeedMode {
     }
 }
 
-fn resolve_mode(mode: Option<&str>) -> FeedMode {
+pub(super) fn resolve_mode(mode: Option<&str>) -> FeedContent {
     match mode {
-        Some("captures") => FeedMode::Captures,
-        Some("sparks") => FeedMode::Sparks,
-        Some("blend") => FeedMode::Blend,
-        _ => FeedMode::Blend,
+        Some("captures") => FeedContent::Captures,
+        Some("sparks") => FeedContent::Sparks,
+        Some("blend") => FeedContent::Blend,
+        _ => FeedContent::Blend,
     }
 }
 
@@ -66,15 +59,15 @@ pub async fn get(
         cards_from_captures(capture_infos)
     } else {
         match mode {
-            FeedMode::Sparks => load_spark_cards(&state.user_api, &context_user, limit).await?,
-            FeedMode::Captures => {
+            FeedContent::Sparks => load_spark_cards(&state.user_api, &context_user, limit).await?,
+            FeedContent::Captures => {
                 let capture_infos = state
                     .user_api
                     .get_timeline(&context_user, Some(limit))
                     .await?;
                 cards_from_captures(capture_infos)
             }
-            FeedMode::Blend => {
+            FeedContent::Blend => {
                 let capture_infos = state
                     .user_api
                     .get_timeline(&context_user, Some(limit))
