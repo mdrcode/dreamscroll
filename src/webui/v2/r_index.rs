@@ -12,7 +12,7 @@ use crate::{api, auth};
 
 use super::{
     WebState,
-    card::{blend_capture_and_spark_cards, cards_from_captures, cards_from_sparks},
+    card::{blend_capture_and_spark_cards, cards_from_captures, load_spark_cards},
 };
 
 #[derive(Debug, Deserialize)]
@@ -44,8 +44,7 @@ pub async fn get(
 
     let capture_cards = cards_from_captures(capture_infos);
     let cards = if query.include_sparks.unwrap_or(false) {
-        let spark_cards =
-            cards_from_sparks(state.user_api.get_sparks(&context_user, None).await?, 3);
+        let spark_cards = load_spark_cards(&state.user_api, &context_user, 3).await?;
         blend_capture_and_spark_cards(capture_cards, spark_cards)
     } else {
         capture_cards

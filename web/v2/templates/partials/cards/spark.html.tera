@@ -1,13 +1,58 @@
 <article class="feed-card feed-card--spark spark-card">
     <div class="spark-card-label">Spark Card</div>
-    <h2 class="spark-card-title"><a href="/sparks?id={{ card.spark_id }}">{{ card.title }}</a></h2>
-    <p class="spark-card-summary">{{ card.summary }}</p>
+    <h2 class="spark-card-title"><a href="/sparks?id={{ card.spark.id }}">Spark {{ card.spark.id }}</a></h2>
 
     <div class="spark-card-meta">
-        <span>{{ card.cluster_count }} cluster{% if card.cluster_count != 1 %}s{% endif %}</span>
-        <span>{{ card.input_capture_count }} input{% if card.input_capture_count != 1 %}s{% endif %}</span>
-        {% if card.sparked_by %}
-        <span>by {{ card.sparked_by }}</span>
+        <span>{{ card.clusters | length }} cluster{% if card.clusters | length != 1 %}s{% endif %}</span>
+        <span>{{ card.spark.input_capture_ids | length }} input{% if card.spark.input_capture_ids | length != 1 %}s{% endif %}</span>
+        {% if card.spark.meta %}
+        <span>by {{ card.spark.meta.provider_name }}</span>
         {% endif %}
     </div>
+
+    {% if card.clusters | length == 0 %}
+    <p class="spark-card-summary">No clusters found for this spark yet.</p>
+    {% endif %}
+
+    {% for cluster_card in card.clusters %}
+    <article class="spark-cluster">
+        <h3 class="spark-cluster-title">{{ cluster_card.cluster.title }}</h3>
+        <p class="spark-cluster-summary">{{ cluster_card.cluster.summary }}</p>
+
+        {% if cluster_card.capture_thumbs | length > 0 %}
+        <div class="spark-capture-list">
+            {% for capture in cluster_card.capture_thumbs %}
+            <a href="/detail/{{ capture.id }}" class="spark-capture-item" title="Capture {{ capture.id }}">
+                <div class="spark-capture-thumb">
+                    <img src="{{ capture.url }}" alt="capture {{ capture.id }}">
+                </div>
+                <div class="spark-capture-meta">
+                    <p class="spark-capture-meta-id">Capture {{ capture.id }}</p>
+                    <p class="spark-capture-meta-summary">{{ capture.summary }}</p>
+                </div>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if cluster_card.cluster.referenced_capture_ids | length > 0 %}
+        <div class="pill-group pill-group--wrap pill-group--queries pill-group--section">
+            {% for capture_id in cluster_card.cluster.referenced_capture_ids %}
+            <a href="/detail/{{ capture_id }}" class="pill"><span class="pill__prefix">capture</span><span class="pill__label">{{ capture_id }}</span></a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if cluster_card.cluster.spark_links | length > 0 %}
+        <ol class="spark-links">
+            {% for link in cluster_card.cluster.spark_links %}
+            <li>
+                <div><a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.url }}</a></div>
+                <div>{{ link.commentary }}</div>
+            </li>
+            {% endfor %}
+        </ol>
+        {% endif %}
+    </article>
+    {% endfor %}
 </article>

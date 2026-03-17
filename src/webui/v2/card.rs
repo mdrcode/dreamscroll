@@ -1,6 +1,8 @@
+use std::collections::{BTreeSet, HashMap};
+
 use serde::Serialize;
 
-use crate::api;
+use crate::{api, auth};
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -16,12 +18,21 @@ pub struct CaptureCard {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct SparkCard {
-    pub spark_id: i32,
-    pub title: String,
+    pub spark: api::SparkInfo,
+    pub clusters: Vec<SparkClusterCard>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SparkClusterCard {
+    pub cluster: api::SparkClusterInfo,
+    pub capture_thumbs: Vec<SparkCaptureThumb>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct SparkCaptureThumb {
+    pub id: i32,
+    pub url: String,
     pub summary: String,
-    pub cluster_count: usize,
-    pub input_capture_count: usize,
-    pub sparked_by: Option<String>,
 }
 
 pub fn cards_from_captures(captures: Vec<api::CaptureInfo>) -> Vec<FeedCard> {
@@ -31,33 +42,76 @@ pub fn cards_from_captures(captures: Vec<api::CaptureInfo>) -> Vec<FeedCard> {
         .collect()
 }
 
-pub fn cards_from_sparks(mut sparks: Vec<api::SparkInfo>, limit: usize) -> Vec<FeedCard> {
+pub async fn load_spark_cards(
+    user_api: &api::UserApiClient,
+    context: &auth::Context,
+    limit: usize,
+) -> Result<Vec<FeedCard>, api::ApiError> {
+    let mut sparks = user_api.get_sparks(context, None).await?;
     sparks.sort_by(|a, b| b.id.cmp(&a.id));
+    let selected_sparks: Vec<api::SparkInfo> = sparks.into_iter().take(limit).collect();
 
-    sparks
-        .into_iter()
-        .take(limit)
-        .map(|spark| {
-            let title = format!("Spark {}", spark.id);
-            let summary = spark
+    let referenced_capture_ids: Vec<i32> = selected_sparks
+        .iter()
+        .flat_map(|spark| {
+            spark
                 .spark_clusters
-                .first()
-                .map(|cluster| cluster.summary.clone())
-                .unwrap_or_else(|| {
-                    "Spark is available, but no summary has been generated yet.".to_string()
-                });
-            let sparked_by = spark.meta.map(|meta| meta.provider_name);
+                .iter()
+                .flat_map(|cluster| cluster.referenced_capture_ids.iter().copied())
+        })
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
 
-            FeedCard::Spark(SparkCard {
-                spark_id: spark.id,
-                title,
-                summary,
-                cluster_count: spark.spark_clusters.len(),
-                input_capture_count: spark.input_capture_ids.len(),
-                sparked_by,
+    let captures = if referenced_capture_ids.is_empty() {
+        vec![]
+    } else {
+        user_api
+            .get_captures(context, Some(referenced_capture_ids))
+            .await?
+    };
+
+    let capture_thumb_map: HashMap<i32, SparkCaptureThumb> = captures
+        .into_iter()
+        .filter_map(|capture| {
+            let summary = capture
+                .illuminations
+                .first()
+                .map(|illum| illum.summary.clone())
+                .unwrap_or_else(|| "No capture summary available.".to_string());
+
+            capture.medias.first().map(|media| {
+                (
+                    capture.id,
+                    SparkCaptureThumb {
+                        id: capture.id,
+                        url: media.url.clone(),
+                        summary,
+                    },
+                )
             })
         })
-        .collect()
+        .collect();
+
+    Ok(selected_sparks
+        .into_iter()
+        .map(|spark| {
+            let clusters = spark
+                .spark_clusters
+                .iter()
+                .map(|cluster| SparkClusterCard {
+                    cluster: cluster.clone(),
+                    capture_thumbs: cluster
+                        .referenced_capture_ids
+                        .iter()
+                        .filter_map(|capture_id| capture_thumb_map.get(capture_id).cloned())
+                        .collect(),
+                })
+                .collect();
+
+            FeedCard::Spark(SparkCard { spark, clusters })
+        })
+        .collect())
 }
 
 pub fn blend_capture_and_spark_cards(

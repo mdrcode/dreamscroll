@@ -10,7 +10,7 @@ use serde::Deserialize;
 
 use crate::{api, auth};
 
-use super::{WebState, card::cards_from_sparks};
+use super::{WebState, card::load_spark_cards};
 
 #[derive(Debug, Deserialize)]
 pub struct SparkCardsQuery {
@@ -25,8 +25,7 @@ pub async fn get(
     let user = auth.user.unwrap();
     let context_user = user.into();
 
-    let sparks = state.user_api.get_sparks(&context_user, None).await?;
-    let cards = cards_from_sparks(sparks, query.n.unwrap_or(3));
+    let cards = load_spark_cards(&state.user_api, &context_user, query.n.unwrap_or(3)).await?;
 
     let mut context = state.template_context();
     context.insert("cards", &cards);
