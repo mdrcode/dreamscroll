@@ -1,8 +1,6 @@
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use axum::{
-    body,
     extract::State,
     response::{IntoResponse, Redirect, Response},
 };
@@ -19,43 +17,18 @@ pub async fn post(
     multipart: Multipart,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
-    tracing::info!("Processing upload for user ID {}", user.id());
+    let user_id = user.id();
+    let context_user = user.into();
 
-    let media_bytes = match extract_bytes(multipart, "image").await? {
-        Some(bytes) => bytes,
-        None => {
-            return Err(api::ApiError::bad_request(anyhow!("No image data found.")));
-        }
-    };
-
-    // Limit to 5MB. TODO currently this is already limited by axum body limit layer?
-    if media_bytes.len() > 5 * 1024 * 1024 {
-        return Err(api::ApiError::payload_too_large(anyhow!(
-            "Payload too large."
-        )));
-    }
-
-    let cap = state
-        .user_api
-        .insert_capture(&user.into(), media_bytes)
-        .await?;
+    tracing::info!("Processing upload for user ID {}", user_id);
+    let cap = crate::webui::upload::insert_capture_from_multipart(
+        &state.user_api,
+        &context_user,
+        multipart,
+    )
+    .await?;
     tracing::info!("Capture {} inserted via upload", cap.id);
 
     // Redirect to home page to show the timeline
     Ok(Redirect::to("/").into_response())
-}
-
-async fn extract_bytes(mut mp: Multipart, field: &str) -> anyhow::Result<Option<body::Bytes>> {
-    while let Ok(Some(f)) = mp.next_field().await {
-        if f.name().unwrap_or("") != field {
-            continue;
-        }
-
-        match f.bytes().await {
-            Ok(bytes) => return Ok(Some(bytes)),
-            Err(e) => return Err(e.into()),
-        };
-    }
-
-    Ok(None)
 }
