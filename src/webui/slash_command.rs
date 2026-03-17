@@ -70,11 +70,11 @@ async fn command_spark(
     context: &auth::Context,
     user_api: &api::UserApiClient,
 ) -> anyhow::Result<()> {
-    let mut actual_ids: Vec<i32> = Vec::new();
+    let mut ids: Vec<i32> = Vec::new();
 
     for arg in raw_args.split_whitespace() {
         if let Ok(id) = arg.parse::<i32>() {
-            actual_ids.push(id);
+            ids.push(id);
         } else {
             anyhow::bail!(
                 "Invalid capture ID: {}. Expected integer IDs.\n{}",
@@ -84,6 +84,6 @@ async fn command_spark(
         }
     }
 
-    user_api.enqueue_spark(context, actual_ids).await?;
+    user_api.enqueue_spark(context, ids).await?;
     Ok(())
 }

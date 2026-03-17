@@ -133,9 +133,17 @@ impl UserApiClient {
         let found_ids: HashSet<i32> = found.into_iter().map(|c| c.id).collect();
 
         if requested_ids != found_ids {
-            return Err(ApiError::not_found(anyhow!(
-                "One or more capture_ids were not found for this user"
-            )));
+            let missing_ids: Vec<i32> = requested_ids
+                .difference(&found_ids)
+                .copied()
+                .collect();
+
+            tracing::warn!(
+                requested_ids = ?requested_ids,
+                found_ids = ?found_ids,
+                missing_ids = ?missing_ids,
+                "Some capture IDs not found or not accessible to user"
+            );
         }
 
         self.beacon
