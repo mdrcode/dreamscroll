@@ -126,6 +126,11 @@ body {
     border-color: var(--color-link);
 }
 
+.feed-action--active {
+    border-color: var(--color-link);
+    background: var(--color-pill-hover-bg);
+}
+
 #drop-zone-row {
     display: none;
     width: 100%;
@@ -374,14 +379,6 @@ body {
 
 .spark-links a {
     color: var(--color-link);
-}
-
-.pill-group--wrap {
-    flex-wrap: wrap;
-}
-
-.pill-group--section {
-    margin: 10px 0;
 }
 
 .empty-state {

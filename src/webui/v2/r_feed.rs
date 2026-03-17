@@ -21,7 +21,23 @@ pub struct FeedQuery {
     #[serde(default)]
     pub q: String,
     pub n: Option<u64>,
-    pub include_sparks: Option<bool>,
+    pub mode: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FeedMode {
+    Blend,
+    Captures,
+    Sparks,
+}
+
+fn resolve_mode(mode: Option<&str>) -> FeedMode {
+    match mode {
+        Some("captures") => FeedMode::Captures,
+        Some("sparks") => FeedMode::Sparks,
+        Some("blend") => FeedMode::Blend,
+        _ => FeedMode::Blend,
+    }
 }
 
 pub async fn get(
@@ -37,27 +53,46 @@ pub async fn get(
     let q = query.q.trim();
     let limit = query.n.unwrap_or(30);
 
-    let capture_infos = if q.starts_with("/") {
-        crate::webui::slash_command::process(q, &context_user, &state.user_api).await?;
-        state
-            .user_api
-            .get_timeline(&context_user, Some(limit))
-            .await?
-    } else if q.is_empty() {
-        state
-            .user_api
-            .get_timeline(&context_user, Some(limit))
-            .await?
-    } else {
-        state.user_api.search(&context_user, q).await?
-    };
+    let mode = resolve_mode(query.mode.as_deref());
 
-    let capture_cards = cards_from_captures(capture_infos);
-    let cards = if query.include_sparks.unwrap_or(false) {
-        let spark_cards = load_spark_cards(&state.user_api, &context_user, 3).await?;
-        blend_capture_and_spark_cards(capture_cards, spark_cards)
-    } else {
-        capture_cards
+    let cards = match mode {
+        FeedMode::Sparks => load_spark_cards(&state.user_api, &context_user, 3).await?,
+        FeedMode::Captures => {
+            let capture_infos = if q.starts_with("/") {
+                crate::webui::slash_command::process(q, &context_user, &state.user_api).await?;
+                state
+                    .user_api
+                    .get_timeline(&context_user, Some(limit))
+                    .await?
+            } else if q.is_empty() {
+                state
+                    .user_api
+                    .get_timeline(&context_user, Some(limit))
+                    .await?
+            } else {
+                state.user_api.search(&context_user, q).await?
+            };
+            cards_from_captures(capture_infos)
+        }
+        FeedMode::Blend => {
+            let capture_infos = if q.starts_with("/") {
+                crate::webui::slash_command::process(q, &context_user, &state.user_api).await?;
+                state
+                    .user_api
+                    .get_timeline(&context_user, Some(limit))
+                    .await?
+            } else if q.is_empty() {
+                state
+                    .user_api
+                    .get_timeline(&context_user, Some(limit))
+                    .await?
+            } else {
+                state.user_api.search(&context_user, q).await?
+            };
+            let capture_cards = cards_from_captures(capture_infos);
+            let spark_cards = load_spark_cards(&state.user_api, &context_user, 3).await?;
+            blend_capture_and_spark_cards(capture_cards, spark_cards)
+        }
     };
 
     let is_htmx = headers

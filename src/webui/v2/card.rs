@@ -45,11 +45,11 @@ pub fn cards_from_captures(captures: Vec<api::CaptureInfo>) -> Vec<FeedCard> {
 pub async fn load_spark_cards(
     user_api: &api::UserApiClient,
     context: &auth::Context,
-    limit: usize,
+    limit: u64,
 ) -> Result<Vec<FeedCard>, api::ApiError> {
     let mut sparks = user_api.get_sparks(context, None).await?;
     sparks.sort_by(|a, b| b.id.cmp(&a.id));
-    let selected_sparks: Vec<api::SparkInfo> = sparks.into_iter().take(limit).collect();
+    let selected_sparks: Vec<api::SparkInfo> = sparks.into_iter().take(limit as usize).collect();
 
     let referenced_capture_ids: Vec<i32> = selected_sparks
         .iter()
@@ -62,7 +62,6 @@ pub async fn load_spark_cards(
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect();
-
     let captures = if referenced_capture_ids.is_empty() {
         vec![]
     } else {

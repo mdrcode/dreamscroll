@@ -30,14 +30,6 @@
         </div>
         {% endif %}
 
-        {% if cluster_card.cluster.referenced_capture_ids | length > 0 %}
-        <div class="pill-group pill-group--wrap pill-group--queries pill-group--section">
-            {% for capture_id in cluster_card.cluster.referenced_capture_ids %}
-            <a href="/detail/{{ capture_id }}" class="pill"><span class="pill__prefix">capture</span><span class="pill__label">{{ capture_id }}</span></a>
-            {% endfor %}
-        </div>
-        {% endif %}
-
         {% if cluster_card.cluster.spark_links | length > 0 %}
         <ol class="spark-links">
             {% for link in cluster_card.cluster.spark_links %}

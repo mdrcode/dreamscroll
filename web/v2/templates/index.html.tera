@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>dreamscroll v2</title>
     <link rel="stylesheet" href="/v2/static/dreamscroll.css?v={{ static_asset_version | urlencode }}">
-    <script defer src="https://unpkg.com/htmx.org@1.9.12"></script>
+    <script defer src="https://unpkg.com/htmx.org@2.0.7" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
     <script defer src="/v2/static/webui.js?v={{ static_asset_version | urlencode }}"></script>
 </head>
 
@@ -35,11 +35,12 @@
                 hx-target="#card-feed"
                 hx-swap="innerHTML"
                 hx-push-url="false">
+                <input type="hidden" id="feed-mode-input" name="mode" value="{{ feed_mode | default(value="blend") }}">
                 <input id="header-search-input"
                     type="text"
                     name="q"
                     value="{{ query }}"
-                    placeholder="search or slash command..."
+                    placeholder="search..."
                     hx-get="/v2/cards/feed"
                     hx-target="#card-feed"
                     hx-trigger="keyup changed delay:300ms"
@@ -50,22 +51,19 @@
 
         <div id="feed-controls">
             <button type="button"
-                class="feed-action"
-                hx-get="/v2/cards/feed?n=30"
+                class="feed-action{% if feed_mode == "captures" %} feed-action--active{% endif %}"
+                data-feed-mode="captures"
+                hx-get="/v2/cards/feed?mode=captures&n=30"
                 hx-target="#card-feed"
                 hx-swap="innerHTML"
                 hx-push-url="false">Captures Only</button>
             <button type="button"
-                class="feed-action"
-                hx-get="/v2/cards/feed?include_sparks=true&n=30"
+                class="feed-action{% if feed_mode == "sparks" %} feed-action--active{% endif %}"
+                data-feed-mode="sparks"
+                hx-get="/v2/cards/feed?mode=sparks&n=30"
                 hx-target="#card-feed"
                 hx-swap="innerHTML"
-                hx-push-url="false">Blend Spark Cards</button>
-            <button type="button"
-                class="feed-action"
-                hx-get="/v2/cards/sparks?n=2"
-                hx-target="#card-feed"
-                hx-swap="beforeend">Append Spark Cards</button>
+                hx-push-url="false">Sparks Only</button>
         </div>
 
         <div id="drop-zone-row">Drop image anywhere to upload</div>

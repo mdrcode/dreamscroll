@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', function () {
     setupSearchShortcut();
     setupCaptureExpandToggle(document);
+    setupFeedModeControls();
     setupUploadInteractions();
 
     document.body.addEventListener('htmx:afterSwap', function (e) {
@@ -42,6 +43,34 @@ function setupCaptureExpandToggle(rootNode) {
             this.textContent = row.classList.contains('expanded') ? 'Less' : 'More';
         });
     });
+}
+
+function setupFeedModeControls() {
+    const modeInput = document.getElementById('feed-mode-input');
+    const modeButtons = Array.from(document.querySelectorAll('#feed-controls [data-feed-mode]'));
+    if (!modeInput || modeButtons.length === 0) {
+        return;
+    }
+
+    function applyMode(mode) {
+        modeInput.value = mode;
+        modeButtons.forEach(function (btn) {
+            const isActive = btn.getAttribute('data-feed-mode') === mode;
+            btn.classList.toggle('feed-action--active', isActive);
+        });
+    }
+
+    modeButtons.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            const mode = btn.getAttribute('data-feed-mode');
+            if (!mode) {
+                return;
+            }
+            applyMode(mode);
+        });
+    });
+
+    applyMode(modeInput.value || 'blend');
 }
 
 function setupUploadInteractions() {
