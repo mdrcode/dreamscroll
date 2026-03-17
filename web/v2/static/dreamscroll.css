@@ -324,6 +324,10 @@ body {
     margin-top: 10px;
 }
 
+.spark-card>.spark-cluster:first-of-type {
+    margin-top: 0;
+}
+
 .spark-cluster-title {
     font-size: 15px;
     font-weight: 600;
@@ -339,7 +343,7 @@ body {
     display: flex;
     flex-direction: column;
     gap: 8px;
-    margin: 8px 0 10px 0;
+    margin: 4px 0 10px 0;
 }
 
 .spark-capture-item {
