@@ -12,7 +12,7 @@ use crate::{api, auth};
 
 use super::{
     WebState,
-    feed::{FeedContent, search_cards, timeline_cards},
+    content::{FeedContent, search_cards, timeline_cards},
 };
 
 #[derive(Debug, Deserialize)]

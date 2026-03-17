@@ -35,7 +35,7 @@
                 hx-target="#card-feed"
                 hx-swap="innerHTML"
                 hx-push-url="false"
-                hx-trigger="input changed delay:300ms from:#header-search-input, search from:#header-search-input, submit">
+                hx-trigger="submit">
                 <input type="hidden" name="n" value="30">
                 <input type="hidden" id="feed-mode-input" name="content" value="{{ content_mode | default(value="blend") }}">
                 <input id="header-search-input"
