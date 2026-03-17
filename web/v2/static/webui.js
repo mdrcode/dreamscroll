@@ -52,7 +52,7 @@ function setupSearchEndpointRouting() {
 
         e.preventDefault();
         if (window.htmx) {
-            window.htmx.ajax('POST', '/v2/cards/command', {
+            window.htmx.ajax('POST', '/v2/command', {
                 values: { q: q },
                 target: '#card-feed',
                 swap: 'none'
@@ -60,7 +60,7 @@ function setupSearchEndpointRouting() {
             return;
         }
 
-        fetch('/v2/cards/command', {
+        fetch('/v2/command', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
@@ -77,7 +77,7 @@ function setupSearchEndpointRouting() {
             return;
         }
 
-        e.detail.path = '/v2/cards/search';
+        e.detail.path = '/v2/cards';
     });
 }
 
@@ -136,7 +136,7 @@ function setupFeedModeControls() {
             params.set('q', q);
         }
 
-        const url = '/v2/cards/feed?' + params.toString();
+        const url = '/v2/cards?' + params.toString();
         if (window.htmx) {
             window.htmx.ajax('GET', url, {
                 target: '#card-feed',

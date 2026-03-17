@@ -17,11 +17,11 @@ use super::{
 };
 
 #[derive(Debug, Deserialize)]
-pub struct SearchQuery {
+pub struct IndexContentQuery {
     #[serde(default)]
     pub q: String,
     pub n: u64,
-    pub mode: FeedContent,
+    pub content: FeedContent,
 }
 
 pub async fn get(
@@ -29,7 +29,7 @@ pub async fn get(
     State(state): State<Arc<WebState>>,
     original_uri: OriginalUri,
     headers: HeaderMap,
-    Query(query): Query<SearchQuery>,
+    Query(query): Query<IndexContentQuery>,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
     let context_user = user.into();
@@ -51,7 +51,7 @@ pub async fn get(
     let q = query.q.trim();
 
     let cards = if q.is_empty() {
-        timeline_cards(&state, &context_user, query.mode, query.n).await?
+        timeline_cards(&state, &context_user, query.content, query.n).await?
     } else {
         search_cards(&state.user_api, &context_user, q).await?
     };

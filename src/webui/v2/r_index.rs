@@ -31,22 +31,22 @@ pub async fn get(
     let user = auth.user.unwrap();
     let context_user = user.into();
 
-    let mode = query.content.unwrap_or(FeedContent::Blend);
+    let content = query.content.unwrap_or(FeedContent::Blend);
     let limit = query.n.unwrap_or(50);
 
     let q = query.q.trim();
-    let is_search_mode = !q.is_empty() && !q.starts_with('/');
+    let is_search_mode = !q.is_empty();
     let cards = if is_search_mode {
         search_cards(&state.user_api, &context_user, q).await?
     } else {
-        timeline_cards(&state, &context_user, mode, limit).await?
+        timeline_cards(&state, &context_user, content, limit).await?
     };
 
     let mut context = state.template_context();
-    context.insert("cards", &cards);
-    context.insert("query", q);
-    context.insert("feed_mode", mode.as_str());
     context.insert("is_search_mode", &is_search_mode);
+    context.insert("query", q);
+    context.insert("cards", &cards);
+    context.insert("_content_mode", content.as_str());
 
     let rendered = state
         .tera
