@@ -1,14 +1,9 @@
 <article class="feed-card feed-card--spark spark-card">
-    <div class="spark-card-label">Spark Card</div>
-    <h2 class="spark-card-title"><a href="/sparks?id={{ card.spark.id }}">Spark {{ card.spark.id }}</a></h2>
-
-    <div class="spark-card-meta">
-        <span>{{ card.clusters | length }} cluster{% if card.clusters | length != 1 %}s{% endif %}</span>
-        <span>{{ card.spark.input_capture_ids | length }} input{% if card.spark.input_capture_ids | length != 1 %}s{% endif %}</span>
-        {% if card.spark.meta %}
-        <span>by {{ card.spark.meta.provider_name }}</span>
-        {% endif %}
-    </div>
+    <h2 class="spark-card-title">
+        <a href="/sparks?id={{ card.spark.id }}">
+            Spark {{ card.spark.id }}{% if card.spark.meta %} by {{ card.spark.meta.provider_name }}{% endif %}
+        </a>
+    </h2>
 
     {% if card.clusters | length == 0 %}
     <p class="spark-card-summary">No clusters found for this spark yet.</p>
