@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Login - dreamscroll v2</title>
+    <link rel="stylesheet" href="/v2/static/dreamscroll.css?v={{ static_asset_version | urlencode }}">
+    <style>
+        #login-panel {
+            width: 100%;
+            max-width: 420px;
+            margin-top: 18px;
+            padding: 16px;
+            border: 1px solid var(--color-pill-border);
+            border-radius: 12px;
+            background: #fff;
+            box-sizing: border-box;
+        }
+
+        #login-panel h2 {
+            margin: 0 0 10px;
+            font-size: 1.2rem;
+            color: var(--color-page-title);
+        }
+
+        .login-error {
+            background-color: #fff4f4;
+            border: 1px solid #ffcccc;
+            border-radius: 8px;
+            color: #a32626;
+            padding: 10px;
+            margin-bottom: 12px;
+        }
+
+        .login-form-group {
+            margin-bottom: 12px;
+        }
+
+        .login-form-group label {
+            display: block;
+            margin-bottom: 4px;
+            font-size: 0.95rem;
+        }
+
+        .login-form-group input {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 9px 12px;
+            border: 1px solid #d2d7df;
+            border-radius: 8px;
+            font-size: 0.95rem;
+        }
+
+        .login-form-group input:focus {
+            outline: none;
+            border-color: var(--color-link);
+        }
+
+        #login-submit {
+            border: 1px solid var(--color-page-title);
+            background: var(--color-page-title);
+            color: #fff;
+            border-radius: 8px;
+            padding: 8px 12px;
+            cursor: pointer;
+            font-size: 0.95rem;
+        }
+
+        #login-submit:hover {
+            opacity: 0.92;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="page-content-container">
+        <div id="header-row">
+            <h1 id="page-title"><a href="/v2" class="header-title-link">dreamscroll / v2</a></h1>
+        </div>
+
+        <div id="login-panel">
+            {% if already_logged_in %}
+            <h2>Already Logged In</h2>
+            <p>You are currently logged in as {{ username }}.</p>
+            <p><a href="/v2">Go to feed</a></p>
+            <form method="POST" action="/v2/logout">
+                <button id="login-submit" type="submit">Logout</button>
+            </form>
+            {% else %}
+            <h2>Login</h2>
+
+            {% if error %}
+            <div class="login-error">{{ error }}</div>
+            {% endif %}
+
+            <form method="POST" action="/v2/login">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+                <div class="login-form-group">
+                    <label for="username">Username</label>
+                    <input type="text" id="username" name="username" required autofocus>
+                </div>
+
+                <div class="login-form-group">
+                    <label for="password">Password</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+
+                <button id="login-submit" type="submit">Login</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+</body>
+
+</html>

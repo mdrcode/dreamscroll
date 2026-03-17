@@ -8,7 +8,7 @@ use tower_sessions::{Expiry, SessionManagerLayer, cookie};
 
 use crate::{api, auth, facility};
 
-use super::{r_auth, r_cards, r_command, r_index, r_upload};
+use super::{r_auth, r_cards, r_command, r_index, r_login_page, r_upload};
 
 pub struct WebState {
     pub user_api: api::UserApiClient,
@@ -53,14 +53,22 @@ pub fn make_ui_router(
 
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 
-    let mut router = Router::new()
+    let routes_open = Router::new()
+        .route("/login", get(r_login_page::get).post(r_auth::login_post))
+        .layer(auth_layer.clone());
+
+    let routes_protected = Router::new()
         .route("/", get(r_index::get))
         .route("/cards", get(r_cards::get))
         .route("/command", post(r_command::post))
         .route("/upload", post(r_upload::post))
         .route("/logout", post(r_auth::logout_post))
-        .layer(login_required!(auth::WebAuthBackend, login_url = "/login"))
-        .layer(auth_layer)
+        .layer(login_required!(auth::WebAuthBackend, login_url = "/v2/login"))
+        .layer(auth_layer);
+
+    let mut router = Router::new()
+        .merge(routes_protected)
+        .merge(routes_open)
         .with_state(state);
 
     router = router.nest_service("/static", ServeDir::new("web/v2/static"));
