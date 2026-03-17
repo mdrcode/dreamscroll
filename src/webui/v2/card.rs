@@ -14,6 +14,16 @@ pub(super) enum FeedContent {
     Sparks,
 }
 
+impl FeedContent {
+    pub(super) fn as_str(self) -> &'static str {
+        match self {
+            Self::Blend => "blend",
+            Self::Captures => "captures",
+            Self::Sparks => "sparks",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FeedCard {
@@ -50,6 +60,15 @@ pub fn cards_from_captures(captures: Vec<api::CaptureInfo>) -> Vec<FeedCard> {
         .into_iter()
         .map(|capture| FeedCard::Capture(CaptureCard { capture }))
         .collect()
+}
+
+pub async fn search_cards(
+    user_api: &api::UserApiClient,
+    context: &auth::Context,
+    q: &str,
+) -> Result<Vec<FeedCard>, api::ApiError> {
+    let capture_infos = user_api.search(context, q).await?;
+    Ok(cards_from_captures(capture_infos))
 }
 
 pub async fn load_spark_cards(
@@ -141,7 +160,7 @@ pub(super) async fn timeline_cards(
     limit: u64,
 ) -> Result<Vec<FeedCard>, api::ApiError> {
     match mode {
-        FeedContent::Sparks => load_spark_cards(&state.user_api, context_user, 3).await,
+        FeedContent::Sparks => load_spark_cards(&state.user_api, context_user, limit).await,
         FeedContent::Captures => {
             let capture_infos = state
                 .user_api
@@ -155,7 +174,7 @@ pub(super) async fn timeline_cards(
                 .get_timeline(context_user, Some(limit))
                 .await?;
             let capture_cards = cards_from_captures(capture_infos);
-            let spark_cards = load_spark_cards(&state.user_api, context_user, 3).await?;
+            let spark_cards = load_spark_cards(&state.user_api, context_user, limit).await?;
             Ok(blend_capture_and_spark_cards(capture_cards, spark_cards))
         }
     }

@@ -13,7 +13,7 @@ use crate::{api, auth};
 
 use super::{
     WebState,
-    card::{FeedContent, cards_from_captures, timeline_cards},
+    card::{FeedContent, search_cards, timeline_cards},
 };
 
 #[derive(Debug, Deserialize)]
@@ -53,8 +53,7 @@ pub async fn get(
     let cards = if q.is_empty() {
         timeline_cards(&state, &context_user, query.mode, query.n).await?
     } else {
-        let capture_infos = state.user_api.search(&context_user, q).await?;
-        cards_from_captures(capture_infos)
+        search_cards(&state.user_api, &context_user, q).await?
     };
 
     let mut context = state.template_context();

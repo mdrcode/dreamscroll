@@ -12,7 +12,7 @@ use crate::{api, auth};
 
 use super::{
     WebState,
-    card::{FeedContent, blend_capture_and_spark_cards, cards_from_captures, load_spark_cards},
+    card::{FeedContent, search_cards, timeline_cards},
 };
 
 #[derive(Debug, Deserialize)]
@@ -20,26 +20,7 @@ pub struct IndexQuery {
     #[serde(default)]
     pub q: String,
     pub n: Option<u64>,
-    pub mode: Option<String>,
-}
-
-impl FeedContent {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Blend => "blend",
-            Self::Captures => "captures",
-            Self::Sparks => "sparks",
-        }
-    }
-}
-
-pub(super) fn resolve_mode(mode: Option<&str>) -> FeedContent {
-    match mode {
-        Some("captures") => FeedContent::Captures,
-        Some("sparks") => FeedContent::Sparks,
-        Some("blend") => FeedContent::Blend,
-        _ => FeedContent::Blend,
-    }
+    pub content: Option<FeedContent>,
 }
 
 pub async fn get(
@@ -49,34 +30,16 @@ pub async fn get(
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
     let context_user = user.into();
+
+    let mode = query.content.unwrap_or(FeedContent::Blend);
     let limit = query.n.unwrap_or(50);
-    let mode = resolve_mode(query.mode.as_deref());
 
     let q = query.q.trim();
     let is_search_mode = !q.is_empty() && !q.starts_with('/');
     let cards = if is_search_mode {
-        let capture_infos = state.user_api.search(&context_user, q).await?;
-        cards_from_captures(capture_infos)
+        search_cards(&state.user_api, &context_user, q).await?
     } else {
-        match mode {
-            FeedContent::Sparks => load_spark_cards(&state.user_api, &context_user, limit).await?,
-            FeedContent::Captures => {
-                let capture_infos = state
-                    .user_api
-                    .get_timeline(&context_user, Some(limit))
-                    .await?;
-                cards_from_captures(capture_infos)
-            }
-            FeedContent::Blend => {
-                let capture_infos = state
-                    .user_api
-                    .get_timeline(&context_user, Some(limit))
-                    .await?;
-                let capture_cards = cards_from_captures(capture_infos);
-                let spark_cards = load_spark_cards(&state.user_api, &context_user, limit).await?;
-                blend_capture_and_spark_cards(capture_cards, spark_cards)
-            }
-        }
+        timeline_cards(&state, &context_user, mode, limit).await?
     };
 
     let mut context = state.template_context();
