@@ -18,11 +18,7 @@
             <form id="file-upload-form"
                 action="/v2/upload"
                 method="post"
-                enctype="multipart/form-data"
-                hx-post="/v2/upload"
-                hx-encoding="multipart/form-data"
-                hx-target="#card-feed"
-                hx-swap="innerHTML">
+                enctype="multipart/form-data">
                 <input id="file-picker" type="file" name="image" accept="image/*" style="display: none;" required>
                 <label id="file-picker-label" for="file-picker">
                     <span class="file-picker-text">Upload</span>
@@ -44,6 +40,13 @@
                     value="{{ query }}"
                     placeholder="search...">
             </form>
+        </div>
+
+        <div id="upload-progress" aria-live="polite" aria-label="Upload progress">
+            <div id="upload-progress-track">
+                <div id="upload-progress-bar"></div>
+            </div>
+            <div id="upload-progress-text">0%</div>
         </div>
 
         <div id="feed-controls"{% if is_search_mode %} style="display: none;"{% endif %}>

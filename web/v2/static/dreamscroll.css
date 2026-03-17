@@ -113,6 +113,7 @@ body {
     flex-direction: column;
     align-items: flex-start;
     margin-left: auto;
+    gap: 6px;
 }
 
 #file-picker-label {
@@ -130,6 +131,42 @@ body {
 #file-picker-label:hover {
     border-color: var(--color-upload-hover-border);
     background-color: var(--color-upload-hover-bg);
+}
+
+#file-upload-form.is-uploading #file-picker-label {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+#upload-progress {
+    width: 100%;
+    display: none;
+    margin-bottom: 10px;
+}
+
+#upload-progress.is-visible {
+    display: block;
+}
+
+#upload-progress-track {
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: #eceff3;
+    overflow: hidden;
+}
+
+#upload-progress-bar {
+    width: 0%;
+    height: 100%;
+    background: var(--color-card-bg);
+    transition: width 0.12s ease-out;
+}
+
+#upload-progress-text {
+    margin-top: 3px;
+    font-size: 12px;
+    color: var(--color-page-text);
 }
 
 #feed-controls {

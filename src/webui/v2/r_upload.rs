@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use axum::{
     extract::State,
     http::HeaderMap,
+    http::StatusCode,
     response::{Html, IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::Multipart;
@@ -35,6 +36,16 @@ pub async fn post(
         .and_then(|v| v.to_str().ok())
         .map(|v| v == "true")
         .unwrap_or(false);
+
+    let is_client_managed = headers
+        .get("X-DS-Upload-Client")
+        .and_then(|v| v.to_str().ok())
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    if is_client_managed {
+        return Ok(StatusCode::NO_CONTENT.into_response());
+    }
 
     if !is_htmx {
         return Ok(Redirect::to("/v2").into_response());
