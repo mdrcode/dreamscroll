@@ -34,22 +34,18 @@
                 hx-get="/v2/cards/feed"
                 hx-target="#card-feed"
                 hx-swap="innerHTML"
-                hx-push-url="false">
+                hx-push-url="false"
+                hx-trigger="input changed delay:300ms from:#header-search-input, search from:#header-search-input, submit">
                 <input type="hidden" id="feed-mode-input" name="mode" value="{{ feed_mode | default(value="blend") }}">
                 <input id="header-search-input"
                     type="text"
                     name="q"
                     value="{{ query }}"
-                    placeholder="search..."
-                    hx-get="/v2/cards/feed"
-                    hx-target="#card-feed"
-                    hx-trigger="keyup changed delay:300ms"
-                    hx-swap="innerHTML"
-                    hx-push-url="false">
+                    placeholder="search...">
             </form>
         </div>
 
-        <div id="feed-controls">
+        <div id="feed-controls"{% if is_search_mode %} style="display: none;"{% endif %}>
             <button type="button"
                 class="feed-action{% if feed_mode == "captures" %} feed-action--active{% endif %}"
                 data-feed-mode="captures">Captures Only</button>

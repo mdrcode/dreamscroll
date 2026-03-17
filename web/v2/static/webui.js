@@ -59,9 +59,18 @@ function setupCaptureExpandToggle(rootNode) {
 function setupFeedModeControls() {
     const modeInput = document.getElementById('feed-mode-input');
     const searchInput = document.getElementById('header-search-input');
+    const feedControls = document.getElementById('feed-controls');
     const modeButtons = Array.from(document.querySelectorAll('#feed-controls [data-feed-mode]'));
     if (!modeInput || modeButtons.length === 0) {
         return;
+    }
+
+    function updateFeedControlsVisibility() {
+        if (!feedControls || !searchInput) {
+            return;
+        }
+        const q = searchInput.value.trim();
+        feedControls.style.display = q.length > 0 ? 'none' : '';
     }
 
     function applyMode(mode) {
@@ -109,7 +118,12 @@ function setupFeedModeControls() {
         });
     });
 
+    if (searchInput) {
+        searchInput.addEventListener('input', updateFeedControlsVisibility);
+    }
+
     applyMode(modeInput.value || 'blend');
+    updateFeedControlsVisibility();
 }
 
 function setupUploadInteractions() {

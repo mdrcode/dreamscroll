@@ -33,6 +33,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /app/target/release/dreamscroll_web /app/dreamscroll_web
 COPY --from=builder /app/target/release/dreamscroll_util /app/dreamscroll_util
 COPY web/v1 /app/web/v1
+COPY web/v2 /app/web/v2
 
 # Create non-root user
 RUN groupadd --system --gid 1001 appgroup \

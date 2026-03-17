@@ -60,31 +60,29 @@ pub async fn get(
     let mode = resolve_mode(query.mode.as_deref());
 
     let q = query.q.trim();
-    let cards = match mode {
-        FeedMode::Sparks => load_spark_cards(&state.user_api, &context_user, limit).await?,
-        FeedMode::Captures => {
-            let capture_infos = if q.is_empty() {
-                state
+    let is_search_mode = !q.is_empty() && !q.starts_with('/');
+    let cards = if is_search_mode {
+        let capture_infos = state.user_api.search(&context_user, q).await?;
+        cards_from_captures(capture_infos)
+    } else {
+        match mode {
+            FeedMode::Sparks => load_spark_cards(&state.user_api, &context_user, limit).await?,
+            FeedMode::Captures => {
+                let capture_infos = state
                     .user_api
                     .get_timeline(&context_user, Some(limit))
-                    .await?
-            } else {
-                state.user_api.search(&context_user, q).await?
-            };
-            cards_from_captures(capture_infos)
-        }
-        FeedMode::Blend => {
-            let capture_infos = if q.is_empty() {
-                state
+                    .await?;
+                cards_from_captures(capture_infos)
+            }
+            FeedMode::Blend => {
+                let capture_infos = state
                     .user_api
                     .get_timeline(&context_user, Some(limit))
-                    .await?
-            } else {
-                state.user_api.search(&context_user, q).await?
-            };
-            let capture_cards = cards_from_captures(capture_infos);
-            let spark_cards = load_spark_cards(&state.user_api, &context_user, limit).await?;
-            blend_capture_and_spark_cards(capture_cards, spark_cards)
+                    .await?;
+                let capture_cards = cards_from_captures(capture_infos);
+                let spark_cards = load_spark_cards(&state.user_api, &context_user, limit).await?;
+                blend_capture_and_spark_cards(capture_cards, spark_cards)
+            }
         }
     };
 
@@ -92,6 +90,7 @@ pub async fn get(
     context.insert("cards", &cards);
     context.insert("query", q);
     context.insert("feed_mode", mode.as_str());
+    context.insert("is_search_mode", &is_search_mode);
 
     let rendered = state
         .tera
