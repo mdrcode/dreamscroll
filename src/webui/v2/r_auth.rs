@@ -9,6 +9,7 @@ use crate::auth;
 pub struct LoginFormData {
     pub username: String,
     pub password: String,
+    /// Single-use token matching the value stored in the session by GET /v2/login.
     pub csrf_token: String,
 }
 
@@ -17,6 +18,9 @@ pub async fn login_post(
     session: Session,
     Form(form): Form<LoginFormData>,
 ) -> Result<Redirect, StatusCode> {
+    // --- CSRF validation ---
+    // Read the expected token from the session and immediately remove it so
+    // it cannot be replayed (even on a failed login attempt).
     let stored: Option<String> = session
         .remove("login_csrf_token")
         .await
@@ -25,11 +29,13 @@ pub async fn login_post(
     match stored {
         Some(t) if t == form.csrf_token => {}
         _ => {
+            // Token missing or mismatched — the form was not issued by us.
             tracing::warn!("CSRF token mismatch on POST /v2/login");
             return Ok(Redirect::to("/v2/login?error=Invalid+or+expired+form"));
         }
     }
 
+    // --- Authentication ---
     let creds = auth::Credentials {
         username: form.username,
         password: form.password,
@@ -54,6 +60,9 @@ pub async fn login_post(
     Ok(Redirect::to("/v2"))
 }
 
+/// Logout is POST-only. This, combined with `SameSite=Lax` on the session
+/// cookie, prevents forced-logout CSRF attacks since cross-site POSTs cannot carry
+/// the session cookie.
 pub async fn logout_post(
     mut auth: AuthSession<auth::WebAuthBackend>,
 ) -> Result<Redirect, StatusCode> {

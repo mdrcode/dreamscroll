@@ -60,11 +60,6 @@ pub fn make_ui_router(
     });
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 
-    let routes_open = Router::new()
-        .route("/login", get(r_login_page::get).post(r_auth::login_post))
-        // AuthManagerLayer needs to be enabled even though login not required
-        .layer(auth_layer.clone());
-
     let routes_protected = Router::new()
         .route("/", get(r_index::get))
         .route("/sparks", get(r_sparks::get))
@@ -73,13 +68,14 @@ pub fn make_ui_router(
         .route("/entity/knode/{id}", get(r_entity::get_knode))
         .route("/entity/social/{id}", get(r_entity::get_social_media))
         .route("/upload", post(r_upload::post))
-        .route("/logout", post(r_auth::logout_post))
-        .layer(login_required!(auth::WebAuthBackend, login_url = "/login")) // MUST come first
+        .layer(login_required!(
+            auth::WebAuthBackend,
+            login_url = "/v2/login"
+        )) // MUST come first
         .layer(auth_layer);
 
     let mut router = axum::Router::new()
         .merge(routes_protected)
-        .merge(routes_open)
         .with_state(state);
 
     // For local dev, we serve static JS/CSS files directly

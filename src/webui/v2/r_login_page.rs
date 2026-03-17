@@ -26,6 +26,7 @@ pub async fn get(
 ) -> Result<Response, api::ApiError> {
     let mut context = state.template_context();
 
+    // CSRF token: generate a fresh one on every GET and store it in the session.
     let csrf_token = uuid::Uuid::new_v4().to_string();
     session
         .insert("login_csrf_token", &csrf_token)
@@ -33,6 +34,7 @@ pub async fn get(
         .map_err(|e| anyhow!("Session error storing CSRF token: {}", e))?;
     context.insert("csrf_token", &csrf_token);
 
+    // Check if user is already logged in
     if let Some(user) = auth.user {
         context.insert("already_logged_in", &true);
         context.insert("username", &user.username());
