@@ -3,7 +3,7 @@ use std::sync::Arc;
 use anyhow::anyhow;
 use axum::{
     extract::{OriginalUri, Query, State},
-    http::HeaderMap,
+    http::{HeaderMap, HeaderValue},
     response::{Html, IntoResponse, Redirect, Response},
 };
 use axum_login::AuthSession;
@@ -34,6 +34,11 @@ pub async fn get(
     let user = auth.user.unwrap();
     let context_user = user.into();
 
+    let canonical = match original_uri.0.query() {
+        Some(query_string) if !query_string.is_empty() => format!("/v2?{}", query_string),
+        _ => "/v2".to_string(),
+    };
+
     let is_htmx = headers
         .get("HX-Request")
         .and_then(|v| v.to_str().ok())
@@ -41,10 +46,6 @@ pub async fn get(
         .unwrap_or(false);
 
     if !is_htmx {
-        let canonical = match original_uri.0.query() {
-            Some(query_string) if !query_string.is_empty() => format!("/v2?{}", query_string),
-            _ => "/v2".to_string(),
-        };
         return Ok(Redirect::to(&canonical).into_response());
     }
 
@@ -64,5 +65,12 @@ pub async fn get(
         .render("partials/feed.html.tera", &context)
         .map_err(|e| anyhow!("Failed to render template: {:?}", e))?;
 
-    Ok(Html(rendered).into_response())
+    let mut response = Html(rendered).into_response();
+    let canonical_header = HeaderValue::from_str(&canonical)
+        .map_err(|e| anyhow!("Failed to set HX-Push-Url header: {e}"))?;
+    response
+        .headers_mut()
+        .insert("HX-Push-Url", canonical_header);
+
+    Ok(response)
 }

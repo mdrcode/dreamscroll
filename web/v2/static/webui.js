@@ -1,5 +1,6 @@
 document.addEventListener('DOMContentLoaded', function () {
     setupSearchShortcut();
+    setupSearchClearButton();
     setupSearchEndpointRouting();
     setupCaptureExpandToggle(document);
     setupFeedModeControls();
@@ -30,11 +31,53 @@ function setupSearchShortcut() {
 function setupSearchClearOnSlashCommand() {
     document.body.addEventListener('ds-clear-search-input', function () {
         const searchInput = document.getElementById('header-search-input');
+        const clearButton = document.getElementById('header-search-clear');
         if (!searchInput) {
             return;
         }
         searchInput.value = '';
+        if (clearButton) {
+            clearButton.classList.add('is-hidden');
+        }
     });
+}
+
+function setupSearchClearButton() {
+    const searchForm = document.getElementById('header-search-form');
+    const searchInput = document.getElementById('header-search-input');
+    const clearButton = document.getElementById('header-search-clear');
+    const feedControls = document.getElementById('feed-controls');
+    if (!searchForm || !searchInput || !clearButton) {
+        return;
+    }
+
+    function syncClearButtonVisibility() {
+        if (searchInput.value.trim().length > 0) {
+            clearButton.classList.remove('is-hidden');
+            return;
+        }
+        clearButton.classList.add('is-hidden');
+    }
+
+    clearButton.addEventListener('click', function () {
+        searchInput.value = '';
+        syncClearButtonVisibility();
+        if (feedControls) {
+            feedControls.style.display = '';
+        }
+
+        if (window.htmx) {
+            window.htmx.trigger(searchForm, 'submit');
+        } else if (searchForm.requestSubmit) {
+            searchForm.requestSubmit();
+        } else {
+            searchForm.submit();
+        }
+        searchInput.focus();
+    });
+
+    searchInput.addEventListener('input', syncClearButtonVisibility);
+    syncClearButtonVisibility();
 }
 
 function setupSearchEndpointRouting() {

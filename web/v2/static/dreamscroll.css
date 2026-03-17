@@ -88,16 +88,20 @@ body {
 #header-search-form {
     display: flex;
     flex-direction: row;
-    gap: 10px;
     width: clamp(180px, 22vw, 260px);
     flex: 0 0 auto;
     margin-left: 8px;
 }
 
+#header-search-input-wrap {
+    width: 100%;
+    position: relative;
+}
+
 #header-search-input {
     width: 100%;
     box-sizing: border-box;
-    padding: 7px 14px;
+    padding: 7px 32px 7px 14px;
     font-size: 16px;
     border: 1px solid #ccc;
     border-radius: 8px;
@@ -106,6 +110,32 @@ body {
 #header-search-input:focus {
     outline: none;
     border-color: #007bff;
+}
+
+#header-search-clear {
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    padding: 0;
+    border: none;
+    background: transparent;
+    border-radius: 50%;
+    color: #747b88;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 18px;
+}
+
+#header-search-clear:hover {
+    color: var(--color-page-title);
+    background: rgba(0, 0, 0, 0.04);
+}
+
+#header-search-clear.is-hidden {
+    display: none;
 }
 
 #file-upload-form {
