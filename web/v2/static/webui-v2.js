@@ -112,26 +112,59 @@ function setupSearchEndpointRouting() {
     });
 
     searchForm.addEventListener('htmx:configRequest', function (e) {
-        const q = searchInput.value.trim();
-        const n = currentLimitParam();
+        const state = getCurrentFeedState();
 
-        if (q.startsWith('/')) {
+        if (state.q.startsWith('/')) {
             e.preventDefault();
             return;
         }
 
         e.detail.path = '/cards';
-        if (q.length > 0) {
-            e.detail.parameters.q = q;
-        } else {
-            delete e.detail.parameters.q;
-        }
-        if (n !== null) {
-            e.detail.parameters.n = n;
-        } else {
-            delete e.detail.parameters.n;
-        }
+        const parameters = e.detail.parameters || (e.detail.parameters = {});
+        applyFeedParameters(parameters, state, false);
     });
+}
+
+function setFeedParameter(parameters, key, value) {
+    if (parameters instanceof URLSearchParams) {
+        if (value === null || value === '') {
+            parameters.delete(key);
+            return;
+        }
+
+        parameters.set(key, value);
+        return;
+    }
+
+    if (value === null || value === '') {
+        delete parameters[key];
+        return;
+    }
+
+    parameters[key] = value;
+}
+
+function getCurrentFeedState() {
+    const modeInput = document.getElementById('feed-mode-input');
+    const searchInput = document.getElementById('header-search-input');
+
+    return {
+        n: currentLimitParam(),
+        content: modeInput && modeInput.value ? modeInput.value : 'blend',
+        q: searchInput ? searchInput.value.trim() : ''
+    };
+}
+
+function applyFeedParameters(parameters, state, includeContent) {
+    setFeedParameter(parameters, 'n', state.n);
+    setFeedParameter(parameters, 'q', state.q);
+
+    if (includeContent && state.content !== 'blend') {
+        setFeedParameter(parameters, 'content', state.content);
+        return;
+    }
+
+    setFeedParameter(parameters, 'content', null);
 }
 
 function setupCaptureExpandToggle(rootNode) {
@@ -164,23 +197,9 @@ function currentLimitParam() {
 }
 
 function buildFeedUrlFromCurrentState() {
+    const state = getCurrentFeedState();
     const params = new URLSearchParams();
-
-    const n = currentLimitParam();
-    if (n !== null) {
-        params.set('n', n);
-    }
-
-    const modeInput = document.getElementById('feed-mode-input');
-    if (modeInput && modeInput.value && modeInput.value !== 'blend') {
-        params.set('content', modeInput.value);
-    }
-
-    const searchInput = document.getElementById('header-search-input');
-    const q = searchInput ? searchInput.value.trim() : '';
-    if (q.length > 0) {
-        params.set('q', q);
-    }
+    applyFeedParameters(params, state, true);
 
     const query = params.toString();
     if (query.length === 0) {
@@ -217,14 +236,6 @@ function setupFeedModeControls() {
         });
     }
 
-    function requestFeed() {
-        const url = buildFeedUrlFromCurrentState();
-        window.htmx.ajax('GET', url, {
-            target: '#card-feed',
-            swap: 'innerHTML'
-        });
-    }
-
     modeButtons.forEach(function (btn) {
         btn.addEventListener('click', function (e) {
             e.preventDefault();
@@ -236,7 +247,7 @@ function setupFeedModeControls() {
 
             const nextMode = modeInput.value === clickedMode ? 'blend' : clickedMode;
             applyMode(nextMode);
-            requestFeed();
+            reloadFeedFrame();
         });
     });
 
@@ -296,7 +307,6 @@ function setupUploadInteractions() {
         const xhr = new XMLHttpRequest();
         xhr.open('POST', '/upload');
         xhr.setRequestHeader('HX-Request', 'true');
-        xhr.setRequestHeader('X-DS-Upload-Client', 'true');
 
         setUploadInFlight(true);
         setUploadProgress(0, 'Uploading 0%');

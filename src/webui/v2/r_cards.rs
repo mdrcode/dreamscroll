@@ -12,7 +12,7 @@ use crate::{api, auth};
 
 use super::{
     WebState,
-    content::{ContentQuery, search_cards, timeline_cards},
+    content::{ContentQuery, cards_for_query},
 };
 
 pub async fn get(
@@ -40,15 +40,7 @@ pub async fn get(
         return Ok(Redirect::to(&canonical).into_response());
     }
 
-    let q = query.query_text();
-    let content = query.content_mode();
-    let limit = query.limit();
-
-    let cards = if q.is_empty() {
-        timeline_cards(&state.user_api, &context_user, content, limit).await?
-    } else {
-        search_cards(&state.user_api, &context_user, q).await?
-    };
+    let cards = cards_for_query(&state.user_api, &context_user, &query).await?;
 
     let mut context = state.template_context();
     context.insert("cards", &cards);

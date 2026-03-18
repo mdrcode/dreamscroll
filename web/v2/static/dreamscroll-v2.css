@@ -448,12 +448,6 @@ body {
     min-width: 0;
 }
 
-.spark-capture-meta-id {
-    font-size: 12px;
-    opacity: 0.8;
-    margin: 0 0 4px 0;
-}
-
 .spark-capture-meta-summary {
     font-size: 13px;
     line-height: 1.3;

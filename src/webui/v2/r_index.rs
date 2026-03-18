@@ -11,7 +11,7 @@ use crate::{api, auth};
 
 use super::{
     WebState,
-    content::{ContentQuery, search_cards, timeline_cards},
+    content::{ContentQuery, cards_for_query},
 };
 
 pub async fn get(
@@ -22,16 +22,10 @@ pub async fn get(
     let user = auth.user.unwrap();
     let context_user = user.into();
 
+    let is_search_mode = query.is_search_mode();
+    let cards = cards_for_query(&state.user_api, &context_user, &query).await?;
     let q = query.query_text();
     let content = query.content_mode();
-    let limit = query.limit();
-
-    let is_search_mode = !q.is_empty();
-    let cards = if is_search_mode {
-        search_cards(&state.user_api, &context_user, q).await?
-    } else {
-        timeline_cards(&state.user_api, &context_user, content, limit).await?
-    };
 
     let mut context = state.template_context();
     context.insert("is_search_mode", &is_search_mode);

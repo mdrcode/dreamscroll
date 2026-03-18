@@ -35,6 +35,10 @@ impl ContentQuery {
         self.q.trim()
     }
 
+    pub(super) fn is_search_mode(&self) -> bool {
+        !self.query_text().is_empty()
+    }
+
     pub(super) fn limit(&self) -> u64 {
         self.n.unwrap_or(50)
     }
@@ -171,6 +175,20 @@ pub fn blend_capture_and_spark_cards(
     cards.extend(spark_cards);
     cards.sort_by(|a, b| feed_card_created_at(b).cmp(&feed_card_created_at(a)));
     cards
+}
+
+pub(super) async fn cards_for_query(
+    user_api: &api::UserApiClient,
+    context_user: &auth::Context,
+    query: &ContentQuery,
+) -> Result<Vec<FeedCard>, api::ApiError> {
+    let q = query.query_text();
+
+    if q.is_empty() {
+        return timeline_cards(user_api, context_user, query.content_mode(), query.limit()).await;
+    }
+
+    search_cards(user_api, context_user, q).await
 }
 
 pub(super) async fn timeline_cards(
