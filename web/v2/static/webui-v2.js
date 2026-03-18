@@ -341,10 +341,82 @@ function setupUploadInteractions() {
         xhr.send(formData);
     }
 
+    function clipboardEventImageFile(e) {
+        if (!e.clipboardData) {
+            return null;
+        }
+
+        const clipboardItems = Array.from(e.clipboardData.items || []);
+        for (let i = 0; i < clipboardItems.length; i++) {
+            const item = clipboardItems[i];
+            if (!item.type || !item.type.startsWith('image/')) {
+                continue;
+            }
+
+            const file = item.getAsFile();
+            if (file) {
+                return file;
+            }
+        }
+
+        const clipboardFiles = Array.from(e.clipboardData.files || []);
+        for (let i = 0; i < clipboardFiles.length; i++) {
+            const file = clipboardFiles[i];
+            if (file.type && file.type.startsWith('image/')) {
+                return file;
+            }
+        }
+
+        return null;
+    }
+
+    function isEditableTarget(node) {
+        if (!node || !node.tagName) {
+            return false;
+        }
+
+        const tagName = node.tagName.toUpperCase();
+        if (tagName === 'TEXTAREA') {
+            return true;
+        }
+
+        if (tagName === 'INPUT') {
+            const inputType = (node.getAttribute('type') || 'text').toLowerCase();
+            return inputType !== 'checkbox' && inputType !== 'radio' && inputType !== 'button' && inputType !== 'submit';
+        }
+
+        return !!node.isContentEditable;
+    }
+
     filePicker.addEventListener('change', function () {
         if (filePicker.files && filePicker.files.length > 0) {
             submitManagedUpload(filePicker.files[0]);
         }
+    });
+
+    document.addEventListener('paste', function (e) {
+        if (isUploading) {
+            return;
+        }
+
+        const imageFile = clipboardEventImageFile(e);
+        if (!imageFile) {
+            return;
+        }
+
+        if (isEditableTarget(e.target)) {
+            return;
+        }
+
+        e.preventDefault();
+
+        if (typeof DataTransfer === 'function') {
+            const dataTransfer = new DataTransfer();
+            dataTransfer.items.add(imageFile);
+            filePicker.files = dataTransfer.files;
+        }
+
+            submitManagedUpload(imageFile);
     });
 
     let dragCounter = 0;
