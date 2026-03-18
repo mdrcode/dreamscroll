@@ -33,7 +33,7 @@ impl UserApiClient {
     pub async fn get_captures(
         &self,
         context: &auth::Context,
-        ids: Option<Vec<i32>>,
+        ids: Vec<i32>,
     ) -> Result<Vec<CaptureInfo>, ApiError> {
         let captures = super::get_captures(&self.db, context, ids).await;
 
@@ -106,7 +106,7 @@ impl UserApiClient {
     pub async fn get_timeline(
         &self,
         context: &auth::Context,
-        limit: Option<u64>,
+        limit: u64,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
         let captures = super::get_timeline(&self.db, context, limit).await;
 
@@ -129,14 +129,11 @@ impl UserApiClient {
         }
 
         let requested_ids: HashSet<i32> = capture_ids.iter().copied().collect();
-        let found = super::get_captures(&self.db, context, Some(capture_ids.clone())).await?;
+        let found = super::get_captures(&self.db, context, capture_ids.clone()).await?;
         let found_ids: HashSet<i32> = found.into_iter().map(|c| c.id).collect();
 
         if requested_ids != found_ids {
-            let missing_ids: Vec<i32> = requested_ids
-                .difference(&found_ids)
-                .copied()
-                .collect();
+            let missing_ids: Vec<i32> = requested_ids.difference(&found_ids).copied().collect();
 
             tracing::warn!(
                 requested_ids = ?requested_ids,
@@ -227,8 +224,10 @@ impl UserApiClient {
         &self,
         context: &auth::Context,
         query: &str,
+        limit: Option<u64>,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
-        let capture_models = super::search_by_illuminations(&self.db, context, query).await?;
+        let capture_models =
+            super::search_by_illuminations(&self.db, context, query, limit).await?;
 
         Ok(capture_models
             .into_iter()

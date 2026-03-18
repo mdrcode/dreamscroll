@@ -19,10 +19,7 @@ pub async fn get(
     let user = auth.user.unwrap();
     tracing::debug!("Rendering detail for capture {} for user {}", id, user.id());
 
-    let fetch = state
-        .user_api
-        .get_captures(&user.into(), Some(vec![id]))
-        .await?;
+    let fetch = state.user_api.get_captures(&user.into(), vec![id]).await?;
 
     let capture = fetch
         .into_iter()

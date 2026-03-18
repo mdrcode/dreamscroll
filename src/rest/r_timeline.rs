@@ -27,10 +27,8 @@ pub async fn get(
     State(state): State<Arc<RestState>>,
     Query(query): Query<TimelineQuery>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let capture_infos = state
-        .user_api
-        .get_timeline(&user.into(), query.limit)
-        .await?;
+    let limit = query.limit.unwrap_or(100);
+    let capture_infos = state.user_api.get_timeline(&user.into(), limit).await?;
     tracing::info!(count = capture_infos.len(), "Fetched timeline captures");
     Ok(Json(capture_infos))
 }

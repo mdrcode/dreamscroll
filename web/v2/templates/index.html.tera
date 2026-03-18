@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>dreamscroll v2</title>
+    <title>dreamscroll</title>
     <link rel="stylesheet" href="/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}">
     <script defer src="https://unpkg.com/htmx.org@2.0.7" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
     <script defer src="/static/webui-v2.js?v={{ static_asset_version | urlencode }}"></script>
@@ -13,7 +13,7 @@
 <body>
     <div id="page-content-container">
         <div id="header-row">
-            <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll / v2</a></h1>
+            <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll</a></h1>
 
             <form id="file-upload-form"
                 action="/upload"

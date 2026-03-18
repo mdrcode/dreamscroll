@@ -16,6 +16,7 @@ use super::*;
 pub struct SearchParams {
     #[serde(default)]
     q: String,
+    n: Option<u64>,
 }
 
 pub async fn get(
@@ -32,7 +33,7 @@ pub async fn get(
         return Ok(Redirect::to("/v1").into_response());
     }
 
-    let capture_infos: Vec<_> = state.user_api.search(&user.into(), query).await?;
+    let capture_infos: Vec<_> = state.user_api.search(&user.into(), query, params.n).await?;
 
     let mut context = state.template_context();
     context.insert("query", query);

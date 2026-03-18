@@ -1,5 +1,5 @@
 use sea_orm::{
-    EntityTrait, ExprTrait, QueryFilter, QuerySelect,
+    EntityTrait, ExprTrait, QueryFilter, QueryOrder, QuerySelect,
     prelude::*,
     sea_query::{Expr, Func},
 };
@@ -10,35 +10,46 @@ pub async fn search_by_illuminations(
     db: &DbHandle,
     user_context: &auth::Context,
     query: &str,
+    limit: Option<u64>,
 ) -> anyhow::Result<Vec<model::capture::ModelEx>, api::ApiError> {
+    let num_captures = limit.unwrap_or(100);
+    if num_captures == 0 {
+        return Ok(vec![]);
+    }
+
     if query.is_empty() {
         return Ok(vec![]);
     }
 
-    let iids_matching = model::search_index::Entity::find()
-        .filter(model::search_index::Column::UserId.eq(user_context.user_id()))
-        .filter(
-            Expr::expr(Func::lower(Expr::col(model::search_index::Column::Content)))
-                .like(format!("%{}%", query.to_lowercase())),
-        )
-        .column(model::search_index::Column::IlluminationId)
-        .distinct()
-        .all(&db.conn)
-        .await?
+    let capture_rows: Vec<(i32, chrono::DateTime<chrono::Utc>)> =
+        model::search_index::Entity::find()
+            .filter(model::search_index::Column::UserId.eq(user_context.user_id()))
+            .filter(
+                Expr::expr(Func::lower(Expr::col(model::search_index::Column::Content)))
+                    .like(format!("%{}%", query.to_lowercase())),
+            )
+            .inner_join(model::capture::Entity)
+            .filter(model::capture::Column::UserId.eq(user_context.user_id()))
+            .select_only()
+            .column(model::search_index::Column::CaptureId)
+            .column(model::capture::Column::CreatedAt)
+            .distinct()
+            .order_by(model::capture::Column::CreatedAt, sea_orm::Order::Desc)
+            .limit(num_captures)
+            .into_tuple::<(i32, chrono::DateTime<chrono::Utc>)>()
+            .all(&db.conn)
+            .await?;
+
+    let capture_ids = capture_rows
         .into_iter()
-        .map(|si| si.illumination_id)
+        .map(|(capture_id, _)| capture_id)
         .collect::<Vec<i32>>();
 
-    let capture_ids = model::illumination::Entity::find()
-        .filter(model::illumination::Column::Id.is_in(iids_matching.clone()))
-        .column(model::illumination::Column::CaptureId)
-        .all(&db.conn)
-        .await?
-        .into_iter()
-        .map(|illum| illum.capture_id)
-        .collect::<Vec<i32>>();
+    if capture_ids.is_empty() {
+        return Ok(vec![]);
+    }
 
-    let captures = super::get_captures(&db, user_context, Some(capture_ids)).await?;
+    let captures = super::get_captures(&db, user_context, capture_ids).await?;
 
     Ok(captures)
 }

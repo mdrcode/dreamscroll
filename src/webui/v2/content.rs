@@ -90,8 +90,9 @@ pub async fn search_cards(
     user_api: &api::UserApiClient,
     context: &auth::Context,
     q: &str,
+    limit: u64,
 ) -> Result<Vec<FeedCard>, api::ApiError> {
-    let capture_infos = user_api.search(context, q).await?;
+    let capture_infos = user_api.search(context, q, Some(limit)).await?;
     Ok(cards_from_captures(capture_infos))
 }
 
@@ -119,7 +120,7 @@ pub async fn load_spark_cards(
         vec![]
     } else {
         user_api
-            .get_captures(context, Some(referenced_capture_ids))
+            .get_captures(context, referenced_capture_ids)
             .await?
     };
 
@@ -183,12 +184,13 @@ pub(super) async fn cards_for_query(
     query: &ContentQuery,
 ) -> Result<Vec<FeedCard>, api::ApiError> {
     let q = query.query_text();
+    let limit = query.limit();
 
     if q.is_empty() {
-        return timeline_cards(user_api, context_user, query.content_mode(), query.limit()).await;
+        return timeline_cards(user_api, context_user, query.content_mode(), limit).await;
     }
 
-    search_cards(user_api, context_user, q).await
+    search_cards(user_api, context_user, q, limit).await
 }
 
 pub(super) async fn timeline_cards(
@@ -200,11 +202,11 @@ pub(super) async fn timeline_cards(
     match mode {
         FeedContent::Sparks => load_spark_cards(user_api, context_user, limit).await,
         FeedContent::Captures => {
-            let capture_infos = user_api.get_timeline(context_user, Some(limit)).await?;
+            let capture_infos = user_api.get_timeline(context_user, limit).await?;
             Ok(cards_from_captures(capture_infos))
         }
         FeedContent::Blend => {
-            let capture_infos = user_api.get_timeline(context_user, Some(limit)).await?;
+            let capture_infos = user_api.get_timeline(context_user, limit).await?;
             let capture_cards = cards_from_captures(capture_infos);
             let spark_cards = load_spark_cards(user_api, context_user, limit).await?;
             Ok(blend_capture_and_spark_cards(capture_cards, spark_cards))

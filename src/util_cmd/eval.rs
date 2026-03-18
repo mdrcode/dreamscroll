@@ -37,7 +37,7 @@ pub async fn run(state: CmdState, args: EvalArgs) -> anyhow::Result<()> {
 
     let mut fetch = state
         .user_api
-        .get_captures(&user.into(), Some(vec![capture_id]))
+        .get_captures(&user.into(), vec![capture_id])
         .await
         .map_err(|_| anyhow!("Capture with ID {} not found in database.", capture_id))?;
     let capture_info = fetch.remove(0);

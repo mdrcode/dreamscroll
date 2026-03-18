@@ -1,5 +1,7 @@
 use std::sync::Arc;
 
+use anyhow::anyhow;
+
 use axum::{
     Json,
     extract::{Path, State},
@@ -22,10 +24,9 @@ pub struct CaptureQuery {
 /// GET /api/captures - Fetch captures by IDs
 ///
 /// Query parameters:
-/// - `id` (optional, repeatable): Specific capture IDs to fetch
+/// - `id` (required, repeatable): Specific capture IDs to fetch
 ///
 /// Examples:
-/// - `GET /api/captures` - returns all captures
 /// - `GET /api/captures?id=123` - returns capture 123
 /// - `GET /api/captures?id=123&id=456&id=789` - returns captures 123, 456, and 789
 ///
@@ -38,13 +39,13 @@ pub async fn get(
     State(state): State<Arc<RestState>>,
     Query(query): Query<CaptureQuery>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let ids = if query.id.is_empty() {
-        None
-    } else {
-        Some(query.id)
-    };
+    if query.id.is_empty() {
+        return Err(api::ApiError::bad_request(anyhow!(
+            "At least one id query parameter is required."
+        )));
+    }
 
-    let capture_infos = state.user_api.get_captures(&user.into(), ids).await?;
+    let capture_infos = state.user_api.get_captures(&user.into(), query.id).await?;
 
     Ok(Json(capture_infos))
 }

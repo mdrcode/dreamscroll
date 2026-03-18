@@ -20,7 +20,7 @@ pub async fn get_knode(
         )));
     };
 
-    let capture = super::get_captures(&db, context, Some(vec![knode.capture_id])).await?;
+    let capture = super::get_captures(&db, context, vec![knode.capture_id]).await?;
 
     let Some(capture) = capture.into_iter().next() else {
         return Err(ApiError::not_found(anyhow!(
@@ -49,7 +49,7 @@ pub async fn get_social_media(
         )));
     };
 
-    let capture = super::get_captures(&db, context, Some(vec![social_media.capture_id])).await?;
+    let capture = super::get_captures(&db, context, vec![social_media.capture_id]).await?;
 
     let Some(capture) = capture.into_iter().next() else {
         return Err(ApiError::not_found(anyhow!(

@@ -76,7 +76,7 @@ pub async fn get(
         } else {
             state
                 .user_api
-                .get_captures(&user_context, Some(referenced_capture_ids))
+                .get_captures(&user_context, referenced_capture_ids)
                 .await?
         };
 

@@ -25,7 +25,8 @@ pub async fn get(
     let user = auth.user.unwrap();
     let user_id = user.id();
 
-    let capture_infos = state.user_api.get_timeline(&user.into(), query.n).await?;
+    let limit = query.n.unwrap_or(100);
+    let capture_infos = state.user_api.get_timeline(&user.into(), limit).await?;
     tracing::info!(
         "Got {} capture infos for user ID {}",
         capture_infos.len(),
