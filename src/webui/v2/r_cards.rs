@@ -12,7 +12,7 @@ use crate::{api, auth};
 
 use super::{
     WebState,
-    content::{ContentQuery, cards_for_query},
+    content::{ContentSpec, render_content},
 };
 
 pub async fn get(
@@ -20,7 +20,7 @@ pub async fn get(
     State(state): State<Arc<WebState>>,
     original_uri: OriginalUri,
     headers: HeaderMap,
-    Query(query): Query<ContentQuery>,
+    Query(query): Query<ContentSpec>,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
     let context_user = user.into();
@@ -40,7 +40,7 @@ pub async fn get(
         return Ok(Redirect::to(&canonical).into_response());
     }
 
-    let cards = cards_for_query(&state.user_api, &context_user, &query).await?;
+    let cards = render_content(&state.user_api, &context_user, &query).await?;
 
     let mut context = state.template_context();
     context.insert("cards", &cards);

@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use sea_orm::prelude::*;
 
 use crate::{
@@ -96,7 +98,37 @@ impl InfoMaker {
         }
     }
 
-    pub fn make_spark_info(&self, spark_model: model::spark::ModelEx) -> SparkInfo {
+    pub fn make_capture_preview_info(
+        &self,
+        capture_model: &model::capture::ModelEx,
+    ) -> Option<CapturePreviewInfo> {
+        let media = match &capture_model.medias {
+            HasMany::Unloaded => return None,
+            HasMany::Loaded(models) => models.first()?,
+        };
+
+        let summary = match &capture_model.illuminations {
+            HasMany::Unloaded => "No capture summary available.".to_string(),
+            HasMany::Loaded(models) => models
+                .first()
+                .map(|illum| illum.summary.clone())
+                .unwrap_or_else(|| "No capture summary available.".to_string()),
+        };
+
+        let handle = storage::StorageHandle::from(media);
+
+        Some(CapturePreviewInfo {
+            id: capture_model.id,
+            url: self.url_maker.make_url(&handle),
+            summary,
+        })
+    }
+
+    pub fn make_spark_info(
+        &self,
+        spark_model: model::spark::ModelEx,
+        capture_preview_map: &HashMap<i32, CapturePreviewInfo>,
+    ) -> SparkInfo {
         let mut input_pairs = match spark_model.spark_input_refs {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(models) => models
@@ -114,7 +146,7 @@ impl InfoMaker {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(models) => models
                 .into_iter()
-                .map(|m| self.make_spark_cluster_info(m))
+                .map(|m| self.make_spark_cluster_info(m, capture_preview_map))
                 .collect(),
         };
 
@@ -146,6 +178,7 @@ impl InfoMaker {
     pub fn make_spark_cluster_info(
         &self,
         spark_cluster_model: model::spark_cluster::ModelEx,
+        capture_preview_map: &HashMap<i32, CapturePreviewInfo>,
     ) -> SparkClusterInfo {
         let spark_links = match spark_cluster_model.spark_links {
             HasMany::Unloaded => vec![],
@@ -157,11 +190,17 @@ impl InfoMaker {
             HasMany::Loaded(models) => models.into_iter().map(|m| m.capture_id).collect(),
         };
 
+        let capture_previews = referenced_capture_ids
+            .iter()
+            .filter_map(|capture_id| capture_preview_map.get(capture_id).cloned())
+            .collect();
+
         SparkClusterInfo {
             id: spark_cluster_model.id,
             title: spark_cluster_model.title,
             summary: spark_cluster_model.summary,
             referenced_capture_ids,
+            capture_previews,
             spark_links,
         }
     }

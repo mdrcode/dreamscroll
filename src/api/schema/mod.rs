@@ -6,6 +6,9 @@ pub use infomaker::InfoMaker;
 mod captureinfo;
 pub use captureinfo::CaptureInfo;
 
+mod capturepreviewinfo;
+pub use capturepreviewinfo::CapturePreviewInfo;
+
 mod entityinfo;
 pub use entityinfo::EntityInfo;
 

@@ -1,5 +1,5 @@
 use chrono::{DateTime, Utc};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use anyhow::anyhow;
 
@@ -66,10 +66,64 @@ impl UserApiClient {
     ) -> Result<Vec<schema::SparkInfo>, ApiError> {
         let sparks = super::get_sparks(&self.db, context, spark_ids).await?;
 
+        self.make_spark_infos_from_models(context, sparks).await
+    }
+
+    #[tracing::instrument(skip(self, context, sparks))]
+    async fn make_spark_infos_from_models(
+        &self,
+        context: &auth::Context,
+        sparks: Vec<crate::model::spark::ModelEx>,
+    ) -> Result<Vec<schema::SparkInfo>, ApiError> {
+        let referenced_capture_ids: Vec<i32> = sparks
+            .iter()
+            .flat_map(|spark| match &spark.spark_clusters {
+                sea_orm::prelude::HasMany::Unloaded => Vec::new(),
+                sea_orm::prelude::HasMany::Loaded(clusters) => clusters
+                    .iter()
+                    .flat_map(|cluster| match &cluster.spark_output_refs {
+                        sea_orm::prelude::HasMany::Unloaded => Vec::new(),
+                        sea_orm::prelude::HasMany::Loaded(output_refs) => {
+                            output_refs.iter().map(|r| r.capture_id).collect()
+                        }
+                    })
+                    .collect(),
+            })
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+
+        let capture_preview_map: HashMap<i32, schema::CapturePreviewInfo> =
+            if referenced_capture_ids.is_empty() {
+                HashMap::new()
+            } else {
+                let captures =
+                    super::get_captures(&self.db, context, referenced_capture_ids).await?;
+                captures
+                    .into_iter()
+                    .filter_map(|capture| {
+                        self.info_maker
+                            .make_capture_preview_info(&capture)
+                            .map(|preview| (capture.id, preview))
+                    })
+                    .collect()
+            };
+
         Ok(sparks
             .into_iter()
-            .map(|m| self.info_maker.make_spark_info(m))
+            .map(|m| self.info_maker.make_spark_info(m, &capture_preview_map))
             .collect())
+    }
+
+    #[tracing::instrument(skip(self, context))]
+    pub async fn get_timeline_sparks(
+        &self,
+        context: &auth::Context,
+        limit: u64,
+    ) -> Result<Vec<schema::SparkInfo>, ApiError> {
+        let sparks = super::get_timeline_sparks(&self.db, context, limit).await?;
+
+        self.make_spark_infos_from_models(context, sparks).await
     }
 
     #[tracing::instrument(skip(self, context))]
@@ -103,12 +157,12 @@ impl UserApiClient {
     }
 
     #[tracing::instrument(skip(self, context))]
-    pub async fn get_timeline(
+    pub async fn get_timeline_captures(
         &self,
         context: &auth::Context,
         limit: u64,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
-        let captures = super::get_timeline(&self.db, context, limit).await;
+        let captures = super::get_timeline_captures(&self.db, context, limit).await;
 
         Ok(captures?
             .into_iter()

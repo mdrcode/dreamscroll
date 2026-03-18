@@ -3,7 +3,7 @@ use sea_orm::{QueryOrder, QuerySelect};
 
 use crate::{api::*, auth, database::DbHandle, model};
 
-pub async fn get_timeline(
+pub async fn get_timeline_captures(
     db: &DbHandle,
     user_context: &auth::Context,
     limit: u64,

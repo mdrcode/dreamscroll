@@ -1,4 +1,7 @@
+use std::collections::HashMap;
+
 use sea_orm::prelude::*;
+use sea_orm::{QueryOrder, QuerySelect};
 
 use crate::{api::*, auth, database::DbHandle, model};
 
@@ -27,4 +30,39 @@ pub async fn get_sparks(
         .await?;
 
     Ok(loader)
+}
+
+pub async fn get_timeline_sparks(
+    db: &DbHandle,
+    context: &auth::Context,
+    limit: u64,
+) -> Result<Vec<model::spark::ModelEx>, ApiError> {
+    if limit == 0 {
+        return Ok(vec![]);
+    }
+
+    let spark_ids = model::spark::Entity::find()
+        .filter(model::spark::Column::UserId.eq(context.user_id()))
+        .order_by(model::spark::Column::CreatedAt, sea_orm::Order::Desc)
+        .limit(limit)
+        .all(&db.conn)
+        .await?
+        .into_iter()
+        .map(|spark| spark.id)
+        .collect::<Vec<i32>>();
+
+    if spark_ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let sparks = get_sparks(db, context, Some(spark_ids.clone())).await?;
+    let mut sparks_by_id: HashMap<i32, model::spark::ModelEx> =
+        sparks.into_iter().map(|spark| (spark.id, spark)).collect();
+
+    let ordered = spark_ids
+        .into_iter()
+        .filter_map(|spark_id| sparks_by_id.remove(&spark_id))
+        .collect();
+
+    Ok(ordered)
 }

@@ -87,14 +87,14 @@ function setupSearchEndpointRouting() {
     }
 
     searchForm.addEventListener('submit', function (e) {
-        const q = searchInput.value.trim();
-        if (!q.startsWith('/')) {
+        const query = searchInput.value.trim();
+        if (!query.startsWith('/')) {
             return;
         }
 
         e.preventDefault();
         window.htmx.ajax('POST', '/command', {
-            values: { q: q },
+            values: { raw_command: query },
             target: '#card-feed',
             swap: 'none'
         });
@@ -104,17 +104,17 @@ function setupSearchEndpointRouting() {
         if (!feedControls) {
             return;
         }
-        const q = searchInput.value.trim();
-        if (q.startsWith('/')) {
+        const query = searchInput.value.trim();
+        if (query.startsWith('/')) {
             return;
         }
-        feedControls.style.display = q.length > 0 ? 'none' : '';
+        feedControls.style.display = query.length > 0 ? 'none' : '';
     });
 
     searchForm.addEventListener('htmx:configRequest', function (e) {
         const state = getCurrentFeedState();
 
-        if (state.q.startsWith('/')) {
+        if (state.query.startsWith('/')) {
             e.preventDefault();
             return;
         }
@@ -149,15 +149,15 @@ function getCurrentFeedState() {
     const searchInput = document.getElementById('header-search-input');
 
     return {
-        n: currentLimitParam(),
+        limit: currentLimitParam(),
         content: modeInput && modeInput.value ? modeInput.value : 'blend',
-        q: searchInput ? searchInput.value.trim() : ''
+        query: searchInput ? searchInput.value.trim() : ''
     };
 }
 
 function applyFeedParameters(parameters, state, includeContent) {
-    setFeedParameter(parameters, 'n', state.n);
-    setFeedParameter(parameters, 'q', state.q);
+    setFeedParameter(parameters, 'limit', state.limit);
+    setFeedParameter(parameters, 'query', state.query);
 
     if (includeContent && state.content !== 'blend') {
         setFeedParameter(parameters, 'content', state.content);
@@ -189,11 +189,11 @@ function setupCaptureExpandToggle(rootNode) {
 
 function currentLimitParam() {
     const params = new URLSearchParams(window.location.search || '');
-    const n = params.get('n');
-    if (!n) {
+    const limit = params.get('limit');
+    if (!limit) {
         return null;
     }
-    return n;
+    return limit;
 }
 
 function buildFeedUrlFromCurrentState() {

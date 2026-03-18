@@ -16,7 +16,7 @@ use super::WebState;
 #[derive(Debug, Deserialize)]
 pub struct CommandForm {
     #[serde(default)]
-    pub q: String,
+    pub raw_command: String,
 }
 
 pub async fn post(
@@ -27,13 +27,13 @@ pub async fn post(
     let user = auth.user.unwrap();
     let context_user = user.into();
 
-    let q = form.q.trim();
+    let raw_command = form.raw_command.trim();
 
-    if !q.starts_with('/') {
-        return Err(anyhow!("Expected slash command in q parameter.").into());
+    if !raw_command.starts_with('/') {
+        return Err(anyhow!("Expected slash command in raw_command parameter.").into());
     }
 
-    crate::webui::slash_command::process(q, &context_user, &state.user_api).await?;
+    crate::webui::slash_command::process(raw_command, &context_user, &state.user_api).await?;
 
     let mut response = StatusCode::NO_CONTENT.into_response();
     response.headers_mut().insert(

@@ -5,9 +5,9 @@
 
     {% for cluster_card in card.clusters %}
     <article class="spark-cluster">
-        {% if cluster_card.capture_thumbs | length > 0 %}
+        {% if cluster_card.capture_previews | length > 0 %}
         <div class="spark-capture-list">
-            {% for capture in cluster_card.capture_thumbs %}
+            {% for capture in cluster_card.capture_previews %}
             <a href="/v1/detail/{{ capture.id }}" class="spark-capture-item" title="Capture {{ capture.id }}">
                 <div class="spark-capture-thumb">
                     <img src="{{ capture.url }}" alt="capture {{ capture.id }}">

@@ -1,20 +1,18 @@
-use std::collections::{BTreeSet, HashMap};
-
 use serde::{Deserialize, Serialize};
 
 use crate::{api, auth};
 
 #[derive(Debug, Deserialize)]
-pub(super) struct ContentQuery {
+pub(super) struct ContentSpec {
     #[serde(default)]
-    pub q: String,
-    pub n: Option<u64>,
+    pub query: String,
+    pub limit: Option<u64>,
     pub content: Option<FeedContent>,
 }
 
-impl ContentQuery {
+impl ContentSpec {
     pub(super) fn search_query(&self) -> &str {
-        self.q.trim()
+        self.query.trim()
     }
 
     pub(super) fn is_search(&self) -> bool {
@@ -22,7 +20,7 @@ impl ContentQuery {
     }
 
     pub(super) fn limit(&self) -> u64 {
-        self.n.unwrap_or(100)
+        self.limit.unwrap_or(100)
     }
 
     pub(super) fn content_mode(&self) -> FeedContent {
@@ -30,7 +28,7 @@ impl ContentQuery {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum FeedContent {
     Blend,
@@ -38,28 +36,18 @@ pub(super) enum FeedContent {
     Sparks,
 }
 
-impl FeedContent {
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::Blend => "blend",
-            Self::Captures => "captures",
-            Self::Sparks => "sparks",
-        }
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum FeedCard {
+pub enum Card {
     Capture(CaptureCard),
     Spark(SparkCard),
 }
 
-impl FeedCard {
+impl Card {
     fn created_at(&self) -> chrono::DateTime<chrono::Utc> {
         match self {
-            FeedCard::Capture(capture_card) => capture_card.capture.created_at,
-            FeedCard::Spark(spark_card) => spark_card.spark.created_at,
+            Card::Capture(capture_card) => capture_card.capture.created_at,
+            Card::Spark(spark_card) => spark_card.spark.created_at,
         }
     }
 }
@@ -78,105 +66,65 @@ pub struct SparkCard {
 #[derive(Debug, Clone, Serialize)]
 pub struct SparkClusterCard {
     pub cluster: api::SparkClusterInfo,
-    pub capture_thumbs: Vec<SparkCaptureThumb>,
+    pub capture_previews: Vec<api::CapturePreviewInfo>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-pub struct SparkCaptureThumb {
-    pub id: i32,
-    pub url: String,
-    pub summary: String,
-}
-
-pub fn cards_from_captures(captures: Vec<api::CaptureInfo>) -> Vec<FeedCard> {
-    captures
-        .into_iter()
-        .map(|capture| FeedCard::Capture(CaptureCard { capture }))
-        .collect()
-}
-
-pub(super) async fn timeline_cards(
+pub(super) async fn render_content(
     user_api: &api::UserApiClient,
     context_user: &auth::Context,
-    mode: FeedContent,
-    limit: u64,
-) -> Result<Vec<FeedCard>, api::ApiError> {
-    match mode {
-        FeedContent::Sparks => load_spark_cards(user_api, context_user, limit).await,
-        FeedContent::Captures => {
-            let capture_infos = user_api.get_timeline(context_user, limit).await?;
-            Ok(cards_from_captures(capture_infos))
-        }
-        FeedContent::Blend => {
-            let capture_infos = user_api.get_timeline(context_user, limit).await?;
-            let capture_cards = cards_from_captures(capture_infos);
-            let spark_cards = load_spark_cards(user_api, context_user, limit).await?;
-            Ok(blend_capture_and_spark_cards(capture_cards, spark_cards))
-        }
+    spec: &ContentSpec,
+) -> Result<Vec<Card>, api::ApiError> {
+    if spec.is_search() {
+        render_search(user_api, context_user, spec.search_query(), spec.limit()).await
+    } else {
+        render_timeline(user_api, context_user, spec.content_mode(), spec.limit()).await
     }
 }
 
-pub async fn search_cards(
+async fn render_search(
     user_api: &api::UserApiClient,
     context: &auth::Context,
     q: &str,
     limit: u64,
-) -> Result<Vec<FeedCard>, api::ApiError> {
+) -> Result<Vec<Card>, api::ApiError> {
     let capture_infos = user_api.search(context, q, Some(limit)).await?;
     Ok(cards_from_captures(capture_infos))
 }
 
-pub async fn load_spark_cards(
+async fn render_timeline(
     user_api: &api::UserApiClient,
-    context: &auth::Context,
+    context_user: &auth::Context,
+    feed_mix: FeedContent,
     limit: u64,
-) -> Result<Vec<FeedCard>, api::ApiError> {
-    let mut sparks = user_api.get_sparks(context, None).await?;
-    sparks.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-    let selected_sparks: Vec<api::SparkInfo> = sparks.into_iter().take(limit as usize).collect();
+) -> Result<Vec<Card>, api::ApiError> {
+    match feed_mix {
+        FeedContent::Sparks => {
+            let sparks = user_api.get_timeline_sparks(context_user, limit).await?;
+            Ok(cards_from_sparks(sparks))
+        }
+        FeedContent::Captures => {
+            let capture_infos = user_api.get_timeline_captures(context_user, limit).await?;
+            Ok(cards_from_captures(capture_infos))
+        }
+        FeedContent::Blend => {
+            let capture_infos = user_api.get_timeline_captures(context_user, limit).await?;
+            let capture_cards = cards_from_captures(capture_infos);
+            let sparks = user_api.get_timeline_sparks(context_user, limit).await?;
+            let spark_cards = cards_from_sparks(sparks);
+            Ok(blend(capture_cards, spark_cards))
+        }
+    }
+}
 
-    let referenced_capture_ids: Vec<i32> = selected_sparks
-        .iter()
-        .flat_map(|spark| {
-            spark
-                .spark_clusters
-                .iter()
-                .flat_map(|cluster| cluster.referenced_capture_ids.iter().copied())
-        })
-        .collect::<BTreeSet<_>>()
+fn cards_from_captures(captures: Vec<api::CaptureInfo>) -> Vec<Card> {
+    captures
         .into_iter()
-        .collect();
-    let captures = if referenced_capture_ids.is_empty() {
-        vec![]
-    } else {
-        user_api
-            .get_captures(context, referenced_capture_ids)
-            .await?
-    };
+        .map(|capture| Card::Capture(CaptureCard { capture }))
+        .collect()
+}
 
-    let capture_thumb_map: HashMap<i32, SparkCaptureThumb> = captures
-        .into_iter()
-        .filter_map(|capture| {
-            let summary = capture
-                .illuminations
-                .first()
-                .map(|illum| illum.summary.clone())
-                .unwrap_or_else(|| "No capture summary available.".to_string());
-
-            capture.medias.first().map(|media| {
-                (
-                    capture.id,
-                    SparkCaptureThumb {
-                        id: capture.id,
-                        url: media.url.clone(),
-                        summary,
-                    },
-                )
-            })
-        })
-        .collect();
-
-    Ok(selected_sparks
+fn cards_from_sparks(sparks: Vec<api::SparkInfo>) -> Vec<Card> {
+    sparks
         .into_iter()
         .map(|spark| {
             let clusters = spark
@@ -184,41 +132,19 @@ pub async fn load_spark_cards(
                 .iter()
                 .map(|cluster| SparkClusterCard {
                     cluster: cluster.clone(),
-                    capture_thumbs: cluster
-                        .referenced_capture_ids
-                        .iter()
-                        .filter_map(|capture_id| capture_thumb_map.get(capture_id).cloned())
-                        .collect(),
+                    capture_previews: cluster.capture_previews.clone(),
                 })
                 .collect();
 
-            FeedCard::Spark(SparkCard { spark, clusters })
+            Card::Spark(SparkCard { spark, clusters })
         })
-        .collect())
+        .collect()
 }
 
-pub fn blend_capture_and_spark_cards(
-    capture_cards: Vec<FeedCard>,
-    spark_cards: Vec<FeedCard>,
-) -> Vec<FeedCard> {
+fn blend(capture_cards: Vec<Card>, spark_cards: Vec<Card>) -> Vec<Card> {
     let mut cards = Vec::with_capacity(capture_cards.len() + spark_cards.len());
     cards.extend(capture_cards);
     cards.extend(spark_cards);
     cards.sort_by(|a, b| b.created_at().cmp(&a.created_at()));
     cards
-}
-
-pub(super) async fn cards_for_query(
-    user_api: &api::UserApiClient,
-    context_user: &auth::Context,
-    query: &ContentQuery,
-) -> Result<Vec<FeedCard>, api::ApiError> {
-    let q = query.search_query();
-    let limit = query.limit();
-
-    if q.is_empty() {
-        return timeline_cards(user_api, context_user, query.content_mode(), limit).await;
-    }
-
-    search_cards(user_api, context_user, q, limit).await
 }

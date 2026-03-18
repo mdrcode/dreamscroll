@@ -11,27 +11,27 @@ use crate::{api, auth};
 
 use super::{
     WebState,
-    content::{ContentQuery, cards_for_query},
+    content::{ContentSpec, render_content},
 };
 
 pub async fn get(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
-    Query(query): Query<ContentQuery>,
+    Query(query): Query<ContentSpec>,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
     let context_user = user.into();
 
-    let is_search_mode = query.is_search();
-    let cards = cards_for_query(&state.user_api, &context_user, &query).await?;
+    let is_search = query.is_search();
+    let cards = render_content(&state.user_api, &context_user, &query).await?;
     let q = query.search_query();
     let content = query.content_mode();
 
     let mut context = state.template_context();
-    context.insert("is_search_mode", &is_search_mode);
+    context.insert("is_search", &is_search);
     context.insert("query", q);
     context.insert("cards", &cards);
-    context.insert("content_mode", content.as_str());
+    context.insert("content_mode", &content);
 
     let rendered = state
         .tera
