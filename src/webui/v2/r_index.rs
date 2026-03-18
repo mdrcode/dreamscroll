@@ -22,9 +22,9 @@ pub async fn get(
     let user = auth.user.unwrap();
     let context_user = user.into();
 
-    let is_search_mode = query.is_search_mode();
+    let is_search_mode = query.is_search();
     let cards = cards_for_query(&state.user_api, &context_user, &query).await?;
-    let q = query.query_text();
+    let q = query.search_query();
     let content = query.content_mode();
 
     let mut context = state.template_context();

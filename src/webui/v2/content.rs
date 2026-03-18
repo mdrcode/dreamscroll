@@ -4,6 +4,32 @@ use serde::{Deserialize, Serialize};
 
 use crate::{api, auth};
 
+#[derive(Debug, Deserialize)]
+pub(super) struct ContentQuery {
+    #[serde(default)]
+    pub q: String,
+    pub n: Option<u64>,
+    pub content: Option<FeedContent>,
+}
+
+impl ContentQuery {
+    pub(super) fn search_query(&self) -> &str {
+        self.q.trim()
+    }
+
+    pub(super) fn is_search(&self) -> bool {
+        !self.search_query().is_empty()
+    }
+
+    pub(super) fn limit(&self) -> u64 {
+        self.n.unwrap_or(100)
+    }
+
+    pub(super) fn content_mode(&self) -> FeedContent {
+        self.content.unwrap_or(FeedContent::Blend)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub(super) enum FeedContent {
@@ -22,37 +48,20 @@ impl FeedContent {
     }
 }
 
-#[derive(Debug, Deserialize)]
-pub(super) struct ContentQuery {
-    #[serde(default)]
-    pub q: String,
-    pub n: Option<u64>,
-    pub content: Option<FeedContent>,
-}
-
-impl ContentQuery {
-    pub(super) fn query_text(&self) -> &str {
-        self.q.trim()
-    }
-
-    pub(super) fn is_search_mode(&self) -> bool {
-        !self.query_text().is_empty()
-    }
-
-    pub(super) fn limit(&self) -> u64 {
-        self.n.unwrap_or(50)
-    }
-
-    pub(super) fn content_mode(&self) -> FeedContent {
-        self.content.unwrap_or(FeedContent::Blend)
-    }
-}
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FeedCard {
     Capture(CaptureCard),
     Spark(SparkCard),
+}
+
+impl FeedCard {
+    fn created_at(&self) -> chrono::DateTime<chrono::Utc> {
+        match self {
+            FeedCard::Capture(capture_card) => capture_card.capture.created_at,
+            FeedCard::Spark(spark_card) => spark_card.spark.created_at,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -84,6 +93,27 @@ pub fn cards_from_captures(captures: Vec<api::CaptureInfo>) -> Vec<FeedCard> {
         .into_iter()
         .map(|capture| FeedCard::Capture(CaptureCard { capture }))
         .collect()
+}
+
+pub(super) async fn timeline_cards(
+    user_api: &api::UserApiClient,
+    context_user: &auth::Context,
+    mode: FeedContent,
+    limit: u64,
+) -> Result<Vec<FeedCard>, api::ApiError> {
+    match mode {
+        FeedContent::Sparks => load_spark_cards(user_api, context_user, limit).await,
+        FeedContent::Captures => {
+            let capture_infos = user_api.get_timeline(context_user, limit).await?;
+            Ok(cards_from_captures(capture_infos))
+        }
+        FeedContent::Blend => {
+            let capture_infos = user_api.get_timeline(context_user, limit).await?;
+            let capture_cards = cards_from_captures(capture_infos);
+            let spark_cards = load_spark_cards(user_api, context_user, limit).await?;
+            Ok(blend_capture_and_spark_cards(capture_cards, spark_cards))
+        }
+    }
 }
 
 pub async fn search_cards(
@@ -174,7 +204,7 @@ pub fn blend_capture_and_spark_cards(
     let mut cards = Vec::with_capacity(capture_cards.len() + spark_cards.len());
     cards.extend(capture_cards);
     cards.extend(spark_cards);
-    cards.sort_by(|a, b| feed_card_created_at(b).cmp(&feed_card_created_at(a)));
+    cards.sort_by(|a, b| b.created_at().cmp(&a.created_at()));
     cards
 }
 
@@ -183,7 +213,7 @@ pub(super) async fn cards_for_query(
     context_user: &auth::Context,
     query: &ContentQuery,
 ) -> Result<Vec<FeedCard>, api::ApiError> {
-    let q = query.query_text();
+    let q = query.search_query();
     let limit = query.limit();
 
     if q.is_empty() {
@@ -191,32 +221,4 @@ pub(super) async fn cards_for_query(
     }
 
     search_cards(user_api, context_user, q, limit).await
-}
-
-pub(super) async fn timeline_cards(
-    user_api: &api::UserApiClient,
-    context_user: &auth::Context,
-    mode: FeedContent,
-    limit: u64,
-) -> Result<Vec<FeedCard>, api::ApiError> {
-    match mode {
-        FeedContent::Sparks => load_spark_cards(user_api, context_user, limit).await,
-        FeedContent::Captures => {
-            let capture_infos = user_api.get_timeline(context_user, limit).await?;
-            Ok(cards_from_captures(capture_infos))
-        }
-        FeedContent::Blend => {
-            let capture_infos = user_api.get_timeline(context_user, limit).await?;
-            let capture_cards = cards_from_captures(capture_infos);
-            let spark_cards = load_spark_cards(user_api, context_user, limit).await?;
-            Ok(blend_capture_and_spark_cards(capture_cards, spark_cards))
-        }
-    }
-}
-
-fn feed_card_created_at(card: &FeedCard) -> chrono::DateTime<chrono::Utc> {
-    match card {
-        FeedCard::Capture(capture_card) => capture_card.capture.created_at,
-        FeedCard::Spark(spark_card) => spark_card.spark.created_at,
-    }
 }
