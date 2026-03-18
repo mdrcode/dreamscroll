@@ -1,4 +1,8 @@
 document.addEventListener('DOMContentLoaded', function () {
+    if (!window.htmx) {
+        throw new Error('HTMX is required for webui-v2.js but was not found on window.htmx.');
+    }
+
     setupSearchShortcut();
     setupSearchClearButton();
     setupSearchEndpointRouting();
@@ -66,13 +70,7 @@ function setupSearchClearButton() {
             feedControls.style.display = '';
         }
 
-        if (window.htmx) {
-            window.htmx.trigger(searchForm, 'submit');
-        } else if (searchForm.requestSubmit) {
-            searchForm.requestSubmit();
-        } else {
-            searchForm.submit();
-        }
+        window.htmx.trigger(searchForm, 'submit');
         searchInput.focus();
     });
 
@@ -95,21 +93,10 @@ function setupSearchEndpointRouting() {
         }
 
         e.preventDefault();
-        if (window.htmx) {
-            window.htmx.ajax('POST', '/command', {
-                values: { q: q },
-                target: '#card-feed',
-                swap: 'none'
-            });
-            return;
-        }
-
-        fetch('/command', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8'
-            },
-            body: new URLSearchParams({ q: q })
+        window.htmx.ajax('POST', '/command', {
+            values: { q: q },
+            target: '#card-feed',
+            swap: 'none'
         });
     }, true);
 
@@ -209,32 +196,10 @@ function reloadFeedFrame() {
     }
 
     const url = buildFeedUrlFromCurrentState();
-    if (window.htmx) {
-        window.htmx.ajax('GET', url, {
-            target: '#card-feed',
-            swap: 'innerHTML'
-        });
-        return;
-    }
-
-    fetch(url, {
-        headers: {
-            'HX-Request': 'true'
-        }
-    })
-        .then(function (response) {
-            if (!response.ok) {
-                throw new Error('Failed to reload feed after upload');
-            }
-            return response.text();
-        })
-        .then(function (html) {
-            cardFeed.innerHTML = html;
-            setupCaptureExpandToggle(cardFeed);
-        })
-        .catch(function (error) {
-            console.error(error);
-        });
+    window.htmx.ajax('GET', url, {
+        target: '#card-feed',
+        swap: 'innerHTML'
+    });
 }
 
 function setupFeedModeControls() {
@@ -254,19 +219,10 @@ function setupFeedModeControls() {
 
     function requestFeed() {
         const url = buildFeedUrlFromCurrentState();
-        if (window.htmx) {
-            window.htmx.ajax('GET', url, {
-                target: '#card-feed',
-                swap: 'innerHTML'
-            });
-            return;
-        }
-
-        if (url.startsWith('/cards?')) {
-            window.location.href = '/?' + url.slice('/cards?'.length);
-            return;
-        }
-        window.location.href = '/';
+        window.htmx.ajax('GET', url, {
+            target: '#card-feed',
+            swap: 'innerHTML'
+        });
     }
 
     modeButtons.forEach(function (btn) {
