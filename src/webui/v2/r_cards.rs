@@ -7,29 +7,20 @@ use axum::{
     response::{Html, IntoResponse, Redirect, Response},
 };
 use axum_login::AuthSession;
-use serde::Deserialize;
 
 use crate::{api, auth};
 
 use super::{
     WebState,
-    content::{FeedContent, search_cards, timeline_cards},
+    content::{ContentQuery, search_cards, timeline_cards},
 };
-
-#[derive(Debug, Deserialize)]
-pub struct CardsContentQuery {
-    #[serde(default)]
-    pub q: String,
-    pub n: u64,
-    pub content: FeedContent,
-}
 
 pub async fn get(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     original_uri: OriginalUri,
     headers: HeaderMap,
-    Query(query): Query<CardsContentQuery>,
+    Query(query): Query<ContentQuery>,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
     let context_user = user.into();
@@ -49,10 +40,12 @@ pub async fn get(
         return Ok(Redirect::to(&canonical).into_response());
     }
 
-    let q = query.q.trim();
+    let q = query.query_text();
+    let content = query.content_mode();
+    let limit = query.limit();
 
     let cards = if q.is_empty() {
-        timeline_cards(&state.user_api, &context_user, query.content, query.n).await?
+        timeline_cards(&state.user_api, &context_user, content, limit).await?
     } else {
         search_cards(&state.user_api, &context_user, q).await?
     };

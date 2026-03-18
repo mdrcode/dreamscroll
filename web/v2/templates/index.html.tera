@@ -32,8 +32,7 @@
                 hx-swap="innerHTML"
                 hx-push-url="true"
                 hx-trigger="submit">
-                <input type="hidden" name="n" value="30">
-                <input type="hidden" id="feed-mode-input" name="content" value="{{ content_mode | default(value="blend") }}">
+                <input type="hidden" id="feed-mode-input" value="{{ content_mode | default(value="blend") }}">
                 <div id="header-search-input-wrap">
                     <input id="header-search-input"
                         type="text"

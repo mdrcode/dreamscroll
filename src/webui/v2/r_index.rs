@@ -6,35 +6,26 @@ use axum::{
     response::{Html, IntoResponse, Response},
 };
 use axum_login::AuthSession;
-use serde::Deserialize;
 
 use crate::{api, auth};
 
 use super::{
     WebState,
-    content::{FeedContent, search_cards, timeline_cards},
+    content::{ContentQuery, search_cards, timeline_cards},
 };
-
-#[derive(Debug, Deserialize)]
-pub struct IndexQuery {
-    #[serde(default)]
-    pub q: String,
-    pub n: Option<u64>,
-    pub content: Option<FeedContent>,
-}
 
 pub async fn get(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
-    Query(query): Query<IndexQuery>,
+    Query(query): Query<ContentQuery>,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
     let context_user = user.into();
 
-    let content = query.content.unwrap_or(FeedContent::Blend);
-    let limit = query.n.unwrap_or(50);
+    let q = query.query_text();
+    let content = query.content_mode();
+    let limit = query.limit();
 
-    let q = query.q.trim();
     let is_search_mode = !q.is_empty();
     let cards = if is_search_mode {
         search_cards(&state.user_api, &context_user, q).await?

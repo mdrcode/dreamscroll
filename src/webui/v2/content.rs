@@ -22,6 +22,28 @@ impl FeedContent {
     }
 }
 
+#[derive(Debug, Deserialize)]
+pub(super) struct ContentQuery {
+    #[serde(default)]
+    pub q: String,
+    pub n: Option<u64>,
+    pub content: Option<FeedContent>,
+}
+
+impl ContentQuery {
+    pub(super) fn query_text(&self) -> &str {
+        self.q.trim()
+    }
+
+    pub(super) fn limit(&self) -> u64 {
+        self.n.unwrap_or(50)
+    }
+
+    pub(super) fn content_mode(&self) -> FeedContent {
+        self.content.unwrap_or(FeedContent::Blend)
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum FeedCard {

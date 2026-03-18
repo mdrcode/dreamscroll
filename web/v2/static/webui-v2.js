@@ -126,6 +126,7 @@ function setupSearchEndpointRouting() {
 
     searchForm.addEventListener('htmx:configRequest', function (e) {
         const q = searchInput.value.trim();
+        const n = currentLimitParam();
 
         if (q.startsWith('/')) {
             e.preventDefault();
@@ -133,6 +134,16 @@ function setupSearchEndpointRouting() {
         }
 
         e.detail.path = '/cards';
+        if (q.length > 0) {
+            e.detail.parameters.q = q;
+        } else {
+            delete e.detail.parameters.q;
+        }
+        if (n !== null) {
+            e.detail.parameters.n = n;
+        } else {
+            delete e.detail.parameters.n;
+        }
     });
 }
 
@@ -156,12 +167,25 @@ function setupCaptureExpandToggle(rootNode) {
     });
 }
 
+function currentLimitParam() {
+    const params = new URLSearchParams(window.location.search || '');
+    const n = params.get('n');
+    if (!n) {
+        return null;
+    }
+    return n;
+}
+
 function buildFeedUrlFromCurrentState() {
     const params = new URLSearchParams();
-    params.set('n', '30');
+
+    const n = currentLimitParam();
+    if (n !== null) {
+        params.set('n', n);
+    }
 
     const modeInput = document.getElementById('feed-mode-input');
-    if (modeInput && modeInput.value) {
+    if (modeInput && modeInput.value && modeInput.value !== 'blend') {
         params.set('content', modeInput.value);
     }
 
@@ -171,7 +195,11 @@ function buildFeedUrlFromCurrentState() {
         params.set('q', q);
     }
 
-    return '/cards?' + params.toString();
+    const query = params.toString();
+    if (query.length === 0) {
+        return '/cards';
+    }
+    return '/cards?' + query;
 }
 
 function reloadFeedFrame() {
@@ -234,7 +262,11 @@ function setupFeedModeControls() {
             return;
         }
 
-        window.location.href = url.replace('/cards?', '/?');
+        if (url.startsWith('/cards?')) {
+            window.location.href = '/?' + url.slice('/cards?'.length);
+            return;
+        }
+        window.location.href = '/';
     }
 
     modeButtons.forEach(function (btn) {
