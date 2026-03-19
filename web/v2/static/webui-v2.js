@@ -70,8 +70,8 @@ function setupSearchClearButton() {
             feedControls.style.display = '';
         }
 
-        window.htmx.trigger(searchForm, 'submit');
-        searchInput.focus();
+        // Clear should always reload timeline results with an empty query.
+        reloadFeedFrame();
     });
 
     searchInput.addEventListener('input', syncClearButtonVisibility);
@@ -108,6 +108,9 @@ function setupSearchEndpointRouting() {
         if (query.startsWith('/')) {
             return;
         }
+
+        // Dismiss mobile keyboards on successful search submit.
+        searchInput.blur();
         feedControls.style.display = query.length > 0 ? 'none' : '';
     });
 
@@ -416,7 +419,7 @@ function setupUploadInteractions() {
             filePicker.files = dataTransfer.files;
         }
 
-            submitManagedUpload(imageFile);
+        submitManagedUpload(imageFile);
     });
 
     let dragCounter = 0;

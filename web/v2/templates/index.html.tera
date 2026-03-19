@@ -30,16 +30,18 @@
                 hx-get="/cards"
                 hx-target="#card-feed"
                 hx-swap="innerHTML"
-                hx-push-url="true"
-                hx-trigger="submit">
+                hx-push-url="true">
                 <input type="hidden" id="feed-mode-input" value="{{ content_mode | default(value="blend") }}">
                 <div id="header-search-input-wrap">
                     <input id="header-search-input"
                         type="text"
+                        inputmode="search"
                         name="query"
                         value="{{ query }}"
+                        enterkeyhint="search"
                         placeholder="search...">
                     <button id="header-search-clear" type="button" aria-label="Clear search" title="Clear search">x</button>
+                    <button id="header-search-submit" type="submit" aria-label="Run search">Search</button>
                 </div>
             </form>
         </div>

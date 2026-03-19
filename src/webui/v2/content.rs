@@ -20,7 +20,7 @@ impl ContentSpec {
     }
 
     pub(super) fn limit(&self) -> u64 {
-        self.limit.unwrap_or(100)
+        self.limit.unwrap_or(50)
     }
 
     pub(super) fn content_mode(&self) -> FeedContent {

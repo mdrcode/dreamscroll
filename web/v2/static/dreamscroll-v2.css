@@ -101,7 +101,7 @@ body {
 #header-search-input {
     width: 100%;
     box-sizing: border-box;
-    padding: 7px 32px 7px 14px;
+    padding: 7px 40px 7px 14px;
     font-size: 16px;
     border: 1px solid #ccc;
     border-radius: 8px;
@@ -114,19 +114,22 @@ body {
 
 #header-search-clear {
     position: absolute;
-    right: 8px;
+    right: 4px;
     top: 50%;
     transform: translateY(-50%);
-    width: 18px;
-    height: 18px;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     padding: 0;
     border: none;
     background: transparent;
     border-radius: 50%;
     color: #747b88;
     cursor: pointer;
-    font-size: 14px;
-    line-height: 18px;
+    font-size: 16px;
+    line-height: 1;
 }
 
 #header-search-clear:hover {
@@ -136,6 +139,18 @@ body {
 
 #header-search-clear.is-hidden {
     display: none;
+}
+
+#header-search-submit {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }
 
 #file-upload-form {
@@ -512,7 +527,13 @@ body {
         width: 100%;
         box-sizing: border-box;
         font-size: 15px;
-        padding: 9px 12px;
+        padding: 9px 42px 9px 12px;
+    }
+
+    #header-search-clear {
+        width: 32px;
+        height: 32px;
+        right: 2px;
     }
 
     #file-picker-label {
