@@ -385,7 +385,6 @@ function setupUploadInteractions() {
         dragCounter++;
         if (dragCounter === 1) {
             dropZone.style.display = 'block';
-            dropZone.classList.add('drag-over');
         }
     });
 
@@ -406,7 +405,6 @@ function setupUploadInteractions() {
         dragCounter = Math.max(0, dragCounter - 1);
         if (dragCounter === 0) {
             dropZone.style.display = 'none';
-            dropZone.classList.remove('drag-over');
         }
     });
 
@@ -418,7 +416,6 @@ function setupUploadInteractions() {
         e.stopPropagation();
         dragCounter = 0;
         dropZone.style.display = 'none';
-        dropZone.classList.remove('drag-over');
 
         const files = e.dataTransfer.files;
         if (files.length > 0 && files[0].type.startsWith('image/')) {

@@ -2,21 +2,11 @@
     --color-paper: #fbf9f6;
     --color-parchment: #f2efe9;
     --color-espresso: #4b3621;
-    --color-espresso-stroke: #4B362126;
+    --color-espresso-stroke: #4b362126;
     --color-charcoal: #1a1917;
     --color-graphite: #444444;
 
     --color-link: #0066cc;
-
-    --color-upload-text: #4b5563;
-    --color-upload-bg: #fff;
-    --color-upload-border: #ddd;
-    --color-upload-hover-bg: #fff;
-    --color-upload-hover-border: #171820;
-
-    --color-pill-bg: #f8fafc;
-    --color-pill-border: #d4dbe4;
-    --color-pill-prefix-bg: #f1f5f9;
 
     --font-size-page-title: clamp(2.2rem, 5vw, 3rem);
     --font-size-page-title-mobile: 2.5rem;
@@ -109,7 +99,7 @@ body {
 
 #header-search-input:focus {
     outline: none;
-    border-color: #007bff;
+    border-color: var(--color-espresso);
 }
 
 #header-search-clear {
@@ -165,8 +155,8 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    border: 1px solid var(--color-upload-border);
-    background-color: var(--color-upload-bg);
+    border: 1px solid var(--color-espresso-stroke);
+    background-color: white;
     border-radius: 12px;
     padding: 4px 8px;
     color: var(--color-charcoal);
@@ -174,8 +164,7 @@ body {
 }
 
 #file-picker-label:hover {
-    border-color: var(--color-upload-hover-border);
-    background-color: var(--color-upload-hover-bg);
+    border-color: var(--color-espresso);
 }
 
 #file-upload-form.is-uploading #file-picker-label {
@@ -219,17 +208,12 @@ body {
     width: 100%;
     text-align: center;
     font-size: 18px;
-    background-color: var(--color-parchment);
-    color: #666;
+    background-color: var(--color-paper);
+    color: var(--color-espresso);
     padding: 20px 0;
     margin-bottom: 20px;
     border: 2px dashed var(--color-espresso);
     border-radius: 8px;
-}
-
-#drop-zone-row.drag-over {
-    border-color: #999;
-    background-color: #f0f0f0;
 }
 
 .feed-card {
@@ -311,6 +295,7 @@ body {
 .capture-card.is-expanded .capture-card__details-panel {
     max-height: 900px;
     opacity: 1;
+    margin-bottom: 12px;
 }
 
 .card-footer {
@@ -352,9 +337,7 @@ body {
     color: var(--color-graphite);
     border-radius: 10px;
     border: 1px solid var(--color-espresso-stroke);
-    /* outline: 0.5px solid var(--color-espresso-stroke);
-    outline-offset: -0.5px; */
-    background: var(--color-pill-bg);
+    background: var(--color-paper);
     overflow: hidden;
     text-decoration: none;
 }
@@ -362,9 +345,9 @@ body {
 .pill__prefix {
     font-size: var(--font-size-pill-prefix);
     padding: 3px 6px;
-    background: var(--color-pill-prefix-bg);
+    background: var(--color-paper);
     color: var(--color-charcoal);
-    border-right: 1px solid var(--color-pill-border);
+    border-right: 1px solid var(--color-espresso-stroke);
 }
 
 .pill__label {
@@ -382,9 +365,6 @@ body {
 }
 
 .spark-cluster {
-    border: 1px solid var(--color-pill-border);
-    border-radius: 8px;
-    /* background: #fff; */
     padding: 10px;
     margin-top: 10px;
 }
@@ -418,9 +398,8 @@ body {
     align-items: start;
     text-decoration: none;
     color: inherit;
-    border: 1px solid var(--color-pill-border);
+    border: 1px solid var(--color-espresso-stroke);
     border-radius: 6px;
-    /* background: #fff; */
     padding: 6px;
 }
 

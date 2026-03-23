@@ -35,7 +35,7 @@
             display: block;
             text-decoration: none;
             color: inherit;
-            border: 1px solid var(--color-pill-border);
+            border: 1px solid #d4dbe4;
             border-radius: 8px;
             background: #fff;
             padding: 8px;
@@ -67,7 +67,7 @@
         }
 
         .spark-cluster {
-            border: 1px solid var(--color-pill-border);
+            border: 1px solid #d4dbe4;
             border-radius: 8px;
             background: #fff;
             padding: 10px;
@@ -106,7 +106,7 @@
             align-items: start;
             text-decoration: none;
             color: inherit;
-            border: 1px solid var(--color-pill-border);
+            border: 1px solid #d4dbe4;
             border-radius: 6px;
             background: #fff;
             padding: 6px;
