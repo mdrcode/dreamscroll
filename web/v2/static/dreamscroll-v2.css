@@ -4,8 +4,6 @@
     --color-page-title: #4b3621;
     --color-page-text: #1a1917;
 
-    --color-card-shadow: rgba(224, 15, 231, 0.08);
-
     --color-link: #0066cc;
 
     --color-upload-text: #4b5563;
@@ -264,10 +262,11 @@ body {
 .feed-card {
     width: 100%;
     box-sizing: border-box;
-    border-radius: 10px;
-    margin-bottom: 8px;
     background: var(--color-card-bg);
-    box-shadow: 0 1px 4px var(--color-card-shadow);
+    border-radius: 0.5rem;
+    outline: 0.5px solid rgba(75, 54, 33, 0.15);
+    outline-offset: -0.5px;
+    margin-bottom: 8px;
 }
 
 .capture-card {
@@ -280,11 +279,16 @@ body {
     width: 100%;
     display: flex;
     justify-content: center;
+    overflow: hidden;
+    border-top-left-radius: 0.5rem;
+    border-top-right-radius: 0.5rem;
 }
 
 .capture-card__image-link {
     display: block;
     width: 100%;
+    overflow: hidden;
+    border-radius: inherit;
 }
 
 .capture-card__image {
@@ -592,7 +596,6 @@ body {
         gap: 10px;
         padding: 10px;
         margin-bottom: 10px;
-        box-shadow: none;
         overflow: visible;
         position: static;
     }
@@ -600,6 +603,7 @@ body {
     .capture-card__image-container {
         width: 55%;
         align-items: start;
+        border-radius: 8px;
     }
 
     .capture-card__image-link {
