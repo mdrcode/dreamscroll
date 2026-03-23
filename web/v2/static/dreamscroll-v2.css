@@ -1,10 +1,10 @@
 :root {
-    --color-page-bg: #ffffffd4;
-    --color-page-title: #171820;
-    --color-page-text: #171820;
+    --color-page-bg: #fbf9f6;
+    --color-card-bg: #f2efe9;
+    --color-page-title: #4b3621;
+    --color-page-text: #1a1917;
 
-    --color-card-bg: #dedbea;
-    --color-card-shadow: rgba(0, 0, 0, 0.08);
+    --color-card-shadow: rgba(224, 15, 231, 0.08);
 
     --color-link: #0066cc;
 
@@ -75,6 +75,10 @@ body {
 
 #page-title {
     margin: 0;
+    font-family: Newsreader, serif;
+    font-style: italic;
+    font-weight: 600;
+    letter-spacing: 0.03em;
     font-size: var(--font-size-page-title);
     line-height: 1.0;
     color: var(--color-page-title);
@@ -401,7 +405,7 @@ body {
 .spark-cluster {
     border: 1px solid var(--color-pill-border);
     border-radius: 8px;
-    background: #fff;
+    /* background: #fff; */
     padding: 10px;
     margin-top: 10px;
 }
@@ -437,7 +441,7 @@ body {
     color: inherit;
     border: 1px solid var(--color-pill-border);
     border-radius: 6px;
-    background: #fff;
+    /* background: #fff; */
     padding: 6px;
 }
 
