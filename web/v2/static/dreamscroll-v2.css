@@ -1,8 +1,10 @@
 :root {
-    --color-page-bg: #fbf9f6;
-    --color-card-bg: #f2efe9;
-    --color-page-title: #4b3621;
-    --color-page-text: #1a1917;
+    --color-paper: #fbf9f6;
+    --color-parchment: #f2efe9;
+    --color-espresso: #4b3621;
+    --color-espresso-stroke: #4B362126;
+    --color-charcoal: #1a1917;
+    --color-graphite: #555555;
 
     --color-link: #0066cc;
 
@@ -12,12 +14,10 @@
     --color-upload-hover-bg: #fff;
     --color-upload-hover-border: #171820;
 
-    --color-pill-text: #4e516b;
     --color-pill-bg: #f8fafc;
     --color-pill-border: #d4dbe4;
     --color-pill-hover-bg: #f0f4f8;
     --color-pill-prefix-bg: #f1f5f9;
-    --color-pill-prefix-text: #6b7280;
 
     --font-size-page-title: clamp(2.2rem, 5vw, 3rem);
     --font-size-page-title-mobile: 2.5rem;
@@ -40,8 +40,8 @@ body {
     min-height: 100vh;
     margin: 0;
     padding: 0;
-    background: var(--color-page-bg);
-    color: var(--color-page-text);
+    background: var(--color-paper);
+    color: var(--color-charcoal);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', 'Helvetica Neue', Arial, sans-serif;
     font-weight: 400;
     line-height: 1.6;
@@ -79,7 +79,7 @@ body {
     letter-spacing: 0.03em;
     font-size: var(--font-size-page-title);
     line-height: 1.0;
-    color: var(--color-page-title);
+    color: var(--color-espresso);
 }
 
 .header-title-link {
@@ -135,7 +135,7 @@ body {
 }
 
 #header-search-clear:hover {
-    color: var(--color-page-title);
+    color: var(--color-charcoal);
     background: rgba(0, 0, 0, 0.04);
 }
 
@@ -171,7 +171,7 @@ body {
     background-color: var(--color-upload-bg);
     border-radius: 12px;
     padding: 4px 8px;
-    color: var(--color-upload-text);
+    color: var(--color-charcoal);
     cursor: pointer;
 }
 
@@ -206,14 +206,14 @@ body {
 #upload-progress-bar {
     width: 0%;
     height: 100%;
-    background: var(--color-card-bg);
+    background: var(--color-espresso);
     transition: width 0.12s ease-out;
 }
 
 #upload-progress-text {
     margin-top: 3px;
     font-size: 12px;
-    color: var(--color-page-text);
+    color: var(--color-charcoal);
 }
 
 #feed-controls {
@@ -227,7 +227,7 @@ body {
     border: 1px solid var(--color-pill-border);
     border-radius: 10px;
     background: #fff;
-    color: var(--color-page-text);
+    color: var(--color-charcoal);
     padding: 6px 10px;
     cursor: pointer;
 }
@@ -238,7 +238,7 @@ body {
 
 .feed-action--active {
     border-color: var(--color-link);
-    background: var(--color-pill-hover-bg);
+    background: var(--color-pill-bg);
 }
 
 #drop-zone-row {
@@ -246,11 +246,11 @@ body {
     width: 100%;
     text-align: center;
     font-size: 18px;
-    background-color: #f9f9f9;
+    background-color: var(--color-parchment);
     color: #666;
     padding: 20px 0;
     margin-bottom: 20px;
-    border: 2px dashed #ccc;
+    border: 2px dashed var(--color-espresso);
     border-radius: 8px;
 }
 
@@ -262,9 +262,9 @@ body {
 .feed-card {
     width: 100%;
     box-sizing: border-box;
-    background: var(--color-card-bg);
+    background: var(--color-parchment);
     border-radius: 0.5rem;
-    outline: 0.5px solid rgba(75, 54, 33, 0.15);
+    outline: 0.5px solid var(--color-espresso-stroke);
     outline-offset: -0.5px;
     margin-bottom: 8px;
 }
@@ -322,7 +322,7 @@ body {
 }
 
 .capture-card__details-toggle {
-    color: var(--color-page-text);
+    color: var(--color-charcoal);
     text-decoration: none;
     text-transform: uppercase;
     font-size: var(--font-size-capture-seemore);
@@ -376,9 +376,11 @@ body {
     display: inline-flex;
     align-items: center;
     flex: 0 0 auto;
-    color: var(--color-pill-text);
-    border: 1px solid var(--color-pill-border);
+    color: var(--color-graphite);
     border-radius: 10px;
+    border: 1px solid var(--color-espresso-stroke);
+    /* outline: 0.5px solid var(--color-espresso-stroke);
+    outline-offset: -0.5px; */
     background: var(--color-pill-bg);
     overflow: hidden;
     text-decoration: none;
@@ -388,7 +390,7 @@ body {
     font-size: var(--font-size-chip-prefix);
     padding: 3px 6px;
     background: var(--color-pill-prefix-bg);
-    color: var(--color-pill-prefix-text);
+    color: var(--color-charcoal);
     border-right: 1px solid var(--color-pill-border);
 }
 
