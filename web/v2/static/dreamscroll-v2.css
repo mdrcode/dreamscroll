@@ -4,7 +4,7 @@
     --color-espresso: #4b3621;
     --color-espresso-stroke: #4B362126;
     --color-charcoal: #1a1917;
-    --color-graphite: #555555;
+    --color-graphite: #444444;
 
     --color-link: #0066cc;
 
@@ -20,12 +20,11 @@
 
     --font-size-page-title: clamp(2.2rem, 5vw, 3rem);
     --font-size-page-title-mobile: 2.5rem;
+    --font-size-capture-text: 16px;
     --font-size-capture-seemore: 12px;
     --font-size-capture-timestamp: 12px;
-    --font-size-capture-text: 16px;
-
-    --font-size-chip: 13px;
-    --font-size-chip-prefix: 11px;
+    --font-size-pill: 13px;
+    --font-size-pill-prefix: 11px;
 }
 
 html,
@@ -361,7 +360,7 @@ body {
 }
 
 .pill__prefix {
-    font-size: var(--font-size-chip-prefix);
+    font-size: var(--font-size-pill-prefix);
     padding: 3px 6px;
     background: var(--color-pill-prefix-bg);
     color: var(--color-charcoal);
@@ -369,7 +368,7 @@ body {
 }
 
 .pill__label {
-    font-size: var(--font-size-chip);
+    font-size: var(--font-size-pill);
     padding: 3px 8px;
 }
 
