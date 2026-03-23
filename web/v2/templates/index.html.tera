@@ -31,7 +31,6 @@
                 hx-target="#card-feed"
                 hx-swap="innerHTML"
                 hx-push-url="true">
-                <input type="hidden" id="feed-mode-input" value="{{ content_mode | default(value="blend") }}">
                 <div id="header-search-input-wrap">
                     <input id="header-search-input"
                         type="text"
@@ -51,15 +50,6 @@
                 <div id="upload-progress-bar"></div>
             </div>
             <div id="upload-progress-text">0%</div>
-        </div>
-
-        <div id="feed-controls"{% if is_search %} style="display: none;"{% endif %}>
-            <button type="button"
-                class="feed-action{% if content_mode == "captures" %} feed-action--active{% endif %}"
-                data-feed-mode="captures">Captures Only</button>
-            <button type="button"
-                class="feed-action{% if content_mode == "sparks" %} feed-action--active{% endif %}"
-                data-feed-mode="sparks">Sparks Only</button>
         </div>
 
         <div id="drop-zone-row">Drop image anywhere to upload</div>

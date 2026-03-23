@@ -16,7 +16,6 @@
 
     --color-pill-bg: #f8fafc;
     --color-pill-border: #d4dbe4;
-    --color-pill-hover-bg: #f0f4f8;
     --color-pill-prefix-bg: #f1f5f9;
 
     --font-size-page-title: clamp(2.2rem, 5vw, 3rem);
@@ -214,31 +213,6 @@ body {
     margin-top: 3px;
     font-size: 12px;
     color: var(--color-charcoal);
-}
-
-#feed-controls {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-    margin-bottom: 12px;
-}
-
-.feed-action {
-    border: 1px solid var(--color-pill-border);
-    border-radius: 10px;
-    background: #fff;
-    color: var(--color-charcoal);
-    padding: 6px 10px;
-    cursor: pointer;
-}
-
-.feed-action:hover {
-    border-color: var(--color-link);
-}
-
-.feed-action--active {
-    border-color: var(--color-link);
-    background: var(--color-pill-bg);
 }
 
 #drop-zone-row {

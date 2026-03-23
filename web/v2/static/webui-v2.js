@@ -7,7 +7,6 @@ document.addEventListener('DOMContentLoaded', function () {
     setupSearchClearButton();
     setupSearchEndpointRouting();
     setupCaptureExpandToggle(document);
-    setupFeedModeControls();
     setupSearchClearOnSlashCommand();
     setupUploadInteractions();
 
@@ -50,7 +49,6 @@ function setupSearchClearButton() {
     const searchForm = document.getElementById('header-search-form');
     const searchInput = document.getElementById('header-search-input');
     const clearButton = document.getElementById('header-search-clear');
-    const feedControls = document.getElementById('feed-controls');
     if (!searchForm || !searchInput || !clearButton) {
         return;
     }
@@ -66,9 +64,6 @@ function setupSearchClearButton() {
     clearButton.addEventListener('click', function () {
         searchInput.value = '';
         syncClearButtonVisibility();
-        if (feedControls) {
-            feedControls.style.display = '';
-        }
 
         // Clear should always reload timeline results with an empty query.
         reloadFeedFrame();
@@ -81,7 +76,6 @@ function setupSearchClearButton() {
 function setupSearchEndpointRouting() {
     const searchForm = document.getElementById('header-search-form');
     const searchInput = document.getElementById('header-search-input');
-    const feedControls = document.getElementById('feed-controls');
     if (!searchForm || !searchInput) {
         return;
     }
@@ -101,9 +95,6 @@ function setupSearchEndpointRouting() {
     }, true);
 
     searchForm.addEventListener('submit', function () {
-        if (!feedControls) {
-            return;
-        }
         const query = searchInput.value.trim();
         if (query.startsWith('/')) {
             return;
@@ -111,7 +102,6 @@ function setupSearchEndpointRouting() {
 
         // Dismiss mobile keyboards on successful search submit.
         searchInput.blur();
-        feedControls.style.display = query.length > 0 ? 'none' : '';
     });
 
     searchForm.addEventListener('htmx:configRequest', function (e) {
@@ -148,12 +138,11 @@ function setFeedParameter(parameters, key, value) {
 }
 
 function getCurrentFeedState() {
-    const modeInput = document.getElementById('feed-mode-input');
     const searchInput = document.getElementById('header-search-input');
 
     return {
         limit: currentLimitParam(),
-        content: modeInput && modeInput.value ? modeInput.value : 'blend',
+        content: 'blend',
         query: searchInput ? searchInput.value.trim() : ''
     };
 }
@@ -222,39 +211,6 @@ function reloadFeedFrame() {
         target: '#card-feed',
         swap: 'innerHTML'
     });
-}
-
-function setupFeedModeControls() {
-    const modeInput = document.getElementById('feed-mode-input');
-    const modeButtons = Array.from(document.querySelectorAll('#feed-controls [data-feed-mode]'));
-    if (!modeInput || modeButtons.length === 0) {
-        return;
-    }
-
-    function applyMode(mode) {
-        modeInput.value = mode;
-        modeButtons.forEach(function (btn) {
-            const isActive = btn.getAttribute('data-feed-mode') === mode;
-            btn.classList.toggle('feed-action--active', isActive);
-        });
-    }
-
-    modeButtons.forEach(function (btn) {
-        btn.addEventListener('click', function (e) {
-            e.preventDefault();
-
-            const clickedMode = btn.getAttribute('data-feed-mode');
-            if (!clickedMode) {
-                return;
-            }
-
-            const nextMode = modeInput.value === clickedMode ? 'blend' : clickedMode;
-            applyMode(nextMode);
-            reloadFeedFrame();
-        });
-    });
-
-    applyMode(modeInput.value || 'blend');
 }
 
 function setupUploadInteractions() {
