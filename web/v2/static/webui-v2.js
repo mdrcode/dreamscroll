@@ -114,7 +114,7 @@ function setupSearchEndpointRouting() {
 
         e.detail.path = '/cards';
         const parameters = e.detail.parameters || (e.detail.parameters = {});
-        applyFeedParameters(parameters, state, false);
+        applyFeedParameters(parameters, state);
     });
 }
 
@@ -142,21 +142,13 @@ function getCurrentFeedState() {
 
     return {
         limit: currentLimitParam(),
-        content: 'blend',
         query: searchInput ? searchInput.value.trim() : ''
     };
 }
 
-function applyFeedParameters(parameters, state, includeContent) {
+function applyFeedParameters(parameters, state) {
     setFeedParameter(parameters, 'limit', state.limit);
     setFeedParameter(parameters, 'query', state.query);
-
-    if (includeContent && state.content !== 'blend') {
-        setFeedParameter(parameters, 'content', state.content);
-        return;
-    }
-
-    setFeedParameter(parameters, 'content', null);
 }
 
 function setupCaptureExpandToggle(rootNode) {
@@ -191,7 +183,7 @@ function currentLimitParam() {
 function buildFeedUrlFromCurrentState() {
     const state = getCurrentFeedState();
     const params = new URLSearchParams();
-    applyFeedParameters(params, state, true);
+    applyFeedParameters(params, state);
 
     const query = params.toString();
     if (query.length === 0) {
