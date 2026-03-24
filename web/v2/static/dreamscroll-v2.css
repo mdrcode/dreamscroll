@@ -22,11 +22,6 @@
     }
 }
 
-html,
-body {
-    min-height: 100%;
-}
-
 body {
     display: flex;
     justify-content: center;
@@ -44,9 +39,10 @@ body {
     display: flex;
     flex-direction: column;
     width: 100%;
-    max-width: 800px;
+    max-width: 780px;
     min-width: 0;
-    padding: 6px 10px;
+    margin-top: 12px;
+    padding: 0px 16px;
     box-sizing: border-box;
 }
 
@@ -54,7 +50,6 @@ body {
     display: flex;
     justify-content: space-between;
     width: 100%;
-    margin-top: 6px;
     margin-bottom: 12px;
     align-items: flex-end;
     gap: 10px;
@@ -264,7 +259,6 @@ body {
 .capture-card__body {
     display: flex;
     flex-direction: column;
-    padding: 10px 12px;
 }
 
 .capture-card__summary,
@@ -308,7 +302,6 @@ body {
     display: flex;
     justify-content: flex-end;
     margin-top: auto;
-    padding-top: 8px;
 }
 
 .card-timestamp {
@@ -366,12 +359,8 @@ body {
     padding: 3px 8px;
 }
 
-.spark-card {
-    padding: 12px;
-}
-
 .spark-card-summary {
-    margin: 0 0 10px;
+    margin-bottom: 10px;
     white-space: pre-line;
 }
 
@@ -472,9 +461,6 @@ body {
 }
 
 @media (max-width: 768px) {
-    #page-content-container {
-        padding: 6px 16px;
-    }
 
     #header-row {
         flex-wrap: wrap;
@@ -518,11 +504,11 @@ body {
     }
 
     .feed-card {
-        border: 1px solid var(--color-stroke);
+        border: 1px solid var(--color-stroke-soft);
+        padding: 8px;
     }
 
     .capture-card__image-container {
-        padding: 8px 8px 0 8px;
         box-sizing: border-box;
     }
 
@@ -541,11 +527,15 @@ body {
     }
 
     .capture-card__body {
-        padding: 6px 12px;
+        margin-top: 10px;
     }
 
     .capture-card__details-toggle-row {
-        margin: 10px 0 14px;
+        margin: 10px 0 12px;
+    }
+
+    .card-footer {
+        padding-top: 8px;
     }
 }
 
@@ -557,13 +547,13 @@ body {
     .feed-card {
         outline: 0.5px solid var(--color-stroke-soft);
         outline-offset: -0.5px;
+        padding: 10px;
     }
 
     .capture-card {
         flex-direction: row;
         border-radius: 8px;
         gap: 10px;
-        padding: 10px;
         margin-bottom: 10px;
         overflow: visible;
         position: static;
