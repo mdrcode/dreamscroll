@@ -245,8 +245,7 @@ body {
     display: flex;
     justify-content: center;
     overflow: hidden;
-    border-top-left-radius: 0.5rem;
-    border-top-right-radius: 0.5rem;
+    border-radius: 0.5rem;
 }
 
 .capture-card__image-link {
