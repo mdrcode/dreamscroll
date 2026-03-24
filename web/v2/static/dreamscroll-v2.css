@@ -1,8 +1,8 @@
 :root {
-    --color-canvas: #f8f7f4;
-    --color-card: #d0c4e0;
-    --color-strong: #9b8fb0;
-    --color-strong-alpha: #9b8fb026;
+    --color-canvas: #fbf9f6;
+    --color-card: #f2efe9;
+    --color-stroke: #1a1917;
+    --color-stroke-soft: #1a191726;
     --color-text-primary: #1a1917;
     --color-text-secondary: #444444;
 
@@ -103,7 +103,7 @@ body {
 
 #header-search-input:focus {
     outline: none;
-    border-color: var(--color-strong);
+    border-color: var(--color-stroke);
 }
 
 #header-search-clear {
@@ -159,7 +159,7 @@ body {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    border: 1px solid var(--color-strong-alpha);
+    border: 1px solid var(--color-stroke-soft);
     background-color: white;
     border-radius: 12px;
     padding: 4px 8px;
@@ -167,12 +167,12 @@ body {
     cursor: pointer;
 }
 
-.file-picker-icon {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+#file-picker-label:hover {
+    border-color: var(--color-stroke);
 }
 
-#file-picker-label:hover {
-    border-color: var(--color-strong);
+.file-picker-icon {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
 }
 
 #file-upload-form.is-uploading #file-picker-label {
@@ -201,7 +201,7 @@ body {
 #upload-progress-bar {
     width: 0%;
     height: 100%;
-    background: var(--color-strong);
+    background: var(--color-stroke);
     transition: width 0.12s ease-out;
 }
 
@@ -217,10 +217,10 @@ body {
     text-align: center;
     font-size: 1.125rem;
     background-color: var(--color-canvas);
-    color: var(--color-strong);
+    color: var(--color-stroke);
     padding: 20px 0;
     margin-bottom: 20px;
-    border: 2px dashed var(--color-strong);
+    border: 2px dashed var(--color-stroke);
     border-radius: 8px;
 }
 
@@ -229,8 +229,6 @@ body {
     box-sizing: border-box;
     background: var(--color-card);
     border-radius: 0.5rem;
-    outline: 0.5px solid var(--color-strong-alpha);
-    outline-offset: -0.5px;
     margin-bottom: 8px;
 }
 
@@ -243,16 +241,17 @@ body {
 .capture-card__image-container {
     width: 100%;
     display: flex;
-    justify-content: center;
     overflow: hidden;
+    justify-content: center;
     border-radius: 0.5rem;
 }
 
 .capture-card__image-link {
-    display: block;
     width: 100%;
+    display: block;
     overflow: hidden;
     border-radius: inherit;
+    border: 1px solid var(--color-stroke-soft);
 }
 
 .capture-card__image {
@@ -344,14 +343,14 @@ body {
     flex: 0 0 auto;
     color: var(--color-text-secondary);
     border-radius: 10px;
-    border: 1px solid var(--color-strong-alpha);
+    border: 1px solid var(--color-stroke-soft);
     background: var(--color-canvas);
     overflow: hidden;
     text-decoration: none;
 }
 
 .pill:hover {
-    border-color: var(--color-strong);
+    border-color: var(--color-stroke);
 }
 
 .pill__prefix {
@@ -359,7 +358,7 @@ body {
     padding: 3px 6px;
     background: var(--color-canvas);
     color: var(--color-text-secondary);
-    border-right: 1px solid var(--color-strong-alpha);
+    border-right: 1px solid var(--color-stroke-soft);
 }
 
 .pill__label {
@@ -410,13 +409,13 @@ body {
     align-items: start;
     text-decoration: none;
     color: inherit;
-    border: 1px solid var(--color-strong-alpha);
+    border: 1px solid var(--color-stroke-soft);
     border-radius: 6px;
     padding: 6px;
 }
 
 .spark-capture-item:hover {
-    border-color: var(--color-strong);
+    border-color: var(--color-stroke);
 }
 
 .spark-capture-thumb {
@@ -506,18 +505,20 @@ body {
         right: 2px;
     }
 
-    #file-picker-label {
-        padding: 6px 10px;
-    }
-
     .file-picker-text {
         display: none;
     }
 
     #file-picker-label {
+        padding: 6px 10px;
         gap: 0;
         min-width: 34px;
         justify-content: center;
+        border-color: var(--color-stroke);
+    }
+
+    .feed-card {
+        border: 1px solid var(--color-stroke);
     }
 
     .capture-card__image-container {
@@ -536,6 +537,7 @@ body {
         display: inline-block;
         width: auto;
         max-width: 100%;
+
     }
 
     .capture-card__body {
@@ -550,6 +552,11 @@ body {
 @media (min-width: 769px) {
     #header-row form {
         margin-bottom: 2px;
+    }
+
+    .feed-card {
+        outline: 0.5px solid var(--color-stroke-soft);
+        outline-offset: -0.5px;
     }
 
     .capture-card {
@@ -572,6 +579,11 @@ body {
         display: inline-block;
         width: auto;
         max-width: 100%;
+        border: 1px solid var(--color-stroke-soft);
+    }
+
+    .capture-card__image-link:hover {
+        border-color: var(--color-stroke);
     }
 
     .capture-card__image {
