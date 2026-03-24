@@ -9,12 +9,17 @@
     --color-link: #0066cc;
 
     --font-size-page-title: clamp(2.2rem, 5vw, 3rem);
-    --font-size-page-title-mobile: 2.5rem;
-    --font-size-capture-text: 16px;
-    --font-size-capture-seemore: 12px;
-    --font-size-capture-timestamp: 12px;
-    --font-size-pill: 13px;
-    --font-size-pill-prefix: 11px;
+    --font-size-capture-text: 1rem;
+    --font-size-capture-seemore: 0.75rem;
+    --font-size-capture-timestamp: 0.75rem;
+    --font-size-pill: 0.8125rem;
+    --font-size-pill-prefix: 0.6875rem;
+}
+
+@media (max-width: 768px) {
+    html {
+        font-size: 112.50%;
+    }
 }
 
 html,
@@ -91,7 +96,7 @@ body {
     width: 100%;
     box-sizing: border-box;
     padding: 7px 40px 7px 14px;
-    font-size: 16px;
+    font-size: 1rem;
     border: 1px solid #ccc;
     border-radius: 8px;
 }
@@ -117,7 +122,7 @@ body {
     border-radius: 50%;
     color: #747b88;
     cursor: pointer;
-    font-size: 16px;
+    font-size: 1rem;
     line-height: 1;
 }
 
@@ -202,7 +207,7 @@ body {
 
 #upload-progress-text {
     margin-top: 3px;
-    font-size: 12px;
+    font-size: 0.75rem;
     color: var(--color-text-primary);
 }
 
@@ -210,7 +215,7 @@ body {
     display: none;
     width: 100%;
     text-align: center;
-    font-size: 18px;
+    font-size: 1.125rem;
     background-color: var(--color-canvas);
     color: var(--color-strong);
     padding: 20px 0;
@@ -382,7 +387,7 @@ body {
 }
 
 .spark-cluster-title {
-    font-size: 15px;
+    font-size: 0.9375rem;
     font-weight: 600;
     margin: 0 0 6px 0;
 }
@@ -434,7 +439,7 @@ body {
 }
 
 .spark-capture-meta-summary {
-    font-size: 13px;
+    font-size: 0.8125rem;
     line-height: 1.3;
     margin: 0;
     white-space: normal;
@@ -473,10 +478,6 @@ body {
         padding: 6px 16px;
     }
 
-    #page-title {
-        font-size: var(--font-size-page-title-mobile);
-    }
-
     #header-row {
         flex-wrap: wrap;
         align-items: center;
@@ -496,7 +497,7 @@ body {
     #header-search-input {
         width: 100%;
         box-sizing: border-box;
-        font-size: 15px;
+        font-size: 0.9375rem;
         padding: 9px 42px 9px 12px;
     }
 
