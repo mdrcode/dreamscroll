@@ -1,8 +1,8 @@
 :root {
     --color-canvas: #f8f7f4;
-    --color-card: #c5c1cb;
-    --color-strong: #625b6d;
-    --color-strong-alpha: #625b6d26;
+    --color-card: #d0c4e0;
+    --color-strong: #9b8fb0;
+    --color-strong-alpha: #9b8fb026;
     --color-text-primary: #1a1917;
     --color-text-secondary: #444444;
 
@@ -61,13 +61,12 @@ body {
 
 #page-title {
     margin: 0;
-    font-family: Newsreader, serif;
     font-style: italic;
     font-weight: 800;
-    letter-spacing: 0.03em;
     font-size: var(--font-size-page-title);
+    letter-spacing: 0.03em;
     line-height: 1.0;
-    color: var(--color-strong);
+    color: var(--color-text-primary);
 }
 
 .header-title-link {
@@ -413,7 +412,7 @@ body {
 }
 
 .spark-capture-item:hover {
-    border-color: var(--color-link);
+    border-color: var(--color-strong);
 }
 
 .spark-capture-thumb {
