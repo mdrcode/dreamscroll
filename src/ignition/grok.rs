@@ -24,11 +24,10 @@ impl Firestarter for GrokFirestarter {
     }
 
     async fn spark(&self, captures: Vec<crate::api::CaptureInfo>) -> anyhow::Result<SparkResult> {
-        let started = std::time::Instant::now();
         let input_capture_count = captures.len() as i32;
         let user_prompt = util::append_captures_to_user_prompt(prompt::PROMPT, captures);
 
-        let request_body = ResponsesRequest {
+        let request_body = GrokRequest {
             model: self.model_id.clone(),
             input: vec![InputMessage {
                 role: "user".to_string(),
@@ -47,6 +46,7 @@ impl Firestarter for GrokFirestarter {
         };
 
         let client = Client::new();
+        let started = std::time::Instant::now();
         let response = client
             .post("https://api.x.ai/v1/responses")
             .header("Authorization", format!("Bearer {}", self.api_key))
@@ -54,41 +54,39 @@ impl Firestarter for GrokFirestarter {
             .json(&request_body)
             .send()
             .await?;
+        let duration_ms = started.elapsed().as_millis() as i64;
 
         if !response.status().is_success() {
             let error_text = response.text().await?;
             anyhow::bail!("XAI API error: {}", error_text);
         }
 
-        let raw_response: serde_json::Value = response.json().await?;
-        let raw_response_text = raw_response.to_string();
-        let content = extract_grok_output_text(&raw_response)
-            .map(str::trim)
-            .unwrap_or("")
-            .to_string();
+        let response_json: serde_json::Value = response.json().await?;
 
-        if content.is_empty() {
+        let Some(response_output) = extract_grok_output(&response_json) else {
             anyhow::bail!(
-                "XAI API returned an empty structured response. Response excerpt: {}",
-                util::truncate_for_error(&raw_response_text, 600)
+                "XAI API returned an empty or invalid response. Excerpt: {}",
+                response_json
+                    .to_string()
+                    .chars()
+                    .take(600)
+                    .collect::<String>()
             );
-        }
+        };
 
-        let output: SparkResponse = match serde_json::from_str(&content) {
-            Ok(it) => it,
-            Err(err) => anyhow::bail!(
+        let spark = serde_json::from_str::<SparkResponse>(response_output).map_err(|err| {
+            anyhow::anyhow!(
                 "Failed to parse structured spark response: {}. Content excerpt: {}",
                 err,
-                util::truncate_for_error(&content, 600)
-            ),
-        };
-        let duration_ms = started.elapsed().as_millis() as i64;
+                util::truncate_for_error(response_output, 600)
+            )
+        })?;
         let (input_tokens, output_tokens, total_tokens, provider_usage_json) =
-            parse_grok_usage_from_response(&raw_response);
-        let provider_grounding_json = parse_grok_grounding(&raw_response);
+            parse_grok_usage(&response_json);
+        let provider_grounding_json = parse_grok_grounding(&response_json);
 
         Ok(SparkResult {
-            spark: output,
+            spark,
             meta: SparkMeta {
                 provider_name: self.name().to_string(),
                 duration_ms,
@@ -103,102 +101,101 @@ impl Firestarter for GrokFirestarter {
     }
 }
 
-fn parse_grok_usage_from_response(
-    raw_response: &serde_json::Value,
+fn extract_grok_output(response_json: &serde_json::Value) -> Option<&str> {
+    response_json
+        .get("output")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|output| {
+            output.iter().find_map(|item| {
+                if item.get("type").and_then(serde_json::Value::as_str) != Some("message") {
+                    return None;
+                }
+
+                item.get("content")
+                    .and_then(serde_json::Value::as_array)
+                    .and_then(|content| {
+                        content.iter().find_map(|part| {
+                            if part.get("type").and_then(serde_json::Value::as_str)
+                                != Some("output_text")
+                            {
+                                return None;
+                            }
+
+                            part.get("text").and_then(serde_json::Value::as_str)
+                        })
+                    })
+            })
+        })
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+}
+
+fn parse_grok_usage(
+    response_json: &serde_json::Value,
 ) -> (Option<i32>, Option<i32>, Option<i32>, Option<String>) {
-    let usage = raw_response.get("usage").cloned();
-    let Some(usage) = usage else {
+    let Some(usage) = response_json.get("usage") else {
         return (None, None, None, None);
     };
 
-    let input_tokens = usage
-        .get("input_tokens")
-        .and_then(|v| v.as_i64())
-        .map(|v| v as i32);
-    let output_tokens = usage
-        .get("output_tokens")
-        .and_then(|v| v.as_i64())
-        .map(|v| v as i32);
-    let total_tokens = usage
-        .get("total_tokens")
-        .and_then(|v| v.as_i64())
-        .map(|v| v as i32);
+    let token_count = |field: &str| {
+        usage
+            .get(field)
+            .and_then(serde_json::Value::as_i64)
+            .and_then(|v| i32::try_from(v).ok())
+    };
 
-    let usage_json = serde_json::to_string(&usage).ok();
-    (input_tokens, output_tokens, total_tokens, usage_json)
+    (
+        token_count("input_tokens"),
+        token_count("output_tokens"),
+        token_count("total_tokens"),
+        Some(usage.to_string()),
+    )
 }
 
-fn parse_grok_grounding(raw_response: &serde_json::Value) -> Option<String> {
-    let annotations = find_grok_output_text_part(raw_response)
-        .and_then(|part| part.get("annotations"))
-        .cloned();
-    let citations = raw_response.get("citations").cloned();
-    let sources = raw_response.get("sources").cloned();
+fn parse_grok_grounding(response_json: &serde_json::Value) -> Option<String> {
+    let annotations = response_json
+        .get("output")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|output| {
+            output.iter().find_map(|item| {
+                if item.get("type").and_then(serde_json::Value::as_str) != Some("message") {
+                    return None;
+                }
 
-    let num_sources_used = raw_response
-        .get("usage")
-        .and_then(|usage| usage.get("num_sources_used"))
-        .cloned();
+                item.get("content")
+                    .and_then(serde_json::Value::as_array)
+                    .and_then(|content| {
+                        content.iter().find_map(|part| {
+                            if part.get("type").and_then(serde_json::Value::as_str)
+                                != Some("output_text")
+                            {
+                                return None;
+                            }
 
-    let web_search_calls = raw_response
-        .get("usage")
-        .and_then(|usage| usage.get("server_side_tool_usage_details"))
+                            part.get("annotations").cloned()
+                        })
+                    })
+            })
+        });
+
+    let usage = response_json.get("usage")?;
+    let num_sources_used = usage.get("num_sources_used").cloned();
+    let web_search_calls = usage
+        .get("server_side_tool_usage_details")
         .and_then(|details| details.get("web_search_calls"))
         .cloned();
 
-    let has_grounding = annotations.is_some()
-        || citations.is_some()
-        || sources.is_some()
-        || num_sources_used.is_some()
-        || web_search_calls.is_some();
-
-    if !has_grounding {
+    if annotations.is_none() && num_sources_used.is_none() && web_search_calls.is_none() {
         return None;
     }
 
     let grounding = serde_json::json!({
         "annotations": annotations,
-        "citations": citations,
-        "sources": sources,
         "num_sources_used": num_sources_used,
         "web_search_calls": web_search_calls,
     });
 
-    serde_json::to_string(&grounding).ok()
-}
-
-fn extract_grok_output_text(raw_response: &serde_json::Value) -> Option<&str> {
-    if let Some(text) = raw_response.get("output_text").and_then(|v| v.as_str()) {
-        if !text.trim().is_empty() {
-            return Some(text);
-        }
-    }
-
-    find_grok_output_text_part(raw_response)
-        .and_then(|part| part.get("text"))
-        .and_then(|v| v.as_str())
-}
-
-fn find_grok_output_text_part(raw_response: &serde_json::Value) -> Option<&serde_json::Value> {
-    raw_response
-        .get("output")
-        .and_then(|v| v.as_array())
-        .and_then(|output| {
-            output.iter().find_map(|item| {
-                let is_message = item.get("type").and_then(|v| v.as_str()) == Some("message");
-                if !is_message {
-                    return None;
-                }
-
-                item.get("content")
-                    .and_then(|v| v.as_array())
-                    .and_then(|content| {
-                        content.iter().find(|part| {
-                            part.get("type").and_then(|v| v.as_str()) == Some("output_text")
-                        })
-                    })
-            })
-        })
+    Some(grounding.to_string())
 }
 
 fn spark_output_schema_grok() -> serde_json::Value {
@@ -240,11 +237,17 @@ fn spark_output_schema_grok() -> serde_json::Value {
 }
 
 #[derive(Serialize)]
-struct ResponsesRequest {
+struct GrokRequest {
     model: String,
     input: Vec<InputMessage>,
     tools: Vec<GrokTool>,
     text: ResponseText,
+}
+
+#[derive(Serialize)]
+struct InputMessage {
+    role: String,
+    content: String,
 }
 
 #[derive(Serialize)]
@@ -266,10 +269,4 @@ struct ResponseTextFormat {
     name: String,
     strict: bool,
     schema: serde_json::Value,
-}
-
-#[derive(Serialize)]
-struct InputMessage {
-    role: String,
-    content: String,
 }
