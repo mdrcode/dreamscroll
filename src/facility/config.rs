@@ -18,6 +18,10 @@ fn default_cookie_secure() -> bool {
     true
 }
 
+fn default_session_always_save() -> bool {
+    true
+}
+
 fn default_gemini_payload_method() -> illumination::gemini::PayloadMethod {
     illumination::gemini::PayloadMethod::Inline
 }
@@ -34,6 +38,9 @@ pub struct Config {
 
     #[serde(default = "default_cookie_secure")]
     pub cookie_secure: bool, // true == only send cookies over HTTPS
+
+    #[serde(default = "default_session_always_save")]
+    pub session_always_save: bool, // true == refresh inactivity timeout on any valid request
 
     pub jwt_secret: Option<String>, // must be 32+ bytes for HS256 signing
 

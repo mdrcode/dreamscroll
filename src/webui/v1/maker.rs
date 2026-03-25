@@ -4,7 +4,7 @@ use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use tera::{Context, Tera};
 use tower_http::services::ServeDir;
-use tower_sessions::{Expiry, SessionManagerLayer, cookie};
+use tower_sessions::SessionManagerLayer;
 
 use crate::{api, auth, facility};
 
@@ -26,27 +26,12 @@ impl WebState {
 
 pub fn make_ui_router(
     user_api: api::UserApiClient,
-    session_store: auth::SessionStoreWrapper,
     auth_backend: auth::WebAuthBackend,
-    cookie_secure: bool,
+    session_layer: SessionManagerLayer<impl tower_sessions::SessionStore + Clone>,
 ) -> Router {
     // Note, this will hang forever if templates fail to load (waiting on iterator)
     let tera = Tera::new("web/v1/templates/*.tera").expect("Failed to load templates");
     tracing::info!("Loaded tera templates");
-
-    let session_layer = SessionManagerLayer::new(session_store)
-        // Expire session after two days of inactivity
-        .with_expiry(Expiry::OnInactivity(cookie::time::Duration::days(2)))
-        // true == only send cookies over HTTPS (production)
-        // false == allow cookies over HTTP (local dev)
-        .with_secure(cookie_secure)
-        // true == JS cannot access cookies
-        .with_http_only(true)
-        // SameSite::Lax: cookie is sent on top-level GET navigations (links)
-        // but NOT on cross-site form POSTs or subresource requests, providing
-        // CSRF mitigation without breaking normal browser navigation.
-        .with_same_site(tower_sessions::cookie::SameSite::Lax)
-        .with_name("dreamscroll_session");
 
     let static_asset_version = std::env::var("K_REVISION")
         .ok()
@@ -58,6 +43,7 @@ pub fn make_ui_router(
         tera,
         static_asset_version,
     });
+
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
 
     let routes_protected = Router::new()

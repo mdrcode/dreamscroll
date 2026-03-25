@@ -4,7 +4,7 @@ use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use tera::{Context, Tera};
 use tower_http::services::ServeDir;
-use tower_sessions::{Expiry, SessionManagerLayer, cookie};
+use tower_sessions::SessionManagerLayer;
 
 use crate::{api, auth, facility};
 
@@ -26,19 +26,11 @@ impl WebState {
 
 pub fn make_ui_router(
     user_api: api::UserApiClient,
-    session_store: auth::SessionStoreWrapper,
     auth_backend: auth::WebAuthBackend,
-    cookie_secure: bool,
+    session_layer: SessionManagerLayer<impl tower_sessions::SessionStore + Clone>,
 ) -> Router {
     let tera = Tera::new("web/v2/templates/**/*.tera").expect("Failed to load v2 templates");
     tracing::info!("Loaded v2 tera templates");
-
-    let session_layer = SessionManagerLayer::new(session_store)
-        .with_expiry(Expiry::OnInactivity(cookie::time::Duration::days(2)))
-        .with_secure(cookie_secure)
-        .with_http_only(true)
-        .with_same_site(tower_sessions::cookie::SameSite::Lax)
-        .with_name("dreamscroll_session");
 
     let static_asset_version = std::env::var("K_REVISION")
         .ok()

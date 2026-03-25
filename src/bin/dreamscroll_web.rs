@@ -2,6 +2,7 @@ use anyhow::Context;
 use rustls::crypto;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
+use tower_sessions::{Expiry, SessionManagerLayer, cookie};
 
 use dreamscroll::{
     api, auth, database, facility, illumination, rest, storage, task, webhook, webui,
@@ -44,20 +45,31 @@ async fn main() -> anyhow::Result<()> {
     // Web UI routes (Session-auth protected) + static JS/CSS serving
     if config.services.contains(&facility::Service::WebUI) {
         let auth_backend = auth::WebAuthBackend::new(db.clone());
+
+        let session_layer = SessionManagerLayer::new(session_store)
+            // Refresh session on read, not just modify (to extend inactivity timeout)
+            .with_always_save(config.session_always_save)
+            // Expire session after two days of inactivity
+            .with_expiry(Expiry::OnInactivity(cookie::time::Duration::days(2)))
+            // true == only send cookies over HTTPS (production)
+            // false == allow cookies over HTTP (local dev)
+            .with_secure(config.cookie_secure)
+            // true == JS cannot access cookies
+            .with_http_only(true)
+            // SameSite::Lax: cookie is sent on top-level GET navigations (links)
+            // but NOT on cross-site form POSTs or subresource requests, providing
+            // CSRF mitigation without breaking normal browser navigation.
+            .with_same_site(tower_sessions::cookie::SameSite::Lax)
+            .with_name("dreamscroll_session");
+
         router = router.merge(webui::v2::make_ui_router(
             user_api.clone(),
-            session_store.clone(),
             auth_backend.clone(),
-            config.cookie_secure,
+            session_layer.clone(),
         ));
         router = router.nest(
             "/v1",
-            webui::v1::make_ui_router(
-                user_api.clone(),
-                session_store,
-                auth_backend,
-                config.cookie_secure,
-            ),
+            webui::v1::make_ui_router(user_api.clone(), auth_backend, session_layer),
         );
 
         // If using the local Storage provider, we serve media files manually
