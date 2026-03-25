@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Login - dreamscroll v2</title>
+    <title>Login - dreamscroll</title>
     <link rel="stylesheet" href="/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}">
     <style>
         #login-panel {
@@ -21,7 +21,7 @@
         #login-panel h2 {
             margin: 0 0 10px;
             font-size: 1.2rem;
-            color: var(--color-page-title);
+            color: var(--color-text-primary);
         }
 
         .login-error {
@@ -58,8 +58,8 @@
         }
 
         #login-submit {
-            border: 1px solid var(--color-page-title);
-            background: var(--color-page-title);
+            border: 1px solid var(--color-text-primary);
+            background: var(--color-text-primary);
             color: #fff;
             border-radius: 8px;
             padding: 8px 12px;
