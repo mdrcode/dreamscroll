@@ -47,6 +47,10 @@ pub fn make_ui_router(
 
     let routes_open = Router::new()
         .route("/login", get(r_login_page::get).post(r_auth::login_post))
+        .route_service(
+            "/manifest.webmanifest",
+            ServeFile::new("web/v2/static/manifest.webmanifest"),
+        )
         .route_service("/sw.js", ServeFile::new("web/v2/static/sw.js"))
         .layer(auth_layer.clone());
 

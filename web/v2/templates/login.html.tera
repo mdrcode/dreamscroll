@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1a1917">
     <title>Login - dreamscroll</title>
-    <link rel="manifest" href="/static/manifest.webmanifest?v={{ static_asset_version | urlencode }}">
+    <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
     <link rel="stylesheet" href="/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}">
     <style>

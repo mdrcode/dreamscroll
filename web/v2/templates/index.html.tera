@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#1a1917">
     <title>dreamscroll</title>
-    <link rel="manifest" href="/static/manifest.webmanifest?v={{ static_asset_version | urlencode }}">
+    <link rel="manifest" href="/manifest.webmanifest">
     <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
     <link rel="stylesheet" href="/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}">
     <script defer src="https://unpkg.com/htmx.org@2.0.7" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
