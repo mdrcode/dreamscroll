@@ -3,7 +3,7 @@ use std::sync::Arc;
 use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use tera::{Context, Tera};
-use tower_http::services::ServeDir;
+use tower_http::services::{ServeDir, ServeFile};
 use tower_sessions::SessionManagerLayer;
 
 use crate::{api, auth, facility};
@@ -47,6 +47,7 @@ pub fn make_ui_router(
 
     let routes_open = Router::new()
         .route("/login", get(r_login_page::get).post(r_auth::login_post))
+        .route_service("/sw.js", ServeFile::new("web/v2/static/sw.js"))
         .layer(auth_layer.clone());
 
     let routes_protected = Router::new()

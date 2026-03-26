@@ -3,6 +3,7 @@ document.addEventListener('DOMContentLoaded', function () {
         throw new Error('HTMX is required for webui-v2.js but was not found on window.htmx.');
     }
 
+    setupPwaServiceWorker();
     setupSearchShortcut();
     setupSearchClearButton();
     setupSearchEndpointRouting();
@@ -16,6 +17,16 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 });
+
+function setupPwaServiceWorker() {
+    if (!('serviceWorker' in navigator)) {
+        return;
+    }
+
+    navigator.serviceWorker.register('/sw.js').catch(function (err) {
+        console.warn('Service worker registration failed:', err);
+    });
+}
 
 function setupSearchShortcut() {
     const searchInput = document.getElementById('header-search-input');
