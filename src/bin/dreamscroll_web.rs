@@ -49,8 +49,8 @@ async fn main() -> anyhow::Result<()> {
         let session_layer = SessionManagerLayer::new(session_store)
             // Refresh session on read, not just modify (to extend inactivity timeout)
             .with_always_save(config.session_always_save)
-            // Expire session after two days of inactivity
-            .with_expiry(Expiry::OnInactivity(cookie::time::Duration::days(2)))
+            // Expire session after seven days of inactivity
+            .with_expiry(Expiry::OnInactivity(cookie::time::Duration::days(7)))
             // true == only send cookies over HTTPS (production)
             // false == allow cookies over HTTP (local dev)
             .with_secure(config.cookie_secure)
