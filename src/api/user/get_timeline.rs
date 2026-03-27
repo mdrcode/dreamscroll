@@ -14,6 +14,7 @@ pub async fn get_timeline_captures(
 
     let capture_ids = model::capture::Entity::find()
         .filter(model::capture::Column::UserId.eq(user_context.user_id()))
+        .filter(model::capture::Column::ArchivedAt.is_null())
         .order_by(model::capture::Column::CreatedAt, sea_orm::Order::Desc)
         .limit(limit)
         .all(&db.conn)

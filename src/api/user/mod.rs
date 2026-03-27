@@ -18,6 +18,9 @@ pub use get_timeline::*;
 mod insert_capture;
 pub use insert_capture::*;
 
+mod archive_capture;
+pub use archive_capture::*;
+
 mod delete_capture;
 pub use delete_capture::*;
 

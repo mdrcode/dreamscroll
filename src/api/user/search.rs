@@ -30,6 +30,7 @@ pub async fn search_by_illuminations(
             )
             .inner_join(model::capture::Entity)
             .filter(model::capture::Column::UserId.eq(user_context.user_id()))
+            .filter(model::capture::Column::ArchivedAt.is_null())
             .select_only()
             .column(model::search_index::Column::CaptureId)
             .column(model::capture::Column::CreatedAt)

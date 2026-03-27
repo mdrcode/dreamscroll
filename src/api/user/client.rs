@@ -69,7 +69,6 @@ impl UserApiClient {
         self.make_spark_infos_from_models(context, sparks).await
     }
 
-    #[tracing::instrument(skip(self, context, sparks))]
     async fn make_spark_infos_from_models(
         &self,
         context: &auth::Context,
@@ -271,6 +270,24 @@ impl UserApiClient {
         capture_id: i32,
     ) -> Result<(), ApiError> {
         super::delete_capture(&self.db, context, capture_id).await
+    }
+
+    #[tracing::instrument(skip(self, context))]
+    pub async fn archive_capture(
+        &self,
+        context: &auth::Context,
+        capture_id: i32,
+    ) -> Result<(), ApiError> {
+        super::archive_capture(&self.db, context, capture_id).await
+    }
+
+    #[tracing::instrument(skip(self, context))]
+    pub async fn unarchive_capture(
+        &self,
+        context: &auth::Context,
+        capture_id: i32,
+    ) -> Result<(), ApiError> {
+        super::unarchive_capture(&self.db, context, capture_id).await
     }
 
     #[tracing::instrument(skip(self, context))]

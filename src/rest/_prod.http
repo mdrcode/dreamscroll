@@ -48,6 +48,16 @@ DELETE https://dreamscroll.ai/api/captures/605
 Authorization: Bearer {{token}}
 
 ###
+# Returns 204 No Content on success
+POST https://dreamscroll.ai/api/captures/605/archive
+Authorization: Bearer {{token}}
+
+###
+# Returns 204 No Content on success
+POST https://dreamscroll.ai/api/captures/605/unarchive
+Authorization: Bearer {{token}}
+
+###
 # Requires an admin JWT token
 POST https://dreamscroll.ai/api/admin/users
 Authorization: Bearer {{token}}

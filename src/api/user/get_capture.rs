@@ -19,6 +19,7 @@ pub async fn get_captures(
 
     let loader = model::capture::Entity::load()
         .filter(model::capture::Column::UserId.eq(context.user_id()))
+        .filter(model::capture::Column::ArchivedAt.is_null())
         .filter(model::capture::Column::Id.is_in(ids.clone()));
 
     let captures = loader

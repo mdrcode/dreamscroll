@@ -13,6 +13,7 @@ pub struct Model {
 
     // not set automatically for import use case (may revisit)
     pub created_at: DateTime<Utc>,
+    pub archived_at: Option<DateTime<Utc>>,
 
     #[sea_orm(belongs_to, from = "user_id", to = "id")]
     pub user: HasOne<user::Entity>,

@@ -37,6 +37,11 @@ pub fn make_api_router(user_api: api::UserApiClient, jwt_config: auth::JwtConfig
         .route("/admin/users", post(r_create_user::post))
         .route("/captures", get(r_capture::get))
         .route("/captures/{capture_id}", delete(r_capture::delete))
+        .route("/captures/{capture_id}/archive", post(r_capture::archive))
+        .route(
+            "/captures/{capture_id}/unarchive",
+            post(r_capture::unarchive),
+        )
         .route("/captures/import", post(r_import_capture::post))
         .route("/dummy", get(r_dummy::get))
         .route("/timeline", get(r_timeline::get))

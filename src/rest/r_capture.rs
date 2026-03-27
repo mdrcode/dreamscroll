@@ -68,6 +68,42 @@ pub async fn delete(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// POST /api/captures/{capture_id}/archive - Archive a capture
+///
+/// Requires JWT authentication. The capture must belong to the authenticated user.
+pub async fn archive(
+    user: DreamscrollAuthUser,
+    State(state): State<Arc<RestState>>,
+    Path(capture_id): Path<i32>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    state
+        .user_api
+        .archive_capture(&user.into(), capture_id)
+        .await?;
+
+    tracing::info!("Archived capture {} successfully", capture_id);
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// POST /api/captures/{capture_id}/unarchive - Unarchive a capture
+///
+/// Requires JWT authentication. The capture must belong to the authenticated user.
+pub async fn unarchive(
+    user: DreamscrollAuthUser,
+    State(state): State<Arc<RestState>>,
+    Path(capture_id): Path<i32>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    state
+        .user_api
+        .unarchive_capture(&user.into(), capture_id)
+        .await?;
+
+    tracing::info!("Unarchived capture {} successfully", capture_id);
+
+    Ok(StatusCode::NO_CONTENT)
+}
+
 #[cfg(test)]
 mod tests {
     //use super::*;
