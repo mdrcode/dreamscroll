@@ -35,8 +35,8 @@ async fn run_spinner(mut stop_rx: tokio::sync::oneshot::Receiver<()>) {
 #[argh(description = "Generate a spark from one or more capture IDs")]
 pub struct SparkArgs {
     #[argh(positional)]
-    #[argh(description = "ID(s) of the captures to spark from")]
-    ids: Vec<i32>,
+    #[argh(description = "ID(s) or ranges (e.g. 205-209) of captures to spark from")]
+    ids: Vec<String>,
 
     #[argh(
         option,
@@ -48,12 +48,59 @@ pub struct SparkArgs {
     firestarter: String,
 }
 
+fn parse_capture_ids(tokens: &[String]) -> anyhow::Result<Vec<i32>> {
+    let mut parsed_ids = Vec::new();
+
+    for token in tokens {
+        let trimmed = token.trim();
+
+        if trimmed.is_empty() {
+            return Err(anyhow!("Capture ID argument cannot be empty."));
+        }
+
+        if let Some((start_raw, end_raw)) = trimmed.split_once('-') {
+            let start = start_raw.parse::<i32>().map_err(|_| {
+                anyhow!(
+                    "Invalid range start '{}'. Expected an integer in '{}'.",
+                    start_raw,
+                    token
+                )
+            })?;
+            let end = end_raw.parse::<i32>().map_err(|_| {
+                anyhow!(
+                    "Invalid range end '{}'. Expected an integer in '{}'.",
+                    end_raw,
+                    token
+                )
+            })?;
+
+            if start <= end {
+                parsed_ids.extend(start..=end);
+            } else {
+                parsed_ids.extend((end..=start).rev());
+            }
+        } else {
+            let id = trimmed.parse::<i32>().map_err(|_| {
+                anyhow!(
+                    "Invalid capture ID '{}'. Use an integer or range like 205-209.",
+                    token
+                )
+            })?;
+            parsed_ids.push(id);
+        }
+    }
+
+    Ok(parsed_ids)
+}
+
 pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
     if args.ids.is_empty() {
         return Err(anyhow!("At least one capture ID must be provided."));
     }
 
-    let captures = state.rest_client.get_captures(Some(&args.ids)).await?;
+    let capture_ids = parse_capture_ids(&args.ids)?;
+
+    let captures = state.rest_client.get_captures(Some(&capture_ids)).await?;
 
     if captures.is_empty() {
         return Err(anyhow!("No matching captures found for provided IDs."));
@@ -102,13 +149,20 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
     let requested_ids = args
         .ids
         .iter()
-        .map(|id| id.to_string())
+        .map(std::string::ToString::to_string)
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    let expanded_ids = capture_ids
+        .iter()
+        .map(std::string::ToString::to_string)
         .collect::<Vec<_>>()
         .join(", ");
 
     println!("Spark request");
     println!("- Host: {}", state.rest_host);
     println!("- Requested capture IDs: {}", requested_ids);
+    println!("- Expanded capture IDs: {}", expanded_ids);
     println!("- Captures matched: {}", capture_count);
     println!("- Firestarter: {}", firestarter.name());
     println!("- Spark duration: {:?}", spark_duration);
