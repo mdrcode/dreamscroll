@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1a1917">
+    <title>dreamscroll masonry</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+    <link rel="stylesheet" href="/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}&view=masonry-v2">
+    <link rel="stylesheet" href="/static/masonry.css?v={{ static_asset_version | urlencode }}">
+</head>
+
+<body>
+    <div id="page-content-container" class="masonry-page">
+        <div id="header-row">
+            <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll</a></h1>
+        </div>
+
+        <div id="masonry-empty" class="empty-state{% if images | length > 0 %} is-hidden{% endif %}">No images to show.</div>
+        <section id="masonry-grid" class="masonry-grid" aria-label="Capture image gallery"></section>
+    </div>
+
+    <script>
+        (() => {
+            const images = {{ images | json_encode | safe }};
+            const maxColumns = 5;
+            const grid = document.getElementById("masonry-grid");
+            const emptyState = document.getElementById("masonry-empty");
+
+            function getColumnCount() {
+                const raw = getComputedStyle(grid).getPropertyValue("--masonry-cols").trim();
+                const parsed = Number.parseInt(raw, 10);
+                if (!Number.isFinite(parsed) || parsed < 1) {
+                    return 1;
+                }
+                return Math.min(parsed, maxColumns);
+            }
+
+            function renderColumns() {
+                if (images.length === 0) {
+                    grid.replaceChildren();
+                    return;
+                }
+
+                const columnCount = getColumnCount();
+                const buckets = Array.from({ length: columnCount }, () => []);
+
+                images.forEach((image, idx) => {
+                    buckets[idx % columnCount].push(image);
+                });
+
+                const fragment = document.createDocumentFragment();
+                buckets.forEach((bucket) => {
+                    const column = document.createElement("div");
+                    column.className = "masonry-column";
+
+                    bucket.forEach((image) => {
+                        const link = document.createElement("a");
+                        link.className = "masonry-item";
+                        link.href = `/v1/detail/${image.capture_id}`;
+
+                        const img = document.createElement("img");
+                        img.src = image.url;
+                        img.alt = "capture image";
+
+                        link.appendChild(img);
+                        column.appendChild(link);
+                    });
+
+                    fragment.appendChild(column);
+                });
+
+                grid.replaceChildren(fragment);
+            }
+
+            if (images.length === 0) {
+                emptyState.classList.remove("is-hidden");
+            } else {
+                emptyState.classList.add("is-hidden");
+                let lastCount = -1;
+                const rerenderIfNeeded = () => {
+                    const count = getColumnCount();
+                    if (count !== lastCount) {
+                        lastCount = count;
+                        renderColumns();
+                    }
+                };
+
+                rerenderIfNeeded();
+
+                let resizeTimer = null;
+                window.addEventListener("resize", () => {
+                    if (resizeTimer !== null) {
+                        window.clearTimeout(resizeTimer);
+                    }
+                    resizeTimer = window.setTimeout(rerenderIfNeeded, 120);
+                });
+            }
+        })();
+    </script>
+</body>
+
+</html>

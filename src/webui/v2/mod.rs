@@ -8,4 +8,5 @@ mod r_cards;
 mod r_command;
 mod r_index;
 mod r_login_page;
+mod r_masonry;
 mod r_upload;

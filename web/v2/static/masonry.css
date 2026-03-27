@@ -1,0 +1,61 @@
+.masonry-page,
+#page-content-container.masonry-page {
+    max-width: 1320px;
+}
+
+.masonry-grid {
+    --masonry-cols: 5;
+    display: grid;
+    grid-template-columns: repeat(var(--masonry-cols), minmax(0, 1fr));
+    gap: 12px;
+    align-items: start;
+}
+
+.masonry-column {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.masonry-item {
+    display: block;
+    width: 100%;
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--color-stroke-soft);
+    background: var(--color-card);
+}
+
+.masonry-item img {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+@media (max-width: 1180px) {
+    .masonry-grid {
+        --masonry-cols: 4;
+    }
+}
+
+@media (max-width: 960px) {
+    .masonry-grid {
+        --masonry-cols: 3;
+    }
+}
+
+@media (max-width: 700px) {
+    .masonry-grid {
+        --masonry-cols: 2;
+    }
+}
+
+@media (max-width: 460px) {
+    .masonry-grid {
+        --masonry-cols: 1;
+    }
+}
+
+.empty-state.is-hidden {
+    display: none;
+}
