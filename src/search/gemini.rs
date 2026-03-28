@@ -16,37 +16,28 @@ const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platfo
 const MODEL_ID: &str = "gemini-embedding-2-preview";
 const OUTPUT_DIMS: u32 = 768;
 
-/// Indexes a capture by building a single hybrid image+text embedding via
-/// Gemini Embeddings v2 and upserting it into Vertex AI Vector Search.
+/// Embeds a capture into a dense vector via Gemini Embeddings v2.
 #[derive(Clone)]
-pub struct GeminiEmbeddingV2Indexer {
+pub struct GeminiEmbedder {
     project_id: String,
     region: String,
     model_id: String,
     output_dims: u32,
-    vector_index_id: String,
     storage: Box<dyn storage::StorageProvider>,
     http: Client,
     adc_credentials: AccessTokenCredentials,
 }
 
-impl GeminiEmbeddingV2Indexer {
+impl GeminiEmbedder {
     pub fn from_config(
         config: &facility::Config,
         storage: Box<dyn storage::StorageProvider>,
     ) -> anyhow::Result<Self> {
-        let vector_index_id = config
-            .search_vector_index_id
-            .as_ref()
-            .context("SEARCH_VECTOR_INDEX_ID required for search indexing")?
-            .to_string();
-
         Self::new(
             config.gcloud_project_id.clone(),
             config.gcloud_project_region.clone(),
             MODEL_ID.to_string(),
             OUTPUT_DIMS,
-            vector_index_id,
             storage,
         )
     }
@@ -56,7 +47,6 @@ impl GeminiEmbeddingV2Indexer {
         region: String,
         model_id: String,
         output_dims: u32,
-        vector_index_id: String,
         storage: Box<dyn storage::StorageProvider>,
     ) -> anyhow::Result<Self> {
         let adc_credentials = Builder::default()
@@ -67,7 +57,6 @@ impl GeminiEmbeddingV2Indexer {
             project_id,
             region,
             model_id,
-            vector_index_id,
             output_dims,
             storage,
             http: reqwest::Client::new(),
@@ -76,10 +65,10 @@ impl GeminiEmbeddingV2Indexer {
     }
 
     #[tracing::instrument(skip(self, capture), fields(capture_id = %capture.id))]
-    pub async fn index_capture(
+    async fn embed_capture_impl(
         &self,
         capture: &api::CaptureInfo,
-    ) -> anyhow::Result<SearchIndexUpsertResult> {
+    ) -> anyhow::Result<CaptureEmbedding> {
         let media = capture
             .medias
             .first()
@@ -102,21 +91,22 @@ impl GeminiEmbeddingV2Indexer {
                 anyhow::anyhow!("Embedding request failed for capture {}: {}", capture.id, e)
             })?;
 
-        let datapoint_id = self.make_datapoint_id(capture.id, illumination.id);
-        self.upsert_embedding(capture, &datapoint_id, embedding.clone())
-            .await?;
+        let datapoint_id = make_datapoint_id(capture.id, illumination.id);
 
         tracing::info!(
             capture_id = capture.id,
             illumination_id = illumination.id,
             datapoint_id,
             dimensions = embedding.len(),
-            "Search embedding indexed in Vertex Vector Search"
+            "Search embedding generated"
         );
 
-        Ok(SearchIndexUpsertResult {
+        Ok(CaptureEmbedding {
+            user_id: capture.user_id,
+            capture_id: capture.id,
+            illumination_id: illumination.id,
             datapoint_id,
-            embedding_dimensions: embedding.len(),
+            embedding,
         })
     }
 
@@ -174,12 +164,49 @@ impl GeminiEmbeddingV2Indexer {
         let value: serde_json::Value = response.json().await?;
         parse_gemini_v2_embedding_json(&value)
     }
+}
 
-    async fn upsert_embedding(
+#[async_trait::async_trait]
+impl Embedder for GeminiEmbedder {
+    async fn embed_capture(&self, capture: &api::CaptureInfo) -> anyhow::Result<CaptureEmbedding> {
+        self.embed_capture_impl(capture).await
+    }
+}
+
+/// Upserts dense vectors into Vertex AI Vector Search.
+#[derive(Clone)]
+pub struct VertexAiVectorStore {
+    project_id: String,
+    region: String,
+    vector_index_id: String,
+}
+
+impl VertexAiVectorStore {
+    pub fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
+        let vector_index_id = config
+            .search_vector_index_id
+            .as_ref()
+            .context("SEARCH_VECTOR_INDEX_ID required for search indexing")?
+            .to_string();
+
+        Ok(Self {
+            project_id: config.gcloud_project_id.clone(),
+            region: config.gcloud_project_region.clone(),
+            vector_index_id,
+        })
+    }
+
+    pub fn new(project_id: String, region: String, vector_index_id: String) -> Self {
+        Self {
+            project_id,
+            region,
+            vector_index_id,
+        }
+    }
+
+    async fn upsert_embedding_impl(
         &self,
-        capture: &api::CaptureInfo,
-        datapoint_id: &str,
-        feature_vector: Vec<f32>,
+        embedded: &CaptureEmbedding,
     ) -> anyhow::Result<()> {
         let index_full_name = format!(
             "projects/{}/locations/{}/indexes/{}",
@@ -194,15 +221,15 @@ impl GeminiEmbeddingV2Indexer {
         let restricts = vec![
             model::index_datapoint::Restriction::new()
                 .set_namespace("user_id")
-                .set_allow_list([capture.user_id.to_string()]),
+                .set_allow_list([embedded.user_id.to_string()]),
             model::index_datapoint::Restriction::new()
                 .set_namespace("capture_id")
-                .set_allow_list([capture.id.to_string()]),
+                .set_allow_list([embedded.capture_id.to_string()]),
         ];
 
         let datapoint = IndexDatapoint::new()
-            .set_datapoint_id(datapoint_id)
-            .set_feature_vector(feature_vector)
+            .set_datapoint_id(embedded.datapoint_id.clone())
+            .set_feature_vector(embedded.embedding.clone())
             .set_restricts(restricts);
 
         index_client
@@ -215,20 +242,25 @@ impl GeminiEmbeddingV2Indexer {
 
         Ok(())
     }
-
-    fn make_datapoint_id(&self, capture_id: i32, illumination_id: i32) -> String {
-        format!("capture:{}:illumination:{}", capture_id, illumination_id)
-    }
 }
 
 #[async_trait::async_trait]
-impl Indexer for GeminiEmbeddingV2Indexer {
-    async fn index_capture(
+impl VectorStore for VertexAiVectorStore {
+    async fn upsert_embedding(
         &self,
-        capture: &api::CaptureInfo,
+        embedded: &CaptureEmbedding,
     ) -> anyhow::Result<SearchIndexUpsertResult> {
-        GeminiEmbeddingV2Indexer::index_capture(self, capture).await
+        self.upsert_embedding_impl(embedded).await?;
+
+        Ok(SearchIndexUpsertResult {
+            datapoint_id: embedded.datapoint_id.clone(),
+            embedding_dimensions: embedded.embedding.len(),
+        })
     }
+}
+
+fn make_datapoint_id(capture_id: i32, illumination_id: i32) -> String {
+    format!("capture:{}:illumination:{}", capture_id, illumination_id)
 }
 
 pub(super) fn parse_gemini_v2_embedding_json(response: &Value) -> anyhow::Result<Vec<f32>> {

@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::api;
+use super::CaptureEmbedding;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchIndexUpsertResult {
@@ -9,9 +9,9 @@ pub struct SearchIndexUpsertResult {
 }
 
 #[async_trait::async_trait]
-pub trait Indexer: Send + Sync {
-    async fn index_capture(
+pub trait VectorStore: Send + Sync {
+    async fn upsert_embedding(
         &self,
-        capture: &api::CaptureInfo,
+        embedded: &CaptureEmbedding,
     ) -> anyhow::Result<SearchIndexUpsertResult>;
 }

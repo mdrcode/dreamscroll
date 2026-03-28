@@ -1,6 +1,8 @@
 mod docmaker;
 pub use docmaker::*;
-mod indexer;
-pub use indexer::*;
+mod embedder;
+pub use embedder::*;
+mod vectorstore;
+pub use vectorstore::*;
 
 pub mod gemini;

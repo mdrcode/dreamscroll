@@ -1,7 +1,10 @@
 use anyhow::anyhow;
 use argh::FromArgs;
 
-use crate::search::gemini::GeminiEmbeddingV2Indexer;
+use crate::search::{
+    Embedder, VectorStore,
+    gemini::{GeminiEmbedder, VertexAiVectorStore},
+};
 
 use super::*;
 
@@ -22,7 +25,8 @@ pub async fn run(state: CmdState, args: SearchEmbedIdArgs) -> anyhow::Result<()>
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
     let user_context = user.into();
 
-    let indexer = GeminiEmbeddingV2Indexer::from_config(&state.config, state.stg.clone())?;
+    let embedder = GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
+    let vector_store = VertexAiVectorStore::from_config(&state.config)?;
 
     let requested_count = args.ids.len();
     let captures = state
@@ -36,7 +40,15 @@ pub async fn run(state: CmdState, args: SearchEmbedIdArgs) -> anyhow::Result<()>
     let mut success_count = 0usize;
 
     for capture in captures {
-        match indexer.index_capture(&capture).await {
+        let embedded = match embedder.embed_capture(&capture).await {
+            Ok(embedded) => embedded,
+            Err(err) => {
+                eprintln!("Failed embedding capture {}: {}", capture.id, err);
+                continue;
+            }
+        };
+
+        match vector_store.upsert_embedding(&embedded).await {
             Ok(res) => {
                 success_count += 1;
                 println!(
