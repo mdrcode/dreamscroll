@@ -9,15 +9,15 @@ use crate::search::{
 use super::*;
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "search_embed_id")]
+#[argh(subcommand, name = "search_embed")]
 #[argh(description = "Embed one or more captures and upsert into Vertex AI Vector Search")]
-pub struct SearchEmbedIdArgs {
+pub struct SearchEmbedArgs {
     #[argh(positional)]
     #[argh(description = "ID(s) of the capture(s) to embed and index")]
     ids: Vec<i32>,
 }
 
-pub async fn run(state: CmdState, args: SearchEmbedIdArgs) -> anyhow::Result<()> {
+pub async fn run(state: CmdState, args: SearchEmbedArgs) -> anyhow::Result<()> {
     if args.ids.is_empty() {
         return Err(anyhow!("At least one capture ID must be provided."));
     }
@@ -28,7 +28,7 @@ pub async fn run(state: CmdState, args: SearchEmbedIdArgs) -> anyhow::Result<()>
     let embedder = GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
     let vector_store = VertexAiVectorStore::from_config(&state.config)?;
 
-    let requested_count = args.ids.len();
+    let raw_count = args.ids.len();
     let captures = state
         .user_api
         .get_captures(&user_context, args.ids.clone())
@@ -40,15 +40,15 @@ pub async fn run(state: CmdState, args: SearchEmbedIdArgs) -> anyhow::Result<()>
     let mut success_count = 0usize;
 
     for capture in captures {
-        let embedded = match embedder.embed_capture(&capture).await {
-            Ok(embedded) => embedded,
+        let embedding = match embedder.embed_capture(&capture).await {
+            Ok(embedding) => embedding,
             Err(err) => {
                 eprintln!("Failed embedding capture {}: {}", capture.id, err);
                 continue;
             }
         };
 
-        match vector_store.upsert_capture_embedding(&embedded).await {
+        match vector_store.upsert_capture_embedding(&embedding).await {
             Ok(res) => {
                 success_count += 1;
                 println!(
@@ -64,7 +64,7 @@ pub async fn run(state: CmdState, args: SearchEmbedIdArgs) -> anyhow::Result<()>
 
     println!(
         "Done. Indexed {}/{} capture(s).",
-        success_count, requested_count
+        success_count, raw_count
     );
 
     Ok(())

@@ -39,6 +39,7 @@ impl VertexAiVectorStore {
 
 #[async_trait::async_trait]
 impl search::VectorStore for VertexAiVectorStore {
+    #[tracing::instrument(skip(self, embedded), fields(capture_id = %embedded.capture_id, illumination_id = %embedded.illumination_id))]
     async fn upsert_capture_embedding(
         &self,
         embedded: &search::CaptureEmbedding,
@@ -64,13 +65,22 @@ impl search::VectorStore for VertexAiVectorStore {
             .set_feature_vector(embedded.embedding.clone())
             .set_restricts(restricts);
 
-        index_client
+        let _response = index_client
             .upsert_datapoints()
             .set_index(self.index_full_name.clone())
             .set_datapoints([datapoint])
             .send()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to upsert vector datapoint: {}", e))?;
+
+        tracing::info!(
+            user_id = embedded.user_id,
+            capture_id = embedded.capture_id,
+            illumination_id = embedded.illumination_id,
+            datapoint_id,
+            dimensions = embedded.embedding.len(),
+            "Vector datapoint upserted"
+        );
 
         Ok(search::VectorUpsertResult {
             datapoint_id,

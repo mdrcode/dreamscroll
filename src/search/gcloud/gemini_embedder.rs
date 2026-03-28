@@ -152,33 +152,33 @@ async fn make_image_base64(
 }
 
 fn parse_gemini_v2_embedding_json(response: &Value) -> anyhow::Result<Vec<f32>> {
-    let arrays = [
+    let pointers = [
         response.pointer("/embedding/values"),
         response.pointer("/embeddings/0/values"),
         response.pointer("/embeddings/0/value"),
         response.pointer("/values"),
     ];
 
-    let Some(raw_values) = arrays.into_iter().flatten().find_map(Value::as_array) else {
+    let Some(found_embedding) = pointers.into_iter().flatten().find_map(Value::as_array) else {
         anyhow::bail!(
             "embedContent response missing embedding values field: {}",
             response
         );
     };
 
-    let mut values = Vec::with_capacity(raw_values.len());
-    for (idx, value) in raw_values.iter().enumerate() {
+    let mut typed_embedding = Vec::with_capacity(found_embedding.len());
+    for (idx, value) in found_embedding.iter().enumerate() {
         let Some(f) = value.as_f64() else {
             anyhow::bail!("Embedding value at index {} is not numeric", idx);
         };
-        values.push(f as f32);
+        typed_embedding.push(f as f32);
     }
 
-    if values.is_empty() {
+    if typed_embedding.is_empty() {
         anyhow::bail!("Embedding response returned an empty vector");
     }
 
-    Ok(values)
+    Ok(typed_embedding)
 }
 
 #[cfg(test)]
