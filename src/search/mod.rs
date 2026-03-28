@@ -1,6 +1,3 @@
-mod docmaker;
-pub use docmaker::*;
-
 mod embedder;
 pub use embedder::*;
 

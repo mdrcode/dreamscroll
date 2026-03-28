@@ -15,7 +15,7 @@ pub struct IlluminationMeta {
     pub provider_name: String,
 }
 
-/// Structured response which describes and exposits the content of an image capture.
+/// Structured response which describes the content of an image.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Illumination {
     pub meta: IlluminationMeta,

@@ -58,7 +58,7 @@ impl search::VectorStore for VertexAiVectorStore {
                 .set_allow_list([embedded.capture_id.to_string()]),
         ];
 
-        let datapoint_id = make_datapoint_id(embedded.capture_id, embedded.illumination_id);
+        let datapoint_id = make_datapoint_id(embedded);
 
         let datapoint = IndexDatapoint::new()
             .set_datapoint_id(datapoint_id.clone())
@@ -89,6 +89,9 @@ impl search::VectorStore for VertexAiVectorStore {
     }
 }
 
-fn make_datapoint_id(capture_id: i32, illumination_id: i32) -> String {
-    format!("capture:{}:illumination:{}", capture_id, illumination_id)
+fn make_datapoint_id(capture_embedding: &search::CaptureEmbedding) -> String {
+    format!(
+        "user:{}:capture:{}:illumination:{}",
+        capture_embedding.user_id, capture_embedding.capture_id, capture_embedding.illumination_id
+    )
 }

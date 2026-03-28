@@ -69,18 +69,38 @@ impl search::Embedder for GeminiEmbedder {
         capture: &api::CaptureInfo,
     ) -> anyhow::Result<search::CaptureEmbedding> {
         let access_token = self.adc_credentials.access_token().await?.token;
-        let text_doc = search::docmaker::make_text_doc(capture)?;
-        let (mime_type, image_b64) = make_image_base64(capture, self.storage.as_ref()).await?;
+
+        let latest_illumination = capture
+            .illuminations
+            .iter()
+            .max_by_key(|illumination| illumination.id)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Capture has no illumination, required for embedding")
+            })?;
+        let text = latest_illumination.make_text();
+
+        let first_media = capture
+            .medias
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("Capture has no media, required for embedding"))?;
+        let image_bytes = self
+            .storage
+            .retrieve_bytes(&storage::StorageHandle::from(first_media))
+            .await?;
+        let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
 
         let body = json!({
             "content": {
                 "parts": [
                     {
-                        "text": text_doc.text
+                        "text": text
                     },
                     {
                         "inline_data": {
-                            "mime_type": mime_type,
+                            "mime_type": first_media
+                                .mime_type
+                                .clone()
+                                .unwrap_or_else(|| "image/jpeg".to_string()),
                             "data": image_b64
                         }
                     }
@@ -102,11 +122,11 @@ impl search::Embedder for GeminiEmbedder {
 
         if !response.status().is_success() {
             let status = response.status();
-            let body = response.text().await.unwrap_or_default();
+            let err = response.text().await.unwrap_or_default();
             anyhow::bail!(
                 "Gemini embedContent failed with status {} and body: {}",
                 status,
-                body
+                err
             );
         }
 
@@ -115,7 +135,7 @@ impl search::Embedder for GeminiEmbedder {
 
         tracing::info!(
             capture_id = capture.id,
-            illumination_id = text_doc.illumination_id,
+            illumination_id = latest_illumination.id,
             dimensions = embedding.len(),
             "Search embedding generated"
         );
@@ -123,32 +143,10 @@ impl search::Embedder for GeminiEmbedder {
         Ok(search::CaptureEmbedding {
             user_id: capture.user_id,
             capture_id: capture.id,
-            illumination_id: text_doc.illumination_id,
+            illumination_id: latest_illumination.id,
             embedding,
         })
     }
-}
-
-async fn make_image_base64(
-    capture: &api::CaptureInfo,
-    storage: &dyn storage::StorageProvider,
-) -> anyhow::Result<(String, String)> {
-    let media = capture
-        .medias
-        .first()
-        .ok_or_else(|| anyhow::anyhow!("Capture has no media; cannot embed for search"))?;
-
-    let mime_type = media
-        .mime_type
-        .clone()
-        .unwrap_or_else(|| "image/jpeg".to_string());
-
-    let image_bytes = storage
-        .retrieve_bytes(&storage::StorageHandle::from(media))
-        .await?;
-    let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
-
-    Ok((mime_type, image_b64))
 }
 
 fn parse_gemini_v2_embedding_json(response: &Value) -> anyhow::Result<Vec<f32>> {
