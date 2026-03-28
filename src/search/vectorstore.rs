@@ -1,17 +1,17 @@
 use serde::{Deserialize, Serialize};
 
-use super::CaptureEmbedding;
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchIndexUpsertResult {
-    pub datapoint_id: String,
-    pub embedding_dimensions: usize,
-}
+use super::*;
 
 #[async_trait::async_trait]
 pub trait VectorStore: Send + Sync {
-    async fn upsert_embedding(
+    async fn upsert_capture_embedding(
         &self,
-        embedded: &CaptureEmbedding,
-    ) -> anyhow::Result<SearchIndexUpsertResult>;
+        embedding: &CaptureEmbedding,
+    ) -> anyhow::Result<VectorUpsertResult>;
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VectorUpsertResult {
+    pub datapoint_id: String,
+    pub embedding_dimensions: usize,
 }

@@ -1,16 +1,10 @@
 use anyhow::Context;
 use base64::Engine;
-use google_cloud_aiplatform_v1::{
-    client::IndexService,
-    model::{self, IndexDatapoint},
-};
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder};
 use reqwest::Client;
 use serde_json::{Value, json};
 
-use crate::{api, facility, storage};
-
-use super::*;
+use crate::{api, facility, search, storage};
 
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const MODEL_ID: &str = "gemini-embedding-2-preview";
@@ -68,7 +62,7 @@ impl GeminiEmbedder {
     async fn embed_capture_impl(
         &self,
         capture: &api::CaptureInfo,
-    ) -> anyhow::Result<CaptureEmbedding> {
+    ) -> anyhow::Result<search::CaptureEmbedding> {
         let media = capture
             .medias
             .first()
@@ -79,7 +73,7 @@ impl GeminiEmbedder {
             .first()
             .context("Capture has no illumination; search embedding requires text context")?;
 
-        let hybrid_doc = docmaker::make_hybrid_document(capture, media, illumination)?;
+        let hybrid_doc = search::docmaker::make_hybrid_document(capture, media, illumination)?;
         let image_bytes = self
             .storage
             .retrieve_bytes(&storage::StorageHandle::from(media))
@@ -101,7 +95,7 @@ impl GeminiEmbedder {
             "Search embedding generated"
         );
 
-        Ok(CaptureEmbedding {
+        Ok(search::CaptureEmbedding {
             user_id: capture.user_id,
             capture_id: capture.id,
             illumination_id: illumination.id,
@@ -112,7 +106,7 @@ impl GeminiEmbedder {
 
     async fn embed_hybrid_document(
         &self,
-        doc: &HybridSearchDocument,
+        doc: &search::HybridSearchDocument,
         image_bytes: &[u8],
     ) -> anyhow::Result<Vec<f32>> {
         let access_token = self.adc_credentials.access_token().await?.token;
@@ -167,95 +161,12 @@ impl GeminiEmbedder {
 }
 
 #[async_trait::async_trait]
-impl Embedder for GeminiEmbedder {
-    async fn embed_capture(&self, capture: &api::CaptureInfo) -> anyhow::Result<CaptureEmbedding> {
+impl search::Embedder for GeminiEmbedder {
+    async fn embed_capture(
+        &self,
+        capture: &api::CaptureInfo,
+    ) -> anyhow::Result<search::CaptureEmbedding> {
         self.embed_capture_impl(capture).await
-    }
-}
-
-/// Upserts dense vectors into Vertex AI Vector Search.
-#[derive(Clone)]
-pub struct VertexAiVectorStore {
-    project_id: String,
-    region: String,
-    vector_index_id: String,
-}
-
-impl VertexAiVectorStore {
-    pub fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
-        let vector_index_id = config
-            .search_vector_index_id
-            .as_ref()
-            .context("SEARCH_VECTOR_INDEX_ID required for search indexing")?
-            .to_string();
-
-        Ok(Self {
-            project_id: config.gcloud_project_id.clone(),
-            region: config.gcloud_project_region.clone(),
-            vector_index_id,
-        })
-    }
-
-    pub fn new(project_id: String, region: String, vector_index_id: String) -> Self {
-        Self {
-            project_id,
-            region,
-            vector_index_id,
-        }
-    }
-
-    async fn upsert_embedding_impl(
-        &self,
-        embedded: &CaptureEmbedding,
-    ) -> anyhow::Result<()> {
-        let index_full_name = format!(
-            "projects/{}/locations/{}/indexes/{}",
-            self.project_id, self.region, self.vector_index_id
-        );
-
-        let index_client = IndexService::builder()
-            .build()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to create IndexService client: {}", e))?;
-
-        let restricts = vec![
-            model::index_datapoint::Restriction::new()
-                .set_namespace("user_id")
-                .set_allow_list([embedded.user_id.to_string()]),
-            model::index_datapoint::Restriction::new()
-                .set_namespace("capture_id")
-                .set_allow_list([embedded.capture_id.to_string()]),
-        ];
-
-        let datapoint = IndexDatapoint::new()
-            .set_datapoint_id(embedded.datapoint_id.clone())
-            .set_feature_vector(embedded.embedding.clone())
-            .set_restricts(restricts);
-
-        index_client
-            .upsert_datapoints()
-            .set_index(index_full_name)
-            .set_datapoints([datapoint])
-            .send()
-            .await
-            .map_err(|e| anyhow::anyhow!("Failed to upsert vector datapoint: {}", e))?;
-
-        Ok(())
-    }
-}
-
-#[async_trait::async_trait]
-impl VectorStore for VertexAiVectorStore {
-    async fn upsert_embedding(
-        &self,
-        embedded: &CaptureEmbedding,
-    ) -> anyhow::Result<SearchIndexUpsertResult> {
-        self.upsert_embedding_impl(embedded).await?;
-
-        Ok(SearchIndexUpsertResult {
-            datapoint_id: embedded.datapoint_id.clone(),
-            embedding_dimensions: embedded.embedding.len(),
-        })
     }
 }
 

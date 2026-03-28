@@ -3,7 +3,7 @@ use argh::FromArgs;
 
 use crate::search::{
     Embedder, VectorStore,
-    gemini::{GeminiEmbedder, VertexAiVectorStore},
+    gcloud::{GeminiEmbedder, VertexAiVectorStore},
 };
 
 use super::*;
@@ -48,7 +48,7 @@ pub async fn run(state: CmdState, args: SearchEmbedIdArgs) -> anyhow::Result<()>
             }
         };
 
-        match vector_store.upsert_embedding(&embedded).await {
+        match vector_store.upsert_capture_embedding(&embedded).await {
             Ok(res) => {
                 success_count += 1;
                 println!(
