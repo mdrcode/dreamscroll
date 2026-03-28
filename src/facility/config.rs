@@ -66,6 +66,11 @@ pub struct Config {
     pub storage_gcloud_prod_endpoint: Option<String>,
     pub storage_gcloud_bucket_name: Option<String>,
 
+    pub search_vertex_location: Option<String>,
+    pub search_embedding_model: Option<String>,
+    pub search_embedding_output_dimensionality: Option<u32>,
+    pub search_vector_index_id: Option<String>,
+
     pub task_backend: task::TaskQueueBackend,
     pub task_pubsub_emulator: Option<String>, // e.g. "http://localhost:8085"
     pub task_pubsub_topic_new_capture: Option<String>,

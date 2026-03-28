@@ -7,6 +7,7 @@ pub mod ignition;
 pub mod illumination;
 pub mod model;
 pub mod rest;
+pub mod search;
 pub mod storage;
 pub mod task;
 pub mod util_cmd;
