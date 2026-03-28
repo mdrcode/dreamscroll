@@ -67,7 +67,7 @@ pub struct Config {
     pub storage_gcloud_bucket_name: Option<String>,
 
     pub search_vertex_location: Option<String>,
-    pub search_embedding_model: Option<String>,
+    pub search_embedding_model_id: Option<String>,
     pub search_embedding_output_dimensionality: Option<u32>,
     pub search_vector_index_id: Option<String>,
 

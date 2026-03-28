@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use argh::FromArgs;
 
-use crate::search::gemini::GeminiV2SearchIndexer;
+use crate::search::gemini::GeminiEmbeddingV2Indexer;
 
 use super::*;
 
@@ -22,7 +22,7 @@ pub async fn run(state: CmdState, args: SearchEmbedIdArgs) -> anyhow::Result<()>
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
     let user_context = user.into();
 
-    let indexer = GeminiV2SearchIndexer::from_config(&state.config, state.stg.clone())?;
+    let indexer = GeminiEmbeddingV2Indexer::from_config(&state.config, state.stg.clone())?;
 
     let requested_count = args.ids.len();
     let captures = state

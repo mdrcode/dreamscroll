@@ -4,7 +4,7 @@ use google_cloud_aiplatform_v1::{
     client::IndexService,
     model::{self, IndexDatapoint},
 };
-use google_cloud_auth::credentials::Builder;
+use google_cloud_auth::credentials::{AccessTokenCredentials, Builder};
 use reqwest::Client;
 use serde_json::{Value, json};
 
@@ -13,24 +13,24 @@ use crate::{api, facility, storage};
 use super::*;
 
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
-const DEFAULT_EMBEDDING_MODEL: &str = "gemini-embedding-2-preview";
-const DEFAULT_VERTEX_LOCATION: &str = "us-central1";
+const MODEL_ID: &str = "gemini-embedding-2-preview";
+const OUTPUT_DIMS: u32 = 768;
 
 /// Indexes a capture by building a single hybrid image+text embedding via
 /// Gemini Embeddings v2 and upserting it into Vertex AI Vector Search.
 #[derive(Clone)]
-pub struct GeminiV2SearchIndexer {
+pub struct GeminiEmbeddingV2Indexer {
     project_id: String,
-    location: String,
-    embedding_model: String,
+    region: String,
+    model_id: String,
+    output_dims: u32,
     vector_index_id: String,
-    output_dimensionality: Option<u32>,
     storage: Box<dyn storage::StorageProvider>,
     http: Client,
-    adc_credentials: google_cloud_auth::credentials::AccessTokenCredentials,
+    adc_credentials: AccessTokenCredentials,
 }
 
-impl GeminiV2SearchIndexer {
+impl GeminiEmbeddingV2Indexer {
     pub fn from_config(
         config: &facility::Config,
         storage: Box<dyn storage::StorageProvider>,
@@ -38,38 +38,25 @@ impl GeminiV2SearchIndexer {
         let vector_index_id = config
             .search_vector_index_id
             .as_ref()
-            .context("SEARCH_VECTOR_INDEX_ID is required for search indexing")?
+            .context("SEARCH_VECTOR_INDEX_ID required for search indexing")?
             .to_string();
 
-        let location = config.search_vertex_location.clone().unwrap_or_else(|| {
-            if config.gcloud_project_region == "local" {
-                DEFAULT_VERTEX_LOCATION.to_string()
-            } else {
-                config.gcloud_project_region.clone()
-            }
-        });
-
-        let embedding_model = config
-            .search_embedding_model
-            .clone()
-            .unwrap_or_else(|| DEFAULT_EMBEDDING_MODEL.to_string());
-
         Self::new(
-            &config.gcloud_project_id,
-            &location,
-            &embedding_model,
-            &vector_index_id,
-            config.search_embedding_output_dimensionality,
+            config.gcloud_project_id.clone(),
+            config.gcloud_project_region.clone(),
+            MODEL_ID.to_string(),
+            OUTPUT_DIMS,
+            vector_index_id,
             storage,
         )
     }
 
     pub fn new(
-        project_id: &str,
-        location: &str,
-        embedding_model: &str,
-        vector_index_id: &str,
-        output_dimensionality: Option<u32>,
+        project_id: String,
+        region: String,
+        model_id: String,
+        output_dims: u32,
+        vector_index_id: String,
         storage: Box<dyn storage::StorageProvider>,
     ) -> anyhow::Result<Self> {
         let adc_credentials = Builder::default()
@@ -77,11 +64,11 @@ impl GeminiV2SearchIndexer {
             .build_access_token_credentials()?;
 
         Ok(Self {
-            project_id: project_id.to_string(),
-            location: location.to_string(),
-            embedding_model: embedding_model.to_string(),
-            vector_index_id: vector_index_id.to_string(),
-            output_dimensionality,
+            project_id,
+            region,
+            model_id,
+            vector_index_id,
+            output_dims,
             storage,
             http: reqwest::Client::new(),
             adc_credentials,
@@ -143,10 +130,10 @@ impl GeminiV2SearchIndexer {
 
         let url = format!(
             "https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/google/models/{}:embedContent",
-            self.location, self.project_id, self.location, self.embedding_model
+            self.region, self.project_id, self.region, self.model_id
         );
 
-        let mut body = json!({
+        let body = json!({
             "content": {
                 "parts": [
                     {
@@ -159,14 +146,11 @@ impl GeminiV2SearchIndexer {
                         }
                     }
                 ]
+            },
+            "config": {
+                "output_dimensionality": self.output_dims
             }
         });
-
-        if let Some(d) = self.output_dimensionality {
-            body["config"] = json!({
-                "output_dimensionality": d,
-            });
-        }
 
         let response = self
             .http
@@ -188,7 +172,7 @@ impl GeminiV2SearchIndexer {
         }
 
         let value: serde_json::Value = response.json().await?;
-        parse_embedding_values(&value)
+        parse_gemini_v2_embedding_json(&value)
     }
 
     async fn upsert_embedding(
@@ -199,7 +183,7 @@ impl GeminiV2SearchIndexer {
     ) -> anyhow::Result<()> {
         let index_full_name = format!(
             "projects/{}/locations/{}/indexes/{}",
-            self.project_id, self.location, self.vector_index_id
+            self.project_id, self.region, self.vector_index_id
         );
 
         let index_client = IndexService::builder()
@@ -238,16 +222,16 @@ impl GeminiV2SearchIndexer {
 }
 
 #[async_trait::async_trait]
-impl Indexer for GeminiV2SearchIndexer {
+impl Indexer for GeminiEmbeddingV2Indexer {
     async fn index_capture(
         &self,
         capture: &api::CaptureInfo,
     ) -> anyhow::Result<SearchIndexUpsertResult> {
-        GeminiV2SearchIndexer::index_capture(self, capture).await
+        GeminiEmbeddingV2Indexer::index_capture(self, capture).await
     }
 }
 
-pub(super) fn parse_embedding_values(response: &Value) -> anyhow::Result<Vec<f32>> {
+pub(super) fn parse_gemini_v2_embedding_json(response: &Value) -> anyhow::Result<Vec<f32>> {
     let arrays = [
         response.pointer("/embedding/values"),
         response.pointer("/embeddings/0/values"),
@@ -283,7 +267,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn parse_embedding_values_supports_embeddings_array_shape() {
+    fn parse_gemini_v2_embedding_json_supports_embeddings_array_shape() {
         let value = json!({
             "embeddings": [
                 {
@@ -292,7 +276,7 @@ mod tests {
             ]
         });
 
-        let parsed = parse_embedding_values(&value).expect("should parse values");
+        let parsed = parse_gemini_v2_embedding_json(&value).expect("should parse values");
         assert_eq!(parsed.len(), 3);
     }
 }
