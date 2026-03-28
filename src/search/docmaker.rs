@@ -4,19 +4,13 @@ use crate::api;
 pub struct HybridSearchDocument {
     pub capture_id: i32,
     pub illumination_id: i32,
-    pub mime_type: String,
     pub text: String,
 }
 
-pub fn make_hybrid_document(
-    capture: &api::CaptureInfo,
-    media: &api::MediaInfo,
-    illumination: &api::IlluminationInfo,
-) -> anyhow::Result<HybridSearchDocument> {
-    let mime_type = media
-        .mime_type
-        .clone()
-        .unwrap_or_else(|| "image/jpeg".to_string());
+pub fn make_text_doc(capture: &api::CaptureInfo) -> anyhow::Result<HybridSearchDocument> {
+    let illumination = capture.illuminations.first().ok_or_else(|| {
+        anyhow::anyhow!("Capture has no illumination; search embedding requires text context")
+    })?;
 
     let text = format_hybrid_document_text(illumination);
 
@@ -30,7 +24,6 @@ pub fn make_hybrid_document(
     Ok(HybridSearchDocument {
         capture_id: capture.id,
         illumination_id: illumination.id,
-        mime_type,
         text,
     })
 }

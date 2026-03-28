@@ -12,6 +12,5 @@ pub struct CaptureEmbedding {
     pub user_id: i32,
     pub capture_id: i32,
     pub illumination_id: i32,
-    pub datapoint_id: String,
     pub embedding: Vec<f32>,
 }

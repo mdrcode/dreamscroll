@@ -1,4 +1,3 @@
-use anyhow::Context;
 use base64::Engine;
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder};
 use reqwest::Client;
@@ -13,9 +12,7 @@ const OUTPUT_DIMS: u32 = 768;
 /// Embeds a capture into a dense vector via Gemini Embeddings v2.
 #[derive(Clone)]
 pub struct GeminiEmbedder {
-    project_id: String,
-    region: String,
-    model_id: String,
+    model_url: String,
     output_dims: u32,
     storage: Box<dyn storage::StorageProvider>,
     http: Client,
@@ -47,85 +44,43 @@ impl GeminiEmbedder {
             .with_scopes([CLOUD_PLATFORM_SCOPE])
             .build_access_token_credentials()?;
 
+        let model_url = format!(
+            "https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/google/models/{}:embedContent",
+            region, project_id, region, model_id
+        );
+
+        tracing::info!(model_url, "GeminiEmbedder initialized");
+
         Ok(Self {
-            project_id,
-            region,
-            model_id,
+            model_url,
             output_dims,
             storage,
             http: reqwest::Client::new(),
             adc_credentials,
         })
     }
+}
 
+#[async_trait::async_trait]
+impl search::Embedder for GeminiEmbedder {
     #[tracing::instrument(skip(self, capture), fields(capture_id = %capture.id))]
-    async fn embed_capture_impl(
+    async fn embed_capture(
         &self,
         capture: &api::CaptureInfo,
     ) -> anyhow::Result<search::CaptureEmbedding> {
-        let media = capture
-            .medias
-            .first()
-            .context("Capture has no media; cannot embed for search")?;
-
-        let illumination = capture
-            .illuminations
-            .first()
-            .context("Capture has no illumination; search embedding requires text context")?;
-
-        let hybrid_doc = search::docmaker::make_hybrid_document(capture, media, illumination)?;
-        let image_bytes = self
-            .storage
-            .retrieve_bytes(&storage::StorageHandle::from(media))
-            .await?;
-        let embedding = self
-            .embed_hybrid_document(&hybrid_doc, &image_bytes)
-            .await
-            .map_err(|e| {
-                anyhow::anyhow!("Embedding request failed for capture {}: {}", capture.id, e)
-            })?;
-
-        let datapoint_id = make_datapoint_id(capture.id, illumination.id);
-
-        tracing::info!(
-            capture_id = capture.id,
-            illumination_id = illumination.id,
-            datapoint_id,
-            dimensions = embedding.len(),
-            "Search embedding generated"
-        );
-
-        Ok(search::CaptureEmbedding {
-            user_id: capture.user_id,
-            capture_id: capture.id,
-            illumination_id: illumination.id,
-            datapoint_id,
-            embedding,
-        })
-    }
-
-    async fn embed_hybrid_document(
-        &self,
-        doc: &search::HybridSearchDocument,
-        image_bytes: &[u8],
-    ) -> anyhow::Result<Vec<f32>> {
         let access_token = self.adc_credentials.access_token().await?.token;
-        let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
-
-        let url = format!(
-            "https://{}-aiplatform.googleapis.com/v1/projects/{}/locations/{}/publishers/google/models/{}:embedContent",
-            self.region, self.project_id, self.region, self.model_id
-        );
+        let text_doc = search::docmaker::make_text_doc(capture)?;
+        let (mime_type, image_b64) = make_image_base64(capture, self.storage.as_ref()).await?;
 
         let body = json!({
             "content": {
                 "parts": [
                     {
-                        "text": doc.text
+                        "text": text_doc.text
                     },
                     {
                         "inline_data": {
-                            "mime_type": doc.mime_type,
+                            "mime_type": mime_type,
                             "data": image_b64
                         }
                     }
@@ -138,7 +93,7 @@ impl GeminiEmbedder {
 
         let response = self
             .http
-            .post(url)
+            .post(&self.model_url)
             .header("Authorization", format!("Bearer {}", access_token))
             .header("Content-Type", "application/json")
             .json(&body)
@@ -155,26 +110,48 @@ impl GeminiEmbedder {
             );
         }
 
-        let value: serde_json::Value = response.json().await?;
-        parse_gemini_v2_embedding_json(&value)
+        let json: serde_json::Value = response.json().await?;
+        let embedding = parse_gemini_v2_embedding_json(&json)?;
+
+        tracing::info!(
+            capture_id = capture.id,
+            illumination_id = text_doc.illumination_id,
+            dimensions = embedding.len(),
+            "Search embedding generated"
+        );
+
+        Ok(search::CaptureEmbedding {
+            user_id: capture.user_id,
+            capture_id: capture.id,
+            illumination_id: text_doc.illumination_id,
+            embedding,
+        })
     }
 }
 
-#[async_trait::async_trait]
-impl search::Embedder for GeminiEmbedder {
-    async fn embed_capture(
-        &self,
-        capture: &api::CaptureInfo,
-    ) -> anyhow::Result<search::CaptureEmbedding> {
-        self.embed_capture_impl(capture).await
-    }
+async fn make_image_base64(
+    capture: &api::CaptureInfo,
+    storage: &dyn storage::StorageProvider,
+) -> anyhow::Result<(String, String)> {
+    let media = capture
+        .medias
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("Capture has no media; cannot embed for search"))?;
+
+    let mime_type = media
+        .mime_type
+        .clone()
+        .unwrap_or_else(|| "image/jpeg".to_string());
+
+    let image_bytes = storage
+        .retrieve_bytes(&storage::StorageHandle::from(media))
+        .await?;
+    let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
+
+    Ok((mime_type, image_b64))
 }
 
-fn make_datapoint_id(capture_id: i32, illumination_id: i32) -> String {
-    format!("capture:{}:illumination:{}", capture_id, illumination_id)
-}
-
-pub(super) fn parse_gemini_v2_embedding_json(response: &Value) -> anyhow::Result<Vec<f32>> {
+fn parse_gemini_v2_embedding_json(response: &Value) -> anyhow::Result<Vec<f32>> {
     let arrays = [
         response.pointer("/embedding/values"),
         response.pointer("/embeddings/0/values"),

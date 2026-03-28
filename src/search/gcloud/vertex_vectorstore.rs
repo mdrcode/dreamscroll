@@ -9,43 +9,40 @@ use crate::{facility, search};
 /// Upserts dense vectors into Vertex AI Vector Search.
 #[derive(Clone)]
 pub struct VertexAiVectorStore {
-    project_id: String,
-    region: String,
-    vector_index_id: String,
+    index_full_name: String,
 }
 
 impl VertexAiVectorStore {
     pub fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
-        let vector_index_id = config
+        let index_id = config
             .search_vector_index_id
             .as_ref()
             .context("SEARCH_VECTOR_INDEX_ID required for search indexing")?
             .to_string();
 
-        Ok(Self {
-            project_id: config.gcloud_project_id.clone(),
-            region: config.gcloud_project_region.clone(),
-            vector_index_id,
-        })
+        Ok(Self::new(
+            config.gcloud_project_id.clone(),
+            config.gcloud_project_region.clone(),
+            index_id,
+        ))
     }
 
-    pub fn new(project_id: String, region: String, vector_index_id: String) -> Self {
-        Self {
-            project_id,
-            region,
-            vector_index_id,
-        }
-    }
-
-    async fn upsert_embedding_impl(
-        &self,
-        embedded: &search::CaptureEmbedding,
-    ) -> anyhow::Result<()> {
+    pub fn new(project_id: String, region: String, index_id: String) -> Self {
         let index_full_name = format!(
             "projects/{}/locations/{}/indexes/{}",
-            self.project_id, self.region, self.vector_index_id
+            project_id, region, index_id
         );
 
+        Self { index_full_name }
+    }
+}
+
+#[async_trait::async_trait]
+impl search::VectorStore for VertexAiVectorStore {
+    async fn upsert_capture_embedding(
+        &self,
+        embedded: &search::CaptureEmbedding,
+    ) -> anyhow::Result<search::VectorUpsertResult> {
         let index_client = IndexService::builder()
             .build()
             .await
@@ -60,34 +57,28 @@ impl VertexAiVectorStore {
                 .set_allow_list([embedded.capture_id.to_string()]),
         ];
 
+        let datapoint_id = make_datapoint_id(embedded.capture_id, embedded.illumination_id);
+
         let datapoint = IndexDatapoint::new()
-            .set_datapoint_id(embedded.datapoint_id.clone())
+            .set_datapoint_id(datapoint_id.clone())
             .set_feature_vector(embedded.embedding.clone())
             .set_restricts(restricts);
 
         index_client
             .upsert_datapoints()
-            .set_index(index_full_name)
+            .set_index(self.index_full_name.clone())
             .set_datapoints([datapoint])
             .send()
             .await
             .map_err(|e| anyhow::anyhow!("Failed to upsert vector datapoint: {}", e))?;
 
-        Ok(())
-    }
-}
-
-#[async_trait::async_trait]
-impl search::VectorStore for VertexAiVectorStore {
-    async fn upsert_capture_embedding(
-        &self,
-        embedded: &search::CaptureEmbedding,
-    ) -> anyhow::Result<search::VectorUpsertResult> {
-        self.upsert_embedding_impl(embedded).await?;
-
         Ok(search::VectorUpsertResult {
-            datapoint_id: embedded.datapoint_id.clone(),
+            datapoint_id,
             embedding_dimensions: embedded.embedding.len(),
         })
     }
+}
+
+fn make_datapoint_id(capture_id: i32, illumination_id: i32) -> String {
+    format!("capture:{}:illumination:{}", capture_id, illumination_id)
 }
