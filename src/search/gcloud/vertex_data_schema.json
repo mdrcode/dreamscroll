@@ -1,0 +1,23 @@
+{
+    "fields": [
+        {
+            "name": "capture_id",
+            "data_type": "STRING",
+            "is_primary_key": true
+        },
+        {
+            "name": "user_id",
+            "data_type": "STRING",
+            "is_filterable": true
+        },
+        {
+            "name": "illumination_id",
+            "data_type": "STRING",
+            "is_filterable": true
+        },
+        {
+            "name": "illumination_text",
+            "data_type": "STRING"
+        }
+    ]
+}

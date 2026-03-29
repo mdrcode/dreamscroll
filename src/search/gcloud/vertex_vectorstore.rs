@@ -7,7 +7,22 @@ use serde_json::json;
 
 use crate::{facility, search};
 
-const VECTOR_FIELD_NAME: &str = "dense_hybrid_v1";
+// This field name should match the one defined in vertex_vector_schema.json
+const VECTOR_FIELD_NAME: &str = "gemini_embedding_v2_0";
+
+fn make_vectors(embed: &search::CaptureEmbedding) -> Vec<(String, Vector)> {
+    vec![(
+        VECTOR_FIELD_NAME.to_string(),
+        Vector::new().set_dense(DenseVector::new().set_values(embed.embedding.clone())),
+    )]
+}
+
+fn make_data_object_id(embed: &search::CaptureEmbedding) -> String {
+    format!(
+        "u{}-c{}-i{}",
+        embed.user_id, embed.capture_id, embed.illumination_id
+    )
+}
 
 /// Upserts dense vectors into Vertex Vector Search 2.0 Collections.
 #[derive(Clone)]
@@ -89,10 +104,12 @@ impl search::VectorStore for VertexAiVectorStore {
         let data_object = DataObject::new()
             .set_name(object_full_path.clone())
             .set_data(
+                // should match vertex_data_schema.json
                 json!({
                     "user_id": embed.user_id,
                     "capture_id": embed.capture_id,
                     "illumination_id": embed.illumination_id,
+                    "illumination_text": embed.illumination_text,
                 })
                 .as_object()
                 .cloned()
@@ -100,7 +117,7 @@ impl search::VectorStore for VertexAiVectorStore {
             )
             .set_vectors(make_vectors(embed));
 
-        // this is full-clobber overwrite; can consider update-make in the future
+        // full-clobber overwrite; can consider partial field-wise update in future
         let operation = match self
             .data_object_client
             .update_data_object()
@@ -178,18 +195,4 @@ impl search::VectorStore for VertexAiVectorStore {
             dims: embed.embedding.len(),
         })
     }
-}
-
-fn make_data_object_id(embed: &search::CaptureEmbedding) -> String {
-    format!(
-        "u{}-c{}-i{}",
-        embed.user_id, embed.capture_id, embed.illumination_id
-    )
-}
-
-fn make_vectors(embed: &search::CaptureEmbedding) -> Vec<(String, Vector)> {
-    vec![(
-        VECTOR_FIELD_NAME.to_string(),
-        Vector::new().set_dense(DenseVector::new().set_values(embed.embedding.clone())),
-    )]
 }

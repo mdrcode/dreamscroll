@@ -12,6 +12,7 @@ pub struct CaptureEmbedding {
     pub user_id: i32,
     pub capture_id: i32,
     pub illumination_id: i32,
+    pub illumination_text: String,
     pub embedding: Vec<f32>,
 }
 
@@ -22,6 +23,7 @@ impl std::fmt::Debug for CaptureEmbedding {
             .field("capture_id", &self.capture_id)
             .field("illumination_id", &self.illumination_id)
             .field("embedding_dims", &self.embedding.len())
+            .field("raw_text_len", &self.illumination_text.len())
             .finish()
     }
 }

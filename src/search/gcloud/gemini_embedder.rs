@@ -95,6 +95,13 @@ impl search::Embedder for GeminiEmbedder {
             .retrieve_bytes(&storage::StorageHandle::from(first_media))
             .await?;
         let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
+        tracing::info!(
+            capture_id = capture.id,
+            illumination_id = latest_illumination.id,
+            text_len = text.len(),
+            image_b64_bytes = image_b64.len(),
+            "Prepared embedding request"
+        );
 
         let body = json!({
             "content": {
@@ -138,21 +145,21 @@ impl search::Embedder for GeminiEmbedder {
         }
 
         let json: serde_json::Value = response.json().await?;
-        let embedding = parse_gemini_v2_embedding_json(&json)?;
-
-        tracing::info!(
-            capture_id = capture.id,
-            illumination_id = latest_illumination.id,
-            dimensions = embedding.len(),
-            "Search embedding generated"
-        );
-
-        Ok(search::CaptureEmbedding {
+        let embedding_raw = parse_gemini_v2_embedding_json(&json)?;
+        let embed = search::CaptureEmbedding {
             user_id: capture.user_id,
             capture_id: capture.id,
             illumination_id: latest_illumination.id,
-            embedding,
-        })
+            illumination_text: text,
+            embedding: embedding_raw,
+        };
+
+        tracing::info!(
+            embedding = ?embed,
+            "Search embedding generated"
+        );
+
+        Ok(embed)
     }
 }
 
