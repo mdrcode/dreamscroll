@@ -38,6 +38,18 @@ impl From<&model::media::ModelEx> for StorageHandle {
 
 impl From<&api::MediaInfo> for StorageHandle {
     fn from(media: &api::MediaInfo) -> Self {
+        if media.storage_provider.is_empty() || media.storage_shard.is_empty() {
+            tracing::warn!(
+                media_id = media.id,
+                storage_provider = media.storage_provider,
+                storage_shard = media.storage_shard,
+                storage_bucket = ?media.storage_bucket,
+                storage_extension = ?media.storage_extension,
+                media_url = media.url,
+                "MediaInfo missing storage metadata; StorageHandle reconstruction may be incorrect"
+            );
+        }
+
         StorageHandle {
             provider: media.storage_provider.clone(),
             bucket: media.storage_bucket.clone(),

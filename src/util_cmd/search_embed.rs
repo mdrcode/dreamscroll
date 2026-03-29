@@ -10,11 +10,17 @@ use super::*;
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "search_embed")]
-#[argh(description = "Embed one or more captures and upsert into Vertex AI Vector Search")]
+#[argh(
+    description = "Embed one or more captures with Gemini and upsert into Vertex AI Vector Search"
+)]
 pub struct SearchEmbedArgs {
     #[argh(positional)]
     #[argh(description = "ID(s) of the capture(s) to embed and index")]
     ids: Vec<i32>,
+
+    #[argh(switch)]
+    #[argh(description = "generate embeddings but do not upsert into Vertex AI Vector Search")]
+    no_upsert: bool,
 }
 
 pub async fn run(state: CmdState, args: SearchEmbedArgs) -> anyhow::Result<()> {
@@ -26,46 +32,63 @@ pub async fn run(state: CmdState, args: SearchEmbedArgs) -> anyhow::Result<()> {
     let user_context = user.into();
 
     let embedder = GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
-    let vector_store = VertexAiVectorStore::from_config(&state.config)?;
+    let vector_store = if args.no_upsert {
+        None
+    } else {
+        Some(VertexAiVectorStore::from_config(&state.config)?)
+    };
 
     let raw_count = args.ids.len();
-    let captures = state
+    let capture_infos = state
         .user_api
         .get_captures(&user_context, args.ids.clone())
         .await?;
-    if captures.is_empty() {
+    if capture_infos.is_empty() {
         return Err(anyhow!("No matching captures found for the current user."));
     }
 
     let mut success_count = 0usize;
 
-    for capture in captures {
-        let embedding = match embedder.embed_capture(&capture).await {
-            Ok(embedding) => embedding,
+    for capture in capture_infos {
+        let embed = match embedder.embed_capture(&capture).await {
+            Ok(embed) => embed,
             Err(err) => {
                 eprintln!("Failed embedding capture {}: {}", capture.id, err);
                 continue;
             }
         };
 
-        match vector_store.upsert_capture_embedding(&embedding).await {
-            Ok(res) => {
-                success_count += 1;
-                println!(
-                    "Indexed capture {} -> datapoint {} (dims={})",
-                    capture.id, res.datapoint_id, res.embedding_dimensions
-                );
+        if let Some(vector_store) = vector_store.as_ref() {
+            match vector_store.upsert_capture_embedding(&embed).await {
+                Ok(res) => {
+                    success_count += 1;
+                    println!(
+                        "Indexed capture {} -> datapoint {} (dims={})",
+                        capture.id, res.datapoint_id, res.embedding_dimensions
+                    );
+                }
+                Err(err) => {
+                    eprintln!("Failed indexing capture {}: {}", capture.id, err);
+                }
             }
-            Err(err) => {
-                eprintln!("Failed indexing capture {}: {}", capture.id, err);
-            }
+        } else {
+            success_count += 1;
+            println!(
+                "Embedded capture {} (dims={}) successfully [no upsert]",
+                capture.id,
+                embed.embedding.len()
+            );
         }
     }
 
-    println!(
-        "Done. Indexed {}/{} capture(s).",
-        success_count, raw_count
-    );
+    if args.no_upsert {
+        println!(
+            "Done. Embedded {}/{} capture(s); skipped upsert.",
+            success_count, raw_count
+        );
+    } else {
+        println!("Done. Indexed {}/{} capture(s).", success_count, raw_count);
+    }
 
     Ok(())
 }

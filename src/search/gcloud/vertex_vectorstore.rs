@@ -110,7 +110,7 @@ impl search::VectorStore for VertexAiVectorStore {
 
 fn make_datapoint_id(embed: &search::CaptureEmbedding) -> String {
     format!(
-        "user:{}:capture:{}:illumination:{}",
+        "user_id:{}:capture_id:{}:illumination_id:{}",
         embed.user_id, embed.capture_id, embed.illumination_id
     )
 }

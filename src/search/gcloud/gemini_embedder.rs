@@ -103,8 +103,8 @@ impl search::Embedder for GeminiEmbedder {
                         "text": text
                     },
                     {
-                        "inline_data": {
-                            "mime_type": first_media
+                        "inlineData": {
+                            "mimeType": first_media
                                 .mime_type
                                 .clone()
                                 .unwrap_or_else(|| "image/jpeg".to_string()),
@@ -113,8 +113,8 @@ impl search::Embedder for GeminiEmbedder {
                     }
                 ]
             },
-            "config": {
-                "output_dimensionality": self.output_dims
+            "embedContentConfig": {
+                "outputDimensionality": self.output_dims
             }
         });
 

@@ -64,6 +64,7 @@ async fn main() -> anyhow::Result<()> {
 
     // We use an empty beacon for the util commands, so no background tasks
     // will be enqueued.
+    // TODO this should be a NOOP queue that logs tasks so we can verify behavior
     let empty_beacon = task::Beacon::default();
     let user_api =
         api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), empty_beacon);
