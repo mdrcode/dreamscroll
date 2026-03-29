@@ -35,7 +35,7 @@ pub async fn run(state: CmdState, args: SearchEmbedArgs) -> anyhow::Result<()> {
     let vector_store = if args.no_upsert {
         None
     } else {
-        Some(VertexAiVectorStore::from_config(&state.config)?)
+        Some(VertexAiVectorStore::from_config(&state.config).await?)
     };
 
     let raw_count = args.ids.len();
