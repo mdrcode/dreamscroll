@@ -66,7 +66,7 @@ pub struct Config {
     pub storage_gcloud_prod_endpoint: Option<String>,
     pub storage_gcloud_bucket_name: Option<String>,
 
-    pub search_embed_index_id: Option<String>,
+    pub search_embed_collection_id: Option<String>,
     pub search_embed_output_dims: Option<u32>,
 
     pub task_backend: task::TaskQueueBackend,

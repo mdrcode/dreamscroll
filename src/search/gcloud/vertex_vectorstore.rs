@@ -1,24 +1,33 @@
 use anyhow::Context;
-use google_cloud_aiplatform_v1::{
-    client::IndexService,
-    model::{self, IndexDatapoint},
+use google_cloud_vectorsearch_v1::{
+    client::DataObjectService,
+    model::{DataObject, DenseVector, Vector},
 };
+use serde_json::json;
 
 use crate::{facility, search};
 
-/// Upserts dense vectors into Vertex AI Vector Search.
+const VECTOR_FIELD_NAME: &str = "dense_hybrid_v1";
+
+enum UpdateOutcome {
+    Updated,
+    NeedsInsert,
+    Error(google_cloud_vectorsearch_v1::Error),
+}
+
+/// Upserts dense vectors into Vertex Vector Search 2.0 Collections.
 #[derive(Clone)]
 pub struct VertexAiVectorStore {
-    index_full_name: String,
+    collection_full_path: String,
     n_dims: usize,
 }
 
 impl VertexAiVectorStore {
     pub fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
-        let index_id = config
-            .search_embed_index_id
+        let collection_id = config
+            .search_embed_collection_id
             .as_ref()
-            .context("SEARCH_EMBED_INDEX_ID required for search indexing")?
+            .context("SEARCH_EMBED_COLLECTION_ID required for search indexing")?
             .to_string();
         let output_dims = config
             .search_embed_output_dims
@@ -28,19 +37,30 @@ impl VertexAiVectorStore {
         Ok(Self::new(
             config.gcloud_project_id.clone(),
             config.gcloud_project_region.clone(),
-            index_id,
+            collection_id,
             output_dims,
         ))
     }
 
-    pub fn new(project_id: String, region: String, index_id: String, output_dims: usize) -> Self {
-        let index_full_name = format!(
-            "projects/{}/locations/{}/indexes/{}",
-            project_id, region, index_id
+    pub fn new(
+        project_id: String,
+        region: String,
+        collection_id: String,
+        output_dims: usize,
+    ) -> Self {
+        let collection_full_name = format!(
+            "projects/{}/locations/{}/collections/{}",
+            project_id, region, collection_id
+        );
+
+        tracing::info!(
+            collection_full_name,
+            output_dims,
+            "VertexAiVectorStore initialized"
         );
 
         Self {
-            index_full_name,
+            collection_full_path: collection_full_name,
             n_dims: output_dims,
         }
     }
@@ -55,62 +75,109 @@ impl search::VectorStore for VertexAiVectorStore {
     ) -> anyhow::Result<search::VectorUpsertResult> {
         if embed.embedding.len() != self.n_dims {
             anyhow::bail!(
-                "Embedding dimension mismatch: expected {}, got {} (capture_id={}, illumination_id={})",
+                "Dimension mismatch: VectorStore dims: {}, embedding: {:?}",
                 self.n_dims,
-                embed.embedding.len(),
-                embed.capture_id,
-                embed.illumination_id
+                embed
             );
         }
 
-        let index_client = IndexService::builder()
+        let data_object_client = DataObjectService::builder()
             .build()
             .await
-            .map_err(|err| anyhow::anyhow!("Failed to create IndexService client: {}", err))?;
+            .map_err(|err| anyhow::anyhow!("Failed to create DataObjectService client: {}", err))?;
 
-        let restricts = vec![
-            model::index_datapoint::Restriction::new()
-                .set_namespace("user_id")
-                .set_allow_list([embed.user_id.to_string()]),
-            model::index_datapoint::Restriction::new()
-                .set_namespace("capture_id")
-                .set_allow_list([embed.capture_id.to_string()]),
-        ];
+        let object_id = make_data_object_id(embed);
+        let object_full_path = format!("{}/dataObjects/{}", self.collection_full_path, object_id);
 
-        let datapoint_id = make_datapoint_id(embed);
+        let data_object = DataObject::new()
+            .set_name(object_full_path.clone())
+            .set_data(
+                json!({
+                    "user_id": embed.user_id,
+                    "capture_id": embed.capture_id,
+                    "illumination_id": embed.illumination_id,
+                })
+                .as_object()
+                .cloned()
+                .expect("json object"),
+            )
+            .set_vectors(make_vectors(embed));
 
-        let datapoint = IndexDatapoint::new()
-            .set_datapoint_id(datapoint_id.clone())
-            .set_feature_vector(embed.embedding.clone())
-            .set_restricts(restricts);
-
-        let _response = index_client
-            .upsert_datapoints()
-            .set_index(self.index_full_name.clone())
-            .set_datapoints([datapoint])
+        let update_outcome = match data_object_client
+            .update_data_object()
+            .set_data_object(data_object.clone())
             .send()
             .await
-            .map_err(|err| anyhow::anyhow!("Failed to upsert vector datapoint: {}", err))?;
+        {
+            Ok(_) => UpdateOutcome::Updated,
+            Err(update_err)
+                if update_err
+                    .status()
+                    .is_some_and(|status| status.code as i32 == 5)
+                    || update_err.http_status_code() == Some(404) =>
+            {
+                UpdateOutcome::NeedsInsert
+            }
+            Err(update_err) => UpdateOutcome::Error(update_err),
+        };
+
+        let operation = match update_outcome {
+            UpdateOutcome::Updated => "updated",
+            UpdateOutcome::NeedsInsert => {
+                data_object_client
+                    .create_data_object()
+                    .set_parent(self.collection_full_path.clone())
+                    .set_data_object_id(object_id.clone())
+                    .set_data_object(data_object)
+                    .send()
+                    .await
+                    .map_err(|create_err| {
+                        anyhow::anyhow!(
+                            "Failed to create vector data object after update miss: {}",
+                            create_err
+                        )
+                    })?;
+
+                "created"
+            }
+            UpdateOutcome::Error(update_err) => {
+                anyhow::bail!(
+                    "Failed to upsert vector data object via update: {}",
+                    update_err
+                );
+            }
+        };
 
         tracing::info!(
             user_id = embed.user_id,
             capture_id = embed.capture_id,
             illumination_id = embed.illumination_id,
-            datapoint_id,
+            collection = self.collection_full_path,
+            object_id,
+            vector_field = VECTOR_FIELD_NAME,
+            operation,
             dimensions = embed.embedding.len(),
-            "Vector datapoint upserted"
+            "Vector data object upserted"
         );
 
         Ok(search::VectorUpsertResult {
-            datapoint_id,
-            embedding_dimensions: embed.embedding.len(),
+            id: object_id,
+            fq_id: Some(object_full_path),
+            dims: embed.embedding.len(),
         })
     }
 }
 
-fn make_datapoint_id(embed: &search::CaptureEmbedding) -> String {
+fn make_data_object_id(embed: &search::CaptureEmbedding) -> String {
     format!(
-        "user_id:{}:capture_id:{}:illumination_id:{}",
+        "u{}-c{}-i{}",
         embed.user_id, embed.capture_id, embed.illumination_id
     )
+}
+
+fn make_vectors(embed: &search::CaptureEmbedding) -> Vec<(String, Vector)> {
+    vec![(
+        VECTOR_FIELD_NAME.to_string(),
+        Vector::new().set_dense(DenseVector::new().set_values(embed.embedding.clone())),
+    )]
 }

@@ -28,7 +28,8 @@ google-cloud-gax = "0.19.2"
 google-cloud-googleapis = { version = "0.16.1", features = ["pubsub"] }
 google-cloud-pubsub = { version = "0.30.0", default-features = false, features = ["auth", "rustls-tls"] }
 google-cloud-storage = "1.7.0"
-google-cloud-aiplatform-v1 = { version = "0.4", features = ["prediction-service", "index-service"] }
+google-cloud-aiplatform-v1 = { version = "0.4", features = ["prediction-service"] }
+google-cloud-vectorsearch-v1 = "0.1.0"
 infer = "0.19.0"
 jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
 keyring = { version = "3.6.2", features = ["apple-native"] }

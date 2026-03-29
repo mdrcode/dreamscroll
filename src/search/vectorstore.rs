@@ -12,6 +12,7 @@ pub trait VectorStore: Send + Sync {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VectorUpsertResult {
-    pub datapoint_id: String,
-    pub embedding_dimensions: usize,
+    pub id: String,
+    pub fq_id: Option<String>,
+    pub dims: usize,
 }

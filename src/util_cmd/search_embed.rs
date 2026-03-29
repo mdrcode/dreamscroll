@@ -64,7 +64,7 @@ pub async fn run(state: CmdState, args: SearchEmbedArgs) -> anyhow::Result<()> {
                     success_count += 1;
                     println!(
                         "Indexed capture {} -> datapoint {} (dims={})",
-                        capture.id, res.datapoint_id, res.embedding_dimensions
+                        capture.id, res.id, res.dims
                     );
                 }
                 Err(err) => {
