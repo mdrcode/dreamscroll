@@ -1,13 +1,14 @@
+use anyhow::Context;
 use base64::Engine;
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder};
 use reqwest::Client;
 use serde_json::{Value, json};
+use std::time::Duration;
 
 use crate::{api, facility, search, storage};
 
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const MODEL_ID: &str = "gemini-embedding-2-preview";
-const OUTPUT_DIMS: u32 = 768;
 
 /// Embeds a capture into a dense vector via Gemini Embeddings v2.
 #[derive(Clone)]
@@ -24,11 +25,15 @@ impl GeminiEmbedder {
         config: &facility::Config,
         storage: Box<dyn storage::StorageProvider>,
     ) -> anyhow::Result<Self> {
+        let output_dims = config
+            .search_embed_output_dims
+            .context("SEARCH_EMBED_OUTPUT_DIMS required for search indexing")?;
+
         Self::new(
             config.gcloud_project_id.clone(),
             config.gcloud_project_region.clone(),
             MODEL_ID.to_string(),
-            OUTPUT_DIMS,
+            output_dims,
             storage,
         )
     }
@@ -55,7 +60,9 @@ impl GeminiEmbedder {
             model_url,
             output_dims,
             storage,
-            http: reqwest::Client::new(),
+            http: reqwest::Client::builder()
+                .timeout(Duration::from_secs(60)) // sanity
+                .build()?,
             adc_credentials,
         })
     }
