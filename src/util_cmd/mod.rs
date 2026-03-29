@@ -10,7 +10,7 @@ pub mod html_view;
 pub mod illuminate_all;
 pub mod illuminate_id;
 pub mod import_digest;
-pub mod search_embed;
+pub mod search_index;
 pub mod spark;
 pub mod token_cache;
 

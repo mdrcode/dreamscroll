@@ -9,11 +9,11 @@ use crate::search::{
 use super::*;
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "search_embed")]
+#[argh(subcommand, name = "search_index")]
 #[argh(
     description = "Embed one or more captures with Gemini and upsert into Vertex AI Vector Search"
 )]
-pub struct SearchEmbedArgs {
+pub struct SearchIndexArgs {
     #[argh(positional)]
     #[argh(description = "ID(s) of the capture(s) to embed and index")]
     ids: Vec<i32>,
@@ -23,7 +23,7 @@ pub struct SearchEmbedArgs {
     no_upsert: bool,
 }
 
-pub async fn run(state: CmdState, args: SearchEmbedArgs) -> anyhow::Result<()> {
+pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     if args.ids.is_empty() {
         return Err(anyhow!("At least one capture ID must be provided."));
     }
