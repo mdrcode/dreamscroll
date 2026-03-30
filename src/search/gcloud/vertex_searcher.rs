@@ -1,11 +1,9 @@
 use anyhow::Context;
 use google_cloud_vectorsearch_v1::{
     client::DataObjectSearchService,
-    model::{
-        EmbeddingTaskType, OutputFields, SearchDataObjectsResponse, SemanticSearch, TextSearch,
-    },
+    model::{DenseVector, OutputFields, SearchDataObjectsResponse, VectorSearch},
 };
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use crate::{facility, search};
 
@@ -34,13 +32,8 @@ use super::*;
 ///    it returns objects matching a metadata/data filter and is useful for
 ///    lookup/browse flows.
 ///
-/// This type currently executes `TextSearch` as an interim production-safe mode
-/// for query text. The `SemanticSearch` builder is intentionally kept in place
-/// so we can switch back when semantic search is configured correctly.
-///
-/// If we later introduce query-time embedding in app code, this same client can
-/// support `VectorSearch` (or batch hybrid search) without changing the public
-/// `search::Searcher` trait.
+/// This type currently executes explicit `VectorSearch` using caller-provided
+/// query embeddings.
 #[derive(Clone)]
 pub struct VertexAiSearcher {
     collection_full_path: String,
@@ -89,39 +82,23 @@ impl VertexAiSearcher {
         })
     }
 
-    #[allow(dead_code)]
-    fn build_semantic_search(query: &search::SearchQuery) -> SemanticSearch {
+    fn build_vector_search(query: &search::SearchQueryEmbedding) -> VectorSearch {
         let top_k = query.limit.clamp(1, i32::MAX as u32) as i32;
 
-        SemanticSearch::new()
-            .set_search_text(query.text.clone())
+        VectorSearch::new()
             .set_search_field(constants::VECTOR_FIELD_NAME)
-            .set_task_type(EmbeddingTaskType::RetrievalQuery)
+            .set_vector(DenseVector::new().set_values(query.query_embedding.clone()))
             .set_top_k(top_k)
-            .set_filter(
-                json!({
-                    "user_id": {
-                        "$eq": query.user_id.to_string()
-                    }
-                })
-                .as_object()
-                .cloned()
-                .expect("json object"),
-            )
-            .set_output_fields(OutputFields::new().set_data_fields([
-                "user_id",
-                "capture_id",
-                "illumination_id",
-            ]))
-    }
-
-    fn build_text_search(query: &search::SearchQuery) -> TextSearch {
-        let top_k = query.limit.clamp(1, i32::MAX as u32) as i32;
-
-        TextSearch::new()
-            .set_search_text(query.text.clone())
-            .set_top_k(top_k)
-            .set_data_field_names(["illumination_text"])
+            // .set_filter(
+            //     json!({
+            //         "user_id": {
+            //             "$eq": query.user_id.to_string()
+            //         }
+            //     })
+            //     .as_object()
+            //     .cloned()
+            //     .expect("json object"),
+            // )
             .set_output_fields(OutputFields::new().set_data_fields([
                 "user_id",
                 "capture_id",
@@ -188,26 +165,26 @@ impl VertexAiSearcher {
 
 #[async_trait::async_trait]
 impl search::Searcher for VertexAiSearcher {
-    #[tracing::instrument(skip(self, query), fields(user_id = query.user_id, limit = query.limit))]
-    async fn search(
+    #[tracing::instrument(skip(self, query), fields(user_id = query.user_id, limit = query.limit, dims = query.query_embedding.len()))]
+    async fn search_query_embedding(
         &self,
-        query: &search::SearchQuery,
+        query: &search::SearchQueryEmbedding,
     ) -> anyhow::Result<search::SearchResultPage> {
-        if query.text.trim().is_empty() {
+        if query.query_embedding.is_empty() {
             return Ok(search::SearchResultPage {
                 hits: vec![],
                 next_page_token: None,
             });
         }
 
-        let text_search = Self::build_text_search(query);
-        tracing::info!("Built TextSearch request: {:?}", text_search);
+        let vector_search = Self::build_vector_search(query);
+        tracing::info!("Built VectorSearch request: {:?}", vector_search);
 
         let mut req = self
             .data_object_search_client
             .search_data_objects()
             .set_parent(self.collection_full_path.clone())
-            .set_text_search(text_search);
+            .set_vector_search(vector_search);
 
         if let Some(page_token) = query.page_token.as_ref() {
             req = req.set_page_token(page_token.clone());
@@ -224,11 +201,11 @@ impl search::Searcher for VertexAiSearcher {
                     http_status,
                     collection = self.collection_full_path,
                     user_id = query.user_id,
-                    query_text = query.text,
-                    "Vertex text search failed"
+                    dims = query.query_embedding.len(),
+                    "Vertex vector search failed"
                 );
                 anyhow::bail!(
-                    "Vertex text search failed: {} (status_code={:?}, http_status={:?})",
+                    "Vertex vector search failed: {} (status_code={:?}, http_status={:?})",
                     err,
                     status_code,
                     http_status

@@ -2,13 +2,16 @@ use serde::{Deserialize, Serialize};
 
 #[async_trait::async_trait]
 pub trait Searcher: Send + Sync {
-    async fn search(&self, query: &SearchQuery) -> anyhow::Result<SearchResultPage>;
+    async fn search_query_embedding(
+        &self,
+        query: &SearchQueryEmbedding,
+    ) -> anyhow::Result<SearchResultPage>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchQuery {
+pub struct SearchQueryEmbedding {
     pub user_id: i32,
-    pub text: String,
+    pub query_embedding: Vec<f32>,
     pub limit: u32,
     pub page_token: Option<String>,
 }

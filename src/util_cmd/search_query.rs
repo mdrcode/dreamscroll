@@ -1,6 +1,9 @@
 use argh::FromArgs;
 
-use crate::search::{SearchQuery, Searcher, gcloud::VertexAiSearcher};
+use crate::search::{
+    Embedder, SearchQueryEmbedding, Searcher,
+    gcloud::{GeminiEmbedder, VertexAiSearcher},
+};
 
 use super::*;
 
@@ -25,15 +28,23 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
     let user_context: crate::auth::Context = user.into();
 
+    let embedder = GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
     let searcher = VertexAiSearcher::from_config(&state.config).await?;
-    let query = SearchQuery {
+
+    let query_embedding = embedder.embed_query(&args.query).await?;
+    tracing::info!(
+        "Generated query embedding with dims={}",
+        query_embedding.embedding.len()
+    );
+
+    let query = SearchQueryEmbedding {
         user_id: user_context.user_id(),
-        text: args.query,
+        query_embedding: query_embedding.embedding,
         limit: args.limit,
         page_token: args.page_token,
     };
 
-    let page = searcher.search(&query).await?;
+    let page = searcher.search_query_embedding(&query).await?;
 
     println!("Found {} hit(s)", page.hits.len());
     for hit in page.hits {

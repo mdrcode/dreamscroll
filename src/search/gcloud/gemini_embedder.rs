@@ -66,59 +66,13 @@ impl GeminiEmbedder {
             adc_credentials,
         })
     }
-}
 
-#[async_trait::async_trait]
-impl search::Embedder for GeminiEmbedder {
-    #[tracing::instrument(skip(self, capture), fields(capture_id = %capture.id))]
-    async fn embed_capture(
-        &self,
-        capture: &api::CaptureInfo,
-    ) -> anyhow::Result<search::CaptureEmbedding> {
+    async fn embed_content_parts(&self, parts: Value) -> anyhow::Result<Vec<f32>> {
         let access_token = self.adc_credentials.access_token().await?.token;
-
-        let latest_illumination = capture
-            .illuminations
-            .iter()
-            .max_by_key(|illumination| illumination.id)
-            .ok_or_else(|| {
-                anyhow::anyhow!("Capture has no illumination, required for embedding")
-            })?;
-        let illumination_text = latest_illumination.make_text();
-
-        let first_media = capture
-            .medias
-            .first()
-            .ok_or_else(|| anyhow::anyhow!("Capture has no media, required for embedding"))?;
-        let image_bytes = self
-            .storage
-            .retrieve_bytes(&storage::StorageHandle::from(first_media))
-            .await?;
-        let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
-        tracing::info!(
-            capture_id = capture.id,
-            illumination_id = latest_illumination.id,
-            text_len = illumination_text.len(),
-            image_b64_bytes = image_b64.len(),
-            "Prepared embedding request"
-        );
 
         let body = json!({
             "content": {
-                "parts": [
-                    {
-                        "text": illumination_text
-                    },
-                    {
-                        "inlineData": {
-                            "mimeType": first_media
-                                .mime_type
-                                .clone()
-                                .unwrap_or_else(|| "image/jpeg".to_string()),
-                            "data": image_b64
-                        }
-                    }
-                ]
+                "parts": parts
             },
             "embedContentConfig": {
                 "outputDimensionality": self.output_dims
@@ -145,7 +99,59 @@ impl search::Embedder for GeminiEmbedder {
         }
 
         let json: serde_json::Value = response.json().await?;
-        let embedding_raw = parse_gemini_v2_embedding_json(&json)?;
+        parse_gemini_v2_embedding_json(&json)
+    }
+}
+
+#[async_trait::async_trait]
+impl search::Embedder for GeminiEmbedder {
+    #[tracing::instrument(skip(self, capture), fields(capture_id = %capture.id))]
+    async fn embed_capture(
+        &self,
+        capture: &api::CaptureInfo,
+    ) -> anyhow::Result<search::CaptureEmbedding> {
+        let latest_illumination = capture
+            .illuminations
+            .iter()
+            .max_by_key(|illumination| illumination.id)
+            .ok_or_else(|| {
+                anyhow::anyhow!("Capture has no illumination, required for embedding")
+            })?;
+        let illumination_text = latest_illumination.make_text();
+
+        let first_media = capture
+            .medias
+            .first()
+            .ok_or_else(|| anyhow::anyhow!("Capture has no media, required for embedding"))?;
+        let image_bytes = self
+            .storage
+            .retrieve_bytes(&storage::StorageHandle::from(first_media))
+            .await?;
+        let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
+        tracing::info!(
+            capture_id = capture.id,
+            illumination_id = latest_illumination.id,
+            text_len = illumination_text.len(),
+            image_b64_bytes = image_b64.len(),
+            "Prepared embedding request"
+        );
+
+        let parts = json!([
+            {
+                "text": illumination_text
+            },
+            {
+                "inlineData": {
+                    "mimeType": first_media
+                        .mime_type
+                        .clone()
+                        .unwrap_or_else(|| "image/jpeg".to_string()),
+                    "data": image_b64
+                }
+            }
+        ]);
+
+        let embedding_raw = self.embed_content_parts(parts).await?;
         let embed = search::CaptureEmbedding {
             user_id: capture.user_id,
             capture_id: capture.id,
@@ -160,6 +166,28 @@ impl search::Embedder for GeminiEmbedder {
         );
 
         Ok(embed)
+    }
+
+    #[tracing::instrument(skip(self, query), fields(query_len = query.len()))]
+    async fn embed_query(&self, query: &str) -> anyhow::Result<search::QueryEmbedding> {
+        if query.trim().is_empty() {
+            anyhow::bail!("Query text is empty, cannot embed");
+        }
+
+        let parts = json!([
+            {
+                "text": query
+            }
+        ]);
+
+        let embedding = self.embed_content_parts(parts).await?;
+        let query_embedding = search::QueryEmbedding {
+            text: query.to_string(),
+            embedding,
+        };
+
+        tracing::info!(embedding = ?query_embedding, "Query embedding generated");
+        Ok(query_embedding)
     }
 }
 
