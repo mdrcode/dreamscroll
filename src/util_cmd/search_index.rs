@@ -51,7 +51,14 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
 
     for capture in capture_infos {
         let embed = match embedder.embed_capture(&capture).await {
-            Ok(embed) => embed,
+            Ok(embed) => {
+                println!(
+                    "Embedded capture {} (dims={}) successfully [no upsert]",
+                    capture.id,
+                    embed.embedding.len()
+                );
+                embed
+            }
             Err(err) => {
                 eprintln!("Failed embedding capture {}: {}", capture.id, err);
                 continue;
@@ -61,7 +68,6 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
         if let Some(vector_store) = vector_store.as_ref() {
             match vector_store.upsert_capture_embedding(&embed).await {
                 Ok(res) => {
-                    success_count += 1;
                     println!(
                         "Indexed capture {} -> datapoint {} (dims={})",
                         capture.id, res.id, res.dims
@@ -69,16 +75,12 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
                 }
                 Err(err) => {
                     eprintln!("Failed indexing capture {}: {}", capture.id, err);
+                    continue;
                 }
             }
-        } else {
-            success_count += 1;
-            println!(
-                "Embedded capture {} (dims={}) successfully [no upsert]",
-                capture.id,
-                embed.embedding.len()
-            );
         }
+
+        success_count += 1;
     }
 
     if args.no_upsert {

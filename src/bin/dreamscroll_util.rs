@@ -42,6 +42,7 @@ enum Command {
     IlluminateId(illuminate_id::IlluminateIdArgs),
     ImportDigest(import_digest::ImportDigestArgs),
     SearchIndex(search_index::SearchIndexArgs),
+    SearchQuery(search_query::SearchQueryArgs),
     Spark(spark::SparkArgs),
 }
 
@@ -176,6 +177,7 @@ async fn main() -> anyhow::Result<()> {
         Command::IlluminateId(args) => illuminate_id::run(state, args).await,
         Command::ImportDigest(args) => import_digest::run(state, args).await,
         Command::SearchIndex(args) => search_index::run(state, args).await,
+        Command::SearchQuery(args) => search_query::run(state, args).await,
         Command::Spark(args) => spark::run(state, args).await,
     }
 }

@@ -1,0 +1,51 @@
+use argh::FromArgs;
+
+use crate::search::{SearchQuery, Searcher, gcloud::VertexAiSearcher};
+
+use super::*;
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "search_query")]
+#[argh(description = "Query Vertex AI Vector Search for the current user")]
+pub struct SearchQueryArgs {
+    #[argh(positional)]
+    #[argh(description = "query text")]
+    query: String,
+
+    #[argh(option, default = "20")]
+    #[argh(description = "maximum number of results to return")]
+    limit: u32,
+
+    #[argh(option)]
+    #[argh(description = "optional page token for pagination")]
+    page_token: Option<String>,
+}
+
+pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
+    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
+    let user_context: crate::auth::Context = user.into();
+
+    let searcher = VertexAiSearcher::from_config(&state.config).await?;
+    let query = SearchQuery {
+        user_id: user_context.user_id(),
+        text: args.query,
+        limit: args.limit,
+        page_token: args.page_token,
+    };
+
+    let page = searcher.search(&query).await?;
+
+    println!("Found {} hit(s)", page.hits.len());
+    for hit in page.hits {
+        println!(
+            "id={} capture_id={} illumination_id={} score={}",
+            hit.corpus_doc_id, hit.capture_id, hit.illumination_id, hit.score,
+        );
+    }
+
+    if let Some(next_page_token) = page.next_page_token {
+        println!("next_page_token={}", next_page_token);
+    }
+
+    Ok(())
+}

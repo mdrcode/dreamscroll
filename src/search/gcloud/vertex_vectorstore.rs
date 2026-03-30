@@ -7,12 +7,11 @@ use serde_json::json;
 
 use crate::{facility, search};
 
-// This field name should match the one defined in vertex_vector_schema.json
-const VECTOR_FIELD_NAME: &str = "gemini_embedding_v2_0";
+use super::*;
 
 fn make_vectors(embed: &search::CaptureEmbedding) -> Vec<(String, Vector)> {
     vec![(
-        VECTOR_FIELD_NAME.to_string(),
+        constants::VECTOR_FIELD_NAME.to_string(),
         Vector::new().set_dense(DenseVector::new().set_values(embed.embedding.clone())),
     )]
 }
@@ -104,11 +103,11 @@ impl search::VectorStore for VertexAiVectorStore {
         let data_object = DataObject::new()
             .set_name(object_full_path.clone())
             .set_data(
-                // should match vertex_data_schema.json
+                // Keep ID/filter fields as strings to match schema_vertex_data.json.
                 json!({
-                    "user_id": embed.user_id,
-                    "capture_id": embed.capture_id,
-                    "illumination_id": embed.illumination_id,
+                    "user_id": embed.user_id.to_string(),
+                    "capture_id": embed.capture_id.to_string(),
+                    "illumination_id": embed.illumination_id.to_string(),
                     "illumination_text": embed.illumination_text,
                 })
                 .as_object()

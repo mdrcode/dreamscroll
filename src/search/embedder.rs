@@ -23,7 +23,7 @@ impl std::fmt::Debug for CaptureEmbedding {
             .field("capture_id", &self.capture_id)
             .field("illumination_id", &self.illumination_id)
             .field("embedding_dims", &self.embedding.len())
-            .field("raw_text_len", &self.illumination_text.len())
+            .field("illumination_text_len", &self.illumination_text.len())
             .finish()
     }
 }

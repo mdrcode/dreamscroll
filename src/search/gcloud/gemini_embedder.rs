@@ -84,7 +84,7 @@ impl search::Embedder for GeminiEmbedder {
             .ok_or_else(|| {
                 anyhow::anyhow!("Capture has no illumination, required for embedding")
             })?;
-        let text = latest_illumination.make_text();
+        let illumination_text = latest_illumination.make_text();
 
         let first_media = capture
             .medias
@@ -98,7 +98,7 @@ impl search::Embedder for GeminiEmbedder {
         tracing::info!(
             capture_id = capture.id,
             illumination_id = latest_illumination.id,
-            text_len = text.len(),
+            text_len = illumination_text.len(),
             image_b64_bytes = image_b64.len(),
             "Prepared embedding request"
         );
@@ -107,7 +107,7 @@ impl search::Embedder for GeminiEmbedder {
             "content": {
                 "parts": [
                     {
-                        "text": text
+                        "text": illumination_text
                     },
                     {
                         "inlineData": {
@@ -150,7 +150,7 @@ impl search::Embedder for GeminiEmbedder {
             user_id: capture.user_id,
             capture_id: capture.id,
             illumination_id: latest_illumination.id,
-            illumination_text: text,
+            illumination_text: illumination_text,
             embedding: embedding_raw,
         };
 
