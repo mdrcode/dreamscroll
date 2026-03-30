@@ -131,6 +131,7 @@ impl search::Embedder for GeminiEmbedder {
             .retrieve_bytes(&storage::StorageHandle::from(first_media))
             .await?;
         let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
+        
         tracing::info!(
             capture_id = capture.id,
             illumination_id = latest_illumination.id,
@@ -167,7 +168,7 @@ impl search::Embedder for GeminiEmbedder {
 
         tracing::info!(
             embedding = ?embed,
-            "Search embedding generated"
+            "Capture embedding generated"
         );
 
         Ok(embed)
@@ -185,16 +186,16 @@ impl search::Embedder for GeminiEmbedder {
             }
         ]);
 
-        let embedding = self
+        let embedding_raw = self
             .embed_content_parts(parts, TASK_TYPE_RETRIEVAL_QUERY)
             .await?;
-        let query_embedding = search::QueryEmbedding {
+        let embed = search::QueryEmbedding {
             text: query.to_string(),
-            embedding,
+            embedding: embedding_raw,
         };
 
-        tracing::info!(embedding = ?query_embedding, "Query embedding generated");
-        Ok(query_embedding)
+        tracing::info!(embedding = ?embed, "Query embedding generated");
+        Ok(embed)
     }
 }
 
@@ -202,8 +203,6 @@ fn parse_gemini_v2_embedding_json(response: &Value) -> anyhow::Result<Vec<f32>> 
     let pointers = [
         response.pointer("/embedding/values"),
         response.pointer("/embeddings/0/values"),
-        response.pointer("/embeddings/0/value"),
-        response.pointer("/values"),
     ];
 
     let Some(found_embedding) = pointers.into_iter().flatten().find_map(Value::as_array) else {

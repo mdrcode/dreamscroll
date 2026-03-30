@@ -11,16 +11,9 @@ use super::*;
 
 fn make_vectors(embed: &search::CaptureEmbedding) -> Vec<(String, Vector)> {
     vec![(
-        constants::VECTOR_FIELD_NAME.to_string(),
+        constants::CAPTURE_DENSE_VECTOR.to_string(),
         Vector::new().set_dense(DenseVector::new().set_values(embed.embedding.clone())),
     )]
-}
-
-fn make_data_object_id(embed: &search::CaptureEmbedding) -> String {
-    format!(
-        "u{}-c{}-i{}",
-        embed.user_id, embed.capture_id, embed.illumination_id
-    )
 }
 
 /// Upserts dense vectors into Vertex Vector Search 2.0 Collections.
@@ -97,13 +90,13 @@ impl search::VectorStore for VertexAiVectorStore {
             );
         }
 
-        let object_id = make_data_object_id(embed);
+        let object_id = data_object_id::make(embed);
         let object_full_path = format!("{}/dataObjects/{}", self.collection_full_path, object_id);
 
         let data_object = DataObject::new()
             .set_name(object_full_path.clone())
             .set_data(
-                // Keep ID/filter fields as strings to match schema_vertex_data.json.
+                // note that ID fields are strings (matching schema_vertex_data.json)
                 json!({
                     "user_id": embed.user_id.to_string(),
                     "capture_id": embed.capture_id.to_string(),
@@ -112,37 +105,22 @@ impl search::VectorStore for VertexAiVectorStore {
                 })
                 .as_object()
                 .cloned()
-                .expect("json object"),
+                .expect("data_object json"),
             )
             .set_vectors(make_vectors(embed));
 
-        // full-clobber overwrite; can consider partial field-wise update in future
-        let operation = match self
+        // Try update first, then create.
+        // Note: full-clobber overwrite; TODO consider partial field-wise update
+        let update_result = self
             .data_object_client
             .update_data_object()
             .set_data_object(data_object.clone())
             .send()
-            .await
-        {
+            .await;
+
+        let operation = match update_result {
             Ok(_) => "updated",
-            Err(update_err) => {
-                let not_found = update_err
-                    .status()
-                    .is_some_and(|status| status.code as i32 == 5)
-                    || update_err.http_status_code() == Some(404);
-
-                if !not_found {
-                    tracing::error!(
-                        error = %update_err,
-                        object_id,
-                        "Update failed for vector data object"
-                    );
-                    anyhow::bail!(
-                        "Failed to upsert vector data object via update: {}",
-                        update_err
-                    );
-                }
-
+            Err(update_err) if not_found(&update_err) => {
                 let create_result = self
                     .data_object_client
                     .create_data_object()
@@ -154,15 +132,10 @@ impl search::VectorStore for VertexAiVectorStore {
 
                 match create_result {
                     Ok(_) => "created",
-                    Err(create_err)
-                        if create_err
-                            .status()
-                            .is_some_and(|status| status.code as i32 == 6)
-                            || create_err.http_status_code() == Some(409) =>
-                    {
+                    Err(create_err) if already_exists(&create_err) => {
                         tracing::warn!(
                             object_id,
-                            "Create after update miss returned AlreadyExists; treating as concurrent upsert success"
+                            "Create after update miss returned AlreadyExists"
                         );
                         "already_exists"
                     }
@@ -179,6 +152,17 @@ impl search::VectorStore for VertexAiVectorStore {
                     }
                 }
             }
+            Err(update_err) => {
+                tracing::error!(
+                    error = %update_err,
+                    object_id,
+                    "Update failed for vector data object"
+                );
+                anyhow::bail!(
+                    "Failed to upsert vector data object via update: {}",
+                    update_err
+                );
+            }
         };
 
         tracing::info!(
@@ -194,4 +178,14 @@ impl search::VectorStore for VertexAiVectorStore {
             dims: embed.embedding.len(),
         })
     }
+}
+
+fn not_found(err: &google_cloud_vectorsearch_v1::Error) -> bool {
+    err.status().is_some_and(|status| status.code as i32 == 5)
+        || err.http_status_code() == Some(404)
+}
+
+fn already_exists(err: &google_cloud_vectorsearch_v1::Error) -> bool {
+    err.status().is_some_and(|status| status.code as i32 == 6)
+        || err.http_status_code() == Some(409)
 }

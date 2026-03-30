@@ -4,8 +4,9 @@ use google_cloud_vectorsearch_v1::{
     model::{DenseVector, SearchDataObjectsResponse, VectorSearch},
 };
 
-use crate::search::gcloud::constants;
 use crate::{facility, search};
+
+use super::*;
 
 /// Search client for Vertex Vector Search Collections.
 ///
@@ -79,97 +80,61 @@ impl VertexAiSearcher {
             data_object_search_client,
         })
     }
-
-    fn build_vector_search(query: &search::SearchQueryEmbedding) -> VectorSearch {
-        let top_k = query.limit.clamp(1, i32::MAX as u32) as i32;
-
-        // Intentionally omit output_fields while debugging INVALID_ARGUMENT behavior.
-        VectorSearch::new()
-            .set_search_field(constants::VECTOR_FIELD_NAME)
-            .set_vector(DenseVector::new().set_values(query.query_embedding.clone()))
-            .set_top_k(top_k)
-    }
-
-    fn map_search_data_objects_response(
-        response: SearchDataObjectsResponse,
-    ) -> search::SearchResultPage {
-        tracing::info!(
-            num_hits = response.results.len(),
-            next_page_token = response.next_page_token,
-            "Vertex search returned results"
-        );
-
-        let hits = response
-            .results
-            .into_iter()
-            .filter_map(|result| {
-                let Some(data_object) = result.data_object else {
-                    tracing::warn!("Search result missing data_object; dropping hit");
-                    return None;
-                };
-                let doc_id = data_object.data_object_id;
-
-                let Some((capture_id, illumination_id)) =
-                    parse_capture_and_illumination_from_doc_id(&doc_id)
-                else {
-                    tracing::warn!(
-                        doc_id,
-                        "Search result doc_id format unexpected; dropping hit"
-                    );
-                    return None;
-                };
-                let Some(score) = result.distance else {
-                    tracing::warn!(doc_id, "Search result missing distance score; dropping");
-                    return None;
-                };
-
-                Some(search::SearchHit {
-                    corpus_doc_id: doc_id,
-                    capture_id,
-                    illumination_id,
-                    score,
-                })
-            })
-            .collect();
-
-        search::SearchResultPage {
-            hits,
-            next_page_token: if response.next_page_token.is_empty() {
-                None
-            } else {
-                Some(response.next_page_token)
-            },
-        }
-    }
 }
 
 #[async_trait::async_trait]
 impl search::Searcher for VertexAiSearcher {
-    #[tracing::instrument(skip(self, query), fields(user_id = query.user_id, limit = query.limit, dims = query.query_embedding.len()))]
+    #[tracing::instrument(skip(self, query_embed, params), fields(user_id = params.user_id, limit = params.limit, dims = query_embed.embedding.len()))]
     async fn search_query_embedding(
         &self,
-        query: &search::SearchQueryEmbedding,
+        query_embed: &search::QueryEmbedding,
+        params: &search::QueryParams,
     ) -> anyhow::Result<search::SearchResultPage> {
-        if query.query_embedding.is_empty() {
+        if query_embed.embedding.is_empty() {
             return Ok(search::SearchResultPage {
                 hits: vec![],
                 next_page_token: None,
             });
         }
 
-        let vector_search = Self::build_vector_search(query);
+        // BUG? Every attempt to use set_output_fields results in a 400 Bad
+        // Request with message "invalid argument". For now, we simply encode
+        // the fields we need in the object id and extract them at search time.
+        // See data_object_id.rs
+        //
+        // Similarly, every attempt to filter on user_id result in zero search
+        // hits, even though user_id is present in the indexed objects.
+        //
+        // Temporary trust boundary: this stage may return cross-tenant candidate
+        // ids, and authorization is enforced by the capture fetch API that
+        // filters by user_id.
+        let vector_search = VectorSearch::new()
+            .set_search_field(constants::CAPTURE_DENSE_VECTOR)
+            .set_vector(DenseVector::new().set_values(query_embed.embedding.clone()))
+            .set_top_k(params.limit.clamp(1, 1000) as i32);
+        // .set_output_fields(OutputFields::new().set_data_fields(["user_id"]))
+            // .set_filter(
+            //     json!({
+            //         "user_id": {
+            //             "$eq": params.user_id.to_string()
+            //         }
+            //     })
+            //     .as_object()
+            //     .cloned()
+            //     .expect("json object"),
+            // )
 
-        let mut req = self
+        let mut request = self
             .data_object_search_client
             .search_data_objects()
             .set_parent(self.collection_full_path.clone())
             .set_vector_search(vector_search);
 
-        if let Some(page_token) = query.page_token.as_ref() {
-            req = req.set_page_token(page_token.clone());
+        if let Some(page_token) = params.page_token.as_ref() {
+            request = request.set_page_token(page_token.clone());
         }
 
-        let response = match req.send().await {
+        let response = match request.send().await {
             Ok(response) => response,
             Err(err) => {
                 let status_code = err.status().map(|s| s.code as i32);
@@ -179,8 +144,8 @@ impl search::Searcher for VertexAiSearcher {
                     status_code,
                     http_status,
                     collection = self.collection_full_path,
-                    user_id = query.user_id,
-                    dims = query.query_embedding.len(),
+                    user_id = params.user_id,
+                    dims = query_embed.embedding.len(),
                     "Vertex vector search failed"
                 );
                 anyhow::bail!(
@@ -191,40 +156,59 @@ impl search::Searcher for VertexAiSearcher {
                 );
             }
         };
-        Ok(Self::map_search_data_objects_response(response))
-    }
-}
 
-fn parse_capture_and_illumination_from_doc_id(doc_id: &str) -> Option<(i32, i32)> {
-    // Expected format from vector upsert path: u<user_id>-c<capture_id>-i<illumination_id>
-    let mut parts = doc_id.split('-');
-    let _user = parts.next()?;
-    let capture = parts.next()?;
-    let illumination = parts.next()?;
-
-    if parts.next().is_some() {
-        return None;
-    }
-
-    let capture_id = capture.strip_prefix('c')?.parse::<i32>().ok()?;
-    let illumination_id = illumination.strip_prefix('i')?.parse::<i32>().ok()?;
-    Some((capture_id, illumination_id))
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parse_doc_id_extracts_capture_and_illumination() {
-        assert_eq!(
-            parse_capture_and_illumination_from_doc_id("u986ewyyn-c123-i456"),
-            Some((123, 456))
+        tracing::info!(
+            num_hits = response.results.len(),
+            next_page_token = response.next_page_token,
+            "Vertex search returned results"
         );
-        assert_eq!(
-            parse_capture_and_illumination_from_doc_id("u1-cabc-i2"),
+
+        Ok(map_search_data_objects_response(response))
+    }
+}
+
+fn map_search_data_objects_response(
+    response: SearchDataObjectsResponse,
+) -> search::SearchResultPage {
+    let hits = response
+        .results
+        .into_iter()
+        .filter_map(|result| {
+            let Some(data_object) = result.data_object else {
+                tracing::warn!("Search result missing data_object; dropping hit");
+                return None;
+            };
+            let doc_id = data_object.data_object_id;
+
+            let (user_id, capture_id, illumination_id) = match data_object_id::parse_fields(&doc_id)
+            {
+                Ok(ids) => ids,
+                Err(err) => {
+                    tracing::warn!(doc_id, error = %err, "Failed parsing ids from doc_id; dropping hit");
+                    return None;
+                }
+            };
+            let Some(score) = result.distance else {
+                tracing::warn!(doc_id, "Search result missing distance score; dropping");
+                return None;
+            };
+
+            Some(search::SearchHit {
+                doc_id,
+                user_id,
+                capture_id,
+                illumination_id,
+                score,
+            })
+        })
+        .collect();
+
+    search::SearchResultPage {
+        hits,
+        next_page_token: if response.next_page_token.is_empty() {
             None
-        );
-        assert_eq!(parse_capture_and_illumination_from_doc_id("bad"), None);
+        } else {
+            Some(response.next_page_token)
+        },
     }
 }

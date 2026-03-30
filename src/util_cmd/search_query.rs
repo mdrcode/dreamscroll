@@ -1,7 +1,7 @@
 use argh::FromArgs;
 
 use crate::search::{
-    Embedder, SearchQueryEmbedding, Searcher,
+    Embedder, QueryParams, Searcher,
     gcloud::{GeminiEmbedder, VertexAiSearcher},
 };
 
@@ -34,20 +34,26 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
         query_embedding.embedding.len()
     );
 
-    let query = SearchQueryEmbedding {
+    let params = QueryParams {
         user_id: 1, // hack TODO fix this up
-        query_embedding: query_embedding.embedding,
         limit: args.limit,
         page_token: args.page_token,
     };
 
-    let page = searcher.search_query_embedding(&query).await?;
+    let page = searcher
+        .search_query_embedding(&query_embedding, &params)
+        .await?;
 
-    println!("Found {} hit(s) for query: {}", page.hits.len(), args.query);
+    println!(
+        "Found {} hit(s) for user_id: {} query: {}",
+        page.hits.len(),
+        params.user_id,
+        args.query
+    );
     for hit in page.hits {
         println!(
             "id={} capture_id={} score={}",
-            hit.corpus_doc_id, hit.capture_id, hit.score,
+            hit.doc_id, hit.capture_id, hit.score,
         );
     }
 
