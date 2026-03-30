@@ -1,12 +1,23 @@
 use serde::{Deserialize, Serialize};
 
-use super::*;
-
 #[async_trait::async_trait]
 pub trait Searcher: Send + Sync {
+    async fn search_query_text(
+        &self,
+        query_text: &str,
+        params: &QueryParams,
+    ) -> anyhow::Result<SearchResultPage>;
+
     async fn search_query_embedding(
         &self,
-        query_embedding: &QueryEmbedding,
+        query_embedding: &[f32],
+        params: &QueryParams,
+    ) -> anyhow::Result<SearchResultPage>;
+
+    async fn search_query_hybrid(
+        &self,
+        query_embedding: &[f32],
+        query_text: &str,
         params: &QueryParams,
     ) -> anyhow::Result<SearchResultPage>;
 }

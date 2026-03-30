@@ -23,19 +23,22 @@ pub struct SearchQueryArgs {
     #[argh(option)]
     #[argh(description = "optional page token for pagination")]
     page_token: Option<String>,
+
+    #[argh(switch)]
+    #[argh(description = "use TextSearch instead of embedding/vector search")]
+    text_search: bool,
+
+    #[argh(switch)]
+    #[argh(description = "use hybrid search (vector + text combined with RRF)")]
+    hybrid_search: bool,
 }
 
 pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
-    let embedder = GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
     let searcher = VertexAiSearcher::from_config(&state.config).await?;
 
-    let query_embedding = embedder.embed_query(&args.query).await?;
-    let vector_file_path = write_query_vector_to_temp_json(&query_embedding)?;
-    tracing::info!(
-        "Generated query embedding with dims={}",
-        query_embedding.embedding.len()
-    );
-    println!("Wrote gcloud vector file: {}", vector_file_path.display());
+    if args.text_search && args.hybrid_search {
+        anyhow::bail!("Choose at most one mode: --text-search or --hybrid-search");
+    }
 
     let params = QueryParams {
         user_id: 1, // hack TODO fix this up
@@ -43,9 +46,33 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
         page_token: args.page_token,
     };
 
-    let page = searcher
-        .search_query_embedding(&query_embedding, &params)
-        .await?;
+    let page = if args.text_search {
+        searcher.search_query_text(&args.query, &params).await?
+    } else if args.hybrid_search {
+        let embedder = GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
+        let query_embedding = embedder.embed_query(&args.query).await?;
+        let vector_file_path = write_query_vector_to_temp_json(&query_embedding)?;
+        tracing::info!(
+            "Generated query embedding with dims={}",
+            query_embedding.len()
+        );
+        println!("Wrote gcloud vector file: {}", vector_file_path.display());
+        searcher
+            .search_query_hybrid(&query_embedding, &args.query, &params)
+            .await?
+    } else {
+        let embedder = GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
+        let query_embedding = embedder.embed_query(&args.query).await?;
+        let vector_file_path = write_query_vector_to_temp_json(&query_embedding)?;
+        tracing::info!(
+            "Generated query embedding with dims={}",
+            query_embedding.len()
+        );
+        println!("Wrote gcloud vector file: {}", vector_file_path.display());
+        searcher
+            .search_query_embedding(&query_embedding, &params)
+            .await?
+    };
 
     println!(
         "Found {} hit(s) for user_id: {} query: {}",
@@ -67,14 +94,12 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn write_query_vector_to_temp_json(
-    query_embedding: &crate::search::QueryEmbedding,
-) -> anyhow::Result<std::path::PathBuf> {
+fn write_query_vector_to_temp_json(query_embedding: &[f32]) -> anyhow::Result<std::path::PathBuf> {
     let ts = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
     let path = std::env::temp_dir().join(format!("query_vector-{}.json", ts));
     let payload = serde_json::json!({
         "dense": {
-            "values": query_embedding.embedding,
+            "values": query_embedding,
         }
     });
     let bytes = serde_json::to_vec_pretty(&payload)?;

@@ -108,6 +108,28 @@ impl GeminiEmbedder {
 
 #[async_trait::async_trait]
 impl search::Embedder for GeminiEmbedder {
+    #[tracing::instrument(skip(self, query), fields(query_len = query.len()))]
+    async fn embed_query(&self, query: &str) -> anyhow::Result<Vec<f32>> {
+        if query.trim().is_empty() {
+            anyhow::bail!("Query text is empty, cannot embed");
+        }
+
+        let parts = json!([
+            {
+                "text": query
+            }
+        ]);
+
+        let embedding_raw = self
+            .embed_content_parts(parts, TASK_TYPE_RETRIEVAL_QUERY)
+            .await?;
+        tracing::info!(
+            embedding_dims = embedding_raw.len(),
+            "Query embedding generated"
+        );
+        Ok(embedding_raw)
+    }
+
     #[tracing::instrument(skip(self, capture), fields(capture_id = %capture.id))]
     async fn embed_capture(
         &self,
@@ -131,7 +153,7 @@ impl search::Embedder for GeminiEmbedder {
             .retrieve_bytes(&storage::StorageHandle::from(first_media))
             .await?;
         let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
-        
+
         tracing::info!(
             capture_id = capture.id,
             illumination_id = latest_illumination.id,
@@ -171,30 +193,6 @@ impl search::Embedder for GeminiEmbedder {
             "Capture embedding generated"
         );
 
-        Ok(embed)
-    }
-
-    #[tracing::instrument(skip(self, query), fields(query_len = query.len()))]
-    async fn embed_query(&self, query: &str) -> anyhow::Result<search::QueryEmbedding> {
-        if query.trim().is_empty() {
-            anyhow::bail!("Query text is empty, cannot embed");
-        }
-
-        let parts = json!([
-            {
-                "text": query
-            }
-        ]);
-
-        let embedding_raw = self
-            .embed_content_parts(parts, TASK_TYPE_RETRIEVAL_QUERY)
-            .await?;
-        let embed = search::QueryEmbedding {
-            text: query.to_string(),
-            embedding: embedding_raw,
-        };
-
-        tracing::info!(embedding = ?embed, "Query embedding generated");
         Ok(embed)
     }
 }
