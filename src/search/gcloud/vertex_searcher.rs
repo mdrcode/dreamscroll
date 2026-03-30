@@ -1,8 +1,9 @@
 use anyhow::Context;
 use google_cloud_vectorsearch_v1::{
     client::DataObjectSearchService,
-    model::{DenseVector, SearchDataObjectsResponse, VectorSearch},
+    model::{DenseVector, OutputFields, SearchDataObjectsResponse, VectorSearch},
 };
+use serde_json::json;
 
 use crate::{facility, search};
 
@@ -97,32 +98,21 @@ impl search::Searcher for VertexAiSearcher {
             });
         }
 
-        // BUG? Every attempt to use set_output_fields results in a 400 Bad
-        // Request with message "invalid argument". For now, we simply encode
-        // the fields we need in the object id and extract them at search time.
-        // See data_object_id.rs
-        //
-        // Similarly, every attempt to filter on user_id result in zero search
-        // hits, even though user_id is present in the indexed objects.
-        //
-        // Temporary trust boundary: this stage may return cross-tenant candidate
-        // ids, and authorization is enforced by the capture fetch API that
-        // filters by user_id.
         let vector_search = VectorSearch::new()
             .set_search_field(constants::CAPTURE_DENSE_VECTOR)
             .set_vector(DenseVector::new().set_values(query_embed.embedding.clone()))
-            .set_top_k(params.limit.clamp(1, 1000) as i32);
-        // .set_output_fields(OutputFields::new().set_data_fields(["user_id"]))
-            // .set_filter(
-            //     json!({
-            //         "user_id": {
-            //             "$eq": params.user_id.to_string()
-            //         }
-            //     })
-            //     .as_object()
-            //     .cloned()
-            //     .expect("json object"),
-            // )
+            .set_top_k(params.limit.clamp(1, 1000) as i32)
+            .set_filter(
+                json!({
+                    "user_id": {
+                        "$eq": params.user_id.to_string()
+                    }
+                })
+                .as_object()
+                .cloned()
+                .expect("json object"),
+            )
+            .set_output_fields(OutputFields::new().set_data_fields(["user_id"]));
 
         let mut request = self
             .data_object_search_client
@@ -140,24 +130,23 @@ impl search::Searcher for VertexAiSearcher {
                 let status_code = err.status().map(|s| s.code as i32);
                 let http_status = err.http_status_code();
                 tracing::error!(
-                    error = %err,
-                    status_code,
-                    http_status,
                     collection = self.collection_full_path,
                     user_id = params.user_id,
                     dims = query_embed.embedding.len(),
+                    status_code,
+                    http_status,
+                    error = ?err,
                     "Vertex vector search failed"
                 );
                 anyhow::bail!(
-                    "Vertex vector search failed: {} (status_code={:?}, http_status={:?})",
-                    err,
+                    "Vertex vector search failed status_code={:?} http_status={:?}",
                     status_code,
-                    http_status
+                    http_status,
                 );
             }
         };
 
-        tracing::info!(
+        tracing::debug!(
             num_hits = response.results.len(),
             next_page_token = response.next_page_token,
             "Vertex search returned results"

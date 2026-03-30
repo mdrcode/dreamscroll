@@ -1,4 +1,5 @@
 use argh::FromArgs;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::search::{
     Embedder, QueryParams, Searcher,
@@ -29,10 +30,12 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
     let searcher = VertexAiSearcher::from_config(&state.config).await?;
 
     let query_embedding = embedder.embed_query(&args.query).await?;
+    let vector_file_path = write_query_vector_to_temp_json(&query_embedding)?;
     tracing::info!(
         "Generated query embedding with dims={}",
         query_embedding.embedding.len()
     );
+    println!("Wrote gcloud vector file: {}", vector_file_path.display());
 
     let params = QueryParams {
         user_id: 1, // hack TODO fix this up
@@ -62,4 +65,19 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn write_query_vector_to_temp_json(
+    query_embedding: &crate::search::QueryEmbedding,
+) -> anyhow::Result<std::path::PathBuf> {
+    let ts = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+    let path = std::env::temp_dir().join(format!("query_vector-{}.json", ts));
+    let payload = serde_json::json!({
+        "dense": {
+            "values": query_embedding.embedding,
+        }
+    });
+    let bytes = serde_json::to_vec_pretty(&payload)?;
+    std::fs::write(&path, bytes)?;
+    Ok(path)
 }

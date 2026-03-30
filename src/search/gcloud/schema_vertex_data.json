@@ -1,23 +1,17 @@
 {
-    "fields": [
-        {
-            "name": "capture_id",
-            "data_type": "STRING",
-            "is_primary_key": true
+    "type": "object",
+    "properties": {
+        "capture_id": {
+            "type": "string"
         },
-        {
-            "name": "user_id",
-            "data_type": "STRING",
-            "is_filterable": true
+        "user_id": {
+            "type": "string"
         },
-        {
-            "name": "illumination_id",
-            "data_type": "STRING",
-            "is_filterable": true
+        "illumination_id": {
+            "type": "string"
         },
-        {
-            "name": "illumination_text",
-            "data_type": "STRING"
+        "illumination_text": {
+            "type": "string"
         }
-    ]
+    }
 }
