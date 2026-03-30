@@ -1,5 +1,5 @@
 {
-    "gemini_embedding_v2_0": {
+    "geminiv2": {
         "denseVector": {
             "dimensions": 768
         }

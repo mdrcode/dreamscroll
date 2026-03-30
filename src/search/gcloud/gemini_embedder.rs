@@ -9,6 +9,8 @@ use crate::{api, facility, search, storage};
 
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const MODEL_ID: &str = "gemini-embedding-2-preview";
+const TASK_TYPE_RETRIEVAL_DOCUMENT: &str = "RETRIEVAL_DOCUMENT";
+const TASK_TYPE_RETRIEVAL_QUERY: &str = "RETRIEVAL_QUERY";
 
 /// Embeds a capture into a dense vector via Gemini Embeddings v2.
 #[derive(Clone)]
@@ -67,7 +69,7 @@ impl GeminiEmbedder {
         })
     }
 
-    async fn embed_content_parts(&self, parts: Value) -> anyhow::Result<Vec<f32>> {
+    async fn embed_content_parts(&self, parts: Value, task_type: &str) -> anyhow::Result<Vec<f32>> {
         let access_token = self.adc_credentials.access_token().await?.token;
 
         let body = json!({
@@ -75,7 +77,8 @@ impl GeminiEmbedder {
                 "parts": parts
             },
             "embedContentConfig": {
-                "outputDimensionality": self.output_dims
+                "outputDimensionality": self.output_dims,
+                "taskType": task_type
             }
         });
 
@@ -151,7 +154,9 @@ impl search::Embedder for GeminiEmbedder {
             }
         ]);
 
-        let embedding_raw = self.embed_content_parts(parts).await?;
+        let embedding_raw = self
+            .embed_content_parts(parts, TASK_TYPE_RETRIEVAL_DOCUMENT)
+            .await?;
         let embed = search::CaptureEmbedding {
             user_id: capture.user_id,
             capture_id: capture.id,
@@ -180,7 +185,9 @@ impl search::Embedder for GeminiEmbedder {
             }
         ]);
 
-        let embedding = self.embed_content_parts(parts).await?;
+        let embedding = self
+            .embed_content_parts(parts, TASK_TYPE_RETRIEVAL_QUERY)
+            .await?;
         let query_embedding = search::QueryEmbedding {
             text: query.to_string(),
             embedding,

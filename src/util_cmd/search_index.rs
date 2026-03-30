@@ -46,21 +46,22 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     if capture_infos.is_empty() {
         return Err(anyhow!("No matching captures found for the current user."));
     }
+    let retrieved_count = capture_infos.len();
 
     let mut success_count = 0usize;
 
     for capture in capture_infos {
         let embed = match embedder.embed_capture(&capture).await {
             Ok(embed) => {
-                println!(
-                    "Embedded capture {} (dims={}) successfully [no upsert]",
+                tracing::debug!(
+                    "Embedded capture {} (dims={}) successfully",
                     capture.id,
                     embed.embedding.len()
                 );
                 embed
             }
             Err(err) => {
-                eprintln!("Failed embedding capture {}: {}", capture.id, err);
+                tracing::error!("Failed embedding capture {}: {}", capture.id, err);
                 continue;
             }
         };
@@ -68,13 +69,15 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
         if let Some(vector_store) = vector_store.as_ref() {
             match vector_store.upsert_capture_embedding(&embed).await {
                 Ok(res) => {
-                    println!(
+                    tracing::debug!(
                         "Indexed capture {} -> datapoint {} (dims={})",
-                        capture.id, res.id, res.dims
+                        capture.id,
+                        res.id,
+                        res.dims
                     );
                 }
                 Err(err) => {
-                    eprintln!("Failed indexing capture {}: {}", capture.id, err);
+                    tracing::error!("Failed indexing capture {}: {}", capture.id, err);
                     continue;
                 }
             }
@@ -89,7 +92,10 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
             success_count, raw_count
         );
     } else {
-        println!("Done. Indexed {}/{} capture(s).", success_count, raw_count);
+        println!(
+            "Done. Asked: {} Retrieved: {} Indexed {} capture(s).",
+            raw_count, retrieved_count, success_count
+        );
     }
 
     Ok(())
