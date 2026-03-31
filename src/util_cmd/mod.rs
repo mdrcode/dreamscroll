@@ -9,6 +9,7 @@ pub mod first_user;
 pub mod html_view;
 pub mod illuminate_all;
 pub mod illuminate_id;
+pub mod illumination_text;
 pub mod import_digest;
 pub mod search_embedding;
 pub mod search_index;
