@@ -9,7 +9,7 @@ use crate::search;
 /// capture_id, illumination_id) in the document ID and parse them back at
 /// search time.
 
-pub(crate) fn make(embed: &search::CaptureEmbedding) -> String {
+pub(crate) fn make<E>(embed: &search::CaptureEmbedding<E>) -> String {
     format!(
         "u{}-c{}-i{}",
         embed.user_id, embed.capture_id, embed.illumination_id

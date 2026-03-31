@@ -1,12 +1,12 @@
 use serde::{Deserialize, Serialize};
 
-use super::*;
+use super::CaptureEmbedding;
 
 #[async_trait::async_trait]
-pub trait VectorStore: Send + Sync {
+pub trait VectorStore<E>: Send + Sync {
     async fn upsert_capture_embedding(
         &self,
-        embedding: &CaptureEmbedding,
+        embedding: &CaptureEmbedding<E>,
     ) -> anyhow::Result<VectorUpsertResult>;
 }
 

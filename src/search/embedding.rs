@@ -1,18 +1,19 @@
 use std::marker::PhantomData;
+use serde::{Deserialize, Serialize};
 
 /// Marker type for raw (not guaranteed normalized) embeddings.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Raw;
 
 /// Marker type for L2-normalized embeddings.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Unit;
 
 /// Strongly typed embedding wrapper.
 ///
 /// `S` is a type-state marker that indicates whether values are known to be
 /// normalized (`Unit`) or not (`Raw`).
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Embedding<T = f32, S = Raw> {
     values: Vec<T>,
     _state: PhantomData<S>,
@@ -63,6 +64,11 @@ impl<S> Embedding<f32, S> {
 
     pub fn into_vec(self) -> Vec<f32> {
         self.values
+    }
+
+    /// Returns a normalized clone of this embedding.
+    pub fn normalized(&self) -> anyhow::Result<Embedding<f32, Unit>> {
+        Embedding::<f32, Raw>::from_vec(self.values.clone())?.normalize()
     }
 }
 

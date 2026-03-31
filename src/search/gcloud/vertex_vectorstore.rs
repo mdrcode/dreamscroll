@@ -69,13 +69,15 @@ impl VertexAiVectorStore {
 }
 
 #[async_trait::async_trait]
-impl search::VectorStore for VertexAiVectorStore {
+impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexAiVectorStore {
     #[tracing::instrument(skip(self, embed), fields(capture_id = %embed.capture_id, illumination_id = %embed.illumination_id))]
     async fn upsert_capture_embedding(
         &self,
-        embed: &search::CaptureEmbedding,
+        embed: &search::CaptureEmbedding<search::Embedding<f32, search::Unit>>,
     ) -> anyhow::Result<search::VectorUpsertResult> {
-        if embed.embedding.len() != self.n_dims {
+        let embedding = &embed.embedding;
+
+        if embedding.len() != self.n_dims {
             anyhow::bail!(
                 "Dimension mismatch: VectorStore dims: {}, embedding: {:?}",
                 self.n_dims,
@@ -102,7 +104,8 @@ impl search::VectorStore for VertexAiVectorStore {
             )
             .set_vectors(vec![(
                 constants::CAPTURE_DENSE_VECTOR.to_string(),
-                Vector::new().set_dense(DenseVector::new().set_values(embed.embedding.clone())),
+                Vector::new()
+                    .set_dense(DenseVector::new().set_values(embedding.as_slice().to_vec())),
             )]);
 
         // Try update first, then create.
@@ -171,7 +174,7 @@ impl search::VectorStore for VertexAiVectorStore {
         Ok(search::VectorUpsertResult {
             id: object_id,
             fq_id: Some(object_full_path),
-            dims: embed.embedding.len(),
+            dims: self.n_dims,
         })
     }
 }

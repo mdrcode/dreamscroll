@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[async_trait::async_trait]
-pub trait Searcher: Send + Sync {
+pub trait Searcher<E>: Send + Sync {
     async fn search_text(
         &self,
         query_text: &str,
@@ -10,14 +10,14 @@ pub trait Searcher: Send + Sync {
 
     async fn search_embedding(
         &self,
-        query_embedding: &[f32],
+        query_embedding: &E,
         params: &QueryParams,
     ) -> anyhow::Result<SearchResultPage>;
 
     async fn search_hybrid(
         &self,
         query_text: &str,
-        query_embedding: &[f32],
+        query_embedding: &E,
         params: &QueryParams,
     ) -> anyhow::Result<SearchResultPage>;
 }

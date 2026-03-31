@@ -108,17 +108,20 @@ impl VertexAiSearcher {
             .set_filter(Self::make_user_filter(params.user_id))
     }
 
-    fn make_vector_search(query_embed: &[f32], params: &search::QueryParams) -> VectorSearch {
+    fn make_vector_search(
+        query_embed: &search::Embedding<f32, search::Unit>,
+        params: &search::QueryParams,
+    ) -> VectorSearch {
         VectorSearch::new()
             .set_search_field(constants::CAPTURE_DENSE_VECTOR)
-            .set_vector(DenseVector::new().set_values(query_embed.to_vec()))
+            .set_vector(DenseVector::new().set_values(query_embed.as_slice().to_vec()))
             .set_top_k(Self::query_top_k(params.limit))
             .set_filter(Self::make_user_filter(params.user_id))
     }
 }
 
 #[async_trait::async_trait]
-impl search::Searcher for VertexAiSearcher {
+impl search::Searcher<search::Embedding<f32, search::Unit>> for VertexAiSearcher {
     #[tracing::instrument(skip(self, params), fields(user_id = params.user_id, limit = params.limit, query_len = query_text.len()))]
     async fn search_text(
         &self,
@@ -175,7 +178,7 @@ impl search::Searcher for VertexAiSearcher {
     #[tracing::instrument(skip(self, query_embed, params), fields(user_id = params.user_id, limit = params.limit, dims = query_embed.len()))]
     async fn search_embedding(
         &self,
-        query_embed: &[f32],
+        query_embed: &search::Embedding<f32, search::Unit>,
         params: &search::QueryParams,
     ) -> anyhow::Result<search::SearchResultPage> {
         if query_embed.is_empty() {
@@ -230,7 +233,7 @@ impl search::Searcher for VertexAiSearcher {
     async fn search_hybrid(
         &self,
         query_text: &str,
-        query_embed: &[f32],
+        query_embed: &search::Embedding<f32, search::Unit>,
         params: &search::QueryParams,
     ) -> anyhow::Result<search::SearchResultPage> {
         if query_embed.is_empty() || query_text.trim().is_empty() {

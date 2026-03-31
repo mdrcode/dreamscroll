@@ -69,7 +69,11 @@ impl GeminiEmbedder {
         })
     }
 
-    async fn embed_content_parts(&self, parts: Value, task_type: &str) -> anyhow::Result<Vec<f32>> {
+    async fn embed_content_parts_normalizing(
+        &self,
+        parts: Value,
+        task_type: &str,
+    ) -> anyhow::Result<search::Embedding<f32, search::Unit>> {
         let access_token = self.adc_credentials.access_token().await?.token;
 
         let body = json!({
@@ -102,14 +106,18 @@ impl GeminiEmbedder {
         }
 
         let json: serde_json::Value = response.json().await?;
-        parse_gemini_v2_embedding_json(&json)
+        let raw = parse_gemini_v2_embedding_json(&json)?;
+        search::Embedding::from_vec_normalizing(raw)
     }
 }
 
 #[async_trait::async_trait]
-impl search::Embedder for GeminiEmbedder {
+impl search::Embedder<search::Embedding<f32, search::Unit>> for GeminiEmbedder {
     #[tracing::instrument(skip(self, query), fields(query_len = query.len()))]
-    async fn embed_query(&self, query: &str) -> anyhow::Result<Vec<f32>> {
+    async fn embed_query(
+        &self,
+        query: &str,
+    ) -> anyhow::Result<search::Embedding<f32, search::Unit>> {
         if query.trim().is_empty() {
             anyhow::bail!("Query text is empty, cannot embed");
         }
@@ -120,21 +128,21 @@ impl search::Embedder for GeminiEmbedder {
             }
         ]);
 
-        let embedding_raw = self
-            .embed_content_parts(parts, TASK_TYPE_RETRIEVAL_QUERY)
+        let embed_normal = self
+            .embed_content_parts_normalizing(parts, TASK_TYPE_RETRIEVAL_QUERY)
             .await?;
         tracing::info!(
-            embedding_dims = embedding_raw.len(),
+            embedding_dims = embed_normal.len(),
             "Query embedding generated"
         );
-        Ok(embedding_raw)
+        Ok(embed_normal)
     }
 
     #[tracing::instrument(skip(self, capture), fields(capture_id = %capture.id))]
     async fn embed_capture(
         &self,
         capture: &api::CaptureInfo,
-    ) -> anyhow::Result<search::CaptureEmbedding> {
+    ) -> anyhow::Result<search::CaptureEmbedding<search::Embedding<f32, search::Unit>>> {
         let latest_illumination = capture
             .illuminations
             .iter()
@@ -177,15 +185,15 @@ impl search::Embedder for GeminiEmbedder {
             }
         ]);
 
-        let embedding_raw = self
-            .embed_content_parts(parts, TASK_TYPE_RETRIEVAL_DOCUMENT)
+        let embed_normal = self
+            .embed_content_parts_normalizing(parts, TASK_TYPE_RETRIEVAL_DOCUMENT)
             .await?;
-        let embed = search::CaptureEmbedding {
+        let embed = search::CaptureEmbedding::<search::Embedding<f32, search::Unit>> {
             user_id: capture.user_id,
             capture_id: capture.id,
             illumination_id: latest_illumination.id,
             illumination_text: illumination_text,
-            embedding: embedding_raw,
+            embedding: embed_normal,
         };
 
         tracing::info!(

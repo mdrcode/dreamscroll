@@ -78,7 +78,7 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
                         res.id,
                         res.dims
                     );
-                    last_vector = Some((capture.id, embed.embedding.clone()));
+                    last_vector = Some((capture.id, embed.embedding.as_slice().to_vec()));
                 }
                 Err(err) => {
                     tracing::error!("Failed indexing capture {}: {}", capture.id, err);
@@ -86,7 +86,7 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
                 }
             }
         } else {
-            last_vector = Some((capture.id, embed.embedding.clone()));
+            last_vector = Some((capture.id, embed.embedding.as_slice().to_vec()));
         }
 
         success_count += 1;

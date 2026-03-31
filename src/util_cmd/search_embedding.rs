@@ -1,7 +1,7 @@
 use anyhow::Context;
 use argh::FromArgs;
 
-use crate::search::{QueryParams, Searcher, gcloud::VertexAiSearcher};
+use crate::search::{Embedding, QueryParams, Searcher, gcloud::VertexAiSearcher};
 
 use super::*;
 
@@ -60,7 +60,7 @@ pub async fn run(state: CmdState, args: SearchEmbeddingArgs) -> anyhow::Result<(
     Ok(())
 }
 
-fn read_query_vector_from_file(file_path: &str) -> anyhow::Result<Vec<f32>> {
+fn read_query_vector_from_file(file_path: &str) -> anyhow::Result<Embedding<f32, crate::search::Unit>> {
     let raw = std::fs::read_to_string(file_path)
         .with_context(|| format!("Failed to read vector file: {}", file_path))?;
 
@@ -90,5 +90,5 @@ fn read_query_vector_from_file(file_path: &str) -> anyhow::Result<Vec<f32>> {
         anyhow::bail!("Vector file contains an empty embedding");
     }
 
-    Ok(out)
+    Embedding::from_vec_normalizing(out)
 }
