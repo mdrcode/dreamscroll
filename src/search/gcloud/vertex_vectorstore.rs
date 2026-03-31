@@ -13,6 +13,7 @@ use super::*;
 #[derive(Clone)]
 pub struct VertexAiVectorStore {
     collection_full_path: String,
+    dense_vector_name: String,
     n_dims: usize,
     data_object_client: DataObjectService,
 }
@@ -24,15 +25,21 @@ impl VertexAiVectorStore {
             .as_ref()
             .context("SEARCH_EMBED_COLLECTION_ID required for search indexing")?
             .to_string();
+        let dense_vector_name = config
+            .search_embed_vector_field
+            .as_ref()
+            .context("SEARCH_EMBED_VECTOR_FIELD required for search indexing")?
+            .to_string();
         let output_dims = config
-            .search_embed_output_dims
-            .context("SEARCH_EMBED_OUTPUT_DIMS required for search indexing")?
+            .search_embed_vector_dims
+            .context("SEARCH_EMBED_VECTOR_DIMS required for search indexing")?
             as usize;
 
         Self::new(
             config.gcloud_project_id.clone(),
             config.gcloud_project_region.clone(),
             collection_id,
+            dense_vector_name,
             output_dims,
         )
         .await
@@ -42,6 +49,7 @@ impl VertexAiVectorStore {
         project_id: String,
         region: String,
         collection_id: String,
+        dense_vector_name: String,
         output_dims: usize,
     ) -> anyhow::Result<Self> {
         let collection_full_name = format!(
@@ -56,12 +64,14 @@ impl VertexAiVectorStore {
 
         tracing::info!(
             collection_full_name,
+            dense_vector_name,
             output_dims,
             "VertexAiVectorStore initialized"
         );
 
         Ok(Self {
             collection_full_path: collection_full_name,
+            dense_vector_name,
             n_dims: output_dims,
             data_object_client,
         })
@@ -103,7 +113,7 @@ impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexAiVecto
                 .expect("data_object json"),
             )
             .set_vectors(vec![(
-                constants::CAPTURE_DENSE_VECTOR.to_string(),
+                self.dense_vector_name.clone(),
                 Vector::new()
                     .set_dense(DenseVector::new().set_values(embedding.as_slice().to_vec())),
             )]);

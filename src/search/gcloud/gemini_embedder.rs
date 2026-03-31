@@ -28,7 +28,7 @@ impl GeminiEmbedder {
         storage: Box<dyn storage::StorageProvider>,
     ) -> anyhow::Result<Self> {
         let output_dims = config
-            .search_embed_output_dims
+            .search_embed_vector_dims
             .context("SEARCH_EMBED_OUTPUT_DIMS required for search indexing")?;
 
         Self::new(

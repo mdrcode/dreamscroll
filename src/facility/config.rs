@@ -67,7 +67,8 @@ pub struct Config {
     pub storage_gcloud_bucket_name: Option<String>,
 
     pub search_embed_collection_id: Option<String>,
-    pub search_embed_output_dims: Option<u32>,
+    pub search_embed_vector_field: Option<String>,
+    pub search_embed_vector_dims: Option<u32>,
 
     pub task_backend: task::TaskQueueBackend,
     pub task_pubsub_emulator: Option<String>, // e.g. "http://localhost:8085"
