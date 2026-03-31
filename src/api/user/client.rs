@@ -12,6 +12,7 @@ pub struct UserApiClient {
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
     beacon: task::Beacon,
+    capture_searcher: Option<super::CaptureSearcher>,
 }
 
 impl UserApiClient {
@@ -20,12 +21,14 @@ impl UserApiClient {
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
         beacon: task::Beacon,
+        capture_searcher: Option<super::CaptureSearcher>,
     ) -> Self {
         Self {
             db,
             storage,
             info_maker: schema::InfoMaker::new(url_maker),
             beacon,
+            capture_searcher,
         }
     }
 
@@ -297,8 +300,18 @@ impl UserApiClient {
         query: &str,
         limit: Option<u64>,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
-        let capture_models =
-            super::search_by_illuminations(&self.db, context, query, limit).await?;
+        let capture_searcher = self.capture_searcher.as_ref().ok_or_else(|| {
+            ApiError::internal(anyhow!(
+                "Search backend unavailable: Gemini/Vertex not initialized from config"
+            ))
+        })?;
+
+        let capture_ids = capture_searcher.search(context, query, limit).await?;
+        if capture_ids.is_empty() {
+            return Ok(vec![]);
+        }
+
+        let capture_models = super::get_captures(&self.db, context, capture_ids).await?;
 
         Ok(capture_models
             .into_iter()

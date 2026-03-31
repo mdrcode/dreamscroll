@@ -11,4 +11,5 @@ mod service;
 pub use service::client::ServiceApiClient;
 
 mod user;
-pub use user::client::UserApiClient;
+pub use user::CaptureSearcher;
+pub use user::client::UserApiClient; // TODO maybe this shoud live elsewhere

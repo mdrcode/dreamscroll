@@ -69,8 +69,14 @@ async fn main() -> anyhow::Result<()> {
     // will be enqueued.
     // TODO this should be a NOOP queue that logs tasks so we can verify behavior
     let empty_beacon = task::Beacon::default();
-    let user_api =
-        api::UserApiClient::new(db.clone(), stg.clone(), url_maker.clone(), empty_beacon);
+    let capture_searcher = api::CaptureSearcher::from_config(&config, stg.clone()).await;
+    let user_api = api::UserApiClient::new(
+        db.clone(),
+        stg.clone(),
+        url_maker.clone(),
+        empty_beacon,
+        capture_searcher,
+    );
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
 
     let args: Args = argh::from_env();
