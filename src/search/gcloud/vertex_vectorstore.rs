@@ -9,13 +9,6 @@ use crate::{facility, search};
 
 use super::*;
 
-fn make_vectors(embed: &search::CaptureEmbedding) -> Vec<(String, Vector)> {
-    vec![(
-        constants::CAPTURE_DENSE_VECTOR.to_string(),
-        Vector::new().set_dense(DenseVector::new().set_values(embed.embedding.clone())),
-    )]
-}
-
 /// Upserts dense vectors into Vertex Vector Search 2.0 Collections.
 #[derive(Clone)]
 pub struct VertexAiVectorStore {
@@ -107,7 +100,10 @@ impl search::VectorStore for VertexAiVectorStore {
                 .cloned()
                 .expect("data_object json"),
             )
-            .set_vectors(make_vectors(embed));
+            .set_vectors(vec![(
+                constants::CAPTURE_DENSE_VECTOR.to_string(),
+                Vector::new().set_dense(DenseVector::new().set_values(embed.embedding.clone())),
+            )]);
 
         // Try update first, then create.
         // Note: full-clobber overwrite; TODO consider partial field-wise update

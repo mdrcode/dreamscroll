@@ -106,7 +106,10 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
 
     if let Some((capture_id, vector)) = last_vector {
         let vector_path = write_dense_vector_tmp_json(capture_id, &vector)?;
-        println!("Last indexed capture vector file path: {}", vector_path.display());
+        println!(
+            "Last indexed capture vector file path: {}",
+            vector_path.display()
+        );
     }
 
     Ok(())
