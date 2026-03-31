@@ -15,6 +15,8 @@ pub struct IlluminationInfo {
 
 impl IlluminationInfo {
     pub fn make_text(&self) -> String {
+        // TODO should include description here! And minimize the boilerplate text
+
         let knodes = self
             .k_nodes
             .iter()

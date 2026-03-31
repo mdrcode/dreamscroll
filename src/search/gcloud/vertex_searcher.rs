@@ -120,7 +120,7 @@ impl VertexAiSearcher {
 #[async_trait::async_trait]
 impl search::Searcher for VertexAiSearcher {
     #[tracing::instrument(skip(self, params), fields(user_id = params.user_id, limit = params.limit, query_len = query_text.len()))]
-    async fn search_query_text(
+    async fn search_text(
         &self,
         query_text: &str,
         params: &search::QueryParams,
@@ -173,7 +173,7 @@ impl search::Searcher for VertexAiSearcher {
     }
 
     #[tracing::instrument(skip(self, query_embed, params), fields(user_id = params.user_id, limit = params.limit, dims = query_embed.len()))]
-    async fn search_query_embedding(
+    async fn search_embedding(
         &self,
         query_embed: &[f32],
         params: &search::QueryParams,
@@ -227,10 +227,10 @@ impl search::Searcher for VertexAiSearcher {
     }
 
     #[tracing::instrument(skip(self, query_embed, params), fields(user_id = params.user_id, limit = params.limit, dims = query_embed.len(), query_len = query_text.len()))]
-    async fn search_query_hybrid(
+    async fn search_hybrid(
         &self,
-        query_embed: &[f32],
         query_text: &str,
+        query_embed: &[f32],
         params: &search::QueryParams,
     ) -> anyhow::Result<search::SearchResultPage> {
         if query_embed.is_empty() || query_text.trim().is_empty() {

@@ -41,8 +41,9 @@ enum Command {
     IlluminateAll(illuminate_all::IlluminateAllArgs),
     IlluminateId(illuminate_id::IlluminateIdArgs),
     ImportDigest(import_digest::ImportDigestArgs),
+    SearchEmbedding(search_embedding::SearchEmbeddingArgs),
     SearchIndex(search_index::SearchIndexArgs),
-    SearchQuery(search_query::SearchQueryArgs),
+    SearchText(search_query::SearchQueryArgs),
     Spark(spark::SparkArgs),
 }
 
@@ -176,8 +177,9 @@ async fn main() -> anyhow::Result<()> {
         Command::IlluminateAll(args) => illuminate_all::run(state, args).await,
         Command::IlluminateId(args) => illuminate_id::run(state, args).await,
         Command::ImportDigest(args) => import_digest::run(state, args).await,
+        Command::SearchEmbedding(args) => search_embedding::run(state, args).await,
         Command::SearchIndex(args) => search_index::run(state, args).await,
-        Command::SearchQuery(args) => search_query::run(state, args).await,
+        Command::SearchText(args) => search_query::run(state, args).await,
         Command::Spark(args) => spark::run(state, args).await,
     }
 }

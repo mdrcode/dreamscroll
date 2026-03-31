@@ -1,5 +1,4 @@
 use argh::FromArgs;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::search::{
     Embedder, QueryParams, Searcher,
@@ -9,8 +8,8 @@ use crate::search::{
 use super::*;
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "search_query")]
-#[argh(description = "Query Vertex AI Vector Search for the current user")]
+#[argh(subcommand, name = "search_text")]
+#[argh(description = "Search captures by text query using Vertext AI Search")]
 pub struct SearchQueryArgs {
     #[argh(positional)]
     #[argh(description = "query text")]
@@ -25,19 +24,19 @@ pub struct SearchQueryArgs {
     page_token: Option<String>,
 
     #[argh(switch)]
-    #[argh(description = "use TextSearch instead of embedding/vector search")]
-    text_search: bool,
+    #[argh(description = "run text-only search")]
+    text_only: bool,
 
     #[argh(switch)]
-    #[argh(description = "use hybrid search (vector + text combined with RRF)")]
-    hybrid_search: bool,
+    #[argh(description = "run vector-only search")]
+    vector_only: bool,
 }
 
 pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
     let searcher = VertexAiSearcher::from_config(&state.config).await?;
 
-    if args.text_search && args.hybrid_search {
-        anyhow::bail!("Choose at most one mode: --text-search or --hybrid-search");
+    if args.text_only && args.vector_only {
+        anyhow::bail!("Choose at most one mode: --text-only or --vector-only");
     }
 
     let params = QueryParams {
@@ -46,32 +45,23 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
         page_token: args.page_token,
     };
 
-    let page = if args.text_search {
-        searcher.search_query_text(&args.query, &params).await?
-    } else if args.hybrid_search {
-        let embedder = GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
-        let query_embedding = embedder.embed_query(&args.query).await?;
-        let vector_file_path = write_query_vector_to_temp_json(&query_embedding)?;
-        tracing::info!(
-            "Generated query embedding with dims={}",
-            query_embedding.len()
-        );
-        println!("Wrote gcloud vector file: {}", vector_file_path.display());
-        searcher
-            .search_query_hybrid(&query_embedding, &args.query, &params)
-            .await?
+    let page = if args.text_only {
+        searcher.search_text(&args.query, &params).await?
     } else {
         let embedder = GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
         let query_embedding = embedder.embed_query(&args.query).await?;
-        let vector_file_path = write_query_vector_to_temp_json(&query_embedding)?;
         tracing::info!(
             "Generated query embedding with dims={}",
             query_embedding.len()
         );
-        println!("Wrote gcloud vector file: {}", vector_file_path.display());
-        searcher
-            .search_query_embedding(&query_embedding, &params)
-            .await?
+
+        if args.vector_only {
+            searcher.search_embedding(&query_embedding, &params).await?
+        } else {
+            searcher
+                .search_hybrid(&args.query, &query_embedding, &params)
+                .await?
+        }
     };
 
     println!(
@@ -92,17 +82,4 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-fn write_query_vector_to_temp_json(query_embedding: &[f32]) -> anyhow::Result<std::path::PathBuf> {
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
-    let path = std::env::temp_dir().join(format!("query_vector-{}.json", ts));
-    let payload = serde_json::json!({
-        "dense": {
-            "values": query_embedding,
-        }
-    });
-    let bytes = serde_json::to_vec_pretty(&payload)?;
-    std::fs::write(&path, bytes)?;
-    Ok(path)
 }

@@ -2,22 +2,22 @@ use serde::{Deserialize, Serialize};
 
 #[async_trait::async_trait]
 pub trait Searcher: Send + Sync {
-    async fn search_query_text(
+    async fn search_text(
         &self,
         query_text: &str,
         params: &QueryParams,
     ) -> anyhow::Result<SearchResultPage>;
 
-    async fn search_query_embedding(
+    async fn search_embedding(
         &self,
         query_embedding: &[f32],
         params: &QueryParams,
     ) -> anyhow::Result<SearchResultPage>;
 
-    async fn search_query_hybrid(
+    async fn search_hybrid(
         &self,
-        query_embedding: &[f32],
         query_text: &str,
+        query_embedding: &[f32],
         params: &QueryParams,
     ) -> anyhow::Result<SearchResultPage>;
 }

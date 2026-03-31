@@ -1,5 +1,12 @@
 # Dreamscroll Development Log
 
+## 2026-03-30
+
+Next up:
+
+- Improve the illumination -> text indexing representation to have less boilerplate and all the signal available (e.g. k_node descriptions, etc.)
+- normalize the embeddings in the vector search to see if that improves results
+
 ## 2026-03-16
 
 Initially, the spark quality was quite poor because the LLMs hallucinate the

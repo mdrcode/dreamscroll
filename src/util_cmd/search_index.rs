@@ -1,5 +1,7 @@
 use anyhow::anyhow;
 use argh::FromArgs;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::search::{
     Embedder, VectorStore,
@@ -49,6 +51,7 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     let retrieved_count = capture_infos.len();
 
     let mut success_count = 0usize;
+    let mut last_vector: Option<(i32, Vec<f32>)> = None;
 
     for capture in capture_infos {
         let embed = match embedder.embed_capture(&capture).await {
@@ -75,12 +78,15 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
                         res.id,
                         res.dims
                     );
+                    last_vector = Some((capture.id, embed.embedding.clone()));
                 }
                 Err(err) => {
                     tracing::error!("Failed indexing capture {}: {}", capture.id, err);
                     continue;
                 }
             }
+        } else {
+            last_vector = Some((capture.id, embed.embedding.clone()));
         }
 
         success_count += 1;
@@ -98,5 +104,23 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
         );
     }
 
+    if let Some((capture_id, vector)) = last_vector {
+        let vector_path = write_dense_vector_tmp_json(capture_id, &vector)?;
+        println!("Last indexed capture vector file path: {}", vector_path.display());
+    }
+
     Ok(())
+}
+
+fn write_dense_vector_tmp_json(capture_id: i32, vector: &[f32]) -> anyhow::Result<PathBuf> {
+    let ts = SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis();
+    let path = std::env::temp_dir().join(format!("capture-{}-vector-{}.json", capture_id, ts));
+    let payload = serde_json::json!({
+        "dense": {
+            "values": vector,
+        }
+    });
+    let bytes = serde_json::to_vec_pretty(&payload)?;
+    std::fs::write(&path, bytes)?;
+    Ok(path)
 }
