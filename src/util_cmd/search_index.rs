@@ -17,8 +17,12 @@ use super::*;
 )]
 pub struct SearchIndexArgs {
     #[argh(positional)]
-    #[argh(description = "ID(s) of the capture(s) to embed and index")]
+    #[argh(description = "ID(s) of the capture(s) to embed and index (omit when --all is used)")]
     ids: Vec<i32>,
+
+    #[argh(switch)]
+    #[argh(description = "index all captures for the authenticated user")]
+    all: bool,
 
     #[argh(switch)]
     #[argh(description = "generate embeddings but do not upsert into Vertex AI Vector Search")]
@@ -26,8 +30,15 @@ pub struct SearchIndexArgs {
 }
 
 pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
-    if args.ids.is_empty() {
-        return Err(anyhow!("At least one capture ID must be provided."));
+    if args.all && !args.ids.is_empty() {
+        return Err(anyhow!(
+            "Provide either --all or explicit capture IDs, not both."
+        ));
+    }
+    if !args.all && args.ids.is_empty() {
+        return Err(anyhow!(
+            "At least one capture ID must be provided unless using --all."
+        ));
     }
 
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
@@ -40,11 +51,21 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
         Some(VertexAiVectorStore::from_config(&state.config).await?)
     };
 
-    let raw_count = args.ids.len();
-    let capture_infos = state
-        .user_api
-        .get_captures(&user_context, args.ids.clone())
-        .await?;
+    let (raw_count, capture_infos) = if args.all {
+        let captures = state
+            .user_api
+            .get_timeline_captures(&user_context, 1000)
+            .await?;
+        let count = captures.len();
+        tracing::info!(count, "Fetched captures for --all indexing run");
+        (count, captures)
+    } else {
+        let captures = state
+            .user_api
+            .get_captures(&user_context, args.ids.clone())
+            .await?;
+        (args.ids.len(), captures)
+    };
     if capture_infos.is_empty() {
         return Err(anyhow!("No matching captures found for the current user."));
     }
