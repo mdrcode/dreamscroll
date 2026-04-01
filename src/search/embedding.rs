@@ -1,5 +1,5 @@
-use std::marker::PhantomData;
 use serde::{Deserialize, Serialize};
+use std::marker::PhantomData;
 
 /// Marker type for raw (not guaranteed normalized) embeddings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,6 +85,8 @@ fn validate_values(values: &[f32]) -> anyhow::Result<()> {
 }
 
 fn normalize_l2_in_place(values: &mut [f32]) -> anyhow::Result<()> {
+    const UNIT_NORM_SQ_EPSILON: f64 = 1e-6;
+
     let norm_sq: f64 = values
         .iter()
         .map(|v| {
@@ -95,6 +97,12 @@ fn normalize_l2_in_place(values: &mut [f32]) -> anyhow::Result<()> {
 
     if !norm_sq.is_finite() || norm_sq <= 0.0 {
         anyhow::bail!("Embedding has zero or invalid L2 norm; cannot normalize");
+    }
+
+    // Fast path: treat vectors with norm^2 already close enough to 1 as unit.
+    // This avoids needless per-element division and tiny floating-point drift.
+    if (norm_sq - 1.0).abs() <= UNIT_NORM_SQ_EPSILON {
+        return Ok(());
     }
 
     let norm = norm_sq.sqrt() as f32;
@@ -145,6 +153,13 @@ mod tests {
         let unit = Embedding::<f32, Raw>::from_vec_normalizing(vec![10.0, 0.0]).unwrap();
         let norm = l2_norm(unit.as_slice());
         assert!((norm - 1.0).abs() < 1e-6, "norm={} expected ~1", norm);
+    }
+
+    #[test]
+    fn from_vec_normalizing_keeps_exact_unit_vector_unchanged() {
+        let input = vec![1.0, 0.0, 0.0];
+        let unit = Embedding::<f32, Raw>::from_vec_normalizing(input.clone()).unwrap();
+        assert_eq!(unit.as_slice(), input.as_slice());
     }
 
     #[test]
