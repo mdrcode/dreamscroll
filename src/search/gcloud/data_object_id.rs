@@ -10,10 +10,11 @@ use crate::search;
 /// search time.
 
 pub(crate) fn make<E>(embed: &search::CaptureEmbedding<E>) -> String {
-    format!(
-        "u{}-c{}-i{}",
-        embed.user_id, embed.capture_id, embed.illumination_id
-    )
+    make_from_fields(embed.user_id, embed.capture_id, embed.illumination_id)
+}
+
+pub(crate) fn make_from_fields(user_id: i32, capture_id: i32, illumination_id: i32) -> String {
+    format!("u{}-c{}-i{}", user_id, capture_id, illumination_id)
 }
 
 pub(crate) fn parse_fields(doc_id: &str) -> anyhow::Result<(i32, i32, i32)> {

@@ -14,6 +14,7 @@ pub mod import_digest;
 pub mod search_embedding;
 pub mod search_index;
 pub mod search_query;
+pub mod search_similar;
 pub mod spark;
 pub mod token_cache;
 

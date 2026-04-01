@@ -91,7 +91,10 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
         };
 
         if let Some(vector_store) = vector_store.as_ref() {
-            match vector_store.upsert_capture_embedding(&embed).await {
+            match vector_store
+                .upsert_object_embedding(&capture, &embed.embedding)
+                .await
+            {
                 Ok(res) => {
                     tracing::debug!(
                         "Indexed capture {} -> datapoint {} (dims={})",

@@ -1,3 +1,6 @@
+mod data_object;
+pub use data_object::*;
+
 mod embedder;
 pub use embedder::*;
 

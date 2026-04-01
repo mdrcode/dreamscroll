@@ -3,11 +3,8 @@ use google_cloud_vectorsearch_v1::{
     client::DataObjectService,
     model::{DataObject, DenseVector, Vector},
 };
-use serde_json::json;
 
 use crate::{facility, search};
-
-use super::*;
 
 /// Upserts dense vectors into Vertex Vector Search 2.0 Collections.
 #[derive(Clone)]
@@ -80,38 +77,27 @@ impl VertexAiVectorStore {
 
 #[async_trait::async_trait]
 impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexAiVectorStore {
-    #[tracing::instrument(skip(self, embed), fields(capture_id = %embed.capture_id, illumination_id = %embed.illumination_id))]
-    async fn upsert_capture_embedding(
+    #[tracing::instrument(skip(self, data, embedding), fields(doc_id = data.id()))]
+    async fn upsert_object_embedding<D: search::DataObject>(
         &self,
-        embed: &search::CaptureEmbedding<search::Embedding<f32, search::Unit>>,
+        data: &D,
+        embedding: &search::Embedding<f32, search::Unit>,
     ) -> anyhow::Result<search::VectorUpsertResult> {
-        let embedding = &embed.embedding;
-
         if embedding.len() != self.n_dims {
             anyhow::bail!(
                 "Dimension mismatch: VectorStore dims: {}, embedding: {:?}",
                 self.n_dims,
-                embed
+                embedding
             );
         }
 
-        let object_id = data_object_id::make(embed);
+        let object_id = data.id();
         let object_full_path = format!("{}/dataObjects/{}", self.collection_full_path, object_id);
+        let object_data = data.object_data_json()?;
 
         let data_object = DataObject::new()
             .set_name(object_full_path.clone())
-            .set_data(
-                // note that ID fields are strings (matching schema_vertex_data.json)
-                json!({
-                    "user_id": embed.user_id.to_string(),
-                    "capture_id": embed.capture_id.to_string(),
-                    "illumination_id": embed.illumination_id.to_string(),
-                    "illumination_text": embed.illumination_text,
-                })
-                .as_object()
-                .cloned()
-                .expect("data_object json"),
-            )
+            .set_data(object_data)
             .set_vectors(vec![(
                 self.dense_vector_name.clone(),
                 Vector::new()
@@ -186,6 +172,48 @@ impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexAiVecto
             fq_id: Some(object_full_path),
             dims: self.n_dims,
         })
+    }
+
+    async fn get_embedding_by_object_id(
+        &self,
+        object_id: &str,
+    ) -> anyhow::Result<search::Embedding<f32, search::Unit>> {
+        let object_name = format!("{}/dataObjects/{}", self.collection_full_path, object_id);
+
+        let data_object = self
+            .data_object_client
+            .get_data_object()
+            .set_name(object_name.clone())
+            .send()
+            .await
+            .map_err(|err| {
+                anyhow::anyhow!(
+                    "Failed to fetch vector data object {}: {}",
+                    object_name,
+                    err
+                )
+            })?;
+
+        let vector = data_object
+            .vectors
+            .get(&self.dense_vector_name)
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "Data object {} missing vector field '{}'",
+                    object_name,
+                    self.dense_vector_name
+                )
+            })?;
+
+        let dense = vector.dense().ok_or_else(|| {
+            anyhow::anyhow!(
+                "Data object {} vector field '{}' is not dense",
+                object_name,
+                self.dense_vector_name
+            )
+        })?;
+
+        search::Embedding::from_vec_normalizing(dense.values.clone())
     }
 }
 
