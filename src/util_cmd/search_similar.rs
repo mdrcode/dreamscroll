@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "search_similar")]
-#[argh(description = "Search similar captures using a query capture ID")]
+#[argh(description = "Search captures similar to a given capture ID")]
 pub struct SearchSimilarArgs {
     #[argh(positional)]
     #[argh(description = "query capture ID")]

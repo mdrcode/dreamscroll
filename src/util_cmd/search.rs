@@ -6,8 +6,8 @@ use crate::search::{self, *};
 use super::*;
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "search_text")]
-#[argh(description = "Search captures by text query using Vertext AI Search")]
+#[argh(subcommand, name = "search")]
+#[argh(description = "Search captures by text query")]
 pub struct SearchQueryArgs {
     #[argh(positional)]
     #[argh(description = "query text")]
@@ -45,7 +45,7 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
         })
         .as_object()
         .cloned()
-        .expect("json object"), 
+        .expect("json object"),
         limit: args.limit,
         page_token: args.page_token,
     };
