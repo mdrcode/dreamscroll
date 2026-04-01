@@ -1,9 +1,6 @@
 use argh::FromArgs;
 
-use crate::search::{
-    Embedder, QueryParams, Searcher,
-    gcloud::{GeminiEmbedder, VertexAiSearcher},
-};
+use crate::search::{self, *};
 
 use super::*;
 
@@ -33,7 +30,7 @@ pub struct SearchQueryArgs {
 }
 
 pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
-    let searcher = VertexAiSearcher::from_config(&state.config).await?;
+    let searcher = search::gcloud::VertexAiSearcher::from_config(&state.config).await?;
 
     if args.text_only && args.vector_only {
         anyhow::bail!("Choose at most one mode: --text-only or --vector-only");
@@ -48,7 +45,8 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
     let page = if args.text_only {
         searcher.search_text(&args.query, &params).await?
     } else {
-        let embedder = GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
+        let embedder =
+            search::gcloud::GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
         let query_embedding = embedder.embed_query(&args.query).await?;
         tracing::info!(
             "Generated query embedding with dims={}",
@@ -71,10 +69,7 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
         args.query
     );
     for hit in page.hits {
-        println!(
-            "id={} capture_id={} score={}",
-            hit.doc_id, hit.capture_id, hit.score,
-        );
+        println!("object_id={} score={}", hit.object_id, hit.score,);
     }
 
     if let Some(next_page_token) = page.next_page_token {

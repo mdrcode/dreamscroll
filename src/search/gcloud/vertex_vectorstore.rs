@@ -77,7 +77,7 @@ impl VertexAiVectorStore {
 
 #[async_trait::async_trait]
 impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexAiVectorStore {
-    #[tracing::instrument(skip(self, data, embedding), fields(doc_id = data.id()))]
+    #[tracing::instrument(skip(self, data, embedding), fields(doc_id = data.data_object_id()))]
     async fn upsert_object_embedding<D: search::DataObject>(
         &self,
         data: &D,
@@ -91,9 +91,9 @@ impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexAiVecto
             );
         }
 
-        let object_id = data.id();
+        let object_id = data.data_object_id();
         let object_full_path = format!("{}/dataObjects/{}", self.collection_full_path, object_id);
-        let object_data = data.object_data_json()?;
+        let object_data = data.data_object_json()?;
 
         let data_object = DataObject::new()
             .set_name(object_full_path.clone())
@@ -174,7 +174,7 @@ impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexAiVecto
         })
     }
 
-    async fn get_embedding_by_object_id(
+    async fn fetch_object_embedding(
         &self,
         object_id: &str,
     ) -> anyhow::Result<search::Embedding<f32, search::Unit>> {

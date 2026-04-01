@@ -31,10 +31,7 @@ pub struct QueryParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchHit {
-    pub doc_id: String, // vector store's native doc ID
-    pub user_id: i32,
-    pub capture_id: i32,
-    pub illumination_id: i32,
+    pub object_id: String,
     pub score: f64,
 }
 

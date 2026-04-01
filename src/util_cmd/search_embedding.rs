@@ -47,10 +47,7 @@ pub async fn run(state: CmdState, args: SearchEmbeddingArgs) -> anyhow::Result<(
         args.vector_file
     );
     for hit in page.hits {
-        println!(
-            "id={} capture_id={} score={}",
-            hit.doc_id, hit.capture_id, hit.score,
-        );
+        println!("object_id={} score={}", hit.object_id, hit.score,);
     }
 
     if let Some(next_page_token) = page.next_page_token {
@@ -60,7 +57,9 @@ pub async fn run(state: CmdState, args: SearchEmbeddingArgs) -> anyhow::Result<(
     Ok(())
 }
 
-fn read_query_vector_from_file(file_path: &str) -> anyhow::Result<Embedding<f32, crate::search::Unit>> {
+fn read_query_vector_from_file(
+    file_path: &str,
+) -> anyhow::Result<Embedding<f32, crate::search::Unit>> {
     let raw = std::fs::read_to_string(file_path)
         .with_context(|| format!("Failed to read vector file: {}", file_path))?;
 

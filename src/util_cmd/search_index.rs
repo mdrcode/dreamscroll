@@ -75,14 +75,14 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     let mut last_vector: Option<(i32, Vec<f32>)> = None;
 
     for capture in capture_infos {
-        let embed = match embedder.embed_capture(&capture).await {
-            Ok(embed) => {
+        let embedding = match embedder.embed_object(&capture).await {
+            Ok(embedding) => {
                 tracing::debug!(
                     "Embedded capture {} (dims={}) successfully",
                     capture.id,
-                    embed.embedding.len()
+                    embedding.len()
                 );
-                embed
+                embedding
             }
             Err(err) => {
                 tracing::error!("Failed embedding capture {}: {}", capture.id, err);
@@ -92,7 +92,7 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
 
         if let Some(vector_store) = vector_store.as_ref() {
             match vector_store
-                .upsert_object_embedding(&capture, &embed.embedding)
+                .upsert_object_embedding(&capture, &embedding)
                 .await
             {
                 Ok(res) => {
@@ -102,7 +102,7 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
                         res.id,
                         res.dims
                     );
-                    last_vector = Some((capture.id, embed.embedding.as_slice().to_vec()));
+                    last_vector = Some((capture.id, embedding.as_slice().to_vec()));
                 }
                 Err(err) => {
                     tracing::error!("Failed indexing capture {}: {}", capture.id, err);
@@ -110,7 +110,7 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
                 }
             }
         } else {
-            last_vector = Some((capture.id, embed.embedding.as_slice().to_vec()));
+            last_vector = Some((capture.id, embedding.as_slice().to_vec()));
         }
 
         success_count += 1;

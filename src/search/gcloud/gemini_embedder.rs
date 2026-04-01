@@ -1,11 +1,11 @@
 use anyhow::Context;
-use base64::Engine;
+
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder};
 use reqwest::Client;
 use serde_json::{Value, json};
 use std::time::Duration;
 
-use crate::{api, facility, search, storage};
+use crate::{facility, search, storage};
 
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const MODEL_ID: &str = "gemini-embedding-2-preview";
@@ -138,70 +138,21 @@ impl search::Embedder<search::Embedding<f32, search::Unit>> for GeminiEmbedder {
         Ok(embed_normal)
     }
 
-    #[tracing::instrument(skip(self, capture), fields(capture_id = %capture.id))]
-    async fn embed_capture(
+    #[tracing::instrument(skip(self, object))]
+    async fn embed_object<O: search::DataObject>(
         &self,
-        capture: &api::CaptureInfo,
-    ) -> anyhow::Result<search::CaptureEmbedding<search::Embedding<f32, search::Unit>>> {
-        let latest_illumination = capture
-            .illuminations
-            .iter()
-            .max_by_key(|illumination| illumination.id)
-            .ok_or_else(|| {
-                anyhow::anyhow!("Capture has no illumination, required for embedding")
-            })?;
-        let illumination_text = latest_illumination.make_text();
+        object: &O,
+    ) -> anyhow::Result<search::Embedding<f32, search::Unit>> {
+        let parts = object.parts_for_embed(self.storage.as_ref()).await?;
 
-        let first_media = capture
-            .medias
-            .first()
-            .ok_or_else(|| anyhow::anyhow!("Capture has no media, required for embedding"))?;
-        let image_bytes = self
-            .storage
-            .retrieve_bytes(&storage::StorageHandle::from(first_media))
-            .await?;
-        let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
-
-        tracing::info!(
-            capture_id = capture.id,
-            illumination_id = latest_illumination.id,
-            text_len = illumination_text.len(),
-            image_b64_bytes = image_b64.len(),
-            "Prepared embedding request"
-        );
-
-        let parts = json!([
-            {
-                "text": illumination_text
-            },
-            {
-                "inlineData": {
-                    "mimeType": first_media
-                        .mime_type
-                        .clone()
-                        .unwrap_or_else(|| "image/jpeg".to_string()),
-                    "data": image_b64
-                }
-            }
-        ]);
-
-        let embed_normal = self
+        let embedding = self
             .embed_content_parts_normalizing(parts, TASK_TYPE_RETRIEVAL_DOCUMENT)
             .await?;
-        let embed = search::CaptureEmbedding::<search::Embedding<f32, search::Unit>> {
-            user_id: capture.user_id,
-            capture_id: capture.id,
-            illumination_id: latest_illumination.id,
-            illumination_text: illumination_text,
-            embedding: embed_normal,
-        };
-
         tracing::info!(
-            embedding = ?embed,
-            "Capture embedding generated"
+            embedding = ?embedding,
+            "Data Object embedding generated"
         );
-
-        Ok(embed)
+        Ok(embedding)
     }
 }
 

@@ -1,5 +1,3 @@
-pub(crate) mod data_object_id;
-
 mod gemini_embedder;
 pub use gemini_embedder::*;
 

@@ -10,8 +10,6 @@ use serde_json::json;
 
 use crate::{facility, search};
 
-use super::*;
-
 /// Search client for Vertex Vector Search Collections.
 ///
 /// Vertex exposes several related search "types" through
@@ -333,26 +331,15 @@ fn map_search_data_objects_response(
                 tracing::warn!("Search result missing data_object; dropping hit");
                 return None;
             };
-            let doc_id = data_object.data_object_id;
+            let id = data_object.data_object_id;
 
-            let (user_id, capture_id, illumination_id) = match data_object_id::parse_fields(&doc_id)
-            {
-                Ok(ids) => ids,
-                Err(err) => {
-                    tracing::warn!(doc_id, error = %err, "Failed parsing ids from doc_id; dropping hit");
-                    return None;
-                }
-            };
             let Some(score) = result.distance else {
-                tracing::warn!(doc_id, "Search result missing distance score; dropping");
+                tracing::warn!(id, "Search result missing distance score; dropping");
                 return None;
             };
 
             Some(search::SearchHit {
-                doc_id,
-                user_id,
-                capture_id,
-                illumination_id,
+                object_id: id,
                 score,
             })
         })
