@@ -10,8 +10,8 @@ use crate::{
 #[derive(Clone)]
 pub struct CaptureSearcher {
     embedder: search::gcloud::GeminiEmbedder,
-    searcher: search::gcloud::VertexAiSearcher,
-    vector_store: search::gcloud::VertexAiVectorStore,
+    searcher: search::gcloud::VertexSearcher,
+    vector_store: search::gcloud::VertexVectorStore,
 }
 
 impl CaptureSearcher {
@@ -27,18 +27,18 @@ impl CaptureSearcher {
             }
         };
 
-        let searcher = match search::gcloud::VertexAiSearcher::from_config(config).await {
+        let searcher = match search::gcloud::VertexSearcher::from_config(config).await {
             Ok(searcher) => searcher,
             Err(err) => {
-                tracing::warn!(error = %err, "VertexAiSearcher init failed; web search unavailable");
+                tracing::warn!(error = %err, "VertexSearcher init failed; web search unavailable");
                 return None;
             }
         };
 
-        let vector_store = match search::gcloud::VertexAiVectorStore::from_config(config).await {
+        let vector_store = match search::gcloud::VertexVectorStore::from_config(config).await {
             Ok(vector_store) => vector_store,
             Err(err) => {
-                tracing::warn!(error = %err, "VertexAiVectorStore init failed; capture similarity unavailable");
+                tracing::warn!(error = %err, "VertexVectorStore init failed; capture similarity unavailable");
                 return None;
             }
         };

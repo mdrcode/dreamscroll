@@ -5,7 +5,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::search::{
     Embedder, VectorStore,
-    gcloud::{GeminiEmbedder, VertexAiVectorStore},
+    gcloud::{GeminiEmbedder, VertexVectorStore},
 };
 
 use super::*;
@@ -48,7 +48,7 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     let vector_store = if args.no_upsert {
         None
     } else {
-        Some(VertexAiVectorStore::from_config(&state.config).await?)
+        Some(VertexVectorStore::from_config(&state.config).await?)
     };
 
     let (raw_count, capture_infos) = if args.all {

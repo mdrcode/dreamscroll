@@ -4,20 +4,20 @@ use serde::{Deserialize, Serialize};
 pub trait Searcher<E>: Send + Sync {
     async fn search_text(
         &self,
-        query_text: &str,
+        text_query: &str,
         params: &QueryParams,
     ) -> anyhow::Result<SearchResultPage>;
 
     async fn search_embedding(
         &self,
-        query_embedding: &E,
+        embedding_query: &E,
         params: &QueryParams,
     ) -> anyhow::Result<SearchResultPage>;
 
     async fn search_hybrid(
         &self,
-        query_text: &str,
-        query_embedding: &E,
+        text_query: &str,
+        embedding_query: &E,
         params: &QueryParams,
     ) -> anyhow::Result<SearchResultPage>;
 }

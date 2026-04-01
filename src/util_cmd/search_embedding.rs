@@ -1,7 +1,7 @@
 use anyhow::Context;
 use argh::FromArgs;
 
-use crate::search::{Embedding, QueryParams, Searcher, gcloud::VertexAiSearcher};
+use crate::search::{Embedding, QueryParams, Searcher, gcloud::VertexSearcher};
 
 use super::*;
 
@@ -23,7 +23,7 @@ pub struct SearchEmbeddingArgs {
 }
 
 pub async fn run(state: CmdState, args: SearchEmbeddingArgs) -> anyhow::Result<()> {
-    let searcher = VertexAiSearcher::from_config(&state.config).await?;
+    let searcher = VertexSearcher::from_config(&state.config).await?;
 
     let params = QueryParams {
         user_id: 1, // hack TODO fix this up

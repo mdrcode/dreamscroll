@@ -8,14 +8,14 @@ use crate::{facility, search};
 
 /// Upserts dense vectors into Vertex Vector Search 2.0 Collections.
 #[derive(Clone)]
-pub struct VertexAiVectorStore {
+pub struct VertexVectorStore {
     collection_full_path: String,
     dense_vector_name: String,
     n_dims: usize,
     data_object_client: DataObjectService,
 }
 
-impl VertexAiVectorStore {
+impl VertexVectorStore {
     pub async fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
         let collection_id = config
             .search_embed_collection_id
@@ -63,7 +63,7 @@ impl VertexAiVectorStore {
             collection_full_name,
             dense_vector_name,
             output_dims,
-            "VertexAiVectorStore initialized"
+            "VertexVectorStore initialized"
         );
 
         Ok(Self {
@@ -76,7 +76,7 @@ impl VertexAiVectorStore {
 }
 
 #[async_trait::async_trait]
-impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexAiVectorStore {
+impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexVectorStore {
     #[tracing::instrument(skip(self, data, embedding), fields(doc_id = data.data_object_id()))]
     async fn upsert_object_embedding<D: search::DataObject>(
         &self,

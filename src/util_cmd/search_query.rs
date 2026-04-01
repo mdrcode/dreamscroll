@@ -30,7 +30,7 @@ pub struct SearchQueryArgs {
 }
 
 pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
-    let searcher = search::gcloud::VertexAiSearcher::from_config(&state.config).await?;
+    let searcher = search::gcloud::VertexSearcher::from_config(&state.config).await?;
 
     if args.text_only && args.vector_only {
         anyhow::bail!("Choose at most one mode: --text-only or --vector-only");
