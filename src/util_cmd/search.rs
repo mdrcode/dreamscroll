@@ -8,7 +8,7 @@ use super::*;
 #[derive(FromArgs)]
 #[argh(subcommand, name = "search")]
 #[argh(description = "Search captures by text query")]
-pub struct SearchQueryArgs {
+pub struct SearchArgs {
     #[argh(positional)]
     #[argh(description = "query text")]
     query: String,
@@ -30,7 +30,7 @@ pub struct SearchQueryArgs {
     vector_only: bool,
 }
 
-pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
+pub async fn run(state: CmdState, args: SearchArgs) -> anyhow::Result<()> {
     let searcher = search::gcloud::VertexVectorSearcher::from_config(&state.config).await?;
 
     if args.text_only && args.vector_only {
@@ -53,8 +53,8 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
     let page = if args.text_only {
         searcher.search_text(&args.query, &params).await?
     } else {
-        let embedder =
-            search::gcloud::GeminiEmbedder::from_config(&state.config, state.stg.clone())?;
+        let parts_maker = crate::api::CaptureInfoEmbedPartsMaker::new(state.stg.clone());
+        let embedder = search::gcloud::GeminiEmbedder::from_config(&state.config, parts_maker)?;
         let query_embedding = embedder.embed_query(&args.query).await?;
         tracing::info!(
             "Generated query embedding with dims={}",

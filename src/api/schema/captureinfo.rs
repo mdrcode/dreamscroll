@@ -18,7 +18,6 @@ pub struct CaptureInfo {
     pub illuminations: Vec<IlluminationInfo>,
 }
 
-#[async_trait::async_trait]
 impl search::DataObject for CaptureInfo {
     fn data_object_id(&self) -> String {
         format!("u{}-c{}", self.user_id, self.id)
@@ -47,12 +46,23 @@ impl search::DataObject for CaptureInfo {
 
         Ok(data)
     }
+}
 
-    async fn parts_for_embed(
-        &self,
-        storage: &dyn storage::StorageProvider,
-    ) -> anyhow::Result<serde_json::Value> {
-        let latest_illumination = self
+#[derive(Clone)]
+pub struct CaptureInfoEmbedPartsMaker {
+    storage: Box<dyn storage::StorageProvider>,
+}
+
+impl CaptureInfoEmbedPartsMaker {
+    pub fn new(storage: Box<dyn storage::StorageProvider>) -> Self {
+        Self { storage }
+    }
+}
+
+#[async_trait::async_trait]
+impl search::gcloud::EmbedPartsMaker<CaptureInfo> for CaptureInfoEmbedPartsMaker {
+    async fn make_embed_parts(&self, object: &CaptureInfo) -> anyhow::Result<serde_json::Value> {
+        let latest_illumination = object
             .illuminations
             .iter()
             .max_by_key(|illumination| illumination.id)
@@ -61,17 +71,18 @@ impl search::DataObject for CaptureInfo {
             })?;
         let illumination_text = latest_illumination.make_text();
 
-        let first_media = self
+        let first_media = object
             .medias
             .first()
             .ok_or_else(|| anyhow::anyhow!("Capture has no media, required for embedding"))?;
-        let image_bytes = storage
+        let image_bytes = self
+            .storage
             .retrieve_bytes(&storage::StorageHandle::from(first_media))
             .await?;
         let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
 
         tracing::debug!(
-            capture_id = self.id,
+            capture_id = object.id,
             illumination_id = latest_illumination.id,
             text_len = illumination_text.len(),
             image_b64_bytes = image_b64.len(),

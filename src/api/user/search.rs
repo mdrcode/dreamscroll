@@ -9,28 +9,18 @@ use crate::{
 
 #[derive(Clone)]
 pub struct CaptureSearcher {
-    embedder: search::gcloud::GeminiEmbedder,
+    embedder: search::gcloud::GeminiEmbedder<api::CaptureInfo, api::CaptureInfoEmbedPartsMaker>,
     searcher: search::gcloud::VertexVectorSearcher,
     vector_store: search::gcloud::VertexVectorStore,
 }
 
 impl CaptureSearcher {
-    fn user_filter(user_id: i32) -> serde_json::Map<String, serde_json::Value> {
-        serde_json::json!({
-            "user_id": {
-                "$eq": user_id.to_string()
-            }
-        })
-        .as_object()
-        .cloned()
-        .expect("json object")
-    }
-
     pub async fn from_config(
         config: &facility::Config,
         storage: Box<dyn storage::StorageProvider>,
     ) -> Option<Self> {
-        let embedder = match search::gcloud::GeminiEmbedder::from_config(config, storage) {
+        let parts_maker = api::CaptureInfoEmbedPartsMaker::new(storage);
+        let embedder = match search::gcloud::GeminiEmbedder::from_config(config, parts_maker) {
             Ok(embedder) => embedder,
             Err(err) => {
                 tracing::warn!(error = %err, "GeminiEmbedder init failed");
@@ -59,6 +49,17 @@ impl CaptureSearcher {
             searcher,
             vector_store,
         })
+    }
+
+    fn user_filter(user_id: i32) -> serde_json::Map<String, serde_json::Value> {
+        serde_json::json!({
+            "user_id": {
+                "$eq": user_id.to_string()
+            }
+        })
+        .as_object()
+        .cloned()
+        .expect("json object")
     }
 
     pub async fn search(

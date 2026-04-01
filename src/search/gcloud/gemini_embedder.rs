@@ -3,9 +3,10 @@ use anyhow::Context;
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder};
 use reqwest::Client;
 use serde_json::{Value, json};
+use std::marker::PhantomData;
 use std::time::Duration;
 
-use crate::{facility, search, storage};
+use crate::{facility, search};
 
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const MODEL_ID: &str = "gemini-embedding-2-preview";
@@ -14,19 +15,21 @@ const TASK_TYPE_RETRIEVAL_QUERY: &str = "RETRIEVAL_QUERY";
 
 /// Embeds a capture into a dense vector via Gemini Embeddings v2.
 #[derive(Clone)]
-pub struct GeminiEmbedder {
+pub struct GeminiEmbedder<D, M> {
     model_url: String,
     output_dims: u32,
-    storage: Box<dyn storage::StorageProvider>,
+    parts_maker: M,
+    _object: PhantomData<fn() -> D>,
     http: Client,
     adc_credentials: AccessTokenCredentials,
 }
 
-impl GeminiEmbedder {
-    pub fn from_config(
-        config: &facility::Config,
-        storage: Box<dyn storage::StorageProvider>,
-    ) -> anyhow::Result<Self> {
+impl<D, M> GeminiEmbedder<D, M>
+where
+    D: search::DataObject,
+    M: search::gcloud::EmbedPartsMaker<D>,
+{
+    pub fn from_config(config: &facility::Config, parts_maker: M) -> anyhow::Result<Self> {
         let output_dims = config
             .search_embed_vector_dims
             .context("SEARCH_EMBED_OUTPUT_DIMS required for search indexing")?;
@@ -36,7 +39,7 @@ impl GeminiEmbedder {
             config.gcloud_project_region.clone(),
             MODEL_ID.to_string(),
             output_dims,
-            storage,
+            parts_maker,
         )
     }
 
@@ -45,7 +48,7 @@ impl GeminiEmbedder {
         region: String,
         model_id: String,
         output_dims: u32,
-        storage: Box<dyn storage::StorageProvider>,
+        parts_maker: M,
     ) -> anyhow::Result<Self> {
         let adc_credentials = Builder::default()
             .with_scopes([CLOUD_PLATFORM_SCOPE])
@@ -61,7 +64,8 @@ impl GeminiEmbedder {
         Ok(Self {
             model_url,
             output_dims,
-            storage,
+            parts_maker,
+            _object: PhantomData,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(60)) // sanity
                 .build()?,
@@ -112,7 +116,11 @@ impl GeminiEmbedder {
 }
 
 #[async_trait::async_trait]
-impl search::Embedder<search::Embedding<f32, search::Unit>> for GeminiEmbedder {
+impl<D, M> search::Embedder<D, search::Embedding<f32, search::Unit>> for GeminiEmbedder<D, M>
+where
+    D: search::DataObject,
+    M: search::gcloud::EmbedPartsMaker<D>,
+{
     #[tracing::instrument(skip(self, query), fields(query_len = query.len()))]
     async fn embed_query(
         &self,
@@ -139,11 +147,11 @@ impl search::Embedder<search::Embedding<f32, search::Unit>> for GeminiEmbedder {
     }
 
     #[tracing::instrument(skip(self, object))]
-    async fn embed_object<O: search::DataObject>(
+    async fn embed_object(
         &self,
-        object: &O,
+        object: &D,
     ) -> anyhow::Result<search::Embedding<f32, search::Unit>> {
-        let parts = object.parts_for_embed(self.storage.as_ref()).await?;
+        let parts = self.parts_maker.make_embed_parts(object).await?;
 
         let embed_normal = self
             .embed_content_parts_normalizing(parts, TASK_TYPE_RETRIEVAL_DOCUMENT)

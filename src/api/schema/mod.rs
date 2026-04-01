@@ -4,37 +4,37 @@ pub use infomaker::InfoMaker;
 
 // Serializable schema types
 mod captureinfo;
-pub use captureinfo::CaptureInfo;
+pub use captureinfo::*;
 
 mod capturepreviewinfo;
-pub use capturepreviewinfo::CapturePreviewInfo;
+pub use capturepreviewinfo::*;
 
 mod entityinfo;
-pub use entityinfo::EntityInfo;
+pub use entityinfo::*;
 
 mod illuminationinfo;
-pub use illuminationinfo::IlluminationInfo;
+pub use illuminationinfo::*;
 
 mod knodeinfo;
-pub use knodeinfo::KNodeInfo;
+pub use knodeinfo::*;
 
 mod mediainfo;
-pub use mediainfo::MediaInfo;
+pub use mediainfo::*;
 
 mod socialmediainfo;
-pub use socialmediainfo::SocialMediaInfo;
+pub use socialmediainfo::*;
 
 mod sparklinkinfo;
-pub use sparklinkinfo::SparkLinkInfo;
+pub use sparklinkinfo::*;
 
 mod sparkclusterinfo;
-pub use sparkclusterinfo::SparkClusterInfo;
+pub use sparkclusterinfo::*;
 
 mod sparkinfo;
-pub use sparkinfo::SparkInfo;
+pub use sparkinfo::*;
 
 mod sparkmetainfo;
-pub use sparkmetainfo::SparkMetaInfo;
+pub use sparkmetainfo::*;
 
 mod userinfo;
-pub use userinfo::UserInfo;
+pub use userinfo::*;

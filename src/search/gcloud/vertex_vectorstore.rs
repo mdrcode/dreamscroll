@@ -11,7 +11,7 @@ use crate::{facility, search};
 pub struct VertexVectorStore {
     collection_full_path: String,
     dense_vector_name: String,
-    n_dims: usize,
+    dense_vector_dims: usize,
     data_object_client: DataObjectService,
 }
 
@@ -47,7 +47,7 @@ impl VertexVectorStore {
         region: String,
         collection_id: String,
         dense_vector_name: String,
-        output_dims: usize,
+        dense_vector_dims: usize,
     ) -> anyhow::Result<Self> {
         let collection_full_name = format!(
             "projects/{}/locations/{}/collections/{}",
@@ -62,14 +62,14 @@ impl VertexVectorStore {
         tracing::info!(
             collection_full_name,
             dense_vector_name,
-            output_dims,
+            dense_vector_dims,
             "VertexVectorStore initialized"
         );
 
         Ok(Self {
             collection_full_path: collection_full_name,
             dense_vector_name,
-            n_dims: output_dims,
+            dense_vector_dims,
             data_object_client,
         })
     }
@@ -78,15 +78,15 @@ impl VertexVectorStore {
 #[async_trait::async_trait]
 impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexVectorStore {
     #[tracing::instrument(skip(self, data, embedding), fields(doc_id = data.data_object_id()))]
-    async fn upsert_object_embedding<D: search::DataObject>(
+    async fn upsert_object_embedding(
         &self,
-        data: &D,
+        data: &dyn search::DataObject,
         embedding: &search::Embedding<f32, search::Unit>,
     ) -> anyhow::Result<search::VectorUpsertResult> {
-        if embedding.len() != self.n_dims {
+        if embedding.len() != self.dense_vector_dims {
             anyhow::bail!(
                 "Dimension mismatch: VectorStore dims: {}, embedding: {:?}",
-                self.n_dims,
+                self.dense_vector_dims,
                 embedding
             );
         }
@@ -170,7 +170,7 @@ impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexVectorS
         Ok(search::VectorUpsertResult {
             id: object_id,
             fq_id: Some(object_full_path),
-            dims: self.n_dims,
+            dims: self.dense_vector_dims,
         })
     }
 

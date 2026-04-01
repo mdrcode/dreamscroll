@@ -4,9 +4,9 @@ use super::*;
 
 #[async_trait::async_trait]
 pub trait VectorStore<E>: Send + Sync {
-    async fn upsert_object_embedding<O: DataObject>(
+    async fn upsert_object_embedding(
         &self,
-        object: &O,
+        object: &dyn DataObject,
         embedding: &E,
     ) -> anyhow::Result<VectorUpsertResult>;
 

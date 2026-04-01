@@ -44,7 +44,7 @@ enum Command {
     ImportDigest(import_digest::ImportDigestArgs),
     SearchIndex(search_index::SearchIndexArgs),
     SearchSimilar(search_similar::SearchSimilarArgs),
-    Search(search::SearchQueryArgs),
+    Search(search::SearchArgs),
     Spark(spark::SparkArgs),
 }
 
