@@ -33,16 +33,16 @@ use crate::{facility, search};
 ///    it returns objects matching a metadata/data filter and is useful for
 ///    lookup/browse flows.
 ///
-/// VertexSearcher composes the first two primitives to implement the
+/// VertexVectorSearcher composes the first two primitives to implement the
 /// search::Searcher trait for text, vector, and hybrid search modes.
 #[derive(Clone)]
-pub struct VertexSearcher {
+pub struct VertexVectorSearcher {
     collection_full_path: String,
     dense_vector_name: String,
     data_object_search_client: DataObjectSearchService,
 }
 
-impl VertexSearcher {
+impl VertexVectorSearcher {
     pub async fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
         let collection_id = config
             .search_embed_collection_id
@@ -86,7 +86,7 @@ impl VertexSearcher {
         tracing::info!(
             collection_full_name,
             dense_vector_name,
-            "VertexSearcher initialized"
+            "VertexVectorSearcher initialized"
         );
 
         Ok(Self {
@@ -133,7 +133,7 @@ impl VertexSearcher {
 }
 
 #[async_trait::async_trait]
-impl search::Searcher<search::Embedding<f32, search::Unit>> for VertexSearcher {
+impl search::Searcher<search::Embedding<f32, search::Unit>> for VertexVectorSearcher {
     #[tracing::instrument(skip(self, params), fields(user_id = params.user_id, limit = params.limit, query_len = query_text.len()))]
     async fn search_text(
         &self,
