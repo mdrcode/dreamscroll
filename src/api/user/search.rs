@@ -15,6 +15,17 @@ pub struct CaptureSearcher {
 }
 
 impl CaptureSearcher {
+    fn user_filter(user_id: i32) -> serde_json::Map<String, serde_json::Value> {
+        serde_json::json!({
+            "user_id": {
+                "$eq": user_id.to_string()
+            }
+        })
+        .as_object()
+        .cloned()
+        .expect("json object")
+    }
+
     pub async fn from_config(
         config: &facility::Config,
         storage: Box<dyn storage::StorageProvider>,
@@ -75,7 +86,7 @@ impl CaptureSearcher {
                 query,
                 &query_embedding,
                 &search::QueryParams {
-                    user_id: user_context.user_id(),
+                    base_filter: Self::user_filter(user_context.user_id()),
                     limit,
                     page_token: None,
                 },
@@ -131,7 +142,7 @@ impl CaptureSearcher {
             .search_embedding(
                 &query_embedding,
                 &search::QueryParams {
-                    user_id: user_context.user_id(),
+                    base_filter: Self::user_filter(user_context.user_id()),
                     limit,
                     page_token: None,
                 },

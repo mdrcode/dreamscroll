@@ -1,5 +1,6 @@
 use anyhow::Context;
 use argh::FromArgs;
+use serde_json::json;
 
 use crate::search::{Embedding, QueryParams, Searcher, gcloud::VertexVectorSearcher};
 
@@ -26,7 +27,14 @@ pub async fn run(state: CmdState, args: SearchEmbeddingArgs) -> anyhow::Result<(
     let searcher = VertexVectorSearcher::from_config(&state.config).await?;
 
     let params = QueryParams {
-        user_id: 1, // hack TODO fix this up
+        base_filter: json!({
+            "user_id": {
+                "$eq": "1" // hack TODO fix this up
+            }
+        })
+        .as_object()
+        .cloned()
+        .expect("json object"),
         limit: args.limit,
         page_token: args.page_token,
     };
@@ -41,9 +49,8 @@ pub async fn run(state: CmdState, args: SearchEmbeddingArgs) -> anyhow::Result<(
     let page = searcher.search_embedding(&query_embedding, &params).await?;
 
     println!(
-        "Found {} hit(s) for user_id: {} vector_file: {}",
+        "Found {} hit(s) for vector_file: {}",
         page.hits.len(),
-        params.user_id,
         args.vector_file
     );
     for hit in page.hits {

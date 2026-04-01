@@ -24,7 +24,7 @@ pub trait Searcher<E>: Send + Sync {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryParams {
-    pub user_id: i32,
+    pub base_filter: serde_json::Map<String, serde_json::Value>,
     pub limit: u32,
     pub page_token: Option<String>,
 }

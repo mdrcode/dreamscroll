@@ -1,4 +1,5 @@
 use argh::FromArgs;
+use serde_json::json;
 
 use crate::search::{self, *};
 
@@ -37,7 +38,14 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
     }
 
     let params = QueryParams {
-        user_id: 1, // hack TODO fix this up
+        base_filter: json!({
+            "user_id": {
+                "$eq": "1" // hack TODO fix this up
+            }
+        })
+        .as_object()
+        .cloned()
+        .expect("json object"), 
         limit: args.limit,
         page_token: args.page_token,
     };
@@ -62,12 +70,7 @@ pub async fn run(state: CmdState, args: SearchQueryArgs) -> anyhow::Result<()> {
         }
     };
 
-    println!(
-        "Found {} hit(s) for user_id: {} query: {}",
-        page.hits.len(),
-        params.user_id,
-        args.query
-    );
+    println!("Found {} hit(s) for query: {}", page.hits.len(), args.query);
     for hit in page.hits {
         println!("object_id={} score={}", hit.object_id, hit.score,);
     }

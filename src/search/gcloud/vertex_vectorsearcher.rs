@@ -6,7 +6,6 @@ use google_cloud_vectorsearch_v1::{
         VectorSearch, batch_search_data_objects_request::CombineResultsOptions,
     },
 };
-use serde_json::json;
 
 use crate::{facility, search};
 
@@ -100,23 +99,12 @@ impl VertexVectorSearcher {
         limit.clamp(1, 1000) as i32
     }
 
-    fn make_user_filter(user_id: i32) -> serde_json::Map<String, serde_json::Value> {
-        json!({
-            "user_id": {
-                "$eq": user_id.to_string()
-            }
-        })
-        .as_object()
-        .cloned()
-        .expect("json object")
-    }
-
     fn make_text_search(query_text: &str, params: &search::QueryParams) -> TextSearch {
         TextSearch::new()
             .set_search_text(query_text)
             .set_data_field_names(["illumination_text"])
             .set_top_k(Self::query_top_k(params.limit))
-            .set_filter(Self::make_user_filter(params.user_id))
+            .set_filter(params.base_filter.clone())
     }
 
     fn make_vector_search(
@@ -128,13 +116,13 @@ impl VertexVectorSearcher {
             .set_search_field(self.dense_vector_name.clone())
             .set_vector(DenseVector::new().set_values(query_embed.as_slice().to_vec()))
             .set_top_k(Self::query_top_k(params.limit))
-            .set_filter(Self::make_user_filter(params.user_id))
+            .set_filter(params.base_filter.clone())
     }
 }
 
 #[async_trait::async_trait]
 impl search::Searcher<search::Embedding<f32, search::Unit>> for VertexVectorSearcher {
-    #[tracing::instrument(skip(self, params), fields(user_id = params.user_id, limit = params.limit, query_len = query_text.len()))]
+    #[tracing::instrument(skip(self, params), fields(filter_keys = params.base_filter.len(), limit = params.limit, query_len = query_text.len()))]
     async fn search_text(
         &self,
         query_text: &str,
@@ -164,7 +152,6 @@ impl search::Searcher<search::Embedding<f32, search::Unit>> for VertexVectorSear
                 let http_status = err.http_status_code();
                 tracing::error!(
                     collection = self.collection_full_path,
-                    user_id = params.user_id,
                     status_code,
                     http_status,
                     error = ?err,
@@ -187,7 +174,7 @@ impl search::Searcher<search::Embedding<f32, search::Unit>> for VertexVectorSear
         Ok(map_search_data_objects_response(response))
     }
 
-    #[tracing::instrument(skip(self, query_embed, params), fields(user_id = params.user_id, limit = params.limit, dims = query_embed.len()))]
+    #[tracing::instrument(skip(self, query_embed, params), fields(filter_keys = params.base_filter.len(), limit = params.limit, dims = query_embed.len()))]
     async fn search_embedding(
         &self,
         query_embed: &search::Embedding<f32, search::Unit>,
@@ -217,7 +204,6 @@ impl search::Searcher<search::Embedding<f32, search::Unit>> for VertexVectorSear
                 let http_status = err.http_status_code();
                 tracing::error!(
                     collection = self.collection_full_path,
-                    user_id = params.user_id,
                     dims = query_embed.len(),
                     status_code,
                     http_status,
@@ -241,7 +227,7 @@ impl search::Searcher<search::Embedding<f32, search::Unit>> for VertexVectorSear
         Ok(map_search_data_objects_response(response))
     }
 
-    #[tracing::instrument(skip(self, query_embed, params), fields(user_id = params.user_id, limit = params.limit, dims = query_embed.len(), query_len = query_text.len()))]
+    #[tracing::instrument(skip(self, query_embed, params), fields(filter_keys = params.base_filter.len(), limit = params.limit, dims = query_embed.len(), query_len = query_text.len()))]
     async fn search_hybrid(
         &self,
         query_text: &str,
@@ -287,7 +273,6 @@ impl search::Searcher<search::Embedding<f32, search::Unit>> for VertexVectorSear
                 let http_status = err.http_status_code();
                 tracing::error!(
                     collection = self.collection_full_path,
-                    user_id = params.user_id,
                     dims = query_embed.len(),
                     status_code,
                     http_status,
