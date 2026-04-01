@@ -131,7 +131,7 @@ impl search::Embedder<search::Embedding<f32, search::Unit>> for GeminiEmbedder {
         let embed_normal = self
             .embed_content_parts_normalizing(parts, TASK_TYPE_RETRIEVAL_QUERY)
             .await?;
-        tracing::info!(
+        tracing::debug!(
             embedding_dims = embed_normal.len(),
             "Query embedding generated"
         );
@@ -145,14 +145,14 @@ impl search::Embedder<search::Embedding<f32, search::Unit>> for GeminiEmbedder {
     ) -> anyhow::Result<search::Embedding<f32, search::Unit>> {
         let parts = object.parts_for_embed(self.storage.as_ref()).await?;
 
-        let embedding = self
+        let embed_normal = self
             .embed_content_parts_normalizing(parts, TASK_TYPE_RETRIEVAL_DOCUMENT)
             .await?;
-        tracing::info!(
-            embedding = ?embedding,
-            "Data Object embedding generated"
+        tracing::debug!(
+            embedding_dims = embed_normal.len(),
+            "object embedding generated"
         );
-        Ok(embedding)
+        Ok(embed_normal)
     }
 }
 

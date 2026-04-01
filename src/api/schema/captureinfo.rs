@@ -70,7 +70,7 @@ impl search::DataObject for CaptureInfo {
             .await?;
         let image_b64 = base64::engine::general_purpose::STANDARD.encode(image_bytes);
 
-        tracing::info!(
+        tracing::debug!(
             capture_id = self.id,
             illumination_id = latest_illumination.id,
             text_len = illumination_text.len(),

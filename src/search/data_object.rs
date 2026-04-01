@@ -3,7 +3,6 @@ use anyhow;
 use crate::storage;
 
 #[async_trait::async_trait]
-
 pub trait DataObject: Send + Sync {
     fn data_object_id(&self) -> String;
 
