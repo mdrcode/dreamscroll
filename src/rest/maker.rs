@@ -12,6 +12,7 @@ use super::*;
 
 pub struct RestState {
     pub user_api: api::UserApiClient,
+    pub admin_api: api::AdminApiClient,
     pub jwt_config: auth::JwtConfig,
 }
 
@@ -25,15 +26,24 @@ pub struct RestState {
 /// Note that these routes are at top level within the returned router.
 /// Expectation is that they are nested under `/api`, etc in the main
 /// router.
-pub fn make_api_router(user_api: api::UserApiClient, jwt_config: auth::JwtConfig) -> Router {
+pub fn make_api_router(
+    user_api: api::UserApiClient,
+    service_api: api::ServiceApiClient,
+    beacon: crate::task::Beacon,
+    jwt_config: auth::JwtConfig,
+) -> Router {
+    let admin_api = api::AdminApiClient::new(user_api.db.clone(), service_api, beacon);
+
     let state = Arc::new(RestState {
         user_api,
+        admin_api,
         jwt_config: jwt_config.clone(),
     });
 
     let routes_open = Router::new().route("/token", post(r_token::post));
 
     let routes_protected = Router::new()
+        .route("/admin/backfill/enqueue", post(r_backfill_enqueue::post))
         .route("/admin/users", post(r_create_user::post))
         .route("/captures", get(r_capture::get))
         .route("/captures/{capture_id}", delete(r_capture::delete))

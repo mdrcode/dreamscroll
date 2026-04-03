@@ -30,7 +30,7 @@ struct Args {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 enum Command {
-    BackfillSearch(backfill_search::BackfillSearchArgs),
+    Backfill(backfill::BackfillArgs),
     CheckFirstUser(check_first_user::CheckFirstUserArgs),
     ClearToken(clear_token::ClearTokenArgs),
     CreateUser(create_user::CreateUserArgs),
@@ -173,7 +173,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     match command {
-        Command::BackfillSearch(args) => backfill_search::run(state, args).await,
+        Command::Backfill(args) => backfill::run(state, args).await,
         Command::CheckFirstUser(args) => check_first_user::run(state, args).await,
         Command::ClearToken(_) => anyhow::bail!("clear_token should have exited earlier"),
         Command::CreateUser(args) => create_user::run(state, args).await,

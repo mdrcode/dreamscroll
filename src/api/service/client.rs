@@ -27,6 +27,13 @@ impl ServiceApiClient {
         super::get_captures_need_illum(&self.db).await
     }
 
+    pub async fn get_captures_need_search_index(
+        &self,
+        limit: Option<u64>,
+    ) -> Result<Vec<i32>, ApiError> {
+        super::get_captures_need_search_index(&self.db, limit).await
+    }
+
     pub async fn insert_illumination(
         &self,
         capture_info: &schema::CaptureInfo, // TODO could this just take capture id?

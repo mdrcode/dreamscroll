@@ -42,7 +42,7 @@ async fn main() -> anyhow::Result<()> {
         db.clone(),
         stg.clone(),
         url_maker.clone(),
-        beacon,
+        beacon.clone(),
         capture_searcher,
     );
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
@@ -98,7 +98,10 @@ async fn main() -> anyhow::Result<()> {
             .context("JWT_SECRET not set, required for API")?
             .as_bytes();
         let jwt = auth::JwtConfig::from_secret(secret);
-        router = router.nest("/api", rest::make_api_router(user_api.clone(), jwt));
+        router = router.nest(
+            "/api",
+            rest::make_api_router(user_api.clone(), service_api.clone(), beacon.clone(), jwt),
+        );
         tracing::info!("Initialized REST API routes");
     }
 

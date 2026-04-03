@@ -1,87 +1,53 @@
 use anyhow::anyhow;
 
-use crate::{api::*, auth, database};
+use crate::{api::*, auth, database, task};
 
 pub struct AdminApiClient {
     db: database::DbHandle,
-    _admin_context: auth::Context,
+    service_api: ServiceApiClient,
+    beacon: task::Beacon,
 }
 
 impl AdminApiClient {
-    pub fn new(db: database::DbHandle, admin_context: auth::Context) -> Result<Self, ApiError> {
-        if !admin_context.is_admin() {
-            return Err(ApiError::forbidden(anyhow!(
-                "Only admin users can create new users"
-            )));
-        }
-
-        Ok(Self {
+    pub fn new(
+        db: database::DbHandle,
+        service_api: ServiceApiClient,
+        beacon: task::Beacon,
+    ) -> Self {
+        Self {
             db,
-            _admin_context: admin_context,
-        })
+            service_api,
+            beacon,
+        }
     }
 
     pub async fn create_user(
         &self,
+        context: &auth::Context,
         username: String,
         password: String,
         email: String,
     ) -> Result<UserInfo, ApiError> {
+        ensure_admin(context)?;
         super::create_user(&self.db, username, password, email).await
+    }
+
+    pub async fn enqueue_backfill(
+        &self,
+        context: &auth::Context,
+        req: BackfillRequest,
+    ) -> Result<BackfillResponse, ApiError> {
+        ensure_admin(context)?;
+        super::backfill::enqueue(&self.service_api, &self.beacon, req).await
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use axum::http::StatusCode;
-
-    use super::*;
-    use crate::auth::{Context, DreamscrollAuthUser, JwtUserClaims};
-
-    fn make_context(is_admin: bool) -> Context {
-        let claims = JwtUserClaims {
-            sub: "123".to_string(),
-            username: if is_admin {
-                "admin_user".to_string()
-            } else {
-                "normal_user".to_string()
-            },
-            is_admin,
-            exp: 9_999_999_999,
-            iat: 1_000_000_000,
-            storage_shard: "testshard".to_string(),
-        };
-
-        let user = DreamscrollAuthUser::try_from(claims).expect("valid claims should parse");
-        user.into()
+fn ensure_admin(context: &auth::Context) -> Result<(), ApiError> {
+    if !context.is_admin() {
+        return Err(ApiError::forbidden(anyhow!(
+            "Only admin users can perform this operation"
+        )));
     }
 
-    async fn make_test_db() -> database::DbHandle {
-        let conn = sea_orm::Database::connect("sqlite::memory:")
-            .await
-            .expect("in-memory sqlite should connect");
-        database::DbHandle::new(conn)
-    }
-
-    #[tokio::test]
-    async fn new_rejects_non_admin_context() {
-        let db = make_test_db().await;
-        let non_admin_context = make_context(false);
-
-        let result = AdminApiClient::new(db, non_admin_context);
-
-        assert!(result.is_err());
-        let err = result.err().unwrap();
-        assert_eq!(err.status_code, StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn new_accepts_admin_context() {
-        let db = make_test_db().await;
-        let admin_context = make_context(true);
-
-        let result = AdminApiClient::new(db, admin_context);
-
-        assert!(result.is_ok());
-    }
+    Ok(())
 }

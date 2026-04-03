@@ -5,11 +5,11 @@ mod schema;
 pub use schema::*;
 
 mod admin;
-pub use admin::client::AdminApiClient;
+pub use admin::{AdminApiClient, BackfillRequest, BackfillResponse, BackfillType};
 
 mod service;
 pub use service::client::ServiceApiClient;
 
 mod user;
 pub use user::CaptureSearcher;
-pub use user::client::UserApiClient; // TODO maybe this shoud live elsewhere
+pub use user::client::UserApiClient; // TODO maybe this should live elsewhere

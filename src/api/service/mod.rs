@@ -11,3 +11,6 @@ pub use insert_spark::insert_spark;
 
 mod need_illumination;
 pub use need_illumination::get_captures_need_illum;
+
+mod need_search_index;
+pub use need_search_index::get_captures_need_search_index;

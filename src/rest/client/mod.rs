@@ -215,6 +215,22 @@ impl Client {
         }
     }
 
+    pub async fn admin_enqueue_backfill(
+        &self,
+        request: &api::BackfillRequest,
+    ) -> anyhow::Result<api::BackfillResponse> {
+        let response = self
+            .reqwest_client
+            .post(format!("{}/admin/backfill/enqueue", self.base_url))
+            .bearer_auth(&self.access_token)
+            .json(request)
+            .send()
+            .await
+            .context("failed to call admin backfill enqueue endpoint")?;
+
+        Self::parse_json_response(response).await
+    }
+
     pub fn access_token(&self) -> &str {
         &self.access_token
     }

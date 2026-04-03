@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use crate::{api, auth};
+use crate::{api, auth, task};
 
 use super::*;
 
@@ -19,10 +19,12 @@ pub async fn run(state: CmdState, _args: CreateUserArgs) -> anyhow::Result<()> {
     println!("Enter ADMIN password:");
     let admin_password = rpassword::read_password()?;
     let admin_user = auth::password::verify(&state.db, &admin_username, &admin_password).await?;
-    if !admin_user.is_admin() {
-        return Err(anyhow::anyhow!("Only admin users can create new users"));
-    }
-    let admin_client = api::AdminApiClient::new(state.db.clone(), admin_user.into())?;
+    let admin_context: auth::Context = admin_user.into();
+    let admin_client = api::AdminApiClient::new(
+        state.db.clone(),
+        state.service_api.clone(),
+        task::Beacon::default(),
+    );
 
     println!("Enter username for new user:");
     let mut username = String::new();
@@ -37,7 +39,9 @@ pub async fn run(state: CmdState, _args: CreateUserArgs) -> anyhow::Result<()> {
     println!("Enter password for new user:");
     let password = rpassword::read_password()?;
 
-    let new_user_info = admin_client.create_user(username, password, email).await?;
+    let new_user_info = admin_client
+        .create_user(&admin_context, username, password, email)
+        .await?;
 
     println!("Created new user: {:?}", new_user_info);
 

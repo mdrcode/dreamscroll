@@ -1,4 +1,4 @@
-pub mod backfill_search;
+pub mod backfill;
 pub mod check_first_user;
 pub mod clear_token;
 pub mod create_user;
