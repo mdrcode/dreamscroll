@@ -177,22 +177,26 @@ impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexVectorS
     async fn fetch_object_embedding(
         &self,
         object_id: &str,
-    ) -> anyhow::Result<search::Embedding<f32, search::Unit>> {
+    ) -> anyhow::Result<Option<search::Embedding<f32, search::Unit>>> {
         let object_name = format!("{}/dataObjects/{}", self.collection_full_path, object_id);
 
-        let data_object = self
+        let data_object = match self
             .data_object_client
             .get_data_object()
             .set_name(object_name.clone())
             .send()
             .await
-            .map_err(|err| {
-                anyhow::anyhow!(
+        {
+            Ok(data_object) => data_object,
+            Err(err) if not_found(&err) => return Ok(None),
+            Err(err) => {
+                anyhow::bail!(
                     "Failed to fetch vector data object {}: {}",
                     object_name,
                     err
                 )
-            })?;
+            }
+        };
 
         let vector = data_object
             .vectors
@@ -213,10 +217,15 @@ impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexVectorS
             )
         })?;
 
-        search::Embedding::from_vec_normalizing(dense.values.clone())
+        let embedding = search::Embedding::from_vec_normalizing(dense.values.clone())?;
+        Ok(Some(embedding))
     }
 }
 
+// NOTE: We intentionally use numeric gRPC codes here (5/6) for now.
+// `google_cloud_vectorsearch_v1` uses newer gax internals where typed rpc::Code
+// enums exist, but our direct `google-cloud-gax` dependency version does not
+// expose that API at this path yet. Revisit after aligning gax crate versions.
 fn not_found(err: &google_cloud_vectorsearch_v1::Error) -> bool {
     err.status().is_some_and(|status| status.code as i32 == 5)
         || err.http_status_code() == Some(404)

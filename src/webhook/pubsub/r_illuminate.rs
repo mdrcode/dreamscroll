@@ -13,7 +13,7 @@ pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(body): Json<pubsub::PushBody>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let task = pubsub::decode_message_data::<webhook::logic::illuminate::IlluminationTask>(
+    let task = pubsub::decode_message_data::<webhook::schema::IlluminationTask>(
         &body.message.data,
     )
     .map_err(|err| {

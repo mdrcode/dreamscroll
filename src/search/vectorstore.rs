@@ -10,7 +10,7 @@ pub trait VectorStore<E>: Send + Sync {
         embedding: &E,
     ) -> anyhow::Result<VectorUpsertResult>;
 
-    async fn fetch_object_embedding(&self, object_id: &str) -> anyhow::Result<E>;
+    async fn fetch_object_embedding(&self, object_id: &str) -> anyhow::Result<Option<E>>;
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

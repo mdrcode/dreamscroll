@@ -52,7 +52,7 @@ pub async fn run(state: CmdState, _args: IlluminateAllArgs) -> anyhow::Result<()
                         match webhook::logic::illuminate::exec(
                             &service_api,
                             &illuminator,
-                            webhook::logic::illuminate::IlluminationTask { capture_id: id },
+                            webhook::schema::IlluminationTask { capture_id: id },
                         )
                         .await
                         {

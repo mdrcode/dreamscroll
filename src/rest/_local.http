@@ -51,7 +51,7 @@ Authorization: Bearer {{token.response.body.access_token}}
 
 ###
 # Returns 204 No Content on success
-POST http://localhost:8080/api/captures/572/archive
+POST http://localhost:8080/api/captures/586/archive
 Authorization: Bearer {{token.response.body.access_token}}
 
 ###

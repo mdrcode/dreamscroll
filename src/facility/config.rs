@@ -74,8 +74,10 @@ pub struct Config {
     pub task_pubsub_emulator: Option<String>, // e.g. "http://localhost:8085"
     pub task_pubsub_topic_new_capture: Option<String>,
     pub task_pubsub_topic_spark: Option<String>,
+    pub task_cloudtask_queue_ingest: Option<String>,
     pub task_cloudtask_queue_illumination: Option<String>,
     pub task_cloudtask_queue_spark: Option<String>,
+    pub task_cloudtask_queue_search_index: Option<String>,
 }
 
 pub fn make_config() -> anyhow::Result<Config> {

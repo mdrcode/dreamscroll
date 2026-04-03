@@ -37,6 +37,7 @@ async fn main() -> anyhow::Result<()> {
     let url_maker = storage::UrlMaker::from_config(&config);
     let beacon = task::make_beacon(&config).await?;
     let capture_searcher = api::CaptureSearcher::from_config(&config, stg.clone()).await;
+
     let user_api = api::UserApiClient::new(
         db.clone(),
         stg.clone(),
@@ -105,9 +106,13 @@ async fn main() -> anyhow::Result<()> {
     if config.services.contains(&facility::Service::Webhook) {
         let illuminator = illumination::make_illuminator(&config, stg.clone());
         let firestarter = dreamscroll::ignition::make_firestarter(&config)?;
+        let indexer =
+            webhook::logic::search_index::SearchIndexer::from_config(&config, stg.clone())
+                .await
+                .context("Failed to initialize webhook SearchIndexer")?;
         router = router.nest(
             "/_wh",
-            webhook::make_webhook_router(service_api, illuminator, firestarter),
+            webhook::make_webhook_router(service_api, illuminator, firestarter, indexer),
         );
         tracing::info!("Initialized webhook routes");
     }

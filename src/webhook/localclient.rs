@@ -2,6 +2,8 @@
 /// Used by the LocalTaskQueue implementation for local development so tasks
 /// actually execute as close to the real prod flow as possible.
 /// No auth and assumes the server is running locally.
+use serde::Serialize;
+
 #[derive(Clone, Debug)]
 pub struct LocalWebhookClient {
     base_url: String,
@@ -16,32 +18,28 @@ impl LocalWebhookClient {
         }
     }
 
-    pub async fn post_illuminate(
+    pub async fn post_task<T: Serialize + ?Sized>(
         &self,
-        task: &super::logic::illuminate::IlluminationTask,
+        webhook_local_path: &str,
+        task: &T,
     ) -> anyhow::Result<()> {
-        let url = format!("{}/_wh/cloudtask/illuminate", self.base_url);
+        let url = format!(
+            "{}/{}",
+            self.base_url.trim_end_matches('/'),
+            webhook_local_path.trim_start_matches('/')
+        );
         let response = self.client.post(&url).json(task).send().await?;
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
             anyhow::bail!(
-                "LocalWebhookClient illuminate failed ({}): {}",
+                "LocalWebhookClient post failed path='{}' ({}): {}",
+                webhook_local_path,
                 status,
                 body
             );
         }
-        Ok(())
-    }
-
-    pub async fn post_spark(&self, task: &super::logic::spark::SparkTask) -> anyhow::Result<()> {
-        let url = format!("{}/_wh/cloudtask/spark", self.base_url);
-        let response = self.client.post(&url).json(task).send().await?;
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            anyhow::bail!("LocalWebhookClient spark failed ({}): {}", status, body);
-        }
+        tracing::debug!(url, "LocalWebhookClient post successful");
         Ok(())
     }
 }

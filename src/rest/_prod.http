@@ -44,12 +44,12 @@ Content-Type: image/jpeg
 
 ###
 # Returns 204 No Content on success
-DELETE https://dreamscroll.ai/api/captures/821
+DELETE https://dreamscroll.ai/api/captures/864
 Authorization: Bearer {{token}}
 
 ###
 # Returns 204 No Content on success
-POST https://dreamscroll.ai/api/captures/605/archive
+POST https://dreamscroll.ai/api/captures/864/archive
 Authorization: Bearer {{token}}
 
 ###

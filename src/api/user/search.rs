@@ -137,6 +137,14 @@ impl CaptureSearcher {
             .fetch_object_embedding(&object_id)
             .await
             .map_err(api::ApiError::internal)?;
+        let Some(query_embedding) = query_embedding else {
+            tracing::warn!(
+                capture_id = query_capture.id,
+                object_id,
+                "No embedding found for query capture; returning empty similar results"
+            );
+            return Ok(vec![]);
+        };
 
         let page = self
             .searcher

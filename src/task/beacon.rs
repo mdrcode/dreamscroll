@@ -1,12 +1,14 @@
 use std::sync::Arc;
 
-use crate::webhook::logic::{illuminate::IlluminationTask, spark::SparkTask};
+use crate::webhook::schema::{IlluminationTask, IngestTask, SearchIndexTask, SparkTask};
 
 use super::*;
 
 #[derive(Clone, Default)]
 pub struct Beacon {
+    ingest_queue: Option<Arc<dyn TaskQueue<Task = IngestTask>>>,
     illumination_queue: Option<Arc<dyn TaskQueue<Task = IlluminationTask>>>,
+    search_index_queue: Option<Arc<dyn TaskQueue<Task = SearchIndexTask>>>,
     spark_queue: Option<Arc<dyn TaskQueue<Task = SparkTask>>>,
 }
 
@@ -15,14 +17,42 @@ impl Beacon {
         BeaconBuilder::default()
     }
 
-    pub async fn signal_new_capture(&self, capture_id: i32) -> anyhow::Result<()> {
+    pub async fn signal_illumination(&self, capture_id: i32) -> anyhow::Result<()> {
         let Some(queue) = self.illumination_queue.as_ref() else {
-            tracing::warn!("New capture created but no topic configured, skipping enqueue.");
+            tracing::warn!(
+                capture_id,
+                "Illumination requested but no illumination queue configured, skipping enqueue."
+            );
             return Ok(());
         };
 
-        queue.enqueue(IlluminationTask { capture_id }).await.inspect_err(
-            |err| tracing::error!(queue = ?queue, capture_id, error = ?err, "Failed to enqueue capture for illumination: {}", err),
+        queue
+            .enqueue(IlluminationTask { capture_id })
+            .await
+            .inspect_err(|err| {
+                tracing::error!(
+                    queue = ?queue,
+                    capture_id,
+                    error = ?err,
+                    "Failed to enqueue capture for illumination: {}",
+                    err
+                )
+            })?;
+
+        Ok(())
+    }
+
+    pub async fn signal_new_capture(&self, capture_id: i32) -> anyhow::Result<()> {
+        let Some(queue) = self.ingest_queue.as_ref() else {
+            tracing::warn!(
+                capture_id,
+                "New capture created but no ingest queue configured, skipping enqueue."
+            );
+            return Ok(());
+        };
+
+        queue.enqueue(IngestTask { capture_id }).await.inspect_err(
+            |err| tracing::error!(queue = ?queue, capture_id, error = ?err, "Failed to enqueue capture for ingest: {}", err),
         )?;
 
         Ok(())
@@ -58,15 +88,50 @@ impl Beacon {
 
         Ok(())
     }
+
+    pub async fn signal_search_index(&self, capture_id: i32) -> anyhow::Result<()> {
+        let Some(queue) = self.search_index_queue.as_ref() else {
+            tracing::warn!(
+                capture_id,
+                "Search index requested but no search index queue configured, skipping enqueue."
+            );
+            return Ok(());
+        };
+
+        queue
+            .enqueue(SearchIndexTask { capture_id })
+            .await
+            .inspect_err(|err| {
+                tracing::error!(
+                    queue = ?queue,
+                    capture_id,
+                    error = ?err,
+                    "Failed to enqueue capture for search indexing: {}",
+                    err
+                )
+            })?;
+
+        Ok(())
+    }
 }
 
 #[derive(Default)]
 pub struct BeaconBuilder {
+    ingest_queue: Option<Arc<dyn TaskQueue<Task = IngestTask>>>,
     illumination_queue: Option<Arc<dyn TaskQueue<Task = IlluminationTask>>>,
+    search_index_queue: Option<Arc<dyn TaskQueue<Task = SearchIndexTask>>>,
     spark_queue: Option<Arc<dyn TaskQueue<Task = SparkTask>>>,
 }
 
 impl BeaconBuilder {
+    pub fn ingest_queue(
+        mut self,
+        ingest_queue: impl TaskQueue<Task = IngestTask> + 'static,
+    ) -> Self {
+        self.ingest_queue = Some(Arc::new(ingest_queue));
+        self
+    }
+
     pub fn illumination_queue(
         mut self,
         illumination_queue: impl TaskQueue<Task = IlluminationTask> + 'static,
@@ -77,9 +142,19 @@ impl BeaconBuilder {
 
     pub fn build(self) -> Beacon {
         Beacon {
+            ingest_queue: self.ingest_queue,
             illumination_queue: self.illumination_queue,
+            search_index_queue: self.search_index_queue,
             spark_queue: self.spark_queue,
         }
+    }
+
+    pub fn search_index_queue(
+        mut self,
+        search_index_queue: impl TaskQueue<Task = SearchIndexTask> + 'static,
+    ) -> Self {
+        self.search_index_queue = Some(Arc::new(search_index_queue));
+        self
     }
 
     pub fn spark_queue(mut self, spark_queue: impl TaskQueue<Task = SparkTask> + 'static) -> Self {
@@ -104,7 +179,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl TaskQueue for RecordingQueue {
-        type Task = IlluminationTask;
+        type Task = IngestTask;
 
         async fn enqueue(&self, task: Self::Task) -> anyhow::Result<()> {
             if self.fail {
@@ -132,7 +207,7 @@ mod tests {
             fail: false,
         };
 
-        let beacon = Beacon::builder().illumination_queue(queue).build();
+        let beacon = Beacon::builder().ingest_queue(queue).build();
 
         beacon
             .signal_new_capture(42)
@@ -162,7 +237,7 @@ mod tests {
             captures: Arc::new(Mutex::new(Vec::new())),
             fail: true,
         };
-        let beacon = Beacon::builder().illumination_queue(queue).build();
+        let beacon = Beacon::builder().ingest_queue(queue).build();
 
         let result = beacon.signal_new_capture(9).await;
         assert!(result.is_err());

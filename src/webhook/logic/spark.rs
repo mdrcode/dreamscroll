@@ -1,26 +1,9 @@
-use serde::{Deserialize, Serialize};
-
-use crate::{api, ignition, task};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SparkTask {
-    pub capture_ids: Vec<i32>,
-}
-
-impl task::TaskId for SparkTask {
-    fn id(&self) -> String {
-        self.capture_ids
-            .iter()
-            .map(std::string::ToString::to_string)
-            .collect::<Vec<_>>()
-            .join("-")
-    }
-}
+use crate::{api, ignition, webhook};
 
 pub async fn exec(
     service_api: &api::ServiceApiClient,
     firestarter: &Box<dyn ignition::Firestarter>,
-    task: SparkTask,
+    task: webhook::schema::SparkTask,
 ) -> Result<(), api::ApiError> {
     if task.capture_ids.is_empty() {
         return Err(api::ApiError::bad_request(anyhow::anyhow!(
