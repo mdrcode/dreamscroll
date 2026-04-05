@@ -59,7 +59,7 @@
                     bucket.forEach((image) => {
                         const link = document.createElement("a");
                         link.className = "masonry-item";
-                        link.href = `/v1/detail/${image.capture_id}`;
+                        link.href = `/detail/${image.capture_id}`;
 
                         const img = document.createElement("img");
                         img.src = image.url;

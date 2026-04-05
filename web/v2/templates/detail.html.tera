@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#1a1917">
+    <title>dreamscroll - {{ capture.id }}</title>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png">
+    <link rel="stylesheet" href="/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}">
+    <script defer src="https://unpkg.com/htmx.org@2.0.7" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
+    <script defer src="/static/webui-v2.js?v={{ static_asset_version | urlencode }}"></script>
+</head>
+
+<body>
+    <div id="page-content-container">
+        <div id="header-row">
+            <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll</a></h1>
+
+            <form id="file-upload-form"
+                action="/upload"
+                method="post"
+                enctype="multipart/form-data">
+                <input id="file-picker" type="file" name="image" accept="image/*" style="display: none;" required>
+                <label id="file-picker-label" for="file-picker">
+                    <span class="file-picker-text">Upload</span>
+                    <svg class="file-picker-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3L4 13h5v8h6v-8h5z"/></svg>
+                </label>
+            </form>
+
+            <form id="header-search-form" action="/cards" method="get"
+                hx-get="/cards"
+                hx-target="#card-feed"
+                hx-swap="innerHTML"
+                hx-push-url="true">
+                <div id="header-search-input-wrap">
+                    <input id="header-search-input"
+                        type="text"
+                        inputmode="search"
+                        name="query"
+                        value=""
+                        enterkeyhint="search"
+                        placeholder="search...">
+                    <button id="header-search-clear" type="button" aria-label="Clear search" title="Clear search">x</button>
+                    <button id="header-search-submit" type="submit" aria-label="Run search">Search</button>
+                </div>
+            </form>
+        </div>
+
+        <div id="upload-progress" aria-live="polite" aria-label="Upload progress">
+            <div id="upload-progress-track">
+                <div id="upload-progress-bar"></div>
+            </div>
+            <div id="upload-progress-text">0%</div>
+        </div>
+
+        <div id="drop-zone-row">Drop image anywhere to upload</div>
+
+        <div id="card-feed">
+            {% include "partials/card.html.tera" %}
+
+            <article class="feed-card feed-card--capture capture-card">
+                <div class="capture-card__body">
+                    <p class="capture-card__summary">Capture {{ capture.id }}</p>
+                    <p class="capture-card__details">Uploaded {{ capture.created_at_human }}.</p>
+
+                    {% if capture.medias | length > 0 %}
+                    <div class="pill-group pill-group--scroll pill-group--queries pill-group--stack">
+                        {% for media in capture.medias %}
+                        <a href="{{ media.url }}" class="pill" target="_blank" rel="noopener noreferrer" title="{{ media.storage_uuid }}">
+                            <span class="pill__prefix">media</span>
+                            <span class="pill__label">{{ media.storage_uuid }}</span>
+                        </a>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+            </article>
+        </div>
+    </div>
+</body>
+
+</html>

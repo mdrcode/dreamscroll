@@ -1,5 +1,13 @@
 # Dreamscroll Development Log
 
+## 20260-04-05
+
+- [ ] Capture to Capture recommendations in the UI
+- [ ] Mike to send Peter his credentials
+- [ ] Notes field
+- [ ] Bifurcate the app loop into: LearnMoreAbout, MoreLikeThis, and GoBeyond
+- [ ] Mind Map
+
 ## 2026-03-30
 
 Next up:

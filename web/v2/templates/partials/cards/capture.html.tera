@@ -1,6 +1,6 @@
 <article class="feed-card feed-card--capture capture-card">
     <div class="capture-card__image-container">
-        <a class="capture-card__image-link" href="/v1/detail/{{ card.capture.id }}">
+        <a class="capture-card__image-link" href="/detail/{{ card.capture.id }}">
             <img class="capture-card__image" src="{{ card.capture.medias[0].url }}" alt="image {{ card.capture.medias[0].storage_uuid }}">
         </a>
     </div>
