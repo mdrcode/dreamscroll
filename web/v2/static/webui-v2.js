@@ -327,7 +327,7 @@ function setupMetadataCardExpandToggle(rootNode) {
 
         function setExpanded(isExpanded) {
             card.classList.toggle('is-expanded', isExpanded);
-            toggle.textContent = isExpanded ? 'Less' : 'More';
+            toggle.textContent = 'More';
             toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
         }
 
@@ -378,18 +378,25 @@ function setupMetadataCardExpandToggle(rootNode) {
                 return;
             }
 
-            if (card.dataset.userExpanded !== 'true' && card.dataset.userExpanded !== 'false') {
-                setExpanded(false);
+            if (card.dataset.expandedOnce === 'true') {
+                setExpanded(true);
+                toggleRow.hidden = true;
+                return;
             }
+
+            setExpanded(false);
             toggleRow.hidden = false;
         }
 
         toggle.addEventListener('click', function (e) {
             e.preventDefault();
-            const isExpanded = card.classList.contains('is-expanded');
-            const nextExpanded = !isExpanded;
-            card.dataset.userExpanded = nextExpanded ? 'true' : 'false';
-            setExpanded(nextExpanded);
+            if (card.classList.contains('is-expanded')) {
+                return;
+            }
+
+            card.dataset.expandedOnce = 'true';
+            setExpanded(true);
+            toggleRow.hidden = true;
         });
 
         if (card.classList.contains('capture-detail-disclosure')) {
