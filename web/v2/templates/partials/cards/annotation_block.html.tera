@@ -1,4 +1,4 @@
-<div id="annotation-block-{{ capture.id }}" class="capture-card__annotation-block">
+<div id="annotation-block-{{ capture.id }}" class="capture-card__annotation-block{% if capture.annotation %} capture-card__annotation-block--populated{% endif %}">
     {% if capture.annotation %}
     <div
         class="capture-card__annotation-row"

@@ -1,4 +1,4 @@
-<div id="annotation-block-{{ capture.id }}" class="capture-card__annotation-block">
+<div id="annotation-block-{{ capture.id }}" class="capture-card__annotation-block capture-card__annotation-block--populated">
     <form
         class="capture-card__annotation-form"
         hx-post="/annotation/{{ capture.id }}"
