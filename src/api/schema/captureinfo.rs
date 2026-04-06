@@ -16,6 +16,7 @@ pub struct CaptureInfo {
     pub created_at_human: String,
     pub medias: Vec<MediaInfo>,
     pub illuminations: Vec<IlluminationInfo>,
+    pub annotation: Option<AnnotationInfo>,
 }
 
 impl search::DataObject for CaptureInfo {

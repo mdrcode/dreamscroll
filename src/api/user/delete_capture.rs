@@ -81,6 +81,12 @@ pub async fn delete_capture(
         .exec(&db.conn)
         .await?;
 
+    model::annotation::Entity::delete_many()
+        .filter(model::annotation::Column::UserId.eq(context.user_id()))
+        .filter(model::annotation::Column::CaptureId.eq(capture_id))
+        .exec(&db.conn)
+        .await?;
+
     model::capture::Entity::delete_by_id(capture_id)
         .exec(&db.conn)
         .await?;

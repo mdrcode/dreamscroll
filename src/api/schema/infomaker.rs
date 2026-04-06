@@ -37,6 +37,15 @@ impl InfoMaker {
                 .collect(),
         };
 
+        let annotation = match capture_model.annotations {
+            HasMany::Unloaded => None,
+            HasMany::Loaded(models) => models
+                .into_iter()
+                .filter(|m| m.archived_at.is_none())
+                .max_by_key(|m| m.id)
+                .map(|m| self.make_annotation_info(m)),
+        };
+
         CaptureInfo {
             id: capture_model.id,
             user_id: capture_model.user_id,
@@ -44,6 +53,18 @@ impl InfoMaker {
             created_at_human: common::humanize_datetime(capture_model.created_at),
             medias,
             illuminations,
+            annotation,
+        }
+    }
+
+    pub fn make_annotation_info(&self, annotation_model: model::annotation::ModelEx) -> AnnotationInfo {
+        AnnotationInfo {
+            id: annotation_model.id,
+            capture_id: annotation_model.capture_id,
+            content: annotation_model.content,
+            created_at: annotation_model.created_at,
+            updated_at: annotation_model.updated_at,
+            archived_at: annotation_model.archived_at,
         }
     }
 

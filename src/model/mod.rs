@@ -1,3 +1,4 @@
+pub mod annotation;
 pub mod capture;
 pub mod illumination;
 pub mod illumination_meta;

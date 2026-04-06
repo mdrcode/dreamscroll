@@ -3,6 +3,9 @@ mod infomaker;
 pub use infomaker::InfoMaker;
 
 // Serializable schema types
+mod annotationinfo;
+pub use annotationinfo::*;
+
 mod captureinfo;
 pub use captureinfo::*;
 

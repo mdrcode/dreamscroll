@@ -53,6 +53,14 @@ pub fn make_api_router(
             "/captures/{capture_id}/unarchive",
             post(r_capture::unarchive),
         )
+        .route(
+            "/captures/{capture_id}/annotation",
+            post(r_annotation::set),
+        )
+        .route(
+            "/captures/{capture_id}/annotation/archive",
+            post(r_annotation::archive),
+        )
         .route("/captures/import", post(r_import_capture::post))
         .route("/dummy", get(r_dummy::get))
         .route("/timeline", get(r_timeline::get))

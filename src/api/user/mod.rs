@@ -21,6 +21,9 @@ pub use insert_capture::*;
 mod archive_capture;
 pub use archive_capture::*;
 
+mod archive_annotation;
+pub use archive_annotation::*;
+
 mod delete_capture;
 pub use delete_capture::*;
 
@@ -29,3 +32,6 @@ pub use search::*;
 
 mod change_password;
 pub use change_password::*;
+
+mod set_annotation;
+pub use set_annotation::*;

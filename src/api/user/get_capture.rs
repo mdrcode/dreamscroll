@@ -25,6 +25,7 @@ pub async fn get_captures(
     let captures = loader
         .with(model::media::Entity)
         .with(model::illumination::Entity)
+        .with(model::annotation::Entity)
         .with((model::illumination::Entity, model::xquery::Entity))
         .with((model::illumination::Entity, model::knode::Entity))
         .with((model::illumination::Entity, model::social_media::Entity))

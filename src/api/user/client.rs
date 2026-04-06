@@ -303,6 +303,26 @@ impl UserApiClient {
         super::change_password(&self.db, context, current_password, new_password).await
     }
 
+    #[tracing::instrument(skip(self, context, content))]
+    pub async fn set_annotation(
+        &self,
+        context: &auth::Context,
+        capture_id: i32,
+        content: String,
+    ) -> Result<schema::AnnotationInfo, ApiError> {
+        let annotation = super::set_annotation(&self.db, context, capture_id, content).await?;
+        Ok(self.info_maker.make_annotation_info(annotation))
+    }
+
+    #[tracing::instrument(skip(self, context))]
+    pub async fn archive_annotation(
+        &self,
+        context: &auth::Context,
+        capture_id: i32,
+    ) -> Result<(), ApiError> {
+        super::archive_annotation(&self.db, context, capture_id).await
+    }
+
     #[tracing::instrument(skip(self, context))]
     pub async fn search(
         &self,
