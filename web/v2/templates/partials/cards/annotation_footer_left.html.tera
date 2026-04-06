@@ -1,0 +1,16 @@
+<div
+    id="annotation-footer-left-{{ capture.id }}"
+    class="card-footer__left"
+    {% if oob | default(value=false) %}hx-swap-oob="outerHTML"{% endif %}>
+    {% set is_annotation_editing = annotation_editing | default(value=false) %}
+    {% if capture.annotation %}
+    {% elif is_annotation_editing %}
+    {% else %}
+    <button
+        type="button"
+        class="card-footer__action"
+        hx-get="/annotation/{{ capture.id }}/form"
+        hx-target="#annotation-block-{{ capture.id }}"
+        hx-swap="outerHTML">add note</button>
+    {% endif %}
+</div>

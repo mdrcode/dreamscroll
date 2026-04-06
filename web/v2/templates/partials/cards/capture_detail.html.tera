@@ -30,16 +30,7 @@
         {% include "partials/cards/annotation_block.html.tera" %}
 
         <div class="card-footer">
-            <div class="card-footer__left">
-                {% if not capture.annotation %}
-                <button
-                    type="button"
-                    class="card-footer__action"
-                    hx-get="/annotation/{{ capture.id }}/form"
-                    hx-target="#annotation-block-{{ capture.id }}"
-                    hx-swap="outerHTML">add note</button>
-                {% endif %}
-            </div>
+            {% include "partials/cards/annotation_footer_left.html.tera" %}
             <span class="card-timestamp" title="{{ capture.created_at }}">{{ capture.created_at_human }}</span>
         </div>
     </div>
