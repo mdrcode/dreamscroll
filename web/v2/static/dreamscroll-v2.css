@@ -347,6 +347,7 @@ body {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    padding-top: 8px;
     margin-top: auto;
 }
 
@@ -396,7 +397,7 @@ body {
 
 .capture-card__annotation-block.capture-card__annotation-block--populated {
     margin-top: 8px;
-    margin-bottom: 8px;
+    margin-bottom: 0;
 }
 
 .capture-card__annotation-row {
@@ -864,9 +865,6 @@ body {
         margin: 10px 0 12px;
     }
 
-    .card-footer {
-        padding-top: 8px;
-    }
 }
 
 @media (max-width: 460px) {
@@ -938,7 +936,7 @@ body {
 
     .capture-card--detail .capture-card__annotation-block {
         margin-top: 0;
-        margin-bottom: 8px;
+        margin-bottom: 0;
     }
 
     .capture-card__image-container {
