@@ -8,6 +8,7 @@
             class="capture-card__annotation-input"
             name="content"
             rows="3"
+            onkeydown="if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.form.requestSubmit(); }"
             placeholder="Add a note...">{% if capture.annotation %}{{ capture.annotation.content }}{% endif %}</textarea>
         <div class="capture-card__annotation-form-actions">
             <button type="submit" class="capture-card__annotation-action">save</button>

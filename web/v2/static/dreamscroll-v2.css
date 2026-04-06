@@ -379,7 +379,7 @@ body {
 .capture-card__annotation-row {
     border: 1px solid var(--color-stroke-soft);
     border-radius: 8px;
-    background: var(--color-canvas);
+    background: var(--color-card);
     padding: 8px;
 }
 
