@@ -377,6 +377,19 @@ body {
     text-decoration: underline;
 }
 
+.card-footer--detail {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.card-footer--detail .card-footer__meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 100%;
+}
+
 .capture-card__annotation-block {
     margin-top: 8px;
     margin-bottom: 8px;
@@ -912,15 +925,6 @@ body {
         grid-column: 1 / -1;
         width: 100%;
         margin-top: 2px;
-        display: flex;
-        flex-direction: column;
-        align-items: stretch;
-    }
-
-    .card-footer__meta {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
     }
 
     .capture-card--detail .capture-card__annotation-block {
