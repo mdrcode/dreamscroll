@@ -868,12 +868,6 @@ body {
 
 }
 
-@media (max-width: 460px) {
-    .related-captures__grid {
-        --related-captures-cols: 1;
-    }
-}
-
 @media (min-width: 769px) {
     #header-row form {
         margin-bottom: 2px;
