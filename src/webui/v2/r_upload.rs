@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
+    Json,
     extract::State,
     http::HeaderMap,
     http::StatusCode,
@@ -8,10 +9,17 @@ use axum::{
 };
 use axum_extra::extract::Multipart;
 use axum_login::AuthSession;
+use serde::Serialize;
 
 use crate::{api, auth};
 
 use super::WebState;
+
+#[derive(Serialize)]
+struct UploadResult {
+    capture_id: i32,
+    detail_url: String,
+}
 
 pub async fn post(
     auth: AuthSession<auth::WebAuthBackend>,
@@ -40,5 +48,10 @@ pub async fn post(
         return Ok(Redirect::to("/").into_response());
     }
 
-    Ok(StatusCode::NO_CONTENT.into_response())
+    let payload = UploadResult {
+        capture_id: cap.id,
+        detail_url: format!("/detail/{}", cap.id),
+    };
+
+    Ok((StatusCode::CREATED, Json(payload)).into_response())
 }

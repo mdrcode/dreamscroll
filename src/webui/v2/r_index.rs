@@ -28,7 +28,9 @@ pub async fn get(
     let content = query.content_mode();
 
     let mut context = state.template_context();
+    let feed_content_mode = if is_search { "search" } else { "timeline" };
     context.insert("is_search", &is_search);
+    context.insert("feed_content_mode", &feed_content_mode);
     context.insert("query", q);
     context.insert("cards", &cards);
     context.insert("content_mode", &content);

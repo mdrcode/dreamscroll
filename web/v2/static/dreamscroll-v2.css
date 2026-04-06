@@ -207,6 +207,50 @@ body {
     color: var(--color-text-primary);
 }
 
+#upload-notice {
+    margin-bottom: 10px;
+    opacity: 0;
+    transform: translateY(-4px);
+    will-change: opacity, transform;
+}
+
+#upload-notice.is-visible {
+    animation: upload-notice-pop-in 280ms cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+#upload-notice.is-hiding {
+    animation: upload-notice-drift-out 300ms ease-in both;
+}
+
+@keyframes upload-notice-pop-in {
+    0% {
+        opacity: 0;
+        transform: translateY(-8px) scale(0.985);
+    }
+
+    72% {
+        opacity: 1;
+        transform: translateY(0) scale(1.01);
+    }
+
+    100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes upload-notice-drift-out {
+    0% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+
+    100% {
+        opacity: 0;
+        transform: translateY(-10px) scale(0.99);
+    }
+}
+
 #drop-zone-row {
     display: none;
     width: 100%;

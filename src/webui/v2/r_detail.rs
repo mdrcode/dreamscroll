@@ -34,6 +34,7 @@ pub async fn get(
     });
 
     let mut context = state.template_context();
+    context.insert("feed_content_mode", "detail");
     context.insert("capture", &capture);
     context.insert("card", &card);
 

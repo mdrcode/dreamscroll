@@ -223,12 +223,85 @@ function setupUploadInteractions() {
     const progressWrap = document.getElementById('upload-progress');
     const progressBar = document.getElementById('upload-progress-bar');
     const progressText = document.getElementById('upload-progress-text');
+    const noticeWrap = document.getElementById('upload-notice');
+    const noticeMessage = document.getElementById('upload-notice-message');
     if (!filePicker || !uploadForm || !dropZone || !progressWrap || !progressBar || !progressText) {
         return;
     }
 
     let isUploading = false;
     let hideProgressTimer = null;
+    let hideNoticeTimer = null;
+    let hideNoticeAnimationTimer = null;
+
+    function getFeedContentMode() {
+        return document.body ? document.body.dataset.feedContentMode : '';
+    }
+
+    function shouldRefreshAfterUpload() {
+        return getFeedContentMode() === 'timeline';
+    }
+
+    function shouldShowUploadNotice() {
+        const mode = getFeedContentMode();
+        return mode === 'search' || mode === 'detail';
+    }
+
+    function showUploadNotice(captureId, detailUrl) {
+        if (!noticeWrap || !noticeMessage) {
+            return;
+        }
+
+        if (hideNoticeTimer) {
+            window.clearTimeout(hideNoticeTimer);
+            hideNoticeTimer = null;
+        }
+
+        if (hideNoticeAnimationTimer) {
+            window.clearTimeout(hideNoticeAnimationTimer);
+            hideNoticeAnimationTimer = null;
+        }
+
+        noticeMessage.textContent = '';
+        const link = document.createElement('a');
+        link.href = detailUrl;
+        link.textContent = 'Capture ' + String(captureId);
+        noticeMessage.appendChild(link);
+        noticeMessage.appendChild(document.createTextNode(' successfully uploaded.'));
+
+        noticeWrap.hidden = false;
+        noticeWrap.classList.remove('is-hiding');
+        window.requestAnimationFrame(function () {
+            noticeWrap.classList.add('is-visible');
+        });
+        hideNoticeTimer = window.setTimeout(function () {
+            noticeWrap.classList.remove('is-visible');
+            noticeWrap.classList.add('is-hiding');
+            hideNoticeAnimationTimer = window.setTimeout(function () {
+                noticeWrap.hidden = true;
+                noticeWrap.classList.remove('is-hiding');
+                noticeMessage.textContent = '';
+                hideNoticeAnimationTimer = null;
+            }, 300);
+            hideNoticeTimer = null;
+        }, 8000);
+    }
+
+    function parseUploadResult(xhr) {
+        if (!xhr.responseText) {
+            return null;
+        }
+
+        try {
+            const payload = JSON.parse(xhr.responseText);
+            if (!payload || !Number.isInteger(payload.capture_id) || typeof payload.detail_url !== 'string') {
+                return null;
+            }
+            return payload;
+        } catch (_err) {
+            return null;
+        }
+    }
 
     function setUploadProgress(percent, label) {
         const safePercent = Math.max(0, Math.min(100, Math.round(percent)));
@@ -285,8 +358,19 @@ function setupUploadInteractions() {
 
         xhr.addEventListener('load', function () {
             if (xhr.status >= 200 && xhr.status < 300) {
+                const uploadResult = parseUploadResult(xhr);
                 setUploadProgress(100, 'Processing...');
-                reloadFeedFrame();
+
+                if (shouldShowUploadNotice() && uploadResult) {
+                    showUploadNotice(uploadResult.capture_id, uploadResult.detail_url);
+                } else if (noticeWrap) {
+                    noticeWrap.hidden = true;
+                }
+
+                if (shouldRefreshAfterUpload()) {
+                    reloadFeedFrame();
+                }
+
                 setUploadInFlight(false);
                 return;
             }
@@ -302,6 +386,13 @@ function setupUploadInteractions() {
 
         xhr.send(formData);
     }
+
+    uploadForm.addEventListener('submit', function (e) {
+        e.preventDefault();
+        if (filePicker.files && filePicker.files.length > 0) {
+            submitManagedUpload(filePicker.files[0]);
+        }
+    });
 
     function clipboardEventImageFile(e) {
         if (!e.clipboardData) {

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
+use axum::{Router, extract::DefaultBodyLimit, routing::get};
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use tera::{Context, Tera};
 use tower_http::services::ServeDir;

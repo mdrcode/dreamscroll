@@ -13,7 +13,7 @@
     <script defer src="/static/webui-v2.js?v={{ static_asset_version | urlencode }}"></script>
 </head>
 
-<body>
+<body data-feed-content-mode="{{ feed_content_mode }}">
     <div id="page-content-container">
         <div id="header-row">
             <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll</a></h1>
@@ -53,6 +53,10 @@
                 <div id="upload-progress-bar"></div>
             </div>
             <div id="upload-progress-text">0%</div>
+        </div>
+
+        <div id="upload-notice" class="feed-card" hidden aria-live="polite" aria-label="Upload result">
+            <p class="capture-card__summary" id="upload-notice-message"></p>
         </div>
 
         <div id="drop-zone-row">Drop image anywhere to upload</div>
