@@ -9,10 +9,7 @@ use axum_login::AuthSession;
 
 use crate::{api, auth};
 
-use super::{
-    WebState,
-    content::{CaptureCard, Card},
-};
+use super::WebState;
 
 pub async fn get(
     auth: AuthSession<auth::WebAuthBackend>,
@@ -29,14 +26,9 @@ pub async fn get(
         .next()
         .ok_or_else(|| api::ApiError::not_found(anyhow!("Capture with id {} not found", id)))?;
 
-    let card = Card::Capture(CaptureCard {
-        capture: capture.clone(),
-    });
-
     let mut context = state.template_context();
     context.insert("feed_content_mode", "detail");
     context.insert("capture", &capture);
-    context.insert("card", &card);
 
     let rendered = state
         .tera

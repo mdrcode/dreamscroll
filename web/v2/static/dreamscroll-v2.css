@@ -360,6 +360,10 @@ body {
     gap: 6px;
 }
 
+.pill-group--wrap {
+    flex-wrap: wrap;
+}
+
 .pill-group--scroll {
     flex-wrap: nowrap;
     overflow-x: auto;
@@ -499,6 +503,46 @@ body {
     vertical-align: bottom;
 }
 
+.metadata-dict-list {
+    margin: 0 0 10px 0;
+}
+
+.metadata-dict-list dt {
+    margin: 6px 0 0 0;
+}
+
+.metadata-dict-list dt:first-of-type {
+    margin-top: 0;
+}
+
+.metadata-dict-list dd {
+    margin: 4px 0 0 0;
+    padding-left: 12px;
+    font-size: 0.9375rem;
+    line-height: 1.45;
+}
+
+.metadata-card .pill__prefix {
+    font-size: 0.75rem;
+}
+
+.metadata-card .pill__label {
+    font-size: 0.875rem;
+}
+
+.metadata-subsection-title {
+    margin: 0 0 6px 0;
+    color: var(--color-text-primary);
+    font-size: 1.2rem;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+}
+
+.metadata-dict-list+.metadata-subsection-title,
+.pill-group+.metadata-subsection-title {
+    margin-top: 10px;
+}
+
 .empty-state {
     opacity: 0.8;
     font-style: italic;
@@ -636,6 +680,11 @@ body {
         width: 45%;
         margin-left: 10px;
         padding: 0;
+    }
+
+    .metadata-card .capture-card__body {
+        width: 100%;
+        margin-left: 0;
     }
 
     .pill-group--scroll {

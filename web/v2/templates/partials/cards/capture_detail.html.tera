@@ -1,0 +1,86 @@
+<article class="feed-card feed-card--capture capture-card">
+    <div class="capture-card__image-container">
+        <a class="capture-card__image-link" href="{{ capture.medias[0].url }}" target="_blank" rel="noopener noreferrer">
+            <img class="capture-card__image" src="{{ capture.medias[0].url }}" alt="image {{ capture.medias[0].storage_uuid }}">
+        </a>
+    </div>
+
+    <div class="capture-card__body">
+        {% if capture.illuminations | length > 0 %}
+        {% set illum = capture.illuminations | first %}
+        {% set has_details = illum.details %}
+
+        {% if illum.summary %}
+        <p class="capture-card__summary">{{ illum.summary }}</p>
+        {% endif %}
+
+        {% if has_details %}
+        <div class="capture-card__details-toggle-row">
+            <a href="#" class="capture-card__details-toggle">More</a>
+        </div>
+
+        <div class="capture-card__details-panel">
+            <div class="capture-card__details-wrap">
+                <p class="capture-card__details">{{ illum.details }}</p>
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
+
+        <div class="card-footer">
+            <span class="card-timestamp" title="{{ capture.created_at }}">{{ capture.created_at_human }}</span>
+        </div>
+    </div>
+</article>
+
+<article class="feed-card feed-card--capture capture-card metadata-card">
+    <div class="capture-card__body">
+        {% if capture.illuminations | length > 0 %}
+        {% set illum = capture.illuminations | first %}
+
+        {% if illum.k_nodes | length > 0 %}
+        <p class="metadata-subsection-title">Entities</p>
+        <dl class="metadata-dict-list">
+            {% for node in illum.k_nodes %}
+            <dt>
+                <span class="pill">
+                    <span class="pill__prefix">{{ node.k_type }}</span>
+                    <span class="pill__label">{{ node.name }}</span>
+                </span>
+            </dt>
+                {% if node.description %}
+                <dd>{{ node.description }}</dd>
+                {% endif %}
+            {% endfor %}
+        </dl>
+        {% endif %}
+
+        {% if illum.social_medias | length > 0 %}
+        <p class="metadata-subsection-title">Platform Links</p>
+        <dl class="metadata-dict-list">
+            {% for node in illum.social_medias %}
+            <dt>
+                <span class="pill">
+                    <span class="pill__prefix">{{ node.platform }}</span>
+                    <span class="pill__label">{{ node.display_name }} ({{ node.handle }})</span>
+                </span>
+            </dt>
+            {% endfor %}
+        </dl>
+        {% endif %}
+
+        {% if illum.x_queries | length > 0 %}
+        <p class="metadata-subsection-title">Related Searches</p>
+        <div class="pill-group pill-group--wrap pill-group--queries pill-group--stack">
+            {% for query in illum.x_queries %}
+            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="pill">
+                <span class="pill__prefix">⌕</span>
+                <span class="pill__label">{{ query }}</span>
+            </a>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {% endif %}
+    </div>
+</article>
