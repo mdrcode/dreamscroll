@@ -8,12 +8,14 @@ document.addEventListener('DOMContentLoaded', function () {
     setupSearchClearButton();
     setupSearchEndpointRouting();
     setupCaptureExpandToggle(document);
+    setupMetadataCardExpandToggle(document);
     setupSearchClearOnSlashCommand();
     setupUploadInteractions();
 
     document.body.addEventListener('htmx:afterSwap', function (e) {
         if (e.target && e.target.id === 'card-feed') {
             setupCaptureExpandToggle(e.target);
+            setupMetadataCardExpandToggle(e.target);
         }
     });
 });
@@ -179,6 +181,34 @@ function setupCaptureExpandToggle(rootNode) {
             row.classList.toggle('is-expanded');
             this.textContent = row.classList.contains('is-expanded') ? 'Less' : 'More';
         });
+    });
+}
+
+function setupMetadataCardExpandToggle(rootNode) {
+    rootNode.querySelectorAll('.metadata-card').forEach(function (card) {
+        if (card.dataset.expandBound === 'true') {
+            return;
+        }
+
+        const content = card.querySelector('.metadata-card__content');
+        const toggle = card.querySelector('.metadata-card__toggle');
+        const toggleRow = card.querySelector('.metadata-card__toggle-row');
+        if (!content || !toggle || !toggleRow) {
+            return;
+        }
+
+        card.dataset.expandBound = 'true';
+
+        const collapsedHeight = parseInt(getComputedStyle(content).maxHeight, 10);
+        if (!Number.isFinite(collapsedHeight) || content.scrollHeight <= collapsedHeight + 4) {
+            card.classList.add('is-expanded');
+            toggleRow.hidden = true;
+            return;
+        }
+
+        card.classList.remove('is-expanded');
+        toggleRow.hidden = false;
+        toggle.textContent = 'More';
     });
 }
 

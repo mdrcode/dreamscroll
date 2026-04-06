@@ -1,8 +1,8 @@
 <article class="feed-card feed-card--capture capture-card">
     <div class="capture-card__image-container">
-        <a class="capture-card__image-link" href="{{ capture.medias[0].url }}" target="_blank" rel="noopener noreferrer">
+        <div class="capture-card__image-link">
             <img class="capture-card__image" src="{{ capture.medias[0].url }}" alt="image {{ capture.medias[0].storage_uuid }}">
-        </a>
+        </div>
     </div>
 
     <div class="capture-card__body">
@@ -35,6 +35,7 @@
 
 <article class="feed-card feed-card--capture capture-card metadata-card">
     <div class="capture-card__body">
+        <div class="metadata-card__content capture-card__details-panel">
         {% if capture.illuminations | length > 0 %}
         {% set illum = capture.illuminations | first %}
 
@@ -82,5 +83,10 @@
         {% endif %}
 
         {% endif %}
+        </div>
+
+        <div class="capture-card__details-toggle-row metadata-card__toggle-row">
+            <button type="button" class="capture-card__details-toggle metadata-card__toggle">More</button>
+        </div>
     </div>
 </article>
