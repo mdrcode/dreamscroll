@@ -1,20 +1,19 @@
 <div id="annotation-block-{{ capture.id }}" class="capture-card__annotation-block">
     {% if capture.annotation %}
-    <div class="capture-card__annotation-row">
+    <div
+        class="capture-card__annotation-row"
+        hx-get="/annotation/{{ capture.id }}/form"
+        hx-target="#annotation-block-{{ capture.id }}"
+        hx-swap="outerHTML">
         <p class="capture-card__annotation-content">{{ capture.annotation.content }}</p>
         <div class="capture-card__annotation-actions">
             <button
                 type="button"
                 class="capture-card__annotation-action"
+                hx-trigger="click consume"
                 hx-get="/annotation/{{ capture.id }}/form"
                 hx-target="#annotation-block-{{ capture.id }}"
                 hx-swap="outerHTML">edit</button>
-            <button
-                type="button"
-                class="capture-card__annotation-action"
-                hx-post="/annotation/{{ capture.id }}/archive"
-                hx-target="#annotation-block-{{ capture.id }}"
-                hx-swap="outerHTML">archive</button>
         </div>
     </div>
     {% endif %}

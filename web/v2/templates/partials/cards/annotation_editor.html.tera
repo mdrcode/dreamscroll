@@ -8,6 +8,8 @@
             class="capture-card__annotation-input"
             name="content"
             rows="3"
+            autofocus
+            onfocus="if (!this.dataset.caretInit) { this.dataset.caretInit = '1'; const len = this.value.length; this.setSelectionRange(len, len); }"
             onkeydown="if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.form.requestSubmit(); }"
             placeholder="Add a note...">{% if capture.annotation %}{{ capture.annotation.content }}{% endif %}</textarea>
         <div class="capture-card__annotation-form-actions">
@@ -18,6 +20,14 @@
                 hx-get="/annotation/{{ capture.id }}"
                 hx-target="#annotation-block-{{ capture.id }}"
                 hx-swap="outerHTML">cancel</button>
+            {% if capture.annotation %}
+            <button
+                type="button"
+                class="capture-card__annotation-action"
+                hx-post="/annotation/{{ capture.id }}/archive"
+                hx-target="#annotation-block-{{ capture.id }}"
+                hx-swap="outerHTML">archive</button>
+            {% endif %}
         </div>
     </form>
 </div>

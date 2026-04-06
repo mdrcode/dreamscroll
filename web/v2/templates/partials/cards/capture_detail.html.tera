@@ -1,4 +1,8 @@
-<article class="feed-card feed-card--capture capture-card">
+<article class="feed-card feed-card--capture capture-card capture-card--detail">
+    <div class="card-header card-header--detail">
+        <p class="metadata-subsection-title">Capture {{ capture.id }}</p>
+    </div>
+
     <div class="capture-card__image-container">
         <div class="capture-card__image-link">
             <img class="capture-card__image" src="{{ capture.medias[0].url }}" alt="image {{ capture.medias[0].storage_uuid }}">
@@ -27,9 +31,11 @@
         {% endif %}
         {% endif %}
 
-        {% include "partials/cards/annotation_block.html.tera" %}
+    </div>
 
-        <div class="card-footer">
+    <div class="card-footer card-footer--detail">
+        {% include "partials/cards/annotation_block.html.tera" %}
+        <div class="card-footer__meta">
             {% include "partials/cards/annotation_footer_left.html.tera" %}
             <span class="card-timestamp" title="{{ capture.created_at }}">{{ capture.created_at_human }}</span>
         </div>
