@@ -718,6 +718,7 @@ body {
 
 .capture-detail-disclosure {
     position: relative;
+    --metadata-card-collapsed-height: 280px;
 }
 
 .capture-detail-disclosure .capture-card__details-panel {
@@ -784,6 +785,10 @@ body {
 
     .related-captures__column {
         gap: 8px;
+    }
+
+    .capture-detail-disclosure {
+        --metadata-card-collapsed-height: 220px;
     }
 
     #header-row {

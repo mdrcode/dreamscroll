@@ -1,5 +1,3 @@
-const CAPTURE_DETAIL_MIN_COLLAPSED_HEIGHT_PX = 260;
-
 document.addEventListener('DOMContentLoaded', function () {
     if (!window.htmx) {
         throw new Error('HTMX is required for webui-v2.js but was not found on window.htmx.');
@@ -334,30 +332,6 @@ function setupMetadataCardExpandToggle(rootNode) {
         }
 
         function collapsedHeightPx() {
-            if (card.classList.contains('capture-detail-disclosure')) {
-                const detailCard = card.closest('.capture-card--detail');
-                const imageContainer = detailCard
-                    ? detailCard.querySelector('.capture-card__image-container')
-                    : null;
-
-                if (imageContainer) {
-                    const imageHeight = Number.parseFloat(
-                        imageContainer.getBoundingClientRect().height
-                    );
-                    if (Number.isFinite(imageHeight) && imageHeight > 0) {
-                        const collapsedHeight = Math.max(
-                            CAPTURE_DETAIL_MIN_COLLAPSED_HEIGHT_PX,
-                            imageHeight
-                        );
-                        card.style.setProperty(
-                            '--metadata-card-collapsed-height',
-                            String(Math.round(collapsedHeight)) + 'px'
-                        );
-                        return collapsedHeight;
-                    }
-                }
-            }
-
             const cardStyle = getComputedStyle(card);
             const collapsedHeightVar = Number.parseFloat(
                 cardStyle.getPropertyValue('--metadata-card-collapsed-height').trim()
@@ -404,30 +378,6 @@ function setupMetadataCardExpandToggle(rootNode) {
             setExpanded(true);
             toggleRow.hidden = true;
         });
-
-        if (card.classList.contains('capture-detail-disclosure')) {
-            const detailCard = card.closest('.capture-card--detail');
-            const detailImage = detailCard
-                ? detailCard.querySelector('.capture-card__image')
-                : null;
-            const imageContainer = detailCard
-                ? detailCard.querySelector('.capture-card__image-container')
-                : null;
-
-            if (detailImage && !detailImage.complete) {
-                detailImage.addEventListener('load', function () {
-                    syncInitialState();
-                    window.requestAnimationFrame(syncInitialState);
-                }, { once: true });
-            }
-
-            if (window.ResizeObserver && imageContainer) {
-                const observer = new ResizeObserver(function () {
-                    syncInitialState();
-                });
-                observer.observe(imageContainer);
-            }
-        }
 
         syncInitialState();
         window.requestAnimationFrame(syncInitialState);
