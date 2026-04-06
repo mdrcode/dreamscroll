@@ -9,7 +9,6 @@
             name="content"
             rows="3"
             autofocus
-            onfocus="if (!this.dataset.caretInit) { this.dataset.caretInit = '1'; const len = this.value.length; this.setSelectionRange(len, len); }"
             onkeydown="if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); this.form.requestSubmit(); }"
             placeholder="Add a note...">{% if capture.annotation %}{{ capture.annotation.content }}{% endif %}</textarea>
         <div class="capture-card__annotation-form-actions">

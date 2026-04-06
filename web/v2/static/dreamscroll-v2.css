@@ -411,7 +411,7 @@ body {
 .capture-card__annotation-content {
     margin: 0;
     white-space: pre-line;
-    font-size: 0.9375rem;
+    font-size: 0.85rem;
     line-height: 1.4;
 }
 
@@ -445,6 +445,7 @@ body {
     border-radius: 8px;
     padding: 8px;
     font: inherit;
+    font-size: 0.85rem;
     color: var(--color-text-primary);
     background: var(--color-canvas);
     resize: vertical;

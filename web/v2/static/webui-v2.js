@@ -11,6 +11,7 @@ document.addEventListener('DOMContentLoaded', function () {
     setupMetadataCardExpandToggle(document);
     setupRelatedCapturesMasonry(document);
     setupSearchClearOnSlashCommand();
+    setupAnnotationEditorCaret(document);
     setupUploadInteractions();
 
     document.body.addEventListener('htmx:afterSwap', function (e) {
@@ -22,8 +23,37 @@ document.addEventListener('DOMContentLoaded', function () {
         if (e.target && e.target.id === 'related-captures') {
             setupRelatedCapturesMasonry(e.target);
         }
+
+        if (e.target && e.target.id && e.target.id.startsWith('annotation-block-')) {
+            setupAnnotationEditorCaret(e.target);
+        }
     });
 });
+
+function setupAnnotationEditorCaret(rootNode) {
+    const editors = [];
+    if (rootNode && rootNode.matches && rootNode.matches('.capture-card__annotation-input')) {
+        editors.push(rootNode);
+    }
+    if (rootNode && rootNode.querySelectorAll) {
+        rootNode.querySelectorAll('.capture-card__annotation-input').forEach(function (node) {
+            editors.push(node);
+        });
+    }
+
+    editors.forEach(function (editor) {
+        if (editor.dataset.caretBound === 'true') {
+            return;
+        }
+        editor.dataset.caretBound = 'true';
+
+        window.requestAnimationFrame(function () {
+            const len = editor.value.length;
+            editor.focus({ preventScroll: true });
+            editor.setSelectionRange(len, len);
+        });
+    });
+}
 
 function setupRelatedCapturesMasonry(rootNode) {
     const galleries = [];
@@ -152,6 +182,24 @@ function setupPwaServiceWorker() {
     });
 }
 
+function isEditableTarget(node) {
+    if (!node || !node.tagName) {
+        return false;
+    }
+
+    const tagName = node.tagName.toUpperCase();
+    if (tagName === 'TEXTAREA') {
+        return true;
+    }
+
+    if (tagName === 'INPUT') {
+        const inputType = (node.getAttribute('type') || 'text').toLowerCase();
+        return inputType !== 'checkbox' && inputType !== 'radio' && inputType !== 'button' && inputType !== 'submit';
+    }
+
+    return !!node.isContentEditable;
+}
+
 function setupSearchShortcut() {
     const searchInput = document.getElementById('header-search-input');
     if (!searchInput) {
@@ -159,7 +207,15 @@ function setupSearchShortcut() {
     }
 
     document.addEventListener('keydown', function (e) {
-        if (e.key === '/' && document.activeElement !== searchInput) {
+        if (e.key !== '/') {
+            return;
+        }
+
+        if (isEditableTarget(e.target)) {
+            return;
+        }
+
+        if (document.activeElement !== searchInput) {
             e.preventDefault();
             searchInput.focus();
         }
@@ -623,24 +679,6 @@ function setupUploadInteractions() {
         }
 
         return null;
-    }
-
-    function isEditableTarget(node) {
-        if (!node || !node.tagName) {
-            return false;
-        }
-
-        const tagName = node.tagName.toUpperCase();
-        if (tagName === 'TEXTAREA') {
-            return true;
-        }
-
-        if (tagName === 'INPUT') {
-            const inputType = (node.getAttribute('type') || 'text').toLowerCase();
-            return inputType !== 'checkbox' && inputType !== 'radio' && inputType !== 'button' && inputType !== 'submit';
-        }
-
-        return !!node.isContentEditable;
     }
 
     filePicker.addEventListener('change', function () {
