@@ -293,6 +293,16 @@ impl UserApiClient {
         super::unarchive_capture(&self.db, context, capture_id).await
     }
 
+    #[tracing::instrument(skip(self, context, current_password, new_password))]
+    pub async fn change_password(
+        &self,
+        context: &auth::Context,
+        current_password: String,
+        new_password: String,
+    ) -> Result<(), ApiError> {
+        super::change_password(&self.db, context, current_password, new_password).await
+    }
+
     #[tracing::instrument(skip(self, context))]
     pub async fn search(
         &self,

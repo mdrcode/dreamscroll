@@ -18,7 +18,7 @@ pub async fn run(state: CmdState, _args: CreateUserArgs) -> anyhow::Result<()> {
 
     println!("Enter ADMIN password:");
     let admin_password = rpassword::read_password()?;
-    let admin_user = auth::password::verify(&state.db, &admin_username, &admin_password).await?;
+    let admin_user = auth::password::authenticate(&state.db, &admin_username, &admin_password).await?;
     let admin_context: auth::Context = admin_user.into();
     let admin_client = api::AdminApiClient::new(
         state.db.clone(),

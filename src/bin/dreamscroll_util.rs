@@ -32,6 +32,7 @@ struct Args {
 enum Command {
     Backfill(backfill::BackfillArgs),
     CheckFirstUser(check_first_user::CheckFirstUserArgs),
+    ChangePassword(change_password::ChangePasswordArgs),
     ClearToken(clear_token::ClearTokenArgs),
     CreateUser(create_user::CreateUserArgs),
     Enums(enums::EnumsArgs),
@@ -113,7 +114,7 @@ async fn main() -> anyhow::Result<()> {
         other => other,
     };
 
-    let rest_client = if let Some(cached_token) = token_cache::get_token(&rest_host, &username)? {
+    let rest_client = if let Some(cached_token) = local_token_cache::get_token(&rest_host, &username)? {
         println!(
             "Found cached API token for host='{}' username='{}'.",
             rest_host, username
@@ -129,13 +130,13 @@ async fn main() -> anyhow::Result<()> {
             Err(err) => {
                 if err.to_string().contains("unauthorized (401)") {
                     println!("Cached token expired or invalid; requesting a new token.");
-                    let _ = token_cache::delete_token(&rest_host, &username);
+                    let _ = local_token_cache::delete_token(&rest_host, &username);
                     let password = prompt_password_stdin()?;
                     let fresh_client =
                         rest::client::Client::connect(&rest_host, &username, &password).await?;
                     println!("Successfully authenticated and retrieved API token.");
                     if let Err(cache_err) =
-                        token_cache::set_token(&rest_host, &username, fresh_client.access_token())
+                        local_token_cache::set_token(&rest_host, &username, fresh_client.access_token())
                     {
                         eprintln!("Warning: unable to cache API token: {}", cache_err);
                     } else {
@@ -153,7 +154,7 @@ async fn main() -> anyhow::Result<()> {
         let fresh_client = rest::client::Client::connect(&rest_host, &username, &password).await?;
         println!("Successfully authenticated and retrieved API token.");
         if let Err(cache_err) =
-            token_cache::set_token(&rest_host, &username, fresh_client.access_token())
+            local_token_cache::set_token(&rest_host, &username, fresh_client.access_token())
         {
             eprintln!("Warning: unable to cache API token: {}", cache_err);
         } else {
@@ -168,6 +169,7 @@ async fn main() -> anyhow::Result<()> {
         service_api,
         rest_client,
         rest_host,
+        username,
         db,
         stg: stg,
     };
@@ -175,6 +177,7 @@ async fn main() -> anyhow::Result<()> {
     match command {
         Command::Backfill(args) => backfill::run(state, args).await,
         Command::CheckFirstUser(args) => check_first_user::run(state, args).await,
+        Command::ChangePassword(args) => change_password::run(state, args).await,
         Command::ClearToken(_) => anyhow::bail!("clear_token should have exited earlier"),
         Command::CreateUser(args) => create_user::run(state, args).await,
         Command::Enums(args) => enums::run(state, args).await,

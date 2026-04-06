@@ -1,4 +1,5 @@
 pub mod backfill;
+pub mod change_password;
 pub mod check_first_user;
 pub mod clear_token;
 pub mod create_user;
@@ -11,11 +12,11 @@ pub mod illuminate_all;
 pub mod illuminate_id;
 pub mod illumination_text;
 pub mod import_digest;
+pub mod local_token_cache;
 pub mod search;
 pub mod search_index;
 pub mod search_similar;
 pub mod spark;
-pub mod token_cache;
 
 mod auth_helper;
 pub use auth_helper::prompt_credentials_stdin;
@@ -28,6 +29,7 @@ pub struct CmdState {
     pub service_api: crate::api::ServiceApiClient,
     pub rest_client: crate::rest::client::Client,
     pub rest_host: String,
+    pub username: String,
     pub db: crate::database::DbHandle,
     pub stg: Box<dyn crate::storage::StorageProvider>,
 }

@@ -22,6 +22,12 @@ struct TokenResponse {
     access_token: String,
 }
 
+#[derive(Debug, Serialize)]
+struct ChangePasswordRequest<'a> {
+    current_password: &'a str,
+    new_password: &'a str,
+}
+
 impl Client {
     pub async fn connect(host: &str, username: &str, password: &str) -> anyhow::Result<Self> {
         let base_url = normalize_base_url(host);
@@ -229,6 +235,35 @@ impl Client {
             .context("failed to call admin backfill enqueue endpoint")?;
 
         Self::parse_json_response(response).await
+    }
+
+    pub async fn change_password(
+        &self,
+        current_password: &str,
+        new_password: &str,
+    ) -> anyhow::Result<()> {
+        let response = self
+            .reqwest_client
+            .post(format!("{}/account/password", self.base_url))
+            .bearer_auth(&self.access_token)
+            .json(&ChangePasswordRequest {
+                current_password,
+                new_password,
+            })
+            .send()
+            .await
+            .context("failed to call account password endpoint")?;
+
+        let status = response.status();
+        if status == reqwest::StatusCode::NO_CONTENT {
+            Ok(())
+        } else if status == reqwest::StatusCode::UNAUTHORIZED {
+            let body = read_error_body(response).await;
+            Err(anyhow!("unauthorized (401): {}", body))
+        } else {
+            let body = read_error_body(response).await;
+            Err(anyhow!("request failed with status {}: {}", status, body))
+        }
     }
 
     pub fn access_token(&self) -> &str {

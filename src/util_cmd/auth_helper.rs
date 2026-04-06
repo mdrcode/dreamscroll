@@ -24,7 +24,7 @@ pub fn prompt_credentials_stdin() -> anyhow::Result<(String, String)> {
 pub async fn authenticate_user_stdin(db: &DbHandle) -> anyhow::Result<auth::DreamscrollAuthUser> {
     let (username, password) = prompt_credentials_stdin()?;
 
-    let user = auth::password::verify(db, &username, &password)
+    let user = auth::password::authenticate(db, &username, &password)
         .await
         .map_err(|e| anyhow!("Authentication failed: {}", e))?;
 

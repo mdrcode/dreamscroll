@@ -36,7 +36,7 @@ impl axum_login::AuthnBackend for WebAuthBackend {
         //   Ok(Some(user)) — authenticated successfully
         //   Ok(None)       — credentials rejected (wrong password / unknown user)
         //   Err(e)         — system failure (DB error, hash error, etc.)
-        match auth::password::verify(&self.db, &creds.username, &creds.password).await {
+        match auth::password::authenticate(&self.db, &creds.username, &creds.password).await {
             Ok(user) => Ok(Some(user)),
             Err(AuthError::InvalidCredentials) => Ok(None),
             Err(e) => Err(e),

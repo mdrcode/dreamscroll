@@ -45,6 +45,7 @@ pub fn make_api_router(
     let routes_protected = Router::new()
         .route("/admin/backfill/enqueue", post(r_backfill_enqueue::post))
         .route("/admin/users", post(r_create_user::post))
+        .route("/account/password", post(r_change_password::post))
         .route("/captures", get(r_capture::get))
         .route("/captures/{capture_id}", delete(r_capture::delete))
         .route("/captures/{capture_id}/archive", post(r_capture::archive))

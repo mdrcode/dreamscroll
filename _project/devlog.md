@@ -2,7 +2,7 @@
 
 ## 20260-04-05
 
-- [ ] Capture to Capture recommendations in the UI
+- [X] Capture to Capture recommendations in the UI
 - [ ] Mike to send Peter his credentials
 - [ ] Notes field
 - [ ] Bifurcate the app loop into: LearnMoreAbout, MoreLikeThis, and GoBeyond
@@ -12,8 +12,8 @@
 
 Next up:
 
-- Improve the illumination -> text indexing representation to have less boilerplate and all the signal available (e.g. k_node descriptions, etc.)
-- normalize the embeddings in the vector search to see if that improves results
+- [X] Improve the illumination -> text indexing representation to have less boilerplate and all the signal available (e.g. k_node descriptions, etc.)
+- [X] normalize the embeddings in the vector search to see if that improves results
 
 ## 2026-03-16
 

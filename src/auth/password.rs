@@ -14,7 +14,18 @@ pub fn hash(password: &str) -> Result<String, AuthError> {
     Ok(password_hash)
 }
 
-pub async fn verify(db: &DbHandle, u: &str, p: &str) -> Result<DreamscrollAuthUser, AuthError> {
+pub fn verify_hash(password_hash: &str, password: &str) -> Result<bool, AuthError> {
+    let parsed_hash = PasswordHash::new(password_hash)?;
+    Ok(Argon2::default()
+        .verify_password(password.as_bytes(), &parsed_hash)
+        .is_ok())
+}
+
+pub async fn authenticate(
+    db: &DbHandle,
+    u: &str,
+    p: &str,
+) -> Result<DreamscrollAuthUser, AuthError> {
     let db_user = match user::Entity::find_by_username(u).one(&db.conn).await? {
         Some(user) => user,
         None => {
@@ -27,12 +38,7 @@ pub async fn verify(db: &DbHandle, u: &str, p: &str) -> Result<DreamscrollAuthUs
         }
     };
 
-    let parsed_hash = PasswordHash::new(&db_user.password_hash)?;
-
-    if Argon2::default()
-        .verify_password(p.as_bytes(), &parsed_hash)
-        .is_ok()
-    {
+    if verify_hash(&db_user.password_hash, p)? {
         Ok(DreamscrollAuthUser::from_db_model(db_user))
     } else {
         Err(AuthError::InvalidCredentials)
@@ -92,5 +98,33 @@ mod tests {
         // Wrong password should fail verification
         let verify_result = Argon2::default().verify_password(wrong_password.as_bytes(), &parsed);
         assert!(verify_result.is_err());
+    }
+
+    #[test]
+    fn test_verify_hash_returns_true_for_matching_password() {
+        let password = "matching_password_123";
+        let hash_str = hash(password).unwrap();
+
+        let matches = verify_hash(&hash_str, password).unwrap();
+        assert!(matches);
+    }
+
+    #[test]
+    fn test_verify_hash_returns_false_for_non_matching_password() {
+        let password = "correct_password";
+        let hash_str = hash(password).unwrap();
+
+        let matches = verify_hash(&hash_str, "definitely_the_wrong_password").unwrap();
+        assert!(!matches);
+    }
+
+    #[test]
+    fn test_verify_hash_returns_error_for_malformed_hash() {
+        let err = verify_hash("not-a-valid-argon2-hash", "password").unwrap_err();
+
+        match err {
+            AuthError::PasswordHashError(_) => {}
+            other => panic!("Expected PasswordHashError, got {other:?}"),
+        }
     }
 }
