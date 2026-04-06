@@ -288,6 +288,10 @@ function applyFeedParameters(parameters, state) {
 
 function setupCaptureExpandToggle(rootNode) {
     rootNode.querySelectorAll('.capture-card__details-toggle').forEach(function (link) {
+        if (link.closest('.metadata-card')) {
+            return;
+        }
+
         if (link.dataset.bound === 'true') {
             return;
         }
@@ -321,16 +325,55 @@ function setupMetadataCardExpandToggle(rootNode) {
 
         card.dataset.expandBound = 'true';
 
-        const collapsedHeight = parseInt(getComputedStyle(content).maxHeight, 10);
-        if (!Number.isFinite(collapsedHeight) || content.scrollHeight <= collapsedHeight + 4) {
-            card.classList.add('is-expanded');
-            toggleRow.hidden = true;
-            return;
+        function setExpanded(isExpanded) {
+            card.classList.toggle('is-expanded', isExpanded);
+            toggle.textContent = isExpanded ? 'Less' : 'More';
+            toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
         }
 
-        card.classList.remove('is-expanded');
-        toggleRow.hidden = false;
-        toggle.textContent = 'More';
+        function collapsedHeightPx() {
+            const cardStyle = getComputedStyle(card);
+            const collapsedHeightVar = Number.parseFloat(
+                cardStyle.getPropertyValue('--metadata-card-collapsed-height').trim()
+            );
+            if (Number.isFinite(collapsedHeightVar) && collapsedHeightVar > 0) {
+                return collapsedHeightVar;
+            }
+
+            const contentMaxHeight = Number.parseFloat(getComputedStyle(content).maxHeight);
+            if (Number.isFinite(contentMaxHeight) && contentMaxHeight > 0) {
+                return contentMaxHeight;
+            }
+
+            return content.scrollHeight;
+        }
+
+        function syncInitialState() {
+            const collapsedHeight = collapsedHeightPx();
+            const shouldCollapse = content.scrollHeight > collapsedHeight + 4;
+
+            if (!shouldCollapse) {
+                setExpanded(true);
+                toggleRow.hidden = true;
+                return;
+            }
+
+            if (card.dataset.userExpanded !== 'true' && card.dataset.userExpanded !== 'false') {
+                setExpanded(false);
+            }
+            toggleRow.hidden = false;
+        }
+
+        toggle.addEventListener('click', function (e) {
+            e.preventDefault();
+            const isExpanded = card.classList.contains('is-expanded');
+            const nextExpanded = !isExpanded;
+            card.dataset.userExpanded = nextExpanded ? 'true' : 'false';
+            setExpanded(nextExpanded);
+        });
+
+        syncInitialState();
+        window.requestAnimationFrame(syncInitialState);
     });
 }
 
