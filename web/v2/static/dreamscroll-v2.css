@@ -695,6 +695,18 @@ body {
     margin-top: 10px;
 }
 
+.capture-detail-disclosure {
+    position: relative;
+}
+
+.capture-detail-disclosure .capture-card__details-panel {
+    transition: none;
+}
+
+.capture-detail-disclosure .capture-card__summary + .capture-card__details {
+    margin-top: 10px;
+}
+
 .related-captures {
     margin-bottom: 10px;
 }

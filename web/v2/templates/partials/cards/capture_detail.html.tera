@@ -14,18 +14,20 @@
         {% set illum = capture.illuminations | first %}
         {% set has_details = illum.details %}
 
-        {% if illum.summary %}
-        <p class="capture-card__summary">{{ illum.summary }}</p>
-        {% endif %}
+        {% if illum.summary or has_details %}
+        <div class="capture-detail-disclosure metadata-card">
+            <div class="metadata-card__content capture-card__details-panel">
+                {% if illum.summary %}
+                <p class="capture-card__summary">{{ illum.summary }}</p>
+                {% endif %}
 
-        {% if has_details %}
-        <div class="capture-card__details-toggle-row">
-            <a href="#" class="capture-card__details-toggle">More</a>
-        </div>
-
-        <div class="capture-card__details-panel">
-            <div class="capture-card__details-wrap">
+                {% if has_details %}
                 <p class="capture-card__details">{{ illum.details }}</p>
+                {% endif %}
+            </div>
+
+            <div class="capture-card__details-toggle-row metadata-card__toggle-row">
+                <button type="button" class="capture-card__details-toggle metadata-card__toggle">More</button>
             </div>
         </div>
         {% endif %}

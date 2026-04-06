@@ -332,6 +332,26 @@ function setupMetadataCardExpandToggle(rootNode) {
         }
 
         function collapsedHeightPx() {
+            if (card.classList.contains('capture-detail-disclosure')) {
+                const detailCard = card.closest('.capture-card--detail');
+                const imageContainer = detailCard
+                    ? detailCard.querySelector('.capture-card__image-container')
+                    : null;
+
+                if (imageContainer) {
+                    const imageHeight = Number.parseFloat(
+                        imageContainer.getBoundingClientRect().height
+                    );
+                    if (Number.isFinite(imageHeight) && imageHeight > 0) {
+                        card.style.setProperty(
+                            '--metadata-card-collapsed-height',
+                            String(Math.round(imageHeight)) + 'px'
+                        );
+                        return imageHeight;
+                    }
+                }
+            }
+
             const cardStyle = getComputedStyle(card);
             const collapsedHeightVar = Number.parseFloat(
                 cardStyle.getPropertyValue('--metadata-card-collapsed-height').trim()
@@ -371,6 +391,30 @@ function setupMetadataCardExpandToggle(rootNode) {
             card.dataset.userExpanded = nextExpanded ? 'true' : 'false';
             setExpanded(nextExpanded);
         });
+
+        if (card.classList.contains('capture-detail-disclosure')) {
+            const detailCard = card.closest('.capture-card--detail');
+            const detailImage = detailCard
+                ? detailCard.querySelector('.capture-card__image')
+                : null;
+            const imageContainer = detailCard
+                ? detailCard.querySelector('.capture-card__image-container')
+                : null;
+
+            if (detailImage && !detailImage.complete) {
+                detailImage.addEventListener('load', function () {
+                    syncInitialState();
+                    window.requestAnimationFrame(syncInitialState);
+                }, { once: true });
+            }
+
+            if (window.ResizeObserver && imageContainer) {
+                const observer = new ResizeObserver(function () {
+                    syncInitialState();
+                });
+                observer.observe(imageContainer);
+            }
+        }
 
         syncInitialState();
         window.requestAnimationFrame(syncInitialState);
