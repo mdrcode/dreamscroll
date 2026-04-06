@@ -60,8 +60,21 @@
         {% endif %}
         {% endif %}
 
+        {% set capture = card.capture %}
+        {% include "partials/cards/annotation_block.html.tera" %}
+
         <div class="card-footer">
-            <span class="card-timestamp" title="{{ card.capture.created_at }}">{{ card.capture.created_at_human }}</span>
+            <div class="card-footer__left">
+                {% if not capture.annotation %}
+                <button
+                    type="button"
+                    class="card-footer__action"
+                    hx-get="/annotation/{{ capture.id }}/form"
+                    hx-target="#annotation-block-{{ capture.id }}"
+                    hx-swap="outerHTML">add note</button>
+                {% endif %}
+            </div>
+            <span class="card-timestamp" title="{{ capture.created_at }}">{{ capture.created_at_human }}</span>
         </div>
     </div>
 </article>

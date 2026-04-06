@@ -57,7 +57,10 @@ impl InfoMaker {
         }
     }
 
-    pub fn make_annotation_info(&self, annotation_model: model::annotation::ModelEx) -> AnnotationInfo {
+    pub fn make_annotation_info(
+        &self,
+        annotation_model: model::annotation::ModelEx,
+    ) -> AnnotationInfo {
         AnnotationInfo {
             id: annotation_model.id,
             capture_id: annotation_model.capture_id,

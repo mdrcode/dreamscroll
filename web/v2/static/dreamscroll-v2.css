@@ -345,8 +345,89 @@ body {
 
 .card-footer {
     display: flex;
-    justify-content: flex-end;
+    justify-content: space-between;
+    align-items: center;
     margin-top: auto;
+}
+
+.card-footer__left {
+    display: flex;
+    align-items: center;
+    min-height: 1.1rem;
+}
+
+.card-footer__action {
+    border: none;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-capture-timestamp);
+    font-style: italic;
+    padding: 0;
+    cursor: pointer;
+}
+
+.card-footer__action:hover {
+    color: var(--color-text-primary);
+    text-decoration: underline;
+}
+
+.capture-card__annotation-block {
+    margin-top: 8px;
+    margin-bottom: 8px;
+}
+
+.capture-card__annotation-row {
+    border: 1px solid var(--color-stroke-soft);
+    border-radius: 8px;
+    background: var(--color-canvas);
+    padding: 8px;
+}
+
+.capture-card__annotation-content {
+    margin: 0;
+    white-space: pre-line;
+    font-size: 0.9375rem;
+    line-height: 1.4;
+}
+
+.capture-card__annotation-actions,
+.capture-card__annotation-form-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.capture-card__annotation-action {
+    border: none;
+    background: transparent;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-capture-timestamp);
+    font-style: italic;
+    padding: 0;
+    cursor: pointer;
+}
+
+.capture-card__annotation-action:hover {
+    color: var(--color-text-primary);
+    text-decoration: underline;
+}
+
+.capture-card__annotation-input {
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid var(--color-stroke-soft);
+    border-radius: 8px;
+    padding: 8px;
+    font: inherit;
+    color: var(--color-text-primary);
+    background: var(--color-canvas);
+    resize: vertical;
+}
+
+.capture-card__annotation-input:focus {
+    outline: none;
+    border-color: var(--color-stroke);
 }
 
 .card-timestamp {

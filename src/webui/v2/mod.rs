@@ -3,6 +3,7 @@ pub use maker::*;
 
 mod content;
 
+mod r_annotation;
 mod r_auth;
 mod r_cards;
 mod r_command;

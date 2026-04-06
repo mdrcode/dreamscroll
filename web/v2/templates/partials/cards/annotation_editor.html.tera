@@ -1,0 +1,22 @@
+<div id="annotation-block-{{ capture.id }}" class="capture-card__annotation-block">
+    <form
+        class="capture-card__annotation-form"
+        hx-post="/annotation/{{ capture.id }}"
+        hx-target="#annotation-block-{{ capture.id }}"
+        hx-swap="outerHTML">
+        <textarea
+            class="capture-card__annotation-input"
+            name="content"
+            rows="3"
+            placeholder="Add a note...">{% if capture.annotation %}{{ capture.annotation.content }}{% endif %}</textarea>
+        <div class="capture-card__annotation-form-actions">
+            <button type="submit" class="capture-card__annotation-action">save</button>
+            <button
+                type="button"
+                class="capture-card__annotation-action"
+                hx-get="/annotation/{{ capture.id }}"
+                hx-target="#annotation-block-{{ capture.id }}"
+                hx-swap="outerHTML">cancel</button>
+        </div>
+    </form>
+</div>
