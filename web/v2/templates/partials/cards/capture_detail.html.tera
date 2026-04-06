@@ -90,3 +90,10 @@
         </div>
     </div>
 </article>
+
+<section
+    id="related-captures"
+    hx-get="/detail/{{ capture.id }}/related"
+    hx-trigger="load"
+    hx-swap="innerHTML">
+</section>

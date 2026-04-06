@@ -1,0 +1,8 @@
+<section class="related-captures" data-related-captures>
+    <p class="metadata-subsection-title">Similar Captures</p>
+
+    <div class="empty-state related-captures__empty" hidden>No similar captures found.</div>
+    <div class="related-captures__grid" aria-label="Similar capture gallery"></div>
+
+    <script type="application/json" class="related-captures__data">{{ captures | json_encode | safe }}</script>
+</section>

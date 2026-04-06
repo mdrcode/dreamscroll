@@ -8,7 +8,9 @@ use tower_sessions::SessionManagerLayer;
 
 use crate::{api, auth, facility};
 
-use super::{r_auth, r_cards, r_command, r_detail, r_index, r_login_page, r_masonry, r_upload};
+use super::{
+    r_auth, r_cards, r_command, r_detail, r_index, r_login_page, r_masonry, r_related, r_upload,
+};
 
 pub struct WebState {
     pub user_api: api::UserApiClient,
@@ -57,6 +59,7 @@ pub fn make_ui_router(
     let routes_protected = Router::new()
         .route("/", get(r_index::get))
         .route("/detail/{id}", get(r_detail::get))
+        .route("/detail/{id}/related", get(r_related::get))
         .route("/cards", get(r_cards::get))
         .route("/masonry", get(r_masonry::get))
         .route("/command", post(r_command::post))

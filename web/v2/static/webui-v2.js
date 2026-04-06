@@ -9,6 +9,7 @@ document.addEventListener('DOMContentLoaded', function () {
     setupSearchEndpointRouting();
     setupCaptureExpandToggle(document);
     setupMetadataCardExpandToggle(document);
+    setupRelatedCapturesMasonry(document);
     setupSearchClearOnSlashCommand();
     setupUploadInteractions();
 
@@ -17,8 +18,129 @@ document.addEventListener('DOMContentLoaded', function () {
             setupCaptureExpandToggle(e.target);
             setupMetadataCardExpandToggle(e.target);
         }
+
+        if (e.target && e.target.id === 'related-captures') {
+            setupRelatedCapturesMasonry(e.target);
+        }
     });
 });
+
+function setupRelatedCapturesMasonry(rootNode) {
+    const galleries = [];
+    if (rootNode.matches && rootNode.matches('[data-related-captures]')) {
+        galleries.push(rootNode);
+    }
+    if (rootNode.querySelectorAll) {
+        rootNode.querySelectorAll('[data-related-captures]').forEach(function (node) {
+            galleries.push(node);
+        });
+    }
+
+    galleries.forEach(function (gallery) {
+        if (gallery.dataset.masonryBound === 'true') {
+            return;
+        }
+
+        const dataNode = gallery.querySelector('.related-captures__data');
+        const grid = gallery.querySelector('.related-captures__grid');
+        const emptyState = gallery.querySelector('.related-captures__empty');
+        if (!dataNode || !grid || !emptyState) {
+            return;
+        }
+
+        let captures = [];
+        try {
+            captures = JSON.parse(dataNode.textContent || '[]');
+        } catch (_err) {
+            captures = [];
+        }
+
+        const images = captures
+            .map(function (capture) {
+                if (!capture || !Array.isArray(capture.medias) || capture.medias.length === 0) {
+                    return null;
+                }
+                return {
+                    id: capture.id,
+                    url: capture.medias[0].url
+                };
+            })
+            .filter(function (image) {
+                return image && image.id && image.url;
+            });
+
+        function getColumnCount() {
+            const raw = getComputedStyle(grid).getPropertyValue('--related-captures-cols').trim();
+            const parsed = Number.parseInt(raw, 10);
+            if (!Number.isFinite(parsed) || parsed < 1) {
+                return 1;
+            }
+            return parsed;
+        }
+
+        function renderColumns() {
+            if (images.length === 0) {
+                emptyState.hidden = false;
+                grid.replaceChildren();
+                return;
+            }
+
+            emptyState.hidden = true;
+
+            const columnCount = getColumnCount();
+            const buckets = Array.from({ length: columnCount }, function () {
+                return [];
+            });
+
+            images.forEach(function (image, idx) {
+                buckets[idx % columnCount].push(image);
+            });
+
+            const fragment = document.createDocumentFragment();
+            buckets.forEach(function (bucket) {
+                const column = document.createElement('div');
+                column.className = 'related-captures__column';
+
+                bucket.forEach(function (image) {
+                    const link = document.createElement('a');
+                    link.className = 'related-captures__item';
+                    link.href = '/detail/' + String(image.id);
+
+                    const img = document.createElement('img');
+                    img.src = image.url;
+                    img.alt = 'similar capture image';
+
+                    link.appendChild(img);
+                    column.appendChild(link);
+                });
+
+                fragment.appendChild(column);
+            });
+
+            grid.replaceChildren(fragment);
+        }
+
+        let lastCount = -1;
+        function rerenderIfNeeded() {
+            const count = getColumnCount();
+            if (count !== lastCount) {
+                lastCount = count;
+                renderColumns();
+            }
+        }
+
+        let resizeTimer = null;
+        window.addEventListener('resize', function () {
+            if (resizeTimer !== null) {
+                window.clearTimeout(resizeTimer);
+            }
+            resizeTimer = window.setTimeout(rerenderIfNeeded, 120);
+        });
+
+        rerenderIfNeeded();
+        gallery.dataset.masonryBound = 'true';
+    });
+}
 
 function setupPwaServiceWorker() {
     if (!('serviceWorker' in navigator)) {
