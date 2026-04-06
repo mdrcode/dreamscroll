@@ -531,7 +531,7 @@ body {
 }
 
 .metadata-card {
-    --metadata-card-collapsed-height: 260px;
+    --metadata-card-collapsed-height: 140px;
 }
 
 .metadata-card .capture-card__body {
@@ -551,9 +551,9 @@ body {
 .metadata-card:not(.is-expanded) .metadata-card__content::after {
     content: "";
     position: absolute;
-    left: 2px;
-    right: 2px;
-    bottom: 2px;
+    left: 0;
+    right: 0;
+    bottom: 0;
     height: 84px;
     background: linear-gradient(to bottom, rgba(242, 239, 233, 0), var(--color-card) 78%);
     pointer-events: none;
@@ -564,18 +564,19 @@ body {
     margin-bottom: 0;
 }
 
-.metadata-card__toggle-row {
+.metadata-card .metadata-card__toggle-row {
     position: absolute;
     left: 50%;
     bottom: 2px;
     transform: translateX(-50%);
     z-index: 2;
+    margin: 0;
 }
 
 .metadata-card.is-expanded .metadata-card__toggle-row {
     position: static;
     transform: none;
-    margin-top: 3px;
+    margin: 2px 0 0 0;
     display: flex;
     justify-content: center;
 }
