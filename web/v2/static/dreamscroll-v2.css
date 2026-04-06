@@ -360,10 +360,16 @@ body {
     border: none;
     background: transparent;
     color: var(--color-text-secondary);
+    text-decoration: none;
     font-size: var(--font-size-capture-timestamp);
     font-style: italic;
     padding: 0;
     cursor: pointer;
+}
+
+.card-footer__action:visited {
+    color: var(--color-text-secondary);
+    text-decoration: none;
 }
 
 .card-footer__action:hover {
@@ -848,6 +854,10 @@ body {
         outline: 0.5px solid var(--color-stroke-soft);
         outline-offset: -0.5px;
         padding: 10px;
+    }
+
+    .feed-card.capture-card--detail {
+        padding-top: 6px;
     }
 
     .capture-card {

@@ -37,7 +37,7 @@
         {% include "partials/cards/annotation_block.html.tera" %}
         <div class="card-footer__meta">
             {% include "partials/cards/annotation_footer_left.html.tera" %}
-            <span class="card-timestamp" title="{{ capture.created_at }}">{{ capture.created_at_human }}</span>
+            <a class="card-footer__action" href="/detail/{{ capture.id }}" title="{{ capture.created_at }}">{{ capture.created_at_human }}</a>
         </div>
     </div>
 </article>
