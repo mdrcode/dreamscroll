@@ -879,7 +879,6 @@ body {
 
     .capture-card--detail .capture-card__image-container {
         width: 100%;
-        justify-content: flex-start;
     }
 
     .capture-card--detail .capture-card__body {
