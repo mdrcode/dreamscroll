@@ -1,3 +1,5 @@
+const CAPTURE_DETAIL_MIN_COLLAPSED_HEIGHT_PX = 260;
+
 document.addEventListener('DOMContentLoaded', function () {
     if (!window.htmx) {
         throw new Error('HTMX is required for webui-v2.js but was not found on window.htmx.');
@@ -343,11 +345,15 @@ function setupMetadataCardExpandToggle(rootNode) {
                         imageContainer.getBoundingClientRect().height
                     );
                     if (Number.isFinite(imageHeight) && imageHeight > 0) {
+                        const collapsedHeight = Math.max(
+                            CAPTURE_DETAIL_MIN_COLLAPSED_HEIGHT_PX,
+                            imageHeight
+                        );
                         card.style.setProperty(
                             '--metadata-card-collapsed-height',
-                            String(Math.round(imageHeight)) + 'px'
+                            String(Math.round(collapsedHeight)) + 'px'
                         );
-                        return imageHeight;
+                        return collapsedHeight;
                     }
                 }
             }

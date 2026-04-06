@@ -619,7 +619,7 @@ body {
 }
 
 .metadata-card {
-    --metadata-card-collapsed-height: 140px;
+    --metadata-card-collapsed-height: 200px;
 }
 
 .metadata-card .capture-card__body {
@@ -767,10 +767,6 @@ body {
 
     .related-captures__column {
         gap: 8px;
-    }
-
-    .metadata-card {
-        --metadata-card-collapsed-height: 200px;
     }
 
     #header-row {
