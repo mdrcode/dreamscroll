@@ -1,7 +1,7 @@
 use anyhow::Context;
 use argh::FromArgs;
 
-use dreamscroll::{api, database, facility, rest, storage, task, util_cmd::*};
+use dreamscroll::{api, database, facility, rest, search, storage, task, util};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll cmd line utility")]
@@ -30,23 +30,23 @@ struct Args {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 enum Command {
-    Backfill(backfill::BackfillArgs),
-    CheckFirstUser(check_first_user::CheckFirstUserArgs),
-    ChangePassword(change_password::ChangePasswordArgs),
-    ClearToken(clear_token::ClearTokenArgs),
-    CreateUser(create_user::CreateUserArgs),
-    Enums(enums::EnumsArgs),
-    //Eval(eval::EvalArgs),
-    ExportDigest(export_digest::ExportDigestArgs),
-    FirstUser(first_user::FirstUserArgs),
-    IlluminateAll(illuminate_all::IlluminateAllArgs),
-    IlluminateId(illuminate_id::IlluminateIdArgs),
-    IlluminationText(illumination_text::IlluminationTextArgs),
-    ImportDigest(import_digest::ImportDigestArgs),
-    SearchIndex(search_index::SearchIndexArgs),
-    SearchSimilar(search_similar::SearchSimilarArgs),
-    Search(search::SearchArgs),
-    Spark(spark::SparkArgs),
+    Backfill(util::backfill::BackfillArgs),
+    CheckFirstUser(util::check_first_user::CheckFirstUserArgs),
+    ChangePassword(util::change_password::ChangePasswordArgs),
+    ClearToken(util::clear_token::ClearTokenArgs),
+    CreateUser(util::create_user::CreateUserArgs),
+    Enums(util::enums::EnumsArgs),
+    //Eval(util::eval::EvalArgs),
+    ExportDigest(util::export_digest::ExportDigestArgs),
+    FirstUser(util::first_user::FirstUserArgs),
+    IlluminateAll(util::illuminate_all::IlluminateAllArgs),
+    IlluminateId(util::illuminate_id::IlluminateIdArgs),
+    IlluminationText(util::illumination_text::IlluminationTextArgs),
+    ImportDigest(util::import_digest::ImportDigestArgs),
+    SearchIndex(util::search_index::SearchIndexArgs),
+    SearchSimilar(util::search_similar::SearchSimilarArgs),
+    Search(util::search::SearchArgs),
+    Spark(util::spark::SparkArgs),
 }
 
 #[tokio::main]
@@ -70,7 +70,9 @@ async fn main() -> anyhow::Result<()> {
     // will be enqueued.
     // TODO this should be a NOOP queue that logs tasks so we can verify behavior
     let empty_beacon = task::Beacon::default();
-    let capture_searcher = api::CaptureSearcher::from_config(&config, stg.clone()).await;
+    let capture_searcher = search::CaptureSearcher::from_config(&config, stg.clone())
+        .await
+        .context("Failed to initialize required CaptureSearcher")?;
     let user_api = api::UserApiClient::new(
         db.clone(),
         stg.clone(),
@@ -100,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
     let username = if let Some(user) = user {
         user.trim().to_string()
     } else {
-        prompt_username_stdin()?
+        util::prompt_username_stdin()?
     };
 
     if username.is_empty() {
@@ -109,12 +111,14 @@ async fn main() -> anyhow::Result<()> {
 
     let command = match command {
         Command::ClearToken(clear_args) => {
-            return clear_token::run(&rest_host, &username, clear_args).await;
+            return util::clear_token::run(&rest_host, &username, clear_args).await;
         }
         other => other,
     };
 
-    let rest_client = if let Some(cached_token) = local_token_cache::get_token(&rest_host, &username)? {
+    let rest_client = if let Some(cached_token) =
+        util::token_cache::get_token(&rest_host, &username)?
+    {
         println!(
             "Found cached API token for host='{}' username='{}'.",
             rest_host, username
@@ -130,14 +134,16 @@ async fn main() -> anyhow::Result<()> {
             Err(err) => {
                 if err.to_string().contains("unauthorized (401)") {
                     println!("Cached token expired or invalid; requesting a new token.");
-                    let _ = local_token_cache::delete_token(&rest_host, &username);
-                    let password = prompt_password_stdin()?;
+                    let _ = util::token_cache::delete_token(&rest_host, &username);
+                    let password = util::prompt_password_stdin()?;
                     let fresh_client =
                         rest::client::Client::connect(&rest_host, &username, &password).await?;
                     println!("Successfully authenticated and retrieved API token.");
-                    if let Err(cache_err) =
-                        local_token_cache::set_token(&rest_host, &username, fresh_client.access_token())
-                    {
+                    if let Err(cache_err) = util::token_cache::set_token(
+                        &rest_host,
+                        &username,
+                        fresh_client.access_token(),
+                    ) {
                         eprintln!("Warning: unable to cache API token: {}", cache_err);
                     } else {
                         println!("Successfully cached API token.");
@@ -150,11 +156,11 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     } else {
-        let password = prompt_password_stdin()?;
+        let password = util::prompt_password_stdin()?;
         let fresh_client = rest::client::Client::connect(&rest_host, &username, &password).await?;
         println!("Successfully authenticated and retrieved API token.");
         if let Err(cache_err) =
-            local_token_cache::set_token(&rest_host, &username, fresh_client.access_token())
+            util::token_cache::set_token(&rest_host, &username, fresh_client.access_token())
         {
             eprintln!("Warning: unable to cache API token: {}", cache_err);
         } else {
@@ -163,7 +169,7 @@ async fn main() -> anyhow::Result<()> {
         fresh_client
     };
 
-    let state = CmdState {
+    let state = util::CmdState {
         config,
         user_api,
         service_api,
@@ -175,22 +181,21 @@ async fn main() -> anyhow::Result<()> {
     };
 
     match command {
-        Command::Backfill(args) => backfill::run(state, args).await,
-        Command::CheckFirstUser(args) => check_first_user::run(state, args).await,
-        Command::ChangePassword(args) => change_password::run(state, args).await,
+        Command::Backfill(args) => util::backfill::run(state, args).await,
+        Command::CheckFirstUser(args) => util::check_first_user::run(state, args).await,
+        Command::ChangePassword(args) => util::change_password::run(state, args).await,
         Command::ClearToken(_) => anyhow::bail!("clear_token should have exited earlier"),
-        Command::CreateUser(args) => create_user::run(state, args).await,
-        Command::Enums(args) => enums::run(state, args).await,
-        //Command::Eval(args) => eval::run(state, args).await,
-        Command::ExportDigest(args) => export_digest::run(state, args).await,
-        Command::FirstUser(args) => first_user::run(state, args).await,
-        Command::IlluminateAll(args) => illuminate_all::run(state, args).await,
-        Command::IlluminateId(args) => illuminate_id::run(state, args).await,
-        Command::IlluminationText(args) => illumination_text::run(state, args).await,
-        Command::ImportDigest(args) => import_digest::run(state, args).await,
-        Command::SearchIndex(args) => search_index::run(state, args).await,
-        Command::SearchSimilar(args) => search_similar::run(state, args).await,
-        Command::Search(args) => search::run(state, args).await,
-        Command::Spark(args) => spark::run(state, args).await,
+        Command::CreateUser(args) => util::create_user::run(state, args).await,
+        Command::Enums(args) => util::enums::run(state, args).await,
+        Command::ExportDigest(args) => util::export_digest::run(state, args).await,
+        Command::FirstUser(args) => util::first_user::run(state, args).await,
+        Command::IlluminateAll(args) => util::illuminate_all::run(state, args).await,
+        Command::IlluminateId(args) => util::illuminate_id::run(state, args).await,
+        Command::IlluminationText(args) => util::illumination_text::run(state, args).await,
+        Command::ImportDigest(args) => util::import_digest::run(state, args).await,
+        Command::SearchIndex(args) => util::search_index::run(state, args).await,
+        Command::SearchSimilar(args) => util::search_similar::run(state, args).await,
+        Command::Search(args) => util::search::run(state, args).await,
+        Command::Spark(args) => util::spark::run(state, args).await,
     }
 }

@@ -8,7 +8,7 @@ use super::*;
 pub struct ClearTokenArgs {}
 
 pub async fn run(host: &str, username: &str, _args: ClearTokenArgs) -> anyhow::Result<()> {
-    local_token_cache::delete_token(host, username)?;
+    token_cache::delete_token(host, username)?;
 
     println!("Cleared cached API token.");
     println!("- Host: {}", host);

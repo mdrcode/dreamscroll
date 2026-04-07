@@ -14,3 +14,6 @@ mod searcher;
 pub use searcher::*;
 
 pub mod gcloud;
+
+mod capture_searcher;
+pub use capture_searcher::*;

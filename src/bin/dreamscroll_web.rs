@@ -5,7 +5,7 @@ use tower_http::services::ServeDir;
 use tower_sessions::{Expiry, SessionManagerLayer, cookie};
 
 use dreamscroll::{
-    api, auth, database, facility, illumination, rest, storage, task, webhook, webui,
+    api, auth, database, facility, illumination, rest, search, storage, task, webhook, webui,
 };
 
 #[tokio::main]
@@ -36,7 +36,9 @@ async fn main() -> anyhow::Result<()> {
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
     let beacon = task::make_beacon(&config).await?;
-    let capture_searcher = api::CaptureSearcher::from_config(&config, stg.clone()).await;
+    let capture_searcher = search::CaptureSearcher::from_config(&config, stg.clone())
+        .await
+        .context("Failed to initialize required CaptureSearcher")?;
 
     let user_api = api::UserApiClient::new(
         db.clone(),

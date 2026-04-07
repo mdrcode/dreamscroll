@@ -18,33 +18,20 @@ impl CaptureSearcher {
     pub async fn from_config(
         config: &facility::Config,
         storage: Box<dyn storage::StorageProvider>,
-    ) -> Option<Self> {
+    ) -> anyhow::Result<Self> {
         let parts_maker = api::CaptureInfoEmbedPartsMaker::new(storage);
-        let embedder = match search::gcloud::GeminiEmbedder::from_config(config, parts_maker) {
-            Ok(embedder) => embedder,
-            Err(err) => {
-                tracing::warn!(error = %err, "GeminiEmbedder init failed");
-                return None;
-            }
-        };
+        let embedder = search::gcloud::GeminiEmbedder::from_config(config, parts_maker)
+            .context("GeminiEmbedder init failed")?;
 
-        let searcher = match search::gcloud::VertexVectorSearcher::from_config(config).await {
-            Ok(searcher) => searcher,
-            Err(err) => {
-                tracing::warn!(error = %err, "VertexVectorSearcher init failed");
-                return None;
-            }
-        };
+        let searcher = search::gcloud::VertexVectorSearcher::from_config(config)
+            .await
+            .context("VertexVectorSearcher init failed")?;
 
-        let vector_store = match search::gcloud::VertexVectorStore::from_config(config).await {
-            Ok(vector_store) => vector_store,
-            Err(err) => {
-                tracing::warn!(error = %err, "VertexVectorStore init failed");
-                return None;
-            }
-        };
+        let vector_store = search::gcloud::VertexVectorStore::from_config(config)
+            .await
+            .context("VertexVectorStore init failed")?;
 
-        Some(Self {
+        Ok(Self {
             embedder,
             searcher,
             vector_store,

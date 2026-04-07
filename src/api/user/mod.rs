@@ -27,9 +27,6 @@ pub use archive_annotation::*;
 mod delete_capture;
 pub use delete_capture::*;
 
-mod search;
-pub use search::*;
-
 mod change_password;
 pub use change_password::*;
 

@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use anyhow::anyhow;
 
-use crate::{api::*, auth, database, storage, task};
+use crate::{api::*, auth, database, search, storage, task};
 
 #[derive(Clone)]
 pub struct UserApiClient {
@@ -12,7 +12,7 @@ pub struct UserApiClient {
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
     beacon: task::Beacon,
-    capture_searcher: Option<super::CaptureSearcher>,
+    capture_searcher: search::CaptureSearcher,
 }
 
 impl UserApiClient {
@@ -21,7 +21,7 @@ impl UserApiClient {
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
         beacon: task::Beacon,
-        capture_searcher: Option<super::CaptureSearcher>,
+        capture_searcher: search::CaptureSearcher,
     ) -> Self {
         Self {
             db,
@@ -330,13 +330,7 @@ impl UserApiClient {
         query: &str,
         limit: Option<u64>,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
-        let capture_searcher = self.capture_searcher.as_ref().ok_or_else(|| {
-            ApiError::internal(anyhow!(
-                "Search backend unavailable: Gemini/Vertex not initialized from config"
-            ))
-        })?;
-
-        let capture_ids = capture_searcher.search(context, query, limit).await?;
+        let capture_ids = self.capture_searcher.search(context, query, limit).await?;
         if capture_ids.is_empty() {
             return Ok(vec![]);
         }
@@ -356,19 +350,15 @@ impl UserApiClient {
         capture_id: i32,
         limit: Option<u64>,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
-        let capture_searcher = self.capture_searcher.as_ref().ok_or_else(|| {
-            ApiError::internal(anyhow!(
-                "Search backend unavailable: Gemini/Vertex not initialized from config"
-            ))
-        })?;
-
-        let mut query_capture_models = super::get_captures(&self.db, context, vec![capture_id]).await?;
+        let mut query_capture_models =
+            super::get_captures(&self.db, context, vec![capture_id]).await?;
         let Some(query_capture_model) = query_capture_models.pop() else {
             return Ok(vec![]);
         };
         let query_capture = self.info_maker.make_capture_info(query_capture_model);
 
-        let capture_ids = capture_searcher
+        let capture_ids = self
+            .capture_searcher
             .search_similar(context, &query_capture, limit)
             .await?;
 

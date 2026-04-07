@@ -10,6 +10,6 @@ pub mod rest;
 pub mod search;
 pub mod storage;
 pub mod task;
-pub mod util_cmd;
+pub mod util;
 pub mod webhook;
 pub mod webui;

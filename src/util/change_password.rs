@@ -32,7 +32,7 @@ pub async fn run(state: CmdState, _args: ChangePasswordArgs) -> anyhow::Result<(
 
     println!("Password changed successfully.");
 
-    if let Err(err) = local_token_cache::delete_token(&state.rest_host, &state.username) {
+    if let Err(err) = token_cache::delete_token(&state.rest_host, &state.username) {
         eprintln!("Warning: unable to clear cached API token: {}", err);
     }
 
@@ -41,7 +41,7 @@ pub async fn run(state: CmdState, _args: ChangePasswordArgs) -> anyhow::Result<(
             .await
             .context("password changed, but failed to fetch a fresh token with the new password")?;
 
-    if let Err(cache_err) = local_token_cache::set_token(
+    if let Err(cache_err) = token_cache::set_token(
         &state.rest_host,
         &state.username,
         fresh_client.access_token(),

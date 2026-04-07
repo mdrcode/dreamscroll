@@ -3,8 +3,8 @@
 ## 20260-04-05
 
 - [X] Capture to Capture recommendations in the UI
-- [ ] Mike to send Peter his credentials
-- [ ] Notes field
+- [X] Mike to send Peter his credentials
+- [X] Notes field
 - [ ] Bifurcate the app loop into: LearnMoreAbout, MoreLikeThis, and GoBeyond
 - [ ] Mind Map
 
