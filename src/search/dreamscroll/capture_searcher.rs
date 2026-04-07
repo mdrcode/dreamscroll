@@ -1,17 +1,15 @@
 use anyhow::Context;
 use std::collections::HashSet;
 
-use crate::{
-    api, auth, facility,
-    search::{self, *},
-    storage,
-};
+use crate::{api, auth, facility, search::*, storage};
+
+use super::*;
 
 #[derive(Clone)]
 pub struct CaptureSearcher {
-    embedder: search::gcloud::GeminiEmbedder<api::CaptureInfo, api::CaptureInfoEmbedPartsMaker>,
-    searcher: search::gcloud::VertexVectorSearcher,
-    vector_store: search::gcloud::VertexVectorStore,
+    embedder: gcloud::GeminiEmbedder<api::CaptureInfo, CaptureInfoEmbedPartsMaker>,
+    searcher: gcloud::VertexVectorSearcher,
+    vector_store: gcloud::VertexVectorStore,
 }
 
 impl CaptureSearcher {
@@ -19,15 +17,15 @@ impl CaptureSearcher {
         config: &facility::Config,
         storage: Box<dyn storage::StorageProvider>,
     ) -> anyhow::Result<Self> {
-        let parts_maker = api::CaptureInfoEmbedPartsMaker::new(storage);
-        let embedder = search::gcloud::GeminiEmbedder::from_config(config, parts_maker)
+        let parts_maker = CaptureInfoEmbedPartsMaker::new(storage);
+        let embedder = gcloud::GeminiEmbedder::from_config(config, parts_maker)
             .context("GeminiEmbedder init failed")?;
 
-        let searcher = search::gcloud::VertexVectorSearcher::from_config(config)
+        let searcher = gcloud::VertexVectorSearcher::from_config(config)
             .await
             .context("VertexVectorSearcher init failed")?;
 
-        let vector_store = search::gcloud::VertexVectorStore::from_config(config)
+        let vector_store = gcloud::VertexVectorStore::from_config(config)
             .await
             .context("VertexVectorStore init failed")?;
 
@@ -73,7 +71,7 @@ impl CaptureSearcher {
             .search_hybrid(
                 query,
                 &query_embedding,
-                &search::QueryParams {
+                &QueryParams {
                     base_filter: Self::user_filter(user_context.user_id()),
                     limit,
                     page_token: None,
@@ -137,7 +135,7 @@ impl CaptureSearcher {
             .searcher
             .search_embedding(
                 &query_embedding,
-                &search::QueryParams {
+                &QueryParams {
                     base_filter: Self::user_filter(user_context.user_id()),
                     limit,
                     page_token: None,

@@ -3,10 +3,7 @@ use argh::FromArgs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::search::{
-    Embedder, VectorStore,
-    gcloud::{GeminiEmbedder, VertexVectorStore},
-};
+use crate::search::{self, prelude::*};
 
 use super::*;
 
@@ -44,12 +41,12 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
     let user_context = user.into();
 
-    let parts_maker = crate::api::CaptureInfoEmbedPartsMaker::new(state.stg.clone());
-    let embedder = GeminiEmbedder::from_config(&state.config, parts_maker)?;
+    let parts_maker = search::dreamscroll::CaptureInfoEmbedPartsMaker::new(state.stg.clone());
+    let embedder = search::gcloud::GeminiEmbedder::from_config(&state.config, parts_maker)?;
     let vector_store = if args.no_upsert {
         None
     } else {
-        Some(VertexVectorStore::from_config(&state.config).await?)
+        Some(search::gcloud::VertexVectorStore::from_config(&state.config).await?)
     };
 
     let (raw_count, capture_infos) = if args.all {

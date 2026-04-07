@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
     // will be enqueued.
     // TODO this should be a NOOP queue that logs tasks so we can verify behavior
     let empty_beacon = task::Beacon::default();
-    let capture_searcher = search::CaptureSearcher::from_config(&config, stg.clone())
+    let capture_searcher = search::dreamscroll::CaptureSearcher::from_config(&config, stg.clone())
         .await
         .context("Failed to initialize required CaptureSearcher")?;
     let user_api = api::UserApiClient::new(

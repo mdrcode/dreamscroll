@@ -1,43 +1,8 @@
 use crate::{
     api,
-    search::{self, DataObject, Embedder, VectorStore},
-    storage, webhook,
+    search::{dreamscroll::SearchIndexer, *},
+    webhook,
 };
-
-#[derive(Clone)]
-pub struct SearchIndexer {
-    embedder: search::gcloud::GeminiEmbedder<api::CaptureInfo, api::CaptureInfoEmbedPartsMaker>,
-    vector_store: search::gcloud::VertexVectorStore,
-}
-
-impl SearchIndexer {
-    pub async fn from_config(
-        config: &crate::facility::Config,
-        storage: Box<dyn storage::StorageProvider>,
-    ) -> Option<Self> {
-        let parts_maker = api::CaptureInfoEmbedPartsMaker::new(storage);
-        let embedder = match search::gcloud::GeminiEmbedder::from_config(config, parts_maker) {
-            Ok(embedder) => embedder,
-            Err(err) => {
-                tracing::warn!(error = %err, "GeminiEmbedder init failed for SearchIndexer");
-                return None;
-            }
-        };
-
-        let vector_store = match search::gcloud::VertexVectorStore::from_config(config).await {
-            Ok(vector_store) => vector_store,
-            Err(err) => {
-                tracing::warn!(error = %err, "VertexVectorStore init failed for SearchIndexer");
-                return None;
-            }
-        };
-
-        Some(Self {
-            embedder,
-            vector_store,
-        })
-    }
-}
 
 pub async fn exec(
     service_api: &api::ServiceApiClient,

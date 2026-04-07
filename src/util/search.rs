@@ -53,7 +53,7 @@ pub async fn run(state: CmdState, args: SearchArgs) -> anyhow::Result<()> {
     let page = if args.text_only {
         searcher.search_text(&args.query, &params).await?
     } else {
-        let parts_maker = crate::api::CaptureInfoEmbedPartsMaker::new(state.stg.clone());
+        let parts_maker = search::dreamscroll::CaptureInfoEmbedPartsMaker::new(state.stg.clone());
         let embedder = search::gcloud::GeminiEmbedder::from_config(&state.config, parts_maker)?;
         let query_embedding = embedder.embed_query(&args.query).await?;
         tracing::info!(

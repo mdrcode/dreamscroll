@@ -1,7 +1,7 @@
 use axum::{Router, extract::DefaultBodyLimit, routing::post};
 use std::sync::Arc;
 
-use crate::{api, facility, ignition, illumination};
+use crate::{api, facility, ignition, illumination, search};
 
 use super::*;
 
@@ -9,14 +9,14 @@ pub struct WebhookState {
     pub service_api: api::ServiceApiClient,
     pub illuminator: Box<dyn illumination::Illuminator>,
     pub firestarter: Box<dyn ignition::Firestarter>,
-    pub search_indexer: logic::search_index::SearchIndexer,
+    pub search_indexer: search::dreamscroll::SearchIndexer,
 }
 
 pub fn make_webhook_router(
     service_api: api::ServiceApiClient,
     illuminator: Box<dyn illumination::Illuminator>,
     firestarter: Box<dyn ignition::Firestarter>,
-    search_indexer: logic::search_index::SearchIndexer,
+    search_indexer: search::dreamscroll::SearchIndexer,
 ) -> Router {
     let state = Arc::new(WebhookState {
         service_api,

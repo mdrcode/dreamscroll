@@ -13,7 +13,8 @@ pub use vectorstore::*;
 mod searcher;
 pub use searcher::*;
 
+pub mod prelude;
+
 pub mod gcloud;
 
-mod capture_searcher;
-pub use capture_searcher::*;
+pub mod dreamscroll;
