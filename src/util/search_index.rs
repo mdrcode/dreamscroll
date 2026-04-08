@@ -60,7 +60,6 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
         return Err(anyhow!("No matching captures found for the current user."));
     }
 
-    let embed_maker = search::CaptureInfoEmbedMaker::new(state.stg.clone());
     let embedder = search::gcloud::GeminiEmbedder::from_config(&state.config)?;
     let vector_store = if args.no_upsert {
         None
@@ -73,7 +72,7 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     let mut last_vector: Option<(i32, Vec<f32>)> = None;
 
     for capture in capture_infos {
-        let input = embed_maker.make_embed_input(&capture).await?;
+        let input = search::make_capture_info_embed_input(state.stg.as_ref(), &capture).await?;
         let embedding = match embedder.embed_object(input).await {
             Ok(embedding) => {
                 tracing::debug!(

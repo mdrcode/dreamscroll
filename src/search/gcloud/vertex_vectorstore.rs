@@ -85,9 +85,9 @@ impl search::VectorStore<search::Embedding<f32, search::Unit>> for VertexVectorS
     ) -> anyhow::Result<search::VectorUpsertResult> {
         if embedding.len() != self.dense_vector_dims {
             anyhow::bail!(
-                "Dimension mismatch: VectorStore dims: {}, embedding: {:?}",
+                "Dimension mismatch: VectorStore dims: {}, embedding dims: {}",
                 self.dense_vector_dims,
-                embedding
+                embedding.len()
             );
         }
 

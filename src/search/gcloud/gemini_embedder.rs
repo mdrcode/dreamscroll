@@ -24,7 +24,7 @@ impl GeminiEmbedder {
     pub fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
         let output_dims = config
             .search_embed_vector_dims
-            .context("SEARCH_EMBED_OUTPUT_DIMS required for search indexing")?;
+            .context("SEARCH_EMBED_VECTOR_DIMS required for search indexing")?;
 
         Self::new(
             config.gcloud_project_id.clone(),

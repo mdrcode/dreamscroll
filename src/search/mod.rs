@@ -14,9 +14,6 @@ pub mod prelude;
 pub mod gcloud;
 
 pub mod capture_data_object;
-pub mod capture_embed;
-pub use capture_embed::*;
-pub mod capture_embedder;
-pub use capture_embedder::*;
+pub use capture_data_object::*;
 pub mod capture_searcher;
 pub use capture_searcher::*;

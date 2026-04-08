@@ -1,28 +1,25 @@
 use axum::{Router, extract::DefaultBodyLimit, routing::post};
 use std::sync::Arc;
 
-use crate::{api, facility, ignition, illumination, search};
+use crate::{api, facility, ignition, illumination, search, storage};
 
 use super::*;
 
-pub struct WebhookState {
-    pub service_api: api::ServiceApiClient,
-    pub illuminator: Box<dyn illumination::Illuminator>,
-    pub firestarter: Box<dyn ignition::Firestarter>,
-    pub capture_embedder: search::CaptureEmbedder,
-}
-
 pub fn make_webhook_router(
     service_api: api::ServiceApiClient,
+    storage: Box<dyn storage::StorageProvider>,
     illuminator: Box<dyn illumination::Illuminator>,
     firestarter: Box<dyn ignition::Firestarter>,
-    capture_embedder: search::CaptureEmbedder,
+    embedder: search::gcloud::GeminiEmbedder,
+    vector_store: search::gcloud::VertexVectorStore,
 ) -> Router {
     let state = Arc::new(WebhookState {
         service_api,
+        stg: storage,
         illuminator,
         firestarter,
-        capture_embedder,
+        embedder,
+        vector_store,
     });
 
     // These routes are protected by GCloud IAM/OIDC in production, but have no

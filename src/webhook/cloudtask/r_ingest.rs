@@ -23,7 +23,9 @@ pub async fn post(
 
     webhook::logic::search_index::exec(
         &state.service_api,
-        &state.capture_embedder,
+        state.stg.as_ref(),
+        &state.embedder,
+        &state.vector_store,
         webhook::schema::SearchIndexTask {
             capture_id: task.capture_id,
         },

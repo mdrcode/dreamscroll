@@ -12,7 +12,14 @@ pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(task): Json<webhook::schema::SearchIndexTask>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    webhook::logic::search_index::exec(&state.service_api, &state.capture_embedder, task).await?;
+    webhook::logic::search_index::exec(
+        &state.service_api,
+        state.stg.as_ref(),
+        &state.embedder,
+        &state.vector_store,
+        task,
+    )
+    .await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

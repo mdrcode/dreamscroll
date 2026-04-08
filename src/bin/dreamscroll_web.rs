@@ -111,12 +111,18 @@ async fn main() -> anyhow::Result<()> {
     if config.services.contains(&facility::Service::Webhook) {
         let illuminator = illumination::make_illuminator(&config, stg.clone());
         let firestarter = dreamscroll::ignition::make_firestarter(&config)?;
-        let embedder = search::CaptureEmbedder::from_config(&config, stg.clone())
-            .await
-            .context("Failed to initialize webhook CaptureEmbedder")?;
+        let embedder = search::gcloud::GeminiEmbedder::from_config(&config)?;
+        let vector_store = search::gcloud::VertexVectorStore::from_config(&config).await?;
         router = router.nest(
             "/_wh",
-            webhook::make_webhook_router(service_api, illuminator, firestarter, embedder),
+            webhook::make_webhook_router(
+                service_api,
+                stg,
+                illuminator,
+                firestarter,
+                embedder,
+                vector_store,
+            ),
         );
         tracing::info!("Initialized webhook routes");
     }

@@ -1,12 +1,14 @@
 use crate::{
     api,
-    search::{CaptureEmbedder, CaptureInfoEmbedMaker, prelude::*},
-    webhook,
+    search::{self, prelude::*},
+    storage, webhook,
 };
 
 pub async fn exec(
     service_api: &api::ServiceApiClient,
-    search_indexer: &CaptureEmbedder,
+    stg: &dyn storage::StorageProvider,
+    embedder: &search::gcloud::GeminiEmbedder,
+    vector_store: &search::gcloud::VertexVectorStore,
     task: webhook::schema::SearchIndexTask,
 ) -> Result<(), api::ApiError> {
     tracing::Span::current().record("capture_id", task.capture_id);
@@ -35,8 +37,7 @@ pub async fn exec(
     }
 
     let object_id = capture.data_object_id();
-    let already_indexed = search_indexer
-        .vector_store
+    let already_indexed = vector_store
         .fetch_object_embedding(&object_id)
         .await
         .map_err(api::ApiError::internal)?
@@ -50,19 +51,14 @@ pub async fn exec(
         return Ok(());
     }
 
-    let embed_input = search_indexer
-        .embed_parts_maker
-        .make_embed_input(&capture)
-        .await?;
+    let embed_input = search::make_capture_info_embed_input(stg, &capture).await?;
 
-    let embedding = search_indexer
-        .embedder
+    let embedding = embedder
         .embed_object(embed_input)
         .await
         .map_err(api::ApiError::internal)?;
 
-    let upsert_result = search_indexer
-        .vector_store
+    let upsert_result = vector_store
         .upsert_object_embedding(&capture, &embedding)
         .await
         .map_err(api::ApiError::internal)?;
