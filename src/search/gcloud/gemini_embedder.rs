@@ -1,9 +1,7 @@
 use anyhow::Context;
-
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder};
 use reqwest::Client;
 use serde_json::{Value, json};
-use std::marker::PhantomData;
 use std::time::Duration;
 
 use crate::{facility, search};
@@ -13,23 +11,17 @@ const MODEL_ID: &str = "gemini-embedding-2-preview";
 const TASK_TYPE_RETRIEVAL_DOCUMENT: &str = "RETRIEVAL_DOCUMENT";
 const TASK_TYPE_RETRIEVAL_QUERY: &str = "RETRIEVAL_QUERY";
 
-/// Embeds a capture into a dense vector via Gemini Embeddings v2.
+/// Embeds into a dense vector via Gemini Embeddings v2 of dimensionality `dims`.
 #[derive(Clone)]
-pub struct GeminiEmbedder<D, M> {
+pub struct GeminiEmbedder {
     model_url: String,
-    output_dims: u32,
-    parts_maker: M,
-    _object: PhantomData<fn() -> D>,
+    dims: u32,
     http: Client,
     adc_credentials: AccessTokenCredentials,
 }
 
-impl<D, M> GeminiEmbedder<D, M>
-where
-    D: search::DataObject,
-    M: search::gcloud::EmbedPartsMaker<D>,
-{
-    pub fn from_config(config: &facility::Config, parts_maker: M) -> anyhow::Result<Self> {
+impl GeminiEmbedder {
+    pub fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
         let output_dims = config
             .search_embed_vector_dims
             .context("SEARCH_EMBED_OUTPUT_DIMS required for search indexing")?;
@@ -39,7 +31,6 @@ where
             config.gcloud_project_region.clone(),
             MODEL_ID.to_string(),
             output_dims,
-            parts_maker,
         )
     }
 
@@ -48,7 +39,6 @@ where
         region: String,
         model_id: String,
         output_dims: u32,
-        parts_maker: M,
     ) -> anyhow::Result<Self> {
         let adc_credentials = Builder::default()
             .with_scopes([CLOUD_PLATFORM_SCOPE])
@@ -63,9 +53,7 @@ where
 
         Ok(Self {
             model_url,
-            output_dims,
-            parts_maker,
-            _object: PhantomData,
+            dims: output_dims,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(60)) // sanity
                 .build()?,
@@ -73,7 +61,7 @@ where
         })
     }
 
-    async fn embed_content_parts_normalizing(
+    async fn embed_normalizing(
         &self,
         parts: Value,
         task_type: &str,
@@ -85,7 +73,7 @@ where
                 "parts": parts
             },
             "embedContentConfig": {
-                "outputDimensionality": self.output_dims,
+                "outputDimensionality": self.dims,
                 "taskType": task_type
             }
         });
@@ -116,11 +104,7 @@ where
 }
 
 #[async_trait::async_trait]
-impl<D, M> search::Embedder<D, search::Embedding<f32, search::Unit>> for GeminiEmbedder<D, M>
-where
-    D: search::DataObject,
-    M: search::gcloud::EmbedPartsMaker<D>,
-{
+impl search::Embedder<serde_json::Value, search::Embedding<f32, search::Unit>> for GeminiEmbedder {
     #[tracing::instrument(skip(self, query), fields(query_len = query.len()))]
     async fn embed_query(
         &self,
@@ -130,37 +114,31 @@ where
             anyhow::bail!("Query text is empty, cannot embed");
         }
 
-        let parts = json!([
+        let json_value = json!([
             {
                 "text": query
             }
         ]);
 
-        let embed_normal = self
-            .embed_content_parts_normalizing(parts, TASK_TYPE_RETRIEVAL_QUERY)
+        let embedding = self
+            .embed_normalizing(json_value, TASK_TYPE_RETRIEVAL_QUERY)
             .await?;
-        tracing::debug!(
-            embedding_dims = embed_normal.len(),
-            "Query embedding generated"
-        );
-        Ok(embed_normal)
+        tracing::debug!(dims = embedding.len(), "Query embedding generated");
+        Ok(embedding)
     }
 
     #[tracing::instrument(skip(self, object))]
     async fn embed_object(
         &self,
-        object: &D,
+        object: serde_json::Value,
     ) -> anyhow::Result<search::Embedding<f32, search::Unit>> {
-        let parts = self.parts_maker.make_embed_parts(object).await?;
+        // let parts = self.parts_maker.make_embed_parts(object).await?;
 
-        let embed_normal = self
-            .embed_content_parts_normalizing(parts, TASK_TYPE_RETRIEVAL_DOCUMENT)
+        let embedding = self
+            .embed_normalizing(object, TASK_TYPE_RETRIEVAL_DOCUMENT)
             .await?;
-        tracing::debug!(
-            embedding_dims = embed_normal.len(),
-            "object embedding generated"
-        );
-        Ok(embed_normal)
+        tracing::debug!(dims = embedding.len(), "object embedding generated");
+        Ok(embedding)
     }
 }
 

@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
     let beacon = task::make_beacon(&config).await?;
-    let capture_searcher = search::CaptureSearcher::from_config(&config, stg.clone())
+    let searcher = search::CaptureSearcher::from_config(&config)
         .await
         .context("Failed to initialize required CaptureSearcher")?;
 
@@ -45,7 +45,7 @@ async fn main() -> anyhow::Result<()> {
         stg.clone(),
         url_maker.clone(),
         beacon.clone(),
-        capture_searcher,
+        searcher,
     );
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
     tracing::info!("Initialized storage, pubsub beacon, and API clients");

@@ -1,6 +1,6 @@
 use crate::{
     api,
-    search::{CaptureEmbedder, prelude::*},
+    search::{CaptureEmbedder, CaptureInfoEmbedMaker, prelude::*},
     webhook,
 };
 
@@ -50,9 +50,14 @@ pub async fn exec(
         return Ok(());
     }
 
+    let embed_input = search_indexer
+        .embed_parts_maker
+        .make_embed_input(&capture)
+        .await?;
+
     let embedding = search_indexer
         .embedder
-        .embed_object(&capture)
+        .embed_object(embed_input)
         .await
         .map_err(api::ApiError::internal)?;
 

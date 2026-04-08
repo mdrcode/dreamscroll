@@ -7,19 +7,15 @@ use super::*;
 
 #[derive(Clone)]
 pub struct CaptureSearcher {
-    embedder: gcloud::GeminiEmbedder<api::CaptureInfo, CaptureInfoEmbedPartsMaker>,
+    embedder: gcloud::GeminiEmbedder,
     searcher: gcloud::VertexVectorSearcher,
     vector_store: gcloud::VertexVectorStore,
 }
 
 impl CaptureSearcher {
-    pub async fn from_config(
-        config: &facility::Config,
-        storage: Box<dyn storage::StorageProvider>,
-    ) -> anyhow::Result<Self> {
-        let parts_maker = CaptureInfoEmbedPartsMaker::new(storage);
-        let embedder = gcloud::GeminiEmbedder::from_config(config, parts_maker)
-            .context("GeminiEmbedder init failed")?;
+    pub async fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
+        let embedder =
+            gcloud::GeminiEmbedder::from_config(config).context("GeminiEmbedder init failed")?;
 
         let searcher = gcloud::VertexVectorSearcher::from_config(config)
             .await

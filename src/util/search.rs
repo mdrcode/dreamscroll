@@ -53,8 +53,7 @@ pub async fn run(state: CmdState, args: SearchArgs) -> anyhow::Result<()> {
     let page = if args.text_only {
         searcher.search_text(&args.query, &params).await?
     } else {
-        let parts_maker = search::CaptureInfoEmbedPartsMaker::new(state.stg.clone());
-        let embedder = search::gcloud::GeminiEmbedder::from_config(&state.config, parts_maker)?;
+        let embedder = search::gcloud::GeminiEmbedder::from_config(&state.config)?;
         let query_embedding = embedder.embed_query(&args.query).await?;
         tracing::info!(
             "Generated query embedding with dims={}",

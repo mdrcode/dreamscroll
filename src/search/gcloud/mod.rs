@@ -1,6 +1,3 @@
-mod embed_parts_maker;
-pub use embed_parts_maker::*;
-
 mod gemini_embedder;
 pub use gemini_embedder::*;
 

@@ -41,14 +41,6 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
     let user_context = user.into();
 
-    let parts_maker = search::CaptureInfoEmbedPartsMaker::new(state.stg.clone());
-    let embedder = search::gcloud::GeminiEmbedder::from_config(&state.config, parts_maker)?;
-    let vector_store = if args.no_upsert {
-        None
-    } else {
-        Some(search::gcloud::VertexVectorStore::from_config(&state.config).await?)
-    };
-
     let (raw_count, capture_infos) = if args.all {
         let captures = state
             .user_api
@@ -67,13 +59,22 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     if capture_infos.is_empty() {
         return Err(anyhow!("No matching captures found for the current user."));
     }
-    let retrieved_count = capture_infos.len();
 
+    let embed_maker = search::CaptureInfoEmbedMaker::new(state.stg.clone());
+    let embedder = search::gcloud::GeminiEmbedder::from_config(&state.config)?;
+    let vector_store = if args.no_upsert {
+        None
+    } else {
+        Some(search::gcloud::VertexVectorStore::from_config(&state.config).await?)
+    };
+
+    let retrieved_count = capture_infos.len();
     let mut success_count = 0usize;
     let mut last_vector: Option<(i32, Vec<f32>)> = None;
 
     for capture in capture_infos {
-        let embedding = match embedder.embed_object(&capture).await {
+        let input = embed_maker.make_embed_input(&capture).await?;
+        let embedding = match embedder.embed_object(input).await {
             Ok(embedding) => {
                 tracing::debug!(
                     "Embedded capture {} (dims={}) successfully",

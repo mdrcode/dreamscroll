@@ -1,10 +1,12 @@
-use crate::{api, storage};
+use crate::storage;
 
 use super::*;
 
 #[derive(Clone)]
 pub struct CaptureEmbedder {
-    pub embedder: gcloud::GeminiEmbedder<api::CaptureInfo, CaptureInfoEmbedPartsMaker>,
+    // TODO revisit pub on these
+    pub embed_parts_maker: CaptureInfoEmbedMaker,
+    pub embedder: gcloud::GeminiEmbedder,
     pub vector_store: gcloud::VertexVectorStore,
 }
 
@@ -13,8 +15,8 @@ impl CaptureEmbedder {
         config: &crate::facility::Config,
         storage: Box<dyn storage::StorageProvider>,
     ) -> Option<Self> {
-        let parts_maker = CaptureInfoEmbedPartsMaker::new(storage);
-        let embedder = match gcloud::GeminiEmbedder::from_config(config, parts_maker) {
+        let embed_parts_maker = CaptureInfoEmbedMaker::new(storage);
+        let embedder = match gcloud::GeminiEmbedder::from_config(config) {
             Ok(embedder) => embedder,
             Err(err) => {
                 tracing::warn!(error = %err, "GeminiEmbedder init failed for CaptureEmbedder");
@@ -31,6 +33,7 @@ impl CaptureEmbedder {
         };
 
         Some(Self {
+            embed_parts_maker,
             embedder,
             vector_store,
         })

@@ -4,22 +4,19 @@ use serde_json::json;
 
 use crate::{api, storage};
 
-use super::*;
-
 #[derive(Clone)]
-pub struct CaptureInfoEmbedPartsMaker {
+pub struct CaptureInfoEmbedMaker {
     storage: Box<dyn storage::StorageProvider>,
 }
 
-impl CaptureInfoEmbedPartsMaker {
+impl CaptureInfoEmbedMaker {
     pub fn new(storage: Box<dyn storage::StorageProvider>) -> Self {
         Self { storage }
     }
 }
 
-#[async_trait::async_trait]
-impl gcloud::EmbedPartsMaker<api::CaptureInfo> for CaptureInfoEmbedPartsMaker {
-    async fn make_embed_parts(
+impl CaptureInfoEmbedMaker {
+    pub async fn make_embed_input(
         &self,
         object: &api::CaptureInfo,
     ) -> anyhow::Result<serde_json::Value> {
