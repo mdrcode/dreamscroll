@@ -23,7 +23,7 @@ pub async fn post(
 
     webhook::logic::search_index::exec(
         &state.service_api,
-        &state.search_indexer,
+        &state.capture_embedder,
         webhook::schema::SearchIndexTask {
             capture_id: task.capture_id,
         },

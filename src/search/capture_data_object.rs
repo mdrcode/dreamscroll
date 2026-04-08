@@ -1,9 +1,11 @@
 use anyhow;
 use serde_json::{Map, Value, json};
 
-use crate::{api, search};
+use crate::api;
 
-impl search::DataObject for api::CaptureInfo {
+use super::*;
+
+impl DataObject for api::CaptureInfo {
     fn data_object_id(&self) -> String {
         format!("u{}-c{}", self.user_id, self.id)
     }

@@ -1,8 +1,3 @@
-//! Convenient imports for common search abstractions.
-//!
-//! Intended for callers that use the core search contracts and data types:
-//! `use crate::search::prelude::*;`
-
 pub use super::DataObject;
 pub use super::Embedder;
 pub use super::Embedding;

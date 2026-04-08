@@ -41,7 +41,7 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     let user = auth_helper::authenticate_user_stdin(&state.db).await?;
     let user_context = user.into();
 
-    let parts_maker = search::dreamscroll::CaptureInfoEmbedPartsMaker::new(state.stg.clone());
+    let parts_maker = search::CaptureInfoEmbedPartsMaker::new(state.stg.clone());
     let embedder = search::gcloud::GeminiEmbedder::from_config(&state.config, parts_maker)?;
     let vector_store = if args.no_upsert {
         None

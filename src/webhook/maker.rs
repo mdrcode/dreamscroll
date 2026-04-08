@@ -9,20 +9,20 @@ pub struct WebhookState {
     pub service_api: api::ServiceApiClient,
     pub illuminator: Box<dyn illumination::Illuminator>,
     pub firestarter: Box<dyn ignition::Firestarter>,
-    pub search_indexer: search::dreamscroll::SearchIndexer,
+    pub capture_embedder: search::CaptureEmbedder,
 }
 
 pub fn make_webhook_router(
     service_api: api::ServiceApiClient,
     illuminator: Box<dyn illumination::Illuminator>,
     firestarter: Box<dyn ignition::Firestarter>,
-    search_indexer: search::dreamscroll::SearchIndexer,
+    capture_embedder: search::CaptureEmbedder,
 ) -> Router {
     let state = Arc::new(WebhookState {
         service_api,
         illuminator,
         firestarter,
-        search_indexer,
+        capture_embedder,
     });
 
     // These routes are protected by GCloud IAM/OIDC in production, but have no

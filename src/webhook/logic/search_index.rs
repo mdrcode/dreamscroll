@@ -1,12 +1,12 @@
 use crate::{
     api,
-    search::{dreamscroll::SearchIndexer, *},
+    search::{CaptureEmbedder, prelude::*},
     webhook,
 };
 
 pub async fn exec(
     service_api: &api::ServiceApiClient,
-    search_indexer: &SearchIndexer,
+    search_indexer: &CaptureEmbedder,
     task: webhook::schema::SearchIndexTask,
 ) -> Result<(), api::ApiError> {
     tracing::Span::current().record("capture_id", task.capture_id);

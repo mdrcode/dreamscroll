@@ -12,7 +12,7 @@ pub struct UserApiClient {
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
     beacon: task::Beacon,
-    capture_searcher: search::dreamscroll::CaptureSearcher,
+    capture_searcher: search::CaptureSearcher,
 }
 
 impl UserApiClient {
@@ -21,7 +21,7 @@ impl UserApiClient {
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
         beacon: task::Beacon,
-        capture_searcher: search::dreamscroll::CaptureSearcher,
+        capture_searcher: search::CaptureSearcher,
     ) -> Self {
         Self {
             db,

@@ -2,7 +2,9 @@ use anyhow;
 use base64::Engine;
 use serde_json::json;
 
-use crate::{api, search, storage};
+use crate::{api, storage};
+
+use super::*;
 
 #[derive(Clone)]
 pub struct CaptureInfoEmbedPartsMaker {
@@ -16,7 +18,7 @@ impl CaptureInfoEmbedPartsMaker {
 }
 
 #[async_trait::async_trait]
-impl search::gcloud::EmbedPartsMaker<api::CaptureInfo> for CaptureInfoEmbedPartsMaker {
+impl gcloud::EmbedPartsMaker<api::CaptureInfo> for CaptureInfoEmbedPartsMaker {
     async fn make_embed_parts(
         &self,
         object: &api::CaptureInfo,
