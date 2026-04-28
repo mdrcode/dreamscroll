@@ -17,11 +17,12 @@ pub async fn run(state: CmdState, _args: CreateUserArgs) -> anyhow::Result<()> {
     let admin_username = admin_username.trim().to_string();
 
     println!("Enter ADMIN password:");
+    let db = state.db_handle();
     let admin_password = rpassword::read_password()?;
-    let admin_user = auth::password::authenticate(&state.db, &admin_username, &admin_password).await?;
+    let admin_user = auth::password::authenticate(&db, &admin_username, &admin_password).await?;
     let admin_context: auth::Context = admin_user.into();
     let admin_client = api::AdminApiClient::new(
-        state.db.clone(),
+        db.clone(),
         state.service_api.clone(),
         task::Beacon::default(),
     );

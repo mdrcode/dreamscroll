@@ -56,8 +56,8 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
 
         let media_bytes = tokio::fs::read(&media_path).await?.into();
 
-        match state
-            .rest_client
+        let rest_client = state.rest_client().await?;
+        match rest_client
             .import_capture(media_bytes, entry.created_at)
             .await
         {
@@ -83,8 +83,7 @@ pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> 
     }
 
     println!(
-        "Complete for host: {} digest_contained: {} imported: {} skipped: {}",
-        state.rest_host,
+        "Completedigest_contained: {} imported: {} skipped: {}",
         digest.captures.len(),
         imported_captures,
         skipped_captures

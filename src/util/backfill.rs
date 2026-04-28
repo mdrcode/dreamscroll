@@ -84,7 +84,8 @@ async fn run_search_index(state: CmdState, args: BackfillSearchIndexArgs) -> any
         dry_run: args.dry_run,
     };
 
-    let response = state.rest_client.admin_enqueue_backfill(&request).await?;
+    let rest_client = state.rest_client().await?;
+    let response = rest_client.admin_enqueue_backfill(&request).await?;
 
     println!("Backfill enqueue response");
     println!("- Task type: search_index");

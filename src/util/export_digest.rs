@@ -61,9 +61,8 @@ pub async fn run(state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> 
     println!("Created export directory: {}", export_dir.display());
 
     // Fetch all capture_infos from REST API for this user
-    let capture_infos = state.rest_client.get_captures(None).await?;
-
-    println!("Using REST host: {}", state.rest_host);
+    let rest_client = state.rest_client().await?;
+    let capture_infos = rest_client.get_captures(None).await?;
 
     println!("Found {} captures to export.", capture_infos.len());
 

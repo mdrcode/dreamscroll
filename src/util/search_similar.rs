@@ -16,7 +16,8 @@ pub struct SearchSimilarArgs {
 }
 
 pub async fn run(state: CmdState, args: SearchSimilarArgs) -> anyhow::Result<()> {
-    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
+    let db = state.db_handle();
+    let user = auth_helper::authenticate_user_stdin(&db).await?;
     let context_user: crate::auth::Context = user.into();
 
     let capture_infos = state

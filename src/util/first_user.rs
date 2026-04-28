@@ -11,7 +11,8 @@ use super::*;
 pub struct FirstUserArgs {}
 
 pub async fn run(state: CmdState, _args: FirstUserArgs) -> anyhow::Result<()> {
-    facility::check_first_user(&state.db).await?;
+    let db = state.db_handle();
+    facility::check_first_user(&db).await?;
 
     Ok(())
 }

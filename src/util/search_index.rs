@@ -38,7 +38,8 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
         ));
     }
 
-    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
+    let db = state.db_handle();
+    let user = auth_helper::authenticate_user_stdin(&db).await?;
     let user_context = user.into();
 
     let (raw_count, capture_infos) = if args.all {

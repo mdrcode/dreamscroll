@@ -29,7 +29,8 @@ pub async fn run(state: CmdState, args: IlluminateIdArgs) -> anyhow::Result<()> 
         return Err(anyhow!("At least one capture ID must be provided."));
     }
 
-    let user = auth_helper::authenticate_user_stdin(&state.db).await?;
+    let db = state.db_handle();
+    let user = auth_helper::authenticate_user_stdin(&db).await?;
 
     let illuminator = make_illuminator(&state.config, state.stg.clone());
 

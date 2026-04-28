@@ -100,7 +100,8 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
 
     let capture_ids = parse_capture_ids(&args.ids)?;
 
-    let captures = state.rest_client.get_captures(Some(&capture_ids)).await?;
+    let rest_client = state.rest_client().await?;
+    let captures = rest_client.get_captures(Some(&capture_ids)).await?;
 
     if captures.is_empty() {
         return Err(anyhow!("No matching captures found for provided IDs."));
@@ -160,7 +161,6 @@ pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
         .join(", ");
 
     println!("Spark request");
-    println!("- Host: {}", state.rest_host);
     println!("- Requested capture IDs: {}", requested_ids);
     println!("- Expanded capture IDs: {}", expanded_ids);
     println!("- Captures matched: {}", capture_count);

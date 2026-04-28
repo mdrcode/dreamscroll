@@ -1,8 +1,6 @@
 use anyhow::Context;
 use argh::FromArgs;
 
-use crate::rest;
-
 use super::*;
 
 #[derive(FromArgs)]
@@ -11,6 +9,12 @@ use super::*;
 pub struct ChangePasswordArgs {}
 
 pub async fn run(state: CmdState, _args: ChangePasswordArgs) -> anyhow::Result<()> {
+    let rest_host = state.rest_host.as_deref().context("REST host missing")?;
+    let rest_user = state
+        .rest_user
+        .as_deref()
+        .context("REST username missing")?;
+
     println!("Enter current password:");
     let current_password = rpassword::read_password()?;
 
@@ -24,31 +28,16 @@ pub async fn run(state: CmdState, _args: ChangePasswordArgs) -> anyhow::Result<(
         anyhow::bail!("New password and confirmation do not match");
     }
 
-    state
-        .rest_client
+    let rest_client = state.rest_client().await?;
+    rest_client
         .change_password(&current_password, &new_password)
         .await
         .context("failed to change password")?;
 
     println!("Password changed successfully.");
 
-    if let Err(err) = token_cache::delete_token(&state.rest_host, &state.username) {
+    if let Err(err) = token_cache::delete_token(rest_host, rest_user) {
         eprintln!("Warning: unable to clear cached API token: {}", err);
-    }
-
-    let fresh_client =
-        rest::client::Client::connect(&state.rest_host, &state.username, &new_password)
-            .await
-            .context("password changed, but failed to fetch a fresh token with the new password")?;
-
-    if let Err(cache_err) = token_cache::set_token(
-        &state.rest_host,
-        &state.username,
-        fresh_client.access_token(),
-    ) {
-        eprintln!("Warning: unable to cache fresh API token: {}", cache_err);
-    } else {
-        println!("Successfully refreshed cached API token.");
     }
 
     Ok(())
