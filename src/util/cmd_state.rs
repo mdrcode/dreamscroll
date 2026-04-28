@@ -10,9 +10,9 @@ pub struct CmdState {
     pub rest_user: Option<String>,
 
     db: database::DbHandle,
-    pub stg: Box<dyn storage::StorageProvider>,
-    pub user_api: api::UserApiClient,
-    pub service_api: api::ServiceApiClient,
+    stg: Box<dyn storage::StorageProvider>,
+    user_api: api::UserApiClient,
+    service_api: api::ServiceApiClient,
 }
 
 impl CmdState {
@@ -56,6 +56,18 @@ impl CmdState {
 
     pub fn db_handle(&self) -> database::DbHandle {
         self.db.clone()
+    }
+
+    pub fn storage_provider(&self) -> Box<dyn storage::StorageProvider> {
+        self.stg.clone()
+    }
+
+    pub fn user_api_client(&self) -> api::UserApiClient {
+        self.user_api.clone()
+    }
+
+    pub fn service_api_client(&self) -> api::ServiceApiClient {
+        self.service_api.clone()
     }
 
     pub async fn rest_client(&self) -> anyhow::Result<rest::client::Client> {

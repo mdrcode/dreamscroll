@@ -39,20 +39,19 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     }
 
     let db = state.db_handle();
+    let user_api = state.user_api_client();
+    let stg = state.storage_provider();
+
     let user = auth_helper::authenticate_user_stdin(&db).await?;
     let user_context = user.into();
 
     let (raw_count, capture_infos) = if args.all {
-        let captures = state
-            .user_api
-            .get_timeline_captures(&user_context, 1000)
-            .await?;
+        let captures = user_api.get_timeline_captures(&user_context, 1000).await?;
         let count = captures.len();
         tracing::info!(count, "Fetched captures for --all indexing run");
         (count, captures)
     } else {
-        let captures = state
-            .user_api
+        let captures = user_api
             .get_captures(&user_context, args.ids.clone())
             .await?;
         (args.ids.len(), captures)
@@ -73,7 +72,7 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     let mut last_vector: Option<(i32, Vec<f32>)> = None;
 
     for capture in capture_infos {
-        let input = search::make_capture_info_embed_input(state.stg.as_ref(), &capture).await?;
+        let input = search::make_capture_info_embed_input(stg.as_ref(), &capture).await?;
         let embedding = match embedder.embed_object(input).await {
             Ok(embedding) => {
                 tracing::debug!(

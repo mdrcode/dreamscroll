@@ -17,9 +17,12 @@ pub struct IlluminateAllArgs {}
 pub async fn run(state: CmdState, _args: IlluminateAllArgs) -> anyhow::Result<()> {
     const MAX_CONCURRENT: usize = 2;
 
-    let illuminator = illumination::make_illuminator(&state.config, state.stg.clone());
+    let stg = state.storage_provider();
+    let service_api = state.service_api_client();
 
-    let capture_ids = state.service_api.get_captures_need_illum().await?;
+    let illuminator = illumination::make_illuminator(&state.config, stg);
+
+    let capture_ids = service_api.get_captures_need_illum().await?;
 
     if capture_ids.is_empty() {
         tracing::info!("No captures need illumination, exiting.");
@@ -34,7 +37,7 @@ pub async fn run(state: CmdState, _args: IlluminateAllArgs) -> anyhow::Result<()
     let mut workers: JoinSet<(usize, usize)> = JoinSet::new();
 
     for _ in 0..MAX_CONCURRENT {
-        let service_api = state.service_api.clone();
+        let service_api = service_api.clone();
         let illuminator = illuminator.clone();
         let job_rx = Arc::clone(&job_rx);
 

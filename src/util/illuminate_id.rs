@@ -30,13 +30,14 @@ pub async fn run(state: CmdState, args: IlluminateIdArgs) -> anyhow::Result<()> 
     }
 
     let db = state.db_handle();
+    let user_api = state.user_api_client();
+    let stg = state.storage_provider();
     let user = auth_helper::authenticate_user_stdin(&db).await?;
 
-    let illuminator = make_illuminator(&state.config, state.stg.clone());
+    let illuminator = make_illuminator(&state.config, stg);
 
     // Process each capture
-    let capture_infos = state
-        .user_api
+    let capture_infos = user_api
         .get_captures(&user.clone().into(), args.ids.clone())
         .await?;
 

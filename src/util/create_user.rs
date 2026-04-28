@@ -21,11 +21,9 @@ pub async fn run(state: CmdState, _args: CreateUserArgs) -> anyhow::Result<()> {
     let admin_password = rpassword::read_password()?;
     let admin_user = auth::password::authenticate(&db, &admin_username, &admin_password).await?;
     let admin_context: auth::Context = admin_user.into();
-    let admin_client = api::AdminApiClient::new(
-        db.clone(),
-        state.service_api.clone(),
-        task::Beacon::default(),
-    );
+    let service_api = state.service_api_client();
+    // TODO should api::AdminApiClient be constructed in CmdState ?
+    let admin_client = api::AdminApiClient::new(db.clone(), service_api, task::Beacon::default());
 
     println!("Enter username for new user:");
     let mut username = String::new();

@@ -20,8 +20,8 @@ pub async fn run(state: CmdState, args: SearchSimilarArgs) -> anyhow::Result<()>
     let user = auth_helper::authenticate_user_stdin(&db).await?;
     let context_user: crate::auth::Context = user.into();
 
-    let capture_infos = state
-        .user_api
+    let user_api = state.user_api_client();
+    let capture_infos = user_api
         .search_similar(&context_user, args.capture_id, Some(args.limit))
         .await?;
 
