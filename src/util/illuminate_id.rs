@@ -24,14 +24,14 @@ pub struct IlluminateIdArgs {
     model: String,
 }
 
-pub async fn run(state: CmdState, args: IlluminateIdArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: CmdState, args: IlluminateIdArgs) -> anyhow::Result<()> {
     if args.ids.is_empty() {
         return Err(anyhow!("At least one capture ID must be provided."));
     }
 
-    let db = state.db_handle();
-    let user_api = state.user_api_client();
-    let stg = state.storage_provider();
+    let db = state.db_handle().await?;
+    let user_api = state.user_api_client().await?;
+    let stg = state.storage_provider().await?;
     let user = auth_helper::authenticate_user_stdin(&db).await?;
 
     let illuminator = make_illuminator(&state.config, stg);

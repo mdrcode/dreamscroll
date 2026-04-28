@@ -15,12 +15,12 @@ pub struct SearchSimilarArgs {
     limit: u64,
 }
 
-pub async fn run(state: CmdState, args: SearchSimilarArgs) -> anyhow::Result<()> {
-    let db = state.db_handle();
+pub async fn run(mut state: CmdState, args: SearchSimilarArgs) -> anyhow::Result<()> {
+    let db = state.db_handle().await?;
     let user = auth_helper::authenticate_user_stdin(&db).await?;
     let context_user: crate::auth::Context = user.into();
 
-    let user_api = state.user_api_client();
+    let user_api = state.user_api_client().await?;
     let capture_infos = user_api
         .search_similar(&context_user, args.capture_id, Some(args.limit))
         .await?;

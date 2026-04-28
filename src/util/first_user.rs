@@ -10,8 +10,8 @@ use super::*;
 
 pub struct FirstUserArgs {}
 
-pub async fn run(state: CmdState, _args: FirstUserArgs) -> anyhow::Result<()> {
-    let db = state.db_handle();
+pub async fn run(mut state: CmdState, _args: FirstUserArgs) -> anyhow::Result<()> {
+    let db = state.db_handle().await?;
     facility::check_first_user(&db).await?;
 
     Ok(())

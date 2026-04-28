@@ -93,7 +93,7 @@ fn parse_capture_ids(tokens: &[String]) -> anyhow::Result<Vec<i32>> {
     Ok(parsed_ids)
 }
 
-pub async fn run(state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
     if args.ids.is_empty() {
         return Err(anyhow!("At least one capture ID must be provided."));
     }

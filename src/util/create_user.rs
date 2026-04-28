@@ -10,18 +10,18 @@ use super::*;
 
 pub struct CreateUserArgs {}
 
-pub async fn run(state: CmdState, _args: CreateUserArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: CmdState, _args: CreateUserArgs) -> anyhow::Result<()> {
     println!("Enter ADMIN username:");
     let mut admin_username = String::new();
     std::io::stdin().read_line(&mut admin_username)?;
     let admin_username = admin_username.trim().to_string();
 
     println!("Enter ADMIN password:");
-    let db = state.db_handle();
+    let db = state.db_handle().await?;
     let admin_password = rpassword::read_password()?;
     let admin_user = auth::password::authenticate(&db, &admin_username, &admin_password).await?;
     let admin_context: auth::Context = admin_user.into();
-    let service_api = state.service_api_client();
+    let service_api = state.service_api_client().await?;
     // TODO should api::AdminApiClient be constructed in CmdState ?
     let admin_client = api::AdminApiClient::new(db.clone(), service_api, task::Beacon::default());
 

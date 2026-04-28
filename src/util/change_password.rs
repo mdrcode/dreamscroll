@@ -8,12 +8,17 @@ use super::*;
 #[argh(description = "Change account password via REST API")]
 pub struct ChangePasswordArgs {}
 
-pub async fn run(state: CmdState, _args: ChangePasswordArgs) -> anyhow::Result<()> {
-    let rest_host = state.rest_host.as_deref().context("REST host missing")?;
+pub async fn run(mut state: CmdState, _args: ChangePasswordArgs) -> anyhow::Result<()> {
+    let rest_host = state
+        .rest_host
+        .as_deref()
+        .context("REST host missing")?
+        .to_string();
     let rest_user = state
         .rest_user
         .as_deref()
-        .context("REST username missing")?;
+        .context("REST username missing")?
+        .to_string();
 
     println!("Enter current password:");
     let current_password = rpassword::read_password()?;
@@ -36,7 +41,7 @@ pub async fn run(state: CmdState, _args: ChangePasswordArgs) -> anyhow::Result<(
 
     println!("Password changed successfully.");
 
-    if let Err(err) = token_cache::delete_token(rest_host, rest_user) {
+    if let Err(err) = token_cache::delete_token(&rest_host, &rest_user) {
         eprintln!("Warning: unable to clear cached API token: {}", err);
     }
 

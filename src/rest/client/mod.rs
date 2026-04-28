@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api;
 
+#[derive(Clone)]
 pub struct Client {
     reqwest_client: reqwest::Client,
     base_url: String,

@@ -14,7 +14,7 @@ pub struct ImportDigestArgs {
     export_dir: PathBuf,
 }
 
-pub async fn run(state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: CmdState, args: ImportDigestArgs) -> anyhow::Result<()> {
     let export_dir = &args.export_dir;
 
     if !export_dir.is_dir() {

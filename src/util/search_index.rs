@@ -26,7 +26,7 @@ pub struct SearchIndexArgs {
     no_upsert: bool,
 }
 
-pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     if args.all && !args.ids.is_empty() {
         return Err(anyhow!(
             "Provide either --all or explicit capture IDs, not both."
@@ -38,9 +38,9 @@ pub async fn run(state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
         ));
     }
 
-    let db = state.db_handle();
-    let user_api = state.user_api_client();
-    let stg = state.storage_provider();
+    let db = state.db_handle().await?;
+    let user_api = state.user_api_client().await?;
+    let stg = state.storage_provider().await?;
 
     let user = auth_helper::authenticate_user_stdin(&db).await?;
     let user_context = user.into();

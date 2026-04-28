@@ -14,11 +14,11 @@ use super::*;
 )]
 pub struct IlluminateAllArgs {}
 
-pub async fn run(state: CmdState, _args: IlluminateAllArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: CmdState, _args: IlluminateAllArgs) -> anyhow::Result<()> {
     const MAX_CONCURRENT: usize = 2;
 
-    let stg = state.storage_provider();
-    let service_api = state.service_api_client();
+    let stg = state.storage_provider().await?;
+    let service_api = state.service_api_client().await?;
 
     let illuminator = illumination::make_illuminator(&state.config, stg);
 
