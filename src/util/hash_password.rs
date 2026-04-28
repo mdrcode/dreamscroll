@@ -10,7 +10,6 @@ pub struct HashPasswordArgs {}
 pub async fn run(_state: CmdState, _args: HashPasswordArgs) -> anyhow::Result<()> {
     println!("Enter password:");
     let password = rpassword::read_password()?;
-
     let password_hash = crate::auth::password::hash(&password)?;
 
     // Print only the hash to make copy/paste into SQL UPDATE safe.

@@ -87,7 +87,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Enums(args) => util::enums::run(state, args).await,
         Command::ExportDigest(args) => util::export_digest::run(state, args).await,
         Command::FirstUser(args) => util::first_user::run(state, args).await,
-        Command::HashPassword(_) => anyhow::bail!("hash_password should have exited earlier"),
+        Command::HashPassword(args) => util::hash_password::run(state, args).await,
         Command::IlluminateAll(args) => util::illuminate_all::run(state, args).await,
         Command::IlluminateId(args) => util::illuminate_id::run(state, args).await,
         Command::IlluminationText(args) => util::illumination_text::run(state, args).await,
