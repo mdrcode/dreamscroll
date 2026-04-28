@@ -4,9 +4,7 @@ use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 use tower_sessions::{Expiry, SessionManagerLayer, cookie};
 
-use dreamscroll::{
-    api, auth, database, facility, illumination, rest, search, storage, task, webhook, webui,
-};
+use dreamscroll::*;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -77,10 +75,6 @@ async fn main() -> anyhow::Result<()> {
             auth_backend.clone(),
             session_layer.clone(),
         ));
-        router = router.nest(
-            "/v1",
-            webui::v1::make_ui_router(user_api.clone(), auth_backend, session_layer),
-        );
 
         // If using the local Storage provider, we serve media files manually
         if let Some(local_url_prefix) = &config.storage_local_url_prefix {
@@ -110,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
     // Webhook routes (no auth locally, protected by GCloud IAM/OIDC in prod)
     if config.services.contains(&facility::Service::Webhook) {
         let illuminator = illumination::make_illuminator(&config, stg.clone());
-        let firestarter = dreamscroll::ignition::make_firestarter(&config)?;
+        let firestarter = ignition::make_firestarter(&config)?;
         let embedder = search::gcloud::GeminiEmbedder::from_config(&config)?;
         let vector_store = search::gcloud::VertexVectorStore::from_config(&config).await?;
         router = router.nest(
