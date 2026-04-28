@@ -39,6 +39,7 @@ enum Command {
     //Eval(util::eval::EvalArgs),
     ExportDigest(util::export_digest::ExportDigestArgs),
     FirstUser(util::first_user::FirstUserArgs),
+    HashPassword(util::hash_password::HashPasswordArgs),
     IlluminateAll(util::illuminate_all::IlluminateAllArgs),
     IlluminateId(util::illuminate_id::IlluminateIdArgs),
     IlluminationText(util::illumination_text::IlluminationTextArgs),
@@ -55,6 +56,11 @@ async fn main() -> anyhow::Result<()> {
     // local config files. But we load them when running via `cargo run`
     if std::env::var("NO_LOCAL_CONFIG_FILES").is_err() {
         facility::load_local_config_files();
+    }
+
+    let args: Args = argh::from_env();
+    if let Command::HashPassword(hash_args) = args.command {
+        return util::hash_password::run(hash_args).await;
     }
 
     facility::init_tracing().await?;
@@ -82,7 +88,6 @@ async fn main() -> anyhow::Result<()> {
     );
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
 
-    let args: Args = argh::from_env();
     let Args {
         host,
         prod,
@@ -189,6 +194,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Enums(args) => util::enums::run(state, args).await,
         Command::ExportDigest(args) => util::export_digest::run(state, args).await,
         Command::FirstUser(args) => util::first_user::run(state, args).await,
+        Command::HashPassword(_) => anyhow::bail!("hash_password should have exited earlier"),
         Command::IlluminateAll(args) => util::illuminate_all::run(state, args).await,
         Command::IlluminateId(args) => util::illuminate_id::run(state, args).await,
         Command::IlluminationText(args) => util::illumination_text::run(state, args).await,

@@ -6,6 +6,7 @@ pub mod create_user;
 pub mod enums;
 pub mod export_digest;
 pub mod first_user;
+pub mod hash_password;
 pub mod html_view;
 pub mod illuminate_all;
 pub mod illuminate_id;
