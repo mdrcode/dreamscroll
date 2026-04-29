@@ -65,8 +65,7 @@ impl Illuminator for GeminiIlluminator {
     async fn illuminate(&self, capture: &api::CaptureInfo) -> anyhow::Result<Illumination> {
         tracing::info!("GeminiIlluminator: Illuminating capture ID {}", capture.id);
         let media1 = capture
-            .medias
-            .get(0)
+            .medias.first()
             .ok_or_else(|| anyhow::anyhow!("Capture has no media"))?;
 
         let storage_handle = storage::StorageHandle::from(media1);

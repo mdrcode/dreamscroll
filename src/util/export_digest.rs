@@ -40,6 +40,12 @@ pub struct FullDigest {
     pub captures: Vec<CaptureDigestEntry>,
 }
 
+impl Default for FullDigest {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl FullDigest {
     pub fn new() -> Self {
         Self {
@@ -101,7 +107,7 @@ pub async fn run(mut state: CmdState, args: ExportDigestArgs) -> anyhow::Result<
         // Copy to export directory
         let dest_path = export_dir
             .join(media.storage_uuid.to_string())
-            .with_extension(&media.storage_extension.as_deref().unwrap_or_default());
+            .with_extension(media.storage_extension.as_deref().unwrap_or_default());
         std::fs::write(&dest_path, bytes)?;
 
         digest.captures.push(CaptureDigestEntry {

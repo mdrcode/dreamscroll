@@ -30,7 +30,7 @@ impl From<&model::media::ModelEx> for StorageHandle {
             provider: media.storage_provider.clone(),
             bucket: media.storage_bucket.clone(),
             user_shard: media.storage_user_shard.clone(),
-            uuid: media.storage_uuid.clone(),
+            uuid: media.storage_uuid,
             extension: media.storage_extension.clone(),
         }
     }

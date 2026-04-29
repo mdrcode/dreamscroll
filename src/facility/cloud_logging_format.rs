@@ -64,8 +64,8 @@ where
         let otel_cx = tracing::Span::current().context();
         let otel_span = otel_cx.span();
         let span_cx = otel_span.span_context();
-        if span_cx.is_valid() {
-            if let serde_json::Value::Object(ref mut map) = entry {
+        if span_cx.is_valid()
+            && let serde_json::Value::Object(ref mut map) = entry {
                 map.insert(
                     "logging.googleapis.com/trace".into(),
                     format!("projects/{}/traces/{}", self.project_id, span_cx.trace_id()).into(),
@@ -75,7 +75,6 @@ where
                     span_cx.span_id().to_string().into(),
                 );
             }
-        }
 
         write!(
             writer,

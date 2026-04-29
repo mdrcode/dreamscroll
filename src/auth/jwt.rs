@@ -233,7 +233,7 @@ where
         // Decode and validate the token
         let claims = jwt_config.decode_user_token(bearer.token())?;
 
-        Ok(DreamscrollAuthUser::try_from(claims)?)
+        DreamscrollAuthUser::try_from(claims)
     }
 }
 

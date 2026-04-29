@@ -182,7 +182,7 @@ mod tests {
         assert_eq!(queue.pop_next(), Some(2));
         assert_eq!(queue.pop_next(), None);
 
-        assert!(vec![1, 2].iter().all(|i| reserved_contains(&queue, i)));
+        assert!([1, 2].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
@@ -199,7 +199,7 @@ mod tests {
 
         assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
         assert!(count_for_status(&queue, QueueStatus::Reserved) == 2);
-        assert!(vec![1, 2].iter().all(|i| reserved_contains(&queue, i)));
+        assert!([1, 2].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
@@ -215,7 +215,7 @@ mod tests {
 
         assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
         assert!(count_for_status(&queue, QueueStatus::Reserved) == 3);
-        assert!(vec![1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
+        assert!([1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
@@ -231,7 +231,7 @@ mod tests {
 
         assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
         assert!(count_for_status(&queue, QueueStatus::Reserved) == 2);
-        assert!(vec![1, 2].iter().all(|i| reserved_contains(&queue, i)));
+        assert!([1, 2].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
@@ -260,7 +260,7 @@ mod tests {
         assert_eq!(queue.pop_next(), Some(3));
         assert_eq!(queue.pop_next(), None);
 
-        assert!(vec![1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
+        assert!([1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
@@ -297,8 +297,8 @@ mod tests {
         queue.complete(item2);
         queue.complete(item3);
 
-        assert!(!vec![1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
-        assert!(vec![1, 2, 3].iter().all(|i| completed_contains(&queue, i)));
+        assert!(![1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
+        assert!([1, 2, 3].iter().all(|i| completed_contains(&queue, i)));
     }
 
     #[test]
@@ -311,9 +311,9 @@ mod tests {
         assert_eq!(queue.pop_next(), Some("world"));
 
         assert!(
-            vec!["hello", "world"]
+            ["hello", "world"]
                 .iter()
-                .all(|i| reserved_contains(&queue, &i))
+                .all(|i| reserved_contains(&queue, i))
         );
 
         queue.complete("hello");
@@ -372,7 +372,7 @@ mod tests {
             (0..100)
                 .collect::<Vec<_>>()
                 .iter()
-                .all(|i| completed_contains(&queue, &i))
+                .all(|i| completed_contains(&queue, i))
         );
     }
 
@@ -426,7 +426,7 @@ mod tests {
             (0..100)
                 .collect::<Vec<_>>()
                 .iter()
-                .all(|i| completed_contains(&queue, &i))
+                .all(|i| completed_contains(&queue, i))
         );
     }
 }

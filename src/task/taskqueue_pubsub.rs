@@ -40,8 +40,10 @@ impl<TTask> PubSubTaskQueue<TTask> {
         topic_id: &str,
         emulator_endpoint: Option<&str>,
     ) -> anyhow::Result<Self> {
-        let mut config = ClientConfig::default();
-        config.project_id = Some(project_id.to_string());
+        let mut config = ClientConfig {
+            project_id: Some(project_id.to_string()),
+            ..Default::default()
+        };
 
         let emulator_host = emulator_endpoint.map(trim_protocol_and_slash);
 
@@ -109,7 +111,7 @@ impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for PubSubTask
             .inner
             .publisher
             .publish(PubsubMessage {
-                data: task_json.into(),
+                data: task_json,
                 ..Default::default()
             })
             .await;

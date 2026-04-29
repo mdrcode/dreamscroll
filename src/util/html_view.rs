@@ -33,7 +33,7 @@ pub fn generate_html(
         format!(
             "Capture ID: {} | {} vs {}",
             capture_id,
-            names.get(0).unwrap_or(&""),
+            names.first().unwrap_or(&""),
             names.get(1).unwrap_or(&"")
         )
     } else {

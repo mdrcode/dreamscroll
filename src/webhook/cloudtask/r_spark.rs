@@ -18,7 +18,7 @@ pub async fn post(
         )));
     }
 
-    webhook::logic::spark::exec(&state.service_api, &state.firestarter, task).await?;
+    webhook::logic::spark::exec(&state.service_api, state.firestarter.as_ref(), task).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

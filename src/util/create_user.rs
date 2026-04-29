@@ -7,7 +7,6 @@ use super::*;
 #[derive(FromArgs)]
 #[argh(subcommand, name = "create_user")]
 #[argh(description = "Create a new user in the database")]
-
 pub struct CreateUserArgs {}
 
 pub async fn run(mut state: CmdState, _args: CreateUserArgs) -> anyhow::Result<()> {

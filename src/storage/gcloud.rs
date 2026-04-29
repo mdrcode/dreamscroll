@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -53,11 +53,10 @@ impl GCloudStorageProvider {
 }
 
 pub fn make_object_key(uuid: Uuid, shard: &str, ext: Option<&str>) -> String {
-    let object_key = match ext {
+    match ext {
         Some(e) => format!("{}/{}.{}", shard, uuid, e),
         None => format!("{}/{}", shard, uuid),
-    };
-    object_key
+    }
 }
 
 #[async_trait]
@@ -108,7 +107,7 @@ impl provider::StorageProvider for GCloudStorageProvider {
 
     async fn store_from_local_path(
         &self,
-        path: &PathBuf,
+        path: &Path,
         user_shard: &str,
         ext: Option<&str>,
     ) -> anyhow::Result<StorageHandle> {

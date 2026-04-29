@@ -2,7 +2,7 @@ use crate::{api, ignition, webhook};
 
 pub async fn exec(
     service_api: &api::ServiceApiClient,
-    firestarter: &Box<dyn ignition::Firestarter>,
+    firestarter: &dyn ignition::Firestarter,
     task: webhook::schema::SparkTask,
 ) -> Result<(), api::ApiError> {
     if task.capture_ids.is_empty() {

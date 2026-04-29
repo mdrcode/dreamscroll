@@ -20,7 +20,7 @@ pub async fn get_knode(
         )));
     };
 
-    let capture = super::get_captures(&db, context, vec![knode.capture_id]).await?;
+    let capture = super::get_captures(db, context, vec![knode.capture_id]).await?;
 
     let Some(capture) = capture.into_iter().next() else {
         return Err(ApiError::not_found(anyhow!(
@@ -29,7 +29,7 @@ pub async fn get_knode(
         )));
     };
 
-    Ok((knode.into(), capture.into()))
+    Ok((knode.into(), capture))
 }
 
 /// Fetch a SocialMedia entity by ID along with its associated capture
@@ -49,7 +49,7 @@ pub async fn get_social_media(
         )));
     };
 
-    let capture = super::get_captures(&db, context, vec![social_media.capture_id]).await?;
+    let capture = super::get_captures(db, context, vec![social_media.capture_id]).await?;
 
     let Some(capture) = capture.into_iter().next() else {
         return Err(ApiError::not_found(anyhow!(
@@ -58,5 +58,5 @@ pub async fn get_social_media(
         )));
     };
 
-    Ok((social_media.into(), capture.into()))
+    Ok((social_media.into(), capture))
 }

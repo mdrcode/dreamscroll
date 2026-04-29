@@ -145,6 +145,6 @@ fn blend(capture_cards: Vec<Card>, spark_cards: Vec<Card>) -> Vec<Card> {
     let mut cards = Vec::with_capacity(capture_cards.len() + spark_cards.len());
     cards.extend(capture_cards);
     cards.extend(spark_cards);
-    cards.sort_by(|a, b| b.created_at().cmp(&a.created_at()));
+    cards.sort_by_key(|card| std::cmp::Reverse(card.created_at()));
     cards
 }

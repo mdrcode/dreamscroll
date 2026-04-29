@@ -7,7 +7,7 @@ use crate::{api::*, auth, database::DbHandle, model, storage};
 
 pub async fn insert_capture(
     db: &DbHandle,
-    storage: &Box<dyn storage::StorageProvider>,
+    storage: &dyn storage::StorageProvider,
     user_context: &auth::Context,
     bytes: Bytes,
     dedupe: bool,

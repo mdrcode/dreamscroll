@@ -59,7 +59,7 @@ impl Illuminator for GrokIlluminator {
     async fn illuminate(&self, capture: &api::CaptureInfo) -> anyhow::Result<Illumination> {
         tracing::info!("GrokIlluminator: Illuminating capture ID {}", capture.id);
 
-        let media1 = capture.medias.get(0).expect("No media found for capture.");
+        let media1 = capture.medias.first().expect("No media found for capture.");
         let media1_path = PathBuf::from(format!("localdev/media/{}", &media1.storage_uuid));
         tracing::info!("GrokIlluminator: Using media at path {:?}", media1_path);
 

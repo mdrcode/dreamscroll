@@ -13,7 +13,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Containerized environments should set NO_LOCAL_CONFIG_FILES=(any value).
     // But when running via `cargo run` we load local files as a convenience.
-    if !std::env::var("NO_LOCAL_CONFIG_FILES").is_ok() {
+    if std::env::var("NO_LOCAL_CONFIG_FILES").is_err() {
         facility::load_local_config_files();
     }
 
@@ -77,12 +77,11 @@ async fn main() -> anyhow::Result<()> {
         ));
 
         // If using the local Storage provider, we serve media files manually
-        if let Some(local_url_prefix) = &config.storage_local_url_prefix {
-            if let Some(local_file_path) = &config.storage_local_file_path {
+        if let Some(local_url_prefix) = &config.storage_local_url_prefix
+            && let Some(local_file_path) = &config.storage_local_file_path {
                 router = router.nest_service(local_url_prefix, ServeDir::new(local_file_path));
                 tracing::info!("Mounted media file serving routes for local storage");
             }
-        }
         tracing::info!("Initialized web UI routes");
     }
 

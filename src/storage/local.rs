@@ -47,7 +47,7 @@ impl StorageProvider for LocalStorageProvider {
 
     async fn store_from_local_path(
         &self,
-        source_path: &PathBuf,
+        source_path: &Path,
         user_shard: &str,
         ext: Option<&str>,
     ) -> anyhow::Result<StorageHandle> {

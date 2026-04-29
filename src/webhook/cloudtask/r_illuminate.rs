@@ -12,7 +12,7 @@ pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(task): Json<webhook::schema::IlluminationTask>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    webhook::logic::illuminate::exec(&state.service_api, &state.illuminator, task).await?;
+    webhook::logic::illuminate::exec(&state.service_api, state.illuminator.as_ref(), task).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

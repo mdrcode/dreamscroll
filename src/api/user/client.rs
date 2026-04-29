@@ -217,7 +217,7 @@ impl UserApiClient {
     ) -> Result<schema::CaptureInfo, ApiError> {
         let capture_model = super::insert_capture(
             &self.db,
-            &self.storage,
+            self.storage.as_ref(),
             user_context,
             media_bytes,
             true, // fail on media dupes
@@ -246,7 +246,7 @@ impl UserApiClient {
     ) -> Result<schema::CaptureInfo, ApiError> {
         let capture_model = super::insert_capture(
             &self.db,
-            &self.storage,
+            self.storage.as_ref(),
             user_context,
             media_bytes,
             false, // allow media dupes

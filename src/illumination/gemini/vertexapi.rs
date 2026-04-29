@@ -108,8 +108,7 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
         capture: &api::CaptureInfo,
     ) -> anyhow::Result<illumination::Illumination> {
         let media1 = capture
-            .medias
-            .get(0)
+            .medias.first()
             .ok_or_else(|| anyhow::anyhow!("Capture has no media"))?;
 
         let client = PredictionService::builder()
@@ -119,7 +118,7 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
 
         let request_content = Content::new().set_role("user").set_parts(vec![
             Part::new().set_text(prompts::PROMPT.to_string()),
-            make_media_payload(self.payload_method, &media1, self.storage.as_ref()).await?,
+            make_media_payload(self.payload_method, media1, self.storage.as_ref()).await?,
         ]);
 
         let generation_config = GenerationConfig::new()

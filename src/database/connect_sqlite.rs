@@ -14,7 +14,7 @@ pub async fn create_sqlite_pool(path: &str) -> anyhow::Result<sqlx::sqlite::Sqli
 
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(20)
-        .connect(&path)
+        .connect(path)
         .await
         .map_err(|e| anyhow::anyhow!(e))?;
     Ok(pool)

@@ -1,4 +1,4 @@
 // common code for decoding payload
-pub mod pubsub;
+pub mod schema;
 
 pub mod r_illuminate;

@@ -49,8 +49,7 @@ impl illumination::Illuminator for GeminiPublicApiIlluminator {
         capture: &api::CaptureInfo,
     ) -> anyhow::Result<illumination::Illumination> {
         let media1 = capture
-            .medias
-            .get(0)
+            .medias.first()
             .ok_or_else(|| anyhow::anyhow!("Capture has no media"))?;
 
         let storage_handle = storage::StorageHandle::from(media1);

@@ -54,7 +54,7 @@ pub async fn run(mut state: CmdState, _args: IlluminateAllArgs) -> anyhow::Resul
                     Some(id) => {
                         match webhook::logic::illuminate::exec(
                             &service_api,
-                            &illuminator,
+                            illuminator.as_ref(),
                             webhook::schema::IlluminationTask { capture_id: id },
                         )
                         .await

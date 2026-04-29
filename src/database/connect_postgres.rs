@@ -56,15 +56,15 @@ fn make_url(config: &PostgresConfig, redacted: bool) -> String {
         .unwrap_or_default();
 
     if redacted {
-        return format!(
+        format!(
             "postgres://{}:<REDACTED>@{}/{}{}",
             &config.user, &config.host_port, &config.db, params
-        );
+        )
     } else {
-        return format!(
+        format!(
             "postgres://{}:{}@{}/{}{}",
             &config.user, &config.password, &config.host_port, &config.db, params
-        );
+        )
     }
 }
 

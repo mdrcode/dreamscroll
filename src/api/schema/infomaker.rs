@@ -100,14 +100,14 @@ impl InfoMaker {
 
         let k_nodes = match illumination_model.knodes {
             HasMany::Unloaded => vec![],
-            HasMany::Loaded(models) => models.into_iter().map(|m| KNodeInfo::from(m)).collect(),
+            HasMany::Loaded(models) => models.into_iter().map(KNodeInfo::from).collect(),
         };
 
         let social_medias = match illumination_model.social_medias {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(models) => models
                 .into_iter()
-                .map(|m| SocialMediaInfo::from(m))
+                .map(SocialMediaInfo::from)
                 .collect(),
         };
 

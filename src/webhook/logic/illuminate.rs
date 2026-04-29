@@ -2,7 +2,7 @@ use crate::{api, illumination, webhook};
 
 pub async fn exec(
     service_api: &api::ServiceApiClient,
-    illuminator: &Box<dyn illumination::Illuminator>,
+    illuminator: &dyn illumination::Illuminator,
     task: webhook::schema::IlluminationTask,
 ) -> Result<(), api::ApiError> {
     tracing::Span::current().record("capture_id", task.capture_id);

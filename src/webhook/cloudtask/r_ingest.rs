@@ -14,7 +14,7 @@ pub async fn post(
 ) -> Result<impl IntoResponse, api::ApiError> {
     webhook::logic::illuminate::exec(
         &state.service_api,
-        &state.illuminator,
+        state.illuminator.as_ref(),
         webhook::schema::IlluminationTask {
             capture_id: task.capture_id,
         },

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::Path;
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -19,7 +19,7 @@ pub trait StorageProvider: DynClone + Send + Sync {
 
     async fn store_from_local_path(
         &self,
-        path: &PathBuf,
+        path: &Path,
         user_shard: &str,
         ext: Option<&str>,
     ) -> anyhow::Result<StorageHandle>;

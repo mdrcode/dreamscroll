@@ -23,7 +23,7 @@ pub fn make_illuminator(
             storage,
         )),
         "grok" => Box::new(grok::GrokIlluminator::default()),
-        "loremipsum" => Box::new(loremipsum::LoremIpsumIlluminator::default()),
+        "loremipsum" => Box::new(loremipsum::LoremIpsumIlluminator),
         other => unimplemented!(
             "Unknown illuminator model '{}'. Supported: grok, gemini, geminipublicapi, geminivertexapi, loremipsum.",
             other

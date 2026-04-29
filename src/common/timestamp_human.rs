@@ -74,7 +74,7 @@ fn format_calendar_date(created_at: DateTime<Utc>, now: DateTime<Utc>) -> String
 
 fn day_ordinal_suffix(day: u32) -> &'static str {
     match day % 100 {
-        11 | 12 | 13 => "th",
+        11..=13 => "th",
         _ => match day % 10 {
             1 => "st",
             2 => "nd",
