@@ -268,7 +268,7 @@ Where does all the extra time come from?
 
 ## 2026-01-16
 
-Took a long hiatus to focus on family and job interviews. Back in the saddle
+Took a long hiatus to focus on family and the holidays. Back in the saddle
 today.
 
 Did play around in the `auth` branch for a day or two, but I think I was biting

@@ -41,5 +41,3 @@ Configure Cloud Run for Direct VPC Egress via Console
 - Network = default
 - Subnet
 - Traffic routing → Route only requests to private IPs to the VPC (best for Cloud SQL).
-
-
