@@ -2,6 +2,7 @@
 name = "dreamscroll"
 version = "0.1.0"
 edition = "2024"
+authors = ["Mike Repass <mike.repass@gmail.com>"]
 default-run = "dreamscroll_web"
 
 [lib]
@@ -9,51 +10,57 @@ name = "dreamscroll"
 path = "src/lib.rs"
 
 [dependencies]
-anyhow = "1.0.100"
-bytes = "1"
-argh = "0.1.13"
-argon2 = "0.5.3"
+anyhow = "1.0"
+argh = "0.1"
+argon2 = "0.5"
 async-trait = "0.1"
 axum = "0.8"
-axum-extra = { version = "0.10", features = ["multipart", "typed-header", "query"] }
-axum-login = "0.18.0"
-base64 = "0.21"
-blake3 = "1.8.2"
+axum-extra = { version = "0.12", features = ["multipart", "typed-header", "query"] }
+axum-login = "0.18"
+base64 = "0.22"
+blake3 = "1.8"
+bytes = "1"
 chrono = { version = "0.4", features = ["serde"] }
-dotenvy = "0.15.7"
+dotenvy = "0.15"
 dyn-clone = "1.0"
-envy = "0.4.2"
-google-cloud-auth = { version = "1.5.0", features = ["idtoken"] }
-google-cloud-gax = "0.19.2"
-google-cloud-googleapis = { version = "0.16.1", features = ["pubsub"] }
-google-cloud-pubsub = { version = "0.30.0", default-features = false, features = ["auth", "rustls-tls"] }
-google-cloud-storage = "1.7.0"
+envy = "0.4"
 google-cloud-aiplatform-v1 = { version = "0.4", features = ["prediction-service"] }
-google-cloud-vectorsearch-v1 = "0.1.0"
-infer = "0.19.0"
-jsonwebtoken = { version = "10.3.0", features = ["aws_lc_rs"] }
-keyring = { version = "3.6.2", features = ["apple-native"] }
-opentelemetry = { version = "0.31.0", features = ["trace"] }
-opentelemetry-gcloud-trace = "0.22.0"
-opentelemetry_sdk = { version = "0.31.0", features = ["rt-tokio", "trace"] }
-reqwest = { version = "0.13.1", features = ["json"] }
-rpassword = "7.4.0"
-rustls = { version = "0.23"}
-sea-orm = { version = "2.0.0-rc.27", features = ["sqlx-sqlite", "sqlx-postgres", "runtime-tokio-rustls", "macros", "schema-sync", "entity-registry"] }
+google-cloud-auth = { version = "1.5", features = ["idtoken"] }
+google-cloud-gax = "0.19"
+google-cloud-googleapis = { version = "0.16", features = ["pubsub"] }
+google-cloud-pubsub = { version = "0.30", default-features = false, features = ["auth", "rustls-tls"] }
+google-cloud-storage = "1.7"
+google-cloud-tasks-v2 = "1.5"
+google-cloud-vectorsearch-v1 = "0.1"
+infer = "0.19"
+jsonwebtoken = { version = "10.3", features = ["aws_lc_rs"] }
+keyring = { version = "3.6", features = ["apple-native"] }
+opentelemetry = { version = "0.31", features = ["trace"] }
+opentelemetry-gcloud-trace = "0.22"
+opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "trace"] }
+reqwest = { version = "0.13", features = ["json"] }
+rpassword = "7.4"
+rustls = "0.23"
+sea-orm = { version = "2.0.0-rc.38", features = [
+    "sqlx-sqlite",
+    "sqlx-postgres",
+    "runtime-tokio-rustls",
+    "macros",
+    "schema-sync",
+    "entity-registry",
+] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sqlx = { version = "0.8.6", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "postgres"] }
-strum = {version = "0.27.2", features = ["derive"]}
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls-aws-lc-rs", "postgres"] }
+strum = { version = "0.27", features = ["derive"] }
 tera = "1.19"
 tokio = { version = "1", features = ["full"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "trace"] }
-tower-sessions = "0.14.0"
-tower-sessions-sqlx-store = { version = "0.15.0", features = ["postgres", "sqlite"]}
-tracing = "0.1.44"
-tracing-opentelemetry = "0.32.1"
-tracing-subscriber = { version ="0.3.22", features = ["chrono", "env-filter", "json", "registry"]}
+tower-sessions = "0.14"
+tower-sessions-sqlx-store = { version = "0.15", features = ["postgres", "sqlite"] }
+tracing = "0.1"
+tracing-opentelemetry = "0.32"
+tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json", "registry"] }
 uuid = { version = "1.0", features = ["v4"] }
-webbrowser = "1.0.6"
-google-cloud-tasks-v2 = "1.5.0"
-
+webbrowser = "1.0"
