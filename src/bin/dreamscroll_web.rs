@@ -20,10 +20,15 @@ async fn main() -> anyhow::Result<()> {
     facility::init_tracing().await?;
     let config = facility::make_config()?;
 
-    tracing::info!(
-        "Starting dreamscroll_web with services: {:?}",
-        config.services
-    );
+    if config.services.is_empty() {
+        tracing::warn!("No services enabled (set SERVICES env var to enable)");
+        return Err(anyhow::anyhow!("No services enabled, nothing to do"));
+    } else {
+        tracing::info!(
+            "Starting dreamscroll_web with services: {:?}",
+            config.services
+        );
+    }
 
     let (db_connection, session_store) = database::connect(&config).await?;
     let db = database::DbHandle::new(db_connection);
@@ -78,10 +83,11 @@ async fn main() -> anyhow::Result<()> {
 
         // If using the local Storage provider, we serve media files manually
         if let Some(local_url_prefix) = &config.storage_local_url_prefix
-            && let Some(local_file_path) = &config.storage_local_file_path {
-                router = router.nest_service(local_url_prefix, ServeDir::new(local_file_path));
-                tracing::info!("Mounted media file serving routes for local storage");
-            }
+            && let Some(local_file_path) = &config.storage_local_file_path
+        {
+            router = router.nest_service(local_url_prefix, ServeDir::new(local_file_path));
+            tracing::info!("Mounted media file serving routes for local storage");
+        }
         tracing::info!("Initialized web UI routes");
     }
 

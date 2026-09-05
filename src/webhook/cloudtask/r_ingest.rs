@@ -4,7 +4,7 @@ use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
 use crate::{api, webhook};
 
-/// Webhook POST route for Cloud Tasks ingest payloads.
+/// Webhook for overall "ingest" which does illumination and search indexing.
 ///
 /// Expected body is raw JSON for `IngestTask`, e.g.:
 /// `{ "capture_id": 123 }`
@@ -12,6 +12,7 @@ pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(task): Json<webhook::schema::IngestTask>,
 ) -> Result<impl IntoResponse, api::ApiError> {
+    // Illuminate
     webhook::logic::illuminate::exec(
         &state.service_api,
         state.illuminator.as_ref(),
@@ -21,6 +22,7 @@ pub async fn post(
     )
     .await?;
 
+    // Index for Search
     webhook::logic::search_index::exec(
         &state.service_api,
         state.stg.as_ref(),

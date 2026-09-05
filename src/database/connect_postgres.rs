@@ -18,7 +18,7 @@ pub async fn create_postgres_pool(
     );
 
     let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(20)
+        .max_connections(5) // low for db-f1-micro's constraint
         .connect(&url)
         .await?;
 
