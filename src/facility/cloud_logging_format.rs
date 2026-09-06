@@ -65,18 +65,19 @@ where
         let otel_span = otel_cx.span();
         let span_cx = otel_span.span_context();
         if span_cx.is_valid()
-            && let serde_json::Value::Object(ref mut map) = entry {
-                map.insert(
-                    "logging.googleapis.com/trace".into(),
-                    format!("projects/{}/traces/{}", self.project_id, span_cx.trace_id()).into(),
-                );
-                map.insert(
-                    "logging.googleapis.com/spanId".into(),
-                    span_cx.span_id().to_string().into(),
-                );
-            }
+            && let serde_json::Value::Object(ref mut map) = entry
+        {
+            map.insert(
+                "logging.googleapis.com/trace".into(),
+                format!("projects/{}/traces/{}", self.project_id, span_cx.trace_id()).into(),
+            );
+            map.insert(
+                "logging.googleapis.com/spanId".into(),
+                span_cx.span_id().to_string().into(),
+            );
+        }
 
-        write!(
+        writeln!(
             writer,
             "{}",
             serde_json::to_string(&entry).map_err(|_| std::fmt::Error)?

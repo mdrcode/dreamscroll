@@ -37,7 +37,7 @@ pub async fn init_tracing() -> anyhow::Result<()> {
 
         // Cloud Logging JSON formatter that reads OTel trace context directly
         let cloud_logging_layer = fmt::layer()
-            .with_writer(std::io::stderr)
+            .with_writer(std::io::stdout)
             .event_format(CloudLoggingFormat { project_id });
 
         let subscriber = Registry::default()
