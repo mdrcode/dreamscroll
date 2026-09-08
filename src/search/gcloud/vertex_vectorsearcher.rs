@@ -7,7 +7,7 @@ use google_cloud_vectorsearch_v1::{
     },
 };
 
-use crate::{facility, search};
+use crate::{config, search};
 
 /// Search client for Vertex Vector Search Collections.
 ///
@@ -42,7 +42,7 @@ pub struct VertexVectorSearcher {
 }
 
 impl VertexVectorSearcher {
-    pub async fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
+    pub async fn from_config(config: &config::Config) -> anyhow::Result<Self> {
         let collection_id = config
             .search_embed_collection_id
             .as_ref()

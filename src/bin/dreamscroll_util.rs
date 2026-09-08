@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use dreamscroll::{facility, telemetry, util};
+use dreamscroll::{config, telemetry, util};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll cmd line utility")]
@@ -53,13 +53,13 @@ async fn main() -> anyhow::Result<()> {
     // Containerized environments should set NO_LOCAL_CONFIG_FILES=1 to skip
     // local config files. But we load them when running via `cargo run`
     if std::env::var("NO_LOCAL_CONFIG_FILES").is_err() {
-        facility::load_local_config_files();
+        config::load_local_config_files();
     }
 
     // util always uses local tracing format
     telemetry::init_local();
 
-    let config = facility::make_config()?;
+    let config = config::make_config()?;
 
     let args: Args = argh::from_env();
 

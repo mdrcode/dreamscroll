@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde_json::{Value, json};
 use std::time::Duration;
 
-use crate::{facility, search};
+use crate::{config, search};
 
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const MODEL_ID: &str = "gemini-embedding-2-preview";
@@ -21,7 +21,7 @@ pub struct GeminiEmbedder {
 }
 
 impl GeminiEmbedder {
-    pub fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
+    pub fn from_config(config: &config::Config) -> anyhow::Result<Self> {
         let output_dims = config
             .search_embed_vector_dims
             .context("SEARCH_EMBED_VECTOR_DIMS required for search indexing")?;

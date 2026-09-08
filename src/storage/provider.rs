@@ -4,7 +4,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use dyn_clone::DynClone;
 
-use crate::facility;
+use crate::config;
 
 use super::*;
 
@@ -31,7 +31,7 @@ pub trait StorageProvider: DynClone + Send + Sync {
 
 dyn_clone::clone_trait_object!(StorageProvider);
 
-pub async fn make_provider(config: &facility::Config) -> Box<dyn StorageProvider> {
+pub async fn make_provider(config: &config::Config) -> Box<dyn StorageProvider> {
     let provider = match config.storage_backend {
         StorageBackend::Local => {
             let local_file_path = config

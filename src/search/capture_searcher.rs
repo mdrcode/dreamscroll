@@ -1,7 +1,7 @@
 use anyhow::Context;
 use std::collections::HashSet;
 
-use crate::{api, auth, facility};
+use crate::{api, auth, config};
 
 use super::*;
 
@@ -13,7 +13,7 @@ pub struct CaptureSearcher {
 }
 
 impl CaptureSearcher {
-    pub async fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
+    pub async fn from_config(config: &config::Config) -> anyhow::Result<Self> {
         let embedder =
             gcloud::GeminiEmbedder::from_config(config).context("GeminiEmbedder init failed")?;
 

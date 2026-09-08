@@ -14,7 +14,7 @@ async fn main() -> anyhow::Result<()> {
     // Containerized environments should set NO_LOCAL_CONFIG_FILES=(any value).
     // But when running via `cargo run` we load local files as a convenience.
     if std::env::var("NO_LOCAL_CONFIG_FILES").is_err() {
-        facility::load_local_config_files();
+        config::load_local_config_files();
     }
 
     let trace_provider = {
@@ -30,7 +30,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let config = facility::make_config()?;
+    let config = config::make_config()?;
 
     if config.services.is_empty() {
         tracing::warn!("No services enabled (set SERVICES env var to enable)");
@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
     let db = database::DbHandle::new(db_connection);
     tracing::info!("Connected to database");
 
-    facility::check_users(&db).await?;
+    database::check_users(&db).await?;
 
     let stg = storage::make_provider(&config).await;
     let url_maker = storage::UrlMaker::from_config(&config);
@@ -68,7 +68,7 @@ async fn main() -> anyhow::Result<()> {
     let mut router = axum::Router::new();
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving
-    if config.services.contains(&facility::Service::WebUI) {
+    if config.services.contains(&config::Service::WebUI) {
         let auth_backend = auth::WebAuthBackend::new(db.clone());
 
         let session_layer = SessionManagerLayer::new(session_store)
@@ -104,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // REST API routes (JWT-protected)
-    if config.services.contains(&facility::Service::API) {
+    if config.services.contains(&config::Service::API) {
         let secret = config
             .jwt_secret
             .as_ref()
@@ -119,7 +119,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Webhook routes (no auth locally, protected by GCloud IAM/OIDC in prod)
-    if config.services.contains(&facility::Service::Webhook) {
+    if config.services.contains(&config::Service::Webhook) {
         let illuminator = illumination::make_illuminator(&config, stg.clone());
         let firestarter = ignition::make_firestarter(&config)?;
         let embedder = search::gcloud::GeminiEmbedder::from_config(&config)?;

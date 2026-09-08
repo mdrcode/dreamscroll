@@ -4,7 +4,7 @@ use google_cloud_vectorsearch_v1::{
     model::{DataObject, DenseVector, Vector},
 };
 
-use crate::{facility, search};
+use crate::{config, search};
 
 /// Upserts dense vectors into Vertex Vector Search 2.0 Collections.
 #[derive(Clone)]
@@ -16,7 +16,7 @@ pub struct VertexVectorStore {
 }
 
 impl VertexVectorStore {
-    pub async fn from_config(config: &facility::Config) -> anyhow::Result<Self> {
+    pub async fn from_config(config: &config::Config) -> anyhow::Result<Self> {
         let collection_id = config
             .search_embed_collection_id
             .as_ref()

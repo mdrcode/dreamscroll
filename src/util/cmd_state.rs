@@ -1,11 +1,11 @@
 use anyhow::Context;
 
-use crate::{api, database, facility, rest, search, storage, task};
+use crate::{api, config, database, rest, search, storage, task};
 
 use super::*;
 
 pub struct CmdState {
-    pub config: facility::Config,
+    pub config: config::Config,
     pub rest_host: Option<String>,
     pub rest_user: Option<String>,
 
@@ -18,7 +18,7 @@ pub struct CmdState {
 
 impl CmdState {
     pub async fn from_config(
-        config: facility::Config,
+        config: config::Config,
         rest_host: Option<String>,
         rest_user: Option<String>,
     ) -> anyhow::Result<Self> {

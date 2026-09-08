@@ -1,11 +1,11 @@
 use sea_orm;
 
-use crate::{auth, facility};
+use crate::{auth, config};
 
 use super::*;
 
 pub async fn connect(
-    config: &facility::Config,
+    config: &config::Config,
 ) -> anyhow::Result<(sea_orm::DatabaseConnection, auth::SessionStoreWrapper)> {
     let db_tuple = match config.db_backend {
         DbBackend::Sqlite => {

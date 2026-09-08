@@ -1,12 +1,12 @@
 use anyhow::Context;
 
-use crate::facility;
+use crate::config;
 use crate::webhook::localclient::LocalWebhookClient;
-use crate::webhook::schema::{IngestTask, IlluminationTask, SearchIndexTask, SparkTask};
+use crate::webhook::schema::{IlluminationTask, IngestTask, SearchIndexTask, SparkTask};
 
 use super::*;
 
-pub async fn make_beacon(config: &facility::Config) -> anyhow::Result<Beacon> {
+pub async fn make_beacon(config: &config::Config) -> anyhow::Result<Beacon> {
     match config.task_backend {
         TaskQueueBackend::Local => {
             let base_url = format!("http://localhost:{}", config.port);

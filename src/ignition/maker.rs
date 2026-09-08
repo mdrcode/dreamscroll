@@ -1,8 +1,8 @@
-use crate::facility;
+use crate::config;
 
 use super::*;
 
-pub fn make_firestarter(config: &facility::Config) -> anyhow::Result<Box<dyn Firestarter>> {
+pub fn make_firestarter(config: &config::Config) -> anyhow::Result<Box<dyn Firestarter>> {
     match config.firestarter.as_str() {
         "grok" => {
             let api_key = config

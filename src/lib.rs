@@ -1,8 +1,8 @@
 pub mod api;
 pub mod auth;
 pub mod common;
+pub mod config;
 pub mod database;
-pub mod facility;
 pub mod ignition;
 pub mod illumination;
 pub mod model;

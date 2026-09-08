@@ -1,9 +1,9 @@
-use crate::{facility, storage};
+use crate::{config, storage};
 
 use super::*;
 
 pub fn make_illuminator(
-    config: &facility::Config,
+    config: &config::Config,
     storage: Box<dyn storage::StorageProvider>,
 ) -> Box<dyn Illuminator> {
     match config.illuminator.as_str() {

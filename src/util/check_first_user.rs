@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use crate::facility;
+use crate::database;
 
 use super::*;
 
@@ -11,6 +11,6 @@ pub struct CheckFirstUserArgs {}
 
 pub async fn run(mut state: CmdState, _args: CheckFirstUserArgs) -> anyhow::Result<()> {
     let db = state.db_handle().await?;
-    facility::check_first_user(&db).await?;
+    database::check_first_user(&db).await?;
     Ok(())
 }
