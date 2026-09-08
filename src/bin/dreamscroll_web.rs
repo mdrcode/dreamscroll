@@ -21,7 +21,9 @@ async fn main() -> anyhow::Result<()> {
         if std::env::var("K_SERVICE").is_ok() {
             // Running within Cloud Run, so enable Cloud Trace/Logging with
             // integrated trace/span IDs and Cloud Logging JSON formatting.
-            Some(facility::init_tracing_gcloud().await?)
+            let project_id = std::env::var("GCLOUD_PROJECT_ID")
+                .context("GCLOUD_PROJECT_ID env var required but not set")?;
+            Some(facility::init_tracing_gcloud(project_id).await?)
         } else {
             facility::init_tracing_local();
             None

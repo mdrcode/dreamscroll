@@ -1,5 +1,4 @@
 use super::cloud_logging_format::CloudLoggingFormat;
-use anyhow::Context;
 use axum::http;
 use opentelemetry::trace::TraceContextExt;
 use opentelemetry_gcloud_trace::GcpCloudTraceExporterBuilder;
@@ -27,11 +26,7 @@ pub fn init_tracing_local() {
     tracing::info!("Initialized tracing for local development.");
 }
 
-pub async fn init_tracing_gcloud() -> anyhow::Result<SdkTracerProvider> {
-    // Extract project_id manually because config is not available yet
-    let project_id = std::env::var("GCLOUD_PROJECT_ID")
-        .context("GCLOUD_PROJECT_ID env var required but not set")?;
-
+pub async fn init_tracing_gcloud(project_id: String) -> anyhow::Result<SdkTracerProvider> {
     // Register the W3C traceparent propagator so incoming Cloud Run request
     // headers can be extracted and used as span parents.
     opentelemetry::global::set_text_map_propagator(
@@ -58,12 +53,13 @@ pub async fn init_tracing_gcloud() -> anyhow::Result<SdkTracerProvider> {
         .with(cloud_logging_layer); // events → Cloud Logging (with traceId/spanId)
 
     tracing::subscriber::set_global_default(subscriber)?;
+
     return Ok(provider);
 }
 
-struct HeaderExtractor<'a>(&'a http::HeaderMap);
+struct AxumHeaderExtractor<'a>(&'a http::HeaderMap);
 
-impl opentelemetry::propagation::Extractor for HeaderExtractor<'_> {
+impl opentelemetry::propagation::Extractor for AxumHeaderExtractor<'_> {
     fn get(&self, key: &str) -> Option<&str> {
         self.0.get(key).and_then(|v| v.to_str().ok())
     }
@@ -72,13 +68,13 @@ impl opentelemetry::propagation::Extractor for HeaderExtractor<'_> {
     }
 }
 
-pub fn add_trace_propagation(router: axum::Router) -> axum::Router {
+pub fn add_axum_trace_propagation(router: axum::Router) -> axum::Router {
     router.layer(
         TraceLayer::new_for_http().make_span_with(|request: &http::Request<_>| {
             // Extract the W3C traceparent header injected by Cloud Run so that
-            // our spans are children of the infrastructure-level request trace.
+            // our spans are children of the infrastructure-level request traces
             let parent_cx = opentelemetry::global::get_text_map_propagator(|prop| {
-                prop.extract(&HeaderExtractor(request.headers()))
+                prop.extract(&AxumHeaderExtractor(request.headers()))
             });
             let span = tracing::info_span!("http_request");
 
