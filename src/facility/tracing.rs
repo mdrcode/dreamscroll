@@ -3,6 +3,7 @@ use anyhow::Context;
 use axum::http;
 use opentelemetry::trace::TraceContextExt;
 use opentelemetry_gcloud_trace::GcpCloudTraceExporterBuilder;
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use tower_http::trace::TraceLayer;
 use tracing_opentelemetry::{OpenTelemetryLayer, OpenTelemetrySpanExt};
 use tracing_subscriber::{
@@ -11,7 +12,7 @@ use tracing_subscriber::{
     layer::SubscriberExt,
 };
 
-pub async fn init_tracing() -> anyhow::Result<()> {
+pub async fn init_tracing() -> anyhow::Result<Option<SdkTracerProvider>> {
     if std::env::var("K_SERVICE").is_ok() {
         // Running within Cloud Run, so enable Cloud Trace/Logging with
         // integrated trace/span IDs and Cloud Logging JSON formatting.
@@ -46,6 +47,7 @@ pub async fn init_tracing() -> anyhow::Result<()> {
             .with(cloud_logging_layer); // events → Cloud Logging (with traceId/spanId)
 
         tracing::subscriber::set_global_default(subscriber)?;
+        return Ok(Some(provider));
     } else {
         // Local dev: compact, human-readable
         let timer = ChronoLocal::new("%H:%M:%S%.3f".to_string());
@@ -61,7 +63,7 @@ pub async fn init_tracing() -> anyhow::Result<()> {
         tracing::info!("Initialized tracing for local development.");
     }
 
-    Ok(())
+    Ok(None)
 }
 
 struct HeaderExtractor<'a>(&'a http::HeaderMap);

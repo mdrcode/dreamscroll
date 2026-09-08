@@ -17,7 +17,7 @@ async fn main() -> anyhow::Result<()> {
         facility::load_local_config_files();
     }
 
-    facility::init_tracing().await?;
+    let tracer_provider = facility::init_tracing().await?;
     let config = facility::make_config()?;
 
     if config.services.is_empty() {
@@ -135,13 +135,42 @@ async fn main() -> anyhow::Result<()> {
         host_port,
         config.services
     );
-    axum::serve(listener, router)
-        .with_graceful_shutdown(async {
-            let _ = tokio::signal::ctrl_c().await;
-            tracing::info!("Receivd Ctrl-C, starting graceful shutdown...");
-        })
-        .await
-        .context("Failed to serve routes")?;
+    let serve_result = axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown_signal())
+        .await;
+
+    if let Some(provider) = tracer_provider {
+        tracing::info!("Flushing Cloud Trace spans before shutdown...");
+        if let Err(error) = provider.shutdown() {
+            tracing::error!(error = %error, "Failed to flush Cloud Trace spans");
+        }
+    }
+
+    serve_result.context("Failed to serve routes")?;
 
     Ok(())
+}
+
+// Cloud Run sends SIGTERM, so simply relying on tokio's ctrl_c() is inadequate
+async fn shutdown_signal() {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        let mut terminate = signal(SignalKind::terminate()).expect("install SIGTERM handler");
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => {
+                tracing::info!("Received Ctrl-C, starting graceful shutdown...");
+            }
+            _ = terminate.recv() => {
+                tracing::info!("Received SIGTERM, starting graceful shutdown...");
+            }
+        }
+    }
+
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+        tracing::info!("Received shutdown signal, starting graceful shutdown...");
+    }
 }
