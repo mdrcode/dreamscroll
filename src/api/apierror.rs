@@ -3,7 +3,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 
-use crate::facility;
+use crate::telemetry;
 
 #[derive(Debug)]
 pub struct ApiError {
@@ -55,7 +55,7 @@ impl ApiError {
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
         let report_id = uuid::Uuid::new_v4().to_string();
-        let trace_id = facility::current_trace_id();
+        let trace_id = telemetry::current_trace_id();
 
         tracing::error!(
             status_code = self.status_code.as_u16(),

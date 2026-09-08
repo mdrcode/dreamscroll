@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use dreamscroll::{facility, util};
+use dreamscroll::{facility, telemetry, util};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll cmd line utility")]
@@ -57,7 +57,7 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // util always uses local tracing format
-    facility::init_tracing_local();
+    telemetry::init_local();
 
     let config = facility::make_config()?;
 

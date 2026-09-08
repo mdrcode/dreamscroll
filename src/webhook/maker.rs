@@ -1,7 +1,7 @@
 use axum::{Router, extract::DefaultBodyLimit, routing::post};
 use std::sync::Arc;
 
-use crate::{api, facility, ignition, illumination, search, storage};
+use crate::{api, ignition, illumination, search, storage, telemetry};
 
 use super::*;
 
@@ -38,6 +38,6 @@ pub fn make_webhook_router(
         .with_state(state);
 
     router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));
-    router = facility::add_axum_trace_propagation(router); // Cloud Run trace headers
+    router = telemetry::add_axum_trace_propagation(router); // Cloud Run trace headers
     router
 }

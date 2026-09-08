@@ -23,9 +23,9 @@ async fn main() -> anyhow::Result<()> {
             // integrated trace/span IDs and Cloud Logging JSON formatting.
             let project_id = std::env::var("GCLOUD_PROJECT_ID")
                 .context("GCLOUD_PROJECT_ID env var required but not set")?;
-            Some(facility::init_tracing_gcloud(project_id).await?)
+            Some(telemetry::init_gcloud(project_id).await?)
         } else {
-            facility::init_tracing_local();
+            telemetry::init_local();
             None
         }
     };

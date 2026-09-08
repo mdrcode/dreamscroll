@@ -6,7 +6,7 @@ use axum::{
     routing::{delete, get, post},
 };
 
-use crate::{api, auth, facility};
+use crate::{api, auth, telemetry};
 
 use super::*;
 
@@ -69,6 +69,6 @@ pub fn make_api_router(
         .with_state(state);
 
     router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));
-    router = facility::add_axum_trace_propagation(router); // Cloud Run trace headers
+    router = telemetry::add_axum_trace_propagation(router); // Cloud Run trace headers
     router
 }

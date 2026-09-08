@@ -9,11 +9,11 @@ use tracing_subscriber::{
 /// Cloud Logging (Stackdriver) compatible JSON event formatter that reads
 /// trace/span IDs directly from the OpenTelemetry 0.31 context, avoiding the
 /// version-mismatch problem with `tracing-stackdriver`'s bundled OTel 0.22.
-pub(crate) struct CloudLoggingFormat {
+pub(crate) struct GCloudLoggingFormat {
     pub project_id: String,
 }
 
-impl<S, N> FormatEvent<S, N> for CloudLoggingFormat
+impl<S, N> FormatEvent<S, N> for GCloudLoggingFormat
 where
     S: tracing::Subscriber + for<'a> LookupSpan<'a>,
     N: for<'a> FormatFields<'a> + 'static,

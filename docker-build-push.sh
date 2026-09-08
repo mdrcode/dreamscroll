@@ -2,8 +2,8 @@
 
 set -euo pipefail
 
-TAG=$(git rev-parse --short HEAD)
 IMAGE_NAME="dreamscroll-web"
+TAG=$(git rev-parse --short HEAD)
 
 PROJECT=$(gcloud config get-value project 2>/dev/null)
 if [[ -z "$PROJECT" || "$PROJECT" == "(unset)" ]]; then

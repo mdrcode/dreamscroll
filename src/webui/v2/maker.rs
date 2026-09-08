@@ -6,7 +6,7 @@ use tera::{Context, Tera};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_sessions::SessionManagerLayer;
 
-use crate::{api, auth, facility};
+use crate::{api, auth, telemetry};
 
 use super::*;
 
@@ -82,6 +82,6 @@ pub fn make_ui_router(
 
     router = router.nest_service("/static", ServeDir::new("web/v2/static"));
     router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));
-    router = facility::add_axum_trace_propagation(router);
+    router = telemetry::add_axum_trace_propagation(router);
     router
 }
