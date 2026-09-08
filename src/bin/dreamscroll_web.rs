@@ -17,7 +17,17 @@ async fn main() -> anyhow::Result<()> {
         facility::load_local_config_files();
     }
 
-    let tracer_provider = facility::init_tracing().await?;
+    let trace_provider = {
+        if std::env::var("K_SERVICE").is_ok() {
+            // Running within Cloud Run, so enable Cloud Trace/Logging with
+            // integrated trace/span IDs and Cloud Logging JSON formatting.
+            Some(facility::init_tracing_gcloud().await?)
+        } else {
+            facility::init_tracing_local();
+            None
+        }
+    };
+
     let config = facility::make_config()?;
 
     if config.services.is_empty() {
@@ -139,14 +149,14 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal())
         .await;
 
-    if let Some(provider) = tracer_provider {
+    if let Some(provider) = trace_provider {
         tracing::info!("Flushing Cloud Trace spans before shutdown...");
         if let Err(error) = provider.shutdown() {
             tracing::error!(error = %error, "Failed to flush Cloud Trace spans");
         }
     }
 
-    serve_result.context("Failed to serve routes")?;
+    serve_result.context("Axum failed to serve routes")?;
 
     Ok(())
 }

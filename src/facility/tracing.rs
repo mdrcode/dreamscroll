@@ -12,58 +12,53 @@ use tracing_subscriber::{
     layer::SubscriberExt,
 };
 
-pub async fn init_tracing() -> anyhow::Result<Option<SdkTracerProvider>> {
-    if std::env::var("K_SERVICE").is_ok() {
-        // Running within Cloud Run, so enable Cloud Trace/Logging with
-        // integrated trace/span IDs and Cloud Logging JSON formatting.
+pub fn init_tracing_local() {
+    // Local dev: compact, human-readable
+    let timer = ChronoLocal::new("%H:%M:%S%.3f".to_string());
 
-        // Extract project_id manually because config is not available yet
-        let project_id = std::env::var("GCLOUD_PROJECT_ID")
-            .context("GCLOUD_PROJECT_ID env var required but not set")?;
+    tracing_subscriber::fmt()
+        .compact()
+        .with_env_filter(EnvFilter::from_default_env())
+        .with_span_events(FmtSpan::CLOSE)
+        .with_target(true)
+        .with_timer(timer)
+        .init();
 
-        // Register the W3C traceparent propagator so incoming Cloud Run request
-        // headers can be extracted and used as span parents.
-        opentelemetry::global::set_text_map_propagator(
-            opentelemetry_sdk::propagation::TraceContextPropagator::new(),
-        );
+    tracing::info!("Initialized tracing for local development.");
+}
 
-        // 1. Cloud Trace exporter
-        let exporter = GcpCloudTraceExporterBuilder::new(project_id.clone());
-        let provider = exporter.create_provider().await?;
-        let tracer = exporter.install(&provider).await?;
-        opentelemetry::global::set_tracer_provider(provider.clone());
+pub async fn init_tracing_gcloud() -> anyhow::Result<SdkTracerProvider> {
+    // Extract project_id manually because config is not available yet
+    let project_id = std::env::var("GCLOUD_PROJECT_ID")
+        .context("GCLOUD_PROJECT_ID env var required but not set")?;
 
-        // 2. Layers
-        let telemetry_layer = OpenTelemetryLayer::new(tracer); // spans → Cloud Trace
+    // Register the W3C traceparent propagator so incoming Cloud Run request
+    // headers can be extracted and used as span parents.
+    opentelemetry::global::set_text_map_propagator(
+        opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+    );
 
-        // Cloud Logging JSON formatter that reads OTel trace context directly
-        let cloud_logging_layer = fmt::layer()
-            .with_writer(std::io::stdout)
-            .event_format(CloudLoggingFormat { project_id });
+    // 1. Cloud Trace exporter
+    let exporter = GcpCloudTraceExporterBuilder::new(project_id.clone());
+    let provider = exporter.create_provider().await?;
+    let tracer = exporter.install(&provider).await?;
+    opentelemetry::global::set_tracer_provider(provider.clone());
 
-        let subscriber = Registry::default()
-            .with(EnvFilter::from_default_env())
-            .with(telemetry_layer) // tracing spans → Cloud Trace
-            .with(cloud_logging_layer); // events → Cloud Logging (with traceId/spanId)
+    // 2. Layers
+    let telemetry_layer = OpenTelemetryLayer::new(tracer); // spans → Cloud Trace
 
-        tracing::subscriber::set_global_default(subscriber)?;
-        return Ok(Some(provider));
-    } else {
-        // Local dev: compact, human-readable
-        let timer = ChronoLocal::new("%H:%M:%S%.3f".to_string());
+    // Cloud Logging JSON formatter that reads OTel trace context directly
+    let cloud_logging_layer = fmt::layer()
+        .with_writer(std::io::stdout)
+        .event_format(CloudLoggingFormat { project_id });
 
-        tracing_subscriber::fmt()
-            .compact()
-            .with_env_filter(EnvFilter::from_default_env())
-            .with_span_events(FmtSpan::CLOSE)
-            .with_target(true)
-            .with_timer(timer)
-            .init();
+    let subscriber = Registry::default()
+        .with(EnvFilter::from_default_env())
+        .with(telemetry_layer) // tracing spans → Cloud Trace
+        .with(cloud_logging_layer); // events → Cloud Logging (with traceId/spanId)
 
-        tracing::info!("Initialized tracing for local development.");
-    }
-
-    Ok(None)
+    tracing::subscriber::set_global_default(subscriber)?;
+    return Ok(provider);
 }
 
 struct HeaderExtractor<'a>(&'a http::HeaderMap);

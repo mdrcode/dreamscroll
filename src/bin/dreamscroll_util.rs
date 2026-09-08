@@ -56,7 +56,12 @@ async fn main() -> anyhow::Result<()> {
         facility::load_local_config_files();
     }
 
-    facility::init_tracing().await?;
+    if std::env::var("K_SERVICE").is_ok() {
+        facility::init_tracing_gcloud().await?;
+    } else {
+        facility::init_tracing_local();
+    }
+
     let config = facility::make_config()?;
 
     let args: Args = argh::from_env();
