@@ -6,11 +6,31 @@ use tracing_subscriber::{
     registry::LookupSpan,
 };
 
-/// Cloud Logging (Stackdriver) compatible JSON event formatter that reads
-/// trace/span IDs directly from the OpenTelemetry 0.31 context, avoiding the
-/// version-mismatch problem with `tracing-stackdriver`'s bundled OTel 0.22.
+/// Cloud Logging (Stackdriver) compatible JSON event formatter.
+///
+/// Hand-rolled because the off-the-shelf `tracing-stackdriver` crate pins an
+/// ancient OpenTelemetry 0.22 while the rest of our stack (and the
+/// `opentelemetry-gcloud-trace` exporter) are on 0.31+ — pulling it in would
+/// silently break log↔trace correlation. So we implement the ~20% we need:
+/// JSON shape, GCP severity vocabulary, and the `logging.googleapis.com/*`
+/// correlation keys.
 pub(crate) struct GCloudLoggingFormat {
     pub project_id: String,
+}
+
+/// Map `tracing`'s level vocabulary onto Cloud Logging's `LogSeverity` strings.
+///
+/// Two deliberate folds: `tracing::Level::WARN` → `"WARNING"` (Cloud Logging
+/// spells it with the "ING"), and `TRACE` → `"DEBUG"` (Cloud Logging has no
+/// `TRACE`; an unknown value would be downgraded to `DEFAULT`, hiding the logs).
+fn severity_to_gcp(level: tracing::Level) -> &'static str {
+    match level {
+        tracing::Level::ERROR => "ERROR",
+        tracing::Level::WARN => "WARNING",
+        tracing::Level::INFO => "INFO",
+        tracing::Level::DEBUG => "DEBUG",
+        tracing::Level::TRACE => "DEBUG",
+    }
 }
 
 impl<S, N> FormatEvent<S, N> for GCloudLoggingFormat
@@ -24,13 +44,7 @@ where
         mut writer: fmt::format::Writer<'_>,
         event: &tracing::Event<'_>,
     ) -> std::fmt::Result {
-        let severity = match *event.metadata().level() {
-            tracing::Level::ERROR => "ERROR",
-            tracing::Level::WARN => "WARNING",
-            tracing::Level::INFO => "INFO",
-            tracing::Level::DEBUG => "DEBUG",
-            tracing::Level::TRACE => "DEBUG",
-        };
+        let severity = severity_to_gcp(*event.metadata().level());
 
         // Collect event fields
         let mut fields = BTreeMap::new();
@@ -107,5 +121,32 @@ impl tracing::field::Visit for JsonFieldVisitor<'_> {
     }
     fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
         self.0.insert(field.name().into(), serde_json::json!(value));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::severity_to_gcp;
+    use tracing::Level;
+
+    #[test]
+    fn severity_maps_each_tracing_level() {
+        assert_eq!(severity_to_gcp(Level::ERROR), "ERROR");
+        assert_eq!(severity_to_gcp(Level::WARN), "WARNING");
+        assert_eq!(severity_to_gcp(Level::INFO), "INFO");
+        assert_eq!(severity_to_gcp(Level::DEBUG), "DEBUG");
+    }
+
+    #[test]
+    fn severity_folds_trace_into_debug() {
+        // Cloud Logging has no TRACE severity; emitting an unknown value would
+        // be downgraded to DEFAULT, hiding the logs beneath DEBUG.
+        assert_eq!(severity_to_gcp(Level::TRACE), "DEBUG");
+    }
+
+    #[test]
+    fn severity_warn_uses_cloud_logging_spelling() {
+        // Cloud Logging spells it "WARNING"; `tracing` spells it "WARN".
+        assert_eq!(severity_to_gcp(Level::WARN), "WARNING");
     }
 }

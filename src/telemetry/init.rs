@@ -5,6 +5,7 @@ use tracing_subscriber::{EnvFilter, Registry, fmt, layer::SubscriberExt};
 
 use super::gcloud_logging_format::GCloudLoggingFormat;
 
+/// Local dev: compact human-readable output (no OTel, no GCP).
 pub fn init_local() {
     use tracing_subscriber::fmt::{format::FmtSpan, time::ChronoLocal};
 
@@ -21,6 +22,8 @@ pub fn init_local() {
     tracing::info!("Initialized tracing for local development.");
 }
 
+/// Cloud Run: two subscriber layers — spans (→ Cloud Trace) and events
+/// (→ Cloud Logging JSON, correlated via the trace/span IDs from the OTel context).
 pub async fn init_gcloud(project_id: String) -> anyhow::Result<SdkTracerProvider> {
     // Register the W3C traceparent propagator so incoming Cloud Run request
     // headers can be extracted and used as span parents.
@@ -28,24 +31,26 @@ pub async fn init_gcloud(project_id: String) -> anyhow::Result<SdkTracerProvider
         opentelemetry_sdk::propagation::TraceContextPropagator::new(),
     );
 
-    // 1. Cloud Trace exporter
-    let exporter = GcpCloudTraceExporterBuilder::new(project_id.clone());
-    let provider = exporter.create_provider().await?;
+    // Build a tracer provider whose span processor pushes spans to the Cloud
+    // Trace exporter (this is where the real exporter lives).
+    let builder = GcpCloudTraceExporterBuilder::new(project_id.clone());
+    let provider = builder.create_provider().await?;
     opentelemetry::global::set_tracer_provider(provider.clone());
 
-    // 2. Layers
-    let tracer = exporter.install(&provider).await?;
-    let telemetry_layer = OpenTelemetryLayer::new(tracer); // spans → Cloud Trace
+    // Borrow a Tracer from that provider (with an instrumentation scope) and
+    // hand it to the OTel layer, which mirrors each `tracing` span into OTel.
+    let tracer = builder.install(&provider).await?;
+    let span_layer = OpenTelemetryLayer::new(tracer);
 
     // Cloud Logging JSON formatter that reads OTel trace context directly
-    let cloud_logging_layer = fmt::layer()
+    let event_layer = fmt::layer()
         .with_writer(std::io::stdout)
         .event_format(GCloudLoggingFormat { project_id });
 
     let subscriber = Registry::default()
         .with(EnvFilter::from_default_env())
-        .with(telemetry_layer) // tracing spans → Cloud Trace
-        .with(cloud_logging_layer); // events → Cloud Logging
+        .with(span_layer) // spans → Cloud Trace
+        .with(event_layer); // events → Cloud Logging
 
     tracing::subscriber::set_global_default(subscriber)?;
 
