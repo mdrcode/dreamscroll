@@ -1,6 +1,6 @@
 use dotenvy;
 
-pub fn load_local_config_files() {
+pub fn load_local_files() {
     // Use (e)println! since tracing might not be initialized
 
     match dotenvy::from_filename("config_local.env") {

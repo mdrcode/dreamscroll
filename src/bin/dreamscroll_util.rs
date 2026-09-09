@@ -53,13 +53,13 @@ async fn main() -> anyhow::Result<()> {
     // Containerized environments should set NO_LOCAL_CONFIG_FILES=1 to skip
     // local config files. But we load them when running via `cargo run`
     if std::env::var("NO_LOCAL_CONFIG_FILES").is_err() {
-        config::load_local_config_files();
+        config::load_local_files();
     }
 
     // util always uses local tracing format
     telemetry::init_local();
 
-    let config = config::make_config()?;
+    let cfg = config::make()?;
 
     let args: Args = argh::from_env();
 
@@ -75,10 +75,10 @@ async fn main() -> anyhow::Result<()> {
     } else if prod {
         "dreamscroll.ai".to_string()
     } else {
-        format!("localhost:{}", config.port)
+        format!("localhost:{}", cfg.port)
     };
 
-    let state = util::CmdState::from_config(config, Some(rest_host), user).await?;
+    let state = util::CmdState::from_config(cfg, Some(rest_host), user).await?;
 
     match command {
         Command::Backfill(args) => util::backfill::run(state, args).await,

@@ -11,10 +11,10 @@ async fn main() -> anyhow::Result<()> {
     crypto::CryptoProvider::install_default(crypto::aws_lc_rs::default_provider())
         .expect("Failed to install aws_lc_rs as default crypto provider");
 
-    // Containerized environments should set NO_LOCAL_CONFIG_FILES=(any value).
+    // Containerized environments should set NO_LOCAL_CONFIG=(any value).
     // But when running via `cargo run` we load local files as a convenience.
-    if std::env::var("NO_LOCAL_CONFIG_FILES").is_err() {
-        config::load_local_config_files();
+    if std::env::var("NO_LOCAL_CONFIG").is_err() {
+        config::load_local_files();
     }
 
     let trace_provider = {
@@ -30,28 +30,25 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let config = config::make_config()?;
+    let cfg = config::make()?;
 
-    if config.services.is_empty() {
+    if cfg.services.is_empty() {
         tracing::warn!("No services enabled (set SERVICES env var to enable)");
         return Err(anyhow::anyhow!("No services enabled, nothing to do"));
     } else {
-        tracing::info!(
-            "Starting dreamscroll_web with services: {:?}",
-            config.services
-        );
+        tracing::info!("Starting dreamscroll_web with services: {:?}", cfg.services);
     }
 
-    let (db_connection, session_store) = database::connect(&config).await?;
+    let (db_connection, session_store) = database::connect(&cfg).await?;
     let db = database::DbHandle::new(db_connection);
     tracing::info!("Connected to database");
 
     database::check_users(&db).await?;
 
-    let stg = storage::make_provider(&config).await;
-    let url_maker = storage::UrlMaker::from_config(&config);
-    let beacon = task::make_beacon(&config).await?;
-    let searcher = search::CaptureSearcher::from_config(&config)
+    let stg = storage::make_provider(&cfg).await;
+    let url_maker = storage::UrlMaker::from_config(&cfg);
+    let beacon = task::make_beacon(&cfg).await?;
+    let searcher = search::CaptureSearcher::from_config(&cfg)
         .await
         .context("Failed to initialize required CaptureSearcher")?;
 
@@ -68,17 +65,17 @@ async fn main() -> anyhow::Result<()> {
     let mut router = axum::Router::new();
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving
-    if config.services.contains(&config::Service::WebUI) {
+    if cfg.services.contains(&config::Service::WebUI) {
         let auth_backend = auth::WebAuthBackend::new(db.clone());
 
         let session_layer = SessionManagerLayer::new(session_store)
             // Refresh session on read, not just modify (to extend inactivity timeout)
-            .with_always_save(config.session_always_save)
+            .with_always_save(cfg.session_always_save)
             // Expire session after seven days of inactivity
             .with_expiry(Expiry::OnInactivity(cookie::time::Duration::days(7)))
             // true == only send cookies over HTTPS (production)
             // false == allow cookies over HTTP (local dev)
-            .with_secure(config.cookie_secure)
+            .with_secure(cfg.cookie_secure)
             // true == JS cannot access cookies
             .with_http_only(true)
             // SameSite::Lax: cookie is sent on top-level GET navigations (links)
@@ -94,8 +91,8 @@ async fn main() -> anyhow::Result<()> {
         ));
 
         // If using the local Storage provider, we serve media files manually
-        if let Some(local_url_prefix) = &config.storage_local_url_prefix
-            && let Some(local_file_path) = &config.storage_local_file_path
+        if let Some(local_url_prefix) = &cfg.storage_local_url_prefix
+            && let Some(local_file_path) = &cfg.storage_local_file_path
         {
             router = router.nest_service(local_url_prefix, ServeDir::new(local_file_path));
             tracing::info!("Mounted media file serving routes for local storage");
@@ -104,8 +101,8 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // REST API routes (JWT-protected)
-    if config.services.contains(&config::Service::API) {
-        let secret = config
+    if cfg.services.contains(&config::Service::API) {
+        let secret = cfg
             .jwt_secret
             .as_ref()
             .context("JWT_SECRET not set, required for API")?
@@ -119,11 +116,11 @@ async fn main() -> anyhow::Result<()> {
     }
 
     // Webhook routes (no auth locally, protected by GCloud IAM/OIDC in prod)
-    if config.services.contains(&config::Service::Webhook) {
-        let illuminator = illumination::make_illuminator(&config, stg.clone());
-        let firestarter = ignition::make_firestarter(&config)?;
-        let embedder = search::gcloud::GeminiEmbedder::from_config(&config)?;
-        let vector_store = search::gcloud::VertexVectorStore::from_config(&config).await?;
+    if cfg.services.contains(&config::Service::Webhook) {
+        let illuminator = illumination::make_illuminator(&cfg, stg.clone());
+        let firestarter = ignition::make_firestarter(&cfg)?;
+        let embedder = search::gcloud::GeminiEmbedder::from_config(&cfg)?;
+        let vector_store = search::gcloud::VertexVectorStore::from_config(&cfg).await?;
         router = router.nest(
             "/_wh",
             webhook::make_webhook_router(
@@ -138,14 +135,14 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Initialized webhook routes");
     }
 
-    let host_port = format!("0.0.0.0:{}", config.port);
+    let host_port = format!("0.0.0.0:{}", cfg.port);
     let listener = TcpListener::bind(&host_port)
         .await
         .context("Failed to bind TCP listener")?;
     tracing::info!(
         "Bound listener on {}, will start serving {:?}...",
         host_port,
-        config.services
+        cfg.services
     );
     let serve_result = axum::serve(listener, router)
         .with_graceful_shutdown(shutdown_signal())

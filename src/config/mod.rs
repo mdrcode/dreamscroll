@@ -1,5 +1,5 @@
-mod config;
-pub use config::*;
+mod local_files;
+pub use local_files::load_local_files;
 
-mod load_local_config;
-pub use load_local_config::load_local_config_files;
+mod schema;
+pub use schema::*;

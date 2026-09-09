@@ -45,11 +45,12 @@ pub struct Config {
     pub jwt_secret: Option<String>, // must be 32+ bytes for HS256 signing
 
     pub illuminator: String,
-    pub firestarter: String,
     pub gemini_api_key: Option<String>,
+    pub gemini_model: Option<String>,
     #[serde(default = "default_gemini_payload_method")]
     pub gemini_payload_method: illumination::gemini::PayloadMethod,
 
+    pub firestarter: String,
     pub xai_api_key: Option<String>,
 
     pub db_backend: database::DbBackend,
@@ -80,7 +81,7 @@ pub struct Config {
     pub task_cloudtask_queue_search_index: Option<String>,
 }
 
-pub fn make_config() -> anyhow::Result<Config> {
+pub fn make() -> anyhow::Result<Config> {
     let mut config = envy::from_env::<Config>()
         .context("Failed to load config (missing required env vars or invalid values)")?;
 
