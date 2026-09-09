@@ -46,7 +46,7 @@ pub struct Config {
 
     pub illuminator: String,
     pub gemini_api_key: Option<String>,
-    pub gemini_model: Option<String>,
+    pub gemini_model_id: Option<String>,
     #[serde(default = "default_gemini_payload_method")]
     pub gemini_payload_method: illumination::gemini::PayloadMethod,
 

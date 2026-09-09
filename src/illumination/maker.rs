@@ -9,16 +9,19 @@ pub fn make_illuminator(
     match cfg.illuminator.as_str() {
         "gemini" => Box::new(gemini::legacy::GeminiIlluminator::new(storage)),
         "geminipublicapi" => Box::new(gemini::GeminiPublicApiIlluminator::new(
-            cfg
-                .gemini_api_key
+            cfg.gemini_api_key
                 .as_deref()
                 .expect("GEMINI_API_KEY required but missing from config."),
-            "gemini-3-flash-preview",
+            cfg.gemini_model_id
+                .as_deref()
+                .expect("GEMINI_MODEL_ID required but missing from config."),
             storage,
         )),
         "geminivertexapi" => Box::new(gemini::GeminiVertexApiIlluminator::new(
             &cfg.gcloud_project_id,
-            "gemini-3-flash-preview",
+            cfg.gemini_model_id
+                .as_deref()
+                .expect("GEMINI_MODEL_ID required but missing from config."),
             cfg.gemini_payload_method,
             storage,
         )),
