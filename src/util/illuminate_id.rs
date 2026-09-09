@@ -34,7 +34,7 @@ pub async fn run(mut state: CmdState, args: IlluminateIdArgs) -> anyhow::Result<
     let stg = state.storage_provider().await?;
     let user = auth_helper::authenticate_user_stdin(&db).await?;
 
-    let illuminator = make_illuminator(&state.config, stg);
+    let illuminator = make_illuminator(&state.cfg, stg);
 
     // Process each capture
     let capture_infos = user_api

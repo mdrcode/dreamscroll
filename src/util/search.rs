@@ -31,7 +31,7 @@ pub struct SearchArgs {
 }
 
 pub async fn run(state: CmdState, args: SearchArgs) -> anyhow::Result<()> {
-    let searcher = search::gcloud::VertexVectorSearcher::from_config(&state.config).await?;
+    let searcher = search::gcloud::VertexVectorSearcher::from_config(&state.cfg).await?;
 
     if args.text_only && args.vector_only {
         anyhow::bail!("Choose at most one mode: --text-only or --vector-only");
@@ -53,7 +53,7 @@ pub async fn run(state: CmdState, args: SearchArgs) -> anyhow::Result<()> {
     let page = if args.text_only {
         searcher.search_text(&args.query, &params).await?
     } else {
-        let embedder = search::gcloud::GeminiEmbedder::from_config(&state.config)?;
+        let embedder = search::gcloud::GeminiEmbedder::from_config(&state.cfg)?;
         let query_embedding = embedder.embed_query(&args.query).await?;
         tracing::info!(
             "Generated query embedding with dims={}",

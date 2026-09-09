@@ -113,7 +113,7 @@ pub async fn run(mut state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
     let firestarter: Box<dyn Firestarter> = match model.as_str() {
         "grok" => {
             let api_key = state
-                .config
+                .cfg
                 .xai_api_key
                 .clone()
                 .ok_or_else(|| anyhow!("XAI_API_KEY is not configured"))?;
@@ -121,7 +121,7 @@ pub async fn run(mut state: CmdState, args: SparkArgs) -> anyhow::Result<()> {
         }
         "gemini" => {
             let api_key = state
-                .config
+                .cfg
                 .gemini_api_key
                 .clone()
                 .ok_or_else(|| anyhow!("GEMINI_API_KEY is not configured"))?;

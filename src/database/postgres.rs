@@ -1,16 +1,36 @@
 use anyhow;
 use sea_orm::{self, DbErr};
 use sqlx;
+use tower_sessions_sqlx_store::PostgresStore;
 
-use crate::auth;
+use crate::config;
 
-use super::*;
+pub async fn connect(
+    cfg: &config::Config,
+) -> anyhow::Result<(sea_orm::DatabaseConnection, PostgresStore)> {
+    let pool = create_postgres_pool(cfg).await?;
+    let db_connection = connect_postgres_db(pool.clone()).await?;
+    let session_store = connect_postgres_session_store(pool.clone()).await?;
+    Ok((db_connection, session_store))
+}
 
-pub async fn create_postgres_pool(
-    config: &PostgresConfig,
-) -> anyhow::Result<sqlx::postgres::PgPool> {
-    let url = make_url(config, false);
-    let url_redacted = make_url(config, true);
+pub async fn create_postgres_pool(cfg: &config::Config) -> anyhow::Result<sqlx::postgres::PgPool> {
+    let url = make_url(
+        &cfg.postgres_user,
+        &cfg.postgres_password,
+        &cfg.postgres_host_port,
+        &cfg.postgres_db,
+        cfg.postgres_connection_params.as_deref(),
+        false,
+    );
+    let url_redacted = make_url(
+        &cfg.postgres_user,
+        &cfg.postgres_password,
+        &cfg.postgres_host_port,
+        &cfg.postgres_db,
+        cfg.postgres_connection_params.as_deref(),
+        true,
+    );
 
     tracing::info!(
         url_redacted = %url_redacted,
@@ -41,29 +61,34 @@ pub async fn connect_postgres_db(
 
 pub async fn connect_postgres_session_store(
     pool: sqlx::PgPool,
-) -> anyhow::Result<auth::SessionStoreWrapper> {
+) -> anyhow::Result<tower_sessions_sqlx_store::PostgresStore> {
     let store = tower_sessions_sqlx_store::PostgresStore::new(pool);
     store.migrate().await?;
-    Ok(auth::SessionStoreWrapper::Postgres(store))
+    Ok(store)
 }
 
-fn make_url(config: &PostgresConfig, redacted: bool) -> String {
+fn make_url(
+    user: &str,
+    password: &str,
+    host_port: &str,
+    db: &str,
+    connection_params: Option<&str>,
+    redacted: bool,
+) -> String {
     // e.g. "sslmode=require"
-    let params = config
-        .connection_params
-        .as_deref()
+    let params = connection_params
         .map(|params| format!("?{}", params))
         .unwrap_or_default();
 
     if redacted {
         format!(
             "postgres://{}:<REDACTED>@{}/{}{}",
-            &config.user, &config.host_port, &config.db, params
+            user, host_port, db, params
         )
     } else {
         format!(
             "postgres://{}:{}@{}/{}{}",
-            &config.user, &config.password, &config.host_port, &config.db, params
+            user, password, host_port, db, params
         )
     }
 }
@@ -72,30 +97,28 @@ fn make_url(config: &PostgresConfig, redacted: bool) -> String {
 mod tests {
     use super::*;
 
-    fn test_config(connection_params: Option<&str>) -> PostgresConfig {
-        PostgresConfig {
-            user: "alice".to_string(),
-            password: "secret".to_string(),
-            host_port: "db.internal:5432".to_string(),
-            db: "dreamscroll".to_string(),
-            connection_params: connection_params.map(str::to_string),
-        }
-    }
+    const USER: &str = "alice";
+    const PASSWORD: &str = "secret";
+    const HOST_PORT: &str = "db.internal:5432";
+    const DB: &str = "dreamscroll";
 
     #[test]
     fn make_url_without_connection_params() {
-        let config = test_config(None);
-
-        let url = make_url(&config, false);
+        let url = make_url(USER, PASSWORD, HOST_PORT, DB, None, false);
 
         assert_eq!(url, "postgres://alice:secret@db.internal:5432/dreamscroll");
     }
 
     #[test]
     fn make_url_with_connection_params() {
-        let config = test_config(Some("sslmode=require&application_name=dreamscroll"));
-
-        let url = make_url(&config, false);
+        let url = make_url(
+            USER,
+            PASSWORD,
+            HOST_PORT,
+            DB,
+            Some("sslmode=require&application_name=dreamscroll"),
+            false,
+        );
 
         assert_eq!(
             url,
@@ -105,9 +128,7 @@ mod tests {
 
     #[test]
     fn make_url_redacts_password() {
-        let config = test_config(Some("sslmode=require"));
-
-        let url = make_url(&config, true);
+        let url = make_url(USER, PASSWORD, HOST_PORT, DB, Some("sslmode=require"), true);
 
         assert_eq!(
             url,

@@ -13,15 +13,15 @@ pub struct CaptureSearcher {
 }
 
 impl CaptureSearcher {
-    pub async fn from_config(config: &config::Config) -> anyhow::Result<Self> {
+    pub async fn from_config(cfg: &config::Config) -> anyhow::Result<Self> {
         let embedder =
-            gcloud::GeminiEmbedder::from_config(config).context("GeminiEmbedder init failed")?;
+            gcloud::GeminiEmbedder::from_config(cfg).context("GeminiEmbedder init failed")?;
 
-        let searcher = gcloud::VertexVectorSearcher::from_config(config)
+        let searcher = gcloud::VertexVectorSearcher::from_config(cfg)
             .await
             .context("VertexVectorSearcher init failed")?;
 
-        let vector_store = gcloud::VertexVectorStore::from_config(config)
+        let vector_store = gcloud::VertexVectorStore::from_config(cfg)
             .await
             .context("VertexVectorStore init failed")?;
 

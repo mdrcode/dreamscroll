@@ -5,7 +5,7 @@ use crate::{api, config, database, rest, search, storage, task};
 use super::*;
 
 pub struct CmdState {
-    pub config: config::Config,
+    pub cfg: config::Config,
     pub rest_host: Option<String>,
     pub rest_user: Option<String>,
 
@@ -18,12 +18,12 @@ pub struct CmdState {
 
 impl CmdState {
     pub async fn from_config(
-        config: config::Config,
+        cfg: config::Config,
         rest_host: Option<String>,
         rest_user: Option<String>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            config,
+            cfg,
             rest_host,
             rest_user,
             db: None,
@@ -36,7 +36,7 @@ impl CmdState {
 
     pub async fn db_handle(&mut self) -> anyhow::Result<database::DbHandle> {
         if self.db.is_none() {
-            let (db_connection, _) = database::connect(&self.config).await?;
+            let (db_connection, _) = database::connect(&self.cfg).await?;
             self.db = Some(database::DbHandle::new(db_connection));
         }
 
@@ -49,7 +49,7 @@ impl CmdState {
 
     pub async fn storage_provider(&mut self) -> anyhow::Result<Box<dyn storage::StorageProvider>> {
         if self.stg.is_none() {
-            let stg = storage::make_provider(&self.config).await;
+            let stg = storage::make_provider(&self.cfg).await;
             self.stg = Some(stg);
         }
 
@@ -64,13 +64,13 @@ impl CmdState {
         if self.user_api.is_none() {
             let db = self.db_handle().await?;
             let stg = self.storage_provider().await?;
-            let url_maker = storage::UrlMaker::from_config(&self.config);
+            let url_maker = storage::UrlMaker::from_config(&self.cfg);
 
             // We use an empty beacon for the util commands, so no background tasks
             // will be enqueued.
             // TODO this should be a NOOP queue that logs tasks so we can verify behavior
             let empty_beacon = task::Beacon::default();
-            let searcher = search::CaptureSearcher::from_config(&self.config)
+            let searcher = search::CaptureSearcher::from_config(&self.cfg)
                 .await
                 .context("Failed to initialize required CaptureSearcher")?;
 
@@ -93,7 +93,7 @@ impl CmdState {
     pub async fn service_api_client(&mut self) -> anyhow::Result<api::ServiceApiClient> {
         if self.service_api.is_none() {
             let db = self.db_handle().await?;
-            let url_maker = storage::UrlMaker::from_config(&self.config);
+            let url_maker = storage::UrlMaker::from_config(&self.cfg);
             self.service_api = Some(api::ServiceApiClient::new(db, url_maker));
         }
 

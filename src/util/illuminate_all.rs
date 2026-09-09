@@ -20,7 +20,7 @@ pub async fn run(mut state: CmdState, _args: IlluminateAllArgs) -> anyhow::Resul
     let stg = state.storage_provider().await?;
     let service_api = state.service_api_client().await?;
 
-    let illuminator = illumination::make_illuminator(&state.config, stg);
+    let illuminator = illumination::make_illuminator(&state.cfg, stg);
 
     let capture_ids = service_api.get_captures_need_illum().await?;
 

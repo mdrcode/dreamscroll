@@ -60,11 +60,11 @@ pub async fn run(mut state: CmdState, args: SearchIndexArgs) -> anyhow::Result<(
         return Err(anyhow!("No matching captures found for the current user."));
     }
 
-    let embedder = search::gcloud::GeminiEmbedder::from_config(&state.config)?;
+    let embedder = search::gcloud::GeminiEmbedder::from_config(&state.cfg)?;
     let vector_store = if args.no_upsert {
         None
     } else {
-        Some(search::gcloud::VertexVectorStore::from_config(&state.config).await?)
+        Some(search::gcloud::VertexVectorStore::from_config(&state.cfg).await?)
     };
 
     let retrieved_count = capture_infos.len();

@@ -20,8 +20,6 @@ services:
 
       ILLUMINATOR: geminipublicapi
 
-      DB_BACKEND: postgres
-
       # note that these must be redundantly defined below for db as well
       POSTGRES_USER: dreamscroll_pg_user
       #POSTGRES_PASSWORD: NOT HERE SHOULD COME FROM .env file
@@ -102,5 +100,4 @@ services:
 volumes:
   postgres_data:
   gcloud_storage_data:
-
 

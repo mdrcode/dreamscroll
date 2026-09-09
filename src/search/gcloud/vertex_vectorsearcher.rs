@@ -42,21 +42,21 @@ pub struct VertexVectorSearcher {
 }
 
 impl VertexVectorSearcher {
-    pub async fn from_config(config: &config::Config) -> anyhow::Result<Self> {
-        let collection_id = config
+    pub async fn from_config(cfg: &config::Config) -> anyhow::Result<Self> {
+        let collection_id = cfg
             .search_embed_collection_id
             .as_ref()
             .context("SEARCH_EMBED_COLLECTION_ID required for vector search")?
             .to_string();
-        let dense_vector_name = config
+        let dense_vector_name = cfg
             .search_embed_vector_field
             .as_ref()
             .context("SEARCH_EMBED_VECTOR_FIELD required for vector search")?
             .to_string();
 
         Self::new(
-            config.gcloud_project_id.clone(),
-            config.gcloud_project_region.clone(),
+            cfg.gcloud_project_id.clone(),
+            cfg.gcloud_project_region.clone(),
             collection_id,
             dense_vector_name,
         )

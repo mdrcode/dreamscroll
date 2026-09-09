@@ -11,10 +11,10 @@ pub struct UrlMaker {
 }
 
 impl UrlMaker {
-    pub fn from_config(config: &config::Config) -> Self {
+    pub fn from_config(cfg: &config::Config) -> Self {
         Self {
-            local_url_prefix: config.storage_local_url_prefix.clone(),
-            gcloud_emulator_endpoint: config.storage_gcloud_emulator.clone(),
+            local_url_prefix: cfg.storage_local_url_prefix.clone(),
+            gcloud_emulator_endpoint: cfg.storage_gcloud_emulator.clone(),
         }
     }
 }

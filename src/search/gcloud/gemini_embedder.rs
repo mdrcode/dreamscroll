@@ -21,14 +21,14 @@ pub struct GeminiEmbedder {
 }
 
 impl GeminiEmbedder {
-    pub fn from_config(config: &config::Config) -> anyhow::Result<Self> {
-        let output_dims = config
+    pub fn from_config(cfg: &config::Config) -> anyhow::Result<Self> {
+        let output_dims = cfg
             .search_embed_vector_dims
             .context("SEARCH_EMBED_VECTOR_DIMS required for search indexing")?;
 
         Self::new(
-            config.gcloud_project_id.clone(),
-            config.gcloud_project_region.clone(),
+            cfg.gcloud_project_id.clone(),
+            cfg.gcloud_project_region.clone(),
             MODEL_ID.to_string(),
             output_dims,
         )

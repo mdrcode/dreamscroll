@@ -4,7 +4,7 @@ use anyhow::{Context, bail};
 use serde::{Deserialize, Deserializer};
 use strum::{Display, EnumString};
 
-use crate::{database, illumination, storage, task};
+use crate::{illumination, storage, task};
 
 #[derive(Debug, Display, EnumString, PartialEq)]
 #[strum(serialize_all = "lowercase")]
@@ -26,15 +26,15 @@ fn default_gemini_payload_method() -> illumination::gemini::PayloadMethod {
     illumination::gemini::PayloadMethod::Inline
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct Config {
-    #[serde(deserialize_with = "deserialize_comma_list")]
-    pub services: Vec<Service>,
-
     pub gcloud_project_id: String,
     pub gcloud_project_region: String,
 
     pub port: u16,
+
+    #[serde(deserialize_with = "deserialize_comma_list")]
+    pub services: Vec<Service>,
 
     #[serde(default = "default_cookie_secure")]
     pub cookie_secure: bool, // true == only send cookies over HTTPS
@@ -53,12 +53,11 @@ pub struct Config {
     pub firestarter: String,
     pub xai_api_key: Option<String>,
 
-    pub db_backend: database::DbBackend,
-
-    pub db_url_sqlite: Option<String>,
-
-    #[serde(skip)]
-    pub db_postgres: Option<database::PostgresConfig>,
+    pub postgres_host_port: String, // e.g. "localhost:5432" or "db:5432"
+    pub postgres_user: String,
+    pub postgres_password: String,
+    pub postgres_connection_params: Option<String>, // e.g. "sslmode=require"
+    pub postgres_db: String,
 
     pub storage_backend: storage::StorageBackend,
     pub storage_local_file_path: Option<String>,
@@ -82,43 +81,29 @@ pub struct Config {
 }
 
 pub fn make() -> anyhow::Result<Config> {
-    let mut config = envy::from_env::<Config>()
+    let cfg = envy::from_env::<Config>()
         .context("Failed to load config (missing required env vars or invalid values)")?;
 
-    if config.db_backend == database::DbBackend::Postgres {
-        let postgres_config = envy::prefixed("POSTGRES_")
-            .from_env::<database::PostgresConfig>()
-            .context("DB_BACKEND is postgres but missing full POSTGRES_ config (need POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST, POSTGRES_DATABASE_NAME)")?;
-        config.db_postgres = Some(postgres_config);
-    }
-
-    if config.db_backend == database::DbBackend::Sqlite {
-        require_some(
-            &config.db_url_sqlite,
-            "DB_BACKEND is sqlite but no DB_URL_SQLITE provided",
-        )?;
-    }
-
-    match config.storage_backend {
+    match cfg.storage_backend {
         storage::StorageBackend::Local => {
             require_some(
-                &config.storage_local_file_path,
+                &cfg.storage_local_file_path,
                 "STORAGE_BACKEND is local but no STORAGE_LOCAL_FILE_PATH",
             )?;
             require_some(
-                &config.storage_local_url_prefix,
+                &cfg.storage_local_url_prefix,
                 "STORAGE_BACKEND is local but no STORAGE_LOCAL_URL_PREFIX",
             )?;
         }
         storage::StorageBackend::GCloud => {
             require_some(
-                &config.storage_gcloud_bucket_name,
+                &cfg.storage_gcloud_bucket_name,
                 "STORAGE_BACKEND is gcloud but no STORAGE_GCLOUD_BUCKET_NAME",
             )?;
         }
     }
 
-    Ok(config)
+    Ok(cfg)
 }
 
 fn require_some<T>(value: &Option<T>, message: &str) -> anyhow::Result<()> {

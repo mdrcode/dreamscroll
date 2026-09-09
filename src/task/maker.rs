@@ -6,10 +6,10 @@ use crate::webhook::schema::{IlluminationTask, IngestTask, SearchIndexTask, Spar
 
 use super::*;
 
-pub async fn make_beacon(config: &config::Config) -> anyhow::Result<Beacon> {
-    match config.task_backend {
+pub async fn make_beacon(cfg: &config::Config) -> anyhow::Result<Beacon> {
+    match cfg.task_backend {
         TaskQueueBackend::Local => {
-            let base_url = format!("http://localhost:{}", config.port);
+            let base_url = format!("http://localhost:{}", cfg.port);
 
             let dev_client_illuminate = LocalWebhookClient::new(&base_url);
             let illumination_queue = LocalTaskQueue::connect(4, move |task: IlluminationTask| {
@@ -43,10 +43,10 @@ pub async fn make_beacon(config: &config::Config) -> anyhow::Result<Beacon> {
                 .build())
         }
         TaskQueueBackend::GCloudPubSub => {
-            let emulator = config.task_pubsub_emulator.as_deref();
+            let emulator = cfg.task_pubsub_emulator.as_deref();
             let illumination_queue = PubSubTaskQueue::connect(
-                config.gcloud_project_id.as_str(),
-                config
+                cfg.gcloud_project_id.as_str(),
+                cfg
                     .task_pubsub_topic_new_capture
                     .as_ref()
                     .expect("TASK_PUBSUB_TOPIC_NEW_CAPTURE not set"),
@@ -55,8 +55,8 @@ pub async fn make_beacon(config: &config::Config) -> anyhow::Result<Beacon> {
             .await
             .context("Failed to initialize Pub/Sub queue: Illumination")?;
             let spark_queue = PubSubTaskQueue::connect(
-                config.gcloud_project_id.as_str(),
-                config
+                cfg.gcloud_project_id.as_str(),
+                cfg
                     .task_pubsub_topic_spark
                     .as_ref()
                     .expect("TASK_PUBSUB_TOPIC_SPARK not set"),
@@ -72,9 +72,9 @@ pub async fn make_beacon(config: &config::Config) -> anyhow::Result<Beacon> {
         }
         TaskQueueBackend::GCloudTasks => {
             let illumination_queue = CloudTaskQueue::connect(
-                config.gcloud_project_id.as_str(),
-                config.gcloud_project_region.as_str(),
-                config
+                cfg.gcloud_project_id.as_str(),
+                cfg.gcloud_project_region.as_str(),
+                cfg
                     .task_cloudtask_queue_illumination
                     .as_ref()
                     .expect("TASK_CLOUDTASK_QUEUE_ILLUMINATION not set"),
@@ -82,9 +82,9 @@ pub async fn make_beacon(config: &config::Config) -> anyhow::Result<Beacon> {
             .await
             .context("Failed to initialize Cloud Tasks Queue: Illumination")?;
             let ingest_queue = CloudTaskQueue::connect(
-                config.gcloud_project_id.as_str(),
-                config.gcloud_project_region.as_str(),
-                config
+                cfg.gcloud_project_id.as_str(),
+                cfg.gcloud_project_region.as_str(),
+                cfg
                     .task_cloudtask_queue_ingest
                     .as_ref()
                     .expect("TASK_CLOUDTASK_QUEUE_INGEST not set"),
@@ -92,9 +92,9 @@ pub async fn make_beacon(config: &config::Config) -> anyhow::Result<Beacon> {
             .await
             .context("Failed to initialize Cloud Tasks Queue: Ingest")?;
             let spark_queue = CloudTaskQueue::connect(
-                config.gcloud_project_id.as_str(),
-                config.gcloud_project_region.as_str(),
-                config
+                cfg.gcloud_project_id.as_str(),
+                cfg.gcloud_project_region.as_str(),
+                cfg
                     .task_cloudtask_queue_spark
                     .as_ref()
                     .expect("TASK_CLOUDTASK_QUEUE_SPARK not set"),
@@ -102,9 +102,9 @@ pub async fn make_beacon(config: &config::Config) -> anyhow::Result<Beacon> {
             .await
             .context("Failed to initialize Cloud Tasks Queue: Spark")?;
             let search_index_queue = CloudTaskQueue::connect(
-                config.gcloud_project_id.as_str(),
-                config.gcloud_project_region.as_str(),
-                config
+                cfg.gcloud_project_id.as_str(),
+                cfg.gcloud_project_region.as_str(),
+                cfg
                     .task_cloudtask_queue_search_index
                     .as_ref()
                     .expect("TASK_CLOUDTASK_QUEUE_SEARCH_INDEX not set"),

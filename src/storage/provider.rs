@@ -31,10 +31,10 @@ pub trait StorageProvider: DynClone + Send + Sync {
 
 dyn_clone::clone_trait_object!(StorageProvider);
 
-pub async fn make_provider(config: &config::Config) -> Box<dyn StorageProvider> {
-    let provider = match config.storage_backend {
+pub async fn make_provider(cfg: &config::Config) -> Box<dyn StorageProvider> {
+    let provider = match cfg.storage_backend {
         StorageBackend::Local => {
-            let local_file_path = config
+            let local_file_path = cfg
                 .storage_local_file_path
                 .as_ref()
                 .expect("Storage backend is local but no file path configured");
@@ -44,13 +44,13 @@ pub async fn make_provider(config: &config::Config) -> Box<dyn StorageProvider> 
         }
 
         StorageBackend::GCloud => {
-            let bucket_name = config
+            let bucket_name = cfg
                 .storage_gcloud_bucket_name
                 .as_ref()
                 .expect("Storage backend is gcloud but no bucket name configured");
             let gcloud = gcloud::GCloudStorageProvider::new(
-                config.storage_gcloud_emulator.clone(),
-                config.storage_gcloud_prod_endpoint.clone(),
+                cfg.storage_gcloud_emulator.clone(),
+                cfg.storage_gcloud_prod_endpoint.clone(),
                 bucket_name.clone(),
             )
             .await;
@@ -60,7 +60,7 @@ pub async fn make_provider(config: &config::Config) -> Box<dyn StorageProvider> 
 
     tracing::info!(
         "Successfully created storage provider: {:?}",
-        config.storage_backend
+        cfg.storage_backend
     );
 
     provider

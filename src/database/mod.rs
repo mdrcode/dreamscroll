@@ -4,26 +4,8 @@ pub use check_first_user::check_first_user;
 mod check_users;
 pub use check_users::check_users;
 
-mod config;
-pub use config::*;
-
-mod connect;
-pub use connect::*;
-
-mod connect_sqlite;
-pub use connect_sqlite::*;
-
-mod connect_postgres;
-pub use connect_postgres::*;
-
-use serde::Deserialize;
-
-#[derive(Deserialize, Debug, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum DbBackend {
-    Sqlite,
-    Postgres,
-}
+mod postgres;
+pub use postgres::connect;
 
 // Unclear if this is needed? Just a wrapper for now
 

@@ -3,13 +3,13 @@ use crate::{config, storage};
 use super::*;
 
 pub fn make_illuminator(
-    config: &config::Config,
+    cfg: &config::Config,
     storage: Box<dyn storage::StorageProvider>,
 ) -> Box<dyn Illuminator> {
-    match config.illuminator.as_str() {
+    match cfg.illuminator.as_str() {
         "gemini" => Box::new(gemini::legacy::GeminiIlluminator::new(storage)),
         "geminipublicapi" => Box::new(gemini::GeminiPublicApiIlluminator::new(
-            config
+            cfg
                 .gemini_api_key
                 .as_deref()
                 .expect("GEMINI_API_KEY required but missing from config."),
@@ -17,9 +17,9 @@ pub fn make_illuminator(
             storage,
         )),
         "geminivertexapi" => Box::new(gemini::GeminiVertexApiIlluminator::new(
-            &config.gcloud_project_id,
+            &cfg.gcloud_project_id,
             "gemini-3-flash-preview",
-            config.gemini_payload_method,
+            cfg.gemini_payload_method,
             storage,
         )),
         "grok" => Box::new(grok::GrokIlluminator::default()),
