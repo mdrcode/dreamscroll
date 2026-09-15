@@ -9,20 +9,4 @@ pub trait TaskQueue: std::fmt::Debug + Send + Sync {
     type Task: Send + Serialize + TaskId;
 
     async fn enqueue(&self, task: Self::Task) -> anyhow::Result<()>;
-
-    async fn get_status(&self, task_id: &str) -> anyhow::Result<TaskStatus>;
-}
-
-pub enum Status {
-    Queued,
-    InProgress,
-    Completed,
-    Error,
-    ErrorFinal,
-}
-
-pub struct TaskStatus {
-    _id: String,
-    _attempts: u32,
-    _status: Status,
 }

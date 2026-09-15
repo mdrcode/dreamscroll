@@ -29,10 +29,10 @@ pub struct RestState {
 pub fn make_api_router(
     user_api: api::UserApiClient,
     service_api: api::ServiceApiClient,
-    beacon: crate::task::Beacon,
+    task_master: crate::task::TaskMaster,
     jwt_config: auth::JwtConfig,
 ) -> Router {
-    let admin_api = api::AdminApiClient::new(user_api.db.clone(), service_api, beacon);
+    let admin_api = api::AdminApiClient::new(user_api.db.clone(), service_api, task_master);
 
     let state = Arc::new(RestState {
         user_api,

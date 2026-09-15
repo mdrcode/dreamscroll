@@ -1,7 +1,7 @@
 # Real-time Task Status via SSE — Design
 
-**Date:** 2026-09-14 (updated from 2026-09-09)
-**Status:** Proposed
+**Date:** 2026-09-15 (updated from 2026-09-14)
+**Status:** Proposed — §2/§4/§5/§6/§7/§9/§10/§11/§12 updated to reflect the `TaskMaster`/`TaskWatcher` refactor (the old `Beacon` is removed)
 **Scope:** Relay accurate, up-to-date, low-latency **background-task status** to HTMX clients. The `task_status` table is a **first-class citizen** — focused purely on the task-state problem, which is non-trivial on its own. Signaling/tracking **capture lifecycle events** (created/deleted elsewhere) is explicitly **TBD** and out of scope for this phase.
 
 ---
@@ -28,19 +28,19 @@ We want a **simple, idiomatic, robust, and flexible** strategy for relaying accu
 
 ```
 Upload (webui/v2/r_upload.rs)
-  └─ insert_capture() → beacon.signal_new_capture()   [IngestTask]
+  └─ insert_capture() → task_master.submit(Task::Ingest)   [IngestTask]
        └─ /_wh/cloudtask/ingest → logic/ingest
-            └─ beacon.signal_illumination()            [IlluminationTask]
+            └─ task_master.submit(Task::Illuminate)        [IlluminationTask]
                  └─ /_wh/cloudtask/illuminate → logic/illuminate::exec
                       └─ insert_illumination()  ← row written, nobody told
 ```
 
 ### 2.2 Key facts that shape the design
 
-- **`TaskQueue::get_status()` is `unimplemented!()`** in all three backends (`taskqueue_local.rs`, `taskqueue_pubsub.rs`, `taskqueue_cloudtask.rs`). The trait already anticipates status queries — it's just never been filled in.
+- **`TaskQueue::get_status()` was removed.** It was `unimplemented!()` in all three backends and is now obsolete: status lives in the `task_status` table, owned by `TaskMaster`/`TaskWatcher`. The trait is now enqueue-only.
 - **`OneShotQueue` is dead code and will be removed.** It was an old local-only emulation of task execution and is **not used anywhere in production** — it appears only in `src/common/mod.rs` (module decl + re-export) and its own file `src/common/oneshotqueue.rs` (definition + unit tests). The `LocalTaskQueue` (in-process mpsc + semaphore) is the real local backend and does **not** dedupe. So the rerun problem is *not* caused by `OneShotQueue`; it's caused by the **idempotency guard in `logic/illuminate.rs`** (`if !capture.illuminations.is_empty() { skip }`). That guard is the thing to make rerun-aware, not any queue dedupe.
 - **Task types are tiny structs** (`IlluminationTask{capture_id}`, `SparkTask{capture_ids}`, etc.) in `webhook/schema.rs`, each with a `TaskId::id() -> String`.
-- **The `Beacon`** (`task/beacon.rs`) is the single funnel through which *all* task enqueues flow — the perfect choke point to also emit status events.
+- **`TaskMaster`** (`task/taskmaster.rs`) is the single funnel through which *all* task enqueues flow — the perfect choke point to also record status. It replaced the old `Beacon` (removed). `TaskMaster` owns the backend queues **and** the `task_status` table, exposing `submit` / `update_status` / `query_status`. `TaskWatcher` (`task/taskwatcher.rs`) is the future `LISTEN`/`NOTIFY` thread. **These two are the only structs that touch `task_status` directly.**
 - **Deployment is a single Cloud Run service** (`cloudbuild.yaml` builds one image; `SERVICES` env var selects WebUI/API/Webhook). Tasks are queued via Cloud Tasks or Pub/Sub, so **the worker that completes a task may be a different process/instance than the one holding the user's HTTP connection.**
 - **Frontend is HTMX 2.0.7 + one vanilla JS file** (`webui-v2.js`), no build step. You already have a custom XHR upload flow with progress UI.
 - **Axum 0.8.9** (confirmed from `Cargo.lock` and the local crate source) ships a first-class SSE API: `axum::response::sse::{Event, Sse}`.
@@ -49,12 +49,12 @@ Upload (webui/v2/r_upload.rs)
 
 ## 3. Why SSE (and not WebSockets or polling)
 
-| Option | Pros | Cons | Fit |
-|---|---|---|---|
-| **SSE** | Unidirectional push over plain HTTP; works through proxies/Cloud Run; auto-reconnect built into browsers; **htmx-ext-sse handles it declaratively with ~zero JS** | One-way (fine — you only need server→client) | ✅ **Best fit** |
-| WebSockets | Bidirectional | Needs a stateful upgrade, more JS, more server cruft, awkward through some proxies | ❌ Overkill |
-| HTMX polling (`hx-trigger="every 2s"`) | Zero server work | Latency = poll interval; wasteful; still needs a "done?" endpoint | ⚠️ Fallback only |
-| Long-polling | Simple | Reconnect churn, more complex server bookkeeping | ❌ |
+| Option                                 | Pros                                                                                                                                                              | Cons                                                                               | Fit             |
+| -------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- | --------------- |
+| **SSE**                                | Unidirectional push over plain HTTP; works through proxies/Cloud Run; auto-reconnect built into browsers; **htmx-ext-sse handles it declaratively with ~zero JS** | One-way (fine — you only need server→client)                                       | ✅ **Best fit**  |
+| WebSockets                             | Bidirectional                                                                                                                                                     | Needs a stateful upgrade, more JS, more server cruft, awkward through some proxies | ❌ Overkill      |
+| HTMX polling (`hx-trigger="every 2s"`) | Zero server work                                                                                                                                                  | Latency = poll interval; wasteful; still needs a "done?" endpoint                  | ⚠️ Fallback only |
+| Long-polling                           | Simple                                                                                                                                                            | Reconnect churn, more complex server bookkeeping                                   | ❌               |
 
 **SSE is the idiomatic HTMX answer.** The htmx team maintains `htmx-ext-sse` specifically for this. The entire client-side surface is **three HTML attributes** — no custom JS for the transport itself:
 
@@ -97,7 +97,7 @@ pub struct TaskStatusEvent {
     pub task_id: String,     // e.g. "123" or "123-456" for spark
     pub capture_id: i32,     // denormalized fan-out key (see §8.5)
     pub run_id: u64,         // distinguishes reruns
-    pub status: task::Status, // Queued | InProgress | Completed | Error | ErrorFinal
+    pub status: model::task_status::Status, // Queued | InProgress | Completed | Error | ErrorFinal
     pub background: bool,    // true for backfill/bulk tasks (see §4.2)
     pub user_id: i32,        // for per-user filtering
 }
@@ -141,8 +141,8 @@ A **`background` flag** on each task distinguishes bulk/backfill work from user-
 
 **The filtering semantics (with mandatory `capture_ids`):**
 
-| Subscription | Behavior |
-|---|---|
+| Subscription                  | Behavior                                                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `/events?capture_ids=123,456` | **Any** task updates (including `background`) **for those specific IDs**. You get backfill tracking when you're explicitly watching a set of captures. |
 
 Because the client **always** registers `capture_ids`, there is no "listen to all" stream to spam. A backfill of hundreds of captures simply never reaches the page unless the page is explicitly tracking one of those captures. The `background` flag is still useful as **metadata** (the client can choose to render background tasks differently, e.g. a subtle "backfilling…" indicator), but it is **no longer needed as a filter** — the mandatory `capture_ids` already prevents backfill noise.
@@ -177,26 +177,26 @@ pub struct TaskStatusEvent {
     pub task_id: String,
     pub capture_id: i32,
     pub run_id: u64,
-    pub status: task::Status,
+    pub status: model::task_status::Status,
     pub background: bool,   // true for backfill/bulk tasks (see §4.3)
     pub user_id: i32,
 }
 ```
 
-This maps 1:1 onto a `task_status` row (see §6).
+This maps 1:1 onto a `task_status` row (see §6). The `status` enum lives on the model (`model::task_status::Status`) — the old `task::Status`/`TaskStatus` structs were removed along with `get_status`.
 
 ### 5.2 Where task status gets written (and notified)
 
 Task status is written at the natural choke points, each of which **writes a row and `NOTIFY`s**:
 
-1. **In the `Beacon`** (`task/beacon.rs`) — every `signal_*` already funnels through here. Write a `Queued` row on enqueue. This gives "queued" status for free, everywhere, including admin backfill.
-2. **In the webhook logic** (`logic/illuminate.rs`, `logic/spark.rs`, `logic/search_index.rs`) — write `InProgress` (start) and `Completed`/`Error` (finish). The `Beacon` is passed into `WebhookState` and the logic functions already receive `service_api`; add a small `StatusWriter` alongside.
+1. **In `TaskMaster::submit`** (`task/taskmaster.rs`) — every task enqueue funnels through here. It records a `Queued` row on enqueue. This gives "queued" status for free, everywhere, including admin backfill.
+2. **In the webhook logic** (`logic/illuminate.rs`, `logic/spark.rs`, `logic/search_index.rs`) — write `InProgress` (start) and `Completed`/`Error` (finish) via `TaskMaster::update_status`. The `TaskMaster` is passed into `WebhookState` and the logic functions already receive `service_api`; add a small `StatusWriter` alongside (or call `TaskMaster::update_status` directly).
 
 A tiny helper encapsulates "write row + notify" so callers never touch the channel directly:
 
 ```rust
 // src/events/status_writer.rs
-pub struct StatusWriter { /* holds a DB connection + the notify channel name */ }
+pub struct StatusWriter { /* holds a TaskMaster (or DB conn) + the notify channel name */ }
 
 impl StatusWriter {
     pub async fn write(&self, event: &TaskStatusEvent) -> anyhow::Result<()> {
@@ -205,6 +205,8 @@ impl StatusWriter {
     }
 }
 ```
+
+> **Note:** `TaskMaster::update_status` already does the UPSERT (step 1). The `StatusWriter` is a thin wrapper that adds the `NOTIFY` (step 2) — or `TaskMaster` itself can own the notify. Either way, the two-owner rule holds: only `TaskMaster`/`TaskWatcher` touch `task_status`.
 
 ### 5.3 The SSE endpoint
 
@@ -275,7 +277,7 @@ There is **no in-memory state to lose** and **no cross-instance coordination pro
 
 ## 6. Task status persistence (the canonical source of truth)
 
-`TaskQueue::get_status()` is unimplemented everywhere. Recommend a small, focused **`task_status` table** rather than trying to make each backend report status (Cloud Tasks and Pub/Sub don't give clean per-task status without extra plumbing). **This table is the source of truth** — the SSE handler reads it, the workers write it, and `LISTEN/NOTIFY` just tells readers "something changed, go look":
+`TaskQueue::get_status()` was removed (it was unimplemented everywhere). Recommend a small, focused **`task_status` table** rather than trying to make each backend report status (Cloud Tasks and Pub/Sub don't give clean per-task status without extra plumbing). **This table is the source of truth** — the SSE handler reads it, the workers write it, and `LISTEN/NOTIFY` just tells readers "something changed, go look":
 
 ```sql
 CREATE TABLE task_status (
@@ -296,8 +298,8 @@ CREATE TABLE task_status (
 -- SELECT pg_notify('task_status_channel', task_id) FROM ...;
 ```
 
-- **Written by** the beacon (on enqueue) and the webhook logic (on start/finish) — each write is followed by a `NOTIFY task_status_channel`.
-- **Read by** the SSE handler on connect (replay) and on every `NOTIFY`/poll tick (incremental), filtered by `user_id` + `task_types` + `capture_ids` + the `background` rule.
+- **Written by** `TaskMaster` (on enqueue via `submit`, and on transitions via `update_status`) — each write is followed by a `NOTIFY task_status_channel`.
+- **Read by** `TaskWatcher` (the `LISTEN`/`NOTIFY` thread) and the SSE handler on connect (replay) and on every `NOTIFY`/poll tick (incremental), filtered by `user_id` + `task_types` + `capture_ids` + the `background` rule.
 - **`run_id`** is the key to reruns (below).
 - **`background`** marks bulk/backfill tasks so the default `/events` stream can ignore them (see §4.3).
 
@@ -309,7 +311,7 @@ This also fixes a latent bug from the audit notes: *"No task retry/dead-letter i
 
 The one real constraint is **connection count**. The pool is capped at 5 (`max_connections(5)` in `database/postgres.rs`, sized for the `db-f1-micro` tier), and `LISTEN` requires a **dedicated, long-lived connection** (a pooled connection that returns to the pool would leak the `LISTEN` registration). So:
 
-- **One dedicated `LISTEN` connection per instance** (not per SSE connection). All SSE handlers on an instance share it via a small fan-out: the `LISTEN` task receives notifications and forwards them to in-process `tokio::sync::broadcast` *receivers* (one per SSE connection). This is fine — the in-process channel is now only a *local delivery* mechanism for notifications that already arrived via Postgres, not the source of truth. It cannot drift because it's just echoing DB notifications.
+- **One dedicated `LISTEN` connection per instance** (not per SSE connection), owned by **`TaskWatcher`**. All SSE handlers on an instance share it via a small fan-out: `TaskWatcher` receives notifications and forwards them to in-process `tokio::sync::broadcast` *receivers* (one per SSE connection). This is fine — the in-process channel is now only a *local delivery* mechanism for notifications that already arrived via Postgres, not the source of truth. It cannot drift because it's just echoing DB notifications.
 - **Budget check:** 1 dedicated `LISTEN` connection per instance + the normal pool of 5. With Cloud Run scaling to a handful of instances, this stays well within the `f1-micro` connection limit. If the tier is ever raised, this becomes even less of a concern.
 - **Fallback:** if a dedicated `LISTEN` connection can't be established (or to be extra safe), the SSE handler falls back to a **poll tick** (re-query the DB every N seconds). This keeps correctness with zero extra connections — just slightly higher latency.
 
@@ -336,7 +338,7 @@ pub struct IlluminationTask {
 ```
 
 - `TaskId::id()` returns `"{capture_id}-{run_id}"` so each rerun is a distinct task.
-- The `Beacon` gets a `signal_illumination(capture_id, run_id, model)` variant.
+- `TaskMaster::submit` takes a `Task::Illuminate { user_id, capture_id, run_id, model }` variant.
 - `logic/illuminate.rs` **removes the idempotency guard** (`if !capture.illuminations.is_empty() { skip }`) when a rerun is requested — or better, inserts a *new* illumination row (the schema already supports multiple illuminations per capture; the template just renders `| first`).
 
 **Option B:** A separate `rerun` task type. More moving parts; Option A is cleaner.
@@ -350,7 +352,7 @@ pub struct IlluminationTask {
 </button>
 ```
 
-The handler calls `beacon.signal_illumination(capture_id, next_run_id, model)`, which publishes a `Queued` event with the new `run_id`. The client's SSE listener sees it and shows "illuminating…" then re-fetches when `Completed` arrives.
+The handler calls `task_master.submit(Task::Illuminate { user_id, capture_id, run_id, model })`, which records a `Queued` row with the new `run_id`. The client's SSE listener sees it and shows "illuminating…" then re-fetches when `Completed` arrives.
 
 ---
 
@@ -531,8 +533,8 @@ Because the connection is re-established on every reconnect, the client **re-reg
 
 Because the worker can be a different instance than the browser's connection, **the DB is the source of truth and `LISTEN/NOTIFY` is the cross-instance push**:
 
-1. **Worker (any instance)** writes the task-status row, then `NOTIFY`s `task_status_channel`.
-2. **Every instance** runs one dedicated `LISTEN` connection. On a notification, it fans out locally to its connected SSE handlers, which re-query the DB for that user's matching rows and emit them.
+1. **Worker (any instance)** writes the task-status row via `TaskMaster::update_status`, then `NOTIFY`s `task_status_channel`.
+2. **Every instance** runs one dedicated `LISTEN` connection (owned by `TaskWatcher`). On a notification, it fans out locally to its connected SSE handlers, which re-query the DB for that user's matching rows and emit them.
 3. **Replay on connect** reconciles any missed events — the SSE handler queries the DB for the user's matching task status on connect, so a browser that reconnects (or connects to a different instance) is instantly correct.
 4. **Poll fallback** guarantees eventual correctness even if `LISTEN/NOTIFY` is unavailable — the SSE handler re-queries the DB on a modest interval.
 
@@ -544,29 +546,32 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 
 ## 10. Proposed file changes (summary)
 
-| File | Change |
-|---|---|
-| `src/events/mod.rs` *(new)* | `TaskStatusEvent` struct + `StatusWriter` (write row + `NOTIFY`) |
-| `src/events/notifier.rs` *(new)* | dedicated `LISTEN` connection + local fan-out to SSE receivers |
-| `src/task/taskqueue.rs` | (optional) add `run_id` awareness to `TaskId`/status |
-| `src/task/beacon.rs` | write `Queued` status + `NOTIFY`; add `signal_illumination(capture_id, run_id, model)`; accept a `background` flag |
-| `src/webhook/schema.rs` | add `run_id`/`model` to `IlluminationTask`; update `TaskId::id()` |
-| `src/webhook/logic/illuminate.rs` | write `InProgress`/`Completed`/`Error` + `NOTIFY`; honor rerun (drop idempotency guard on rerun) |
-| `src/webhook/logic/spark.rs`, `search_index.rs` | write status + `NOTIFY` |
-| `src/webhook/webhook_state.rs` | add `StatusWriter` |
-| `src/webui/v2/maker.rs` | add `/events` SSE route; thread `StatusWriter` + notifier into `WebState` |
-| `src/webui/v2/r_events.rs` *(new)* | SSE handler (replay from DB, listen for notifications, filter by user + task_types + capture_ids + background rule, adaptive lifetime) |
-| `src/webui/v2/r_rerun.rs` *(new)* | rerun endpoint |
-| `src/database/` | `task_status` table (incl. `background` column) + SeaORM model |
-| `web/v2/templates/*.tera` | add `hx-ext="sse"`, `sse-connect` (with `task_types`/`capture_ids`), `hx-trigger="sse:task-status"`; render per-status card state (queued/in_progress/completed/error) applied from SSE events (§5.5) |
-| `web/v2/static/webui-v2.js` | extend upload notice to react to task-status events; reconnect `/events` on user interaction (adaptive lifetime) |
+| File                                            | Change                                                                                                                                                                                                |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/events/mod.rs` *(new)*                     | `TaskStatusEvent` struct + `StatusWriter` (write row + `NOTIFY`)                                                                                                                                      |
+| `src/events/notifier.rs` *(new)*                | dedicated `LISTEN` connection + local fan-out to SSE receivers                                                                                                                                        |
+| `src/task/task.rs` *(new)*                      | unified `Task` enum (`Ingest`/`Illuminate`/`Spark`/`SearchIndex`), each carrying `user_id` + capture id(s); `task_type()`/`task_id()`/`user_id()`                                                     |
+| `src/task/taskmaster.rs` *(new)*                | `TaskMaster` — owns queues + `task_status`; `submit` / `update_status` / `query_status`; records `Queued` on enqueue                                                                                  |
+| `src/task/taskwatcher.rs` *(new)*               | `TaskWatcher` — the `LISTEN`/`NOTIFY` thread (stub for now); one of two owners of `task_status`                                                                                                       |
+| `src/task/taskqueue.rs`                         | `get_status`/`Status`/`TaskStatus` **removed** (status now lives in the DB); trait is enqueue-only                                                                                                    |
+| `src/task/beacon.rs`                            | **removed** — replaced by `TaskMaster`                                                                                                                                                                |
+| `src/webhook/schema.rs`                         | add `run_id`/`model` to `IlluminationTask`; update `TaskId::id()`                                                                                                                                     |
+| `src/webhook/logic/illuminate.rs`               | write `InProgress`/`Completed`/`Error` + `NOTIFY`; honor rerun (drop idempotency guard on rerun)                                                                                                      |
+| `src/webhook/logic/spark.rs`, `search_index.rs` | write status + `NOTIFY`                                                                                                                                                                               |
+| `src/webhook/webhook_state.rs`                  | add `StatusWriter` (or `TaskMaster::update_status`)                                                                                                                                                   |
+| `src/webui/v2/maker.rs`                         | add `/events` SSE route; thread `TaskWatcher` + notifier into `WebState`                                                                                                                              |
+| `src/webui/v2/r_events.rs` *(new)*              | SSE handler (replay from DB, listen for notifications, filter by user + task_types + capture_ids + background rule, adaptive lifetime)                                                                |
+| `src/webui/v2/r_rerun.rs` *(new)*               | rerun endpoint                                                                                                                                                                                        |
+| `src/database/`                                 | `task_status` table (incl. `background` column) + SeaORM model                                                                                                                                        |
+| `web/v2/templates/*.tera`                       | add `hx-ext="sse"`, `sse-connect` (with `task_types`/`capture_ids`), `hx-trigger="sse:task-status"`; render per-status card state (queued/in_progress/completed/error) applied from SSE events (§5.5) |
+| `web/v2/static/webui-v2.js`                     | extend upload notice to react to task-status events; reconnect `/events` on user interaction (adaptive lifetime)                                                                                      |
 
 ---
 
 ## 11. Why this is "simple, idiomatic, robust, flexible"
 
 - **Simple:** The client is ~3 HTML attributes. The server uses Postgres `LISTEN/NOTIFY` (built into Postgres, zero new dependencies) + one small `StatusWriter`. No build step, no JS framework.
-- **Idiomatic:** SSE is the canonical HTMX companion; `htmx-ext-sse` is the official extension. Axum has first-class SSE support. `LISTEN/NOTIFY` is the idiomatic Postgres pub/sub. The `TaskQueue::get_status()` trait already anticipated this.
+- **Idiomatic:** SSE is the canonical HTMX companion; `htmx-ext-sse` is the official extension. Axum has first-class SSE support. `LISTEN/NOTIFY` is the idiomatic Postgres pub/sub. `TaskMaster`/`TaskWatcher` are the two clean owners of task state.
 - **Robust:** The `task_status` table is the **single canonical source of truth** — it survives reconnects, restarts, and multi-instance workers with no in-process state to drift. `LISTEN/NOTIFY` gives low latency; the poll fallback guarantees correctness; keep-alives + auto-reconnect handle flaky connections. The adaptive lifetime keeps idle connections from accumulating.
 - **Flexible:** The `(task_type, task_id, run_id)` task-status model is generic — illumination, spark, search-index, ingest all flow through the same table/channel. Adding a new task type = write a row + `NOTIFY` + add an `hx-trigger="sse:task-status"` line. Client subscription (`task_types` + `capture_ids`) keeps the stream relevant. Reruns are a first-class concept via `run_id`.
 
@@ -574,8 +579,8 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 
 ## 12. Suggested implementation order
 
-1. **`task_status` table + model** (foundation; also fixes the "no retry observability" audit note). Include the `background` column.
-2. **`StatusWriter`** (write row + `NOTIFY`) + wire into `Beacon` and `WebhookState`. Thread the `background` flag through the beacon signals.
+1. **`task_status` table + model** (foundation; also fixes the "no retry observability" audit note). Include the `background` column. ✅ *model done; migration pending*
+2. **`TaskMaster`** (submit/update_status/query_status) + `StatusWriter` (write row + `NOTIFY`) + wire into `WebhookState`. Thread the `background` flag through `Task::*`. ✅ *TaskMaster done; StatusWriter/NOTIFY pending*
 3. **`/events` SSE route** with user filtering + DB replay + poll fallback + subscription params (`task_types`, `capture_ids`) + the `background` rule.
 4. **Client wiring** (`hx-ext="sse"`, `sse-connect`, `hx-trigger="sse:task-status"`) — live updates for the *existing* upload flow should appear immediately.
 5. **Adaptive lifetime** (5-min idle close + reconnect-on-interaction) — the topology safeguard.
@@ -588,6 +593,9 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 
 - **SSE payload format:** thin JSON signals (recommended) vs. small HTML fragments for direct `sse-swap`. The design supports both; pick per use-case.
 - **`task_status` retention:** add a cleanup/eviction policy for old `run_id`s to avoid unbounded table growth.
+- **Two-owner rule (resolved):** only `TaskMaster` (writes) and `TaskWatcher` (reads for SSE) touch `task_status` directly. Everything else goes through `TaskMaster::submit`/`update_status`/`query_status`. This keeps the table's access surface tiny and auditable.
+- **`TaskMaster.db` is optional (resolved):** when no DB is provided, `TaskMaster` runs enqueue-only (no `task_status` writes). This is used by util commands and tests that don't want background-task bookkeeping. `submit`/`update_status`/`query_status` no-op on the DB half in that mode.
+- **`run_id` is hardcoded to 1 for now (resolved):** `TaskMaster::update_status`/`query_status` currently key on `run_id = 1`. Rerun support (step 6) will thread a real `run_id` through `Task::*`.
 - **Cloud Run timeout:** confirm the service-level request timeout is set high enough for long-lived SSE connections (and above the 5-min adaptive idle close).
 - **Multiple illuminations per capture:** decide whether reruns replace the existing illumination or append a new one (schema supports both; template currently renders `| first`).
 - **`background` flag semantics:** for now the `background` flag is metadata only — the mandatory `capture_ids` rule already prevents backfill noise (see §4.3). Revisit later — e.g. a `background=true` query param to opt in, or surfacing backfill progress in an admin UI. The flag is persisted, so it's available for any future use.

@@ -11,7 +11,7 @@ pub struct UserApiClient {
     pub db: database::DbHandle,
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
-    beacon: task::Beacon,
+    task_master: task::TaskMaster,
     capture_searcher: search::CaptureSearcher,
 }
 
@@ -20,14 +20,14 @@ impl UserApiClient {
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
-        beacon: task::Beacon,
+        task_master: task::TaskMaster,
         capture_searcher: search::CaptureSearcher,
     ) -> Self {
         Self {
             db,
             storage,
             info_maker: schema::InfoMaker::new(url_maker),
-            beacon,
+            task_master,
             capture_searcher,
         }
     }
@@ -199,8 +199,11 @@ impl UserApiClient {
             );
         }
 
-        self.beacon
-            .signal_new_spark(capture_ids)
+        self.task_master
+            .submit(&task::Task::Spark {
+                user_id: context.user_id(),
+                capture_ids,
+            })
             .await
             .map_err(ApiError::internal)
     }
@@ -226,11 +229,18 @@ impl UserApiClient {
         .await?;
 
         // TODO Should this live inside the inner insert_capture function instead?
-        if let Err(e) = self.beacon.signal_new_capture(capture_model.id).await {
+        if let Err(e) = self
+            .task_master
+            .submit(&task::Task::Ingest {
+                user_id: user_context.user_id(),
+                capture_id: capture_model.id,
+            })
+            .await
+        {
             tracing::warn!(
                 capture_id = capture_model.id,
                 error = ?e,
-                "Ignoring error signaling new capture to beacon",
+                "Ignoring error signaling new capture to task master",
             );
         }
 
@@ -255,11 +265,18 @@ impl UserApiClient {
         .await?;
 
         // TODO Should this live inside the inner insert_capture function instead?
-        if let Err(e) = self.beacon.signal_new_capture(capture_model.id).await {
+        if let Err(e) = self
+            .task_master
+            .submit(&task::Task::Ingest {
+                user_id: user_context.user_id(),
+                capture_id: capture_model.id,
+            })
+            .await
+        {
             tracing::warn!(
                 capture_id = capture_model.id,
                 error = ?e,
-                "Ignoring error signaling new capture to beacon",
+                "Ignoring error signaling new capture to task master",
             );
         }
 

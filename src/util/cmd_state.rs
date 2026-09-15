@@ -66,10 +66,10 @@ impl CmdState {
             let stg = self.storage_provider().await?;
             let url_maker = storage::UrlMaker::from_config(&self.cfg);
 
-            // We use an empty beacon for the util commands, so no background tasks
+            // We use an empty task master for the util commands, so no background tasks
             // will be enqueued.
             // TODO this should be a NOOP queue that logs tasks so we can verify behavior
-            let empty_beacon = task::Beacon::default();
+            let empty_task_master = task::TaskMaster::builder().db(db.clone()).build();
             let searcher = search::CaptureSearcher::from_config(&self.cfg)
                 .await
                 .context("Failed to initialize required CaptureSearcher")?;
@@ -78,7 +78,7 @@ impl CmdState {
                 db,
                 stg,
                 url_maker,
-                empty_beacon,
+                empty_task_master,
                 searcher,
             ));
         }

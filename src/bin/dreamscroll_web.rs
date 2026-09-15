@@ -47,7 +47,7 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&cfg).await;
     let url_maker = storage::UrlMaker::from_config(&cfg);
-    let beacon = task::make_beacon(&cfg).await?;
+    let task_master = task::make_task_master(&cfg, db.clone()).await?;
     let searcher = search::CaptureSearcher::from_config(&cfg)
         .await
         .context("Failed to initialize required CaptureSearcher")?;
@@ -56,11 +56,11 @@ async fn main() -> anyhow::Result<()> {
         db.clone(),
         stg.clone(),
         url_maker.clone(),
-        beacon.clone(),
+        task_master.clone(),
         searcher,
     );
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
-    tracing::info!("Initialized storage, pubsub beacon, and API clients");
+    tracing::info!("Initialized storage, task master, and API clients");
 
     let mut router = axum::Router::new();
 
@@ -110,7 +110,7 @@ async fn main() -> anyhow::Result<()> {
         let jwt = auth::JwtConfig::from_secret(secret);
         router = router.nest(
             "/api",
-            rest::make_api_router(user_api.clone(), service_api.clone(), beacon.clone(), jwt),
+            rest::make_api_router(user_api.clone(), service_api.clone(), task_master.clone(), jwt),
         );
         tracing::info!("Initialized REST API routes");
     }

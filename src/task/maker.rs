@@ -1,12 +1,16 @@
 use anyhow::Context;
 
 use crate::config;
+use crate::database::DbHandle;
 use crate::webhook::localclient::LocalWebhookClient;
 use crate::webhook::schema::{IlluminationTask, IngestTask, SearchIndexTask, SparkTask};
 
 use super::*;
 
-pub async fn make_beacon(cfg: &config::Config) -> anyhow::Result<Beacon> {
+pub async fn make_task_master(
+    cfg: &config::Config,
+    db: DbHandle,
+) -> anyhow::Result<TaskMaster> {
     match cfg.task_backend {
         TaskQueueBackend::Local => {
             let base_url = format!("http://localhost:{}", cfg.port);
@@ -35,7 +39,8 @@ pub async fn make_beacon(cfg: &config::Config) -> anyhow::Result<Beacon> {
                 async move { client.post_task("/_wh/cloudtask/search_index", &task).await }
             });
 
-            Ok(Beacon::builder()
+            Ok(TaskMaster::builder()
+                .db(db)
                 .ingest_queue(ingest_queue)
                 .illumination_queue(illumination_queue)
                 .search_index_queue(search_index_queue)
@@ -65,7 +70,8 @@ pub async fn make_beacon(cfg: &config::Config) -> anyhow::Result<Beacon> {
             .await
             .context("Failed to initialize Pub/Sub queue: Spark")?;
 
-            Ok(Beacon::builder()
+            Ok(TaskMaster::builder()
+                .db(db)
                 .illumination_queue(illumination_queue)
                 .spark_queue(spark_queue)
                 .build())
@@ -112,7 +118,8 @@ pub async fn make_beacon(cfg: &config::Config) -> anyhow::Result<Beacon> {
             .await
             .context("Failed to initialize Cloud Tasks Queue: SearchIndex")?;
 
-            Ok(Beacon::builder()
+            Ok(TaskMaster::builder()
+                .db(db)
                 .ingest_queue(ingest_queue)
                 .illumination_queue(illumination_queue)
                 .search_index_queue(search_index_queue)

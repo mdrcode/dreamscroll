@@ -85,8 +85,4 @@ impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for CloudTaskQ
 
         Ok(())
     }
-
-    async fn get_status(&self, _task_id: &str) -> anyhow::Result<TaskStatus> {
-        unimplemented!();
-    }
 }

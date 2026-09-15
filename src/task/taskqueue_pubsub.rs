@@ -124,10 +124,6 @@ impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for PubSubTask
         tracing::debug!(message_id, "Published task to Pub/Sub");
         Ok(())
     }
-
-    async fn get_status(&self, _task_id: &str) -> anyhow::Result<TaskStatus> {
-        unimplemented!();
-    }
 }
 
 pub fn trim_protocol_and_slash(url_base: &str) -> String {

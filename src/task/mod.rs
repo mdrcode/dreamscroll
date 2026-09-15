@@ -1,6 +1,13 @@
-// Beacon is the unifying abstraction for task queues
-mod beacon;
-pub use beacon::*;
+// TaskMaster is the primary entry point for manipulating Task instances.
+mod taskmaster;
+pub use taskmaster::*;
+
+// TaskWatcher is the future LISTEN/NOTIFY thread that relays status to SSE.
+mod taskwatcher;
+pub use taskwatcher::*;
+
+mod task;
+pub use task::*;
 
 mod maker;
 pub use maker::*;

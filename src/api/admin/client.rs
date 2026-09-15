@@ -5,19 +5,19 @@ use crate::{api::*, auth, database, task};
 pub struct AdminApiClient {
     db: database::DbHandle,
     service_api: ServiceApiClient,
-    beacon: task::Beacon,
+    task_master: task::TaskMaster,
 }
 
 impl AdminApiClient {
     pub fn new(
         db: database::DbHandle,
         service_api: ServiceApiClient,
-        beacon: task::Beacon,
+        task_master: task::TaskMaster,
     ) -> Self {
         Self {
             db,
             service_api,
-            beacon,
+            task_master,
         }
     }
 
@@ -38,7 +38,13 @@ impl AdminApiClient {
         req: BackfillRequest,
     ) -> Result<BackfillResponse, ApiError> {
         ensure_admin(context)?;
-        super::backfill::enqueue(&self.service_api, &self.beacon, req).await
+        super::backfill::enqueue(
+            &self.service_api,
+            &self.task_master,
+            context.user_id(),
+            req,
+        )
+        .await
     }
 }
 

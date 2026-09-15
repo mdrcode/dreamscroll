@@ -146,10 +146,6 @@ where
             .send(task)
             .map_err(|_| anyhow!("Cannot enqueue into LocalTaskQueue after shutdown"))
     }
-
-    async fn get_status(&self, _task_id: &str) -> anyhow::Result<TaskStatus> {
-        unimplemented!();
-    }
 }
 
 #[cfg(test)]

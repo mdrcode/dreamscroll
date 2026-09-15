@@ -34,7 +34,8 @@ pub struct BackfillResponse {
 
 pub async fn enqueue(
     service_api: &ServiceApiClient,
-    beacon: &crate::task::Beacon,
+    task_master: &crate::task::TaskMaster,
+    user_id: i32,
     req: BackfillRequest,
 ) -> Result<BackfillResponse, ApiError> {
     let has_ids = req
@@ -91,7 +92,13 @@ pub async fn enqueue(
             let mut skipped_ids = Vec::new();
 
             for capture_id in candidate_ids {
-                match beacon.signal_search_index(capture_id).await {
+                match task_master
+                    .submit(&crate::task::Task::SearchIndex {
+                        user_id,
+                        capture_id,
+                    })
+                    .await
+                {
                     Ok(()) => {
                         enqueued_count += 1;
                     }
