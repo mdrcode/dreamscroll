@@ -56,35 +56,6 @@ pub async fn make_task_master(
                     .build(),
             ))
         }
-        TaskQueueBackend::GCloudPubSub => {
-            let emulator = cfg.task_pubsub_emulator.as_deref();
-            let illumination_queue = PubSubTaskQueue::connect(
-                cfg.gcloud_project_id.as_str(),
-                cfg.task_pubsub_topic_new_capture
-                    .as_ref()
-                    .expect("TASK_PUBSUB_TOPIC_NEW_CAPTURE not set"),
-                emulator,
-            )
-            .await
-            .context("Failed to initialize Pub/Sub queue: Illumination")?;
-            let spark_queue = PubSubTaskQueue::connect(
-                cfg.gcloud_project_id.as_str(),
-                cfg.task_pubsub_topic_spark
-                    .as_ref()
-                    .expect("TASK_PUBSUB_TOPIC_SPARK not set"),
-                emulator,
-            )
-            .await
-            .context("Failed to initialize Pub/Sub queue: Spark")?;
-
-            Ok(Arc::new(
-                TaskMaster::builder()
-                    .db(db)
-                    .illumination_queue(illumination_queue)
-                    .spark_queue(spark_queue)
-                    .build(),
-            ))
-        }
         TaskQueueBackend::GCloudTasks => {
             let illumination_queue = CloudTaskQueue::connect(
                 cfg.gcloud_project_id.as_str(),

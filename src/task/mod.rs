@@ -24,8 +24,6 @@ mod taskqueue_cloudtask;
 pub use taskqueue_cloudtask::*;
 mod taskqueue_local;
 pub use taskqueue_local::*;
-mod taskqueue_pubsub;
-pub use taskqueue_pubsub::*;
 
 use serde::Deserialize;
 
@@ -33,6 +31,5 @@ use serde::Deserialize;
 #[serde(rename_all = "lowercase")]
 pub enum TaskQueueBackend {
     Local,
-    GCloudPubSub,
     GCloudTasks,
 }

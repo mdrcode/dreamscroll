@@ -30,11 +30,6 @@ services:
       STORAGE_GCLOUD_EMULATOR: http://fake-gcs:4443
       STORAGE_GCLOUD_BUCKET_NAME: "dreamscroll-dev-media1"
 
-      # Pub/Sub emulator should be invoked manually external of Docker, via
-      # `gcloud beta emulators pubsub start --host-port=localhost:8085`
-      PUBSUB_EMULATOR: http://host.docker.internal:8085
-      PUBSUB_TOPIC_ID_NEW_CAPTURE: dreamscroll-new_capture
-
     volumes:
       # Cute way to import/export data from the docker environment
       - ${EXPORT_DIR:-~/Documents/dreamscroll_export}:/app/export

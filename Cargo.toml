@@ -27,8 +27,6 @@ envy = "0.4"
 google-cloud-aiplatform-v1 = { version = "0.4", features = ["prediction-service"] }
 google-cloud-auth = { version = "1.5", features = ["idtoken"] }
 google-cloud-gax = "0.19"
-google-cloud-googleapis = { version = "0.16", features = ["pubsub"] }
-google-cloud-pubsub = { version = "0.30", default-features = false, features = ["auth", "rustls-tls"] }
 google-cloud-storage = "1.7"
 google-cloud-tasks-v2 = "1.5"
 google-cloud-vectorsearch-v1 = "0.1"
