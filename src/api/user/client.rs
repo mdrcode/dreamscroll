@@ -3,7 +3,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use anyhow::anyhow;
 
-use crate::{api::*, auth, database, search, storage, task};
+use crate::{api::*, auth, database, logic, search, storage, task};
 
 #[derive(Clone)]
 pub struct UserApiClient {
@@ -200,10 +200,12 @@ impl UserApiClient {
         }
 
         self.task_master
-            .submit(&task::Task::Spark {
-                user_id: context.user_id(),
-                capture_ids,
-            })
+            .submit_spark(
+                context.user_id(),
+                logic::spark::SparkTask {
+                    capture_ids,
+                },
+            )
             .await
             .map_err(ApiError::internal)
     }
@@ -231,10 +233,12 @@ impl UserApiClient {
         // TODO Should this live inside the inner insert_capture function instead?
         if let Err(e) = self
             .task_master
-            .submit(&task::Task::Ingest {
-                user_id: user_context.user_id(),
-                capture_id: capture_model.id,
-            })
+            .submit_ingest(
+                user_context.user_id(),
+                logic::ingest::IngestTask {
+                    capture_id: capture_model.id,
+                },
+            )
             .await
         {
             tracing::warn!(
@@ -267,10 +271,12 @@ impl UserApiClient {
         // TODO Should this live inside the inner insert_capture function instead?
         if let Err(e) = self
             .task_master
-            .submit(&task::Task::Ingest {
-                user_id: user_context.user_id(),
-                capture_id: capture_model.id,
-            })
+            .submit_ingest(
+                user_context.user_id(),
+                logic::ingest::IngestTask {
+                    capture_id: capture_model.id,
+                },
+            )
             .await
         {
             tracing::warn!(

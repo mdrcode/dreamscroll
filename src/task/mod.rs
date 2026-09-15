@@ -6,9 +6,6 @@ pub use taskmaster::*;
 mod taskwatcher;
 pub use taskwatcher::*;
 
-mod task;
-pub use task::*;
-
 mod maker;
 pub use maker::*;
 

@@ -40,98 +40,124 @@ impl TaskMaster {
         TaskMasterBuilder::default()
     }
 
-    /// Submit a task for execution: enqueue on the matching backend queue and
-    /// record a `Queued` row in `task_status`.
+    /// Submit an ingest task: enqueue on the ingest queue and record a `Queued`
+    /// row in `task_status`.
     ///
-    /// If the queue for this task type is not configured, this is a no-op
-    /// (warn + return Ok) — matching the old `Beacon` behavior.
-    pub async fn submit(&self, task: &Task) -> anyhow::Result<()> {
-        match task {
-            Task::Ingest { capture_id, .. } => {
-                let Some(queue) = self.ingest_queue.as_ref() else {
-                    tracing::warn!(
-                        capture_id,
-                        "Ingest requested but no ingest queue configured, skipping enqueue."
-                    );
-                    return Ok(());
-                };
-                queue.enqueue(IngestTask { capture_id: *capture_id }).await.inspect_err(
-                    |err| tracing::error!(queue = ?queue, capture_id, error = ?err, "Failed to enqueue capture for ingest: {}", err),
-                )?;
-            }
-            Task::Illuminate { capture_id, .. } => {
-                let Some(queue) = self.illumination_queue.as_ref() else {
-                    tracing::warn!(
-                        capture_id,
-                        "Illumination requested but no illumination queue configured, skipping enqueue."
-                    );
-                    return Ok(());
-                };
-                queue
-                    .enqueue(IlluminationTask { capture_id: *capture_id })
-                    .await
-                    .inspect_err(|err| {
-                        tracing::error!(
-                            queue = ?queue,
-                            capture_id,
-                            error = ?err,
-                            "Failed to enqueue capture for illumination: {}",
-                            err
-                        )
-                    })?;
-            }
-            Task::Spark { capture_ids, .. } => {
-                if capture_ids.is_empty() {
-                    anyhow::bail!("submit(Spark) requires at least one capture_id");
-                }
-                let Some(queue) = self.spark_queue.as_ref() else {
-                    tracing::warn!(
-                        capture_ids = ?capture_ids,
-                        "Spark requested but no spark queue configured, skipping enqueue."
-                    );
-                    return Ok(());
-                };
-                queue
-                    .enqueue(SparkTask {
-                        capture_ids: capture_ids.clone(),
-                    })
-                    .await
-                    .inspect_err(|err| {
-                        tracing::error!(
-                            queue = ?queue,
-                            capture_ids = ?capture_ids,
-                            error = ?err,
-                            "Failed to enqueue captures for spark: {}",
-                            err
-                        )
-                    })?;
-            }
-            Task::SearchIndex { capture_id, .. } => {
-                let Some(queue) = self.search_index_queue.as_ref() else {
-                    tracing::warn!(
-                        capture_id,
-                        "Search index requested but no search index queue configured, skipping enqueue."
-                    );
-                    return Ok(());
-                };
-                queue
-                    .enqueue(SearchIndexTask { capture_id: *capture_id })
-                    .await
-                    .inspect_err(|err| {
-                        tracing::error!(
-                            queue = ?queue,
-                            capture_id,
-                            error = ?err,
-                            "Failed to enqueue capture for search indexing: {}",
-                            err
-                        )
-                    })?;
-            }
+    /// If the queue is not configured, this is a no-op (warn + return Ok).
+    pub async fn submit_ingest(&self, user_id: i32, task: IngestTask) -> anyhow::Result<()> {
+        let task_id = task.id();
+        let capture_id = task.capture_id;
+        let Some(queue) = self.ingest_queue.as_ref() else {
+            tracing::warn!(
+                capture_id,
+                "Ingest requested but no ingest queue configured, skipping enqueue."
+            );
+            return Ok(());
+        };
+        queue.enqueue(task).await.inspect_err(
+            |err| tracing::error!(queue = ?queue, capture_id, error = ?err, "Failed to enqueue capture for ingest: {}", err),
+        )?;
+
+        self.record_status("ingest", user_id, &task_id, Status::Queued, 0)
+            .await?;
+        Ok(())
+    }
+
+    /// Submit an illumination task: enqueue on the illumination queue and record
+    /// a `Queued` row in `task_status`.
+    ///
+    /// If the queue is not configured, this is a no-op (warn + return Ok).
+    pub async fn submit_illumination(
+        &self,
+        user_id: i32,
+        task: IlluminationTask,
+    ) -> anyhow::Result<()> {
+        let task_id = task.id();
+        let capture_id = task.capture_id;
+        let Some(queue) = self.illumination_queue.as_ref() else {
+            tracing::warn!(
+                capture_id,
+                "Illumination requested but no illumination queue configured, skipping enqueue."
+            );
+            return Ok(());
+        };
+        queue.enqueue(task).await.inspect_err(|err| {
+            tracing::error!(
+                queue = ?queue,
+                capture_id,
+                error = ?err,
+                "Failed to enqueue capture for illumination: {}",
+                err
+            )
+        })?;
+
+        self.record_status("illumination", user_id, &task_id, Status::Queued, 0)
+            .await?;
+        Ok(())
+    }
+
+    /// Submit a spark task: enqueue on the spark queue and record a `Queued`
+    /// row in `task_status`.
+    ///
+    /// If the queue is not configured, this is a no-op (warn + return Ok).
+    pub async fn submit_spark(&self, user_id: i32, task: SparkTask) -> anyhow::Result<()> {
+        if task.capture_ids.is_empty() {
+            anyhow::bail!("submit_spark requires at least one capture_id");
         }
+        let task_id = task.id();
+        let capture_ids = task.capture_ids.clone();
+        let Some(queue) = self.spark_queue.as_ref() else {
+            tracing::warn!(
+                capture_ids = ?capture_ids,
+                "Spark requested but no spark queue configured, skipping enqueue."
+            );
+            return Ok(());
+        };
+        queue.enqueue(task).await.inspect_err(|err| {
+            tracing::error!(
+                queue = ?queue,
+                capture_ids = ?capture_ids,
+                error = ?err,
+                "Failed to enqueue captures for spark: {}",
+                err
+            )
+        })?;
 
-        // Record the Queued row (best-effort; enqueue is the critical path).
-        self.record_status(task, Status::Queued, 0).await?;
+        self.record_status("spark", user_id, &task_id, Status::Queued, 0)
+            .await?;
+        Ok(())
+    }
 
+    /// Submit a search-index task: enqueue on the search-index queue and record
+    /// a `Queued` row in `task_status`.
+    ///
+    /// If the queue is not configured, this is a no-op (warn + return Ok).
+    pub async fn submit_search_index(
+        &self,
+        user_id: i32,
+        task: SearchIndexTask,
+    ) -> anyhow::Result<()> {
+        let task_id = task.id();
+        let capture_id = task.capture_id;
+        let Some(queue) = self.search_index_queue.as_ref() else {
+            tracing::warn!(
+                capture_id,
+                "Search index requested but no search index queue configured, skipping enqueue."
+            );
+            return Ok(());
+        };
+        queue.enqueue(task).await.inspect_err(|err| {
+            tracing::error!(
+                queue = ?queue,
+                capture_id,
+                error = ?err,
+                "Failed to enqueue capture for search indexing: {}",
+                err
+            )
+        })?;
+
+        self.record_status("search_index", user_id, &task_id, Status::Queued, 0)
+            .await?;
         Ok(())
     }
 
@@ -140,24 +166,32 @@ impl TaskMaster {
     /// time of this transition.
     pub async fn update_status(
         &self,
-        task: &Task,
+        task_type: &str,
+        user_id: i32,
+        task_id: &str,
         status: Status,
         attempts: i32,
     ) -> anyhow::Result<()> {
-        self.record_status(task, status, attempts).await
+        self.record_status(task_type, user_id, task_id, status, attempts)
+            .await
     }
 
     /// Query the current status row for a task, if one exists.
     ///
     /// Returns `None` when there's no DB (enqueue-only mode) or no row yet.
-    pub async fn query_status(&self, task: &Task) -> anyhow::Result<Option<Status>> {
+    pub async fn query_status(
+        &self,
+        task_type: &str,
+        _user_id: i32,
+        task_id: &str,
+    ) -> anyhow::Result<Option<Status>> {
         let Some(db) = self.db.as_ref() else {
             return Ok(None);
         };
 
         let row = crate::model::task_status::Entity::find()
-            .filter(crate::model::task_status::Column::TaskType.eq(task.task_type()))
-            .filter(crate::model::task_status::Column::TaskId.eq(task.task_id()))
+            .filter(crate::model::task_status::Column::TaskType.eq(task_type))
+            .filter(crate::model::task_status::Column::TaskId.eq(task_id))
             .filter(crate::model::task_status::Column::RunId.eq(1))
             .one(&db.conn)
             .await?;
@@ -169,10 +203,13 @@ impl TaskMaster {
         }
     }
 
-    /// Shared upsert used by `submit` and `update_status`. No-op without a DB.
+    /// Shared upsert used by the `submit_*` methods and `update_status`.
+    /// No-op without a DB.
     async fn record_status(
         &self,
-        task: &Task,
+        task_type: &str,
+        user_id: i32,
+        task_id: &str,
         status: Status,
         attempts: i32,
     ) -> anyhow::Result<()> {
@@ -181,8 +218,8 @@ impl TaskMaster {
         };
 
         let existing = crate::model::task_status::Entity::find()
-            .filter(crate::model::task_status::Column::TaskType.eq(task.task_type()))
-            .filter(crate::model::task_status::Column::TaskId.eq(task.task_id()))
+            .filter(crate::model::task_status::Column::TaskType.eq(task_type))
+            .filter(crate::model::task_status::Column::TaskId.eq(task_id))
             .filter(crate::model::task_status::Column::RunId.eq(1))
             .one(&db.conn)
             .await?;
@@ -195,10 +232,10 @@ impl TaskMaster {
             active.update(&db.conn).await?;
         } else {
             crate::model::task_status::ActiveModel::builder()
-                .set_task_type(task.task_type())
-                .set_task_id(task.task_id())
+                .set_task_type(task_type)
+                .set_task_id(task_id)
                 .set_run_id(1)
-                .set_user_id(task.user_id())
+                .set_user_id(user_id)
                 .set_status(status.as_str().to_string())
                 .set_attempts(attempts)
                 .set_background(false)
@@ -306,7 +343,7 @@ mod tests {
         let service = TaskMaster::builder().ingest_queue(queue).build();
 
         service
-            .submit(&Task::Ingest { user_id: 1, capture_id: 42 })
+            .submit_ingest(1, IngestTask { capture_id: 42 })
             .await
             .expect("submit should succeed");
 
@@ -322,7 +359,7 @@ mod tests {
         let service = TaskMaster::builder().build();
 
         service
-            .submit(&Task::Ingest { user_id: 1, capture_id: 7 })
+            .submit_ingest(1, IngestTask { capture_id: 7 })
             .await
             .expect("submit should be a no-op when queue is absent");
     }
@@ -335,7 +372,7 @@ mod tests {
         };
         let service = TaskMaster::builder().ingest_queue(queue).build();
 
-        let result = service.submit(&Task::Ingest { user_id: 1, capture_id: 9 }).await;
+        let result = service.submit_ingest(1, IngestTask { capture_id: 9 }).await;
         assert!(result.is_err());
     }
 }

@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 
-use crate::api::*;
+use crate::{api::*, logic};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -93,10 +93,10 @@ pub async fn enqueue(
 
             for capture_id in candidate_ids {
                 match task_master
-                    .submit(&crate::task::Task::SearchIndex {
+                    .submit_search_index(
                         user_id,
-                        capture_id,
-                    })
+                        logic::search_index::SearchIndexTask { capture_id },
+                    )
                     .await
                 {
                     Ok(()) => {
