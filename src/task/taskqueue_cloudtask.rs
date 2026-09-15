@@ -2,15 +2,14 @@ use std::{marker::PhantomData, sync::Arc};
 
 use anyhow::{Context, anyhow};
 use google_cloud_tasks_v2::client::CloudTasks;
-use google_cloud_tasks_v2::model::{HttpMethod, HttpRequest, Task};
-use serde::Serialize;
+use google_cloud_tasks_v2::model::{HttpMethod, HttpRequest, Task as CloudTask};
 
 use super::*;
 
 #[derive(Clone)]
-pub struct CloudTaskQueue<TTask> {
+pub struct CloudTaskQueue<PPayload> {
     inner: Arc<CloudTaskQueueInner>,
-    _task: PhantomData<TTask>,
+    _task: PhantomData<PPayload>,
 }
 
 #[derive(Debug)]
@@ -19,7 +18,7 @@ struct CloudTaskQueueInner {
     client: CloudTasks,
 }
 
-impl<TTask> std::fmt::Debug for CloudTaskQueue<TTask> {
+impl<PPayload: TaskPayload> std::fmt::Debug for CloudTaskQueue<PPayload> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CloudTaskQueue")
             .field("queue_path", &self.inner.queue_path)
@@ -27,7 +26,7 @@ impl<TTask> std::fmt::Debug for CloudTaskQueue<TTask> {
     }
 }
 
-impl<TTask> CloudTaskQueue<TTask> {
+impl<PPayload: TaskPayload> CloudTaskQueue<PPayload> {
     pub async fn connect(project_id: &str, region: &str, queue_id: &str) -> anyhow::Result<Self> {
         let client = CloudTasks::builder().build().await?;
 
@@ -44,10 +43,10 @@ impl<TTask> CloudTaskQueue<TTask> {
 }
 
 #[async_trait::async_trait]
-impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for CloudTaskQueue<TTask> {
-    type Task = TTask;
+impl<PPayload: TaskPayload + Send + Sync + 'static> TaskQueue for CloudTaskQueue<PPayload> {
+    type PPayload = PPayload;
 
-    async fn enqueue(&self, task: TTask) -> anyhow::Result<()> {
+    async fn enqueue(&self, task: Self::PPayload) -> anyhow::Result<TaskHandle<Self::PPayload>> {
         let body = serde_json::to_vec(&task).context("Failed to serialize task payload to JSON")?;
 
         let webhook_request = HttpRequest::new()
@@ -56,7 +55,7 @@ impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for CloudTaskQ
             .set_headers([("Content-Type", "application/json")])
             .set_body(body);
 
-        let pending_task = Task::new().set_http_request(webhook_request);
+        let pending_task = CloudTask::new().set_http_request(webhook_request);
 
         let created_task = self
             .inner
@@ -69,7 +68,7 @@ impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for CloudTaskQ
             .map_err(|err| {
                 anyhow!(
                     "Cloud Tasks create_task failed for task_id {}: {}",
-                    task.id(),
+                    task.id,
                     err
                 )
             })?;
@@ -78,7 +77,7 @@ impl<TTask: TaskId + Serialize + Send + Sync + 'static> TaskQueue for CloudTaskQ
             queue = %self.inner.queue_path,
             task_name = %created_task.name,
             "Enqueued task id {} to queue: {} with task_name: {}",
-            task.id(),
+            task.id,
             self.inner.queue_path,
             created_task.name
         );

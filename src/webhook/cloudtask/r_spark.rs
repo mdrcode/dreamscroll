@@ -10,7 +10,7 @@ use crate::{api, logic, webhook};
 /// `{ "capture_ids": [123, 456] }`
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
-    Json(task): Json<logic::spark::SparkTask>,
+    Json(task): Json<logic::spark::SparkPayload>,
 ) -> Result<impl IntoResponse, api::ApiError> {
     if task.capture_ids.is_empty() {
         return Err(api::ApiError::bad_request(anyhow::anyhow!(

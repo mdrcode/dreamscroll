@@ -1,12 +1,6 @@
-use serde::Serialize;
-
-pub trait TaskId {
-    fn id(&self) -> String;
-}
+use super::*;
 
 #[async_trait::async_trait]
-pub trait TaskQueue: std::fmt::Debug + Send + Sync {
-    type Task: Send + Serialize + TaskId;
-
-    async fn enqueue(&self, task: Self::Task) -> anyhow::Result<()>;
+pub trait TaskQueue<Payload: TaskPayload>: std::fmt::Debug + Send + Sync {
+    async fn enqueue(&self, task: Payload) -> anyhow::Result<()>;
 }

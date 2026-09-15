@@ -55,7 +55,7 @@ pub async fn run(mut state: CmdState, _args: IlluminateAllArgs) -> anyhow::Resul
                         match logic::illuminate::exec(
                             &service_api,
                             illuminator.as_ref(),
-                            logic::illuminate::IlluminationTask { capture_id: id },
+                            logic::illuminate::IlluminationPayload { capture_id: id },
                         )
                         .await
                         {

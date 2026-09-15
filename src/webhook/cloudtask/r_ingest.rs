@@ -10,7 +10,7 @@ use crate::{api, logic, webhook};
 /// `{ "capture_id": 123 }`
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
-    Json(task): Json<logic::ingest::IngestTask>,
+    Json(task): Json<logic::ingest::IngestPayload>,
 ) -> Result<impl IntoResponse, api::ApiError> {
     logic::ingest::exec(
         &state.service_api,

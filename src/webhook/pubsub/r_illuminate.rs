@@ -13,7 +13,7 @@ pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(body): Json<schema::PushBody>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let task = schema::decode_message_data::<logic::illuminate::IlluminationTask>(&body.message.data)
+    let task = schema::decode_message_data::<logic::illuminate::IlluminationPayload>(&body.message.data)
         .map_err(|err| {
             tracing::error!(error = ?err, "Failed to decode Pub/Sub message task");
             api::ApiError::bad_request(err)

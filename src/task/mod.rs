@@ -1,3 +1,7 @@
+mod task;
+pub use task::*;
+
+
 // TaskMaster is the primary entry point for manipulating Task instances.
 mod taskmaster;
 pub use taskmaster::*;

@@ -8,13 +8,13 @@ use crate::{
 
 /// The concrete task for search-indexing a single capture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SearchIndexTask {
+pub struct SearchIndexPayload {
     pub capture_id: i32,
 }
 
-impl task::TaskId for SearchIndexTask {
-    fn id(&self) -> String {
-        self.capture_id.to_string()
+impl task::TaskPayload for SearchIndexPayload {
+    fn task_type() -> &'static str {
+        "search_index"
     }
 }
 
@@ -23,7 +23,7 @@ pub async fn exec(
     stg: &dyn storage::StorageProvider,
     embedder: &search::gcloud::GeminiEmbedder,
     vector_store: &search::gcloud::VertexVectorStore,
-    task: SearchIndexTask,
+    task: SearchIndexPayload,
 ) -> Result<(), api::ApiError> {
     tracing::Span::current().record("capture_id", task.capture_id);
 

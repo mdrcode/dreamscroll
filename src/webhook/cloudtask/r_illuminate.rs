@@ -10,7 +10,7 @@ use crate::{api, logic, webhook};
 /// `{ "capture_id": 123 }`
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
-    Json(task): Json<logic::illuminate::IlluminationTask>,
+    Json(task): Json<logic::illuminate::IlluminationPayload>,
 ) -> Result<impl IntoResponse, api::ApiError> {
     logic::illuminate::exec(&state.service_api, state.illuminator.as_ref(), task).await?;
 
