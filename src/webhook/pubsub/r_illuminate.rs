@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
-use crate::{api, webhook};
+use crate::{api, logic, webhook};
 
 use super::*;
 
@@ -13,13 +13,13 @@ pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(body): Json<schema::PushBody>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let task = schema::decode_message_data::<webhook::schema::IlluminationTask>(&body.message.data)
+    let task = schema::decode_message_data::<logic::illuminate::IlluminationTask>(&body.message.data)
         .map_err(|err| {
             tracing::error!(error = ?err, "Failed to decode Pub/Sub message task");
             api::ApiError::bad_request(err)
         })?;
 
-    webhook::logic::illuminate::exec(&state.service_api, state.illuminator.as_ref(), task).await?;
+    logic::illuminate::exec(&state.service_api, state.illuminator.as_ref(), task).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

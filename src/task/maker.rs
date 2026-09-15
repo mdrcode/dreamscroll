@@ -3,7 +3,10 @@ use anyhow::Context;
 use crate::config;
 use crate::database::DbHandle;
 use crate::webhook::localclient::LocalWebhookClient;
-use crate::webhook::schema::{IlluminationTask, IngestTask, SearchIndexTask, SparkTask};
+use crate::logic::illuminate::IlluminationTask;
+use crate::logic::ingest::IngestTask;
+use crate::logic::search_index::SearchIndexTask;
+use crate::logic::spark::SparkTask;
 
 use super::*;
 

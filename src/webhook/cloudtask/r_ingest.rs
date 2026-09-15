@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
-use crate::{api, webhook};
+use crate::{api, logic, webhook};
 
 /// Webhook for overall "ingest" which does illumination and search indexing.
 ///
@@ -10,34 +10,17 @@ use crate::{api, webhook};
 /// `{ "capture_id": 123 }`
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
-    Json(task): Json<webhook::schema::IngestTask>,
+    Json(task): Json<logic::ingest::IngestTask>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    // Illuminate
-    webhook::logic::illuminate::exec(
+    logic::ingest::exec(
         &state.service_api,
         state.illuminator.as_ref(),
-        webhook::schema::IlluminationTask {
-            capture_id: task.capture_id,
-        },
-    )
-    .await?;
-
-    // Index for Search
-    webhook::logic::search_index::exec(
-        &state.service_api,
         state.stg.as_ref(),
         &state.embedder,
         &state.vector_store,
-        webhook::schema::SearchIndexTask {
-            capture_id: task.capture_id,
-        },
+        task,
     )
     .await?;
-
-    tracing::info!(
-        capture_id = task.capture_id,
-        "Ingest completed: illumination + search indexing"
-    );
 
     Ok(StatusCode::NO_CONTENT)
 }

@@ -1,9 +1,23 @@
-use crate::{api, illumination, webhook};
+use serde::{Deserialize, Serialize};
+
+use crate::{api, illumination, task};
+
+/// The concrete task for illuminating a single capture.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IlluminationTask {
+    pub capture_id: i32,
+}
+
+impl task::TaskId for IlluminationTask {
+    fn id(&self) -> String {
+        self.capture_id.to_string()
+    }
+}
 
 pub async fn exec(
     service_api: &api::ServiceApiClient,
     illuminator: &dyn illumination::Illuminator,
-    task: webhook::schema::IlluminationTask,
+    task: IlluminationTask,
 ) -> Result<(), api::ApiError> {
     tracing::Span::current().record("capture_id", task.capture_id);
 

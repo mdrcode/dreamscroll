@@ -4,8 +4,11 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use std::str::FromStr;
 
 use crate::database::DbHandle;
+use crate::logic::illuminate::IlluminationTask;
+use crate::logic::ingest::IngestTask;
+use crate::logic::search_index::SearchIndexTask;
+use crate::logic::spark::SparkTask;
 use crate::model::task_status::Status;
-use crate::webhook::schema::{IlluminationTask, IngestTask, SearchIndexTask, SparkTask};
 
 use super::*;
 

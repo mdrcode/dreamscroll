@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
-use crate::{api, webhook};
+use crate::{api, logic, webhook};
 
 /// Webhook POST route for Cloud Tasks search indexing payloads.
 ///
@@ -10,9 +10,9 @@ use crate::{api, webhook};
 /// `{ "capture_id": 123 }`
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
-    Json(task): Json<webhook::schema::SearchIndexTask>,
+    Json(task): Json<logic::search_index::SearchIndexTask>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    webhook::logic::search_index::exec(
+    logic::search_index::exec(
         &state.service_api,
         state.stg.as_ref(),
         &state.embedder,

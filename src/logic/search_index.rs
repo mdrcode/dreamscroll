@@ -1,15 +1,29 @@
+use serde::{Deserialize, Serialize};
+
 use crate::{
     api,
     search::{self, prelude::*},
-    storage, webhook,
+    storage, task,
 };
+
+/// The concrete task for search-indexing a single capture.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SearchIndexTask {
+    pub capture_id: i32,
+}
+
+impl task::TaskId for SearchIndexTask {
+    fn id(&self) -> String {
+        self.capture_id.to_string()
+    }
+}
 
 pub async fn exec(
     service_api: &api::ServiceApiClient,
     stg: &dyn storage::StorageProvider,
     embedder: &search::gcloud::GeminiEmbedder,
     vector_store: &search::gcloud::VertexVectorStore,
-    task: webhook::schema::SearchIndexTask,
+    task: SearchIndexTask,
 ) -> Result<(), api::ApiError> {
     tracing::Span::current().record("capture_id", task.capture_id);
 

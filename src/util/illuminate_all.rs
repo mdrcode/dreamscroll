@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
 use tokio::task::JoinSet;
 
-use crate::{illumination, webhook};
+use crate::{illumination, logic};
 
 use super::*;
 
@@ -52,10 +52,10 @@ pub async fn run(mut state: CmdState, _args: IlluminateAllArgs) -> anyhow::Resul
 
                 match next_capture_id {
                     Some(id) => {
-                        match webhook::logic::illuminate::exec(
+                        match logic::illuminate::exec(
                             &service_api,
                             illuminator.as_ref(),
-                            webhook::schema::IlluminationTask { capture_id: id },
+                            logic::illuminate::IlluminationTask { capture_id: id },
                         )
                         .await
                         {
