@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
 use crate::{database, model};
@@ -30,7 +28,7 @@ impl TaskStatusRecorder {
     pub async fn record<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
-        status: model::task_status::Status,
+        status: StatusCode,
         attempts: i32,
     ) -> anyhow::Result<()> {
         let Some(db) = self.db.as_ref() else {
@@ -48,7 +46,7 @@ impl TaskStatusRecorder {
 
         if let Some(row) = existing {
             let mut active: model::task_status::ActiveModel = row.into();
-            active.status = Set(status.as_str().to_string());
+            active.status_code = Set(status.as_i32());
             active.attempts = Set(attempts);
             active.updated_at = Set(chrono::Utc::now());
             active.update(&db.conn).await?;
@@ -57,7 +55,7 @@ impl TaskStatusRecorder {
                 .set_task_type(task_type)
                 .set_task_id(task_id)
                 .set_user_id(envelope.user_id)
-                .set_status(status.as_str().to_string())
+                .set_status_code(status.as_i32())
                 .set_attempts(attempts)
                 .set_background(false)
                 .save(&db.conn)
@@ -74,7 +72,7 @@ impl TaskStatusRecorder {
         &self,
         task_type: &str,
         task_id: &str,
-    ) -> anyhow::Result<Option<model::task_status::Status>> {
+    ) -> anyhow::Result<Option<StatusCode>> {
         let Some(db) = self.db.as_ref() else {
             return Ok(None);
         };
@@ -86,7 +84,7 @@ impl TaskStatusRecorder {
             .await?;
 
         if let Some(r) = row {
-            Ok(Some(model::task_status::Status::from_str(&r.status)?))
+            Ok(Some(StatusCode::from_i32(r.status_code)?))
         } else {
             Ok(None)
         }

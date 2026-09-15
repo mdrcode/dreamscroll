@@ -1,56 +1,5 @@
-use anyhow::anyhow;
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
-use serde::{Deserialize, Serialize};
-
-/// Typed status values stored in the `status` TEXT column.
-///
-/// This is the single source of truth for task status — the task module
-/// imports it from here (`model::task_status::Status`). Keep the string forms
-/// in sync with the DB values used by the workers
-/// (`queued|in_progress|completed|error|error_final`).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Status {
-    Queued,
-    InProgress,
-    Completed,
-    Error,
-    ErrorFinal,
-}
-
-impl Status {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Status::Queued => "queued",
-            Status::InProgress => "in_progress",
-            Status::Completed => "completed",
-            Status::Error => "error",
-            Status::ErrorFinal => "error_final",
-        }
-    }
-}
-
-impl std::fmt::Display for Status {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl std::str::FromStr for Status {
-    type Err = anyhow::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "queued" => Ok(Status::Queued),
-            "in_progress" => Ok(Status::InProgress),
-            "completed" => Ok(Status::Completed),
-            "error" => Ok(Status::Error),
-            "error_final" => Ok(Status::ErrorFinal),
-            other => Err(anyhow!("unknown task status: {other}")),
-        }
-    }
-}
 
 /// One row per (task_type, task_id) — the canonical source of truth
 /// for background-task status. See `_project/plans/sse-task-status.md` §6.
@@ -63,14 +12,11 @@ pub struct Model {
 
     /// 'illumination' | 'spark' | 'search_index' | ...
     pub task_type: String,
-
-    /// capture_id (single) or capture_ids joined (bulk/backfill).
+    pub user_id: i32,
     pub task_id: String,
 
-    pub user_id: i32,
-
-    /// One of `Status`'s string forms.
-    pub status: String,
+    /// Integer discriminant of `task::Status` (see `task::task_status`).
+    pub status_code: i32,
 
     pub attempts: i32,
 

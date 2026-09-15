@@ -1,5 +1,10 @@
 use serde::{Deserialize, Serialize};
 
+// TODO just a placehodler for now, need to think through task identity
+pub fn make_task_id<T: Task>(user_id: i32, _task: &T) -> String {
+    format!("u{}-{}-{}", user_id, T::task_type(), uuid::Uuid::new_v4())
+}
+
 /// A serializable specification for a unit of work.
 pub trait Task: std::fmt::Debug + Send + Sync + Serialize {
     fn task_type() -> &'static str;

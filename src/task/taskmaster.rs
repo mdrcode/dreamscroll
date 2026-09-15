@@ -3,7 +3,6 @@ use crate::logic::illuminate::IlluminationTask;
 use crate::logic::ingest::IngestTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
-use crate::model::task_status::Status;
 
 use super::*;
 
@@ -91,7 +90,7 @@ impl TaskMaster {
         };
 
         // Record `Queued` before enqueueing, since `enqueue` moves the envelope.
-        self.status.record(&envelope, Status::Queued, 0).await?;
+        self.status.record(&envelope, StatusCode::Queued, 0).await?;
 
         queue.enqueue(envelope).await.inspect_err(|err| {
             tracing::error!(
@@ -113,7 +112,7 @@ impl TaskMaster {
     pub async fn update_status<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
-        status: Status,
+        status: StatusCode,
         attempts: i32,
     ) -> anyhow::Result<()> {
         self.status.record(envelope, status, attempts).await
@@ -127,7 +126,7 @@ impl TaskMaster {
         task_type: &str,
         _user_id: i32,
         task_id: &str,
-    ) -> anyhow::Result<Option<Status>> {
+    ) -> anyhow::Result<Option<StatusCode>> {
         self.status.query(task_type, task_id).await
     }
 }
