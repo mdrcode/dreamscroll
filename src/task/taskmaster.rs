@@ -37,7 +37,8 @@ impl TaskMaster {
     }
 
     pub async fn submit_ingest(&self, user_id: i32, task: IngestTask) -> anyhow::Result<()> {
-        self.submit_inner(self.ingest_queue.as_ref(), user_id, task).await
+        self.submit_inner(self.ingest_queue.as_ref(), user_id, task)
+            .await
     }
 
     pub async fn submit_illumination(
@@ -53,7 +54,8 @@ impl TaskMaster {
         if task.capture_ids.is_empty() {
             anyhow::bail!("submit_spark requires at least one capture_id");
         }
-        self.submit_inner(self.spark_queue.as_ref(), user_id, task).await
+        self.submit_inner(self.spark_queue.as_ref(), user_id, task)
+            .await
     }
 
     pub async fn submit_search_index(
@@ -88,6 +90,9 @@ impl TaskMaster {
             return Ok(());
         };
 
+        // Record `Queued` before enqueueing, since `enqueue` moves the envelope.
+        self.status.record(&envelope, Status::Queued, 0).await?;
+
         queue.enqueue(envelope).await.inspect_err(|err| {
             tracing::error!(
                 queue = ?queue,
@@ -99,26 +104,19 @@ impl TaskMaster {
             )
         })?;
 
-        self.status
-            .record(task_type, user_id, task_id.as_str(), Status::Queued, 0)
-            .await?;
         Ok(())
     }
 
     /// Record a status transition for a task. Upserts the row keyed by
-    /// (task_type, task_id, run_id). `attempts` is the attempt count at the
+    /// (task_type, task_id). `attempts` is the attempt count at the
     /// time of this transition.
-    pub async fn update_status(
+    pub async fn update_status<T: Task>(
         &self,
-        task_type: &str,
-        user_id: i32,
-        task_id: &str,
+        envelope: &TaskEnvelope<T>,
         status: Status,
         attempts: i32,
     ) -> anyhow::Result<()> {
-        self.status
-            .record(task_type, user_id, task_id, status, attempts)
-            .await
+        self.status.record(envelope, status, attempts).await
     }
 
     /// Query the current status row for a task, if one exists.

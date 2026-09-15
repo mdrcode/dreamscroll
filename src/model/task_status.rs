@@ -5,9 +5,10 @@ use serde::{Deserialize, Serialize};
 
 /// Typed status values stored in the `status` TEXT column.
 ///
-/// Mirrors `task::Status` but is self-contained here so the model doesn't
-/// depend on the task module. Keep the string forms in sync with the DB
-/// values used by the workers (`queued|in_progress|completed|error|error_final`).
+/// This is the single source of truth for task status — the task module
+/// imports it from here (`model::task_status::Status`). Keep the string forms
+/// in sync with the DB values used by the workers
+/// (`queued|in_progress|completed|error|error_final`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Status {
@@ -51,7 +52,7 @@ impl std::str::FromStr for Status {
     }
 }
 
-/// One row per (task_type, task_id, run_id) — the canonical source of truth
+/// One row per (task_type, task_id) — the canonical source of truth
 /// for background-task status. See `_project/plans/sse-task-status.md` §6.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
@@ -65,9 +66,6 @@ pub struct Model {
 
     /// capture_id (single) or capture_ids joined (bulk/backfill).
     pub task_id: String,
-
-    /// Increments on rerun; part of the uniqueness key.
-    pub run_id: i64,
 
     pub user_id: i32,
 

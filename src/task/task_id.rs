@@ -15,7 +15,6 @@ use super::*;
 ///   by the caller? The queue is the arbiter of task identity.
 /// - Should it be a structured type (e.g. a `TaskId` value struct) rather than
 ///   a raw `String`?
-/// - How does it interact with `run_id` for reruns?
 ///
 /// Revisit this before relying on task ids for anything correctness-critical.
 pub fn make_task_id<T: Task>(user_id: i32, _task: &T) -> String {

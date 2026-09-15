@@ -1,8 +1,10 @@
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use std::str::FromStr;
 
-use crate::database::DbHandle;
-use crate::model::task_status::Status;
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
+
+use crate::{database, model};
+
+use super::*;
 
 /// Encapsulates all direct reads/writes to the `task_status` table.
 ///
@@ -11,50 +13,50 @@ use crate::model::task_status::Status;
 /// `TaskWatcher` (reads for SSE) without duplicating the SeaORM queries.
 #[derive(Clone)]
 pub struct TaskStatusRecorder {
-    db: Option<DbHandle>,
+    db: Option<database::DbHandle>,
 }
 
 impl TaskStatusRecorder {
-    pub fn new(db: Option<DbHandle>) -> Self {
+    pub fn new(db: Option<database::DbHandle>) -> Self {
         Self { db }
     }
 
     /// Record a status transition for a task. Upserts the row keyed by
-    /// (task_type, task_id, run_id). `attempts` is the attempt count at the
+    /// (task_type, task_id). `attempts` is the attempt count at the
     /// time of this transition.
     ///
-    /// No-op without a DB.
-    pub async fn record(
+    /// `task_type`, `user_id`, and `task_id` are all derived from the
+    /// `TaskEnvelope`. No-op without a DB.
+    pub async fn record<T: Task>(
         &self,
-        task_type: &str,
-        user_id: i32,
-        task_id: &str,
-        status: Status,
+        envelope: &TaskEnvelope<T>,
+        status: model::task_status::Status,
         attempts: i32,
     ) -> anyhow::Result<()> {
         let Some(db) = self.db.as_ref() else {
             return Ok(());
         };
 
-        let existing = crate::model::task_status::Entity::find()
-            .filter(crate::model::task_status::Column::TaskType.eq(task_type))
-            .filter(crate::model::task_status::Column::TaskId.eq(task_id))
-            .filter(crate::model::task_status::Column::RunId.eq(1))
+        let task_type = T::task_type();
+        let task_id = envelope.task_id.as_str();
+
+        let existing = model::task_status::Entity::find()
+            .filter(model::task_status::Column::TaskType.eq(task_type))
+            .filter(model::task_status::Column::TaskId.eq(task_id))
             .one(&db.conn)
             .await?;
 
         if let Some(row) = existing {
-            let mut active: crate::model::task_status::ActiveModel = row.into();
+            let mut active: model::task_status::ActiveModel = row.into();
             active.status = Set(status.as_str().to_string());
             active.attempts = Set(attempts);
             active.updated_at = Set(chrono::Utc::now());
             active.update(&db.conn).await?;
         } else {
-            crate::model::task_status::ActiveModel::builder()
+            model::task_status::ActiveModel::builder()
                 .set_task_type(task_type)
                 .set_task_id(task_id)
-                .set_run_id(1)
-                .set_user_id(user_id)
+                .set_user_id(envelope.user_id)
                 .set_status(status.as_str().to_string())
                 .set_attempts(attempts)
                 .set_background(false)
@@ -72,20 +74,19 @@ impl TaskStatusRecorder {
         &self,
         task_type: &str,
         task_id: &str,
-    ) -> anyhow::Result<Option<Status>> {
+    ) -> anyhow::Result<Option<model::task_status::Status>> {
         let Some(db) = self.db.as_ref() else {
             return Ok(None);
         };
 
-        let row = crate::model::task_status::Entity::find()
-            .filter(crate::model::task_status::Column::TaskType.eq(task_type))
-            .filter(crate::model::task_status::Column::TaskId.eq(task_id))
-            .filter(crate::model::task_status::Column::RunId.eq(1))
+        let row = model::task_status::Entity::find()
+            .filter(model::task_status::Column::TaskType.eq(task_type))
+            .filter(model::task_status::Column::TaskId.eq(task_id))
             .one(&db.conn)
             .await?;
 
         if let Some(r) = row {
-            Ok(Some(Status::from_str(&r.status)?))
+            Ok(Some(model::task_status::Status::from_str(&r.status)?))
         } else {
             Ok(None)
         }
