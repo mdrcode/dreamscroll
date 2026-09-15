@@ -7,7 +7,6 @@ use std::{
 };
 
 use anyhow::anyhow;
-use serde::Serialize;
 use tokio::{
     sync::{Semaphore, mpsc},
     task::JoinHandle,
@@ -16,20 +15,21 @@ use tokio::{
 use super::*;
 
 type TaskHandlerFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'static>>;
-type TaskHandler<TTask> = Arc<dyn Fn(TaskHandle<TTask>) -> TaskHandlerFuture + Send + Sync + 'static>;
+type TaskHandler<TTask> =
+    Arc<dyn Fn(TaskWrapper<TTask>) -> TaskHandlerFuture + Send + Sync + 'static>;
 
-pub struct LocalTaskQueue<TTask: TaskPayload> {
+pub struct LocalTaskQueue<TTask: Task> {
     inner: Arc<LocalTaskQueueInner<TTask>>,
     _task: PhantomData<TTask>,
 }
 
-struct LocalTaskQueueInner<TTask: TaskPayload> {
-    task_sender: mpsc::UnboundedSender<TaskHandle<TTask>>,
+struct LocalTaskQueueInner<TTask: Task> {
+    task_sender: mpsc::UnboundedSender<TaskWrapper<TTask>>,
     max_concurrent_tasks: usize,
     dispatcher_handle: Mutex<Option<JoinHandle<()>>>,
 }
 
-impl<TTask: TaskPayload> Clone for LocalTaskQueue<TTask> {
+impl<TTask: Task> Clone for LocalTaskQueue<TTask> {
     fn clone(&self) -> Self {
         Self {
             inner: Arc::clone(&self.inner),
@@ -38,7 +38,7 @@ impl<TTask: TaskPayload> Clone for LocalTaskQueue<TTask> {
     }
 }
 
-impl<TTask: TaskPayload> fmt::Debug for LocalTaskQueue<TTask> {
+impl<TTask: Task> fmt::Debug for LocalTaskQueue<TTask> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("LocalTaskQueue")
             .field("max_concurrent_tasks", &self.inner.max_concurrent_tasks)
@@ -48,19 +48,21 @@ impl<TTask: TaskPayload> fmt::Debug for LocalTaskQueue<TTask> {
 
 impl<TTask> LocalTaskQueue<TTask>
 where
-    TTask: TaskPayload + Send + Sync + 'static,
+    TTask: Task + Send + Sync + 'static,
 {
     pub fn connect<F, Fut>(max_concurrent_tasks: usize, task_handler: F) -> Self
     where
-        F: Fn(TaskHandle<TTask>) -> Fut + Send + Sync + 'static,
+        F: Fn(TaskWrapper<TTask>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         let max_concurrent_tasks = max_concurrent_tasks.max(1);
 
         let handler: TaskHandler<TTask> =
-            Arc::new(move |task: TaskHandle<TTask>| -> TaskHandlerFuture { Box::pin(task_handler(task)) });
+            Arc::new(move |task: TaskWrapper<TTask>| -> TaskHandlerFuture {
+                Box::pin(task_handler(task))
+            });
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
-        let (task_sender, mut task_receiver) = mpsc::unbounded_channel::<TaskHandle<TTask>>();
+        let (task_sender, mut task_receiver) = mpsc::unbounded_channel::<TaskWrapper<TTask>>();
 
         // One dispatcher receives tasks in FIFO order and fan-outs execution to workers.
         // A semaphore bounds worker concurrency to max_concurrent_tasks.
@@ -81,7 +83,7 @@ where
     }
 
     async fn run_dispatcher(
-        task_receiver: &mut mpsc::UnboundedReceiver<TaskHandle<TTask>>,
+        task_receiver: &mut mpsc::UnboundedReceiver<TaskWrapper<TTask>>,
         semaphore: Arc<Semaphore>,
         handler: TaskHandler<TTask>,
     ) {
@@ -105,7 +107,7 @@ where
     }
 }
 
-impl<TTask: TaskPayload> Drop for LocalTaskQueue<TTask> {
+impl<TTask: Task> Drop for LocalTaskQueue<TTask> {
     fn drop(&mut self) {
         if Arc::strong_count(&self.inner) != 1 {
             return;
@@ -124,13 +126,11 @@ impl<TTask: TaskPayload> Drop for LocalTaskQueue<TTask> {
 }
 
 #[async_trait::async_trait]
-impl<TTask> TaskQueue for LocalTaskQueue<TTask>
+impl<TTask> TaskQueue<TTask> for LocalTaskQueue<TTask>
 where
-    TTask: TaskPayload + Send + Sync + 'static,
+    TTask: Task + Send + Sync + 'static,
 {
-    type Task = TaskHandle<TTask>;
-
-    async fn enqueue(&self, task: Self::Task) -> anyhow::Result<()> {
+    async fn enqueue(&self, wrapped: TaskWrapper<TTask>) -> anyhow::Result<()> {
         let type_name = std::any::type_name::<TTask>()
             .rsplit("::")
             .next()
@@ -138,12 +138,12 @@ where
         let task_str = format!(
             "{} {}",
             type_name,
-            serde_json::to_string(&task).unwrap_or_else(|_| "<serialization error>".to_string())
+            serde_json::to_string(&wrapped).unwrap_or_else(|_| "<serialization error>".to_string())
         );
         tracing::info!(task = %task_str, "Enqueuing task into LocalTaskQueue");
         self.inner
             .task_sender
-            .send(task)
+            .send(wrapped)
             .map_err(|_| anyhow!("Cannot enqueue into LocalTaskQueue after shutdown"))
     }
 }
@@ -164,35 +164,39 @@ mod tests {
         id: i32,
     }
 
-    impl TaskPayload for TestTask {}
+    impl Task for TestTask {
+        fn task_type() -> &'static str {
+            "test"
+        }
+    }
 
     #[tokio::test]
     async fn local_queue_executes_enqueued_tasks() -> anyhow::Result<()> {
         let seen = Arc::new(AsyncMutex::new(Vec::new()));
         let seen_for_worker = Arc::clone(&seen);
 
-        let queue = LocalTaskQueue::connect(4, move |task: TaskHandle<TestTask>| {
+        let queue = LocalTaskQueue::connect(4, move |task: TaskWrapper<TestTask>| {
             let seen = Arc::clone(&seen_for_worker);
             async move {
-                seen.lock().await.push(task.payload.id);
+                seen.lock().await.push(task.payload.unwrap().id);
                 Ok(())
             }
         });
 
-        queue.enqueue(TaskHandle {
-            user_id: 1,
-            id: "1",
-            task_type: "test",
-            payload: TestTask { id: 1 },
-        })
-        .await?;
-        queue.enqueue(TaskHandle {
-            user_id: 1,
-            id: "2",
-            task_type: "test",
-            payload: TestTask { id: 2 },
-        })
-        .await?;
+        queue
+            .enqueue(TaskWrapper {
+                user_id: 1,
+                task_id: "1".to_string(),
+                payload: Some(TestTask { id: 1 }),
+            })
+            .await?;
+        queue
+            .enqueue(TaskWrapper {
+                user_id: 1,
+                task_id: "2".to_string(),
+                payload: Some(TestTask { id: 2 }),
+            })
+            .await?;
 
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             loop {
@@ -221,7 +225,7 @@ mod tests {
         let max_active_for_worker = Arc::clone(&max_active);
         let done_for_worker = Arc::clone(&done);
 
-        let queue = LocalTaskQueue::connect(3, move |_task: TaskHandle<TestTask>| {
+        let queue = LocalTaskQueue::connect(3, move |_task: TaskWrapper<TestTask>| {
             let active = Arc::clone(&active_for_worker);
             let max_active = Arc::clone(&max_active_for_worker);
             let done = Arc::clone(&done_for_worker);
@@ -250,11 +254,10 @@ mod tests {
 
         for id in 0..6 {
             queue
-                .enqueue(TaskHandle {
+                .enqueue(TaskWrapper {
                     user_id: 1,
-                    id: id.to_string(),
-                    task_type: "test",
-                    payload: TestTask { id },
+                    task_id: id.to_string(),
+                    payload: Some(TestTask { id }),
                 })
                 .await?;
         }
@@ -286,7 +289,7 @@ mod tests {
         let first_task_started_tx_for_worker = Arc::clone(&first_task_started_tx);
         let release_first_task_rx_for_worker = Arc::clone(&release_first_task_rx);
 
-        let queue = LocalTaskQueue::connect(1, move |_task: TaskHandle<TestTask>| {
+        let queue = LocalTaskQueue::connect(1, move |_task: TaskWrapper<TestTask>| {
             let processed = Arc::clone(&processed_for_worker);
             let first_task_started_tx = Arc::clone(&first_task_started_tx_for_worker);
             let release_first_task_rx = Arc::clone(&release_first_task_rx_for_worker);
@@ -308,30 +311,30 @@ mod tests {
             }
         });
 
-        queue.enqueue(TaskHandle {
-            user_id: 1,
-            id: "1",
-            task_type: "test",
-            payload: TestTask { id: 1 },
-        })
-        .await?;
+        queue
+            .enqueue(TaskWrapper {
+                user_id: 1,
+                task_id: "1".to_string(),
+                payload: Some(TestTask { id: 1 }),
+            })
+            .await?;
 
         first_task_started_rx.await?;
 
-        queue.enqueue(TaskHandle {
-            user_id: 1,
-            id: "2",
-            task_type: "test",
-            payload: TestTask { id: 2 },
-        })
-        .await?;
-        queue.enqueue(TaskHandle {
-            user_id: 1,
-            id: "3",
-            task_type: "test",
-            payload: TestTask { id: 3 },
-        })
-        .await?;
+        queue
+            .enqueue(TaskWrapper {
+                user_id: 1,
+                task_id: "2".to_string(),
+                payload: Some(TestTask { id: 2 }),
+            })
+            .await?;
+        queue
+            .enqueue(TaskWrapper {
+                user_id: 1,
+                task_id: "3".to_string(),
+                payload: Some(TestTask { id: 3 }),
+            })
+            .await?;
 
         drop(queue);
 
@@ -362,39 +365,42 @@ mod tests {
         let processed = Arc::new(AsyncMutex::new(Vec::new()));
         let processed_for_worker = Arc::clone(&processed);
 
-        let queue = LocalTaskQueue::connect(1, move |task: TaskHandle<TestTask>| {
+        let queue = LocalTaskQueue::connect(1, move |task: TaskWrapper<TestTask>| {
             let processed = Arc::clone(&processed_for_worker);
             async move {
-                if task.payload.id == 2 {
+                if task.payload.as_ref().unwrap().id == 2 {
                     anyhow::bail!("intentional failure for task 2")
                 }
 
-                processed.lock().await.push(task.payload.id);
+                processed
+                    .lock()
+                    .await
+                    .push(task.payload.as_ref().unwrap().id);
                 Ok(())
             }
         });
 
-        queue.enqueue(TaskHandle {
-            user_id: 1,
-            id: "1",
-            task_type: "test",
-            payload: TestTask { id: 1 },
-        })
-        .await?;
-        queue.enqueue(TaskHandle {
-            user_id: 1,
-            id: "2",
-            task_type: "test",
-            payload: TestTask { id: 2 },
-        })
-        .await?;
-        queue.enqueue(TaskHandle {
-            user_id: 1,
-            id: "3",
-            task_type: "test",
-            payload: TestTask { id: 3 },
-        })
-        .await?;
+        queue
+            .enqueue(TaskWrapper {
+                user_id: 1,
+                task_id: "1".to_string(),
+                payload: Some(TestTask { id: 1 }),
+            })
+            .await?;
+        queue
+            .enqueue(TaskWrapper {
+                user_id: 1,
+                task_id: "2".to_string(),
+                payload: Some(TestTask { id: 2 }),
+            })
+            .await?;
+        queue
+            .enqueue(TaskWrapper {
+                user_id: 1,
+                task_id: "3".to_string(),
+                payload: Some(TestTask { id: 3 }),
+            })
+            .await?;
 
         tokio::time::timeout(std::time::Duration::from_secs(1), async {
             loop {

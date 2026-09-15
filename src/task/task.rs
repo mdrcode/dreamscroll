@@ -9,6 +9,6 @@ pub trait Task: std::fmt::Debug + Send + Sync + Serialize {
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskWrapper<P: Task> {
     pub user_id: i32,
-    pub task_id: Option<String>,
+    pub task_id: String,
     pub payload: Option<P>, // convenience, but not always available (e.g. when dequeued)
 }
