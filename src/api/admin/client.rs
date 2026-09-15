@@ -1,18 +1,19 @@
 use anyhow::anyhow;
+use std::sync::Arc;
 
 use crate::{api::*, auth, database, task};
 
 pub struct AdminApiClient {
     db: database::DbHandle,
     service_api: ServiceApiClient,
-    task_master: task::TaskMaster,
+    task_master: Arc<task::TaskMaster>,
 }
 
 impl AdminApiClient {
     pub fn new(
         db: database::DbHandle,
         service_api: ServiceApiClient,
-        task_master: task::TaskMaster,
+        task_master: Arc<task::TaskMaster>,
     ) -> Self {
         Self {
             db,

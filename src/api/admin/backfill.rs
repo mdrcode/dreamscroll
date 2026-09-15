@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use crate::{api::*, logic};
 
@@ -34,7 +35,7 @@ pub struct BackfillResponse {
 
 pub async fn enqueue(
     service_api: &ServiceApiClient,
-    task_master: &crate::task::TaskMaster,
+    task_master: &Arc<crate::task::TaskMaster>,
     user_id: i32,
     req: BackfillRequest,
 ) -> Result<BackfillResponse, ApiError> {

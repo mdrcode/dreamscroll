@@ -1,4 +1,5 @@
 use anyhow::Context;
+use std::sync::Arc;
 
 use crate::{api, config, database, rest, search, storage, task};
 
@@ -69,7 +70,7 @@ impl CmdState {
             // We use an empty task master for the util commands, so no background tasks
             // will be enqueued.
             // TODO this should be a NOOP queue that logs tasks so we can verify behavior
-            let empty_task_master = task::TaskMaster::builder().db(db.clone()).build();
+            let empty_task_master = Arc::new(task::TaskMaster::builder().db(db.clone()).build());
             let searcher = search::CaptureSearcher::from_config(&self.cfg)
                 .await
                 .context("Failed to initialize required CaptureSearcher")?;

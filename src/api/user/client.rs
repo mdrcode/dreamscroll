@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use std::collections::{BTreeSet, HashMap, HashSet};
+use std::sync::Arc;
 
 use anyhow::anyhow;
 
@@ -11,7 +12,7 @@ pub struct UserApiClient {
     pub db: database::DbHandle,
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
-    task_master: task::TaskMaster,
+    task_master: Arc<task::TaskMaster>,
     capture_searcher: search::CaptureSearcher,
 }
 
@@ -20,7 +21,7 @@ impl UserApiClient {
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
-        task_master: task::TaskMaster,
+        task_master: Arc<task::TaskMaster>,
         capture_searcher: search::CaptureSearcher,
     ) -> Self {
         Self {

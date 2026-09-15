@@ -48,9 +48,7 @@ async fn main() -> anyhow::Result<()> {
     let stg = storage::make_provider(&cfg).await;
     let url_maker = storage::UrlMaker::from_config(&cfg);
     let task_master = task::make_task_master(&cfg, db.clone()).await?;
-    let searcher = search::CaptureSearcher::from_config(&cfg)
-        .await
-        .context("Failed to initialize required CaptureSearcher")?;
+    let searcher = search::CaptureSearcher::from_config(&cfg).await?;
 
     let user_api = api::UserApiClient::new(
         db.clone(),
@@ -84,11 +82,13 @@ async fn main() -> anyhow::Result<()> {
             .with_same_site(tower_sessions::cookie::SameSite::Lax)
             .with_name("dreamscroll_session");
 
-        router = router.merge(webui::v2::make_ui_router(
+        let ui_router = webui::v2::make_ui_router(
             user_api.clone(),
             auth_backend.clone(),
             session_layer.clone(),
-        ));
+        );
+
+        router = router.merge(ui_router);
 
         // If using the local Storage provider, we serve media files manually
         if let Some(local_url_prefix) = &cfg.storage_local_url_prefix
@@ -108,10 +108,16 @@ async fn main() -> anyhow::Result<()> {
             .context("JWT_SECRET not set, required for API")?
             .as_bytes();
         let jwt = auth::JwtConfig::from_secret(secret);
-        router = router.nest(
-            "/api",
-            rest::make_api_router(user_api.clone(), service_api.clone(), task_master.clone(), jwt),
+
+        let api_router = rest::make_api_router(
+            user_api.clone(),
+            service_api.clone(),
+            task_master.clone(),
+            jwt,
         );
+
+        router = router.nest("/api", api_router);
+
         tracing::info!("Initialized REST API routes");
     }
 
@@ -121,17 +127,17 @@ async fn main() -> anyhow::Result<()> {
         let firestarter = ignition::make_firestarter(&cfg)?;
         let embedder = search::gcloud::GeminiEmbedder::from_config(&cfg)?;
         let vector_store = search::gcloud::VertexVectorStore::from_config(&cfg).await?;
-        router = router.nest(
-            "/_wh",
-            webhook::make_webhook_router(
-                service_api,
-                stg,
-                illuminator,
-                firestarter,
-                embedder,
-                vector_store,
-            ),
+
+        let webhook_router = webhook::make_webhook_router(
+            service_api,
+            stg,
+            illuminator,
+            firestarter,
+            embedder,
+            vector_store,
         );
+
+        router = router.nest("/_wh", webhook_router);
         tracing::info!("Initialized webhook routes");
     }
 
