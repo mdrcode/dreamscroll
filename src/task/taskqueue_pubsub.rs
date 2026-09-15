@@ -7,7 +7,6 @@ use google_cloud_pubsub::{
     client::{Client, ClientConfig},
     publisher::Publisher,
 };
-use serde::Serialize;
 
 use super::*;
 
@@ -101,11 +100,9 @@ impl<TTask> PubSubTaskQueue<TTask> {
 }
 
 #[async_trait::async_trait]
-impl<TTask: TaskPayload + Send + Sync + 'static> TaskQueue for PubSubTaskQueue<TTask> {
-    type Task = TaskHandle<TTask>;
-
-    async fn enqueue(&self, task: TaskHandle<TTask>) -> anyhow::Result<()> {
-        let task_json = serde_json::to_vec(&task)?;
+impl<TTask: Task + Send + Sync + 'static> TaskQueue<TTask> for PubSubTaskQueue<TTask> {
+    async fn enqueue(&self, wrapped: TaskWrapper<TTask>) -> anyhow::Result<()> {
+        let task_json = serde_json::to_vec(&wrapped)?;
 
         let awaiter = self
             .inner

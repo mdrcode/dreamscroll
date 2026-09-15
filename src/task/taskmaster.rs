@@ -4,10 +4,10 @@ use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 use std::str::FromStr;
 
 use crate::database::DbHandle;
-use crate::logic::illuminate::IlluminationPayload;
-use crate::logic::ingest::IngestPayload;
-use crate::logic::search_index::SearchIndexPayload;
-use crate::logic::spark::SparkPayload;
+use crate::logic::illuminate::IlluminationTask;
+use crate::logic::ingest::IngestTask;
+use crate::logic::search_index::SearchIndexTask;
+use crate::logic::spark::SparkTask;
 use crate::model::task_status::Status;
 
 use super::*;
@@ -29,10 +29,10 @@ use super::*;
 #[derive(Clone)]
 pub struct TaskMaster {
     db: Option<DbHandle>,
-    ingest_queue: Option<Arc<dyn TaskQueue<IngestPayload>>>,
-    illumination_queue: Option<Arc<dyn TaskQueue<IlluminationPayload>>>,
-    search_index_queue: Option<Arc<dyn TaskQueue<SearchIndexPayload>>>,
-    spark_queue: Option<Arc<dyn TaskQueue<SparkPayload>>>,
+    ingest_queue: Option<Arc<dyn TaskQueue<IngestTask>>>,
+    illumination_queue: Option<Arc<dyn TaskQueue<IlluminationTask>>>,
+    search_index_queue: Option<Arc<dyn TaskQueue<SearchIndexTask>>>,
+    spark_queue: Option<Arc<dyn TaskQueue<SparkTask>>>,
 }
 
 impl TaskMaster {
@@ -44,9 +44,9 @@ impl TaskMaster {
     /// row in `task_status`.
     ///
     /// If the queue is not configured, this is a no-op (warn + return Ok).
-    pub async fn submit_ingest(&self, user_id: i32, payload: IngestPayload) -> anyhow::Result<()> {
-        let task_id = "TODO FIX LATER";
+    pub async fn submit_ingest(&self, user_id: i32, payload: IngestTask) -> anyhow::Result<()> {
         let capture_id = payload.capture_id;
+
         let Some(queue) = self.ingest_queue.as_ref() else {
             tracing::warn!(
                 capture_id,
@@ -54,12 +54,25 @@ impl TaskMaster {
             );
             return Ok(());
         };
-        queue.enqueue(payload).await.inspect_err(
+
+        let wrapped = TaskWrapper {
+            user_id,
+            task_id: None, // TODO: generate a unique task ID for each submission
+            payload: Some(payload),
+        };
+
+        queue.enqueue(wrapped).await.inspect_err(
             |err| tracing::error!(queue = ?queue, capture_id, error = ?err, "Failed to enqueue capture for ingest: {}", err),
         )?;
 
-        self.record_status("ingest", user_id, &task_id, Status::Queued, 0)
-            .await?;
+        self.record_status(
+            "ingest",
+            user_id,
+            wrapped.task_id.as_ref().map(|s| s.as_str()),
+            Status::Queued,
+            0,
+        )
+        .await?;
         Ok(())
     }
 
@@ -70,10 +83,9 @@ impl TaskMaster {
     pub async fn submit_illumination(
         &self,
         user_id: i32,
-        payload: IlluminationPayload,
+        task: IlluminationTask,
     ) -> anyhow::Result<()> {
-        let task_id = "TODO FIX LATER";
-        let capture_id = payload.capture_id;
+        let capture_id = task.capture_id;
         let Some(queue) = self.illumination_queue.as_ref() else {
             tracing::warn!(
                 capture_id,
@@ -81,7 +93,12 @@ impl TaskMaster {
             );
             return Ok(());
         };
-        queue.enqueue(payload).await.inspect_err(|err| {
+        let wrapped = TaskWrapper {
+            user_id,
+            task_id: None, // TODO: generate a unique task ID for each submission
+            payload: Some(task),
+        };
+        queue.enqueue(wrapped).await.inspect_err(|err| {
             tracing::error!(
                 queue = ?queue,
                 capture_id,
@@ -91,8 +108,14 @@ impl TaskMaster {
             )
         })?;
 
-        self.record_status("illumination", user_id, &task_id, Status::Queued, 0)
-            .await?;
+        self.record_status(
+            "illumination",
+            user_id,
+            wrapped.task_id.as_ref().map(|s| s.as_str()),
+            Status::Queued,
+            0,
+        )
+        .await?;
         Ok(())
     }
 
@@ -100,11 +123,10 @@ impl TaskMaster {
     /// row in `task_status`.
     ///
     /// If the queue is not configured, this is a no-op (warn + return Ok).
-    pub async fn submit_spark(&self, user_id: i32, payload: SparkPayload) -> anyhow::Result<()> {
+    pub async fn submit_spark(&self, user_id: i32, payload: SparkTask) -> anyhow::Result<()> {
         if payload.capture_ids.is_empty() {
             anyhow::bail!("submit_spark requires at least one capture_id");
         }
-        let task_id = "TODO FIX LATER";
         let capture_ids = payload.capture_ids.clone();
         let Some(queue) = self.spark_queue.as_ref() else {
             tracing::warn!(
@@ -113,7 +135,12 @@ impl TaskMaster {
             );
             return Ok(());
         };
-        queue.enqueue(payload).await.inspect_err(|err| {
+        let wrapped = TaskWrapper {
+            user_id,
+            task_id: None, // TODO: generate a unique task ID for each submission
+            payload: Some(payload),
+        };
+        queue.enqueue(wrapped).await.inspect_err(|err| {
             tracing::error!(
                 queue = ?queue,
                 capture_ids = ?capture_ids,
@@ -123,8 +150,14 @@ impl TaskMaster {
             )
         })?;
 
-        self.record_status("spark", user_id, &task_id, Status::Queued, 0)
-            .await?;
+        self.record_status(
+            "spark",
+            user_id,
+            wrapped.task_id.as_ref().map(|s| s.as_str()),
+            Status::Queued,
+            0,
+        )
+        .await?;
         Ok(())
     }
 
@@ -135,9 +168,8 @@ impl TaskMaster {
     pub async fn submit_search_index(
         &self,
         user_id: i32,
-        payload: SearchIndexPayload,
+        payload: SearchIndexTask,
     ) -> anyhow::Result<()> {
-        let task_id = "TODO FIX LATER";
         let capture_id = payload.capture_id;
         let Some(queue) = self.search_index_queue.as_ref() else {
             tracing::warn!(
@@ -146,7 +178,12 @@ impl TaskMaster {
             );
             return Ok(());
         };
-        queue.enqueue(payload).await.inspect_err(|err| {
+        let wrapped = TaskWrapper {
+            user_id,
+            task_id: None, // TODO: generate a unique task ID for each submission
+            payload: Some(payload),
+        };
+        queue.enqueue(wrapped).await.inspect_err(|err| {
             tracing::error!(
                 queue = ?queue,
                 capture_id,
@@ -156,8 +193,14 @@ impl TaskMaster {
             )
         })?;
 
-        self.record_status("search_index", user_id, &task_id, Status::Queued, 0)
-            .await?;
+        self.record_status(
+            "search_index",
+            user_id,
+            wrapped.task_id.as_ref().map(|s| s.as_str()),
+            Status::Queued,
+            0,
+        )
+        .await?;
         Ok(())
     }
 
@@ -172,7 +215,7 @@ impl TaskMaster {
         status: Status,
         attempts: i32,
     ) -> anyhow::Result<()> {
-        self.record_status(task_type, user_id, task_id, status, attempts)
+        self.record_status(task_type, user_id, Some(task_id), status, attempts)
             .await
     }
 
@@ -204,16 +247,20 @@ impl TaskMaster {
     }
 
     /// Shared upsert used by the `submit_*` methods and `update_status`.
-    /// No-op without a DB.
+    /// No-op without a DB, or when no `task_id` is available yet.
     async fn record_status(
         &self,
         task_type: &str,
         user_id: i32,
-        task_id: &str,
+        task_id: Option<&str>,
         status: Status,
         attempts: i32,
     ) -> anyhow::Result<()> {
         let Some(db) = self.db.as_ref() else {
+            return Ok(());
+        };
+        let Some(task_id) = task_id else {
+            // No task_id yet (e.g. the queue hasn't assigned one); nothing to record.
             return Ok(());
         };
 
@@ -250,10 +297,10 @@ impl TaskMaster {
 #[derive(Default)]
 pub struct TaskMasterBuilder {
     db: Option<DbHandle>,
-    ingest_queue: Option<Arc<dyn TaskQueue<IngestPayload>>>,
-    illumination_queue: Option<Arc<dyn TaskQueue<IlluminationPayload>>>,
-    search_index_queue: Option<Arc<dyn TaskQueue<SearchIndexPayload>>>,
-    spark_queue: Option<Arc<dyn TaskQueue<SparkPayload>>>,
+    ingest_queue: Option<Arc<dyn TaskQueue<IngestTask>>>,
+    illumination_queue: Option<Arc<dyn TaskQueue<IlluminationTask>>>,
+    search_index_queue: Option<Arc<dyn TaskQueue<SearchIndexTask>>>,
+    spark_queue: Option<Arc<dyn TaskQueue<SparkTask>>>,
 }
 
 impl TaskMasterBuilder {
@@ -262,14 +309,14 @@ impl TaskMasterBuilder {
         self
     }
 
-    pub fn ingest_queue(mut self, ingest_queue: impl TaskQueue<IngestPayload> + 'static) -> Self {
+    pub fn ingest_queue(mut self, ingest_queue: impl TaskQueue<IngestTask> + 'static) -> Self {
         self.ingest_queue = Some(Arc::new(ingest_queue));
         self
     }
 
     pub fn illumination_queue(
         mut self,
-        illumination_queue: impl TaskQueue<IlluminationPayload> + 'static,
+        illumination_queue: impl TaskQueue<IlluminationTask> + 'static,
     ) -> Self {
         self.illumination_queue = Some(Arc::new(illumination_queue));
         self
@@ -287,16 +334,13 @@ impl TaskMasterBuilder {
 
     pub fn search_index_queue(
         mut self,
-        search_index_queue: impl TaskQueue<SearchIndexPayload> + 'static,
+        search_index_queue: impl TaskQueue<SearchIndexTask> + 'static,
     ) -> Self {
         self.search_index_queue = Some(Arc::new(search_index_queue));
         self
     }
 
-    pub fn spark_queue(
-        mut self,
-        spark_queue: impl TaskQueue<SparkPayload> + 'static,
-    ) -> Self {
+    pub fn spark_queue(mut self, spark_queue: impl TaskQueue<SparkTask> + 'static) -> Self {
         self.spark_queue = Some(Arc::new(spark_queue));
         self
     }
@@ -315,8 +359,8 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl TaskQueue<IngestPayload> for RecordingQueue {
-        async fn enqueue(&self, task: IngestPayload) -> anyhow::Result<()> {
+    impl TaskQueue<IngestTask> for RecordingQueue {
+        async fn enqueue(&self, task: IngestTask) -> anyhow::Result<()> {
             if self.fail {
                 anyhow::bail!("enqueue failed")
             }
@@ -341,7 +385,7 @@ mod tests {
         let service = TaskMaster::builder().ingest_queue(queue).build();
 
         service
-            .submit_ingest(1, IngestPayload { capture_id: 42 })
+            .submit_ingest(1, IngestTask { capture_id: 42 })
             .await
             .expect("submit should succeed");
 
@@ -357,7 +401,7 @@ mod tests {
         let service = TaskMaster::builder().build();
 
         service
-            .submit_ingest(1, IngestPayload { capture_id: 7 })
+            .submit_ingest(1, IngestTask { capture_id: 7 })
             .await
             .expect("submit should be a no-op when queue is absent");
     }
@@ -370,9 +414,7 @@ mod tests {
         };
         let service = TaskMaster::builder().ingest_queue(queue).build();
 
-        let result = service
-            .submit_ingest(1, IngestPayload { capture_id: 9 })
-            .await;
+        let result = service.submit_ingest(1, IngestTask { capture_id: 9 }).await;
         assert!(result.is_err());
     }
 }

@@ -2,10 +2,10 @@ use anyhow::Context;
 
 use crate::config;
 use crate::database::DbHandle;
-use crate::logic::illuminate::IlluminationPayload;
-use crate::logic::ingest::IngestPayload;
-use crate::logic::search_index::SearchIndexPayload;
-use crate::logic::spark::SparkPayload;
+use crate::logic::illuminate::IlluminationTask;
+use crate::logic::ingest::IngestTask;
+use crate::logic::search_index::SearchIndexTask;
+use crate::logic::spark::SparkTask;
 use crate::webhook::localclient::LocalWebhookClient;
 
 use super::*;
@@ -17,27 +17,26 @@ pub async fn make_task_master(cfg: &config::Config, db: DbHandle) -> anyhow::Res
 
             let dev_client_illuminate = LocalWebhookClient::new(&base_url);
             let illumination_queue =
-                LocalTaskQueue::connect(4, move |task: TaskHandle<IlluminationPayload>| {
+                LocalTaskQueue::connect(4, move |task: TaskWrapper<IlluminationTask>| {
                     let client = dev_client_illuminate.clone();
                     async move { client.post_task("/_wh/cloudtask/illuminate", &task).await }
                 });
 
             let dev_client_ingest = LocalWebhookClient::new(&base_url);
-            let ingest_queue =
-                LocalTaskQueue::connect(4, move |task: TaskHandle<IngestPayload>| {
-                    let client = dev_client_ingest.clone();
-                    async move { client.post_task("/_wh/cloudtask/ingest", &task).await }
-                });
+            let ingest_queue = LocalTaskQueue::connect(4, move |task: TaskWrapper<IngestTask>| {
+                let client = dev_client_ingest.clone();
+                async move { client.post_task("/_wh/cloudtask/ingest", &task).await }
+            });
 
             let dev_client_spark = LocalWebhookClient::new(&base_url);
-            let spark_queue = LocalTaskQueue::connect(4, move |task: TaskHandle<SparkPayload>| {
+            let spark_queue = LocalTaskQueue::connect(4, move |task: TaskWrapper<SparkTask>| {
                 let client = dev_client_spark.clone();
                 async move { client.post_task("/_wh/cloudtask/spark", &task).await }
             });
 
             let dev_client_search_index = LocalWebhookClient::new(&base_url);
             let search_index_queue =
-                LocalTaskQueue::connect(4, move |task: TaskHandle<SearchIndexPayload>| {
+                LocalTaskQueue::connect(4, move |task: TaskWrapper<SearchIndexTask>| {
                     let client = dev_client_search_index.clone();
                     async move { client.post_task("/_wh/cloudtask/search_index", &task).await }
                 });

@@ -93,12 +93,10 @@ pub async fn enqueue(
 
             for capture_id in candidate_ids {
                 match task_master
-                    .submit_search_index(crate::task::TaskHandle {
+                    .submit_search_index(
                         user_id,
-                        id: capture_id.to_string(),
-                        task_type: "search_index".to_string(),
-                        payload: logic::search_index::SearchIndexPayload { capture_id },
-                    })
+                        logic::search_index::SearchIndexTask { capture_id },
+                    )
                     .await
                 {
                     Ok(()) => {

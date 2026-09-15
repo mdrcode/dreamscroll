@@ -4,11 +4,11 @@ use crate::{api, ignition, task};
 
 /// The concrete task for generating a spark over a set of captures.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SparkPayload {
+pub struct SparkTask {
     pub capture_ids: Vec<i32>,
 }
 
-impl task::TaskPayload for SparkPayload {
+impl task::Task for SparkTask {
     fn task_type() -> &'static str {
         "spark"
     }
@@ -17,7 +17,7 @@ impl task::TaskPayload for SparkPayload {
 pub async fn exec(
     service_api: &api::ServiceApiClient,
     firestarter: &dyn ignition::Firestarter,
-    task: SparkPayload,
+    task: SparkTask,
 ) -> Result<(), api::ApiError> {
     if task.capture_ids.is_empty() {
         return Err(api::ApiError::bad_request(anyhow::anyhow!(

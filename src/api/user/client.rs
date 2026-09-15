@@ -200,16 +200,10 @@ impl UserApiClient {
         }
 
         self.task_master
-            .submit_spark(task::TaskHandle {
-                user_id: context.user_id(),
-                id: capture_ids
-                    .iter()
-                    .map(std::string::ToString::to_string)
-                    .collect::<Vec<_>>()
-                    .join("-"),
-                task_type: "spark".to_string(),
-                payload: logic::spark::SparkPayload { capture_ids },
-            })
+            .submit_spark(
+                context.user_id(),
+                logic::spark::SparkTask { capture_ids },
+            )
             .await
             .map_err(ApiError::internal)
     }
@@ -237,14 +231,12 @@ impl UserApiClient {
         // TODO Should this live inside the inner insert_capture function instead?
         if let Err(e) = self
             .task_master
-            .submit_ingest(task::TaskHandle {
-                user_id: user_context.user_id(),
-                id: capture_model.id.to_string(),
-                task_type: "ingest".to_string(),
-                payload: logic::ingest::IngestPayload {
+            .submit_ingest(
+                user_context.user_id(),
+                logic::ingest::IngestTask {
                     capture_id: capture_model.id,
                 },
-            })
+            )
             .await
         {
             tracing::warn!(
@@ -277,14 +269,12 @@ impl UserApiClient {
         // TODO Should this live inside the inner insert_capture function instead?
         if let Err(e) = self
             .task_master
-            .submit_ingest(task::TaskHandle {
-                user_id: user_context.user_id(),
-                id: capture_model.id.to_string(),
-                task_type: "ingest".to_string(),
-                payload: logic::ingest::IngestPayload {
+            .submit_ingest(
+                user_context.user_id(),
+                logic::ingest::IngestTask {
                     capture_id: capture_model.id,
                 },
-            })
+            )
             .await
         {
             tracing::warn!(

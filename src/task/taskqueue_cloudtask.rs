@@ -7,9 +7,9 @@ use google_cloud_tasks_v2::model::{HttpMethod, HttpRequest, Task as CloudTask};
 use super::*;
 
 #[derive(Clone)]
-pub struct CloudTaskQueue<PPayload> {
+pub struct CloudTaskQueue<T: Task> {
     inner: Arc<CloudTaskQueueInner>,
-    _task: PhantomData<PPayload>,
+    _task: PhantomData<T>,
 }
 
 #[derive(Debug)]
@@ -18,7 +18,7 @@ struct CloudTaskQueueInner {
     client: CloudTasks,
 }
 
-impl<PPayload: TaskPayload> std::fmt::Debug for CloudTaskQueue<PPayload> {
+impl<T: Task> std::fmt::Debug for CloudTaskQueue<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CloudTaskQueue")
             .field("queue_path", &self.inner.queue_path)
@@ -26,7 +26,7 @@ impl<PPayload: TaskPayload> std::fmt::Debug for CloudTaskQueue<PPayload> {
     }
 }
 
-impl<PPayload: TaskPayload> CloudTaskQueue<PPayload> {
+impl<T: Task> CloudTaskQueue<T> {
     pub async fn connect(project_id: &str, region: &str, queue_id: &str) -> anyhow::Result<Self> {
         let client = CloudTasks::builder().build().await?;
 
@@ -43,11 +43,12 @@ impl<PPayload: TaskPayload> CloudTaskQueue<PPayload> {
 }
 
 #[async_trait::async_trait]
-impl<PPayload: TaskPayload + Send + Sync + 'static> TaskQueue for CloudTaskQueue<PPayload> {
-    type PPayload = PPayload;
-
-    async fn enqueue(&self, task: Self::PPayload) -> anyhow::Result<TaskHandle<Self::PPayload>> {
-        let body = serde_json::to_vec(&task).context("Failed to serialize task payload to JSON")?;
+impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
+    async fn enqueue(&self, wrapped: TaskWrapper<T>) -> anyhow::Result<()> {
+        // Serialize the full wrapper (identity + payload) so the worker knows
+        // which task it's completing.
+        let body =
+            serde_json::to_vec(&wrapped).context("Failed to serialize task wrapper to JSON")?;
 
         let webhook_request = HttpRequest::new()
             .set_url("https://dummy-url-should-be-overridden-by-queue-config.dreamscroll.ai")
@@ -67,8 +68,8 @@ impl<PPayload: TaskPayload + Send + Sync + 'static> TaskQueue for CloudTaskQueue
             .await
             .map_err(|err| {
                 anyhow!(
-                    "Cloud Tasks create_task failed for task_id {}: {}",
-                    task.id,
+                    "Cloud Tasks create_task failed for task_id {:?}: {}",
+                    wrapped.task_id,
                     err
                 )
             })?;
@@ -76,8 +77,8 @@ impl<PPayload: TaskPayload + Send + Sync + 'static> TaskQueue for CloudTaskQueue
         tracing::info!(
             queue = %self.inner.queue_path,
             task_name = %created_task.name,
-            "Enqueued task id {} to queue: {} with task_name: {}",
-            task.id,
+            "Enqueued task id {:?} to queue: {} with task_name: {}",
+            wrapped.task_id,
             self.inner.queue_path,
             created_task.name
         );

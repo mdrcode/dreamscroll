@@ -4,11 +4,11 @@ use crate::{api, illumination, search, storage, task};
 
 /// The concrete task for ingesting a single capture: illuminate + search-index.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IngestPayload {
+pub struct IngestTask {
     pub capture_id: i32,
 }
 
-impl task::TaskPayload for IngestPayload {
+impl task::Task for IngestTask {
     fn task_type() -> &'static str {
         "ingest"
     }
@@ -21,13 +21,13 @@ pub async fn exec(
     stg: &dyn storage::StorageProvider,
     embedder: &search::gcloud::GeminiEmbedder,
     vector_store: &search::gcloud::VertexVectorStore,
-    task: IngestPayload,
+    task: IngestTask,
 ) -> Result<(), api::ApiError> {
     // Illuminate
     super::illuminate::exec(
         service_api,
         illuminator,
-        super::illuminate::IlluminationPayload {
+        super::illuminate::IlluminationTask {
             capture_id: task.capture_id,
         },
     )
@@ -39,7 +39,7 @@ pub async fn exec(
         stg,
         embedder,
         vector_store,
-        super::search_index::SearchIndexPayload {
+        super::search_index::SearchIndexTask {
             capture_id: task.capture_id,
         },
     )

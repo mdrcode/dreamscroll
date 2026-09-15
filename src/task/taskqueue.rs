@@ -1,6 +1,6 @@
 use super::*;
 
 #[async_trait::async_trait]
-pub trait TaskQueue<Payload: TaskPayload>: std::fmt::Debug + Send + Sync {
-    async fn enqueue(&self, task: Payload) -> anyhow::Result<()>;
+pub trait TaskQueue<T: Task>: std::fmt::Debug + Send + Sync {
+    async fn enqueue(&self, wrapped: TaskWrapper<T>) -> anyhow::Result<()>;
 }

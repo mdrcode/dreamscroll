@@ -4,11 +4,11 @@ use crate::{api, illumination, task};
 
 /// The concrete task for illuminating a single capture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IlluminationPayload {
+pub struct IlluminationTask {
     pub capture_id: i32,
 }
 
-impl task::TaskPayload for IlluminationPayload {
+impl task::Task for IlluminationTask {
     fn task_type() -> &'static str {
         "illuminate"
     }
@@ -17,7 +17,7 @@ impl task::TaskPayload for IlluminationPayload {
 pub async fn exec(
     service_api: &api::ServiceApiClient,
     illuminator: &dyn illumination::Illuminator,
-    task: IlluminationPayload,
+    task: IlluminationTask,
 ) -> Result<(), api::ApiError> {
     tracing::Span::current().record("capture_id", task.capture_id);
 
