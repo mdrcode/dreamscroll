@@ -101,7 +101,7 @@ impl<TTask> PubSubTaskQueue<TTask> {
 
 #[async_trait::async_trait]
 impl<TTask: Task + Send + Sync + 'static> TaskQueue<TTask> for PubSubTaskQueue<TTask> {
-    async fn enqueue(&self, wrapped: TaskWrapper<TTask>) -> anyhow::Result<()> {
+    async fn enqueue(&self, wrapped: TaskEnvelope<TTask>) -> anyhow::Result<()> {
         let task_json = serde_json::to_vec(&wrapped)?;
 
         let awaiter = self

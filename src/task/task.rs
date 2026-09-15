@@ -1,14 +1,14 @@
 use serde::Serialize;
 
-/// A serializable definition for a unit of work.
+/// A serializable specification for a unit of work.
 pub trait Task: std::fmt::Debug + Send + Sync + Serialize {
     fn task_type() -> &'static str;
 }
 
-/// A handle to a task once its payload has been submitted to a TaskQueue.
+/// A proper Task, constructed from a Payload, once it has been submitted to a TaskQueue.
 #[derive(Debug, Clone, Serialize)]
-pub struct TaskWrapper<P: Task> {
+pub struct TaskEnvelope<T: Task> {
     pub user_id: i32,
     pub task_id: String,
-    pub payload: Option<P>, // convenience, but not always available (e.g. when dequeued)
+    pub payload: Option<T>, // convenience, but not always available (e.g. when dequeued)
 }

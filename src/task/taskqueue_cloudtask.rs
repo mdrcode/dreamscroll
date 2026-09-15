@@ -44,7 +44,7 @@ impl<T: Task> CloudTaskQueue<T> {
 
 #[async_trait::async_trait]
 impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
-    async fn enqueue(&self, wrapped: TaskWrapper<T>) -> anyhow::Result<()> {
+    async fn enqueue(&self, wrapped: TaskEnvelope<T>) -> anyhow::Result<()> {
         // Serialize the full wrapper (identity + payload) so the worker knows
         // which task it's completing.
         let body =

@@ -49,7 +49,7 @@ impl TaskMaster {
     ///
     /// If the queue is not configured, this is a no-op (warn + return Ok).
     pub async fn submit_ingest(&self, user_id: i32, payload: IngestTask) -> anyhow::Result<()> {
-        let wrapped = TaskWrapper {
+        let wrapped = TaskEnvelope {
             user_id,
             task_id: make_task_id(user_id, &payload),
             payload: Some(payload),
@@ -82,7 +82,7 @@ impl TaskMaster {
         user_id: i32,
         task: IlluminationTask,
     ) -> anyhow::Result<()> {
-        let wrapped = TaskWrapper {
+        let wrapped = TaskEnvelope {
             user_id,
             task_id: make_task_id(user_id, &task), // TODO: generate a unique task ID for each submission
             payload: Some(task),
@@ -119,7 +119,7 @@ impl TaskMaster {
         if task.capture_ids.is_empty() {
             anyhow::bail!("submit_spark requires at least one capture_id");
         }
-        let wrapped = TaskWrapper {
+        let wrapped = TaskEnvelope {
             user_id,
             task_id: make_task_id(user_id, &task),
             payload: Some(task),
@@ -156,7 +156,7 @@ impl TaskMaster {
         user_id: i32,
         task: SearchIndexTask,
     ) -> anyhow::Result<()> {
-        let wrapped = TaskWrapper {
+        let wrapped = TaskEnvelope {
             user_id,
             task_id: make_task_id(user_id, &task), // TODO: generate a unique task ID for each submission
             payload: Some(task),
@@ -337,7 +337,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl TaskQueue<IngestTask> for RecordingQueue {
-        async fn enqueue(&self, wrapped: TaskWrapper<IngestTask>) -> anyhow::Result<()> {
+        async fn enqueue(&self, wrapped: TaskEnvelope<IngestTask>) -> anyhow::Result<()> {
             if self.fail {
                 anyhow::bail!("enqueue failed")
             }

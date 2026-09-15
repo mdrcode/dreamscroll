@@ -16,7 +16,7 @@ use super::*;
 
 type TaskHandlerFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'static>>;
 type TaskHandler<TTask> =
-    Arc<dyn Fn(TaskWrapper<TTask>) -> TaskHandlerFuture + Send + Sync + 'static>;
+    Arc<dyn Fn(TaskEnvelope<TTask>) -> TaskHandlerFuture + Send + Sync + 'static>;
 
 pub struct LocalTaskQueue<TTask: Task> {
     inner: Arc<LocalTaskQueueInner<TTask>>,
@@ -24,7 +24,7 @@ pub struct LocalTaskQueue<TTask: Task> {
 }
 
 struct LocalTaskQueueInner<TTask: Task> {
-    task_sender: mpsc::UnboundedSender<TaskWrapper<TTask>>,
+    task_sender: mpsc::UnboundedSender<TaskEnvelope<TTask>>,
     max_concurrent_tasks: usize,
     dispatcher_handle: Mutex<Option<JoinHandle<()>>>,
 }
@@ -52,17 +52,17 @@ where
 {
     pub fn connect<F, Fut>(max_concurrent_tasks: usize, task_handler: F) -> Self
     where
-        F: Fn(TaskWrapper<TTask>) -> Fut + Send + Sync + 'static,
+        F: Fn(TaskEnvelope<TTask>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         let max_concurrent_tasks = max_concurrent_tasks.max(1);
 
         let handler: TaskHandler<TTask> =
-            Arc::new(move |task: TaskWrapper<TTask>| -> TaskHandlerFuture {
+            Arc::new(move |task: TaskEnvelope<TTask>| -> TaskHandlerFuture {
                 Box::pin(task_handler(task))
             });
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
-        let (task_sender, mut task_receiver) = mpsc::unbounded_channel::<TaskWrapper<TTask>>();
+        let (task_sender, mut task_receiver) = mpsc::unbounded_channel::<TaskEnvelope<TTask>>();
 
         // One dispatcher receives tasks in FIFO order and fan-outs execution to workers.
         // A semaphore bounds worker concurrency to max_concurrent_tasks.
@@ -83,7 +83,7 @@ where
     }
 
     async fn run_dispatcher(
-        task_receiver: &mut mpsc::UnboundedReceiver<TaskWrapper<TTask>>,
+        task_receiver: &mut mpsc::UnboundedReceiver<TaskEnvelope<TTask>>,
         semaphore: Arc<Semaphore>,
         handler: TaskHandler<TTask>,
     ) {
@@ -130,7 +130,7 @@ impl<TTask> TaskQueue<TTask> for LocalTaskQueue<TTask>
 where
     TTask: Task + Send + Sync + 'static,
 {
-    async fn enqueue(&self, wrapped: TaskWrapper<TTask>) -> anyhow::Result<()> {
+    async fn enqueue(&self, wrapped: TaskEnvelope<TTask>) -> anyhow::Result<()> {
         let type_name = std::any::type_name::<TTask>()
             .rsplit("::")
             .next()
@@ -175,7 +175,7 @@ mod tests {
         let seen = Arc::new(AsyncMutex::new(Vec::new()));
         let seen_for_worker = Arc::clone(&seen);
 
-        let queue = LocalTaskQueue::connect(4, move |task: TaskWrapper<TestTask>| {
+        let queue = LocalTaskQueue::connect(4, move |task: TaskEnvelope<TestTask>| {
             let seen = Arc::clone(&seen_for_worker);
             async move {
                 seen.lock().await.push(task.payload.unwrap().id);
@@ -184,14 +184,14 @@ mod tests {
         });
 
         queue
-            .enqueue(TaskWrapper {
+            .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "1".to_string(),
                 payload: Some(TestTask { id: 1 }),
             })
             .await?;
         queue
-            .enqueue(TaskWrapper {
+            .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "2".to_string(),
                 payload: Some(TestTask { id: 2 }),
@@ -225,7 +225,7 @@ mod tests {
         let max_active_for_worker = Arc::clone(&max_active);
         let done_for_worker = Arc::clone(&done);
 
-        let queue = LocalTaskQueue::connect(3, move |_task: TaskWrapper<TestTask>| {
+        let queue = LocalTaskQueue::connect(3, move |_task: TaskEnvelope<TestTask>| {
             let active = Arc::clone(&active_for_worker);
             let max_active = Arc::clone(&max_active_for_worker);
             let done = Arc::clone(&done_for_worker);
@@ -254,7 +254,7 @@ mod tests {
 
         for id in 0..6 {
             queue
-                .enqueue(TaskWrapper {
+                .enqueue(TaskEnvelope {
                     user_id: 1,
                     task_id: id.to_string(),
                     payload: Some(TestTask { id }),
@@ -289,7 +289,7 @@ mod tests {
         let first_task_started_tx_for_worker = Arc::clone(&first_task_started_tx);
         let release_first_task_rx_for_worker = Arc::clone(&release_first_task_rx);
 
-        let queue = LocalTaskQueue::connect(1, move |_task: TaskWrapper<TestTask>| {
+        let queue = LocalTaskQueue::connect(1, move |_task: TaskEnvelope<TestTask>| {
             let processed = Arc::clone(&processed_for_worker);
             let first_task_started_tx = Arc::clone(&first_task_started_tx_for_worker);
             let release_first_task_rx = Arc::clone(&release_first_task_rx_for_worker);
@@ -312,7 +312,7 @@ mod tests {
         });
 
         queue
-            .enqueue(TaskWrapper {
+            .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "1".to_string(),
                 payload: Some(TestTask { id: 1 }),
@@ -322,14 +322,14 @@ mod tests {
         first_task_started_rx.await?;
 
         queue
-            .enqueue(TaskWrapper {
+            .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "2".to_string(),
                 payload: Some(TestTask { id: 2 }),
             })
             .await?;
         queue
-            .enqueue(TaskWrapper {
+            .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "3".to_string(),
                 payload: Some(TestTask { id: 3 }),
@@ -365,7 +365,7 @@ mod tests {
         let processed = Arc::new(AsyncMutex::new(Vec::new()));
         let processed_for_worker = Arc::clone(&processed);
 
-        let queue = LocalTaskQueue::connect(1, move |task: TaskWrapper<TestTask>| {
+        let queue = LocalTaskQueue::connect(1, move |task: TaskEnvelope<TestTask>| {
             let processed = Arc::clone(&processed_for_worker);
             async move {
                 if task.payload.as_ref().unwrap().id == 2 {
@@ -381,21 +381,21 @@ mod tests {
         });
 
         queue
-            .enqueue(TaskWrapper {
+            .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "1".to_string(),
                 payload: Some(TestTask { id: 1 }),
             })
             .await?;
         queue
-            .enqueue(TaskWrapper {
+            .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "2".to_string(),
                 payload: Some(TestTask { id: 2 }),
             })
             .await?;
         queue
-            .enqueue(TaskWrapper {
+            .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "3".to_string(),
                 payload: Some(TestTask { id: 3 }),

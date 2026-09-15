@@ -200,7 +200,10 @@ impl UserApiClient {
         }
 
         self.task_master
-            .submit_spark(context.user_id(), logic::spark::SparkTask { capture_ids })
+            .submit_spark(
+                context.user_id(),
+                logic::spark::SparkTask { capture_ids },
+            )
             .await
             .map_err(ApiError::internal)
     }
