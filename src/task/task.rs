@@ -10,5 +10,5 @@ pub trait Task: std::fmt::Debug + Send + Sync + Serialize {
 pub struct TaskEnvelope<T: Task> {
     pub user_id: i32,
     pub task_id: String,
-    pub payload: Option<T>, // convenience, but not always available (e.g. when dequeued)
+    pub task: Option<T>, // convenience, but not always available (e.g. when dequeued)
 }

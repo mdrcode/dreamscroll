@@ -8,9 +8,14 @@ use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
 use crate::webhook::localclient::LocalWebhookClient;
 
+use std::sync::Arc;
+
 use super::*;
 
-pub async fn make_task_master(cfg: &config::Config, db: DbHandle) -> anyhow::Result<TaskMaster> {
+pub async fn make_task_master(
+    cfg: &config::Config,
+    db: DbHandle,
+) -> anyhow::Result<Arc<TaskMaster>> {
     match cfg.task_backend {
         TaskQueueBackend::Local => {
             let base_url = format!("http://localhost:{}", cfg.port);
@@ -41,13 +46,15 @@ pub async fn make_task_master(cfg: &config::Config, db: DbHandle) -> anyhow::Res
                     async move { client.post_task("/_wh/cloudtask/search_index", &task).await }
                 });
 
-            Ok(TaskMaster::builder()
-                .db(db)
-                .ingest_queue(ingest_queue)
-                .illumination_queue(illumination_queue)
-                .search_index_queue(search_index_queue)
-                .spark_queue(spark_queue)
-                .build())
+            Ok(Arc::new(
+                TaskMaster::builder()
+                    .db(db)
+                    .ingest_queue(ingest_queue)
+                    .illumination_queue(illumination_queue)
+                    .search_index_queue(search_index_queue)
+                    .spark_queue(spark_queue)
+                    .build(),
+            ))
         }
         TaskQueueBackend::GCloudPubSub => {
             let emulator = cfg.task_pubsub_emulator.as_deref();
@@ -70,11 +77,13 @@ pub async fn make_task_master(cfg: &config::Config, db: DbHandle) -> anyhow::Res
             .await
             .context("Failed to initialize Pub/Sub queue: Spark")?;
 
-            Ok(TaskMaster::builder()
-                .db(db)
-                .illumination_queue(illumination_queue)
-                .spark_queue(spark_queue)
-                .build())
+            Ok(Arc::new(
+                TaskMaster::builder()
+                    .db(db)
+                    .illumination_queue(illumination_queue)
+                    .spark_queue(spark_queue)
+                    .build(),
+            ))
         }
         TaskQueueBackend::GCloudTasks => {
             let illumination_queue = CloudTaskQueue::connect(
@@ -114,13 +123,15 @@ pub async fn make_task_master(cfg: &config::Config, db: DbHandle) -> anyhow::Res
             .await
             .context("Failed to initialize Cloud Tasks Queue: SearchIndex")?;
 
-            Ok(TaskMaster::builder()
-                .db(db)
-                .ingest_queue(ingest_queue)
-                .illumination_queue(illumination_queue)
-                .search_index_queue(search_index_queue)
-                .spark_queue(spark_queue)
-                .build())
+            Ok(Arc::new(
+                TaskMaster::builder()
+                    .db(db)
+                    .ingest_queue(ingest_queue)
+                    .illumination_queue(illumination_queue)
+                    .search_index_queue(search_index_queue)
+                    .spark_queue(spark_queue)
+                    .build(),
+            ))
         }
     }
 }

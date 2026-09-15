@@ -178,7 +178,7 @@ mod tests {
         let queue = LocalTaskQueue::connect(4, move |task: TaskEnvelope<TestTask>| {
             let seen = Arc::clone(&seen_for_worker);
             async move {
-                seen.lock().await.push(task.payload.unwrap().id);
+                seen.lock().await.push(task.task.unwrap().id);
                 Ok(())
             }
         });
@@ -187,14 +187,14 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "1".to_string(),
-                payload: Some(TestTask { id: 1 }),
+                task: Some(TestTask { id: 1 }),
             })
             .await?;
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "2".to_string(),
-                payload: Some(TestTask { id: 2 }),
+                task: Some(TestTask { id: 2 }),
             })
             .await?;
 
@@ -257,7 +257,7 @@ mod tests {
                 .enqueue(TaskEnvelope {
                     user_id: 1,
                     task_id: id.to_string(),
-                    payload: Some(TestTask { id }),
+                    task: Some(TestTask { id }),
                 })
                 .await?;
         }
@@ -315,7 +315,7 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "1".to_string(),
-                payload: Some(TestTask { id: 1 }),
+                task: Some(TestTask { id: 1 }),
             })
             .await?;
 
@@ -325,14 +325,14 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "2".to_string(),
-                payload: Some(TestTask { id: 2 }),
+                task: Some(TestTask { id: 2 }),
             })
             .await?;
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "3".to_string(),
-                payload: Some(TestTask { id: 3 }),
+                task: Some(TestTask { id: 3 }),
             })
             .await?;
 
@@ -368,14 +368,11 @@ mod tests {
         let queue = LocalTaskQueue::connect(1, move |task: TaskEnvelope<TestTask>| {
             let processed = Arc::clone(&processed_for_worker);
             async move {
-                if task.payload.as_ref().unwrap().id == 2 {
+                if task.task.as_ref().unwrap().id == 2 {
                     anyhow::bail!("intentional failure for task 2")
                 }
 
-                processed
-                    .lock()
-                    .await
-                    .push(task.payload.as_ref().unwrap().id);
+                processed.lock().await.push(task.task.as_ref().unwrap().id);
                 Ok(())
             }
         });
@@ -384,21 +381,21 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "1".to_string(),
-                payload: Some(TestTask { id: 1 }),
+                task: Some(TestTask { id: 1 }),
             })
             .await?;
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "2".to_string(),
-                payload: Some(TestTask { id: 2 }),
+                task: Some(TestTask { id: 2 }),
             })
             .await?;
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 task_id: "3".to_string(),
-                payload: Some(TestTask { id: 3 }),
+                task: Some(TestTask { id: 3 }),
             })
             .await?;
 
