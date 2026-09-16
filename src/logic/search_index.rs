@@ -58,21 +58,6 @@ pub async fn exec(
         )));
     }
 
-    let object_id = capture.data_object_id();
-    let already_indexed = vector_store
-        .fetch_object_embedding(&object_id)
-        .await
-        .map_err(api::ApiError::internal)?
-        .is_some();
-    if already_indexed {
-        tracing::info!(
-            capture_id = task.capture_id,
-            object_id,
-            "Idempotency guard: embedding already exists; skipping search indexing"
-        );
-        return Ok(());
-    }
-
     let embed_input = search::make_capture_info_embed_input(stg, &capture).await?;
 
     let embedding = embedder

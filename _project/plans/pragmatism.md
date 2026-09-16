@@ -44,17 +44,25 @@ basis and are recorded as resolved for context.)
 These are all "correct at one user, wrong under concurrency." They are the
 largest category, and the least urgent, because the app is single-user today.
 
-| Issue                                                                              | Effect                                                                                                                                                                                                                                                                                       | Why tolerated                                                                                                                                            | Revisit trigger                                                                            |
-| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| **TOCTOU idempotency guards in `logic/illuminate.rs` and `logic/search_index.rs`** | Two workers can both pass the "already done?" check and both do the work. For illuminate this means a **duplicate LLM call** (cost + latency) and possibly a duplicate illumination row. For search_index it's a redundant vector upsert (benign — the store upserts on a deterministic id). | Purely cost/throughput. The read path already tolerates duplicate illuminations (`get_captures_need_search_index` dedupes; templates render `\| first`). | Duplicate LLM spend becomes noticeable, or duplicate illuminations start confusing the UI. |
-| **No `ORDER BY` on the incomplete-status queries**                                 | Row order is non-deterministic.                                                                                                                                                                                                                                                              | Nothing iterates the results yet.                                                                                                                        | When the SSE handler or a UI view iterates them.                                           |
+| Issue                                                                        | Effect                                                                                                                             | Why tolerated                                                                                                                                                                                                                                                   | Revisit trigger                                                                                       |
+| ---------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| **No idempotency guards in `logic/illuminate.rs` / `logic/search_index.rs`** | A retry re-calls the LLM and re-embeds, and can leave a duplicate illumination row. Two concurrent workers could both do the work. | Purely cost/throughput, and both calls are already tolerated as duplicable. The read path shows only the most recent illumination, so duplicates never surface in the UI. Guards were *removed* (2026-09-16) rather than made rerun-aware — see the note below. | Duplicate LLM spend becomes noticeable on retries, or duplicate illuminations start confusing the UI. |
+| **No `ORDER BY` on the incomplete-status queries**                           | Row order is non-deterministic.                                                                                                    | Nothing iterates the results yet.                                                                                                                                                                                                                               | When the SSE handler or a UI view iterates them.                                                      |
 
-> **Note on the illuminate guard:** the fix is coupled to the rerun
-> design. A `UNIQUE(capture_id)` constraint on `illuminations` is the clean fix
-> *today*, but would have to be dropped if reruns append new illuminations
-> rather than replacing. The run dimension now exists (so a rerun is expressible),
-> but the rerun UX — an explicit `model`/`force` field and dropping the guard for
-> a rerun request — is still deferred.
+> **Note on the removed guards:** the `illuminate` and `search_index` idempotency
+> guards were deleted outright. A "skip if already illuminated" check silently
+> no-ops every rerun (reporting success while doing no work), so keeping it meant
+> deriving the run number from the illumination count — machinery that didn't
+> reliably prevent the duplicate it existed for. Removing is simpler and makes
+> reruns work by construction. A `UNIQUE(capture_id)` constraint on
+> `illuminations` is *not* wanted: multiple illuminations per capture is the
+> intended outcome of reruns.
+>
+> **Note on illumination visibility:** reruns append rows, so `InfoMaker` now
+> collapses `illuminations` to the highest `id` — `CaptureInfo.illuminations` has
+> at most one entry. This is enforced in one place rather than relying on loader
+> order (SeaORM orders related rows by primary key *ascending*, so `.first()`
+> would have returned the oldest).
 
 ### Cost / throughput
 
@@ -98,7 +106,7 @@ plan to do them properly."
 | Topic                        | Notes                                                                                                                                                                                                                                                                                                                                |
 | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Backfill / bulk tasks**    | The `background` flag was removed (never populated). Backfill handling — marking tasks as bulk, surfacing progress, an admin view — plus the `user_id` mis-attribution and the global candidate query in `get_captures_need_search_index`, all get a dedicated plan-and-branch session. See `plans/sse-task-status.md` §4.3 and §13. |
-| **Reruns**                   | The run *dimension* is implemented (2026-09-16): `run` column, `(envelope_id, run)` unique constraint, submit-time refusal for in-flight runs, run-scoped attempts. Still deferred: a `model`/`force` field on `IlluminationTask`, a rerun endpoint, relaxing the illuminate idempotency guard. See `plans/sse-task-status.md` §7.   |
+| **Reruns**                   | The run *dimension* is implemented (2026-09-16): `run` column, `(envelope_id, run)` unique constraint, submit-time refusal for in-flight runs, run-scoped attempts, and both idempotency guards removed. Still deferred: a `model`/`force` field on `IlluminationTask` and a rerun endpoint. See `plans/sse-task-status.md` §7.      |
 | **Capture lifecycle events** | Explicitly out of scope for the task-status phase; gets its own mechanism. See `plans/sse-task-status.md` §13.                                                                                                                                                                                                                       |
 
 ---
@@ -125,3 +133,5 @@ work. Recorded here so the ledger is complete.
 | Reruns were indistinguishable from the original run                                        | Added the `run` dimension: a settled latest run permits a new run instead of overwriting the row.                                                              |
 | `TaskStatusSnapshot` was a type that existed only to move two fields                       | Dropped; `query_status` returns the row (later split into `latest_run` / `query_run_status`), consistent with the other queries.                               |
 | Stale-incomplete-run shadowing: a new completed run could be hidden by an older failed one | Incomplete queries collapse to the latest run *before* applying the incomplete predicate. Locked by the `completed_latest_run_hides_an_older_failed_run` test. |
+| Idempotency guards in `logic/illuminate.rs` / `logic/search_index.rs`                      | **Deleted.** They were a cost optimization for duplicate work we tolerate, and the illuminate guard silently no-opped every rerun. Net LOC reduction.          |
+| Reruns would have been served a stale illumination (`\| first` returned the *oldest*)      | `InfoMaker` collapses `illuminations` to the highest `id`, so `CaptureInfo.illuminations` is a single-element list by contract.                                |

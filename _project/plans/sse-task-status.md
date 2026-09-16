@@ -32,8 +32,8 @@ We want a **simple, idiomatic, robust, and flexible** strategy for relaying accu
 Upload (webui/v2/r_upload.rs)
   └─ insert_capture() → task_master.submit_illumination(user_id, IlluminationTask)
        └─ /_wh/cloudtask/illuminate → logic/illuminate::exec
-            ├─ illuminate_capture()        (idempotent; skips if already illuminated)
-            └─ logic/search_index::exec    (idempotent; skips if already indexed)
+            ├─ illuminate_capture()        (no idempotency guard — see §7)
+            └─ logic/search_index::exec    (no idempotency guard — see §7)
                  └─ insert_illumination()  ← row written, status now tracked
 ```
 
@@ -44,7 +44,7 @@ Upload (webui/v2/r_upload.rs)
 - **`Task` is a trait, not an enum.** Each concrete task type (`IlluminationTask`, `SparkTask`, `SearchIndexTask`) lives in `src/logic/*.rs` and implements `task::Task`. The trait carries the task's **identity**: `task_type() -> &'static str`, `entity_type() -> &'static str` (e.g. `"capture"`, `"spark"`), and `entity_id(&self) -> i32`. A `TaskEnvelope<T>` wraps a task with `user_id`, `envelope_id`, and the payload (`task: Option<T>`).
 - **Task identity is deterministic and lives in the envelope.** `TaskEnvelope::new(user_id, task, run)` builds `envelope_id = "u{user_id}-{task_type}-{entity_type}{entity_id}"` (e.g. `u1-illuminate-capture123`) and carries a 1-based `run`. There is **no UUID** and no separate `task_id.rs` — the old `make_task_id` free function was deleted. Because the id is deterministic, re-submitting the same logical work targets the *same logical task*; the `run` distinguishes one attempt from the next (see §7).
 - **`TaskQueue<T>` is enqueue-only and generic.** `TaskQueue::get_status()` was removed (it was `unimplemented!()` everywhere); status lives in the `task_status` table. The trait is `async fn enqueue(&self, wrapped: TaskEnvelope<T>)`. There are two backends: `LocalTaskQueue` (in-process mpsc + semaphore) and `CloudTaskQueue` (Google Cloud Tasks). **Pub/Sub support was removed** (2026-09-15) to focus on Cloud Tasks.
-- **`OneShotQueue` is dead code and will be removed.** It was an old local-only emulation of task execution and is **not used anywhere in production** — it appears only in `src/common/mod.rs` (module decl + re-export) and its own file `src/common/oneshotqueue.rs` (definition + unit tests). The `LocalTaskQueue` (in-process mpsc + semaphore) is the real local backend and does **not** dedupe. So the rerun problem is *not* caused by `OneShotQueue`; it's caused by the **idempotency guard in `logic/illuminate.rs`** (`if !capture.illuminations.is_empty() { skip }`). That guard is the thing to make rerun-aware, not any queue dedupe.
+- **`OneShotQueue` is dead code and will be removed.** It was an old local-only emulation of task execution and is **not used anywhere in production** — it appears only in `src/common/mod.rs` (module decl + re-export) and its own file `src/common/oneshotqueue.rs` (definition + unit tests). The `LocalTaskQueue` (in-proc- **`OneShotQueue` is dead code and will be removed.** It was an old local-only emulation of task execution and is **not used anywhere in production** — it appears only in `src/common/mod.rs` (module decl + re-export) and its own file `src/common/oneshotqueue.rs` (definition + unit tests). The `LocalTaskQueue` (in-process mpsc + semaphore) is the real local backend and does **not** dedupe. So the rerun problem was never queue-level; it was the **idempotency guard in `logic/illuminate.rs`** (removed 2026-09-16 — see §7).
 - **`TaskMaster`** (`task/taskmaster.rs`) is the single funnel through which *all* task enqueues flow — the perfect choke point to also record status. It replaced the old `Beacon` (removed). `TaskMaster` owns the backend queues **and** the `task_status` table, exposing `submit_*` / `begin_attempt` / `finish_attempt` / `query_*`. It is **not `Clone`** — it's shared via `Arc<TaskMaster>`. `StatusListener` (`task/status_listener.rs`) is the future `LISTEN`/`NOTIFY` thread (stub for now). **These two are the only structs that touch `task_status` directly.**
 - **Status transitions are not a raw setter.** `TaskMaster::update_status` is **private**; workers must go through `begin_attempt` (reads the persisted attempt count, increments, writes `InProgress`, returns the 1-based attempt number) and `finish_attempt` (writes the outcome and returns an `AttemptOutcome` that drives the HTTP response). This keeps `attempts` and the retry decision consistent with the recorded status.
 - **`TaskStatusTracker`** (`task/status_tracker.rs`) owns all `task_status` persistence (upsert keyed by `envelope_id`). `StatusCode` (`task/status_code.rs`) is the strongly-typed status enum; the DB stores only its integer discriminant (`status_code INT`).
@@ -385,10 +385,10 @@ The one real constraint is **connection count**. The pool is capped at 5 (`max_c
 ## 7. Runs and reruns ("Illuminate this again with a new model")
 
 **Status: run dimension IMPLEMENTED 2026-09-16.** The `run` column, the
-`(envelope_id, run)` unique constraint, submit-time refusal, and run-scoped
-attempt counting are done. What remains deferred is the *rerun UX*: a
-`model`/`force` field on `IlluminationTask`, a rerun endpoint, and relaxing the
-idempotency guard in `logic/illuminate.rs` for an explicit rerun request.
+`(envelope_id, run)` unique constraint, submit-time refusal, run-scoped attempt
+counting, and removal of the idempotency guards are done. What remains deferred
+is the *rerun UX*: a `model`/`force` field on `IlluminationTask` and a rerun
+endpoint.
 
 ### How runs work
 
@@ -447,16 +447,42 @@ run shadow a newer completed one, reporting work as outstanding when it is done.
 
 ### What's still deferred (the rerun UX)
 
+- ~~Relaxing the **idempotency guard in `logic/illuminate.rs`**~~ — **done 2026-09-16 by deletion.** Both idempotency guards (`illuminate` and `search_index`) were removed outright. Rationale: the guards were a cost optimization for duplicate work we have already declared tolerable, and the illuminate guard *had* to become rerun-aware (a naive "skip if already illuminated" check silently no-ops every rerun, reporting success while doing no work). Making it correct meant deriving the run number from the illumination count — machinery that didn't reliably help anyway. Removing is simpler and makes reruns work by construction: every attempt just does the work.
 - A `model`/`force` field on `IlluminationTask` so a rerun can differ from the
   original (new model, new prompt).
-- Relaxing the **idempotency guard in `logic/illuminate.rs`**
-  (`if !capture.illuminations.is_empty() { skip }`), which silently swallows a
-  rerun because the capture already has an illumination. Note this guard is *not*
-  the dedupe mechanism — `LocalTaskQueue` does not dedupe, and submit-time
-  refusal is now handled by the run logic above.
 - A rerun endpoint + button. The handler calls
   `task_master.submit_illumination(user_id, IlluminationTask { .. })`; the run
   logic starts the next run automatically once the prior one has settled.
+
+> **Cost accepted:** a retry re-calls the LLM and re-embeds. Failing tasks are the
+> minority, and both are API calls we already tolerate duplicating. Note this also
+> means `task_status.attempts` and the illumination count can diverge (a run that
+> exhausts after inserting an illumination leaves a row behind) — harmless, since
+> only the most recent illumination is displayed.
+
+### Illumination visibility (append, don't replace)
+
+Reruns **append** `illuminations` rows rather than replacing — the schema already
+allowed multiple rows per capture, and keeping the history is useful. The user
+must always see the **most recent complete run**, so:
+
+- `InfoMaker::make_capture_info` collapses `illuminations` to the single row with
+  the highest `id`. `CaptureInfo.illuminations` therefore has **at most one**
+  entry, by contract.
+- "Most recent" is defined as **max `id`**: illuminations are only ever appended,
+  so a higher id is necessarily a later run. (Not loader order — SeaORM's
+  `EntityOrSelect::select()` orders related rows by primary key *ascending*, so
+  `.first()` would have returned the **oldest** and shown stale data after a
+  rerun.)
+- The templates' `| first` then means "the latest", which is now true by
+  construction rather than by luck.
+
+> **Ordering is enforced in one place, deliberately.** Collapsing in `InfoMaker`
+> means every consumer (templates, `ignition/util::append_captures_to_user_prompt`,
+> REST clients) gets the latest without repeating the rule. Consumers that still
+> use `max_by_key(id)` (e.g. `search/capture_data_object.rs`,
+> `util/illumination_text.rs`) are correct but redundant — they would work even if
+> the collapse were removed.
 
 ```html
 <button hx-post="/detail/{{ capture.id }}/rerun"
@@ -715,7 +741,7 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 7. **`/events` SSE route** with user filtering + DB replay + poll fallback + subscription params (`task_types`, `capture_ids`). ⬜ *pending*
 8. **Client wiring** (`hx-ext="sse"`, `sse-connect`, `hx-trigger="sse:task-status"`) — live updates for the *existing* upload flow should appear immediately. ⬜ *pending*
 9. **Adaptive lifetime** (5-min idle close + reconnect-on-interaction) — the topology safeguard. ⬜ *pending*
-10. **Rerun UX** (`model`/`force` on `IlluminationTask`, rerun endpoint, relax idempotency guard) — the run *dimension* itself is done (§7). ⬜ *deferred*
+10. **Rerun UX** (`model`/`force` on `IlluminationTask`, rerun endpoint) — the run *dimension* is done, and the idempotency guards that blocked reruns were removed (§7). ⬜ *deferred*
 
 ---
 
@@ -742,7 +768,7 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 
   **Why it's deferred:** fixing attribution properly means `get_captures_need_search_index` must return `(capture_id, user_id)` pairs (not `Vec<i32>`) and `backfill::enqueue` must group by owner — real design work that belongs in the dedicated backfill plan-and-branch session (see §4.3). A half-fix would be worse than a documented gap. **Note:** `get_captures_need_search_index` also carries its own `TODO` — it returns recent captures without actually checking whether they need indexing, so candidate counts are inaccurate.
 - **Envelope `user_id` is not validated against the capture owner (REVISIT):** `logic::spark::exec` derives `user_id` from the captures and never compares it to `envelope.user_id`, and `api/service/get_capture.rs` is explicitly **not** user-scoped. The webhook routes rely on Cloud Run OIDC, so this is defense-in-depth — but the envelope's `user_id` should be checked so status rows and data writes cannot diverge. *Tolerated — see `pragmatism.md`.*
-- **Rerun support (partially done 2026-09-16):** the `run` column, `(envelope_id, run)` unique constraint, submit-time refusal for in-flight work, and run-scoped attempt counting are **implemented** (see §7). Still deferred: a `model`/`force` field on `IlluminationTask`, a rerun endpoint, and relaxing the idempotency guard in `logic/illuminate.rs`.
+- **Rerun support (partially done 2026-09-16):** the `run` column, `(envelope_id, run)` unique constraint, submit-time refusal for in-flight work, run-scoped attempt counting, and removal of both idempotency guards are **implemented** (see §7). Still deferred: a `model`/`force` field on `IlluminationTask` and a rerun endpoint.
 - **Cloud Run timeout:** confirm the service-level request timeout is set high enough for long-lived SSE connections (and above the 5-min adaptive idle close).
 - **Multiple illuminations per capture:** decide whether reruns replace the existing illumination or append a new one (schema supports both; template currently renders `| first`).
 - **Backfill / bulk tasks (deferred):** the `background` flag was removed (see §4.3). Backfill handling — marking tasks as bulk, surfacing backfill progress, an admin progress view, and fixing the `user_id` attribution + global candidate query above — will be tackled in a dedicated plan-and-branch session.

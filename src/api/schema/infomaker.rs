@@ -29,12 +29,20 @@ impl InfoMaker {
                 .collect(),
         };
 
+        // Only the most recent illumination is exposed. Reruns append rows (one
+        // per run), so returning them all would push the ordering decision onto
+        // every consumer — and the templates use `| first`, which would silently
+        // show the *oldest* one once a rerun exists.
+        //
+        // "Most recent" is defined as max `id`. Illuminations are only ever
+        // appended, so a higher id means a later run.
         let illuminations = match capture_model.illuminations {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(models) => models
                 .into_iter()
-                .map(|m| self.make_illumination_info(m))
-                .collect(),
+                .max_by_key(|m| m.id)
+                .map(|m| vec![self.make_illumination_info(m)])
+                .unwrap_or_default(),
         };
 
         let annotation = match capture_model.annotations {
@@ -105,10 +113,7 @@ impl InfoMaker {
 
         let social_medias = match illumination_model.social_medias {
             HasMany::Unloaded => vec![],
-            HasMany::Loaded(models) => models
-                .into_iter()
-                .map(SocialMediaInfo::from)
-                .collect(),
+            HasMany::Loaded(models) => models.into_iter().map(SocialMediaInfo::from).collect(),
         };
 
         IlluminationInfo {

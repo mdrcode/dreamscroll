@@ -30,15 +30,12 @@ impl task::Task for IlluminationTask {
 ///
 /// Illumination has no real purpose without search indexing, so the two are a
 /// single unit of work: every illumination is followed by an index update.
-/// Both steps are individually idempotent, so a retry (or a redelivery) is
-/// safe:
 ///
-/// 1. `illuminate_capture` — skips if the capture already has an illumination.
-/// 2. `search_index::exec` — skips if the embedding already exists.
-///
-/// Note that step 2 runs **even when step 1 was skipped**. That matters: a
-/// capture whose illumination succeeded but whose indexing failed on a previous
-/// attempt must still get indexed on retry.
+/// Deliberately **not** idempotent. A retry re-illuminates and re-indexes; we
+/// tolerate the duplicate API calls rather than carry guard logic that would
+/// also have to be made rerun-aware (a "skip if already illuminated" check
+/// silently no-ops every rerun). Reruns append an illumination per run, and
+/// `InfoMaker` collapses them to the most recent for display.
 pub async fn exec(
     service_api: &api::ServiceApiClient,
     illuminator: &dyn illumination::Illuminator,
@@ -68,8 +65,7 @@ pub async fn exec(
     Ok(())
 }
 
-/// The illumination half of `exec`. Idempotent: returns `Ok(())` without doing
-/// anything if the capture already has an illumination.
+/// The illumination half of `exec`.
 async fn illuminate_capture(
     service_api: &api::ServiceApiClient,
     illuminator: &dyn illumination::Illuminator,
@@ -83,15 +79,6 @@ async fn illuminate_capture(
         tracing::warn!(capture_id, "Capture not found during illumination");
         return Ok(());
     };
-
-    if !capture.illuminations.is_empty() {
-        tracing::info!(
-            capture_id,
-            illumination_count = capture.illuminations.len(),
-            "Idempotency guard: illumination already exists for capture; skipping"
-        );
-        return Ok(());
-    }
 
     let illumination = illuminator.illuminate(&capture).await?;
 
