@@ -5,6 +5,8 @@
 //!
 //! Submodules:
 //!
-//! - [`db`] — the isolated-database harness for DB tests.
+//! - [`test_config`] — shared test configuration.
+//! - [`test_db`] — the schema-isolated database harness for DB tests.
 
-pub mod db;
+pub mod test_config;
+pub mod test_db;

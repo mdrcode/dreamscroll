@@ -15,22 +15,8 @@ pub async fn connect(
 }
 
 pub async fn create_postgres_pool(cfg: &config::Config) -> anyhow::Result<sqlx::postgres::PgPool> {
-    let url = make_url(
-        &cfg.postgres_user,
-        &cfg.postgres_password,
-        &cfg.postgres_host_port,
-        &cfg.postgres_db,
-        cfg.postgres_connection_params.as_deref(),
-        false,
-    );
-    let url_redacted = make_url(
-        &cfg.postgres_user,
-        &cfg.postgres_password,
-        &cfg.postgres_host_port,
-        &cfg.postgres_db,
-        cfg.postgres_connection_params.as_deref(),
-        true,
-    );
+    let url = make_url_from_config(cfg, None, false);
+    let url_redacted = make_url_from_config(cfg, None, true);
 
     tracing::info!(
         url_redacted = %url_redacted,
@@ -67,28 +53,63 @@ pub async fn connect_postgres_session_store(
     Ok(store)
 }
 
+/// Build a Postgres connection URL from the app config.
+///
+/// `schema`, when set, pins the connection's `search_path` to that schema via
+/// the `options` parameter. The test harness uses this to isolate each test in
+/// its own schema.
+///
+/// `redacted` replaces the password with `<REDACTED>` for logging.
+pub fn make_url_from_config(cfg: &config::Config, schema: Option<&str>, redacted: bool) -> String {
+    make_url(
+        &cfg.postgres_user,
+        &cfg.postgres_password,
+        &cfg.postgres_host_port,
+        &cfg.postgres_db,
+        cfg.postgres_connection_params.as_deref(),
+        schema,
+        redacted,
+    )
+}
+
+/// Build a Postgres connection URL from its parts.
+///
+/// Prefer [`make_url_from_config`] when you have a [`config::Config`].
 fn make_url(
     user: &str,
     password: &str,
     host_port: &str,
     db: &str,
     connection_params: Option<&str>,
+    schema: Option<&str>,
     redacted: bool,
 ) -> String {
+    let mut query_params: Vec<String> = Vec::new();
+
     // e.g. "sslmode=require"
-    let params = connection_params
-        .map(|params| format!("?{}", params))
-        .unwrap_or_default();
+    if let Some(connection_params) = connection_params {
+        query_params.push(connection_params.to_string());
+    }
+
+    if let Some(schema) = schema {
+        query_params.push(format!("options=-csearch_path%3D{schema}"));
+    }
+
+    let query = if query_params.is_empty() {
+        String::new()
+    } else {
+        format!("?{}", query_params.join("&"))
+    };
 
     if redacted {
         format!(
             "postgres://{}:<REDACTED>@{}/{}{}",
-            user, host_port, db, params
+            user, host_port, db, query
         )
     } else {
         format!(
             "postgres://{}:{}@{}/{}{}",
-            user, password, host_port, db, params
+            user, password, host_port, db, query
         )
     }
 }
@@ -104,7 +125,7 @@ mod tests {
 
     #[test]
     fn make_url_without_connection_params() {
-        let url = make_url(USER, PASSWORD, HOST_PORT, DB, None, false);
+        let url = make_url(USER, PASSWORD, HOST_PORT, DB, None, None, false);
 
         assert_eq!(url, "postgres://alice:secret@db.internal:5432/dreamscroll");
     }
@@ -117,6 +138,7 @@ mod tests {
             HOST_PORT,
             DB,
             Some("sslmode=require&application_name=dreamscroll"),
+            None,
             false,
         );
 
@@ -127,8 +149,52 @@ mod tests {
     }
 
     #[test]
+    fn make_url_with_schema_override() {
+        let url = make_url(
+            USER,
+            PASSWORD,
+            HOST_PORT,
+            DB,
+            None,
+            Some("test_abc123"),
+            false,
+        );
+
+        assert_eq!(
+            url,
+            "postgres://alice:secret@db.internal:5432/dreamscroll?options=-csearch_path%3Dtest_abc123"
+        );
+    }
+
+    #[test]
+    fn make_url_combines_connection_params_and_schema() {
+        let url = make_url(
+            USER,
+            PASSWORD,
+            HOST_PORT,
+            DB,
+            Some("sslmode=require"),
+            Some("test_abc123"),
+            false,
+        );
+
+        assert_eq!(
+            url,
+            "postgres://alice:secret@db.internal:5432/dreamscroll?sslmode=require&options=-csearch_path%3Dtest_abc123"
+        );
+    }
+
+    #[test]
     fn make_url_redacts_password() {
-        let url = make_url(USER, PASSWORD, HOST_PORT, DB, Some("sslmode=require"), true);
+        let url = make_url(
+            USER,
+            PASSWORD,
+            HOST_PORT,
+            DB,
+            Some("sslmode=require"),
+            None,
+            true,
+        );
 
         assert_eq!(
             url,

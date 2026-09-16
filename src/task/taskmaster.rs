@@ -424,7 +424,7 @@ mod tests {
 
     #[tokio::test]
     async fn submit_illumination_enqueues_task() {
-        let Some(db) = crate::test_support::db::test_db().await else {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
 
@@ -454,7 +454,7 @@ mod tests {
 
     #[tokio::test]
     async fn submit_without_queue_is_noop() {
-        let Some(db) = crate::test_support::db::test_db().await else {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
 
@@ -471,7 +471,7 @@ mod tests {
 
     #[tokio::test]
     async fn submit_propagates_enqueue_error() {
-        let Some(db) = crate::test_support::db::test_db().await else {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
 
@@ -500,7 +500,7 @@ mod tests {
     /// A submitted task is recorded as `Queued` with zero attempts.
     #[tokio::test]
     async fn submit_records_queued_row() {
-        let Some(db) = crate::test_support::db::test_db().await else {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
 
@@ -532,7 +532,7 @@ mod tests {
     /// The full attempt lifecycle: `Queued` -> `InProgress` -> `Completed`.
     #[tokio::test]
     async fn attempt_lifecycle_reaches_completed() {
-        let Some(db) = crate::test_support::db::test_db().await else {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
 
@@ -577,7 +577,7 @@ mod tests {
     /// A transient failure retries while budget remains, then exhausts.
     #[tokio::test]
     async fn transient_failure_escalates_to_exhausted() {
-        let Some(db) = crate::test_support::db::test_db().await else {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
 
@@ -638,7 +638,7 @@ mod tests {
     /// A redelivery of already-completed work is not resurrected.
     #[tokio::test]
     async fn completed_task_is_not_resurrected_in_db() {
-        let Some(db) = crate::test_support::db::test_db().await else {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
 
@@ -683,7 +683,7 @@ mod tests {
     /// The user-scoped query returns incomplete work across entities.
     #[tokio::test]
     async fn query_incomplete_for_user_spans_entities() {
-        let Some(db) = crate::test_support::db::test_db().await else {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
 

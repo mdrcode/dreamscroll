@@ -5,7 +5,7 @@ mod check_users;
 pub use check_users::check_users;
 
 mod postgres;
-pub use postgres::connect;
+pub use postgres::{connect, make_url_from_config};
 
 // Unclear if this is needed? Just a wrapper for now
 

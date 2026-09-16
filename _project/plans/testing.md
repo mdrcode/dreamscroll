@@ -7,10 +7,10 @@
 Every test belongs to exactly one tier. The rule is simple: **if it needs a
 database, it's a DB test.**
 
-| Tier     | Attribute                                        | Requires | Runs                      |
-| -------- | ------------------------------------------------ | -------- | ------------------------- |
-| **Unit** | `#[test]` / `#[tokio::test]`                     | nothing  | always, in parallel, fast |
-| **DB**   | `#[tokio::test]` + `test_support::db::test_db()` | Postgres | when a DB is reachable    |
+| Tier     | Attribute                                             | Requires | Runs                      |
+| -------- | ----------------------------------------------------- | -------- | ------------------------- |
+| **Unit** | `#[test]` / `#[tokio::test]`                          | nothing  | always, in parallel, fast |
+| **DB**   | `#[tokio::test]` + `test_support::test_db::test_db()` | Postgres | when a DB is reachable    |
 
 **Do not mock the database to make a DB test look like a unit test.** If the
 thing under test talks to Postgres, test it against Postgres. Mocking a DB
@@ -26,12 +26,12 @@ Examples in the codebase: `StatusCode::incomplete_codes`,
 
 ## DB tests
 
-Use the harness in `src/test_support/db.rs`:
+Use the harness in `src/test_support/test_db.rs`:
 
 ```rust
 #[tokio::test]
 async fn submit_illumination_records_a_queued_row() {
-    let Some(db) = crate::test_support::db::test_db().await else {
+    let Some(db) = crate::test_support::test_db::test_db().await else {
         return; // no database available; skip
     };
 
@@ -70,22 +70,35 @@ early. This keeps `cargo test` **green on machines without Postgres** (and in CI
 without a DB service), while still running the DB tests wherever a DB exists.
 
 The trade-off: a skipped DB test looks like a passing test. If you need to be
-sure DB tests actually ran, watch for the `test_support::db: skipping DB test, ...`
+sure DB tests actually ran, watch for the `test_support::test_db: skipping DB test, ...`
 message on stderr, or check the test's runtime (a real DB test takes ~0.2s; a
 skipped one is instant).
 
+## Test support modules
+
+`src/test_support/` holds shared test infrastructure (`cfg(test)` only):
+
+| Module        | Purpose                                                           |
+| ------------- | ----------------------------------------------------------------- |
+| `test_config` | `load_config()` — the app's config, loaded once per test process. |
+| `test_db`     | `test_db()` — the isolated-schema database harness.               |
+
+`test_config` is deliberately separate from `test_db`: config is a
+cross-cutting test concern, so any future test module can use it without
+depending on the database harness.
+
 ## Running DB tests
 
-The harness resolves a connection from `DATABASE_URL` if set, otherwise from the
-`POSTGRES_*` env vars the app already uses.
+The harness loads the app's config (`config_local.env` + `.env`) via
+`test_support::test_config::load_config` and builds the connection URL with
+`database::make_url_from_config` — the same code path the app uses. So if the
+app can reach Postgres, so can the tests. No extra env vars needed.
 
 ```bash
 # Local dev: Postgres is already in docker-compose on :5432
 docker compose up -d db
 
-# The password lives in .env (gitignored), so pass it explicitly:
-DATABASE_URL="postgres://dreamscroll_pg_user:$PW@localhost:5432/dreamscroll_dev1" \
-  cargo test
+cargo test
 ```
 
 ## ⚠️ Required DB permissions
