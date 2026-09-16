@@ -8,7 +8,6 @@ pub mod export_digest;
 pub mod first_user;
 pub mod hash_password;
 pub mod html_view;
-pub mod illuminate_all;
 pub mod illuminate_id;
 pub mod illumination_text;
 pub mod import_digest;
@@ -23,5 +22,3 @@ pub use auth_helper::*;
 
 mod cmd_state;
 pub use cmd_state::*;
-
-

@@ -3,9 +3,12 @@ use std::fmt::Debug;
 
 /// A Task is a serializable specification of a unit of work.
 pub trait Task: Clone + Debug + Send + Sync + Serialize {
-    fn task_type() -> &'static str; // "eg. "ingest" or "spark"
+    fn task_type() -> &'static str; // eg. "illuminate" or "spark"
     fn entity_type() -> &'static str; // eg. "capture" or "spark"
     fn entity_id(&self) -> i32;
+
+    // Any greater "payload" (e.g. which model to use, which prompt, etc)
+    // is up to the concrete task implementation to define and serialize.
 }
 
 /// A TaskEnvelope is a proper wrapped Task once it has been submitted to a TaskQueue.

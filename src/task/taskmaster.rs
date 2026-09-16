@@ -1,7 +1,6 @@
 use crate::api;
 use crate::database::DbHandle;
 use crate::logic::illuminate::IlluminationTask;
-use crate::logic::ingest::IngestTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
 use crate::model;
@@ -31,7 +30,6 @@ use super::*;
 pub struct TaskMaster {
     status: TaskStatusRecorder,
     max_attempts: i32,
-    ingest_queue: Option<Box<dyn TaskQueue<IngestTask>>>,
     illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
     spark_queue: Option<Box<dyn TaskQueue<SparkTask>>>,
@@ -84,11 +82,6 @@ fn next_attempt_number(snapshot: Option<&TaskStatusSnapshot>) -> Option<i32> {
 impl TaskMaster {
     pub fn builder() -> TaskMasterBuilder {
         TaskMasterBuilder::default()
-    }
-
-    pub async fn submit_ingest(&self, user_id: i32, task: IngestTask) -> anyhow::Result<()> {
-        self.submit_inner(self.ingest_queue.as_ref(), user_id, task)
-            .await
     }
 
     pub async fn submit_illumination(
@@ -237,7 +230,7 @@ impl TaskMaster {
     }
 
     /// Query the *incomplete* task statuses recorded against a given entity,
-    /// e.g. all tasks (`illuminate`, `ingest`, `search_index`, ...) that
+    /// e.g. all tasks (`illuminate`, `search_index`, `spark`, ...) that
     /// operate on a single capture and have not yet succeeded. Always scoped by
     /// `user_id`.
     ///
@@ -271,7 +264,6 @@ impl TaskMaster {
 pub struct TaskMasterBuilder {
     db: Option<DbHandle>,
     max_attempts: Option<i32>,
-    ingest_queue: Option<Box<dyn TaskQueue<IngestTask>>>,
     illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
     spark_queue: Option<Box<dyn TaskQueue<SparkTask>>>,
@@ -286,11 +278,6 @@ impl TaskMasterBuilder {
     /// Maximum number of attempts per task. See `Config::task_max_attempts`.
     pub fn max_attempts(mut self, max_attempts: i32) -> Self {
         self.max_attempts = Some(max_attempts);
-        self
-    }
-
-    pub fn ingest_queue(mut self, ingest_queue: impl TaskQueue<IngestTask> + 'static) -> Self {
-        self.ingest_queue = Some(Box::new(ingest_queue));
         self
     }
 
@@ -322,7 +309,6 @@ impl TaskMasterBuilder {
             // forgets `.max_attempts(..)` behaves like production rather than
             // silently disabling retries.
             max_attempts: self.max_attempts.unwrap_or(3).max(1),
-            ingest_queue: self.ingest_queue,
             illumination_queue: self.illumination_queue,
             search_index_queue: self.search_index_queue,
             spark_queue: self.spark_queue,
@@ -418,8 +404,8 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl TaskQueue<IngestTask> for RecordingQueue {
-        async fn enqueue(&self, envelope: TaskEnvelope<IngestTask>) -> anyhow::Result<()> {
+    impl TaskQueue<IlluminationTask> for RecordingQueue {
+        async fn enqueue(&self, envelope: TaskEnvelope<IlluminationTask>) -> anyhow::Result<()> {
             if self.fail {
                 anyhow::bail!("enqueue failed")
             }
@@ -434,17 +420,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn submit_ingest_enqueues_task() {
+    async fn submit_illumination_enqueues_task() {
         let captures = Arc::new(Mutex::new(Vec::new()));
         let queue = RecordingQueue {
             captures: Arc::clone(&captures),
             fail: false,
         };
 
-        let service = TaskMaster::builder().ingest_queue(queue).build();
+        let service = TaskMaster::builder().illumination_queue(queue).build();
 
         service
-            .submit_ingest(1, IngestTask { capture_id: 42 })
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("submit should succeed");
 
@@ -460,7 +446,7 @@ mod tests {
         let service = TaskMaster::builder().build();
 
         service
-            .submit_ingest(1, IngestTask { capture_id: 7 })
+            .submit_illumination(1, IlluminationTask { capture_id: 7 })
             .await
             .expect("submit should be a no-op when queue is absent");
     }
@@ -471,9 +457,11 @@ mod tests {
             captures: Arc::new(Mutex::new(Vec::new())),
             fail: true,
         };
-        let service = TaskMaster::builder().ingest_queue(queue).build();
+        let service = TaskMaster::builder().illumination_queue(queue).build();
 
-        let result = service.submit_ingest(1, IngestTask { capture_id: 9 }).await;
+        let result = service
+            .submit_illumination(1, IlluminationTask { capture_id: 9 })
+            .await;
         assert!(result.is_err());
     }
 }

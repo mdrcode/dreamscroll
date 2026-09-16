@@ -3,7 +3,6 @@ use anyhow::Context;
 use crate::config;
 use crate::database::DbHandle;
 use crate::logic::illuminate::IlluminationTask;
-use crate::logic::ingest::IngestTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
 use crate::webhook::localclient::LocalWebhookClient;
@@ -27,12 +26,6 @@ pub async fn make_task_master(
                     async move { client.post_task("/_wh/cloudtask/illuminate", &task).await }
                 });
 
-            let dev_client_ingest = LocalWebhookClient::new(&base_url);
-            let ingest_queue = LocalTaskQueue::connect(4, move |task: TaskEnvelope<IngestTask>| {
-                let client = dev_client_ingest.clone();
-                async move { client.post_task("/_wh/cloudtask/ingest", &task).await }
-            });
-
             let dev_client_spark = LocalWebhookClient::new(&base_url);
             let spark_queue = LocalTaskQueue::connect(4, move |task: TaskEnvelope<SparkTask>| {
                 let client = dev_client_spark.clone();
@@ -50,7 +43,6 @@ pub async fn make_task_master(
                 TaskMaster::builder()
                     .db(db)
                     .max_attempts(cfg.task_max_attempts)
-                    .ingest_queue(ingest_queue)
                     .illumination_queue(illumination_queue)
                     .search_index_queue(search_index_queue)
                     .spark_queue(spark_queue)
@@ -68,16 +60,6 @@ pub async fn make_task_master(
             .await
             .context("Failed to initialize Cloud Tasks Queue: Illumination")?;
 
-            let ingest_queue = CloudTaskQueue::connect(
-                cfg.gcloud_project_id.as_str(),
-                cfg.gcloud_project_region.as_str(),
-                cfg.task_cloudtask_queue_ingest
-                    .as_ref()
-                    .expect("TASK_CLOUDTASK_QUEUE_INGEST not set"),
-            )
-            .await
-            .context("Failed to initialize Cloud Tasks Queue: Ingest")?;
-
             let spark_queue = CloudTaskQueue::connect(
                 cfg.gcloud_project_id.as_str(),
                 cfg.gcloud_project_region.as_str(),
@@ -87,7 +69,7 @@ pub async fn make_task_master(
             )
             .await
             .context("Failed to initialize Cloud Tasks Queue: Spark")?;
-        
+
             let search_index_queue = CloudTaskQueue::connect(
                 cfg.gcloud_project_id.as_str(),
                 cfg.gcloud_project_region.as_str(),
@@ -102,7 +84,6 @@ pub async fn make_task_master(
                 TaskMaster::builder()
                     .db(db)
                     .max_attempts(cfg.task_max_attempts)
-                    .ingest_queue(ingest_queue)
                     .illumination_queue(illumination_queue)
                     .search_index_queue(search_index_queue)
                     .spark_queue(spark_queue)

@@ -109,7 +109,7 @@ impl TaskStatusRecorder {
     }
 
     /// Query the *incomplete* task statuses recorded against a given entity,
-    /// e.g. all tasks (`illuminate`, `ingest`, `search_index`, ...) that
+    /// e.g. all tasks (`illuminate`, `search_index`, `spark`, ...) that
     /// operate on a single capture and have not yet succeeded.
     ///
     /// Incomplete means everything except `Completed`: in-flight tasks

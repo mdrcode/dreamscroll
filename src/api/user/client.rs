@@ -241,9 +241,9 @@ impl UserApiClient {
         // TODO Should this live inside the inner insert_capture function instead?
         if let Err(e) = self
             .task_master
-            .submit_ingest(
+            .submit_illumination(
                 user_context.user_id(),
-                logic::ingest::IngestTask {
+                logic::illuminate::IlluminationTask {
                     capture_id: capture_model.id,
                 },
             )
@@ -279,9 +279,9 @@ impl UserApiClient {
         // TODO Should this live inside the inner insert_capture function instead?
         if let Err(e) = self
             .task_master
-            .submit_ingest(
+            .submit_illumination(
                 user_context.user_id(),
-                logic::ingest::IngestTask {
+                logic::illuminate::IlluminationTask {
                     capture_id: capture_model.id,
                 },
             )

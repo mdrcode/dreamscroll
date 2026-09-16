@@ -71,7 +71,6 @@ pub struct Config {
     pub search_embed_vector_dims: Option<u32>,
 
     pub task_backend: task::TaskQueueBackend,
-    pub task_cloudtask_queue_ingest: Option<String>,
     pub task_cloudtask_queue_illumination: Option<String>,
     pub task_cloudtask_queue_spark: Option<String>,
     pub task_cloudtask_queue_search_index: Option<String>,

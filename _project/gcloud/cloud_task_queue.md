@@ -1,7 +1,7 @@
 # Creating a Cloud Tasks queue
 
 ```bash
-gcloud tasks queues create ingest \
+gcloud tasks queues create illuminate \
   --location=us-central1 \
   --max-dispatches-per-second=2 \
   --max-concurrent-dispatches=5 \
@@ -9,7 +9,7 @@ gcloud tasks queues create ingest \
   --min-backoff=10s \
   --max-backoff=600s \
   --max-doublings=16 \
-  --http-uri-override=host:dreamscroll-hook-xdrchnynaq-uc.a.run.app,path:/_wh/cloudtask/ingest \
+  --http-uri-override=host:dreamscroll-hook-xdrchnynaq-uc.a.run.app,path:/_wh/cloudtask/illuminate \
   --http-oidc-service-account-email-override=cloud-tasks-invoker@mdrcode.iam.gserviceaccount.com \
   --http-oidc-token-audience-override=https://dreamscroll-hook-xdrchnynaq-uc.a.run.app
 ```
@@ -17,7 +17,7 @@ gcloud tasks queues create ingest \
 Verify:
 
 ```bash
-gcloud tasks queues describe ingest \
+gcloud tasks queues describe illuminate \
   --location=us-central1 \
   --project=mdrcode
 ```

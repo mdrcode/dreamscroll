@@ -8,6 +8,15 @@ use crate::{api, logic, task, webhook};
 ///
 /// Expected body is a serialized `TaskEnvelope<IlluminationTask>`, e.g.:
 /// `{ "user_id": 1, "envelope_id": "u1-illuminate-capture123", "task": { "capture_id": 123 } }`
+///
+/// This is the app's core unit of work: `logic::illuminate::exec` runs both the
+/// illumination and the search-indexing steps, since illumination has no real
+/// purpose without search indexing.
+///
+/// NOTE: this route is currently **unused** — the capture-create path submits
+/// through the same `IlluminationTask` type, so this handler and the
+/// `/_wh/cloudtask/illuminate` route exist for the future backfill and
+/// re-run-with-a-new-model/prompt flows. See `_project/plans/pragmatism.md`.
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(envelope): Json<task::TaskEnvelope<logic::illuminate::IlluminationTask>>,
@@ -28,8 +37,15 @@ pub async fn post(
         return Ok(axum::http::StatusCode::NO_CONTENT);
     };
 
-    let result =
-        logic::illuminate::exec(&state.service_api, state.illuminator.as_ref(), task).await;
+    let result = logic::illuminate::exec(
+        &state.service_api,
+        state.illuminator.as_ref(),
+        state.stg.as_ref(),
+        &state.embedder,
+        &state.vector_store,
+        task,
+    )
+    .await;
 
     let outcome = state
         .task_master

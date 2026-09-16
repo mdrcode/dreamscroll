@@ -5,6 +5,5 @@
 // of the HTTP transport (Cloud Tasks / Pub/Sub / local). The webhook layer
 // deserializes a task and calls `logic::<task>::exec`.
 pub mod illuminate;
-pub mod ingest;
 pub mod search_index;
 pub mod spark;
