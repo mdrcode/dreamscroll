@@ -44,11 +44,11 @@ impl<T: Task> CloudTaskQueue<T> {
 
 #[async_trait::async_trait]
 impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
-    async fn enqueue(&self, wrapped: TaskEnvelope<T>) -> anyhow::Result<()> {
+    async fn enqueue(&self, envelope: TaskEnvelope<T>) -> anyhow::Result<()> {
         // Serialize the full wrapper (task identity + task) so the worker knows
         // which task it's completing.
         let body =
-            serde_json::to_vec(&wrapped).context("Failed to serialize task wrapper to JSON")?;
+            serde_json::to_vec(&envelope).context("Failed to serialize task wrapper to JSON")?;
 
         let webhook_request = HttpRequest::new()
             .set_url("https://dummy-url-should-be-overridden-by-queue-config.dreamscroll.ai")
@@ -69,7 +69,7 @@ impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
             .map_err(|err| {
                 anyhow!(
                     "Cloud Tasks create_task failed for task_id {:?}: {}",
-                    wrapped.task_id,
+                    envelope.envelope_id,
                     err
                 )
             })?;
@@ -78,7 +78,7 @@ impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
             queue = %self.inner.queue_path,
             task_name = %created_task.name,
             "Enqueued task id {:?} to queue: {} with task_name: {}",
-            wrapped.task_id,
+            envelope.envelope_id,
             self.inner.queue_path,
             created_task.name
         );

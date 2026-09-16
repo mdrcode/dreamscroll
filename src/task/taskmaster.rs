@@ -73,16 +73,11 @@ impl TaskMaster {
         task: T,
     ) -> anyhow::Result<()> {
         let task_type = T::task_type();
-        let envelope = TaskEnvelope {
-            user_id,
-            task_id: make_task_id(user_id, &task),
-            task: Some(task),
-        };
-        let task_id = envelope.task_id.clone();
+        let envelope = TaskEnvelope::from_task(user_id, task);
 
         let Some(queue) = queue else {
             tracing::warn!(
-                wrapped = ?envelope,
+                envelope = ?envelope,
                 "{} submitted but no queue configured, skipping enqueue.",
                 task_type,
             );
@@ -92,14 +87,12 @@ impl TaskMaster {
         // Record `Queued` before enqueueing, since `enqueue` moves the envelope.
         self.status.record(&envelope, StatusCode::Queued, 0).await?;
 
-        queue.enqueue(envelope).await.inspect_err(|err| {
+        queue.enqueue(envelope.clone()).await.inspect_err(|err| {
             tracing::error!(
                 queue = ?queue,
-                task_id,
+                envelope = ?envelope,
                 error = ?err,
-                "Failed to enqueue {} task: {}",
-                task_type,
-                err,
+                "Failed to enqueue task",
             )
         })?;
 
@@ -197,7 +190,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl TaskQueue<IngestTask> for RecordingQueue {
-        async fn enqueue(&self, wrapped: TaskEnvelope<IngestTask>) -> anyhow::Result<()> {
+        async fn enqueue(&self, envelope: TaskEnvelope<IngestTask>) -> anyhow::Result<()> {
             if self.fail {
                 anyhow::bail!("enqueue failed")
             }
@@ -206,7 +199,7 @@ mod tests {
                 .captures
                 .lock()
                 .expect("RecordingQueue captures mutex should not be poisoned");
-            captures.push(wrapped.task.unwrap().capture_id);
+            captures.push(envelope.task.unwrap().capture_id);
             Ok(())
         }
     }

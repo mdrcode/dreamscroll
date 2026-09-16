@@ -200,10 +200,19 @@ impl UserApiClient {
             );
         }
 
+        // Placeholder identity for the task envelope: the real spark row (and its
+        // DB id) doesn't exist until `insert_spark` runs at exec time, so we mint a
+        // random i32 here purely to give the envelope a stable id.
+        // TODO Replace with a real spark identity scheme.
+        let random_spark_id = uuid::Uuid::new_v4().as_u128() as i32;
+
         self.task_master
             .submit_spark(
                 context.user_id(),
-                logic::spark::SparkTask { capture_ids },
+                logic::spark::SparkTask {
+                    spark_id: random_spark_id,
+                    capture_ids,
+                },
             )
             .await
             .map_err(ApiError::internal)

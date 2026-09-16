@@ -36,7 +36,7 @@ impl TaskStatusRecorder {
         };
 
         let task_type = T::task_type();
-        let task_id = envelope.task_id.as_str();
+        let task_id = envelope.envelope_id.as_str();
 
         let existing = model::task_status::Entity::find()
             .filter(model::task_status::Column::TaskType.eq(task_type))

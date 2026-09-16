@@ -5,10 +5,19 @@ use crate::{api, ignition, task};
 /// The concrete task for generating a spark over a set of captures.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparkTask {
+    pub spark_id: i32,
     pub capture_ids: Vec<i32>,
 }
 
 impl task::Task for SparkTask {
+    fn entity_type() -> &'static str {
+        "s"
+    }
+
+    fn entity_id(&self) -> i32 {
+        self.spark_id
+    }
+
     fn task_type() -> &'static str {
         "spark"
     }

@@ -9,6 +9,14 @@ pub struct IlluminationTask {
 }
 
 impl task::Task for IlluminationTask {
+    fn entity_type() -> &'static str {
+        "c"
+    }
+
+    fn entity_id(&self) -> i32 {
+        self.capture_id
+    }
+
     fn task_type() -> &'static str {
         "illuminate"
     }

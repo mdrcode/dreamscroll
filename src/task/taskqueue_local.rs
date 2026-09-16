@@ -130,7 +130,7 @@ impl<TTask> TaskQueue<TTask> for LocalTaskQueue<TTask>
 where
     TTask: Task + Send + Sync + 'static,
 {
-    async fn enqueue(&self, wrapped: TaskEnvelope<TTask>) -> anyhow::Result<()> {
+    async fn enqueue(&self, envelope: TaskEnvelope<TTask>) -> anyhow::Result<()> {
         let type_name = std::any::type_name::<TTask>()
             .rsplit("::")
             .next()
@@ -138,12 +138,13 @@ where
         let task_str = format!(
             "{} {}",
             type_name,
-            serde_json::to_string(&wrapped).unwrap_or_else(|_| "<serialization error>".to_string())
+            serde_json::to_string(&envelope)
+                .unwrap_or_else(|_| "<serialization error>".to_string())
         );
         tracing::info!(task = %task_str, "Enqueuing task into LocalTaskQueue");
         self.inner
             .task_sender
-            .send(wrapped)
+            .send(envelope)
             .map_err(|_| anyhow!("Cannot enqueue into LocalTaskQueue after shutdown"))
     }
 }
@@ -165,6 +166,14 @@ mod tests {
     }
 
     impl Task for TestTask {
+        fn entity_type() -> &'static str {
+            "c"
+        }
+
+        fn entity_id(&self) -> i32 {
+            self.id
+        }
+
         fn task_type() -> &'static str {
             "test"
         }
@@ -186,14 +195,14 @@ mod tests {
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
-                task_id: "1".to_string(),
+                envelope_id: "1".to_string(),
                 task: Some(TestTask { id: 1 }),
             })
             .await?;
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
-                task_id: "2".to_string(),
+                envelope_id: "2".to_string(),
                 task: Some(TestTask { id: 2 }),
             })
             .await?;
@@ -256,7 +265,7 @@ mod tests {
             queue
                 .enqueue(TaskEnvelope {
                     user_id: 1,
-                    task_id: id.to_string(),
+                    envelope_id: id.to_string(),
                     task: Some(TestTask { id }),
                 })
                 .await?;
@@ -314,7 +323,7 @@ mod tests {
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
-                task_id: "1".to_string(),
+                envelope_id: "1".to_string(),
                 task: Some(TestTask { id: 1 }),
             })
             .await?;
@@ -324,14 +333,14 @@ mod tests {
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
-                task_id: "2".to_string(),
+                envelope_id: "2".to_string(),
                 task: Some(TestTask { id: 2 }),
             })
             .await?;
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
-                task_id: "3".to_string(),
+                envelope_id: "3".to_string(),
                 task: Some(TestTask { id: 3 }),
             })
             .await?;
@@ -380,21 +389,21 @@ mod tests {
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
-                task_id: "1".to_string(),
+                envelope_id: "1".to_string(),
                 task: Some(TestTask { id: 1 }),
             })
             .await?;
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
-                task_id: "2".to_string(),
+                envelope_id: "2".to_string(),
                 task: Some(TestTask { id: 2 }),
             })
             .await?;
         queue
             .enqueue(TaskEnvelope {
                 user_id: 1,
-                task_id: "3".to_string(),
+                envelope_id: "3".to_string(),
                 task: Some(TestTask { id: 3 }),
             })
             .await?;

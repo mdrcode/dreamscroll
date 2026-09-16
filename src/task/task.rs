@@ -1,21 +1,35 @@
 use serde::{Deserialize, Serialize};
-
-// TODO just a placehodler for now, need to think through task identity
-pub fn make_task_id<T: Task>(user_id: i32, _task: &T) -> String {
-    format!("u{}-{}-{}", user_id, T::task_type(), uuid::Uuid::new_v4())
-}
+use std::fmt::Debug;
 
 /// A serializable specification for a unit of work.
-pub trait Task: std::fmt::Debug + Send + Sync + Serialize {
+pub trait Task: Clone + Debug + Send + Sync + Serialize {
     fn task_type() -> &'static str;
+    fn entity_type() -> &'static str;
+    fn entity_id(&self) -> i32;
 }
 
 /// A proper wrapped Task once it has been submitted to a TaskQueue.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TaskEnvelope<T: Task> {
     pub user_id: i32,
-    pub task_id: String,
+    pub envelope_id: String,
     pub task: Option<T>, // convenience, but not always available (e.g. when dequeued)
+}
+
+impl<T: Task> TaskEnvelope<T> {
+    pub fn from_task(user_id: i32, task: T) -> Self {
+        Self {
+            user_id,
+            envelope_id: format!(
+                "u{}-{}-{}{}",
+                user_id,
+                T::task_type(),
+                T::entity_type(),
+                task.entity_id()
+            ),
+            task: Some(task),
+        }
+    }
 }
 
 impl<T: Task> std::fmt::Debug for TaskEnvelope<T> {
@@ -23,7 +37,7 @@ impl<T: Task> std::fmt::Debug for TaskEnvelope<T> {
         let mut debug = f.debug_struct("TaskEnvelope");
         debug.field("task_type", &T::task_type());
         debug.field("user_id", &self.user_id);
-        debug.field("task_id", &self.task_id);
+        debug.field("task_id", &self.envelope_id);
 
         // Show a bounded preview of the serialized payload so logs stay readable
         // even for large tasks (e.g. a spark task with many capture_ids).
@@ -33,8 +47,11 @@ impl<T: Task> std::fmt::Debug for TaskEnvelope<T> {
             .map(|task| {
                 let json =
                     serde_json::to_string(task).unwrap_or("<serialization error>".to_string());
-                if json.len() > 200 {
-                    format!("{}...", &json[..200])
+                if json.chars().count() > 200 {
+                    // Take a bounded char-boundary-safe prefix so we never panic
+                    // on a multi-byte UTF-8 boundary.
+                    let preview: String = json.chars().take(200).collect();
+                    format!("{preview}...")
                 } else {
                     json
                 }
