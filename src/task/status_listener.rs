@@ -10,11 +10,11 @@ use crate::database::DbHandle;
 /// **Not yet implemented** — wired in a later step (see
 /// `_project/plans/sse-task-status.md` §12). This struct exists now to make
 /// the two-owner contract explicit.
-pub struct StatusNotifier {
+pub struct StatusListener {
     _db: DbHandle,
 }
 
-impl StatusNotifier {
+impl StatusListener {
     pub fn new(db: DbHandle) -> Self {
         Self { _db: db }
     }

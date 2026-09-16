@@ -11,7 +11,7 @@ use super::*;
 ///
 /// `TaskMaster` owns the backend queues **and** the `task_status` table. It is
 /// one of only two structs allowed to touch `task_status` directly (the other
-/// is `StatusNotifier`, the future LISTEN/NOTIFY thread). Everything else in the
+/// is `StatusListener`, the future LISTEN/NOTIFY thread). Everything else in the
 /// system talks to tasks through this API:
 ///
 /// - `submit_*` — enqueue + record a `Queued` row.
@@ -71,10 +71,10 @@ impl AttemptOutcome {
 /// least once, so a redelivery of finished work must not resurrect the row back
 /// to `InProgress` (which would show a spurious "in progress" blip to any client
 /// watching the task).
-fn next_attempt_number(snapshot: Option<&TaskStatusSnapshot>) -> Option<i32> {
-    match snapshot {
-        Some(snapshot) if snapshot.status == StatusCode::Completed => None,
-        Some(snapshot) => Some(snapshot.attempts + 1),
+fn next_attempt_number(status: Option<&model::task_status::Model>) -> Option<i32> {
+    match status {
+        Some(row) if row.status_code == StatusCode::Completed.as_i32() => None,
+        Some(row) => Some(row.attempts + 1),
         None => Some(1),
     }
 }
@@ -157,9 +157,9 @@ impl TaskMaster {
         &self,
         envelope: &TaskEnvelope<T>,
     ) -> anyhow::Result<Option<i32>> {
-        let snapshot = self.status.query_snapshot(&envelope.envelope_id).await?;
+        let status = self.status.query_status(&envelope.envelope_id).await?;
 
-        let Some(attempt) = next_attempt_number(snapshot.as_ref()) else {
+        let Some(attempt) = next_attempt_number(status.as_ref()) else {
             tracing::info!(
                 envelope_id = %envelope.envelope_id,
                 "Ignoring attempt for already-completed task"
@@ -378,26 +378,37 @@ mod tests {
 
     #[test]
     fn attempt_number_increments_from_persisted_count() {
-        let snapshot = TaskStatusSnapshot {
-            status: StatusCode::ErrorWillRetry,
-            attempts: 2,
-        };
+        let row = status_row(StatusCode::ErrorWillRetry, 2);
 
-        assert_eq!(next_attempt_number(Some(&snapshot)), Some(3));
+        assert_eq!(next_attempt_number(Some(&row)), Some(3));
     }
 
     #[test]
     fn completed_task_is_not_resurrected() {
-        let snapshot = TaskStatusSnapshot {
-            status: StatusCode::Completed,
-            attempts: 1,
-        };
+        let row = status_row(StatusCode::Completed, 1);
 
         assert_eq!(
-            next_attempt_number(Some(&snapshot)),
+            next_attempt_number(Some(&row)),
             None,
             "an at-least-once redelivery of finished work must be ignored"
         );
+    }
+
+    /// A `task_status` row with only the fields `next_attempt_number` reads set
+    /// to meaningful values.
+    fn status_row(status: StatusCode, attempts: i32) -> model::task_status::Model {
+        model::task_status::Model {
+            id: 0,
+            user_id: 1,
+            envelope_id: "u1-illuminate-capture1".to_string(),
+            task_type: "illuminate".to_string(),
+            entity_type: "capture".to_string(),
+            entity_id: 1,
+            status_code: status.as_i32(),
+            attempts,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
     }
 
     #[derive(Debug, Clone)]

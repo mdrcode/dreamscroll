@@ -8,17 +8,10 @@ use super::*;
 ///
 /// This is the single owner of the `task_status` persistence logic, so it can
 /// be unit-tested in isolation and reused by `TaskMaster` (writes) and
-/// `StatusNotifier` (reads for SSE) without duplicating the SeaORM queries.
+/// `StatusListener` (reads for SSE) without duplicating the SeaORM queries.
 #[derive(Clone)]
 pub struct TaskStatusTracker {
     db: database::DbHandle,
-}
-
-/// A point-in-time view of a task's status row.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TaskStatusSnapshot {
-    pub status: StatusCode,
-    pub attempts: i32,
 }
 
 impl TaskStatusTracker {
@@ -80,14 +73,14 @@ impl TaskStatusTracker {
         Ok(())
     }
 
-    /// Query the status *and* current attempt count for a task, used by
-    /// workers to decide whether another attempt is warranted.
+    /// Query the status row for a task, used by workers to decide whether
+    /// another attempt is warranted.
     ///
     /// Returns `None` when there is no row yet.
-    pub async fn query_snapshot(
+    pub async fn query_status(
         &self,
         envelope_id: &str,
-    ) -> anyhow::Result<Option<TaskStatusSnapshot>> {
+    ) -> anyhow::Result<Option<model::task_status::Model>> {
         let db = &self.db;
 
         let row = model::task_status::Entity::find()
@@ -95,17 +88,11 @@ impl TaskStatusTracker {
             .one(&db.conn)
             .await?;
 
-        match row {
-            Some(r) => Ok(Some(TaskStatusSnapshot {
-                status: StatusCode::from_i32(r.status_code)?,
-                attempts: r.attempts,
-            })),
-            None => Ok(None),
-        }
+        Ok(row)
     }
 
     /// Query the *incomplete* task statuses recorded against a given entity,
-    /// e.g. all tasks (`illuminate`, `search_index`, `spark`, ...) that
+    /// e.g. all tasks (`illuminate`, `search_index`, ...) that
     /// operate on a single capture and have not yet succeeded.
     ///
     /// Incomplete means everything except `Completed`: in-flight tasks

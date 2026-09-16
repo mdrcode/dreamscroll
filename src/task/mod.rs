@@ -11,9 +11,9 @@ pub use status_code::*;
 mod status_tracker;
 pub use status_tracker::*;
 
-// StatusNotifier is the future LISTEN/NOTIFY thread that relays status to SSE.
-mod status_notifier;
-pub use status_notifier::*;
+// StatusListener is the future LISTEN/NOTIFY thread that relays status to SSE.
+mod status_listener;
+pub use status_listener::*;
 
 mod maker;
 pub use maker::*;
