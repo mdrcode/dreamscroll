@@ -10,7 +10,7 @@ pub struct IngestTask {
 
 impl task::Task for IngestTask {
     fn entity_type() -> &'static str {
-        "c"
+        "capture"
     }
 
     fn entity_id(&self) -> i32 {

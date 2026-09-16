@@ -11,7 +11,7 @@ pub struct SparkTask {
 
 impl task::Task for SparkTask {
     fn entity_type() -> &'static str {
-        "s"
+        "spark"
     }
 
     fn entity_id(&self) -> i32 {

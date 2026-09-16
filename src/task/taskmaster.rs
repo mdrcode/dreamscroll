@@ -3,6 +3,7 @@ use crate::logic::illuminate::IlluminationTask;
 use crate::logic::ingest::IngestTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
+use crate::model;
 
 use super::*;
 
@@ -111,16 +112,25 @@ impl TaskMaster {
         self.status.record(envelope, status, attempts).await
     }
 
-    /// Query the current status row for a task, if one exists.
+    /// Query the current status of a single task by its `envelope_id`.
     ///
     /// Returns `None` when there's no DB (enqueue-only mode) or no row yet.
-    pub async fn query_status(
+    pub async fn query_status(&self, envelope_id: &str) -> anyhow::Result<Option<StatusCode>> {
+        self.status.query(envelope_id).await
+    }
+
+    /// Query every task status recorded against a given entity, e.g. all
+    /// tasks (`illuminate`, `ingest`, `search_index`, ...) that operate on a
+    /// single capture. Always scoped by `user_id`.
+    pub async fn query_status_for_entity(
         &self,
-        task_type: &str,
-        _user_id: i32,
-        task_id: &str,
-    ) -> anyhow::Result<Option<StatusCode>> {
-        self.status.query(task_type, task_id).await
+        user_id: i32,
+        entity_type: &str,
+        entity_id: i32,
+    ) -> anyhow::Result<Vec<model::task_status::Model>> {
+        self.status
+            .query_for_entity(user_id, entity_type, entity_id)
+            .await
     }
 }
 

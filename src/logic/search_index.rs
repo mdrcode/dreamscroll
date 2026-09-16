@@ -14,7 +14,7 @@ pub struct SearchIndexTask {
 
 impl task::Task for SearchIndexTask {
     fn entity_type() -> &'static str {
-        "c"
+        "capture"
     }
 
     fn entity_id(&self) -> i32 {

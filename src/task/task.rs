@@ -1,19 +1,22 @@
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
-/// A serializable specification for a unit of work.
+/// A Task is a serializable specification of a unit of work.
 pub trait Task: Clone + Debug + Send + Sync + Serialize {
     fn task_type() -> &'static str;
     fn entity_type() -> &'static str;
     fn entity_id(&self) -> i32;
 }
 
-/// A proper wrapped Task once it has been submitted to a TaskQueue.
+/// A TaskEnvelope is a proper wrapped Task once it has been submitted to a TaskQueue.
+/// When querying task status after submission, it's likely that the full Task
+/// definition is not available, so the caller should rely on the identity fields
+/// within the envelope.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TaskEnvelope<T: Task> {
     pub user_id: i32,
     pub envelope_id: String,
-    pub task: Option<T>, // convenience, but not always available (e.g. when dequeued)
+    pub task: Option<T>, // convenience, not always available (e.g. when dequeued)
 }
 
 impl<T: Task> TaskEnvelope<T> {
@@ -35,9 +38,9 @@ impl<T: Task> TaskEnvelope<T> {
 impl<T: Task> std::fmt::Debug for TaskEnvelope<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("TaskEnvelope");
-        debug.field("task_type", &T::task_type());
         debug.field("user_id", &self.user_id);
-        debug.field("task_id", &self.envelope_id);
+        debug.field("task_type", &T::task_type());
+        debug.field("envelope_id", &self.envelope_id);
 
         // Show a bounded preview of the serialized payload so logs stay readable
         // even for large tasks (e.g. a spark task with many capture_ids).

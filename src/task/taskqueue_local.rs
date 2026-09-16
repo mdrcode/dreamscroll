@@ -167,7 +167,7 @@ mod tests {
 
     impl Task for TestTask {
         fn entity_type() -> &'static str {
-            "c"
+            "capture"
         }
 
         fn entity_id(&self) -> i32 {
