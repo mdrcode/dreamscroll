@@ -135,6 +135,7 @@ async fn main() -> anyhow::Result<()> {
             firestarter,
             embedder,
             vector_store,
+            task_master.clone(),
         );
 
         router = router.nest("/_wh", webhook_router);

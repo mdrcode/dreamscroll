@@ -2,24 +2,53 @@ use std::sync::Arc;
 
 use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
 
-use crate::{api, logic, webhook};
+use crate::{api, logic, task, webhook};
 
 /// Webhook POST route for Cloud Tasks search indexing payloads.
 ///
-/// Expected body is raw JSON for `SearchIndexTask`, e.g.:
-/// `{ "capture_id": 123 }`
+/// Expected body is a serialized `TaskEnvelope<SearchIndexTask>`, e.g.:
+/// `{ "user_id": 1, "task_id": "u1-search_index-...", "task": { "capture_id": 123 } }`
+///
+/// REVISIT: status tracking is currently minimal — `attempts` is hardcoded to
+/// `0`, and a failed `exec` writes `Error` directly (no `ErrorFinal` escalation
+/// or retry policy yet). See `_project/plans/sse-task-status.md`.
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
-    Json(task): Json<logic::search_index::SearchIndexTask>,
+    Json(envelope): Json<task::TaskEnvelope<logic::search_index::SearchIndexTask>>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    logic::search_index::exec(
+    let Some(task) = envelope.task.clone() else {
+        return Err(api::ApiError::bad_request(anyhow::anyhow!(
+            "TaskEnvelope missing payload"
+        )));
+    };
+
+    state
+        .task_master
+        .update_status(&envelope, task::StatusCode::InProgress, 0)
+        .await
+        .map_err(api::ApiError::internal)?;
+
+    let result = logic::search_index::exec(
         &state.service_api,
         state.stg.as_ref(),
         &state.embedder,
         &state.vector_store,
         task,
     )
-    .await?;
+    .await;
+
+    let status = if result.is_ok() {
+        task::StatusCode::Completed
+    } else {
+        task::StatusCode::Error
+    };
+    state
+        .task_master
+        .update_status(&envelope, status, 0)
+        .await
+        .map_err(api::ApiError::internal)?;
+
+    result?;
 
     Ok(StatusCode::NO_CONTENT)
 }

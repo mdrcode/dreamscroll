@@ -1,4 +1,6 @@
-use crate::{api, ignition, illumination, search, storage};
+use std::sync::Arc;
+
+use crate::{api, ignition, illumination, search, storage, task};
 
 pub struct WebhookState {
     pub service_api: api::ServiceApiClient,
@@ -7,4 +9,5 @@ pub struct WebhookState {
     pub firestarter: Box<dyn ignition::Firestarter>,
     pub embedder: search::gcloud::GeminiEmbedder,
     pub vector_store: search::gcloud::VertexVectorStore,
+    pub task_master: Arc<task::TaskMaster>,
 }
