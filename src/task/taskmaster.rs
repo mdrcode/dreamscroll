@@ -9,24 +9,18 @@ use super::*;
 
 /// The primary entry point for manipulating `Task` instances.
 ///
-/// `TaskMaster` owns the backend queues **and** the `task_status` table. It is
-/// one of only two structs allowed to touch `task_status` directly (the other
-/// is `StatusListener`, the future LISTEN/NOTIFY thread). Everything else in the
-/// system talks to tasks through this API:
+/// Owns the backend queues **and** the `task_status` table. Everything else
+/// talks to tasks through this API:
 ///
 /// - `submit_*` — enqueue + record a `Queued` row.
 /// - `begin_attempt` / `finish_attempt` — the worker-side attempt lifecycle.
 /// - `query_*` — read status (replay / polling).
 ///
-/// Status transitions are deliberately *not* exposed as a raw setter: workers
-/// must go through `begin_attempt`/`finish_attempt` so the attempt count and
-/// the retry/exhaustion decision stay consistent with the recorded status.
+/// Status is deliberately not exposed as a raw setter: workers go through
+/// `begin_attempt`/`finish_attempt` so `attempts` and the retry decision stay
+/// consistent with the recorded status.
 ///
-/// `db` is required: `TaskMaster` always records task status, so there is no
-/// enqueue-only mode. Callers that don't want background-task bookkeeping
-/// should simply not submit tasks.
-///
-/// Not Clone, share it via Arc.
+/// `db` is required (there is no enqueue-only mode). Not `Clone`; share via `Arc`.
 pub struct TaskMaster {
     status: TaskStatusTracker,
     max_attempts: i32,
@@ -35,15 +29,13 @@ pub struct TaskMaster {
     spark_queue: Option<Box<dyn TaskQueue<SparkTask>>>,
 }
 
-/// The outcome of a single task attempt, from the worker's point of view.
+/// The outcome of a single task attempt, which the webhook maps to an HTTP
+/// status so Cloud Tasks does (or doesn't) retry:
 ///
-/// This tells the webhook handler which HTTP status to return so that Cloud
-/// Tasks does (or doesn't) retry:
-///
-/// - `Completed` — 2xx. Task is done.
-/// - `ErrorWillRetry` — non-2xx. Cloud Tasks retries within its budget.
-/// - `ErrorExhausted` — **2xx**. The app has spent its own retry budget, so we
-///   must ack the task to stop Cloud Tasks from spending its (larger) budget.
+/// - `Completed` — 2xx.
+/// - `ErrorWillRetry` — non-2xx; Cloud Tasks retries within its budget.
+/// - `ErrorExhausted` — **2xx**; the app spent its own budget, so we ack to stop
+///   Cloud Tasks spending its (larger) one.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AttemptOutcome {
     Completed,
@@ -52,10 +44,8 @@ pub enum AttemptOutcome {
 }
 
 impl AttemptOutcome {
-    /// Decide the outcome of a failed attempt.
-    ///
-    /// An attempt is worth retrying only when the error is transient *and* the
-    /// app still has retry budget. `attempt` is 1-based.
+    /// Retry only when the error is transient *and* budget remains.
+    /// `attempt` is 1-based.
     pub fn from_failure(err: &api::ApiError, attempt: i32, max_attempts: i32) -> Self {
         if err.is_retryable() && attempt < max_attempts {
             AttemptOutcome::ErrorWillRetry
@@ -65,26 +55,21 @@ impl AttemptOutcome {
     }
 }
 
-/// The outcome of a submission, from the submitter's point of view.
+/// The outcome of a submission.
 ///
-/// A refusal is a *normal* outcome, not an error: submitting work that is
-/// already in flight is expected (double-clicked upload, retried request), so
-/// callers should not log it as a failure.
+/// A refusal is a *normal* outcome, not an error: duplicates (double-clicked
+/// upload, retried request) are expected, so callers should not log it as a
+/// failure.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SubmitOutcome {
     /// A new run was created and enqueued. `run` counts from 1.
     Enqueued { run: i32 },
-    /// The latest run is still in flight, so nothing was enqueued. `run` is the
-    /// run that is already in progress.
+    /// The latest run is still in flight, so nothing was enqueued.
     RefusedInFlight { run: i32 },
 }
 
-/// Decide what to do about a submission given the latest run of the same
-/// logical task.
-///
-/// - No prior run → start run 1.
-/// - Latest run in flight → refuse; the work is already queued/running.
-/// - Latest run settled → start the next run (this is what makes reruns work).
+/// Decide what a submission should do, given the latest run of the same
+/// logical task: none → run 1; in flight → refuse; settled → next run (rerun).
 fn plan_submission(latest: Option<&model::task_status::Model>) -> Result<i32, i32> {
     let Some(latest) = latest else {
         return Ok(1);
@@ -100,10 +85,8 @@ fn plan_submission(latest: Option<&model::task_status::Model>) -> Result<i32, i3
 
 /// Compute the 1-based attempt number for a run about to start.
 ///
-/// Returns `None` when the run is already `Completed`: Cloud Tasks delivers at
-/// least once, so a redelivery of finished work must not resurrect the row back
-/// to `InProgress` (which would show a spurious "in progress" blip to any client
-/// watching the task).
+/// `None` when the run is already `Completed`: Cloud Tasks delivers at least
+/// once, so a redelivery of finished work must not resurrect it to `InProgress`.
 fn next_attempt_number(status: Option<&model::task_status::Model>) -> Option<i32> {
     match status {
         Some(row) if row.status_code == StatusCode::Completed.as_i32() => None,
@@ -149,10 +132,9 @@ impl TaskMaster {
 
     /// Submit a task for execution.
     ///
-    /// Refuses the submission if the latest run of this logical task is still in
-    /// flight (see `plan_submission`), so a duplicate submit cannot queue the
-    /// same work twice. If the latest run has settled, a **new run** is started,
-    /// which is how reruns are expressed.
+    /// Refuses if the latest run is still in flight, so a duplicate submit
+    /// cannot queue the same work twice. A settled latest run starts a **new
+    /// run** — that is how reruns are expressed.
     async fn submit_inner<T: Task>(
         &self,
         queue: Option<&Box<dyn TaskQueue<T>>>,
@@ -186,8 +168,7 @@ impl TaskMaster {
         };
 
         // Record `Queued` before enqueueing, since `enqueue` moves the envelope.
-        // `false` means another submit claimed this run first — refuse rather
-        // than double-enqueue.
+        // `false` = another submit claimed this run first; refuse, don't double-enqueue.
         let created = self
             .status
             .create_run(&envelope, StatusCode::Queued, 0)
@@ -216,14 +197,10 @@ impl TaskMaster {
 
     /// Mark an attempt as starting and return its 1-based attempt number.
     ///
-    /// The attempt number is derived from the persisted `attempts` count, so it
-    /// survives worker restarts and works identically for every queue backend
-    /// (unlike Cloud Tasks' retry-count header, which the local queue lacks).
-    ///
-    /// Returns `None` if this run is already `Completed`. Cloud Tasks delivers
-    /// at least once, so a redelivery of finished work must not resurrect it
-    /// back to `InProgress` (which would show a spurious "in progress" blip to
-    /// any client watching the task).
+    /// Derived from the persisted `attempts` count, so it survives worker
+    /// restarts and works for every queue backend (Cloud Tasks' retry-count
+    /// header isn't available on the local queue). `None` if the run already
+    /// `Completed` — that redelivery must be ignored, not resurrected.
     pub async fn begin_attempt<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
@@ -249,10 +226,7 @@ impl TaskMaster {
     }
 
     /// Record the outcome of an attempt and decide whether Cloud Tasks should
-    /// retry.
-    ///
-    /// A failed attempt is retryable only when the error is transient *and* the
-    /// app still has retry budget; otherwise it is exhausted and must be acked.
+    /// retry (transient error *and* budget remaining; otherwise exhausted).
     pub async fn finish_attempt<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
@@ -289,11 +263,8 @@ impl TaskMaster {
         }
     }
 
-    /// Record a status transition for a run. `attempts` is the attempt count at
-    /// the time of this transition.
-    ///
-    /// Private on purpose: external callers must use `begin_attempt`/`finish_attempt`,
-    /// which keep `attempts` and the retry decision consistent with the status.
+    /// Record a status transition for a run. Private: callers must use
+    /// `begin_attempt`/`finish_attempt`.
     async fn update_status<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
@@ -303,13 +274,9 @@ impl TaskMaster {
         self.status.update_run(envelope, status, attempts).await
     }
 
-    /// Query the *incomplete* task statuses recorded against a given entity,
-    /// e.g. all tasks (`illuminate`, `search_index`, `spark`, ...) that
-    /// operate on a single capture and have not yet succeeded. Always scoped by
-    /// `user_id`.
-    ///
-    /// Includes `ErrorExhausted` — permanently failed work that the user still
-    /// wants to see. Excludes `Completed`, which is vacuumed over time.
+    /// Incomplete task statuses recorded against one entity, scoped by
+    /// `user_id`. Includes `ErrorExhausted` (the user still wants to see
+    /// failed work); excludes `Completed`.
     pub async fn query_incomplete_for_entity(
         &self,
         user_id: i32,
@@ -321,11 +288,8 @@ impl TaskMaster {
             .await
     }
 
-    /// Query every *incomplete* task status for a user, across all entities.
-    ///
-    /// The user-level counterpart to `query_incomplete_for_entity`, for callers
-    /// that want every outstanding task a user has rather than the tasks for
-    /// one entity. Includes `ErrorExhausted`; excludes `Completed`.
+    /// Every incomplete task status for a user, across all entities. The
+    /// user-level counterpart to `query_incomplete_for_entity`.
     pub async fn query_incomplete_for_user(
         &self,
         user_id: i32,
@@ -382,9 +346,8 @@ impl TaskMasterBuilder {
 
         Ok(TaskMaster {
             status: TaskStatusTracker::new(db),
-            // Mirrors `Config::task_max_attempts`'s default so a builder that
-            // forgets `.max_attempts(..)` behaves like production rather than
-            // silently disabling retries.
+            // Mirrors `Config::task_max_attempts` so a builder that forgets
+            // `.max_attempts(..)` behaves like production rather than disabling retries.
             max_attempts: self.max_attempts.unwrap_or(3).max(1),
             illumination_queue: self.illumination_queue,
             search_index_queue: self.search_index_queue,
@@ -1111,5 +1074,214 @@ mod tests {
             .await
             .expect("query should succeed");
         assert!(other.is_empty(), "queries must be scoped by user_id");
+    }
+
+    /// A service with an illumination queue that records (or fails) enqueues.
+    fn service(db: &crate::test_support::test_db::TestDb, queue_fails: bool) -> TaskMaster {
+        TaskMaster::builder()
+            .db(db.handle())
+            .illumination_queue(RecordingQueue {
+                captures: Arc::new(Mutex::new(Vec::new())),
+                fail: queue_fails,
+            })
+            .build()
+            .expect("build should succeed with a db")
+    }
+
+    #[tokio::test]
+    async fn submit_spark_requires_at_least_one_capture() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let service = service(&db, false);
+
+        let result = service
+            .submit_spark(
+                1,
+                SparkTask {
+                    spark_id: 1,
+                    capture_ids: vec![],
+                },
+            )
+            .await;
+
+        assert!(
+            result.is_err(),
+            "an empty spark has no meaning and must be rejected"
+        );
+    }
+
+    /// With no queue configured the submit is accepted but nothing is recorded,
+    /// and it is NOT enqueued anywhere. This is the util/test path.
+    #[tokio::test]
+    async fn submit_without_queue_records_no_row() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .build()
+            .expect("build should succeed with a db");
+
+        let outcome = service
+            .submit_illumination(1, IlluminationTask { capture_id: 7 })
+            .await
+            .expect("submit should be answered, not error");
+
+        assert_eq!(outcome, SubmitOutcome::Enqueued { run: 1 });
+
+        let rows = service
+            .query_incomplete_for_user(1)
+            .await
+            .expect("query should succeed");
+        assert!(
+            rows.is_empty(),
+            "without a queue there is no work to track, so no row is written"
+        );
+    }
+
+    /// The row is written *before* the enqueue, so a failed enqueue leaves a
+    /// `Queued` row that nothing will ever pick up. Documented as a tolerated
+    /// orphan (see pragmatism.md) — this test pins the behaviour so a change is
+    /// deliberate rather than accidental.
+    #[tokio::test]
+    async fn failed_enqueue_leaves_a_queued_row() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let service = service(&db, true);
+
+        let result = service
+            .submit_illumination(1, IlluminationTask { capture_id: 9 })
+            .await;
+        assert!(result.is_err(), "the enqueue error must propagate");
+
+        let rows = service
+            .query_incomplete_for_entity(1, "capture", 9)
+            .await
+            .expect("query should succeed");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status_code, StatusCode::Queued.as_i32());
+    }
+
+    /// Only `Completed` is protected from redelivery. An exhausted run is not,
+    /// so a redelivery would move it back to `InProgress`.
+    ///
+    /// Unreachable today: we ack `ErrorExhausted` with a 2xx, so Cloud Tasks
+    /// stops redelivering. Pinned here because the boundary is subtle and would
+    /// matter if the ack policy ever changed.
+    #[tokio::test]
+    async fn exhausted_run_is_not_protected_from_redelivery() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .max_attempts(1)
+            .illumination_queue(RecordingQueue {
+                captures: Arc::new(Mutex::new(Vec::new())),
+                fail: false,
+            })
+            .build()
+            .expect("build should succeed with a db");
+
+        service
+            .submit_illumination(1, IlluminationTask { capture_id: 5 })
+            .await
+            .expect("submit should succeed");
+
+        let envelope = TaskEnvelope::new(1, IlluminationTask { capture_id: 5 }, 1);
+        let attempt = service
+            .begin_attempt(&envelope)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("attempt should not be skipped");
+        let outcome = service
+            .finish_attempt(
+                &envelope,
+                attempt,
+                &Err(api::ApiError::internal(anyhow::anyhow!("boom"))),
+            )
+            .await
+            .expect("finish_attempt should succeed");
+        assert_eq!(outcome, AttemptOutcome::ErrorExhausted);
+
+        let redelivery = service
+            .begin_attempt(&envelope)
+            .await
+            .expect("begin_attempt should succeed");
+
+        assert_eq!(
+            redelivery,
+            Some(2),
+            "an exhausted run is retried if redelivered, not skipped"
+        );
+    }
+
+    /// Two logical tasks for the same entity coexist: the status queries key on
+    /// the envelope, and a second task type must not overwrite or hide the
+    /// first.
+    #[tokio::test]
+    async fn distinct_task_types_for_one_entity_are_independent() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let service = service(&db, false);
+
+        service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("submit should succeed");
+
+        let rows = service
+            .query_incomplete_for_entity(1, "capture", 42)
+            .await
+            .expect("query should succeed");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].envelope_id, "u1-illuminate-capture42",
+            "the envelope carries the task type, so another task type cannot collide"
+        );
+    }
+
+    /// `attempts` comes from the DB, not memory, so a worker restart resumes the
+    /// count instead of resetting it.
+    #[tokio::test]
+    async fn attempt_count_survives_a_new_task_master() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+
+        // First "process": one attempt that will retry.
+        let first_process = service(&db, false);
+        first_process
+            .submit_illumination(1, IlluminationTask { capture_id: 3 })
+            .await
+            .expect("submit should succeed");
+        let envelope = TaskEnvelope::new(1, IlluminationTask { capture_id: 3 }, 1);
+        let attempt = first_process
+            .begin_attempt(&envelope)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("attempt should not be skipped");
+        first_process
+            .finish_attempt(
+                &envelope,
+                attempt,
+                &Err(api::ApiError::internal(anyhow::anyhow!("transient"))),
+            )
+            .await
+            .expect("finish_attempt should succeed");
+
+        // Second "process" over the same database: the count is not reset.
+        let second_process = service(&db, false);
+        let attempt = second_process
+            .begin_attempt(&envelope)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("attempt should not be skipped");
+
+        assert_eq!(attempt, 2, "the attempt count is persisted, not in-memory");
     }
 }

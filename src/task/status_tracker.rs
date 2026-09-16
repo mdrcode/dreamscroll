@@ -4,10 +4,9 @@ use crate::{database, model};
 
 use super::*;
 
-/// True when a `DbErr` is a unique-constraint violation.
-///
-/// The `(envelope_id, run)` unique index is the real guard against a duplicate
-/// submission, so this case is expected, not exceptional.
+/// True when a `DbErr` is a unique-constraint violation. The
+/// `(envelope_id, run)` unique index is the real guard against a duplicate
+/// submission, so this is expected, not exceptional.
 fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
     matches!(
         err.sql_err(),
@@ -15,11 +14,8 @@ fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
     )
 }
 
-/// Encapsulates all direct reads/writes to the `task_status` table.
-///
-/// This is the single owner of the `task_status` persistence logic, so it can
-/// be unit-tested in isolation and reused by `TaskMaster` (writes) and
-/// `StatusListener` (reads for SSE) without duplicating the SeaORM queries.
+/// All direct reads/writes to `task_status`, shared by `TaskMaster` (writes) and
+/// `StatusListener` (reads for SSE) so the SeaORM queries aren't duplicated.
 #[derive(Clone)]
 pub struct TaskStatusTracker {
     db: database::DbHandle,
@@ -30,17 +26,12 @@ impl TaskStatusTracker {
         Self { db }
     }
 
-    /// Insert the first row for a run. Fails (returns `Ok(false)`) if a row for
-    /// this `(envelope_id, run)` already exists.
+    /// Insert the first row for a run. `Ok(false)` if `(envelope_id, run)`
+    /// already exists — the *lost-a-race* case, where a concurrent submit
+    /// claimed the run first. The unique index, not the read, is what makes
+    /// correctness here.
     ///
-    /// `Ok(false)` is the *lost-a-race* case: the caller read the latest run,
-    /// decided this run number was free, and a concurrent submit claimed it
-    /// first. The composite unique index is what makes correctness rest on the
-    /// constraint rather than on the read.
-    ///
-    /// The full task payload is required: status is only ever recorded by
-    /// submitters and workers, both of which hold the concrete task. An
-    /// envelope without a payload is a programming error.
+    /// Requires the task payload (submitters and workers always hold it).
     pub async fn create_run<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
@@ -75,10 +66,7 @@ impl TaskStatusTracker {
         }
     }
 
-    /// Update the row for an existing `(envelope_id, run)`.
-    ///
-    /// A no-op if the row is missing, which can only happen if someone deleted
-    /// it mid-flight (we tolerate that rather than resurrecting a row).
+    /// Update the row for an existing `(envelope_id, run)`. No-op if missing.
     pub async fn update_run<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
@@ -109,9 +97,7 @@ impl TaskStatusTracker {
     }
 
     /// The most recent run of a logical task, or `None` if it has never run.
-    ///
-    /// This is the decision input for submit: an in-flight latest run blocks a
-    /// new submission, a settled one permits a rerun.
+    /// The decision input for submit: in flight → refuse, settled → rerun.
     pub async fn latest_run(
         &self,
         envelope_id: &str,
@@ -127,10 +113,7 @@ impl TaskStatusTracker {
         Ok(row)
     }
 
-    /// Query the status row for one specific run, used by workers to decide
-    /// whether another attempt is warranted.
-    ///
-    /// Returns `None` when there is no row.
+    /// The status row for one specific run, used by `begin_attempt`.
     pub async fn query_run_status(
         &self,
         envelope_id: &str,
@@ -147,25 +130,12 @@ impl TaskStatusTracker {
         Ok(row)
     }
 
-    /// Query the *incomplete* task statuses recorded against a given entity,
-    /// e.g. all tasks (`illuminate`, `search_index`, ...) that
-    /// operate on a single capture and have not yet succeeded.
+    /// Incomplete task statuses for one entity, scoped by `user_id` (entity ids
+    /// are not a security boundary). "Incomplete" = not `Completed`, which
+    /// includes `ErrorExhausted`: failed work is still worth showing.
     ///
-    /// Incomplete means everything except `Completed`: in-flight tasks
-    /// (`Queued`, `InProgress`, `ErrorWillRetry`) *and* `ErrorExhausted`, since
-    /// work that permanently failed is still something the user wants to see.
-    /// Completed rows are vacuumed over time, so this API deliberately cannot
-    /// express "give me everything" — that would silently return an incomplete
-    /// history.
-    ///
-    /// Always scoped by `user_id`: entity ids are not a security boundary, and
-    /// callers must never be able to observe another user's task state.
-    ///
-    /// Only the **latest run** of each logical task is returned: a rerun
-    /// supersedes the run before it, and callers want current state, not a run
-    /// history.
-    ///
-    /// Returns an empty vec when there's no DB or no matching rows.
+    /// Only the **latest run** per logical task is returned — a rerun supersedes
+    /// the run before it.
     pub async fn query_incomplete_for_entity(
         &self,
         user_id: i32,
@@ -174,14 +144,12 @@ impl TaskStatusTracker {
     ) -> anyhow::Result<Vec<model::task_status::Model>> {
         let db = &self.db;
 
-        // TODO(REVISIT): this predicate wants a composite index on
-        // (user_id, entity_type, entity_id, status_code). See the note on
-        // `model::task_status::Model`.
+        // TODO(REVISIT): wants a composite index on
+        // (user_id, entity_type, entity_id, status_code).
         //
-        // NOTE: deliberately no `status_code` filter here. The latest run must
-        // be found among *all* runs — filtering first would let a stale
-        // incomplete run shadow a newer completed one. See
-        // `incomplete_latest_runs`.
+        // Deliberately no `status_code` filter: the latest run must be found
+        // among *all* runs, else a stale incomplete run shadows a newer
+        // completed one. See `incomplete_latest_runs`.
         let rows = model::task_status::Entity::find()
             .filter(model::task_status::Column::UserId.eq(user_id))
             .filter(model::task_status::Column::EntityType.eq(entity_type))
@@ -192,27 +160,15 @@ impl TaskStatusTracker {
         Ok(incomplete_latest_runs(rows))
     }
 
-    /// Query every *incomplete* task status for a user, across all entities.
-    ///
-    /// This is the user-level counterpart to `query_incomplete_for_entity`:
-    /// useful when the caller wants every outstanding task a user has (e.g. a
-    /// global progress indicator or a "what's still running?" view) rather than
-    /// the tasks for one specific entity.
-    ///
-    /// "Incomplete" means everything except `Completed` (see
-    /// `query_incomplete_for_entity` for the full rationale), so permanently
-    /// failed work (`ErrorExhausted`) is included. Only the latest run of each
-    /// logical task is returned.
-    ///
-    /// Returns an empty vec when there are no matching rows.
+    /// Every incomplete task status for a user. The user-level counterpart to
+    /// `query_incomplete_for_entity`; also returns only the latest run each.
     pub async fn query_incomplete_for_user(
         &self,
         user_id: i32,
     ) -> anyhow::Result<Vec<model::task_status::Model>> {
         let db = &self.db;
 
-        // TODO(REVISIT): this predicate wants a composite index on
-        // (user_id, run). See the note on `model::task_status::Model`.
+        // TODO(REVISIT): wants a composite index on (user_id, run).
         let rows = model::task_status::Entity::find()
             .filter(model::task_status::Column::UserId.eq(user_id))
             .all(&db.conn)
@@ -222,15 +178,14 @@ impl TaskStatusTracker {
     }
 }
 
-/// Reduce rows to the latest run of each logical task, keeping only those whose
-/// latest run is still incomplete.
+/// Reduce rows to the latest run per logical task, keeping those still
+/// incomplete.
 ///
-/// The order matters: runs are collapsed **before** the incomplete predicate is
-/// applied. Filtering first would let an older incomplete run shadow a newer
-/// completed one, reporting work as outstanding when it is actually done.
+/// Collapse **before** filtering: filtering first lets an older incomplete run
+/// shadow a newer completed one, reporting finished work as outstanding.
 ///
-/// Kept in Rust rather than SQL: the filtered set is per-user (or per-entity),
-/// which is small, and this avoids a correlated subquery or window function.
+/// In Rust rather than SQL because the set is per-user (or per-entity) — small
+/// enough that a correlated subquery or window function isn't worth it.
 fn incomplete_latest_runs(rows: Vec<model::task_status::Model>) -> Vec<model::task_status::Model> {
     let mut latest: std::collections::HashMap<String, model::task_status::Model> =
         std::collections::HashMap::new();
@@ -252,4 +207,284 @@ fn incomplete_latest_runs(rows: Vec<model::task_status::Model>) -> Vec<model::ta
                 .unwrap_or(true) // unknown status: surface it rather than hide it
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A minimal task, so tracker tests don't depend on a real task type.
+    #[derive(Debug, Clone, serde::Serialize)]
+    struct TestTask {
+        id: i32,
+    }
+
+    impl Task for TestTask {
+        fn task_type() -> &'static str {
+            "test"
+        }
+        fn entity_type() -> &'static str {
+            "capture"
+        }
+        fn entity_id(&self) -> i32 {
+            self.id
+        }
+    }
+
+    fn envelope(user_id: i32, id: i32, run: i32) -> TaskEnvelope<TestTask> {
+        TaskEnvelope::new(user_id, TestTask { id }, run)
+    }
+
+    fn row(envelope_id: &str, run: i32, status: StatusCode) -> model::task_status::Model {
+        model::task_status::Model {
+            id: 0,
+            user_id: 1,
+            envelope_id: envelope_id.to_string(),
+            run,
+            task_type: "test".to_string(),
+            entity_type: "capture".to_string(),
+            entity_id: 1,
+            status_code: status.as_i32(),
+            attempts: 0,
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        }
+    }
+
+    // --- `incomplete_latest_runs` (pure) ---
+
+    #[test]
+    fn collapse_keeps_the_latest_run() {
+        let kept = incomplete_latest_runs(vec![
+            row("a", 1, StatusCode::ErrorExhausted),
+            row("a", 2, StatusCode::Queued),
+        ]);
+
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].run, 2, "the rerun supersedes the run before it");
+    }
+
+    #[test]
+    fn collapse_drops_a_task_whose_latest_run_completed() {
+        // An older failed run must not shadow a newer completed one, or finished
+        // work would be reported as still outstanding.
+        let kept = incomplete_latest_runs(vec![
+            row("a", 1, StatusCode::ErrorExhausted),
+            row("a", 2, StatusCode::Completed),
+        ]);
+
+        assert!(kept.is_empty());
+    }
+
+    #[test]
+    fn collapse_returns_one_row_per_envelope() {
+        let kept = incomplete_latest_runs(vec![
+            row("a", 1, StatusCode::Queued),
+            row("b", 1, StatusCode::InProgress),
+            row("a", 2, StatusCode::Queued),
+        ]);
+
+        assert_eq!(kept.len(), 2, "one row per logical task");
+    }
+
+    #[test]
+    fn collapse_keeps_failed_work_but_drops_completed() {
+        let kept = incomplete_latest_runs(vec![
+            row("a", 1, StatusCode::Completed),
+            row("b", 1, StatusCode::ErrorExhausted),
+        ]);
+
+        assert_eq!(kept.len(), 1);
+        assert_eq!(
+            kept[0].envelope_id, "b",
+            "the user still wants to see failures"
+        );
+    }
+
+    #[test]
+    fn collapse_surfaces_an_unreadable_status() {
+        let mut unreadable = row("a", 1, StatusCode::Queued);
+        unreadable.status_code = 99; // not a valid StatusCode discriminant
+
+        let kept = incomplete_latest_runs(vec![unreadable]);
+
+        assert_eq!(
+            kept.len(),
+            1,
+            "an unknown status must not be silently hidden"
+        );
+    }
+
+    // --- DB-backed ---
+
+    #[tokio::test]
+    async fn create_run_persists_the_full_identity() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskStatusTracker::new(db.handle());
+        let env = envelope(1, 42, 1);
+
+        assert!(
+            tracker
+                .create_run(&env, StatusCode::Queued, 0)
+                .await
+                .expect("create_run should succeed")
+        );
+
+        let stored = tracker
+            .latest_run(&env.envelope_id)
+            .await
+            .expect("query should succeed")
+            .expect("row should exist");
+
+        assert_eq!(stored.run, 1);
+        assert_eq!(stored.user_id, 1);
+        assert_eq!(stored.entity_id, 42);
+        assert_eq!(stored.entity_type, "capture");
+        assert_eq!(stored.task_type, "test");
+        assert_eq!(stored.status_code, StatusCode::Queued.as_i32());
+        assert_eq!(stored.attempts, 0);
+    }
+
+    /// The unique index is what actually prevents a duplicate submission, so the
+    /// tracker must report the conflict rather than propagate it as an error.
+    #[tokio::test]
+    async fn create_run_refuses_a_duplicate_run() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskStatusTracker::new(db.handle());
+        let env = envelope(1, 42, 1);
+
+        let first = tracker
+            .create_run(&env, StatusCode::Queued, 0)
+            .await
+            .expect("first create_run should succeed");
+        let second = tracker
+            .create_run(&env, StatusCode::Queued, 0)
+            .await
+            .expect("a conflict must not be an error");
+
+        assert!(first, "the first insert wins");
+        assert!(!second, "the second loses the race");
+    }
+
+    #[tokio::test]
+    async fn create_run_allows_a_new_run_of_the_same_task() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskStatusTracker::new(db.handle());
+
+        assert!(
+            tracker
+                .create_run(&envelope(1, 42, 1), StatusCode::Completed, 1)
+                .await
+                .expect("run 1 should be created")
+        );
+        assert!(
+            tracker
+                .create_run(&envelope(1, 42, 2), StatusCode::Queued, 0)
+                .await
+                .expect("run 2 should be created")
+        );
+
+        let latest = tracker
+            .latest_run(&envelope(1, 42, 1).envelope_id)
+            .await
+            .expect("query should succeed")
+            .expect("a row should exist");
+
+        assert_eq!(latest.run, 2, "latest_run picks the highest run");
+    }
+
+    #[tokio::test]
+    async fn create_run_requires_a_payload() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskStatusTracker::new(db.handle());
+        let mut env = envelope(1, 42, 1);
+        env.task = None;
+
+        let result = tracker.create_run(&env, StatusCode::Queued, 0).await;
+
+        assert!(result.is_err(), "an envelope without a payload is a bug");
+    }
+
+    #[tokio::test]
+    async fn update_run_touches_only_its_own_run() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskStatusTracker::new(db.handle());
+        let run1 = envelope(1, 42, 1);
+        let run2 = envelope(1, 42, 2);
+
+        tracker
+            .create_run(&run1, StatusCode::ErrorExhausted, 1)
+            .await
+            .expect("run 1 should be created");
+        tracker
+            .create_run(&run2, StatusCode::Queued, 0)
+            .await
+            .expect("run 2 should be created");
+
+        tracker
+            .update_run(&run1, StatusCode::InProgress, 7)
+            .await
+            .expect("update should succeed");
+
+        let stored1 = tracker
+            .query_run_status(&run1.envelope_id, 1)
+            .await
+            .expect("query should succeed")
+            .expect("run 1 should exist");
+        let stored2 = tracker
+            .query_run_status(&run2.envelope_id, 2)
+            .await
+            .expect("query should succeed")
+            .expect("run 2 should exist");
+
+        assert_eq!(stored1.status_code, StatusCode::InProgress.as_i32());
+        assert_eq!(stored1.attempts, 7);
+        assert_eq!(
+            stored2.status_code,
+            StatusCode::Queued.as_i32(),
+            "run 2 must be untouched"
+        );
+
+        // A run that was never written is simply absent, not an error.
+        let missing = tracker
+            .query_run_status(&run1.envelope_id, 99)
+            .await
+            .expect("query should succeed");
+        assert!(missing.is_none());
+    }
+
+    #[tokio::test]
+    async fn query_incomplete_for_entity_is_user_scoped() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskStatusTracker::new(db.handle());
+
+        tracker
+            .create_run(&envelope(1, 42, 1), StatusCode::Queued, 0)
+            .await
+            .expect("create_run should succeed");
+
+        let mine = tracker
+            .query_incomplete_for_entity(1, "capture", 42)
+            .await
+            .expect("query should succeed");
+        let theirs = tracker
+            .query_incomplete_for_entity(2, "capture", 42)
+            .await
+            .expect("query should succeed");
+
+        assert_eq!(mine.len(), 1);
+        assert!(theirs.is_empty(), "entity ids are not a security boundary");
+    }
 }

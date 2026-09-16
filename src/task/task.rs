@@ -71,8 +71,8 @@ impl<T: Task> std::fmt::Debug for TaskEnvelope<T> {
         debug.field("envelope_id", &self.envelope_id);
         debug.field("run", &self.run);
 
-        // Show a bounded preview of the serialized payload so logs stay readable
-        // even for large tasks (e.g. a spark task with many capture_ids).
+        // Bounded preview of the serialized payload, so logs stay readable for
+        // large tasks (e.g. a spark with many capture_ids).
         let payload_preview = self
             .task
             .as_ref()
@@ -80,8 +80,8 @@ impl<T: Task> std::fmt::Debug for TaskEnvelope<T> {
                 let json =
                     serde_json::to_string(task).unwrap_or("<serialization error>".to_string());
                 if json.chars().count() > 200 {
-                    // Take a bounded char-boundary-safe prefix so we never panic
-                    // on a multi-byte UTF-8 boundary.
+                    // Char-boundary-safe prefix, so a multi-byte UTF-8 boundary
+                    // can never panic.
                     let preview: String = json.chars().take(200).collect();
                     format!("{preview}...")
                 } else {
@@ -92,5 +92,114 @@ impl<T: Task> std::fmt::Debug for TaskEnvelope<T> {
         debug.field("payload", &payload_preview);
 
         debug.finish()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    struct TestTask {
+        id: i32,
+    }
+
+    impl Task for TestTask {
+        fn task_type() -> &'static str {
+            "illuminate"
+        }
+        fn entity_type() -> &'static str {
+            "capture"
+        }
+        fn entity_id(&self) -> i32 {
+            self.id
+        }
+    }
+
+    /// The id format is persisted, so changing it silently would orphan every
+    /// existing `task_status` row.
+    #[test]
+    fn envelope_id_format_is_stable() {
+        assert_eq!(
+            TaskEnvelope::make_envelope_id(1, &TestTask { id: 123 }),
+            "u1-illuminate-capture123"
+        );
+    }
+
+    /// The id names the *work*, so the same task yields the same id regardless
+    /// of run. That is what lets a rerun target the same logical task.
+    #[test]
+    fn envelope_id_excludes_the_run() {
+        let by_id = TaskEnvelope::<TestTask>::make_envelope_id(1, &TestTask { id: 5 });
+        let run1 = TaskEnvelope::new(1, TestTask { id: 5 }, 1);
+        let run7 = TaskEnvelope::new(1, TestTask { id: 5 }, 7);
+
+        assert_eq!(run1.envelope_id, by_id);
+        assert_eq!(run7.envelope_id, by_id);
+        assert_ne!(run1.run, run7.run);
+    }
+
+    #[test]
+    fn envelope_id_distinguishes_users_and_entities() {
+        let a = TaskEnvelope::<TestTask>::make_envelope_id(1, &TestTask { id: 5 });
+        let other_user = TaskEnvelope::<TestTask>::make_envelope_id(2, &TestTask { id: 5 });
+        let other_entity = TaskEnvelope::<TestTask>::make_envelope_id(1, &TestTask { id: 6 });
+
+        assert_ne!(a, other_user);
+        assert_ne!(a, other_entity);
+    }
+
+    #[test]
+    fn new_wraps_the_task_and_defaults_to_the_given_run() {
+        let envelope = TaskEnvelope::new(3, TestTask { id: 9 }, 2);
+
+        assert_eq!(envelope.user_id, 3);
+        assert_eq!(envelope.run, 2);
+        assert_eq!(envelope.task.as_ref().map(|t| t.id), Some(9));
+    }
+
+    /// A deserialized envelope without a `run` must not land on run 0, which
+    /// would collide with nothing and silently create an off-by-one history.
+    #[test]
+    fn deserializing_without_a_run_defaults_to_one() {
+        let json = r#"{"user_id":1,"envelope_id":"u1-illuminate-capture5","task":{"id":5}}"#;
+
+        let envelope: TaskEnvelope<TestTask> =
+            serde_json::from_str(json).expect("envelope should deserialize");
+
+        assert_eq!(envelope.run, 1);
+    }
+
+    /// Debug must not panic on a multi-byte payload cut at the 200-char preview.
+    #[test]
+    fn debug_truncates_a_multibyte_payload_without_panicking() {
+        #[derive(Debug, Clone, Serialize)]
+        struct Wide {
+            text: String,
+        }
+
+        impl Task for Wide {
+            fn task_type() -> &'static str {
+                "wide"
+            }
+            fn entity_type() -> &'static str {
+                "capture"
+            }
+            fn entity_id(&self) -> i32 {
+                1
+            }
+        }
+
+        let envelope = TaskEnvelope::new(
+            1,
+            Wide {
+                text: "é".repeat(500),
+            },
+            1,
+        );
+
+        let rendered = format!("{envelope:?}");
+
+        assert!(rendered.contains("..."), "a long payload is truncated");
     }
 }

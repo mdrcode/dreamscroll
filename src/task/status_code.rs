@@ -151,4 +151,49 @@ mod tests {
             assert_eq!(StatusCode::from_i32(status.as_i32()).unwrap(), status);
         }
     }
+
+    #[test]
+    fn from_i32_rejects_unknown_values() {
+        assert!(StatusCode::from_i32(99).is_err());
+        assert!(StatusCode::from_i32(-1).is_err());
+    }
+
+    #[test]
+    fn in_flight_means_a_worker_may_still_act() {
+        assert!(StatusCode::Queued.is_in_flight());
+        assert!(StatusCode::InProgress.is_in_flight());
+        assert!(StatusCode::ErrorWillRetry.is_in_flight());
+
+        assert!(!StatusCode::Completed.is_in_flight());
+        assert!(!StatusCode::ErrorExhausted.is_in_flight());
+    }
+
+    /// The two predicates answer different questions and must not be conflated.
+    /// `ErrorExhausted` is the only status where they disagree: the user still
+    /// needs to see the failure, but no worker will touch it again — which is
+    /// exactly what makes it rerunnable.
+    #[test]
+    fn in_flight_is_not_the_same_as_incomplete() {
+        let disagreements: Vec<_> = StatusCode::ALL
+            .into_iter()
+            .filter(|s| s.is_in_flight() != s.is_incomplete())
+            .collect();
+
+        assert_eq!(
+            disagreements,
+            vec![StatusCode::ErrorExhausted],
+            "only a settled failure differs between the two predicates"
+        );
+    }
+
+    #[test]
+    fn settled_is_the_negation_of_in_flight() {
+        for status in StatusCode::ALL {
+            assert_eq!(
+                status.is_settled(),
+                !status.is_in_flight(),
+                "{status} must be exactly one of settled / in flight"
+            );
+        }
+    }
 }

@@ -156,7 +156,8 @@ mod tests {
         atomic::{AtomicUsize, Ordering},
     };
 
-    use tokio::sync::{Mutex as AsyncMutex, oneshot};
+    use tokio::sync::{Mutex as AsyncMutex, Notify};
+    use tokio::time::{Duration, sleep};
 
     use super::*;
 
@@ -179,8 +180,23 @@ mod tests {
         }
     }
 
+    fn envelope(id: i32) -> TaskEnvelope<TestTask> {
+        TaskEnvelope::new(1, TestTask { id }, 1)
+    }
+
+    /// Poll until `predicate` holds, or fail the test on timeout.
+    async fn wait_until(label: &str, mut predicate: impl FnMut() -> bool) {
+        let deadline = Duration::from_secs(2);
+        let start = std::time::Instant::now();
+
+        while !predicate() {
+            assert!(start.elapsed() < deadline, "timed out waiting for: {label}");
+            sleep(Duration::from_millis(5)).await;
+        }
+    }
+
     #[tokio::test]
-    async fn local_queue_executes_enqueued_tasks() -> anyhow::Result<()> {
+    async fn executes_enqueued_tasks() -> anyhow::Result<()> {
         let seen = Arc::new(AsyncMutex::new(Vec::new()));
         let seen_for_worker = Arc::clone(&seen);
 
@@ -192,249 +208,179 @@ mod tests {
             }
         });
 
-        queue
-            .enqueue(TaskEnvelope {
-                user_id: 1,
-                envelope_id: "1".to_string(),
-                run: 1,
-                task: Some(TestTask { id: 1 }),
-            })
-            .await?;
-        queue
-            .enqueue(TaskEnvelope {
-                user_id: 1,
-                envelope_id: "2".to_string(),
-                run: 1,
-                task: Some(TestTask { id: 2 }),
-            })
-            .await?;
+        queue.enqueue(envelope(1)).await?;
+        queue.enqueue(envelope(2)).await?;
 
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            loop {
-                if seen.lock().await.len() == 2 {
-                    return;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
+        wait_until("both tasks to run", || {
+            seen.try_lock().map(|s| s.len() == 2).unwrap_or(false)
         })
-        .await?;
+        .await;
 
         let values = seen.lock().await.clone();
-        assert_eq!(values.len(), 2);
-        assert!(values.contains(&1));
-        assert!(values.contains(&2));
+        assert!(values.contains(&1) && values.contains(&2));
         Ok(())
     }
 
+    /// The semaphore must both *allow* parallelism and *bound* it. Asserting
+    /// only the lower bound would pass even if the semaphore were removed.
     #[tokio::test]
-    async fn local_queue_processes_all_tasks_with_parallel_execution() -> anyhow::Result<()> {
+    async fn concurrency_is_parallel_but_bounded() -> anyhow::Result<()> {
+        const LIMIT: usize = 3;
+        const TASKS: i32 = 9;
+
         let active = Arc::new(AtomicUsize::new(0));
         let max_active = Arc::new(AtomicUsize::new(0));
         let done = Arc::new(AtomicUsize::new(0));
 
-        let active_for_worker = Arc::clone(&active);
-        let max_active_for_worker = Arc::clone(&max_active);
-        let done_for_worker = Arc::clone(&done);
+        let (active_w, max_w, done_w) = (
+            Arc::clone(&active),
+            Arc::clone(&max_active),
+            Arc::clone(&done),
+        );
 
-        let queue = LocalTaskQueue::connect(3, move |_task: TaskEnvelope<TestTask>| {
-            let active = Arc::clone(&active_for_worker);
-            let max_active = Arc::clone(&max_active_for_worker);
-            let done = Arc::clone(&done_for_worker);
+        let queue = LocalTaskQueue::connect(LIMIT, move |_task: TaskEnvelope<TestTask>| {
+            let (active, max_active, done) = (
+                Arc::clone(&active_w),
+                Arc::clone(&max_w),
+                Arc::clone(&done_w),
+            );
 
             async move {
                 let current = active.fetch_add(1, Ordering::SeqCst) + 1;
-                let mut prev = max_active.load(Ordering::SeqCst);
-                while current > prev {
-                    match max_active.compare_exchange(
-                        prev,
-                        current,
-                        Ordering::SeqCst,
-                        Ordering::SeqCst,
-                    ) {
-                        Ok(_) => break,
-                        Err(actual_prev) => prev = actual_prev,
-                    }
-                }
+                max_active.fetch_max(current, Ordering::SeqCst);
 
-                tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+                sleep(Duration::from_millis(20)).await;
+
                 active.fetch_sub(1, Ordering::SeqCst);
                 done.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             }
         });
 
-        for id in 0..6 {
-            queue
-                .enqueue(TaskEnvelope {
-                    user_id: 1,
-                    envelope_id: id.to_string(),
-                    run: 1,
-                    task: Some(TestTask { id }),
-                })
-                .await?;
+        for id in 0..TASKS {
+            queue.enqueue(envelope(id)).await?;
         }
 
-        tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            while done.load(Ordering::SeqCst) < 6 {
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
+        wait_until("all tasks to finish", || {
+            done.load(Ordering::SeqCst) == TASKS as usize
         })
-        .await?;
+        .await;
 
+        let peak = max_active.load(Ordering::SeqCst);
+        assert!(peak >= 2, "expected parallelism, saw peak {peak}");
         assert!(
-            max_active.load(Ordering::SeqCst) >= 2,
-            "expected at least two tasks to run in parallel"
+            peak <= LIMIT,
+            "concurrency must not exceed the limit: peak {peak} > {LIMIT}"
         );
         Ok(())
     }
 
+    /// Dropping the last handle aborts the dispatcher, so tasks still queued
+    /// behind the in-flight one are never started.
     #[tokio::test]
-    async fn local_queue_shutdown_does_not_drain_remaining_queue() -> anyhow::Result<()> {
-        let (first_task_started_tx, first_task_started_rx) = oneshot::channel::<()>();
-        let first_task_started_tx = Arc::new(AsyncMutex::new(Some(first_task_started_tx)));
-
-        let (release_first_task_tx, release_first_task_rx) = oneshot::channel::<()>();
-        let release_first_task_rx = Arc::new(AsyncMutex::new(Some(release_first_task_rx)));
-
+    async fn shutdown_does_not_drain_the_queue() -> anyhow::Result<()> {
+        let started = Arc::new(AtomicUsize::new(0));
         let processed = Arc::new(AtomicUsize::new(0));
-        let processed_for_worker = Arc::clone(&processed);
-        let first_task_started_tx_for_worker = Arc::clone(&first_task_started_tx);
-        let release_first_task_rx_for_worker = Arc::clone(&release_first_task_rx);
+        let release = Arc::new(Notify::new());
 
+        let (started_w, processed_w, release_w) = (
+            Arc::clone(&started),
+            Arc::clone(&processed),
+            Arc::clone(&release),
+        );
+
+        // Concurrency 1, so only the first task can be in flight.
         let queue = LocalTaskQueue::connect(1, move |_task: TaskEnvelope<TestTask>| {
-            let processed = Arc::clone(&processed_for_worker);
-            let first_task_started_tx = Arc::clone(&first_task_started_tx_for_worker);
-            let release_first_task_rx = Arc::clone(&release_first_task_rx_for_worker);
+            let (started, processed, release) = (
+                Arc::clone(&started_w),
+                Arc::clone(&processed_w),
+                Arc::clone(&release_w),
+            );
 
             async move {
-                let mut maybe_started_tx = first_task_started_tx.lock().await;
-                if let Some(tx) = maybe_started_tx.take() {
-                    let _ = tx.send(());
-
-                    let mut maybe_release_rx = release_first_task_rx.lock().await;
-                    if let Some(rx) = maybe_release_rx.take() {
-                        let _ = rx.await;
-                    }
-                }
-                drop(maybe_started_tx);
-
+                started.fetch_add(1, Ordering::SeqCst);
+                release.notified().await;
                 processed.fetch_add(1, Ordering::SeqCst);
                 Ok(())
             }
         });
 
-        queue
-            .enqueue(TaskEnvelope {
-                user_id: 1,
-                envelope_id: "1".to_string(),
-                run: 1,
-                task: Some(TestTask { id: 1 }),
-            })
-            .await?;
+        queue.enqueue(envelope(1)).await?;
+        queue.enqueue(envelope(2)).await?;
+        queue.enqueue(envelope(3)).await?;
 
-        first_task_started_rx.await?;
-
-        queue
-            .enqueue(TaskEnvelope {
-                user_id: 1,
-                envelope_id: "2".to_string(),
-                run: 1,
-                task: Some(TestTask { id: 2 }),
-            })
-            .await?;
-        queue
-            .enqueue(TaskEnvelope {
-                user_id: 1,
-                envelope_id: "3".to_string(),
-                run: 1,
-                task: Some(TestTask { id: 3 }),
-            })
-            .await?;
+        wait_until("the first task to start", || {
+            started.load(Ordering::SeqCst) == 1
+        })
+        .await;
 
         drop(queue);
+        release.notify_one();
 
-        let _ = release_first_task_tx.send(());
-
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            loop {
-                if processed.load(Ordering::SeqCst) >= 1 {
-                    return;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
-        })
-        .await?;
-
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        // Give the aborted dispatcher a chance to (incorrectly) dispatch more.
+        sleep(Duration::from_millis(50)).await;
 
         assert_eq!(
             processed.load(Ordering::SeqCst),
             1,
-            "queued tasks should not be drained after shutdown"
+            "tasks queued behind the in-flight one must not run after shutdown"
         );
         Ok(())
     }
 
+    /// A failing task must not stop the queue from processing later ones.
     #[tokio::test]
-    async fn local_queue_handler_error_does_not_stop_subsequent_tasks() -> anyhow::Result<()> {
+    async fn handler_error_does_not_stop_subsequent_tasks() -> anyhow::Result<()> {
         let processed = Arc::new(AsyncMutex::new(Vec::new()));
         let processed_for_worker = Arc::clone(&processed);
 
         let queue = LocalTaskQueue::connect(1, move |task: TaskEnvelope<TestTask>| {
             let processed = Arc::clone(&processed_for_worker);
             async move {
-                if task.task.as_ref().unwrap().id == 2 {
+                let id = task.task.as_ref().unwrap().id;
+                if id == 2 {
                     anyhow::bail!("intentional failure for task 2")
                 }
 
-                processed.lock().await.push(task.task.as_ref().unwrap().id);
+                processed.lock().await.push(id);
                 Ok(())
             }
         });
 
-        queue
-            .enqueue(TaskEnvelope {
-                user_id: 1,
-                envelope_id: "1".to_string(),
-                run: 1,
-                task: Some(TestTask { id: 1 }),
-            })
-            .await?;
-        queue
-            .enqueue(TaskEnvelope {
-                user_id: 1,
-                envelope_id: "2".to_string(),
-                run: 1,
-                task: Some(TestTask { id: 2 }),
-            })
-            .await?;
-        queue
-            .enqueue(TaskEnvelope {
-                user_id: 1,
-                envelope_id: "3".to_string(),
-                run: 1,
-                task: Some(TestTask { id: 3 }),
-            })
-            .await?;
+        for id in [1, 2, 3] {
+            queue.enqueue(envelope(id)).await?;
+        }
 
-        tokio::time::timeout(std::time::Duration::from_secs(1), async {
-            loop {
-                let done = processed.lock().await.clone();
-                if done.contains(&1) && done.contains(&3) {
-                    return;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-            }
+        wait_until("tasks 1 and 3 to complete", || {
+            processed
+                .try_lock()
+                .map(|p| p.contains(&1) && p.contains(&3))
+                .unwrap_or(false)
         })
-        .await?;
+        .await;
 
         let done = processed.lock().await.clone();
-        assert!(done.contains(&1), "task 1 should have completed");
-        assert!(done.contains(&3), "task 3 should have completed");
-        assert!(
-            !done.contains(&2),
-            "task 2 should fail and not be marked as completed"
-        );
+        assert!(!done.contains(&2), "the failing task must not be recorded");
+        Ok(())
+    }
+
+    /// A zero concurrency limit would deadlock the dispatcher, so it is clamped.
+    #[tokio::test]
+    async fn zero_concurrency_is_clamped_to_one() -> anyhow::Result<()> {
+        let done = Arc::new(AtomicUsize::new(0));
+        let done_for_worker = Arc::clone(&done);
+
+        let queue = LocalTaskQueue::connect(0, move |_task: TaskEnvelope<TestTask>| {
+            let done = Arc::clone(&done_for_worker);
+            async move {
+                done.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+        });
+
+        queue.enqueue(envelope(1)).await?;
+
+        wait_until("the task to run", || done.load(Ordering::SeqCst) == 1).await;
         Ok(())
     }
 }
