@@ -8,9 +8,9 @@ use super::*;
 ///
 /// This is the single owner of the `task_status` persistence logic, so it can
 /// be unit-tested in isolation and reused by `TaskMaster` (writes) and
-/// `TaskWatcher` (reads for SSE) without duplicating the SeaORM queries.
+/// `StatusNotifier` (reads for SSE) without duplicating the SeaORM queries.
 #[derive(Clone)]
-pub struct TaskStatusRecorder {
+pub struct TaskStatusTracker {
     db: Option<database::DbHandle>,
 }
 
@@ -21,7 +21,7 @@ pub struct TaskStatusSnapshot {
     pub attempts: i32,
 }
 
-impl TaskStatusRecorder {
+impl TaskStatusTracker {
     pub fn new(db: Option<database::DbHandle>) -> Self {
         Self { db }
     }

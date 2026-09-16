@@ -5,15 +5,15 @@ pub use task::*;
 mod taskmaster;
 pub use taskmaster::*;
 
-// StatusRecorder maintains canonical source of truth for task status.
+// StatusTracker maintains canonical source of truth for task status.
 mod status_code;
 pub use status_code::*;
-mod status_recorder;
-pub use status_recorder::*;
+mod status_tracker;
+pub use status_tracker::*;
 
-// TaskWatcher is the future LISTEN/NOTIFY thread that relays status to SSE.
-mod taskwatcher;
-pub use taskwatcher::*;
+// StatusNotifier is the future LISTEN/NOTIFY thread that relays status to SSE.
+mod status_notifier;
+pub use status_notifier::*;
 
 mod maker;
 pub use maker::*;

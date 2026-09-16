@@ -11,7 +11,7 @@ use super::*;
 ///
 /// `TaskMaster` owns the backend queues **and** the `task_status` table. It is
 /// one of only two structs allowed to touch `task_status` directly (the other
-/// is `TaskWatcher`, the future LISTEN/NOTIFY thread). Everything else in the
+/// is `StatusNotifier`, the future LISTEN/NOTIFY thread). Everything else in the
 /// system talks to tasks through this API:
 ///
 /// - `submit_*` — enqueue + record a `Queued` row.
@@ -28,7 +28,7 @@ use super::*;
 ///
 /// Not Clone, share it via Arc.
 pub struct TaskMaster {
-    status: TaskStatusRecorder,
+    status: TaskStatusTracker,
     max_attempts: i32,
     illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
@@ -304,7 +304,7 @@ impl TaskMasterBuilder {
 
     pub fn build(self) -> TaskMaster {
         TaskMaster {
-            status: TaskStatusRecorder::new(self.db),
+            status: TaskStatusTracker::new(self.db),
             // Mirrors `Config::task_max_attempts`'s default so a builder that
             // forgets `.max_attempts(..)` behaves like production rather than
             // silently disabling retries.
