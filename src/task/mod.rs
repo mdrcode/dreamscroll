@@ -1,5 +1,7 @@
-mod task;
-pub use task::*;
+// The trait definitions live in `task_def.rs`; naming the module differently
+// from its parent avoids clippy's module_inception lint.
+mod task_def;
+pub use task_def::*;
 
 // TaskMaster is the primary entry point for manipulating Task instances.
 mod taskmaster;

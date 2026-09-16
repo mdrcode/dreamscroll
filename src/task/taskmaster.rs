@@ -105,7 +105,7 @@ impl TaskMaster {
         user_id: i32,
         task: IlluminationTask,
     ) -> anyhow::Result<SubmitOutcome> {
-        self.submit_inner(self.illumination_queue.as_ref(), user_id, task)
+        self.submit_inner(self.illumination_queue.as_deref(), user_id, task)
             .await
     }
 
@@ -117,7 +117,7 @@ impl TaskMaster {
         if task.capture_ids.is_empty() {
             anyhow::bail!("submit_spark requires at least one capture_id");
         }
-        self.submit_inner(self.spark_queue.as_ref(), user_id, task)
+        self.submit_inner(self.spark_queue.as_deref(), user_id, task)
             .await
     }
 
@@ -126,7 +126,7 @@ impl TaskMaster {
         user_id: i32,
         task: SearchIndexTask,
     ) -> anyhow::Result<SubmitOutcome> {
-        self.submit_inner(self.search_index_queue.as_ref(), user_id, task)
+        self.submit_inner(self.search_index_queue.as_deref(), user_id, task)
             .await
     }
 
@@ -137,7 +137,7 @@ impl TaskMaster {
     /// run** — that is how reruns are expressed.
     async fn submit_inner<T: Task>(
         &self,
-        queue: Option<&Box<dyn TaskQueue<T>>>,
+        queue: Option<&dyn TaskQueue<T>>,
         user_id: i32,
         task: T,
     ) -> anyhow::Result<SubmitOutcome> {
