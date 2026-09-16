@@ -45,7 +45,7 @@ impl<T: Task> CloudTaskQueue<T> {
 #[async_trait::async_trait]
 impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
     async fn enqueue(&self, envelope: TaskEnvelope<T>) -> anyhow::Result<()> {
-        // Serialize the full wrapper (task identity + task) so the worker knows
+        // Serialize the full envelope (task definition + identity) so the worker knows
         // which task it's completing.
         let body =
             serde_json::to_vec(&envelope).context("Failed to serialize task wrapper to JSON")?;
@@ -77,8 +77,8 @@ impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
         tracing::info!(
             queue = %self.inner.queue_path,
             task_name = %created_task.name,
-            "Enqueued task id {:?} to queue: {} with task_name: {}",
-            envelope.envelope_id,
+            envelope = ?envelope,
+            "Enqueued task envelope to queue: {} with task_name: {}",
             self.inner.queue_path,
             created_task.name
         );

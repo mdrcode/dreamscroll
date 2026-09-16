@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{Json, extract::State, http::StatusCode, response::IntoResponse};
+use axum::{Json, extract::State, response::IntoResponse};
 
 use crate::{api, logic, task, webhook};
 
@@ -8,10 +8,6 @@ use crate::{api, logic, task, webhook};
 ///
 /// Expected body is a serialized `TaskEnvelope<IngestTask>`, e.g.:
 /// `{ "user_id": 1, "task_id": "u1-ingest-...", "task": { "capture_id": 123 } }`
-///
-/// REVISIT: status tracking is currently minimal — `attempts` is hardcoded to
-/// `0`, and a failed `exec` writes `Error` directly (no `ErrorFinal` escalation
-/// or retry policy yet). See `_project/plans/sse-task-status.md`.
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(envelope): Json<task::TaskEnvelope<logic::ingest::IngestTask>>,
@@ -22,9 +18,9 @@ pub async fn post(
         )));
     };
 
-    state
+    let attempt = state
         .task_master
-        .update_status(&envelope, task::StatusCode::InProgress, 0)
+        .begin_attempt(&envelope)
         .await
         .map_err(api::ApiError::internal)?;
 
@@ -38,18 +34,12 @@ pub async fn post(
     )
     .await;
 
-    let status = if result.is_ok() {
-        task::StatusCode::Completed
-    } else {
-        task::StatusCode::Error
-    };
-    state
+    let outcome = state
         .task_master
-        .update_status(&envelope, status, 0)
+        .finish_attempt(&envelope, attempt, &result)
         .await
         .map_err(api::ApiError::internal)?;
 
-    result?;
-
-    Ok(StatusCode::NO_CONTENT)
+    // See webhook::http_status_for_outcome for why exhausted errors still ack.
+    Ok(webhook::http_status_for_outcome(outcome))
 }

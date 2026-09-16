@@ -75,6 +75,17 @@ pub struct Config {
     pub task_cloudtask_queue_illumination: Option<String>,
     pub task_cloudtask_queue_spark: Option<String>,
     pub task_cloudtask_queue_search_index: Option<String>,
+
+    /// Maximum number of attempts the app will make for a single task before
+    /// marking it `ErrorExhausted`. Must be <= the Cloud Tasks queue's
+    /// `maxAttempts`, so the app always exhausts first and can ack the task
+    /// (stopping Cloud Tasks from spending its remaining retry budget).
+    #[serde(default = "default_task_max_attempts")]
+    pub task_max_attempts: i32,
+}
+
+fn default_task_max_attempts() -> i32 {
+    3
 }
 
 pub fn make() -> anyhow::Result<Config> {

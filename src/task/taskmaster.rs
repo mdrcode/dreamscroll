@@ -1,3 +1,4 @@
+use crate::api;
 use crate::database::DbHandle;
 use crate::logic::illuminate::IlluminationTask;
 use crate::logic::ingest::IngestTask;
@@ -14,17 +15,52 @@ use super::*;
 /// is `TaskWatcher`, the future LISTEN/NOTIFY thread). Everything else in the
 /// system talks to tasks through this API:
 ///
-/// - `submit` — enqueue + record a `Queued` row.
-/// - `update_status` — record a status transition (workers call this).
-/// - `query_status` — read current status (replay / polling).
+/// - `submit_*` — enqueue + record a `Queued` row.
+/// - `begin_attempt` / `finish_attempt` — the worker-side attempt lifecycle.
+/// - `query_*` — read status (replay / polling).
+///
+/// Status transitions are deliberately *not* exposed as a raw setter: workers
+/// must go through `begin_attempt`/`finish_attempt` so the attempt count and
+/// the retry/exhaustion decision stay consistent with the recorded status.
 ///
 /// `db` is optional: when absent, `TaskMaster` runs in **enqueue-only** mode
 /// (no `task_status` writes). This is used by util commands and tests that
 /// don't want background-task bookkeeping.
 ///
 /// Not Clone, share it via Arc.
+/// The outcome of a single task attempt, from the worker's point of view.
+///
+/// This tells the webhook handler which HTTP status to return so that Cloud
+/// Tasks does (or doesn't) retry:
+///
+/// - `Completed` — 2xx. Task is done.
+/// - `ErrorWillRetry` — non-2xx. Cloud Tasks retries within its budget.
+/// - `ErrorExhausted` — **2xx**. The app has spent its own retry budget, so we
+///   must ack the task to stop Cloud Tasks from spending its (larger) budget.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AttemptOutcome {
+    Completed,
+    ErrorWillRetry,
+    ErrorExhausted,
+}
+
+impl AttemptOutcome {
+    /// Decide the outcome of a failed attempt.
+    ///
+    /// An attempt is worth retrying only when the error is transient *and* the
+    /// app still has retry budget. `attempt` is 1-based.
+    pub fn from_failure(err: &api::ApiError, attempt: i32, max_attempts: i32) -> Self {
+        if err.is_retryable() && attempt < max_attempts {
+            AttemptOutcome::ErrorWillRetry
+        } else {
+            AttemptOutcome::ErrorExhausted
+        }
+    }
+}
+
 pub struct TaskMaster {
     status: TaskStatusRecorder,
+    max_attempts: i32,
     ingest_queue: Option<Box<dyn TaskQueue<IngestTask>>>,
     illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
@@ -100,10 +136,74 @@ impl TaskMaster {
         Ok(())
     }
 
+    /// Mark an attempt as starting and return its 1-based attempt number.
+    ///
+    /// The attempt number is derived from the persisted `attempts` count, so it
+    /// survives worker restarts and works identically for every queue backend
+    /// (unlike Cloud Tasks' retry-count header, which the local queue lacks).
+    pub async fn begin_attempt<T: Task>(&self, envelope: &TaskEnvelope<T>) -> anyhow::Result<i32> {
+        let previous = self
+            .status
+            .query_snapshot(&envelope.envelope_id)
+            .await?
+            .map(|snapshot| snapshot.attempts)
+            .unwrap_or(0);
+
+        let attempt = previous + 1;
+        self.update_status(envelope, StatusCode::InProgress, attempt)
+            .await?;
+
+        Ok(attempt)
+    }
+
+    /// Record the outcome of an attempt and decide whether Cloud Tasks should
+    /// retry.
+    ///
+    /// A failed attempt is retryable only when the error is transient *and* the
+    /// app still has retry budget; otherwise it is exhausted and must be acked.
+    pub async fn finish_attempt<T: Task>(
+        &self,
+        envelope: &TaskEnvelope<T>,
+        attempt: i32,
+        result: &Result<(), api::ApiError>,
+    ) -> anyhow::Result<AttemptOutcome> {
+        match result {
+            Ok(()) => {
+                self.update_status(envelope, StatusCode::Completed, attempt)
+                    .await?;
+                Ok(AttemptOutcome::Completed)
+            }
+            Err(err) => {
+                let outcome = AttemptOutcome::from_failure(err, attempt, self.max_attempts);
+                let status = match outcome {
+                    AttemptOutcome::ErrorWillRetry => StatusCode::ErrorWillRetry,
+                    _ => StatusCode::ErrorExhausted,
+                };
+
+                self.update_status(envelope, status, attempt).await?;
+
+                tracing::warn!(
+                    envelope_id = %envelope.envelope_id,
+                    attempt,
+                    max_attempts = self.max_attempts,
+                    retryable = err.is_retryable(),
+                    status = %status,
+                    error = ?err,
+                    "Task attempt failed"
+                );
+
+                Ok(outcome)
+            }
+        }
+    }
+
     /// Record a status transition for a task. Upserts the row keyed by
-    /// (task_type, task_id). `attempts` is the attempt count at the
-    /// time of this transition.
-    pub async fn update_status<T: Task>(
+    /// `envelope_id`. `attempts` is the attempt count at the time of this
+    /// transition.
+    ///
+    /// Private on purpose: external callers must use `begin_attempt`/`finish_attempt`,
+    /// which keep `attempts` and the retry decision consistent with the status.
+    async fn update_status<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
         status: StatusCode,
@@ -112,31 +212,41 @@ impl TaskMaster {
         self.status.record(envelope, status, attempts).await
     }
 
-    /// Query the current status of a single task by its `envelope_id`.
+    /// Query the *incomplete* task statuses recorded against a given entity,
+    /// e.g. all tasks (`illuminate`, `ingest`, `search_index`, ...) that
+    /// operate on a single capture and have not yet succeeded. Always scoped by
+    /// `user_id`.
     ///
-    /// Returns `None` when there's no DB (enqueue-only mode) or no row yet.
-    pub async fn query_status(&self, envelope_id: &str) -> anyhow::Result<Option<StatusCode>> {
-        self.status.query(envelope_id).await
-    }
-
-    /// Query every task status recorded against a given entity, e.g. all
-    /// tasks (`illuminate`, `ingest`, `search_index`, ...) that operate on a
-    /// single capture. Always scoped by `user_id`.
-    pub async fn query_status_for_entity(
+    /// Includes `ErrorExhausted` — permanently failed work that the user still
+    /// wants to see. Excludes `Completed`, which is vacuumed over time.
+    pub async fn query_incomplete_for_entity(
         &self,
         user_id: i32,
         entity_type: &str,
         entity_id: i32,
     ) -> anyhow::Result<Vec<model::task_status::Model>> {
         self.status
-            .query_for_entity(user_id, entity_type, entity_id)
+            .query_incomplete_for_entity(user_id, entity_type, entity_id)
             .await
+    }
+
+    /// Query every *incomplete* task status for a user, across all entities.
+    ///
+    /// The user-level counterpart to `query_incomplete_for_entity`, for callers
+    /// that want every outstanding task a user has rather than the tasks for
+    /// one entity. Includes `ErrorExhausted`; excludes `Completed`.
+    pub async fn query_incomplete_for_user(
+        &self,
+        user_id: i32,
+    ) -> anyhow::Result<Vec<model::task_status::Model>> {
+        self.status.query_incomplete_for_user(user_id).await
     }
 }
 
 #[derive(Default)]
 pub struct TaskMasterBuilder {
     db: Option<DbHandle>,
+    max_attempts: Option<i32>,
     ingest_queue: Option<Box<dyn TaskQueue<IngestTask>>>,
     illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
@@ -146,6 +256,12 @@ pub struct TaskMasterBuilder {
 impl TaskMasterBuilder {
     pub fn db(mut self, db: DbHandle) -> Self {
         self.db = Some(db);
+        self
+    }
+
+    /// Maximum number of attempts per task. See `Config::task_max_attempts`.
+    pub fn max_attempts(mut self, max_attempts: i32) -> Self {
+        self.max_attempts = Some(max_attempts);
         self
     }
 
@@ -162,16 +278,6 @@ impl TaskMasterBuilder {
         self
     }
 
-    pub fn build(self) -> TaskMaster {
-        TaskMaster {
-            status: TaskStatusRecorder::new(self.db),
-            ingest_queue: self.ingest_queue,
-            illumination_queue: self.illumination_queue,
-            search_index_queue: self.search_index_queue,
-            spark_queue: self.spark_queue,
-        }
-    }
-
     pub fn search_index_queue(
         mut self,
         search_index_queue: impl TaskQueue<SearchIndexTask> + 'static,
@@ -184,6 +290,17 @@ impl TaskMasterBuilder {
         self.spark_queue = Some(Box::new(spark_queue));
         self
     }
+
+    pub fn build(self) -> TaskMaster {
+        TaskMaster {
+            status: TaskStatusRecorder::new(self.db),
+            max_attempts: self.max_attempts.unwrap_or(1).max(1),
+            ingest_queue: self.ingest_queue,
+            illumination_queue: self.illumination_queue,
+            search_index_queue: self.search_index_queue,
+            spark_queue: self.spark_queue,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -191,6 +308,52 @@ mod tests {
     use std::sync::{Arc, Mutex};
 
     use super::*;
+
+    #[test]
+    fn transient_failure_retries_until_budget_is_spent() {
+        let err = api::ApiError::internal(anyhow::anyhow!("upstream unavailable"));
+        let max = 3;
+
+        assert_eq!(
+            AttemptOutcome::from_failure(&err, 1, max),
+            AttemptOutcome::ErrorWillRetry
+        );
+        assert_eq!(
+            AttemptOutcome::from_failure(&err, 2, max),
+            AttemptOutcome::ErrorWillRetry
+        );
+        // Last permitted attempt exhausts rather than retrying forever.
+        assert_eq!(
+            AttemptOutcome::from_failure(&err, 3, max),
+            AttemptOutcome::ErrorExhausted
+        );
+        assert_eq!(
+            AttemptOutcome::from_failure(&err, 4, max),
+            AttemptOutcome::ErrorExhausted
+        );
+    }
+
+    #[test]
+    fn permanent_failure_exhausts_immediately() {
+        let err = api::ApiError::bad_request(anyhow::anyhow!("capture_ids must be non-empty"));
+        let max = 3;
+
+        // Even with budget remaining, a non-retryable error stops on attempt 1.
+        assert_eq!(
+            AttemptOutcome::from_failure(&err, 1, max),
+            AttemptOutcome::ErrorExhausted
+        );
+    }
+
+    #[test]
+    fn max_attempts_of_one_never_retries() {
+        let err = api::ApiError::internal(anyhow::anyhow!("upstream unavailable"));
+
+        assert_eq!(
+            AttemptOutcome::from_failure(&err, 1, 1),
+            AttemptOutcome::ErrorExhausted
+        );
+    }
 
     #[derive(Debug, Clone)]
     struct RecordingQueue {

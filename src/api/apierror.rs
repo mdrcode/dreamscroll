@@ -50,6 +50,15 @@ impl ApiError {
     pub fn unauthorized(error: impl Into<anyhow::Error>) -> Self {
         Self::new(StatusCode::UNAUTHORIZED, error.into())
     }
+
+    /// Whether a task that failed with this error is worth retrying.
+    ///
+    /// Client errors (4xx) are treated as permanent — retrying identical input
+    /// will produce identical results — while server errors (5xx) are treated
+    /// as transient. See `TaskMaster::finish_attempt`.
+    pub fn is_retryable(&self) -> bool {
+        self.status_code.is_server_error()
+    }
 }
 
 impl IntoResponse for ApiError {

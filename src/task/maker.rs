@@ -49,6 +49,7 @@ pub async fn make_task_master(
             Ok(Arc::new(
                 TaskMaster::builder()
                     .db(db)
+                    .max_attempts(cfg.task_max_attempts)
                     .ingest_queue(ingest_queue)
                     .illumination_queue(illumination_queue)
                     .search_index_queue(search_index_queue)
@@ -66,6 +67,7 @@ pub async fn make_task_master(
             )
             .await
             .context("Failed to initialize Cloud Tasks Queue: Illumination")?;
+
             let ingest_queue = CloudTaskQueue::connect(
                 cfg.gcloud_project_id.as_str(),
                 cfg.gcloud_project_region.as_str(),
@@ -75,6 +77,7 @@ pub async fn make_task_master(
             )
             .await
             .context("Failed to initialize Cloud Tasks Queue: Ingest")?;
+
             let spark_queue = CloudTaskQueue::connect(
                 cfg.gcloud_project_id.as_str(),
                 cfg.gcloud_project_region.as_str(),
@@ -84,6 +87,7 @@ pub async fn make_task_master(
             )
             .await
             .context("Failed to initialize Cloud Tasks Queue: Spark")?;
+        
             let search_index_queue = CloudTaskQueue::connect(
                 cfg.gcloud_project_id.as_str(),
                 cfg.gcloud_project_region.as_str(),
@@ -97,6 +101,7 @@ pub async fn make_task_master(
             Ok(Arc::new(
                 TaskMaster::builder()
                     .db(db)
+                    .max_attempts(cfg.task_max_attempts)
                     .ingest_queue(ingest_queue)
                     .illumination_queue(illumination_queue)
                     .search_index_queue(search_index_queue)

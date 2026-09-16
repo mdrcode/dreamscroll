@@ -14,6 +14,13 @@ pub struct TaskStatusRecorder {
     db: Option<database::DbHandle>,
 }
 
+/// A point-in-time view of a task's status row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TaskStatusSnapshot {
+    pub status: StatusCode,
+    pub attempts: i32,
+}
+
 impl TaskStatusRecorder {
     pub fn new(db: Option<database::DbHandle>) -> Self {
         Self { db }
@@ -76,10 +83,14 @@ impl TaskStatusRecorder {
         Ok(())
     }
 
-    /// Query the current status of a single task by its `envelope_id`.
+    /// Query the status *and* current attempt count for a task, used by
+    /// workers to decide whether another attempt is warranted.
     ///
     /// Returns `None` when there's no DB or no row yet.
-    pub async fn query(&self, envelope_id: &str) -> anyhow::Result<Option<StatusCode>> {
+    pub async fn query_snapshot(
+        &self,
+        envelope_id: &str,
+    ) -> anyhow::Result<Option<TaskStatusSnapshot>> {
         let Some(db) = self.db.as_ref() else {
             return Ok(None);
         };
@@ -89,22 +100,31 @@ impl TaskStatusRecorder {
             .one(&db.conn)
             .await?;
 
-        if let Some(r) = row {
-            Ok(Some(StatusCode::from_i32(r.status_code)?))
-        } else {
-            Ok(None)
+        match row {
+            Some(r) => Ok(Some(TaskStatusSnapshot {
+                status: StatusCode::from_i32(r.status_code)?,
+                attempts: r.attempts,
+            })),
+            None => Ok(None),
         }
     }
 
-    /// Query every task status recorded against a given entity, e.g. all
-    /// tasks (`illuminate`, `ingest`, `search_index`, ...) that operate on a
-    /// single capture.
+    /// Query the *incomplete* task statuses recorded against a given entity,
+    /// e.g. all tasks (`illuminate`, `ingest`, `search_index`, ...) that
+    /// operate on a single capture and have not yet succeeded.
+    ///
+    /// Incomplete means everything except `Completed`: in-flight tasks
+    /// (`Queued`, `InProgress`, `ErrorWillRetry`) *and* `ErrorExhausted`, since
+    /// work that permanently failed is still something the user wants to see.
+    /// Completed rows are vacuumed over time, so this API deliberately cannot
+    /// express "give me everything" — that would silently return an incomplete
+    /// history.
     ///
     /// Always scoped by `user_id`: entity ids are not a security boundary, and
     /// callers must never be able to observe another user's task state.
     ///
     /// Returns an empty vec when there's no DB or no matching rows.
-    pub async fn query_for_entity(
+    pub async fn query_incomplete_for_entity(
         &self,
         user_id: i32,
         entity_type: &str,
@@ -114,10 +134,45 @@ impl TaskStatusRecorder {
             return Ok(Vec::new());
         };
 
+        // TODO(REVISIT): this predicate wants a composite index on
+        // (user_id, entity_type, entity_id, status_code). See the note on
+        // `model::task_status::Model`.
         let rows = model::task_status::Entity::find()
             .filter(model::task_status::Column::UserId.eq(user_id))
             .filter(model::task_status::Column::EntityType.eq(entity_type))
             .filter(model::task_status::Column::EntityId.eq(entity_id))
+            .filter(model::task_status::Column::StatusCode.is_in(StatusCode::incomplete_codes()))
+            .all(&db.conn)
+            .await?;
+
+        Ok(rows)
+    }
+
+    /// Query every *incomplete* task status for a user, across all entities.
+    ///
+    /// This is the user-level counterpart to `query_incomplete_for_entity`:
+    /// useful when the caller wants every outstanding task a user has (e.g. a
+    /// global progress indicator or a "what's still running?" view) rather than
+    /// the tasks for one specific entity.
+    ///
+    /// "Incomplete" means everything except `Completed` (see
+    /// `query_incomplete_for_entity` for the full rationale), so permanently
+    /// failed work (`ErrorExhausted`) is included.
+    ///
+    /// Returns an empty vec when there's no DB or no matching rows.
+    pub async fn query_incomplete_for_user(
+        &self,
+        user_id: i32,
+    ) -> anyhow::Result<Vec<model::task_status::Model>> {
+        let Some(db) = self.db.as_ref() else {
+            return Ok(Vec::new());
+        };
+
+        // TODO(REVISIT): this predicate wants a composite index on
+        // (user_id, status_code). See the note on `model::task_status::Model`.
+        let rows = model::task_status::Entity::find()
+            .filter(model::task_status::Column::UserId.eq(user_id))
+            .filter(model::task_status::Column::StatusCode.is_in(StatusCode::incomplete_codes()))
             .all(&db.conn)
             .await?;
 
