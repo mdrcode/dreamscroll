@@ -65,9 +65,42 @@ impl AttemptOutcome {
     }
 }
 
-/// Compute the 1-based attempt number for a task about to start.
+/// The outcome of a submission, from the submitter's point of view.
 ///
-/// Returns `None` when the task is already `Completed`: Cloud Tasks delivers at
+/// A refusal is a *normal* outcome, not an error: submitting work that is
+/// already in flight is expected (double-clicked upload, retried request), so
+/// callers should not log it as a failure.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SubmitOutcome {
+    /// A new run was created and enqueued. `run` counts from 1.
+    Enqueued { run: i32 },
+    /// The latest run is still in flight, so nothing was enqueued. `run` is the
+    /// run that is already in progress.
+    RefusedInFlight { run: i32 },
+}
+
+/// Decide what to do about a submission given the latest run of the same
+/// logical task.
+///
+/// - No prior run → start run 1.
+/// - Latest run in flight → refuse; the work is already queued/running.
+/// - Latest run settled → start the next run (this is what makes reruns work).
+fn plan_submission(latest: Option<&model::task_status::Model>) -> Result<i32, i32> {
+    let Some(latest) = latest else {
+        return Ok(1);
+    };
+
+    match StatusCode::from_i32(latest.status_code) {
+        Ok(status) if status.is_in_flight() => Err(latest.run),
+        // An unreadable status is not something to build a refusal on: treat the
+        // run as settled and let the unique index arbitrate if we're wrong.
+        _ => Ok(latest.run + 1),
+    }
+}
+
+/// Compute the 1-based attempt number for a run about to start.
+///
+/// Returns `None` when the run is already `Completed`: Cloud Tasks delivers at
 /// least once, so a redelivery of finished work must not resurrect the row back
 /// to `InProgress` (which would show a spurious "in progress" blip to any client
 /// watching the task).
@@ -88,12 +121,16 @@ impl TaskMaster {
         &self,
         user_id: i32,
         task: IlluminationTask,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<SubmitOutcome> {
         self.submit_inner(self.illumination_queue.as_ref(), user_id, task)
             .await
     }
 
-    pub async fn submit_spark(&self, user_id: i32, task: SparkTask) -> anyhow::Result<()> {
+    pub async fn submit_spark(
+        &self,
+        user_id: i32,
+        task: SparkTask,
+    ) -> anyhow::Result<SubmitOutcome> {
         if task.capture_ids.is_empty() {
             anyhow::bail!("submit_spark requires at least one capture_id");
         }
@@ -105,19 +142,39 @@ impl TaskMaster {
         &self,
         user_id: i32,
         task: SearchIndexTask,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<SubmitOutcome> {
         self.submit_inner(self.search_index_queue.as_ref(), user_id, task)
             .await
     }
 
+    /// Submit a task for execution.
+    ///
+    /// Refuses the submission if the latest run of this logical task is still in
+    /// flight (see `plan_submission`), so a duplicate submit cannot queue the
+    /// same work twice. If the latest run has settled, a **new run** is started,
+    /// which is how reruns are expressed.
     async fn submit_inner<T: Task>(
         &self,
         queue: Option<&Box<dyn TaskQueue<T>>>,
         user_id: i32,
         task: T,
-    ) -> anyhow::Result<()> {
+    ) -> anyhow::Result<SubmitOutcome> {
         let task_type = T::task_type();
-        let envelope = TaskEnvelope::new(user_id, task);
+        let envelope_id = TaskEnvelope::<T>::make_envelope_id(user_id, &task);
+
+        let run = match plan_submission(self.status.latest_run(&envelope_id).await?.as_ref()) {
+            Ok(run) => run,
+            Err(run) => {
+                tracing::debug!(
+                    envelope_id = %envelope_id,
+                    run,
+                    "Refusing submit: the latest run is still in flight",
+                );
+                return Ok(SubmitOutcome::RefusedInFlight { run });
+            }
+        };
+
+        let envelope = TaskEnvelope::new(user_id, task, run);
 
         let Some(queue) = queue else {
             tracing::warn!(
@@ -125,11 +182,25 @@ impl TaskMaster {
                 "{} submitted but no queue configured, skipping enqueue.",
                 task_type,
             );
-            return Ok(());
+            return Ok(SubmitOutcome::Enqueued { run });
         };
 
         // Record `Queued` before enqueueing, since `enqueue` moves the envelope.
-        self.status.record(&envelope, StatusCode::Queued, 0).await?;
+        // `false` means another submit claimed this run first — refuse rather
+        // than double-enqueue.
+        let created = self
+            .status
+            .create_run(&envelope, StatusCode::Queued, 0)
+            .await?;
+
+        if !created {
+            tracing::debug!(
+                envelope_id = %envelope_id,
+                run,
+                "Refusing submit: lost a race for this run",
+            );
+            return Ok(SubmitOutcome::RefusedInFlight { run });
+        }
 
         queue.enqueue(envelope.clone()).await.inspect_err(|err| {
             tracing::error!(
@@ -140,7 +211,7 @@ impl TaskMaster {
             )
         })?;
 
-        Ok(())
+        Ok(SubmitOutcome::Enqueued { run })
     }
 
     /// Mark an attempt as starting and return its 1-based attempt number.
@@ -149,7 +220,7 @@ impl TaskMaster {
     /// survives worker restarts and works identically for every queue backend
     /// (unlike Cloud Tasks' retry-count header, which the local queue lacks).
     ///
-    /// Returns `None` if the task is already `Completed`. Cloud Tasks delivers
+    /// Returns `None` if this run is already `Completed`. Cloud Tasks delivers
     /// at least once, so a redelivery of finished work must not resurrect it
     /// back to `InProgress` (which would show a spurious "in progress" blip to
     /// any client watching the task).
@@ -157,12 +228,16 @@ impl TaskMaster {
         &self,
         envelope: &TaskEnvelope<T>,
     ) -> anyhow::Result<Option<i32>> {
-        let status = self.status.query_status(&envelope.envelope_id).await?;
+        let status = self
+            .status
+            .query_run_status(&envelope.envelope_id, envelope.run)
+            .await?;
 
         let Some(attempt) = next_attempt_number(status.as_ref()) else {
             tracing::info!(
                 envelope_id = %envelope.envelope_id,
-                "Ignoring attempt for already-completed task"
+                run = envelope.run,
+                "Ignoring attempt for already-completed run"
             );
             return Ok(None);
         };
@@ -214,9 +289,8 @@ impl TaskMaster {
         }
     }
 
-    /// Record a status transition for a task. Upserts the row keyed by
-    /// `envelope_id`. `attempts` is the attempt count at the time of this
-    /// transition.
+    /// Record a status transition for a run. `attempts` is the attempt count at
+    /// the time of this transition.
     ///
     /// Private on purpose: external callers must use `begin_attempt`/`finish_attempt`,
     /// which keep `attempts` and the retry decision consistent with the status.
@@ -226,7 +300,7 @@ impl TaskMaster {
         status: StatusCode,
         attempts: i32,
     ) -> anyhow::Result<()> {
-        self.status.record(envelope, status, attempts).await
+        self.status.update_run(envelope, status, attempts).await
     }
 
     /// Query the *incomplete* task statuses recorded against a given entity,
@@ -394,13 +468,53 @@ mod tests {
         );
     }
 
-    /// A `task_status` row with only the fields `next_attempt_number` reads set
-    /// to meaningful values.
+    #[test]
+    fn submission_starts_at_run_one_when_never_run() {
+        assert_eq!(plan_submission(None), Ok(1));
+    }
+
+    #[test]
+    fn submission_is_refused_while_a_run_is_in_flight() {
+        for status in [
+            StatusCode::Queued,
+            StatusCode::InProgress,
+            StatusCode::ErrorWillRetry,
+        ] {
+            let row = status_row(status, 1);
+
+            assert_eq!(
+                plan_submission(Some(&row)),
+                Err(1),
+                "{status} means a worker may still run, so the submit is refused"
+            );
+        }
+    }
+
+    #[test]
+    fn submission_reruns_after_a_settled_run() {
+        for status in [StatusCode::Completed, StatusCode::ErrorExhausted] {
+            let row = status_row_of_run(status, 1, 3);
+
+            assert_eq!(
+                plan_submission(Some(&row)),
+                Ok(4),
+                "{status} is settled, so the next run is permitted"
+            );
+        }
+    }
+
+    /// A `task_status` row with only the fields the pure helpers read set to
+    /// meaningful values.
     fn status_row(status: StatusCode, attempts: i32) -> model::task_status::Model {
+        status_row_of_run(status, attempts, 1)
+    }
+
+    fn status_row_of_run(status: StatusCode, attempts: i32, run: i32) -> model::task_status::Model {
         model::task_status::Model {
             id: 0,
             user_id: 1,
             envelope_id: "u1-illuminate-capture1".to_string(),
+            run,
             task_type: "illuminate".to_string(),
             entity_type: "capture".to_string(),
             entity_id: 1,
@@ -538,6 +652,277 @@ mod tests {
         assert_eq!(rows[0].status_code, StatusCode::Queued.as_i32());
         assert_eq!(rows[0].attempts, 0);
         assert_eq!(rows[0].envelope_id, "u1-illuminate-capture42");
+        assert_eq!(rows[0].run, 1);
+    }
+
+    /// A duplicate submit while a run is in flight is refused, not enqueued.
+    #[tokio::test]
+    async fn duplicate_submit_while_in_flight_is_refused() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+
+        let captures = Arc::new(Mutex::new(Vec::new()));
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .illumination_queue(RecordingQueue {
+                captures: Arc::clone(&captures),
+                fail: false,
+            })
+            .build()
+            .expect("build should succeed with a db");
+
+        let first = service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("first submit should succeed");
+        let second = service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("second submit should be answered, not error");
+
+        assert_eq!(first, SubmitOutcome::Enqueued { run: 1 });
+        assert_eq!(second, SubmitOutcome::RefusedInFlight { run: 1 });
+        assert_eq!(
+            captures.lock().unwrap().len(),
+            1,
+            "the duplicate must not reach the queue"
+        );
+    }
+
+    /// Once a run settles, a new submit starts a *new run* rather than being
+    /// refused — this is how reruns are expressed.
+    #[tokio::test]
+    async fn submit_after_completion_starts_a_new_run() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .illumination_queue(RecordingQueue {
+                captures: Arc::new(Mutex::new(Vec::new())),
+                fail: false,
+            })
+            .build()
+            .expect("build should succeed with a db");
+
+        service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("first submit should succeed");
+
+        // Complete run 1.
+        let envelope = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 1);
+        let attempt = service
+            .begin_attempt(&envelope)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("first attempt should not be skipped");
+        service
+            .finish_attempt(&envelope, attempt, &Ok(()))
+            .await
+            .expect("finish_attempt should succeed");
+
+        let rerun = service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("rerun submit should succeed");
+
+        assert_eq!(rerun, SubmitOutcome::Enqueued { run: 2 });
+    }
+
+    /// Runs 1 and 2 both exist; only the latest is reported as incomplete, so a
+    /// rerun supersedes rather than duplicating the logical task.
+    #[tokio::test]
+    async fn incomplete_query_returns_only_the_latest_run() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .max_attempts(1) // exhaust on the first failure
+            .illumination_queue(RecordingQueue {
+                captures: Arc::new(Mutex::new(Vec::new())),
+                fail: false,
+            })
+            .build()
+            .expect("build should succeed with a db");
+
+        // Run 1 exhausts (incomplete, settled).
+        service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("first submit should succeed");
+        let envelope = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 1);
+        let attempt = service
+            .begin_attempt(&envelope)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("first attempt should not be skipped");
+        let outcome = service
+            .finish_attempt(
+                &envelope,
+                attempt,
+                &Err(api::ApiError::internal(anyhow::anyhow!("boom"))),
+            )
+            .await
+            .expect("finish_attempt should succeed");
+        assert_eq!(
+            outcome,
+            AttemptOutcome::ErrorExhausted,
+            "max_attempts=1 means the first failure is terminal"
+        );
+
+        // Run 2 is queued (incomplete, in flight).
+        let rerun = service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("rerun submit should succeed");
+        assert_eq!(rerun, SubmitOutcome::Enqueued { run: 2 });
+
+        let rows = service
+            .query_incomplete_for_entity(1, "capture", 42)
+            .await
+            .expect("query should succeed");
+
+        assert_eq!(rows.len(), 1, "only the latest run is reported");
+        assert_eq!(rows[0].run, 2);
+        assert_eq!(rows[0].status_code, StatusCode::Queued.as_i32());
+    }
+
+    /// A stale incomplete run must not shadow a newer completed one: the
+    /// logical task is done, so it must not appear as outstanding.
+    #[tokio::test]
+    async fn completed_latest_run_hides_an_older_failed_run() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .max_attempts(1) // exhaust on the first failure
+            .illumination_queue(RecordingQueue {
+                captures: Arc::new(Mutex::new(Vec::new())),
+                fail: false,
+            })
+            .build()
+            .expect("build should succeed with a db");
+
+        // Run 1 exhausts and stays incomplete.
+        service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("first submit should succeed");
+        let first = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 1);
+        let attempt = service
+            .begin_attempt(&first)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("first attempt should not be skipped");
+        service
+            .finish_attempt(
+                &first,
+                attempt,
+                &Err(api::ApiError::internal(anyhow::anyhow!("boom"))),
+            )
+            .await
+            .expect("finish_attempt should succeed");
+
+        // Run 2 completes.
+        service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("rerun submit should succeed");
+        let second = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 2);
+        let attempt = service
+            .begin_attempt(&second)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("second run attempt should not be skipped");
+        service
+            .finish_attempt(&second, attempt, &Ok(()))
+            .await
+            .expect("finish_attempt should succeed");
+
+        let rows = service
+            .query_incomplete_for_entity(1, "capture", 42)
+            .await
+            .expect("query should succeed");
+
+        assert!(
+            rows.is_empty(),
+            "the latest run completed, so nothing is outstanding"
+        );
+    }
+
+    /// Attempt counting is per-run: a rerun starts its attempts from scratch.
+    #[tokio::test]
+    async fn attempts_are_scoped_to_a_run() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .max_attempts(2) // two attempts, then exhaust
+            .illumination_queue(RecordingQueue {
+                captures: Arc::new(Mutex::new(Vec::new())),
+                fail: false,
+            })
+            .build()
+            .expect("build should succeed with a db");
+
+        // Run 1: two attempts, then exhaust.
+        service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("first submit should succeed");
+        let first = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 1);
+        let failure = Err(api::ApiError::internal(anyhow::anyhow!("boom")));
+
+        let attempt = service
+            .begin_attempt(&first)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("first attempt should not be skipped");
+        assert_eq!(attempt, 1);
+        let outcome = service
+            .finish_attempt(&first, attempt, &failure)
+            .await
+            .expect("finish_attempt should succeed");
+        assert_eq!(outcome, AttemptOutcome::ErrorWillRetry);
+
+        let attempt = service
+            .begin_attempt(&first)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("second attempt should not be skipped");
+        assert_eq!(attempt, 2);
+        let outcome = service
+            .finish_attempt(&first, attempt, &failure)
+            .await
+            .expect("finish_attempt should succeed");
+        assert_eq!(
+            outcome,
+            AttemptOutcome::ErrorExhausted,
+            "run 1 has now spent its budget"
+        );
+
+        // Run 2 begins at attempt 1 again, even though run 1 used attempts.
+        service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("rerun submit should succeed");
+        let second = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 2);
+        let attempt = service
+            .begin_attempt(&second)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("second run attempt should not be skipped");
+
+        assert_eq!(attempt, 1, "each run counts its own attempts");
     }
 
     /// The full attempt lifecycle: `Queued` -> `InProgress` -> `Completed`.
@@ -562,7 +947,7 @@ mod tests {
             .await
             .expect("submit should succeed");
 
-        let envelope = TaskEnvelope::new(1, task);
+        let envelope = TaskEnvelope::new(1, task, 1);
 
         let attempt = service
             .begin_attempt(&envelope)
@@ -608,7 +993,7 @@ mod tests {
             .await
             .expect("submit should succeed");
 
-        let envelope = TaskEnvelope::new(1, task);
+        let envelope = TaskEnvelope::new(1, task, 1);
         let failure = Err(api::ApiError::internal(anyhow::anyhow!("transient")));
 
         // Attempt 1: budget remains, so it will retry.
@@ -668,7 +1053,7 @@ mod tests {
             .await
             .expect("submit should succeed");
 
-        let envelope = TaskEnvelope::new(1, task);
+        let envelope = TaskEnvelope::new(1, task, 1);
 
         let attempt = service
             .begin_attempt(&envelope)

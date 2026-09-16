@@ -73,6 +73,27 @@ impl StatusCode {
             .map(StatusCode::as_i32)
             .collect()
     }
+
+    /// True when a worker may still act on this run.
+    ///
+    /// This is the *duplicate-submission* predicate: a run that is in flight
+    /// must not be submitted again. Note this differs from `is_incomplete` —
+    /// `ErrorExhausted` is incomplete (the user still needs to see the failure)
+    /// but is **not** in flight (no worker will ever touch it again).
+    pub fn is_in_flight(&self) -> bool {
+        matches!(
+            self,
+            StatusCode::Queued | StatusCode::InProgress | StatusCode::ErrorWillRetry
+        )
+    }
+
+    /// True when no worker will ever act on this run again — it either
+    /// succeeded or has spent its retry budget.
+    ///
+    /// A settled run is what makes a *rerun* permissible.
+    pub fn is_settled(&self) -> bool {
+        !self.is_in_flight()
+    }
 }
 
 impl std::fmt::Display for StatusCode {

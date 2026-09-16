@@ -215,6 +215,7 @@ impl UserApiClient {
                 },
             )
             .await
+            .map(|_| ())
             .map_err(ApiError::internal)
     }
 

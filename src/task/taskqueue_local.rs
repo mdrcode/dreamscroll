@@ -196,6 +196,7 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 envelope_id: "1".to_string(),
+                run: 1,
                 task: Some(TestTask { id: 1 }),
             })
             .await?;
@@ -203,6 +204,7 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 envelope_id: "2".to_string(),
+                run: 1,
                 task: Some(TestTask { id: 2 }),
             })
             .await?;
@@ -266,6 +268,7 @@ mod tests {
                 .enqueue(TaskEnvelope {
                     user_id: 1,
                     envelope_id: id.to_string(),
+                    run: 1,
                     task: Some(TestTask { id }),
                 })
                 .await?;
@@ -324,6 +327,7 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 envelope_id: "1".to_string(),
+                run: 1,
                 task: Some(TestTask { id: 1 }),
             })
             .await?;
@@ -334,6 +338,7 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 envelope_id: "2".to_string(),
+                run: 1,
                 task: Some(TestTask { id: 2 }),
             })
             .await?;
@@ -341,6 +346,7 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 envelope_id: "3".to_string(),
+                run: 1,
                 task: Some(TestTask { id: 3 }),
             })
             .await?;
@@ -390,6 +396,7 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 envelope_id: "1".to_string(),
+                run: 1,
                 task: Some(TestTask { id: 1 }),
             })
             .await?;
@@ -397,6 +404,7 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 envelope_id: "2".to_string(),
+                run: 1,
                 task: Some(TestTask { id: 2 }),
             })
             .await?;
@@ -404,6 +412,7 @@ mod tests {
             .enqueue(TaskEnvelope {
                 user_id: 1,
                 envelope_id: "3".to_string(),
+                run: 1,
                 task: Some(TestTask { id: 3 }),
             })
             .await?;

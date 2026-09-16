@@ -1,8 +1,12 @@
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
-/// One row per task envelope — the canonical source of truth for
-/// background-task status. See `_project/plans/sse-task-status.md` §6.
+/// One row per task **run** — the canonical source of truth for
+/// background-task status. See `_project/plans/sse-task-status.md` §6 and §7.
+///
+/// A logical task (`envelope_id`) can be run more than once; each run gets its
+/// own row, numbered from 1. `(envelope_id, run)` is unique, which is what
+/// prevents a duplicate submission of work that is still in flight.
 ///
 /// TODO(REVISIT): the primary read pattern is
 /// `query_incomplete_for_entity` — `WHERE user_id = ? AND entity_type = ?
@@ -22,10 +26,15 @@ pub struct Model {
     pub id: i64,
     pub user_id: i32,
 
-    /// Globally-unique task identity (see `TaskEnvelope::new`), e.g.
+    /// Identifies the *logical* task (not the run), e.g.
     /// `u1-illuminate-capture123`. Already encodes user_id + task_type + entity.
-    #[sea_orm(unique)]
+    #[sea_orm(unique_key = "task_run")]
     pub envelope_id: String,
+
+    /// Which run of the logical task this row records, counting up from 1.
+    /// A rerun of completed work creates a new row with the next number.
+    #[sea_orm(unique_key = "task_run")]
+    pub run: i32,
 
     /// 'illumination' | 'spark' | 'search_index' | ...
     pub task_type: String,

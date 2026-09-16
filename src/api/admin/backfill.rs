@@ -2,7 +2,7 @@ use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
-use crate::{api::*, logic};
+use crate::{api::*, logic, task};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -100,8 +100,13 @@ pub async fn enqueue(
                     )
                     .await
                 {
-                    Ok(()) => {
+                    Ok(task::SubmitOutcome::Enqueued { .. }) => {
                         enqueued_count += 1;
+                    }
+                    // Already in flight: the queue is doing the work, so this is
+                    // not a failure to report.
+                    Ok(task::SubmitOutcome::RefusedInFlight { .. }) => {
+                        skipped_ids.push(capture_id);
                     }
                     Err(err) => {
                         tracing::warn!(capture_id, error = ?err, "Failed enqueue in admin backfill");
