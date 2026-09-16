@@ -1,7 +1,7 @@
 # Real-time Task Status via SSE — Design
 
 **Date:** 2026-09-15 (updated from 2026-09-14)
-**Status:** Proposed — §2/§4/§5/§6/§7/§9/§10/§11/§12 updated to reflect the `TaskMaster`/`TaskWatcher` refactor (the old `Beacon` is removed)
+**Status:** Partially implemented — the task framework (`Task`/`TaskEnvelope`/`TaskQueue`/`TaskMaster`/`TaskStatusRecorder`/`StatusCode`) and status tracking are **done and wired end-to-end** (submit → `Queued`, webhook → `InProgress` → `Completed`/`Error`). The SSE delivery layer (`TaskWatcher`, `LISTEN/NOTIFY`, `/events` route, client wiring) is **not yet implemented** — see §12.
 **Scope:** Relay accurate, up-to-date, low-latency **background-task status** to HTMX clients. The `task_status` table is a **first-class citizen** — focused purely on the task-state problem, which is non-trivial on its own. Signaling/tracking **capture lifecycle events** (created/deleted elsewhere) is explicitly **TBD** and out of scope for this phase.
 
 ---
@@ -28,20 +28,21 @@ We want a **simple, idiomatic, robust, and flexible** strategy for relaying accu
 
 ```
 Upload (webui/v2/r_upload.rs)
-  └─ insert_capture() → task_master.submit(Task::Ingest)   [IngestTask]
-       └─ /_wh/cloudtask/ingest → logic/ingest
-            └─ task_master.submit(Task::Illuminate)        [IlluminationTask]
+  └─ insert_capture() → task_master.submit_ingest(user_id, IngestTask)   [IngestTask]
+       └─ /_wh/cloudtask/ingest → logic/ingest::exec
+            └─ task_master.submit_illumination(user_id, IlluminationTask)  [IlluminationTask]
                  └─ /_wh/cloudtask/illuminate → logic/illuminate::exec
-                      └─ insert_illumination()  ← row written, nobody told
+                      └─ insert_illumination()  ← row written, status now tracked
 ```
 
 ### 2.2 Key facts that shape the design
 
-- **`TaskQueue::get_status()` was removed.** It was `unimplemented!()` in all three backends and is now obsolete: status lives in the `task_status` table, owned by `TaskMaster`/`TaskWatcher`. The trait is now enqueue-only.
+- **`Task` is a trait, not an enum.** Each concrete task type (`IlluminationTask`, `IngestTask`, `SparkTask`, `SearchIndexTask`) lives in `src/logic/*.rs` and implements `task::Task` with a static `task_type() -> &'static str`. A `TaskEnvelope<T>` wraps a task with its identity (`user_id`, `task_id`) and the payload (`task: Option<T>`).
+- **`TaskQueue<T>` is enqueue-only and generic.** `TaskQueue::get_status()` was removed (it was `unimplemented!()` everywhere); status lives in the `task_status` table. The trait is `async fn enqueue(&self, wrapped: TaskEnvelope<T>)`. There are two backends: `LocalTaskQueue` (in-process mpsc + semaphore) and `CloudTaskQueue` (Google Cloud Tasks). **Pub/Sub support was removed** (2026-09-15) to focus on Cloud Tasks.
 - **`OneShotQueue` is dead code and will be removed.** It was an old local-only emulation of task execution and is **not used anywhere in production** — it appears only in `src/common/mod.rs` (module decl + re-export) and its own file `src/common/oneshotqueue.rs` (definition + unit tests). The `LocalTaskQueue` (in-process mpsc + semaphore) is the real local backend and does **not** dedupe. So the rerun problem is *not* caused by `OneShotQueue`; it's caused by the **idempotency guard in `logic/illuminate.rs`** (`if !capture.illuminations.is_empty() { skip }`). That guard is the thing to make rerun-aware, not any queue dedupe.
-- **Task types are tiny structs** (`IlluminationTask{capture_id}`, `SparkTask{capture_ids}`, etc.) in `webhook/schema.rs`, each with a `TaskId::id() -> String`.
-- **`TaskMaster`** (`task/taskmaster.rs`) is the single funnel through which *all* task enqueues flow — the perfect choke point to also record status. It replaced the old `Beacon` (removed). `TaskMaster` owns the backend queues **and** the `task_status` table, exposing `submit` / `update_status` / `query_status`. `TaskWatcher` (`task/taskwatcher.rs`) is the future `LISTEN`/`NOTIFY` thread. **These two are the only structs that touch `task_status` directly.**
-- **Deployment is a single Cloud Run service** (`cloudbuild.yaml` builds one image; `SERVICES` env var selects WebUI/API/Webhook). Tasks are queued via Cloud Tasks or Pub/Sub, so **the worker that completes a task may be a different process/instance than the one holding the user's HTTP connection.**
+- **`TaskMaster`** (`task/taskmaster.rs`) is the single funnel through which *all* task enqueues flow — the perfect choke point to also record status. It replaced the old `Beacon` (removed). `TaskMaster` owns the backend queues **and** the `task_status` table, exposing `submit_*` / `update_status` / `query_status`. It is **not `Clone`** — it's shared via `Arc<TaskMaster>`. `TaskWatcher` (`task/taskwatcher.rs`) is the future `LISTEN`/`NOTIFY` thread (stub for now). **These two are the only structs that touch `task_status` directly.**
+- **`TaskStatusRecorder`** (`task/status_recorder.rs`) owns all `task_status` persistence (upsert keyed by `(task_type, task_id)`). `StatusCode` (`task/status_code.rs`) is the strongly-typed status enum; the DB stores only its integer discriminant (`status_code INT`).
+- **Deployment is a single Cloud Run service** (`cloudbuild.yaml` builds one image; `SERVICES` env var selects WebUI/API/Webhook). Tasks are queued via Cloud Tasks, so **the worker that completes a task may be a different process/instance than the one holding the user's HTTP connection.**
 - **Frontend is HTMX 2.0.7 + one vanilla JS file** (`webui-v2.js`), no build step. You already have a custom XHR upload flow with progress UI.
 - **Axum 0.8.9** (confirmed from `Cargo.lock` and the local crate source) ships a first-class SSE API: `axum::response::sse::{Event, Sse}`.
 
@@ -94,10 +95,9 @@ Every task-status transition is a small, typed struct. The SSE event name is con
 // src/events/mod.rs — the shape of a task-status transition
 pub struct TaskStatusEvent {
     pub task_type: String,   // "illumination" | "spark" | "search_index" | "ingest"
-    pub task_id: String,     // e.g. "123" or "123-456" for spark
+    pub task_id: String,     // e.g. "u1-illuminate-..." (see task_id.rs)
     pub capture_id: i32,     // denormalized fan-out key (see §8.5)
-    pub run_id: u64,         // distinguishes reruns
-    pub status: model::task_status::Status, // Queued | InProgress | Completed | Error | ErrorFinal
+    pub status: task::StatusCode, // Queued | InProgress | Completed | Error | ErrorFinal
     pub background: bool,    // true for backfill/bulk tasks (see §4.2)
     pub user_id: i32,        // for per-user filtering
 }
@@ -106,8 +106,10 @@ pub struct TaskStatusEvent {
 The SSE wire format is a flat JSON object:
 
 ```json
-{ "task_type": "illumination", "task_id": "123", "capture_id": 123, "status": "completed", "run_id": 1, "background": false }
+{ "task_type": "illumination", "task_id": "u1-illuminate-...", "capture_id": 123, "status": "completed", "background": false }
 ```
+
+> **Note on `run_id`:** the design previously included a `run_id` field for reruns. It has been **removed from the current implementation** (the `task_status` table and `StatusCode` no longer carry it) — rerun support is deferred (see §7 and §13). The `task_id` is currently a placeholder UUID-based string (see `task_id.rs`); a real task-identity scheme (including rerun semantics) is an open design question.
 
 **Why a single named SSE event (`task-status`) rather than per-status names (`illumination-complete`, etc.):** named events are fine for a fixed set, but they don't scale to "subscribe to a subset" or "route by status" cleanly. A single event name with a `status` field in the payload keeps the client logic uniform and lets it filter on `status`/`task_type`/`capture_id` as needed.
 
@@ -176,21 +178,22 @@ pub struct TaskStatusEvent {
     pub task_type: String,
     pub task_id: String,
     pub capture_id: i32,
-    pub run_id: u64,
-    pub status: model::task_status::Status,
+    pub status: task::StatusCode,
     pub background: bool,   // true for backfill/bulk tasks (see §4.3)
     pub user_id: i32,
 }
 ```
 
-This maps 1:1 onto a `task_status` row (see §6). The `status` enum lives on the model (`model::task_status::Status`) — the old `task::Status`/`TaskStatus` structs were removed along with `get_status`.
+This maps 1:1 onto a `task_status` row (see §6). The `StatusCode` enum lives in the task module (`task::StatusCode`); the DB stores only its integer discriminant (`status_code INT`).
 
 ### 5.2 Where task status gets written (and notified)
 
 Task status is written at the natural choke points, each of which **writes a row and `NOTIFY`s**:
 
-1. **In `TaskMaster::submit`** (`task/taskmaster.rs`) — every task enqueue funnels through here. It records a `Queued` row on enqueue. This gives "queued" status for free, everywhere, including admin backfill.
-2. **In the webhook logic** (`logic/illuminate.rs`, `logic/spark.rs`, `logic/search_index.rs`) — write `InProgress` (start) and `Completed`/`Error` (finish) via `TaskMaster::update_status`. The `TaskMaster` is passed into `WebhookState` and the logic functions already receive `service_api`; add a small `StatusWriter` alongside (or call `TaskMaster::update_status` directly).
+1. **In `TaskMaster::submit_*`** (`task/taskmaster.rs`) — every task enqueue funnels through here. It records a `Queued` row on enqueue. This gives "queued" status for free, everywhere, including admin backfill.
+2. **In the webhook handlers** (`webhook/r_illuminate.rs`, `r_ingest.rs`, `r_spark.rs`, `r_search_index.rs`) — each handler deserializes a `TaskEnvelope<T>`, writes `InProgress` (start) and `Completed`/`Error` (finish) via `TaskMaster::update_status`, then calls the `logic/*::exec` function. The `TaskMaster` is threaded through `WebhookState` as `Arc<TaskMaster>`.
+
+> **Note:** status is written in the **webhook handler**, not inside `logic/*::exec`. The `logic` functions stay pure (they take the bare task and don't know about task identity/status). The handler owns the envelope and reports status around the `exec` call.
 
 A tiny helper encapsulates "write row + notify" so callers never touch the channel directly:
 
@@ -200,7 +203,7 @@ pub struct StatusWriter { /* holds a TaskMaster (or DB conn) + the notify channe
 
 impl StatusWriter {
     pub async fn write(&self, event: &TaskStatusEvent) -> anyhow::Result<()> {
-        // 1. UPSERT the task_status row (keyed by task_type, task_id, run_id)
+        // 1. UPSERT the task_status row (keyed by task_type, task_id)
         // 2. NOTIFY task_status_channel, '<task_id>'  (payload is just a hint)
     }
 }
@@ -277,35 +280,38 @@ There is **no in-memory state to lose** and **no cross-instance coordination pro
 
 ## 6. Task status persistence (the canonical source of truth)
 
-`TaskQueue::get_status()` was removed (it was unimplemented everywhere). Recommend a small, focused **`task_status` table** rather than trying to make each backend report status (Cloud Tasks and Pub/Sub don't give clean per-task status without extra plumbing). **This table is the source of truth** — the SSE handler reads it, the workers write it, and `LISTEN/NOTIFY` just tells readers "something changed, go look":
+`TaskQueue::get_status()` was removed (it was unimplemented everywhere). Recommend a small, focused **`task_status` table** rather than trying to make each backend report status (Cloud Tasks doesn't give clean per-task status without extra plumbing). **This table is the source of truth** — the SSE handler reads it, the workers write it, and `LISTEN/NOTIFY` just tells readers "something changed, go look":
 
 ```sql
 CREATE TABLE task_status (
     id            BIGSERIAL PRIMARY KEY,
     task_type     TEXT NOT NULL,          -- 'illumination' | 'spark' | ...
-    task_id       TEXT NOT NULL,          -- capture_id or capture_ids joined
-    run_id        BIGINT NOT NULL DEFAULT 1,  -- increments on rerun
+    task_id       TEXT NOT NULL,          -- task identity (see task_id.rs)
     user_id       INT NOT NULL,
-    status        TEXT NOT NULL,          -- queued|in_progress|completed|error|error_final
+    status_code   INT NOT NULL,           -- integer discriminant of task::StatusCode
     attempts      INT NOT NULL DEFAULT 0,
     background    BOOLEAN NOT NULL DEFAULT false,  -- true for backfill/bulk tasks (see §4.3)
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (task_type, task_id, run_id)
+    UNIQUE (task_type, task_id)
 );
 
 -- The NOTIFY channel name (a constant in code, not a table)
 -- SELECT pg_notify('task_status_channel', task_id) FROM ...;
 ```
 
-- **Written by** `TaskMaster` (on enqueue via `submit`, and on transitions via `update_status`) — each write is followed by a `NOTIFY task_status_channel`.
+> **Schema management:** the table is defined by the SeaORM model (`src/model/task_status.rs`) and created/synced automatically at startup via `conn.get_schema_registry("dreamscroll::model::*").sync(&conn)` in `database/postgres.rs`. There is no hand-written migration file yet.
+
+- **Written by** `TaskMaster` (on enqueue via `submit_*`, and on transitions via `update_status`) — each write is followed by a `NOTIFY task_status_channel`.
 - **Read by** `TaskWatcher` (the `LISTEN`/`NOTIFY` thread) and the SSE handler on connect (replay) and on every `NOTIFY`/poll tick (incremental), filtered by `user_id` + `task_types` + `capture_ids` + the `background` rule.
-- **`run_id`** is the key to reruns (below).
+- **`status_code`** stores the integer discriminant of `task::StatusCode` (`Queued=0`, `InProgress=1`, `Completed=2`, `Error=3`, `ErrorFinal=4`). The mapping lives in `task/status_code.rs`.
 - **`background`** marks bulk/backfill tasks so the default `/events` stream can ignore them (see §4.3).
 
-> **Why a focused `task_status` table (not a generic `events` table):** task state is a first-class, non-trivial problem of its own — it has a lifecycle (`queued → in_progress → completed/error`), retries/attempts, and reruns. A dedicated table with typed columns (`task_type`, `task_id`, `run_id`, `status`, `attempts`) models that cleanly and is queryable. A generic `kind`+`payload` JSONB table would dilute this and make task-state queries awkward. **Capture lifecycle events are a separate, TBD concern** (see §13) and should get their own mechanism when we tackle them — not be shoehorned into `task_status`.
+> **Why a focused `task_status` table (not a generic `events` table):** task state is a first-class, non-trivial problem of its own — it has a lifecycle (`queued → in_progress → completed/error`), retries/attempts, and reruns. A dedicated table with typed columns (`task_type`, `task_id`, `status_code`, `attempts`) models that cleanly and is queryable. A generic `kind`+`payload` JSONB table would dilute this and make task-state queries awkward. **Capture lifecycle events are a separate, TBD concern** (see §13) and should get their own mechanism when we tackle them — not be shoehorned into `task_status`.
 
 This also fixes a latent bug from the audit notes: *"No task retry/dead-letter in LocalTaskQueue — failed tasks silently dropped."* With a `task_status` table, `Error`/`ErrorFinal` states become observable.
+
+> **REVISIT — retry/attempts policy is not yet defined.** `attempts` is currently hardcoded to `0` everywhere, and a failed `exec` writes `Error` directly (no `ErrorFinal` escalation or retry policy yet). See §13.
 
 ### 6.1 `LISTEN/NOTIFY` mechanics and the connection budget
 
@@ -320,6 +326,8 @@ The one real constraint is **connection count**. The pool is capped at 5 (`max_c
 ---
 
 ## 7. Reruns ("Illuminate this again with a new model")
+
+> **Status: deferred.** The current implementation does **not** support reruns — `run_id` was removed from the `task_status` table and `StatusCode`, and `task_id` is a placeholder UUID string. This section remains as the design for when reruns are tackled.
 
 This is where the current design breaks, and it's worth calling out explicitly:
 
@@ -337,8 +345,8 @@ pub struct IlluminationTask {
 }
 ```
 
-- `TaskId::id()` returns `"{capture_id}-{run_id}"` so each rerun is a distinct task.
-- `TaskMaster::submit` takes a `Task::Illuminate { user_id, capture_id, run_id, model }` variant.
+- `task_id` returns `"{capture_id}-{run_id}"` so each rerun is a distinct task.
+- `TaskMaster::submit_illumination` takes the `run_id`/`model` fields.
 - `logic/illuminate.rs` **removes the idempotency guard** (`if !capture.illuminations.is_empty() { skip }`) when a rerun is requested — or better, inserts a *new* illumination row (the schema already supports multiple illuminations per capture; the template just renders `| first`).
 
 **Option B:** A separate `rerun` task type. More moving parts; Option A is cleaner.
@@ -352,7 +360,7 @@ pub struct IlluminationTask {
 </button>
 ```
 
-The handler calls `task_master.submit(Task::Illuminate { user_id, capture_id, run_id, model })`, which records a `Queued` row with the new `run_id`. The client's SSE listener sees it and shows "illuminating…" then re-fetches when `Completed` arrives.
+The handler calls `task_master.submit_illumination(user_id, IlluminationTask { capture_id, run_id, model })`, which records a `Queued` row with the new `run_id`. The client's SSE listener sees it and shows "illuminating…" then re-fetches when `Completed` arrives.
 
 ---
 
@@ -544,27 +552,31 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 
 ---
 
-## 10. Proposed file changes (summary)
+## 10. File changes (summary — ✅ = done, ⬜ = pending)
 
-| File                                            | Change                                                                                                                                                                                                |
-| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/events/mod.rs` *(new)*                     | `TaskStatusEvent` struct + `StatusWriter` (write row + `NOTIFY`)                                                                                                                                      |
-| `src/events/notifier.rs` *(new)*                | dedicated `LISTEN` connection + local fan-out to SSE receivers                                                                                                                                        |
-| `src/task/task.rs` *(new)*                      | unified `Task` enum (`Ingest`/`Illuminate`/`Spark`/`SearchIndex`), each carrying `user_id` + capture id(s); `task_type()`/`task_id()`/`user_id()`                                                     |
-| `src/task/taskmaster.rs` *(new)*                | `TaskMaster` — owns queues + `task_status`; `submit` / `update_status` / `query_status`; records `Queued` on enqueue                                                                                  |
-| `src/task/taskwatcher.rs` *(new)*               | `TaskWatcher` — the `LISTEN`/`NOTIFY` thread (stub for now); one of two owners of `task_status`                                                                                                       |
-| `src/task/taskqueue.rs`                         | `get_status`/`Status`/`TaskStatus` **removed** (status now lives in the DB); trait is enqueue-only                                                                                                    |
-| `src/task/beacon.rs`                            | **removed** — replaced by `TaskMaster`                                                                                                                                                                |
-| `src/webhook/schema.rs`                         | add `run_id`/`model` to `IlluminationTask`; update `TaskId::id()`                                                                                                                                     |
-| `src/webhook/logic/illuminate.rs`               | write `InProgress`/`Completed`/`Error` + `NOTIFY`; honor rerun (drop idempotency guard on rerun)                                                                                                      |
-| `src/webhook/logic/spark.rs`, `search_index.rs` | write status + `NOTIFY`                                                                                                                                                                               |
-| `src/webhook/webhook_state.rs`                  | add `StatusWriter` (or `TaskMaster::update_status`)                                                                                                                                                   |
-| `src/webui/v2/maker.rs`                         | add `/events` SSE route; thread `TaskWatcher` + notifier into `WebState`                                                                                                                              |
-| `src/webui/v2/r_events.rs` *(new)*              | SSE handler (replay from DB, listen for notifications, filter by user + task_types + capture_ids + background rule, adaptive lifetime)                                                                |
-| `src/webui/v2/r_rerun.rs` *(new)*               | rerun endpoint                                                                                                                                                                                        |
-| `src/database/`                                 | `task_status` table (incl. `background` column) + SeaORM model                                                                                                                                        |
-| `web/v2/templates/*.tera`                       | add `hx-ext="sse"`, `sse-connect` (with `task_types`/`capture_ids`), `hx-trigger="sse:task-status"`; render per-status card state (queued/in_progress/completed/error) applied from SSE events (§5.5) |
-| `web/v2/static/webui-v2.js`                     | extend upload notice to react to task-status events; reconnect `/events` on user interaction (adaptive lifetime)                                                                                      |
+| File                               | Change                                                                                                                                                                                                | Status |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `src/task/task.rs`                 | `Task` trait (`task_type()`) + `TaskEnvelope<T>` (identity + payload) + `make_task_id` placeholder                                                                                                    | ✅      |
+| `src/task/task_id.rs`              | `make_task_id` — placeholder UUID-based task identity (needs rethink)                                                                                                                                 | ✅      |
+| `src/task/taskqueue.rs`            | `TaskQueue<T>` trait, enqueue-only (takes `TaskEnvelope<T>`)                                                                                                                                          | ✅      |
+| `src/task/taskqueue_local.rs`      | `LocalTaskQueue` — in-process mpsc + semaphore backend                                                                                                                                                | ✅      |
+| `src/task/taskqueue_cloudtask.rs`  | `CloudTaskQueue` — Google Cloud Tasks backend                                                                                                                                                         | ✅      |
+| `src/task/taskqueue_pubsub.rs`     | **removed** (2026-09-15) — Pub/Sub support stripped out; Cloud Tasks is the focus                                                                                                                     | ✅      |
+| `src/task/taskmaster.rs`           | `TaskMaster` — owns queues + `task_status`; `submit_*` / `update_status` / `query_status`; records `Queued` on enqueue; shared via `Arc`                                                              | ✅      |
+| `src/task/status_recorder.rs`      | `TaskStatusRecorder` — owns all `task_status` persistence (upsert keyed by `(task_type, task_id)`)                                                                                                    | ✅      |
+| `src/task/status_code.rs`          | `StatusCode` enum — strongly-typed status; DB stores integer discriminant                                                                                                                             | ✅      |
+| `src/task/taskwatcher.rs`          | `TaskWatcher` — the `LISTEN`/`NOTIFY` thread (stub for now); one of two owners of `task_status`                                                                                                       | ⬜      |
+| `src/task/beacon.rs`               | **removed** — replaced by `TaskMaster`                                                                                                                                                                | ✅      |
+| `src/model/task_status.rs`         | `task_status` SeaORM model (`status_code INT`, `background`, etc.) — auto-synced at startup                                                                                                           | ✅      |
+| `src/webhook/webhook_state.rs`     | `WebhookState` now carries `task_master: Arc<TaskMaster>`                                                                                                                                             | ✅      |
+| `src/webhook/r_*.rs` (4 handlers)  | accept `TaskEnvelope<T>`; write `InProgress`/`Completed`/`Error` via `TaskMaster::update_status` around `logic::exec`                                                                                 | ✅      |
+| `src/events/mod.rs` *(new)*        | `TaskStatusEvent` struct + `StatusWriter` (write row + `NOTIFY`)                                                                                                                                      | ⬜      |
+| `src/events/notifier.rs` *(new)*   | dedicated `LISTEN` connection + local fan-out to SSE receivers                                                                                                                                        | ⬜      |
+| `src/webui/v2/maker.rs`            | add `/events` SSE route; thread `TaskWatcher` + notifier into `WebState`                                                                                                                              | ⬜      |
+| `src/webui/v2/r_events.rs` *(new)* | SSE handler (replay from DB, listen for notifications, filter by user + task_types + capture_ids + background rule, adaptive lifetime)                                                                | ⬜      |
+| `src/webui/v2/r_rerun.rs` *(new)*  | rerun endpoint (deferred — see §7)                                                                                                                                                                    | ⬜      |
+| `web/v2/templates/*.tera`          | add `hx-ext="sse"`, `sse-connect` (with `task_types`/`capture_ids`), `hx-trigger="sse:task-status"`; render per-status card state (queued/in_progress/completed/error) applied from SSE events (§5.5) | ⬜      |
+| `web/v2/static/webui-v2.js`        | extend upload notice to react to task-status events; reconnect `/events` on user interaction (adaptive lifetime)                                                                                      | ⬜      |
 
 ---
 
@@ -573,29 +585,32 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 - **Simple:** The client is ~3 HTML attributes. The server uses Postgres `LISTEN/NOTIFY` (built into Postgres, zero new dependencies) + one small `StatusWriter`. No build step, no JS framework.
 - **Idiomatic:** SSE is the canonical HTMX companion; `htmx-ext-sse` is the official extension. Axum has first-class SSE support. `LISTEN/NOTIFY` is the idiomatic Postgres pub/sub. `TaskMaster`/`TaskWatcher` are the two clean owners of task state.
 - **Robust:** The `task_status` table is the **single canonical source of truth** — it survives reconnects, restarts, and multi-instance workers with no in-process state to drift. `LISTEN/NOTIFY` gives low latency; the poll fallback guarantees correctness; keep-alives + auto-reconnect handle flaky connections. The adaptive lifetime keeps idle connections from accumulating.
-- **Flexible:** The `(task_type, task_id, run_id)` task-status model is generic — illumination, spark, search-index, ingest all flow through the same table/channel. Adding a new task type = write a row + `NOTIFY` + add an `hx-trigger="sse:task-status"` line. Client subscription (`task_types` + `capture_ids`) keeps the stream relevant. Reruns are a first-class concept via `run_id`.
+- **Flexible:** The `(task_type, task_id)` task-status model is generic — illumination, spark, search-index, ingest all flow through the same table/channel. Adding a new task type = write a row + `NOTIFY` + add an `hx-trigger="sse:task-status"` line. Client subscription (`task_types` + `capture_ids`) keeps the stream relevant.
 
 ---
 
-## 12. Suggested implementation order
+## 12. Implementation status
 
-1. **`task_status` table + model** (foundation; also fixes the "no retry observability" audit note). Include the `background` column. ✅ *model done; migration pending*
-2. **`TaskMaster`** (submit/update_status/query_status) + `StatusWriter` (write row + `NOTIFY`) + wire into `WebhookState`. Thread the `background` flag through `Task::*`. ✅ *TaskMaster done; StatusWriter/NOTIFY pending*
-3. **`/events` SSE route** with user filtering + DB replay + poll fallback + subscription params (`task_types`, `capture_ids`) + the `background` rule.
-4. **Client wiring** (`hx-ext="sse"`, `sse-connect`, `hx-trigger="sse:task-status"`) — live updates for the *existing* upload flow should appear immediately.
-5. **Adaptive lifetime** (5-min idle close + reconnect-on-interaction) — the topology safeguard.
-6. **Rerun support** (`run_id`/`model` on `IlluminationTask`, rerun endpoint, drop idempotency guard on rerun).
-7. **Extend to spark/search-index** as the pattern proves out.
+1. **`task_status` table + model** (foundation; also fixes the "no retry observability" audit note). Include the `background` column. ✅ *model done; auto-synced at startup*
+2. **Task framework** — `Task` trait, `TaskEnvelope<T>`, `TaskQueue<T>` (Local + Cloud Tasks), `TaskMaster` (`submit_*`/`update_status`/`query_status`), `TaskStatusRecorder`, `StatusCode`. ✅ *done*
+3. **Status tracking end-to-end** — `submit_*` records `Queued`; webhook handlers record `InProgress` → `Completed`/`Error` via `TaskMaster::update_status`. ✅ *done (attempts hardcoded to 0; no `ErrorFinal` escalation yet)*
+4. **`StatusWriter` + `NOTIFY`** — write row + `NOTIFY task_status_channel`. ⬜ *pending*
+5. **`/events` SSE route** with user filtering + DB replay + poll fallback + subscription params (`task_types`, `capture_ids`) + the `background` rule. ⬜ *pending*
+6. **Client wiring** (`hx-ext="sse"`, `sse-connect`, `hx-trigger="sse:task-status"`) — live updates for the *existing* upload flow should appear immediately. ⬜ *pending*
+7. **Adaptive lifetime** (5-min idle close + reconnect-on-interaction) — the topology safeguard. ⬜ *pending*
+8. **Rerun support** (`run_id`/`model` on `IlluminationTask`, rerun endpoint, drop idempotency guard on rerun). ⬜ *deferred — see §7*
 
 ---
 
 ## 13. Open questions / follow-ups
 
 - **SSE payload format:** thin JSON signals (recommended) vs. small HTML fragments for direct `sse-swap`. The design supports both; pick per use-case.
-- **`task_status` retention:** add a cleanup/eviction policy for old `run_id`s to avoid unbounded table growth.
-- **Two-owner rule (resolved):** only `TaskMaster` (writes) and `TaskWatcher` (reads for SSE) touch `task_status` directly. Everything else goes through `TaskMaster::submit`/`update_status`/`query_status`. This keeps the table's access surface tiny and auditable.
-- **`TaskMaster.db` is optional (resolved):** when no DB is provided, `TaskMaster` runs enqueue-only (no `task_status` writes). This is used by util commands and tests that don't want background-task bookkeeping. `submit`/`update_status`/`query_status` no-op on the DB half in that mode.
-- **`run_id` is hardcoded to 1 for now (resolved):** `TaskMaster::update_status`/`query_status` currently key on `run_id = 1`. Rerun support (step 6) will thread a real `run_id` through `Task::*`.
+- **`task_status` retention:** add a cleanup/eviction policy to avoid unbounded table growth.
+- **Two-owner rule (resolved):** only `TaskMaster` (writes) and `TaskWatcher` (reads for SSE) touch `task_status` directly. Everything else goes through `TaskMaster::submit_*`/`update_status`/`query_status`. This keeps the table's access surface tiny and auditable.
+- **`TaskMaster.db` is optional (resolved):** when no DB is provided, `TaskMaster` runs enqueue-only (no `task_status` writes). This is used by util commands and tests that don't want background-task bookkeeping. `submit_*`/`update_status`/`query_status` no-op on the DB half in that mode.
+- **Retry/attempts policy (REVISIT):** `attempts` is currently hardcoded to `0` everywhere, and a failed `exec` writes `Error` directly — there is **no `ErrorFinal` escalation or retry policy yet**. Decide: what does `attempts` count (retry count vs. 1-based attempt number)? Who increments it? How many attempts before `Error` → `ErrorFinal`? Who triggers retries (Cloud Tasks retry config? LocalTaskQueue)? This is the natural next step for "rock-solid" status tracking.
+- **Task identity (REVISIT):** `make_task_id` is a placeholder (`u{user_id}-{task_type}-{uuid}`). Open questions: should the id be derived from the payload (e.g. `capture_id`) for idempotency/dedupe, or always fresh? Should the queue generate it? Should it be a structured `TaskId` type? How does it interact with reruns?
+- **Rerun support (deferred):** `run_id` was removed from the current implementation. When reruns are tackled, re-introduce `run_id` (or `model`/`force`) on `IlluminationTask`, make `task_id` run-aware, and drop the idempotency guard on rerun (see §7).
 - **Cloud Run timeout:** confirm the service-level request timeout is set high enough for long-lived SSE connections (and above the 5-min adaptive idle close).
 - **Multiple illuminations per capture:** decide whether reruns replace the existing illumination or append a new one (schema supports both; template currently renders `| first`).
 - **`background` flag semantics:** for now the `background` flag is metadata only — the mandatory `capture_ids` rule already prevents backfill noise (see §4.3). Revisit later — e.g. a `background=true` query param to opt in, or surfacing backfill progress in an admin UI. The flag is persisted, so it's available for any future use.
