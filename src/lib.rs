@@ -15,3 +15,6 @@ pub mod telemetry;
 pub mod util;
 pub mod webhook;
 pub mod webui;
+
+#[cfg(test)]
+pub mod test_support;

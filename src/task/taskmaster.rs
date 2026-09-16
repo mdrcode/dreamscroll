@@ -22,9 +22,9 @@ use super::*;
 /// must go through `begin_attempt`/`finish_attempt` so the attempt count and
 /// the retry/exhaustion decision stay consistent with the recorded status.
 ///
-/// `db` is optional: when absent, `TaskMaster` runs in **enqueue-only** mode
-/// (no `task_status` writes). This is used by util commands and tests that
-/// don't want background-task bookkeeping.
+/// `db` is required: `TaskMaster` always records task status, so there is no
+/// enqueue-only mode. Callers that don't want background-task bookkeeping
+/// should simply not submit tasks.
 ///
 /// Not Clone, share it via Arc.
 pub struct TaskMaster {
@@ -274,7 +274,6 @@ impl TaskMasterBuilder {
         self.db = Some(db);
         self
     }
-
     /// Maximum number of attempts per task. See `Config::task_max_attempts`.
     pub fn max_attempts(mut self, max_attempts: i32) -> Self {
         self.max_attempts = Some(max_attempts);
@@ -302,9 +301,13 @@ impl TaskMasterBuilder {
         self
     }
 
-    pub fn build(self) -> TaskMaster {
-        TaskMaster {
-            status: TaskStatusTracker::new(self.db),
+    pub fn build(self) -> anyhow::Result<TaskMaster> {
+        let Some(db) = self.db else {
+            anyhow::bail!("TaskMaster requires a database handle");
+        };
+
+        Ok(TaskMaster {
+            status: TaskStatusTracker::new(db),
             // Mirrors `Config::task_max_attempts`'s default so a builder that
             // forgets `.max_attempts(..)` behaves like production rather than
             // silently disabling retries.
@@ -312,7 +315,7 @@ impl TaskMasterBuilder {
             illumination_queue: self.illumination_queue,
             search_index_queue: self.search_index_queue,
             spark_queue: self.spark_queue,
-        }
+        })
     }
 }
 
@@ -421,13 +424,21 @@ mod tests {
 
     #[tokio::test]
     async fn submit_illumination_enqueues_task() {
+        let Some(db) = crate::test_support::db::test_db().await else {
+            return;
+        };
+
         let captures = Arc::new(Mutex::new(Vec::new()));
         let queue = RecordingQueue {
             captures: Arc::clone(&captures),
             fail: false,
         };
 
-        let service = TaskMaster::builder().illumination_queue(queue).build();
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .illumination_queue(queue)
+            .build()
+            .expect("build should succeed with a db");
 
         service
             .submit_illumination(1, IlluminationTask { capture_id: 42 })
@@ -443,7 +454,14 @@ mod tests {
 
     #[tokio::test]
     async fn submit_without_queue_is_noop() {
-        let service = TaskMaster::builder().build();
+        let Some(db) = crate::test_support::db::test_db().await else {
+            return;
+        };
+
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .build()
+            .expect("build should succeed with a db");
 
         service
             .submit_illumination(1, IlluminationTask { capture_id: 7 })
@@ -453,15 +471,249 @@ mod tests {
 
     #[tokio::test]
     async fn submit_propagates_enqueue_error() {
+        let Some(db) = crate::test_support::db::test_db().await else {
+            return;
+        };
+
         let queue = RecordingQueue {
             captures: Arc::new(Mutex::new(Vec::new())),
             fail: true,
         };
-        let service = TaskMaster::builder().illumination_queue(queue).build();
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .illumination_queue(queue)
+            .build()
+            .expect("build should succeed with a db");
 
         let result = service
             .submit_illumination(1, IlluminationTask { capture_id: 9 })
             .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn build_without_db_is_an_error() {
+        let result = TaskMaster::builder().build();
+        assert!(result.is_err(), "TaskMaster must require a database");
+    }
+
+    /// A submitted task is recorded as `Queued` with zero attempts.
+    #[tokio::test]
+    async fn submit_records_queued_row() {
+        let Some(db) = crate::test_support::db::test_db().await else {
+            return;
+        };
+
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .illumination_queue(RecordingQueue {
+                captures: Arc::new(Mutex::new(Vec::new())),
+                fail: false,
+            })
+            .build()
+            .expect("build should succeed with a db");
+
+        service
+            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .await
+            .expect("submit should succeed");
+
+        let rows = service
+            .query_incomplete_for_entity(1, "capture", 42)
+            .await
+            .expect("query should succeed");
+
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status_code, StatusCode::Queued.as_i32());
+        assert_eq!(rows[0].attempts, 0);
+        assert_eq!(rows[0].envelope_id, "u1-illuminate-capture42");
+    }
+
+    /// The full attempt lifecycle: `Queued` -> `InProgress` -> `Completed`.
+    #[tokio::test]
+    async fn attempt_lifecycle_reaches_completed() {
+        let Some(db) = crate::test_support::db::test_db().await else {
+            return;
+        };
+
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .illumination_queue(RecordingQueue {
+                captures: Arc::new(Mutex::new(Vec::new())),
+                fail: false,
+            })
+            .build()
+            .expect("build should succeed with a db");
+
+        let task = IlluminationTask { capture_id: 7 };
+        service
+            .submit_illumination(1, task.clone())
+            .await
+            .expect("submit should succeed");
+
+        let envelope = TaskEnvelope::new(1, task);
+
+        let attempt = service
+            .begin_attempt(&envelope)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("first attempt should not be skipped");
+        assert_eq!(attempt, 1);
+
+        let outcome = service
+            .finish_attempt(&envelope, attempt, &Ok(()))
+            .await
+            .expect("finish_attempt should succeed");
+        assert_eq!(outcome, AttemptOutcome::Completed);
+
+        // Completed rows are excluded from the incomplete query.
+        let rows = service
+            .query_incomplete_for_entity(1, "capture", 7)
+            .await
+            .expect("query should succeed");
+        assert!(rows.is_empty(), "completed work is not incomplete");
+    }
+
+    /// A transient failure retries while budget remains, then exhausts.
+    #[tokio::test]
+    async fn transient_failure_escalates_to_exhausted() {
+        let Some(db) = crate::test_support::db::test_db().await else {
+            return;
+        };
+
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .max_attempts(2)
+            .illumination_queue(RecordingQueue {
+                captures: Arc::new(Mutex::new(Vec::new())),
+                fail: false,
+            })
+            .build()
+            .expect("build should succeed with a db");
+
+        let task = IlluminationTask { capture_id: 9 };
+        service
+            .submit_illumination(1, task.clone())
+            .await
+            .expect("submit should succeed");
+
+        let envelope = TaskEnvelope::new(1, task);
+        let failure = Err(api::ApiError::internal(anyhow::anyhow!("transient")));
+
+        // Attempt 1: budget remains, so it will retry.
+        let attempt = service
+            .begin_attempt(&envelope)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("attempt should not be skipped");
+        let outcome = service
+            .finish_attempt(&envelope, attempt, &failure)
+            .await
+            .expect("finish_attempt should succeed");
+        assert_eq!(outcome, AttemptOutcome::ErrorWillRetry);
+
+        // Attempt 2: budget spent, so it exhausts.
+        let attempt = service
+            .begin_attempt(&envelope)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("attempt should not be skipped");
+        assert_eq!(attempt, 2);
+        let outcome = service
+            .finish_attempt(&envelope, attempt, &failure)
+            .await
+            .expect("finish_attempt should succeed");
+        assert_eq!(outcome, AttemptOutcome::ErrorExhausted);
+
+        // Exhausted work is still incomplete (the user should see it).
+        let rows = service
+            .query_incomplete_for_entity(1, "capture", 9)
+            .await
+            .expect("query should succeed");
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].status_code, StatusCode::ErrorExhausted.as_i32());
+        assert_eq!(rows[0].attempts, 2);
+    }
+
+    /// A redelivery of already-completed work is not resurrected.
+    #[tokio::test]
+    async fn completed_task_is_not_resurrected_in_db() {
+        let Some(db) = crate::test_support::db::test_db().await else {
+            return;
+        };
+
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .illumination_queue(RecordingQueue {
+                captures: Arc::new(Mutex::new(Vec::new())),
+                fail: false,
+            })
+            .build()
+            .expect("build should succeed with a db");
+
+        let task = IlluminationTask { capture_id: 11 };
+        service
+            .submit_illumination(1, task.clone())
+            .await
+            .expect("submit should succeed");
+
+        let envelope = TaskEnvelope::new(1, task);
+
+        let attempt = service
+            .begin_attempt(&envelope)
+            .await
+            .expect("begin_attempt should succeed")
+            .expect("attempt should not be skipped");
+        service
+            .finish_attempt(&envelope, attempt, &Ok(()))
+            .await
+            .expect("finish_attempt should succeed");
+
+        // A redelivery must be skipped, not flipped back to InProgress.
+        let redelivery = service
+            .begin_attempt(&envelope)
+            .await
+            .expect("begin_attempt should succeed");
+        assert!(
+            redelivery.is_none(),
+            "completed work must not be resurrected"
+        );
+    }
+
+    /// The user-scoped query returns incomplete work across entities.
+    #[tokio::test]
+    async fn query_incomplete_for_user_spans_entities() {
+        let Some(db) = crate::test_support::db::test_db().await else {
+            return;
+        };
+
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .illumination_queue(RecordingQueue {
+                captures: Arc::new(Mutex::new(Vec::new())),
+                fail: false,
+            })
+            .build()
+            .expect("build should succeed with a db");
+
+        for capture_id in [1, 2, 3] {
+            service
+                .submit_illumination(1, IlluminationTask { capture_id })
+                .await
+                .expect("submit should succeed");
+        }
+
+        let rows = service
+            .query_incomplete_for_user(1)
+            .await
+            .expect("query should succeed");
+        assert_eq!(rows.len(), 3);
+
+        // Another user sees nothing.
+        let other = service
+            .query_incomplete_for_user(2)
+            .await
+            .expect("query should succeed");
+        assert!(other.is_empty(), "queries must be scoped by user_id");
     }
 }

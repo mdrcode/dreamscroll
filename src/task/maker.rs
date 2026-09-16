@@ -46,7 +46,7 @@ pub async fn make_task_master(
                     .illumination_queue(illumination_queue)
                     .search_index_queue(search_index_queue)
                     .spark_queue(spark_queue)
-                    .build(),
+                    .build()?,
             ))
         }
         TaskQueueBackend::GCloudTasks => {
@@ -87,7 +87,7 @@ pub async fn make_task_master(
                     .illumination_queue(illumination_queue)
                     .search_index_queue(search_index_queue)
                     .spark_queue(spark_queue)
-                    .build(),
+                    .build()?,
             ))
         }
     }

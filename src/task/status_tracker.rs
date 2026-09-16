@@ -11,7 +11,7 @@ use super::*;
 /// `StatusNotifier` (reads for SSE) without duplicating the SeaORM queries.
 #[derive(Clone)]
 pub struct TaskStatusTracker {
-    db: Option<database::DbHandle>,
+    db: database::DbHandle,
 }
 
 /// A point-in-time view of a task's status row.
@@ -22,7 +22,7 @@ pub struct TaskStatusSnapshot {
 }
 
 impl TaskStatusTracker {
-    pub fn new(db: Option<database::DbHandle>) -> Self {
+    pub fn new(db: database::DbHandle) -> Self {
         Self { db }
     }
 
@@ -32,16 +32,14 @@ impl TaskStatusTracker {
     ///
     /// The full task payload is required: status is only ever recorded by
     /// submitters and workers, both of which hold the concrete task. An
-    /// envelope without a payload is a programming error. No-op without a DB.
+    /// envelope without a payload is a programming error.
     pub async fn record<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
         status: StatusCode,
         attempts: i32,
     ) -> anyhow::Result<()> {
-        let Some(db) = self.db.as_ref() else {
-            return Ok(());
-        };
+        let db = &self.db;
 
         let Some(task) = envelope.task.as_ref() else {
             anyhow::bail!(
@@ -85,14 +83,12 @@ impl TaskStatusTracker {
     /// Query the status *and* current attempt count for a task, used by
     /// workers to decide whether another attempt is warranted.
     ///
-    /// Returns `None` when there's no DB or no row yet.
+    /// Returns `None` when there is no row yet.
     pub async fn query_snapshot(
         &self,
         envelope_id: &str,
     ) -> anyhow::Result<Option<TaskStatusSnapshot>> {
-        let Some(db) = self.db.as_ref() else {
-            return Ok(None);
-        };
+        let db = &self.db;
 
         let row = model::task_status::Entity::find()
             .filter(model::task_status::Column::EnvelopeId.eq(envelope_id))
@@ -129,9 +125,7 @@ impl TaskStatusTracker {
         entity_type: &str,
         entity_id: i32,
     ) -> anyhow::Result<Vec<model::task_status::Model>> {
-        let Some(db) = self.db.as_ref() else {
-            return Ok(Vec::new());
-        };
+        let db = &self.db;
 
         // TODO(REVISIT): this predicate wants a composite index on
         // (user_id, entity_type, entity_id, status_code). See the note on
@@ -158,14 +152,12 @@ impl TaskStatusTracker {
     /// `query_incomplete_for_entity` for the full rationale), so permanently
     /// failed work (`ErrorExhausted`) is included.
     ///
-    /// Returns an empty vec when there's no DB or no matching rows.
+    /// Returns an empty vec when there are no matching rows.
     pub async fn query_incomplete_for_user(
         &self,
         user_id: i32,
     ) -> anyhow::Result<Vec<model::task_status::Model>> {
-        let Some(db) = self.db.as_ref() else {
-            return Ok(Vec::new());
-        };
+        let db = &self.db;
 
         // TODO(REVISIT): this predicate wants a composite index on
         // (user_id, status_code). See the note on `model::task_status::Model`.

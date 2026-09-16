@@ -26,7 +26,7 @@ pub async fn run(mut state: CmdState, _args: CreateUserArgs) -> anyhow::Result<(
     let admin_client = api::AdminApiClient::new(
         db.clone(),
         service_api,
-        Arc::new(task::TaskMaster::builder().db(db.clone()).build()),
+        Arc::new(task::TaskMaster::builder().db(db.clone()).build()?),
     );
 
     println!("Enter username for new user:");
