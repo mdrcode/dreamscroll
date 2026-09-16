@@ -28,6 +28,15 @@ use super::*;
 /// don't want background-task bookkeeping.
 ///
 /// Not Clone, share it via Arc.
+pub struct TaskMaster {
+    status: TaskStatusRecorder,
+    max_attempts: i32,
+    ingest_queue: Option<Box<dyn TaskQueue<IngestTask>>>,
+    illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
+    search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
+    spark_queue: Option<Box<dyn TaskQueue<SparkTask>>>,
+}
+
 /// The outcome of a single task attempt, from the worker's point of view.
 ///
 /// This tells the webhook handler which HTTP status to return so that Cloud
@@ -58,13 +67,18 @@ impl AttemptOutcome {
     }
 }
 
-pub struct TaskMaster {
-    status: TaskStatusRecorder,
-    max_attempts: i32,
-    ingest_queue: Option<Box<dyn TaskQueue<IngestTask>>>,
-    illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
-    search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
-    spark_queue: Option<Box<dyn TaskQueue<SparkTask>>>,
+/// Compute the 1-based attempt number for a task about to start.
+///
+/// Returns `None` when the task is already `Completed`: Cloud Tasks delivers at
+/// least once, so a redelivery of finished work must not resurrect the row back
+/// to `InProgress` (which would show a spurious "in progress" blip to any client
+/// watching the task).
+fn next_attempt_number(snapshot: Option<&TaskStatusSnapshot>) -> Option<i32> {
+    match snapshot {
+        Some(snapshot) if snapshot.status == StatusCode::Completed => None,
+        Some(snapshot) => Some(snapshot.attempts + 1),
+        None => Some(1),
+    }
 }
 
 impl TaskMaster {
@@ -110,7 +124,7 @@ impl TaskMaster {
         task: T,
     ) -> anyhow::Result<()> {
         let task_type = T::task_type();
-        let envelope = TaskEnvelope::from_task(user_id, task);
+        let envelope = TaskEnvelope::new(user_id, task);
 
         let Some(queue) = queue else {
             tracing::warn!(
@@ -141,19 +155,29 @@ impl TaskMaster {
     /// The attempt number is derived from the persisted `attempts` count, so it
     /// survives worker restarts and works identically for every queue backend
     /// (unlike Cloud Tasks' retry-count header, which the local queue lacks).
-    pub async fn begin_attempt<T: Task>(&self, envelope: &TaskEnvelope<T>) -> anyhow::Result<i32> {
-        let previous = self
-            .status
-            .query_snapshot(&envelope.envelope_id)
-            .await?
-            .map(|snapshot| snapshot.attempts)
-            .unwrap_or(0);
+    ///
+    /// Returns `None` if the task is already `Completed`. Cloud Tasks delivers
+    /// at least once, so a redelivery of finished work must not resurrect it
+    /// back to `InProgress` (which would show a spurious "in progress" blip to
+    /// any client watching the task).
+    pub async fn begin_attempt<T: Task>(
+        &self,
+        envelope: &TaskEnvelope<T>,
+    ) -> anyhow::Result<Option<i32>> {
+        let snapshot = self.status.query_snapshot(&envelope.envelope_id).await?;
 
-        let attempt = previous + 1;
+        let Some(attempt) = next_attempt_number(snapshot.as_ref()) else {
+            tracing::info!(
+                envelope_id = %envelope.envelope_id,
+                "Ignoring attempt for already-completed task"
+            );
+            return Ok(None);
+        };
+
         self.update_status(envelope, StatusCode::InProgress, attempt)
             .await?;
 
-        Ok(attempt)
+        Ok(Some(attempt))
     }
 
     /// Record the outcome of an attempt and decide whether Cloud Tasks should
@@ -294,7 +318,10 @@ impl TaskMasterBuilder {
     pub fn build(self) -> TaskMaster {
         TaskMaster {
             status: TaskStatusRecorder::new(self.db),
-            max_attempts: self.max_attempts.unwrap_or(1).max(1),
+            // Mirrors `Config::task_max_attempts`'s default so a builder that
+            // forgets `.max_attempts(..)` behaves like production rather than
+            // silently disabling retries.
+            max_attempts: self.max_attempts.unwrap_or(3).max(1),
             ingest_queue: self.ingest_queue,
             illumination_queue: self.illumination_queue,
             search_index_queue: self.search_index_queue,
@@ -352,6 +379,35 @@ mod tests {
         assert_eq!(
             AttemptOutcome::from_failure(&err, 1, 1),
             AttemptOutcome::ErrorExhausted
+        );
+    }
+
+    #[test]
+    fn first_attempt_of_unknown_task_is_one() {
+        assert_eq!(next_attempt_number(None), Some(1));
+    }
+
+    #[test]
+    fn attempt_number_increments_from_persisted_count() {
+        let snapshot = TaskStatusSnapshot {
+            status: StatusCode::ErrorWillRetry,
+            attempts: 2,
+        };
+
+        assert_eq!(next_attempt_number(Some(&snapshot)), Some(3));
+    }
+
+    #[test]
+    fn completed_task_is_not_resurrected() {
+        let snapshot = TaskStatusSnapshot {
+            status: StatusCode::Completed,
+            attempts: 1,
+        };
+
+        assert_eq!(
+            next_attempt_number(Some(&snapshot)),
+            None,
+            "an at-least-once redelivery of finished work must be ignored"
         );
     }
 

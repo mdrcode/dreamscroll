@@ -7,7 +7,7 @@ use crate::{api, logic, task, webhook};
 /// Webhook POST route for Cloud Tasks illumination payloads.
 ///
 /// Expected body is a serialized `TaskEnvelope<IlluminationTask>`, e.g.:
-/// `{ "user_id": 1, "task_id": "u1-illuminate-...", "task": { "capture_id": 123 } }`
+/// `{ "user_id": 1, "envelope_id": "u1-illuminate-capture123", "task": { "capture_id": 123 } }`
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(envelope): Json<task::TaskEnvelope<logic::illuminate::IlluminationTask>>,
@@ -18,13 +18,18 @@ pub async fn post(
         )));
     };
 
-    let attempt = state
+    // `None` means the task already completed (at-least-once redelivery); ack it.
+    let Some(attempt) = state
         .task_master
         .begin_attempt(&envelope)
         .await
-        .map_err(api::ApiError::internal)?;
+        .map_err(api::ApiError::internal)?
+    else {
+        return Ok(axum::http::StatusCode::NO_CONTENT);
+    };
 
-    let result = logic::illuminate::exec(&state.service_api, state.illuminator.as_ref(), task).await;
+    let result =
+        logic::illuminate::exec(&state.service_api, state.illuminator.as_ref(), task).await;
 
     let outcome = state
         .task_master

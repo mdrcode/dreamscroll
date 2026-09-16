@@ -8,7 +8,8 @@ use anyhow::anyhow;
 /// `ErrorWillRetry` and `ErrorExhausted` are computed outcomes, not intrinsic
 /// properties of an error: the same underlying failure is `ErrorWillRetry`
 /// while the app still has retry budget, and `ErrorExhausted` once it is spent.
-/// Only `Completed` and `ErrorExhausted` are terminal.
+/// Only `Completed` is *complete*; everything else is incomplete (see
+/// `is_incomplete`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StatusCode {
     Queued = 0,
@@ -19,8 +20,8 @@ pub enum StatusCode {
 }
 
 impl StatusCode {
-    /// Every variant, so terminal/non-terminal predicates have a single
-    /// source of truth to derive from.
+    /// Every variant, so the incomplete predicate has a single source of truth
+    /// to derive from.
     pub const ALL: [StatusCode; 5] = [
         StatusCode::Queued,
         StatusCode::InProgress,

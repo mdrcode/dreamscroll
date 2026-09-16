@@ -22,7 +22,7 @@ pub struct Model {
     pub id: i64,
     pub user_id: i32,
 
-    /// Globally-unique task identity (see `TaskEnvelope::from_task`), e.g.
+    /// Globally-unique task identity (see `TaskEnvelope::new`), e.g.
     /// `u1-illuminate-capture123`. Already encodes user_id + task_type + entity.
     #[sea_orm(unique)]
     pub envelope_id: String,
@@ -39,9 +39,6 @@ pub struct Model {
     pub status_code: i32,
 
     pub attempts: i32,
-
-    /// true for backfill/bulk tasks (metadata only, not a filter — see §4.3).
-    pub background: bool,
 
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub created_at: DateTime<Utc>,

@@ -40,7 +40,7 @@ Upload (webui/v2/r_upload.rs)
 ### 2.2 Key facts that shape the design
 
 - **`Task` is a trait, not an enum.** Each concrete task type (`IlluminationTask`, `IngestTask`, `SparkTask`, `SearchIndexTask`) lives in `src/logic/*.rs` and implements `task::Task`. The trait carries the task's **identity**: `task_type() -> &'static str`, `entity_type() -> &'static str` (e.g. `"capture"`, `"spark"`), and `entity_id(&self) -> i32`. A `TaskEnvelope<T>` wraps a task with `user_id`, `envelope_id`, and the payload (`task: Option<T>`).
-- **Task identity is deterministic and lives in the envelope.** `TaskEnvelope::from_task(user_id, task)` builds `envelope_id = "u{user_id}-{task_type}-{entity_type}{entity_id}"` (e.g. `u1-illuminate-capture123`). There is **no UUID** and no separate `task_id.rs` — the old `make_task_id` free function was deleted. Because the id is deterministic, re-submitting the same logical work maps to the *same* row (see §7 on reruns).
+- **Task identity is deterministic and lives in the envelope.** `TaskEnvelope::new(user_id, task)` builds `envelope_id = "u{user_id}-{task_type}-{entity_type}{entity_id}"` (e.g. `u1-illuminate-capture123`). There is **no UUID** and no separate `task_id.rs` — the old `make_task_id` free function was deleted. Because the id is deterministic, re-submitting the same logical work maps to the *same* row (see §7 on reruns).
 - **`TaskQueue<T>` is enqueue-only and generic.** `TaskQueue::get_status()` was removed (it was `unimplemented!()` everywhere); status lives in the `task_status` table. The trait is `async fn enqueue(&self, wrapped: TaskEnvelope<T>)`. There are two backends: `LocalTaskQueue` (in-process mpsc + semaphore) and `CloudTaskQueue` (Google Cloud Tasks). **Pub/Sub support was removed** (2026-09-15) to focus on Cloud Tasks.
 - **`OneShotQueue` is dead code and will be removed.** It was an old local-only emulation of task execution and is **not used anywhere in production** — it appears only in `src/common/mod.rs` (module decl + re-export) and its own file `src/common/oneshotqueue.rs` (definition + unit tests). The `LocalTaskQueue` (in-process mpsc + semaphore) is the real local backend and does **not** dedupe. So the rerun problem is *not* caused by `OneShotQueue`; it's caused by the **idempotency guard in `logic/illuminate.rs`** (`if !capture.illuminations.is_empty() { skip }`). That guard is the thing to make rerun-aware, not any queue dedupe.
 - **`TaskMaster`** (`task/taskmaster.rs`) is the single funnel through which *all* task enqueues flow — the perfect choke point to also record status. It replaced the old `Beacon` (removed). `TaskMaster` owns the backend queues **and** the `task_status` table, exposing `submit_*` / `begin_attempt` / `finish_attempt` / `query_*`. It is **not `Clone`** — it's shared via `Arc<TaskMaster>`. `TaskWatcher` (`task/taskwatcher.rs`) is the future `LISTEN`/`NOTIFY` thread (stub for now). **These two are the only structs that touch `task_status` directly.**
@@ -104,7 +104,6 @@ pub struct TaskStatusEvent {
     pub entity_id: i32,      // the entity this task operates on (fan-out key, see §8.5)
     pub status: task::StatusCode, // Queued | InProgress | Completed | ErrorWillRetry | ErrorExhausted
     pub attempts: i32,       // 1-based attempt number of the latest attempt
-    pub background: bool,    // true for backfill/bulk tasks (see §4.3)
     pub user_id: i32,        // for per-user filtering
 }
 ```
@@ -112,7 +111,7 @@ pub struct TaskStatusEvent {
 The SSE wire format is a flat JSON object:
 
 ```json
-{ "task_type": "illumination", "envelope_id": "u1-illuminate-capture123", "entity_type": "capture", "entity_id": 123, "status": "completed", "attempts": 1, "background": false }
+{ "task_type": "illumination", "envelope_id": "u1-illuminate-capture123", "entity_type": "capture", "entity_id": 123, "status": "completed", "attempts": 1 }
 ```
 
 > **Note on `run_id`:** the design previously included a `run_id` field for reruns. It has been **removed from the current implementation** (the `task_status` table and `StatusCode` no longer carry it) — rerun support is deferred (see §7 and §13). Task identity is now **deterministic** (`u{user_id}-{task_type}-{entity_type}{entity_id}`), which means a re-submission of the same logical work maps to the *same* `envelope_id` and therefore the *same* row — so reruns are currently indistinguishable from the original run. Re-introducing a run dimension is the open question in §7.
@@ -138,26 +137,17 @@ The server filters on both `user_id` (always, for security) and the requested `c
 > - **It's simpler.** No special-casing of "all vs. some" — the rule is uniform: *you get events for the captures you registered.*
 > - **It's more efficient.** The server filters at the source, so the stream only carries events the page can actually use. No wasted bandwidth, no client-side filtering of irrelevant events.
 > - **It fits the app's shape.** Because Dreamscroll is photo-heavy, a page renders only a bounded number of captures — images are render/memory heavy, so **a page will realistically never exceed a few hundred captures MAX**. Registering a few hundred IDs is trivial (a comma-separated query param), and it's far cheaper than streaming every task event for the user.
-> - **It makes backfill tracking natural.** If you're watching a specific set of captures, you get their events — including background ones (see §4.3). No separate "opt in to backfill" mode needed.
+> - **It makes backfill tracking natural.** If you're watching a specific set of captures, you get their events. No separate "opt in to backfill" mode needed.
 >
 > **The trade-off:** the client must keep its `capture_ids` list in sync with what's on screen (as the user scrolls, add/remove IDs). This is a small amount of JS, and it's exactly the kind of bookkeeping the adaptive-lifetime reconnect (§8.6) already makes natural — each reconnect re-registers the current set.
 
-### 4.3 The `background` flag — backfill tracking is opt-in via `capture_ids`
+### 4.3 Backfill / bulk tasks — deferred
 
-A **`background` flag** on each task distinguishes bulk/backfill work from user-initiated work:
+An earlier revision of this design carried a **`background` flag** on each task to distinguish bulk/backfill work from user-initiated work. **That field has been removed** (2026-09-16) — it was never populated (`TaskStatusRecorder::record` hardcoded `false`) and backfill deserves its own design pass rather than a speculative column.
 
-- **`background = false`** — user-initiated tasks (an upload, a rerun). These are the ones the user cares about.
-- **`background = true`** — bulk/backfill tasks (e.g. an admin backfill that re-illuminates hundreds of captures). The user isn't watching these individually.
+**Why it isn't needed for this phase:** the mandatory `capture_ids` subscription (§4.2) already prevents backfill noise. A backfill of hundreds of captures simply never reaches a page unless that page is explicitly tracking one of those captures. So the flag was never load-bearing as a filter.
 
-**The filtering semantics (with mandatory `capture_ids`):**
-
-| Subscription                  | Behavior                                                                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `/events?capture_ids=123,456` | **Any** task updates (including `background`) **for those specific IDs**. You get backfill tracking when you're explicitly watching a set of captures. |
-
-Because the client **always** registers `capture_ids`, there is no "listen to all" stream to spam. A backfill of hundreds of captures simply never reaches the page unless the page is explicitly tracking one of those captures. The `background` flag is still useful as **metadata** (the client can choose to render background tasks differently, e.g. a subtle "backfilling…" indicator), but it is **no longer needed as a filter** — the mandatory `capture_ids` already prevents backfill noise.
-
-> **Design note:** the `background` flag remains persisted on the row. It's available for future use (e.g. an admin UI that wants to watch all backfill progress, or a `background=true` param if we ever add a "listen to everything" mode for a specific event type). For `task_status`, the mandatory `capture_ids` rule is the primary mechanism.
+> **Deferred:** backfill/bulk-task handling (marking tasks as background, surfacing backfill progress, an admin progress view) will be tackled in a dedicated plan-and-branch session. When it is, the natural shape is a new column on `task_status` plus a subscription param — but that decision is deliberately out of scope here.
 
 ---
 
@@ -189,7 +179,6 @@ pub struct TaskStatusEvent {
     pub entity_id: i32,
     pub status: task::StatusCode,
     pub attempts: i32,
-    pub background: bool,   // true for backfill/bulk tasks (see §4.3)
     pub user_id: i32,
 }
 ```
@@ -259,7 +248,6 @@ The stream emits `Event::default().event("task-status").json_data(&event)` — a
 - **`user_id`** — always, for security. Never leak one user's task status to another.
 - **`capture_ids`** — **required** for `task_status`. Only events for the registered capture IDs are delivered (see §4.2).
 - **`task_types`** — the client's requested task types (from query params).
-- **`background`** — metadata on each event; not a filter for `task_status` (the mandatory `capture_ids` already prevents backfill noise). See §4.3.
 
 Since the SSE connection is authenticated via the session cookie, `user_id` is known at connect time and used both in the DB query and in the emitted events.
 
@@ -306,7 +294,6 @@ CREATE TABLE task_status (
     entity_id     INT NOT NULL,           -- the entity this task operates on
     status_code   INT NOT NULL,           -- integer discriminant of task::StatusCode
     attempts      INT NOT NULL DEFAULT 0, -- 1-based attempt number of the latest attempt
-    background    BOOLEAN NOT NULL DEFAULT false,  -- true for backfill/bulk tasks (see §4.3)
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (envelope_id)
@@ -321,10 +308,9 @@ CREATE TABLE task_status (
 > **Why `UNIQUE (envelope_id)` and not a compound key:** `envelope_id` already encodes `user_id` + `task_type` + `entity_type` + `entity_id`, so it is globally unique on its own. A compound `UNIQUE (task_type, envelope_id)` would be redundant.
 
 - **Written by** `TaskMaster` (on enqueue via `submit_*`, and on transitions via `begin_attempt`/`finish_attempt`) — each write is followed by a `NOTIFY task_status_channel`.
-- **Read by** `TaskWatcher` (the `LISTEN`/`NOTIFY` thread) and the SSE handler on connect (replay) and on every `NOTIFY`/poll tick (incremental), filtered by `user_id` + `task_types` + `entity_type`/`entity_id` + the `background` rule.
+- **Read by** `TaskWatcher` (the `LISTEN`/`NOTIFY` thread) and the SSE handler on connect (replay) and on every `NOTIFY`/poll tick (incremental), filtered by `user_id` + `task_types` + `entity_type`/`entity_id`.
 - **`status_code`** stores the integer discriminant of `task::StatusCode` (`Queued=0`, `InProgress=1`, `Completed=2`, `ErrorWillRetry=3`, `ErrorExhausted=4`). The mapping lives in `task/status_code.rs`. **These integers are persisted — do not renumber them.**
 - **`entity_type`/`entity_id`** are the queryable entity linkage. They are what makes "give me all the incomplete task statuses for capture 123" expressible (see §6.1).
-- **`background`** marks bulk/backfill tasks so the default `/events` stream can ignore them (see §4.3).
 
 > **Why a focused `task_status` table (not a generic `events` table):** task state is a first-class, non-trivial problem of its own — it has a lifecycle (`queued → in_progress → completed/error`), retries/attempts, and reruns. A dedicated table with typed columns (`task_type`, `envelope_id`, `status_code`, `attempts`) models that cleanly and is queryable. A generic `kind`+`payload` JSONB table would dilute this and make task-state queries awkward. **Capture lifecycle events are a separate, TBD concern** (see §13) and should get their own mechanism when we tackle them — not be shoehorned into `task_status`.
 
@@ -362,18 +348,20 @@ Rationale:
 
 - **`Config.task_max_attempts`** (env `TASK_MAX_ATTEMPTS`, default `3`) is the app's own retry budget. It is threaded into `TaskMasterBuilder::max_attempts`.
 - **`ApiError::is_retryable()`** classifies failures: 5xx (server errors) are transient and worth retrying; 4xx (client errors) are permanent — retrying identical input produces identical results.
-- **`TaskMaster::begin_attempt(envelope)`** reads the persisted attempt count, increments it, writes `InProgress`, and returns the 1-based attempt number. Deriving the count from the DB (rather than Cloud Tasks' retry-count header) means it works identically for **every** backend, including `LocalTaskQueue`, which has no headers.
+- **`TaskMaster::begin_attempt(envelope)`** reads the persisted attempt count, increments it, writes `InProgress`, and returns the 1-based attempt number. Deriving the count from the DB (rather than Cloud Tasks' retry-count header) means it works identically for **every** backend, including `LocalTaskQueue`, which has no headers. It returns `None` when the task is already `Completed`, so an at-least-once redelivery of finished work is acked without resurrecting the row to `InProgress`.
 - **`TaskMaster::finish_attempt(envelope, attempt, &result)`** writes the outcome and returns an `AttemptOutcome`.
 
 **The key convention: the Cloud Tasks queue is always configured with MORE max retries than the app.** This means the app always exhausts its budget *first*, so it can ack the task and stop Cloud Tasks from spending its remaining retries. The HTTP mapping (`webhook::http_status_for_outcome`) follows from that:
 
-| Outcome          | HTTP                      | Cloud Tasks behavior |
-| ---------------- | ------------------------- | -------------------- |
-| `Completed`      | `204 No Content`          | ack (stop)           |
-| `ErrorExhausted` | `200 OK`                  | ack (stop)           |
-| `ErrorWillRetry` | `503 Service Unavailable` | retry                |
+| Outcome          | HTTP                        | Cloud Tasks behavior |
+| ---------------- | --------------------------- | -------------------- |
+| `Completed`      | `204 No Content`            | ack (stop)           |
+| `ErrorExhausted` | `200 OK`                    | ack (stop)           |
+| `ErrorWillRetry` | `500 Internal Server Error` | retry                |
 
 > **Why `ErrorExhausted` returns 2xx:** Cloud Tasks retries on *any* non-2xx and stops on *any* 2xx — there is no "fail but don't retry" status code. Since the app's budget is smaller than the queue's, the app must ack to short-circuit the queue's remaining retries.
+
+> **Why `ErrorWillRetry` uses `500`, not `503`:** Cloud Tasks treats `503` (and `429`) as *system* errors and responds by throttling the **whole queue's** dispatch rate. That is a queue-wide side effect we don't want from an ordinary per-task failure, so we use `500`, which retries the task without the congestion control.
 
 > **The 204-vs-200 distinction is a debugging nicety, visible only in Cloud Run request logs.** Cloud Tasks' own `lastAttempt.responseStatus` is a `google.rpc.Status`, where every 2xx normalizes to `OK`, so it cannot distinguish the two acked cases. The `task_status` row remains the source of truth.
 
@@ -625,7 +613,7 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 
 | File                               | Change                                                                                                                                                                                 | Status |
 | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `src/task/task.rs`                 | `Task` trait (`task_type()`/`entity_type()`/`entity_id()`) + `TaskEnvelope<T>` (`user_id`, `envelope_id`, payload) + `TaskEnvelope::from_task` (deterministic id)                      | ✅      |
+| `src/task/task.rs`                 | `Task` trait (`task_type()`/`entity_type()`/`entity_id()`) + `TaskEnvelope<T>` (`user_id`, `envelope_id`, payload) + `TaskEnvelope::new` (deterministic id)                            | ✅      |
 | `src/task/taskqueue.rs`            | `TaskQueue<T>` trait, enqueue-only (takes `TaskEnvelope<T>`)                                                                                                                           | ✅      |
 | `src/task/taskqueue_local.rs`      | `LocalTaskQueue` — in-process mpsc + semaphore backend (no retry)                                                                                                                      | ✅      |
 | `src/task/taskqueue_cloudtask.rs`  | `CloudTaskQueue` — Google Cloud Tasks backend                                                                                                                                          | ✅      |
@@ -635,7 +623,7 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 | `src/task/status_code.rs`          | `StatusCode` enum — `Queued`/`InProgress`/`Completed`/`ErrorWillRetry`/`ErrorExhausted`; `is_incomplete()`/`incomplete_codes()`; DB stores integer discriminant                        | ✅      |
 | `src/task/taskwatcher.rs`          | `TaskWatcher` — the `LISTEN`/`NOTIFY` thread (stub for now); one of two owners of `task_status`                                                                                        | ⬜      |
 | `src/task/beacon.rs`               | **removed** — replaced by `TaskMaster`                                                                                                                                                 | ✅      |
-| `src/model/task_status.rs`         | `task_status` SeaORM model (`envelope_id` unique, `entity_type`/`entity_id`, `status_code`, `attempts`, `background`) — auto-synced at startup                                         | ✅      |
+| `src/model/task_status.rs`         | `task_status` SeaORM model (`envelope_id` unique, `entity_type`/`entity_id`, `status_code`, `attempts`) — auto-synced at startup                                                                 | ✅      |
 | `src/api/apierror.rs`              | `ApiError::is_retryable()` — 5xx retryable, 4xx permanent                                                                                                                              | ✅      |
 | `src/config/schema.rs`             | `Config.task_max_attempts` (env `TASK_MAX_ATTEMPTS`, default 3)                                                                                                                        | ✅      |
 | `src/webhook/mod.rs`               | `http_status_for_outcome` — maps `AttemptOutcome` to the HTTP status Cloud Tasks sees                                                                                                  | ✅      |
@@ -644,7 +632,7 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 | `src/events/mod.rs` *(new)*        | `TaskStatusEvent` struct + `StatusWriter` (write row + `NOTIFY`)                                                                                                                       | ⬜      |
 | `src/events/notifier.rs` *(new)*   | dedicated `LISTEN` connection + local fan-out to SSE receivers                                                                                                                         | ⬜      |
 | `src/webui/v2/maker.rs`            | add `/events` SSE route; thread `TaskWatcher` + notifier into `WebState`                                                                                                               | ⬜      |
-| `src/webui/v2/r_events.rs` *(new)* | SSE handler (replay from DB, listen for notifications, filter by user + task_types + entity ids + background rule, adaptive lifetime)                                                  | ⬜      |
+| `src/webui/v2/r_events.rs` *(new)* | SSE handler (replay from DB, listen for notifications, filter by user + task_types + entity ids, adaptive lifetime)                                                                     | ⬜      |
 | `src/webui/v2/r_rerun.rs` *(new)*  | rerun endpoint (deferred — see §7)                                                                                                                                                     | ⬜      |
 | `web/v2/templates/*.tera`          | add `hx-ext="sse"`, `sse-connect` (with `task_types`/`capture_ids`), `hx-trigger="sse:task-status"`; render per-status card state applied from SSE events (§5.5)                       | ⬜      |
 | `web/v2/static/webui-v2.js`        | extend upload notice to react to task-status events; reconnect `/events` on user interaction (adaptive lifetime)                                                                       | ⬜      |
@@ -662,13 +650,13 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 
 ## 12. Implementation status
 
-1. **`task_status` table + model** (foundation; also fixes the "no retry observability" audit note). Include the `background` column. ✅ *model done; auto-synced at startup*
+1. **`task_status` table + model** (foundation; also fixes the "no retry observability" audit note). ✅ *model done; auto-synced at startup*
 2. **Task framework** — `Task` trait (with identity), `TaskEnvelope<T>`, `TaskQueue<T>` (Local + Cloud Tasks), `TaskMaster` (`submit_*`/`begin_attempt`/`finish_attempt`/`query_*`), `TaskStatusRecorder`, `StatusCode`. ✅ *done*
 3. **Status tracking end-to-end** — `submit_*` records `Queued`; webhook handlers record `InProgress` → `Completed`/`ErrorWillRetry`/`ErrorExhausted` via `begin_attempt`/`finish_attempt`. ✅ *done*
 4. **Retry/exhaustion policy** — `task_max_attempts`, `ApiError::is_retryable()`, `AttemptOutcome`, and the `http_status_for_outcome` mapping (including the ack-on-exhaustion convention). ✅ *done (see §6.1)*
 5. **Entity-scoped query API** — `query_incomplete_for_entity(user_id, entity_type, entity_id)` and `query_incomplete_for_user(user_id)`. ✅ *done (see §6.1)*
 6. **`StatusWriter` + `NOTIFY`** — write row + `NOTIFY task_status_channel`. ⬜ *pending*
-7. **`/events` SSE route** with user filtering + DB replay + poll fallback + subscription params (`task_types`, `capture_ids`) + the `background` rule. ⬜ *pending*
+7. **`/events` SSE route** with user filtering + DB replay + poll fallback + subscription params (`task_types`, `capture_ids`). ⬜ *pending*
 8. **Client wiring** (`hx-ext="sse"`, `sse-connect`, `hx-trigger="sse:task-status"`) — live updates for the *existing* upload flow should appear immediately. ⬜ *pending*
 9. **Adaptive lifetime** (5-min idle close + reconnect-on-interaction) — the topology safeguard. ⬜ *pending*
 10. **Rerun support** (`run_id`/`model` on `IlluminationTask`, rerun endpoint, drop idempotency guard on rerun). ⬜ *deferred — see §7*
@@ -682,7 +670,7 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 - **Two-owner rule (resolved):** only `TaskMaster` (writes) and `TaskWatcher` (reads for SSE) touch `task_status` directly. Everything else goes through `TaskMaster::submit_*`/`begin_attempt`/`finish_attempt`/`query_*`. This keeps the table's access surface tiny and auditable.
 - **`TaskMaster.db` is optional (resolved):** when no DB is provided, `TaskMaster` runs enqueue-only (no `task_status` writes). This is used by util commands and tests that don't want background-task bookkeeping. `submit_*`/`begin_attempt`/`finish_attempt`/`query_*` no-op on the DB half in that mode.
 - **Retry/attempts policy (RESOLVED 2026-09-15):** see §6.1. `attempts` is a 1-based attempt number derived from the persisted count; `task_max_attempts` (default 3) is the app's budget; `ApiError::is_retryable()` classifies failures; `ErrorWillRetry` vs `ErrorExhausted` is computed by `AttemptOutcome::from_failure`. The queue is always configured with more retries than the app, so the app exhausts first and acks.
-- **Task identity (RESOLVED 2026-09-15):** identity lives on the `Task` trait (`task_type`/`entity_type`/`entity_id`) and `TaskEnvelope::from_task` builds a deterministic `envelope_id` (`u{user_id}-{task_type}-{entity_type}{entity_id}`). No UUID, no `task_id.rs`. **Open follow-up:** deterministic identity means a re-submission maps to the same row — see the rerun note in §7.
+- **Task identity (RESOLVED 2026-09-15):** identity lives on the `Task` trait (`task_type`/`entity_type`/`entity_id`) and `TaskEnvelope::new` builds a deterministic `envelope_id` (`u{user_id}-{task_type}-{entity_type}{entity_id}`). No UUID, no `task_id.rs`. **Open follow-up:** deterministic identity means a re-submission maps to the same row — see the rerun note in §7.
 - **`SparkTask.spark_id` is a placeholder (REVISIT):** `api/user/client.rs` mints a random `i32` (`uuid::Uuid::new_v4().as_u128() as i32`) because the real spark row id only exists after `insert_spark` runs at exec time. This makes spark's `envelope_id` non-deterministic. When spark gets a real identity (e.g. derived from its sorted `capture_ids`, or the planned "spark seed/spec" entity), it can join the deterministic scheme.
 - **Spark is not queryable by capture (accepted for now):** a `SparkTask` operates on N captures but registers `entity_type = "spark"`, so a capture-scoped query will not surface it. **Accepted** — the plan is to introduce a "spark seed/spec" entity concept later, and the timeline will query task status by `entity_type = "spark"`. No N-entity join table is needed yet.
 - **Single-row status lookup (RESOLVED 2026-09-15):** the old `query_status(envelope_id)` was removed — it had no callers. The only single-row read is `query_snapshot(envelope_id)`, used internally by `begin_attempt` to read the current attempt count. Note it is **not** user-scoped (`envelope_id` embeds `user_id`, so it is implicitly scoped, but the predicate is not enforced); the incomplete queries **are** explicitly scoped by `user_id`, since entity ids are not a security boundary.
@@ -691,13 +679,17 @@ For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
 - **Atomic upsert (REVISIT):** `TaskStatusRecorder::record` is SELECT-then-INSERT/UPDATE. Now that `envelope_id` is `UNIQUE`, two concurrent writers could raise a unique-violation instead of silently duplicating. Consider a real `ON CONFLICT` upsert.
 - **Incomplete queries have no `ORDER BY` (REVISIT):** `query_incomplete_for_entity` and `query_incomplete_for_user` return rows in non-deterministic order. Add an explicit order if the UI iterates the results.
 - **`submit_illumination` has no callers (REVISIT):** `logic/ingest::exec` calls `illuminate::exec` inline, so the illumination queue, the `/_wh/cloudtask/illuminate` route, and `TASK_CLOUDTASK_QUEUE_ILLUMINATION` are currently dead. Decide whether to keep the separate illumination task or collapse it into ingest (see §2.1).
-- **`background` is always `false` (REVISIT):** `TaskStatusRecorder::record` hardcodes `set_background(false)`, and neither `submit_search_index` nor the admin backfill can mark a task as background. The column exists but is never populated.
-- **Admin backfill records status under the admin's `user_id` (REVISIT):** `api/admin/backfill.rs` passes the requesting admin's `context.user_id()`, not the capture owner's. Fine if admins are the only audience, but inconsistent with per-capture semantics.
+- **`background` flag (REMOVED 2026-09-16):** the column was never populated (`record` hardcoded `false`) and the mandatory `capture_ids` subscription already prevents backfill noise, so it was removed rather than left as a speculative column. Backfill/bulk-task handling gets its own plan-and-branch session (see §4.3).
+- **Admin backfill mis-attributes task status to the admin (REVISIT — deferred to the backfill session):** two related problems, both currently masked by the app being single-user:
+  1. **Attribution.** `api/admin/backfill.rs` passes the requesting admin's `context.user_id()` to `submit_search_index`, so every backfill task's `task_status` row is owned by the **admin**, not the capture's owner. The task itself still works (`logic::search_index::exec` fetches via `service_api.get_captures`, which is not user-scoped), but the SSE layer filters by `user_id` for security — so the capture's owner would **not** see backfill status for their own captures. This is a correctness issue for SSE, not just a cosmetic inconsistency.
+  2. **Candidate selection is global.** `api/service/need_search_index.rs::get_captures_need_search_index` has **no user filter** — it joins capture + illumination, filters `archived_at IS NULL`, and orders by `created_at DESC`. So `--all` enqueues tasks for *every* user's captures, all attributed to the admin.
+
+  **Why it's deferred:** fixing attribution properly means `get_captures_need_search_index` must return `(capture_id, user_id)` pairs (not `Vec<i32>`) and `backfill::enqueue` must group by owner — real design work that belongs in the dedicated backfill plan-and-branch session (see §4.3). A half-fix would be worse than a documented gap. **Note:** `get_captures_need_search_index` also carries its own `TODO` — it returns recent captures without actually checking whether they need indexing, so candidate counts are inaccurate.
 - **Envelope `user_id` is not validated against the capture owner (REVISIT):** `logic::spark::exec` derives `user_id` from the captures and never compares it to `envelope.user_id`, and `api/service/get_capture.rs` is explicitly **not** user-scoped. The webhook routes rely on Cloud Run OIDC, so this is defense-in-depth — but the envelope's `user_id` should be checked so status rows and data writes cannot diverge.
 - **Rerun support (deferred):** `run_id` was removed from the current implementation. When reruns are tackled, re-introduce `run_id` (or `model`/`force`) on `IlluminationTask`, make `envelope_id` run-aware, and drop the idempotency guard on rerun (see §7).
 - **Cloud Run timeout:** confirm the service-level request timeout is set high enough for long-lived SSE connections (and above the 5-min adaptive idle close).
 - **Multiple illuminations per capture:** decide whether reruns replace the existing illumination or append a new one (schema supports both; template currently renders `| first`).
-- **`background` flag semantics:** for now the `background` flag is metadata only — the mandatory `capture_ids` rule already prevents backfill noise (see §4.3). Revisit later — e.g. a `background=true` query param to opt in, or surfacing backfill progress in an admin UI. The flag is persisted, so it's available for any future use.
+- **Backfill / bulk tasks (deferred):** the `background` flag was removed (see §4.3). Backfill handling — marking tasks as bulk, surfacing backfill progress, an admin progress view, and fixing the `user_id` attribution + global candidate query above — will be tackled in a dedicated plan-and-branch session.
 - **`capture_ids` is required for `task_status`:** the client always registers the captures it's tracking (see §4.2). This is simpler and more efficient than a "listen to all" default, and fits the app's bounded page size (a few hundred captures max). The client must keep its `capture_ids` list in sync with what's on screen (via the adaptive-lifetime reconnect, §8.6).
 - **Reconnect-on-interaction cost:** confirm that re-issuing `sse-connect` on every HTMX request is cheap enough (it should be — SSE reconnect is lightweight and the DB replay reconciles state).
 - **Initial-state source (resolved in §5.5):** for now, the `/events` "current status snapshot" is the canonical source of initial task status; the page-load HTML render does **not** include task status. Revisit later — having the page-load render also include status (so the initial view is correct before SSE connects / if SSE is unavailable) is a clean, additive change.

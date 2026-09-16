@@ -75,7 +75,6 @@ impl TaskStatusRecorder {
                 .set_user_id(envelope.user_id)
                 .set_status_code(status.as_i32())
                 .set_attempts(attempts)
-                .set_background(false)
                 .save(&db.conn)
                 .await?;
         }

@@ -24,7 +24,12 @@ use crate::task::AttemptOutcome;
 ///
 /// - `Completed`         -> `204 No Content`      (acked, succeeded)
 /// - `ErrorExhausted`    -> `200 OK`              (acked, gave up; app budget spent)
-/// - `ErrorWillRetry`    -> `503 Service Unavailable` (Cloud Tasks should retry)
+/// - `ErrorWillRetry`    -> `500 Internal Server Error` (Cloud Tasks should retry)
+///
+/// NOTE: `ErrorWillRetry` deliberately uses `500`, not `503`. Cloud Tasks treats
+/// `503` (and `429`) as *system* errors and responds by throttling the whole
+/// queue's dispatch rate, which is a queue-wide side effect we don't want from
+/// an ordinary per-task failure. `500` retries the task without that.
 ///
 /// NOTE: this mapping is only visible in Cloud Run *request logs*. Cloud Tasks'
 /// own `lastAttempt.responseStatus` is a `google.rpc.Status`, where every 2xx
@@ -33,7 +38,7 @@ pub fn http_status_for_outcome(outcome: AttemptOutcome) -> HttpStatusCode {
     match outcome {
         AttemptOutcome::Completed => HttpStatusCode::NO_CONTENT,
         AttemptOutcome::ErrorExhausted => HttpStatusCode::OK,
-        AttemptOutcome::ErrorWillRetry => HttpStatusCode::SERVICE_UNAVAILABLE,
+        AttemptOutcome::ErrorWillRetry => HttpStatusCode::INTERNAL_SERVER_ERROR,
     }
 }
 

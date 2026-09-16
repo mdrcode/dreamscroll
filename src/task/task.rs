@@ -3,8 +3,8 @@ use std::fmt::Debug;
 
 /// A Task is a serializable specification of a unit of work.
 pub trait Task: Clone + Debug + Send + Sync + Serialize {
-    fn task_type() -> &'static str;
-    fn entity_type() -> &'static str;
+    fn task_type() -> &'static str; // "eg. "ingest" or "spark"
+    fn entity_type() -> &'static str; // eg. "capture" or "spark"
     fn entity_id(&self) -> i32;
 }
 
@@ -20,7 +20,7 @@ pub struct TaskEnvelope<T: Task> {
 }
 
 impl<T: Task> TaskEnvelope<T> {
-    pub fn from_task(user_id: i32, task: T) -> Self {
+    pub fn new(user_id: i32, task: T) -> Self {
         Self {
             user_id,
             envelope_id: format!(
@@ -38,8 +38,8 @@ impl<T: Task> TaskEnvelope<T> {
 impl<T: Task> std::fmt::Debug for TaskEnvelope<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut debug = f.debug_struct("TaskEnvelope");
-        debug.field("user_id", &self.user_id);
         debug.field("task_type", &T::task_type());
+        debug.field("user_id", &self.user_id);
         debug.field("envelope_id", &self.envelope_id);
 
         // Show a bounded preview of the serialized payload so logs stay readable

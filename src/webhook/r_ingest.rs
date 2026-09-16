@@ -7,7 +7,7 @@ use crate::{api, logic, task, webhook};
 /// Webhook for overall "ingest" which does illumination and search indexing.
 ///
 /// Expected body is a serialized `TaskEnvelope<IngestTask>`, e.g.:
-/// `{ "user_id": 1, "task_id": "u1-ingest-...", "task": { "capture_id": 123 } }`
+/// `{ "user_id": 1, "envelope_id": "u1-ingest-capture123", "task": { "capture_id": 123 } }`
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(envelope): Json<task::TaskEnvelope<logic::ingest::IngestTask>>,
@@ -18,11 +18,15 @@ pub async fn post(
         )));
     };
 
-    let attempt = state
+    // `None` means the task already completed (at-least-once redelivery); ack it.
+    let Some(attempt) = state
         .task_master
         .begin_attempt(&envelope)
         .await
-        .map_err(api::ApiError::internal)?;
+        .map_err(api::ApiError::internal)?
+    else {
+        return Ok(axum::http::StatusCode::NO_CONTENT);
+    };
 
     let result = logic::ingest::exec(
         &state.service_api,
