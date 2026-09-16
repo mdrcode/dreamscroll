@@ -2,6 +2,12 @@
 
 **Status:** living document. Last updated 2026-09-16.
 
+> **See also:**
+> - `task-status.md` — the task framework (implemented).
+> - `sse.md` — the future SSE delivery layer (not implemented).
+> - `testing.md` — the two-tier test model.
+> - `topology_and_throughput.md` — connection/concurrency budgets.
+
 ## Philosophy
 
 Dreamscroll is a personal project whose primary risk is **not** technical. The
@@ -103,11 +109,11 @@ largest category, and the least urgent, because the app is single-user today.
 These aren't "tolerated" so much as "explicitly out of scope for now, with a
 plan to do them properly."
 
-| Topic                        | Notes                                                                                                                                                                                                                                                                                                                                |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Backfill / bulk tasks**    | The `background` flag was removed (never populated). Backfill handling — marking tasks as bulk, surfacing progress, an admin view — plus the `user_id` mis-attribution and the global candidate query in `get_captures_need_search_index`, all get a dedicated plan-and-branch session. See `plans/sse-task-status.md` §4.3 and §13. |
-| **Reruns**                   | The run *dimension* is implemented (2026-09-16): `run` column, `(envelope_id, run)` unique constraint, submit-time refusal for in-flight runs, run-scoped attempts, and both idempotency guards removed. Still deferred: a `model`/`force` field on `IlluminationTask` and a rerun endpoint. See `plans/sse-task-status.md` §7.      |
-| **Capture lifecycle events** | Explicitly out of scope for the task-status phase; gets its own mechanism. See `plans/sse-task-status.md` §13.                                                                                                                                                                                                                       |
+| Topic                        | Notes                                                                                                                                                                                                                                                                                                                       |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Backfill / bulk tasks**    | The `background` flag was removed (never populated). Backfill handling — marking tasks as bulk, surfacing progress, an admin view — plus the `user_id` mis-attribution and the global candidate query in `get_captures_need_search_index`, all get a dedicated plan-and-branch session. See `plans/task-status.md` §8.      |
+| **Reruns**                   | The run *dimension* is implemented (2026-09-16): `run` column, `(envelope_id, run)` unique constraint, submit-time refusal for in-flight runs, run-scoped attempts, and both idempotency guards removed. Still deferred: a `model`/`force` field on `IlluminationTask` and a rerun endpoint. See `plans/task-status.md` §6. |
+| **Capture lifecycle events** | Explicitly out of scope for the task-status phase; gets its own mechanism. See `plans/sse.md` §9.                                                                                                                                                                                                                           |
 
 ---
 

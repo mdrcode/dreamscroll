@@ -2,6 +2,9 @@
 
 **Status:** living document. Last updated 2026-09-16.
 
+> **See also:** `task-status.md` (the framework these tests cover),
+> `pragmatism.md` (tolerated trade-offs), `sse.md` (future work).
+
 ## The two tiers
 
 Every test belongs to exactly one tier. The rule is simple: **if it needs a

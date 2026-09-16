@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-09
 **Status:** Reference / overview
-**Purpose:** A single place to look up the per-instance connection and concurrency budgets that shape how Dreamscroll scales on Cloud Run + Cloud SQL. Written to inform the SSE task-status design (`sse-task-status.md`) and future scaling decisions.
+**Purpose:** A single place to look up the per-instance connection and concurrency budgets that shape how Dreamscroll scales on Cloud Run + Cloud SQL. Written to inform the SSE design (`sse.md`) and future scaling decisions.
 
 > **TL;DR:** The binding constraint for long-lived SSE connections is **Cloud Run's per-instance HTTP concurrency budget**, not the Cloud SQL connection limit. The DB budget is generous; the HTTP concurrency budget is what you'll actually hit.
 
@@ -10,12 +10,12 @@
 
 ## 1. The two budgets, side by side
 
-| Resource | Limit | Notes |
-|---|---|---|
-| **Cloud SQL connections per Cloud Run instance** | **100** (built-in connection) | Per instance, per DB. Grows as instances scale. |
-| **Cloud Run HTTP concurrency per instance** | **default 80** (console) or **80 × vCPUs** (gcloud/Terraform); **max 1000** | Each concurrent request = one HTTP connection. |
-| **Cloud Run request timeout** | **default 5 min**, **max 60 min** | SSE is a long-lived request; must raise this + keep-alives. |
-| **Cloud Run instances** | autoscales; idle instances scale to zero after ~15 min | An open SSE connection keeps an instance alive (cost consideration). |
+| Resource                                         | Limit                                                                       | Notes                                                                |
+| ------------------------------------------------ | --------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| **Cloud SQL connections per Cloud Run instance** | **100** (built-in connection)                                               | Per instance, per DB. Grows as instances scale.                      |
+| **Cloud Run HTTP concurrency per instance**      | **default 80** (console) or **80 × vCPUs** (gcloud/Terraform); **max 1000** | Each concurrent request = one HTTP connection.                       |
+| **Cloud Run request timeout**                    | **default 5 min**, **max 60 min**                                           | SSE is a long-lived request; must raise this + keep-alives.          |
+| **Cloud Run instances**                          | autoscales; idle instances scale to zero after ~15 min                      | An open SSE connection keeps an instance alive (cost consideration). |
 
 ---
 
@@ -36,13 +36,13 @@ Cloud SQL sets the PostgreSQL `max_connections` based on the **machine type's me
 
 The cheaper tiers and their approximate connection limits:
 
-| Machine type | vCPU | Memory | Approx. `max_connections` |
-|---|---|---|---|
-| **`db-f1-micro`** (shared core) | 0.5 (shared) | 0.6 GB | **~25** |
-| **`db-g1-small`** (shared core) | 0.5 (shared) | 1.7 GB | **~50** |
-| **`db-custom-1-3840`** | 1 | 3.75 GB | **~100** |
-| **`db-custom-2-7680`** | 2 | 7.5 GB | **~200** |
-| **`db-custom-4-15360`** | 4 | 15 GB | **~400** |
+| Machine type                    | vCPU         | Memory  | Approx. `max_connections` |
+| ------------------------------- | ------------ | ------- | ------------------------- |
+| **`db-f1-micro`** (shared core) | 0.5 (shared) | 0.6 GB  | **~25**                   |
+| **`db-g1-small`** (shared core) | 0.5 (shared) | 1.7 GB  | **~50**                   |
+| **`db-custom-1-3840`**          | 1            | 3.75 GB | **~100**                  |
+| **`db-custom-2-7680`**          | 2            | 7.5 GB  | **~200**                  |
+| **`db-custom-4-15360`**         | 4            | 15 GB   | **~400**                  |
 
 > **Note:** These are approximate defaults. Cloud SQL derives `max_connections` from memory and you can override it with the `max_connections` flag (subject to the instance's resource limits). Always confirm the live value with:
 > ```sql
@@ -106,6 +106,6 @@ From the Cloud Run container contract — long-lived connections are **treated a
 
 ## 6. Related
 
-- `_project/plans/sse-task-status.md` — the SSE design that motivated this reference.
+- `_project/plans/sse.md` — the SSE design that motivated this reference.
 - `_project/gcloud/cloudsql_postgres.md` — Cloud SQL connectivity setup.
 - `_project/gcloud/cloud_task_queue.md` — task queueing across instances.
