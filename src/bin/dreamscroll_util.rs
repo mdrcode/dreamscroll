@@ -49,13 +49,8 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Containerized environments should set NO_LOCAL_CONFIG_FILES=1 to skip
-    // local config files. But we load them when running via `cargo run`
-    if std::env::var("NO_LOCAL_CONFIG_FILES").is_err() {
-        config::load_local_files();
-    }
+    config::import_local_if_test_or_dev();
 
-    // util always uses local tracing format
     telemetry::init_local();
 
     let cfg = config::make()?;

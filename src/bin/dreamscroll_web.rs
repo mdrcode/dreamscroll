@@ -11,11 +11,8 @@ async fn main() -> anyhow::Result<()> {
     crypto::CryptoProvider::install_default(crypto::aws_lc_rs::default_provider())
         .expect("Failed to install aws_lc_rs as default crypto provider");
 
-    // Containerized environments should set NO_LOCAL_CONFIG=(any value).
-    // But when running via `cargo run` we load local files as a convenience.
-    if std::env::var("NO_LOCAL_CONFIG").is_err() {
-        config::load_local_files();
-    }
+    // Populates config env vars from local files unless NO_LOCAL_CONFIG_FILES
+    config::import_local_if_test_or_dev();
 
     let trace_provider = {
         if std::env::var("K_SERVICE").is_ok() {
@@ -33,7 +30,6 @@ async fn main() -> anyhow::Result<()> {
     let cfg = config::make()?;
 
     if cfg.services.is_empty() {
-        tracing::warn!("No services enabled (set SERVICES env var to enable)");
         return Err(anyhow::anyhow!("No services enabled, nothing to do"));
     } else {
         tracing::info!("Starting dreamscroll_web with services: {:?}", cfg.services);
