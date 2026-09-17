@@ -1,31 +1,30 @@
-// The trait definitions live in `task_def.rs`; naming the module differently
-// from its parent avoids clippy's module_inception lint.
+// Task and TaskEnvelope, the core concepts
 mod task_def;
 pub use task_def::*;
+
+// TaskStatus models the Status of a Task Run
+mod taskstatus;
+pub use taskstatus::*;
 
 // TaskMaster is the primary entry point for manipulating Task instances.
 mod taskmaster;
 pub use taskmaster::*;
 
-// StatusTracker maintains canonical source of truth for task status.
-mod status_code;
-pub use status_code::*;
-mod status_tracker;
-pub use status_tracker::*;
+// TaskStatusTracker supports querying the status of task runs, and (in the future)
+// will support subscribing to status changes.
+mod taskstatustracker;
+pub use taskstatustracker::*;
 
-// StatusListener is the future LISTEN/NOTIFY thread that relays status to SSE.
-mod status_listener;
-pub use status_listener::*;
-
-mod maker;
-pub use maker::*;
-
+// TaskQueue trait which abstracts over the underlying queue backends.
 mod taskqueue;
 pub use taskqueue::*;
 mod taskqueue_cloudtask;
 pub use taskqueue_cloudtask::*;
 mod taskqueue_local;
 pub use taskqueue_local::*;
+
+mod maker;
+pub use maker::*;
 
 use serde::Deserialize;
 

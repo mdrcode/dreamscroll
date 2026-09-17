@@ -21,7 +21,7 @@ use super::*;
 /// consistent with the recorded status.
 ///
 /// Not `Clone`; share via `Arc`.
-pub struct TaskMaster {
+pub struct TaskDispatcher {
     status: TaskStatusTracker,
     max_attempts_per_run: i32, // mirrors `Config::task_max_attempts`
     illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
@@ -73,7 +73,7 @@ fn decide_will_retry(err: &api::ApiError, attempt: i32, max_attempts: i32) -> bo
     attempt < max_attempts && err.is_retryable()
 }
 
-impl TaskMaster {
+impl TaskDispatcher {
     pub fn builder() -> TaskMasterBuilder {
         TaskMasterBuilder::default()
     }
@@ -335,12 +335,12 @@ impl TaskMasterBuilder {
         self
     }
 
-    pub fn build(self) -> anyhow::Result<TaskMaster> {
+    pub fn build(self) -> anyhow::Result<TaskDispatcher> {
         let Some(db) = self.db else {
             anyhow::bail!("TaskMaster requires a database handle");
         };
 
-        Ok(TaskMaster {
+        Ok(TaskDispatcher {
             status: TaskStatusTracker::new(db),
             // Mirrors `Config::task_max_attempts` so a builder that forgets
             // `.max_attempts(..)` behaves like production rather than disabling retries.
@@ -500,7 +500,7 @@ mod tests {
             fail: false,
         };
 
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .illumination_queue(queue)
             .build()
@@ -524,7 +524,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .build()
             .expect("build should succeed with a db");
@@ -545,7 +545,7 @@ mod tests {
             captures: Arc::new(Mutex::new(Vec::new())),
             fail: true,
         };
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .illumination_queue(queue)
             .build()
@@ -559,7 +559,7 @@ mod tests {
 
     #[tokio::test]
     async fn build_without_db_is_an_error() {
-        let result = TaskMaster::builder().build();
+        let result = TaskDispatcher::builder().build();
         assert!(result.is_err(), "TaskMaster must require a database");
     }
 
@@ -570,7 +570,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -604,7 +604,7 @@ mod tests {
         };
 
         let captures = Arc::new(Mutex::new(Vec::new()));
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::clone(&captures),
@@ -639,7 +639,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -681,7 +681,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .max_attempts(1) // exhaust on the first failure
             .illumination_queue(RecordingQueue {
@@ -741,7 +741,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .max_attempts(1) // exhaust on the first failure
             .illumination_queue(RecordingQueue {
@@ -804,7 +804,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .max_attempts(2) // two attempts, then exhaust
             .illumination_queue(RecordingQueue {
@@ -872,7 +872,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -919,7 +919,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .max_attempts(2)
             .illumination_queue(RecordingQueue {
@@ -980,7 +980,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -1025,7 +1025,7 @@ mod tests {
             return;
         };
 
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -1056,8 +1056,8 @@ mod tests {
     }
 
     /// A service with an illumination queue that records (or fails) enqueues.
-    fn service(db: &crate::test_support::test_db::TestDb, queue_fails: bool) -> TaskMaster {
-        TaskMaster::builder()
+    fn service(db: &crate::test_support::test_db::TestDb, queue_fails: bool) -> TaskDispatcher {
+        TaskDispatcher::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -1097,7 +1097,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .build()
             .expect("build should succeed with a db");
@@ -1154,7 +1154,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let service = TaskMaster::builder()
+        let service = TaskDispatcher::builder()
             .db(db.handle())
             .max_attempts(1)
             .illumination_queue(RecordingQueue {

@@ -35,7 +35,7 @@ pub struct BackfillResponse {
 
 pub async fn enqueue(
     service_api: &ServiceApiClient,
-    task_master: &Arc<crate::task::TaskMaster>,
+    task_master: &Arc<crate::task::TaskDispatcher>,
     user_id: i32,
     req: BackfillRequest,
 ) -> Result<BackfillResponse, ApiError> {

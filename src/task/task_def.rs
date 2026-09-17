@@ -2,23 +2,33 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 
 /// A Task is a serializable specification of a unit of work.
+///
+/// An entity is the conceptual target of the task, upon which it operates.
+/// We don't care what the entity actually is, we track it only by its type
+/// and id. The entity's identity contributes to the unique identity of the
+/// task (represented via the `TaskEnvelope`). Additionally, the entity is a
+/// very convenient handle for querying out standing tasks, e.g. "What are all
+/// the ongoing/completed tasks for capture 42?".
 pub trait Task: Clone + Debug + Send + Sync + Serialize {
     fn task_type() -> &'static str; // eg. "illuminate" or "spark"
     fn entity_type() -> &'static str; // eg. "capture" or "spark"
     fn entity_id(&self) -> i32;
 
-    // Any greater "payload" (e.g. which model to use, which prompt, etc)
+    // Any further "payload" (e.g. which model to use, which prompt, etc)
     // is up to the concrete task implementation to define and serialize.
 }
 
-/// A TaskEnvelope is a proper wrapped Task once it has been submitted to a TaskQueue.
-/// When querying task status after submission, it's likely that the full Task
-/// definition is not available, so the caller should rely on the identity fields
-/// within the envelope.
+/// A TaskEnvelope is a properly wrapped Task which has been submitted to a TaskQueue.
+/// 
+/// An Envelope refers to a specific run of a logical task. If one run is already
+/// in flight, then the system rejects duplicate submission of the same logical Task.
+/// However, once the run completes (either CompleteSuccess or CompleteFailure),
+/// then it can be resubmitted, which achieve a "re-run" of the task.
 ///
 /// `envelope_id` identifies the *logical* task; `run` identifies one attempt to
-/// carry it out. Together they key a `task_status` row, so a rerun of settled
-/// work is a new run rather than an overwrite.
+/// carry it out. Together they key a `task_status` row, so a rerun of Complete
+/// work (regardless of CompleteSuccess or CompleteFailure) is a new run rather
+/// than an overwrite.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TaskEnvelope<T: Task> {
     pub user_id: i32,
