@@ -105,7 +105,7 @@ pub async fn enqueue(
                     }
                     // Already in flight: the queue is doing the work, so this is
                     // not a failure to report.
-                    Ok(task::SubmitOutcome::RefusedInFlight { .. }) => {
+                    Ok(task::SubmitOutcome::RefusedAlreadyInFlight { .. }) => {
                         skipped_ids.push(capture_id);
                     }
                     Err(err) => {

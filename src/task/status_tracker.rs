@@ -14,8 +14,10 @@ fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
     )
 }
 
-/// All direct reads/writes to `task_status`, shared by `TaskMaster` (writes) and
-/// `StatusListener` (reads for SSE) so the SeaORM queries aren't duplicated.
+/// All direct reads/writes to `task_status`, so the SeaORM queries live in one
+/// place. `TaskMaster` owns an instance for its writes and status queries;
+/// `StatusListener` will read through it once SSE lands (see
+/// `_project/plans/sse.md`).
 #[derive(Clone)]
 pub struct TaskStatusTracker {
     db: database::DbHandle,
@@ -97,7 +99,7 @@ impl TaskStatusTracker {
     }
 
     /// The most recent run of a logical task, or `None` if it has never run.
-    /// The decision input for submit: in flight → refuse, settled → rerun.
+    /// The decision input for submit: in flight → refuse, otherwise → rerun.
     pub async fn latest_run(
         &self,
         envelope_id: &str,
@@ -130,13 +132,12 @@ impl TaskStatusTracker {
         Ok(row)
     }
 
-    /// Incomplete task statuses for one entity, scoped by `user_id` (entity ids
-    /// are not a security boundary). "Incomplete" = not `Completed`, which
-    /// includes `ErrorExhausted`: failed work is still worth showing.
+    /// Status rows for one entity, **all statuses included** — a caller must be
+    /// able to see that its work finished, not just that it is outstanding.
     ///
     /// Only the **latest run** per logical task is returned — a rerun supersedes
     /// the run before it.
-    pub async fn query_incomplete_for_entity(
+    pub async fn query_task_status_for_entity(
         &self,
         user_id: i32,
         entity_type: &str,
@@ -146,10 +147,6 @@ impl TaskStatusTracker {
 
         // TODO(REVISIT): wants a composite index on
         // (user_id, entity_type, entity_id, status_code).
-        //
-        // Deliberately no `status_code` filter: the latest run must be found
-        // among *all* runs, else a stale incomplete run shadows a newer
-        // completed one. See `incomplete_latest_runs`.
         let rows = model::task_status::Entity::find()
             .filter(model::task_status::Column::UserId.eq(user_id))
             .filter(model::task_status::Column::EntityType.eq(entity_type))
@@ -157,12 +154,15 @@ impl TaskStatusTracker {
             .all(&db.conn)
             .await?;
 
-        Ok(incomplete_latest_runs(rows))
+        Ok(latest_runs_per_task(rows))
     }
 
-    /// Every incomplete task status for a user. The user-level counterpart to
-    /// `query_incomplete_for_entity`; also returns only the latest run each.
-    pub async fn query_incomplete_for_user(
+    /// Status rows for one user, **all statuses included** — a caller must be
+    /// able to see that its work finished, not just that it is outstanding.
+    ///
+    /// Only the **latest run** per logical task is returned — a rerun supersedes
+    /// the run before it.
+    pub async fn query_task_status_for_user(
         &self,
         user_id: i32,
     ) -> anyhow::Result<Vec<model::task_status::Model>> {
@@ -174,19 +174,13 @@ impl TaskStatusTracker {
             .all(&db.conn)
             .await?;
 
-        Ok(incomplete_latest_runs(rows))
+        Ok(latest_runs_per_task(rows))
     }
 }
 
-/// Reduce rows to the latest run per logical task, keeping those still
-/// incomplete.
-///
-/// Collapse **before** filtering: filtering first lets an older incomplete run
-/// shadow a newer completed one, reporting finished work as outstanding.
-///
-/// In Rust rather than SQL because the set is per-user (or per-entity) — small
-/// enough that a correlated subquery or window function isn't worth it.
-fn incomplete_latest_runs(rows: Vec<model::task_status::Model>) -> Vec<model::task_status::Model> {
+/// Reduce rows to the latest run per logical task. No status is filtered out:
+/// completed work is reported alongside in-flight and failed work.
+fn latest_runs_per_task(rows: Vec<model::task_status::Model>) -> Vec<model::task_status::Model> {
     let mut latest: std::collections::HashMap<String, model::task_status::Model> =
         std::collections::HashMap::new();
 
@@ -199,14 +193,7 @@ fn incomplete_latest_runs(rows: Vec<model::task_status::Model>) -> Vec<model::ta
         }
     }
 
-    latest
-        .into_values()
-        .filter(|row| {
-            StatusCode::from_i32(row.status_code)
-                .map(|status| status.is_incomplete())
-                .unwrap_or(true) // unknown status: surface it rather than hide it
-        })
-        .collect()
+    latest.into_values().collect()
 }
 
 #[cfg(test)]
@@ -251,12 +238,12 @@ mod tests {
         }
     }
 
-    // --- `incomplete_latest_runs` (pure) ---
+    // --- `latest_runs_per_task` (pure) ---
 
     #[test]
     fn collapse_keeps_the_latest_run() {
-        let kept = incomplete_latest_runs(vec![
-            row("a", 1, StatusCode::ErrorExhausted),
+        let kept = latest_runs_per_task(vec![
+            row("a", 1, StatusCode::CompleteFailure),
             row("a", 2, StatusCode::Queued),
         ]);
 
@@ -265,20 +252,8 @@ mod tests {
     }
 
     #[test]
-    fn collapse_drops_a_task_whose_latest_run_completed() {
-        // An older failed run must not shadow a newer completed one, or finished
-        // work would be reported as still outstanding.
-        let kept = incomplete_latest_runs(vec![
-            row("a", 1, StatusCode::ErrorExhausted),
-            row("a", 2, StatusCode::Completed),
-        ]);
-
-        assert!(kept.is_empty());
-    }
-
-    #[test]
     fn collapse_returns_one_row_per_envelope() {
-        let kept = incomplete_latest_runs(vec![
+        let kept = latest_runs_per_task(vec![
             row("a", 1, StatusCode::Queued),
             row("b", 1, StatusCode::InProgress),
             row("a", 2, StatusCode::Queued),
@@ -287,32 +262,25 @@ mod tests {
         assert_eq!(kept.len(), 2, "one row per logical task");
     }
 
+    /// The whole point of dropping the incomplete filter: a caller must be able
+    /// to observe that its work finished.
     #[test]
-    fn collapse_keeps_failed_work_but_drops_completed() {
-        let kept = incomplete_latest_runs(vec![
-            row("a", 1, StatusCode::Completed),
-            row("b", 1, StatusCode::ErrorExhausted),
-        ]);
+    fn collapse_keeps_a_completed_latest_run() {
+        let kept = latest_runs_per_task(vec![row("a", 1, StatusCode::CompleteSuccess)]);
 
         assert_eq!(kept.len(), 1);
-        assert_eq!(
-            kept[0].envelope_id, "b",
-            "the user still wants to see failures"
-        );
+        assert_eq!(kept[0].status_code, StatusCode::CompleteSuccess.as_i32());
     }
 
     #[test]
-    fn collapse_surfaces_an_unreadable_status() {
-        let mut unreadable = row("a", 1, StatusCode::Queued);
-        unreadable.status_code = 99; // not a valid StatusCode discriminant
+    fn collapse_keeps_every_task_regardless_of_status() {
+        let kept = latest_runs_per_task(vec![
+            row("a", 1, StatusCode::CompleteSuccess),
+            row("b", 1, StatusCode::CompleteFailure),
+            row("c", 1, StatusCode::Queued),
+        ]);
 
-        let kept = incomplete_latest_runs(vec![unreadable]);
-
-        assert_eq!(
-            kept.len(),
-            1,
-            "an unknown status must not be silently hidden"
-        );
+        assert_eq!(kept.len(), 3, "no status is filtered out");
     }
 
     // --- DB-backed ---
@@ -379,7 +347,7 @@ mod tests {
 
         assert!(
             tracker
-                .create_run(&envelope(1, 42, 1), StatusCode::Completed, 1)
+                .create_run(&envelope(1, 42, 1), StatusCode::CompleteSuccess, 1)
                 .await
                 .expect("run 1 should be created")
         );
@@ -423,7 +391,7 @@ mod tests {
         let run2 = envelope(1, 42, 2);
 
         tracker
-            .create_run(&run1, StatusCode::ErrorExhausted, 1)
+            .create_run(&run1, StatusCode::CompleteFailure, 1)
             .await
             .expect("run 1 should be created");
         tracker
@@ -464,7 +432,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_incomplete_for_entity_is_user_scoped() {
+    async fn query_task_status_for_entity_is_user_scoped() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -476,11 +444,11 @@ mod tests {
             .expect("create_run should succeed");
 
         let mine = tracker
-            .query_incomplete_for_entity(1, "capture", 42)
+            .query_task_status_for_entity(1, "capture", 42)
             .await
             .expect("query should succeed");
         let theirs = tracker
-            .query_incomplete_for_entity(2, "capture", 42)
+            .query_task_status_for_entity(2, "capture", 42)
             .await
             .expect("query should succeed");
 

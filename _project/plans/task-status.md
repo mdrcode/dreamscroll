@@ -170,7 +170,8 @@ LocalTaskQueue — failed tasks silently dropped."* With a `task_status` table,
 
 `ErrorExhausted` is the **only** status where they disagree: the user still needs
 to see the failure, but no worker will touch it again — which is exactly what
-makes it rerunnable. `is_settled()` is the negation of `is_in_flight()`.
+makes it rerunnable. A settled run (rerunnable) is simply `!is_in_flight()`;
+there is deliberately no separate `is_settled()` predicate.
 
 > **Do not conflate these.** `is_in_flight` gates duplicate-submission refusal
 > (§6); `is_incomplete` gates the query API (§5). A test
@@ -467,7 +468,7 @@ must always see the **most recent** illumination, so:
 | `src/task/taskqueue_pubsub.rs`    | **removed** — Pub/Sub support stripped out; Cloud Tasks is the focus                                                                                                                                 | ✅      |
 | `src/task/taskmaster.rs`          | `TaskMaster` — owns queues + `task_status`; `submit_*` / `begin_attempt` / `finish_attempt` / `query_*`; `update_status` is **private**; records `Queued` on enqueue; shared via `Arc`               | ✅      |
 | `src/task/status_tracker.rs`      | `TaskStatusTracker` — owns all `task_status` persistence (create/update keyed by `(envelope_id, run)`); `latest_run`, `query_run_status`, `query_incomplete_for_entity`, `query_incomplete_for_user` | ✅      |
-| `src/task/status_code.rs`         | `StatusCode` enum + `is_in_flight()`/`is_incomplete()`/`is_settled()`; DB stores integer discriminant                                                                                                | ✅      |
+| `src/task/status_code.rs`         | `StatusCode` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                               | ✅      |
 | `src/task/status_listener.rs`     | `StatusListener` — the `LISTEN`/`NOTIFY` thread (**stub**; see `sse.md`)                                                                                                                             | ⬜      |
 | `src/task/beacon.rs`              | **removed** — replaced by `TaskMaster`                                                                                                                                                               | ✅      |
 | `src/model/task_status.rs`        | `task_status` SeaORM model (`(envelope_id, run)` unique, `entity_type`/`entity_id`, `status_code`, `attempts`) — auto-synced at startup                                                              | ✅      |
