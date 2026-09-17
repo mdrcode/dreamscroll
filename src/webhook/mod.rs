@@ -12,7 +12,7 @@ pub mod r_spark;
 
 use axum::http::StatusCode as HttpStatusCode;
 
-use crate::task::StatusCode;
+use crate::task::TaskRunStatus;
 
 /// Map a finished attempt's status to the HTTP status Cloud Tasks should see.
 ///
@@ -33,12 +33,12 @@ use crate::task::StatusCode;
 /// NOTE: this mapping is only visible in Cloud Run *request logs*. Cloud Tasks'
 /// own `lastAttempt.responseStatus` is a `google.rpc.Status`, where every 2xx
 /// normalizes to `OK`, so it cannot distinguish the two acked cases.
-pub fn http_status_for_outcome(status: StatusCode) -> HttpStatusCode {
+pub fn http_status_for_outcome(status: TaskRunStatus) -> HttpStatusCode {
     match status {
-        StatusCode::CompleteSuccess => HttpStatusCode::NO_CONTENT,
-        StatusCode::CompleteFailure => HttpStatusCode::OK,
-        StatusCode::ErrorWillRetry => HttpStatusCode::INTERNAL_SERVER_ERROR,
-        StatusCode::Queued | StatusCode::InProgress => {
+        TaskRunStatus::CompleteSuccess => HttpStatusCode::NO_CONTENT,
+        TaskRunStatus::CompleteFailure => HttpStatusCode::OK,
+        TaskRunStatus::ErrorWillRetry => HttpStatusCode::INTERNAL_SERVER_ERROR,
+        TaskRunStatus::Queued | TaskRunStatus::InProgress => {
             // A finished attempt is never left in a non-terminal state; treat it
             // as a retryable server error rather than silently acking it.
             HttpStatusCode::INTERNAL_SERVER_ERROR
@@ -52,10 +52,10 @@ mod tests {
 
     #[test]
     fn only_retryable_outcomes_return_non_2xx() {
-        assert!(http_status_for_outcome(StatusCode::CompleteSuccess).is_success());
-        assert!(http_status_for_outcome(StatusCode::CompleteFailure).is_success());
+        assert!(http_status_for_outcome(TaskRunStatus::CompleteSuccess).is_success());
+        assert!(http_status_for_outcome(TaskRunStatus::CompleteFailure).is_success());
         assert!(
-            !http_status_for_outcome(StatusCode::ErrorWillRetry).is_success(),
+            !http_status_for_outcome(TaskRunStatus::ErrorWillRetry).is_success(),
             "a retryable failure must be non-2xx so Cloud Tasks retries it"
         );
     }
@@ -64,8 +64,8 @@ mod tests {
     fn acked_outcomes_use_distinct_status_codes() {
         // Kept distinct so Cloud Run request logs can tell them apart.
         assert_ne!(
-            http_status_for_outcome(StatusCode::CompleteSuccess),
-            http_status_for_outcome(StatusCode::CompleteFailure)
+            http_status_for_outcome(TaskRunStatus::CompleteSuccess),
+            http_status_for_outcome(TaskRunStatus::CompleteFailure)
         );
     }
 }

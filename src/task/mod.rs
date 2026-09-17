@@ -2,18 +2,18 @@
 mod task_def;
 pub use task_def::*;
 
-// TaskStatus models the Status of a Task Run
-mod taskstatus;
-pub use taskstatus::*;
-
 // TaskMaster is the primary entry point for manipulating Task instances.
 mod taskmaster;
 pub use taskmaster::*;
 
-// TaskStatusTracker supports querying the status of task runs, and (in the future)
+// TaskRunStatus models progress of a background Run (invocation) of a Task
+mod taskrunstatus;
+pub use taskrunstatus::*;
+
+// TaskRunTracker supports querying the status of task runs, and (in the future)
 // will support subscribing to status changes.
-mod taskstatustracker;
-pub use taskstatustracker::*;
+mod taskruntracker;
+pub use taskruntracker::*;
 
 // TaskQueue trait which abstracts over the underlying queue backends.
 mod taskqueue;

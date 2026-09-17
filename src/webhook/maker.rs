@@ -12,7 +12,7 @@ pub fn make_webhook_router(
     firestarter: Box<dyn ignition::Firestarter>,
     embedder: search::gcloud::GeminiEmbedder,
     vector_store: search::gcloud::VertexVectorStore,
-    task_master: Arc<task::TaskDispatcher>,
+    task_master: Arc<task::TaskMaster>,
 ) -> Router {
     let state = Arc::new(WebhookState {
         service_api,

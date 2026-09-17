@@ -13,7 +13,7 @@ use super::*;
 /// talks to tasks through this API:
 ///
 /// - `submit_*` — enqueue + record a `Queued` row.
-/// - `begin_attempt` / `finish_attempt` — the worker-side attempt lifecycle.
+/// - `begin_attempt` / `finish_attempt` — the Run/attempt lifecycle of the Task
 /// - `query_*` — read status (replay / polling).
 ///
 /// Status is deliberately not exposed as a raw setter: workers go through
@@ -21,7 +21,7 @@ use super::*;
 /// consistent with the recorded status.
 ///
 /// Not `Clone`; share via `Arc`.
-pub struct TaskDispatcher {
+pub struct TaskMaster {
     status: TaskStatusTracker,
     max_attempts_per_run: i32, // mirrors `Config::task_max_attempts`
     illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
@@ -44,9 +44,9 @@ pub enum SubmitOutcome {
 }
 
 // Determine whether a new run is permitted, and if so what its 1-based run number is.
-fn decide_next_run(latest_run: Option<&model::task_status::Model>) -> Option<i32> {
+fn decide_next_run(latest_run: Option<&model::task_run_status::Model>) -> Option<i32> {
     if let Some(latest) = latest_run {
-        match StatusCode::from_i32(latest.status_code) {
+        match TaskRunStatus::from_i32(latest.status_code) {
             // If latest run is still in flight, refuse the submission
             Ok(status) if status.is_in_flight() => None,
             // Latest run is not in flight, so a rerun is permitted
@@ -61,9 +61,9 @@ fn decide_next_run(latest_run: Option<&model::task_status::Model>) -> Option<i32
 ///
 /// Cloud Tasks delivers at least once, so a redelivery of finished work must
 /// not resurrect it to `InProgress`.
-fn decide_next_attempt(status: Option<&model::task_status::Model>) -> Option<i32> {
+fn decide_next_attempt(status: Option<&model::task_run_status::Model>) -> Option<i32> {
     match status {
-        Some(row) if row.status_code == StatusCode::CompleteSuccess.as_i32() => None,
+        Some(row) if row.status_code == TaskRunStatus::CompleteSuccess.as_i32() => None,
         Some(row) => Some(row.attempts + 1),
         None => Some(1),
     }
@@ -73,7 +73,7 @@ fn decide_will_retry(err: &api::ApiError, attempt: i32, max_attempts: i32) -> bo
     attempt < max_attempts && err.is_retryable()
 }
 
-impl TaskDispatcher {
+impl TaskMaster {
     pub fn builder() -> TaskMasterBuilder {
         TaskMasterBuilder::default()
     }
@@ -167,7 +167,7 @@ impl TaskDispatcher {
         // TODO should we rethink this and possibly record QueueFailure as a status code?
         let created = self
             .status
-            .create_run(&envelope, StatusCode::Queued, 0)
+            .create_run(&envelope, TaskRunStatus::Queued, 0)
             .await?;
 
         if !created {
@@ -215,7 +215,7 @@ impl TaskDispatcher {
             return Ok(None);
         };
 
-        self.update_status(envelope, StatusCode::InProgress, attempt)
+        self.update_status(envelope, TaskRunStatus::InProgress, attempt)
             .await?;
 
         Ok(Some(attempt))
@@ -228,18 +228,18 @@ impl TaskDispatcher {
         envelope: &TaskEnvelope<T>,
         attempt: i32,
         run_result: &Result<(), api::ApiError>,
-    ) -> anyhow::Result<StatusCode> {
+    ) -> anyhow::Result<TaskRunStatus> {
         match run_result {
             Ok(()) => {
-                self.update_status(envelope, StatusCode::CompleteSuccess, attempt)
+                self.update_status(envelope, TaskRunStatus::CompleteSuccess, attempt)
                     .await?;
-                Ok(StatusCode::CompleteSuccess)
+                Ok(TaskRunStatus::CompleteSuccess)
             }
             Err(err) => {
                 let status_code = if decide_will_retry(err, attempt, self.max_attempts_per_run) {
-                    StatusCode::ErrorWillRetry
+                    TaskRunStatus::ErrorWillRetry
                 } else {
-                    StatusCode::CompleteFailure
+                    TaskRunStatus::CompleteFailure
                 };
 
                 self.update_status(envelope, status_code, attempt).await?;
@@ -264,7 +264,7 @@ impl TaskDispatcher {
     async fn update_status<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
-        status: StatusCode,
+        status: TaskRunStatus,
         attempts: i32,
     ) -> anyhow::Result<()> {
         self.status.update_run(envelope, status, attempts).await
@@ -278,7 +278,7 @@ impl TaskDispatcher {
         user_id: i32,
         entity_type: &str,
         entity_id: i32,
-    ) -> anyhow::Result<Vec<model::task_status::Model>> {
+    ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
         self.status
             .query_task_status_for_entity(user_id, entity_type, entity_id)
             .await
@@ -289,7 +289,7 @@ impl TaskDispatcher {
     pub async fn query_incomplete_for_user(
         &self,
         user_id: i32,
-    ) -> anyhow::Result<Vec<model::task_status::Model>> {
+    ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
         self.status.query_task_status_for_user(user_id).await
     }
 }
@@ -335,12 +335,12 @@ impl TaskMasterBuilder {
         self
     }
 
-    pub fn build(self) -> anyhow::Result<TaskDispatcher> {
+    pub fn build(self) -> anyhow::Result<TaskMaster> {
         let Some(db) = self.db else {
             anyhow::bail!("TaskMaster requires a database handle");
         };
 
-        Ok(TaskDispatcher {
+        Ok(TaskMaster {
             status: TaskStatusTracker::new(db),
             // Mirrors `Config::task_max_attempts` so a builder that forgets
             // `.max_attempts(..)` behaves like production rather than disabling retries.
@@ -393,14 +393,14 @@ mod tests {
 
     #[test]
     fn attempt_number_increments_from_persisted_count() {
-        let row = status_row(StatusCode::ErrorWillRetry, 2);
+        let row = status_row(TaskRunStatus::ErrorWillRetry, 2);
 
         assert_eq!(decide_next_attempt(Some(&row)), Some(3));
     }
 
     #[test]
     fn completed_task_is_not_resurrected() {
-        let row = status_row(StatusCode::CompleteSuccess, 1);
+        let row = status_row(TaskRunStatus::CompleteSuccess, 1);
 
         assert_eq!(
             decide_next_attempt(Some(&row)),
@@ -417,9 +417,9 @@ mod tests {
     #[test]
     fn submission_is_refused_while_a_run_is_in_flight() {
         for status in [
-            StatusCode::Queued,
-            StatusCode::InProgress,
-            StatusCode::ErrorWillRetry,
+            TaskRunStatus::Queued,
+            TaskRunStatus::InProgress,
+            TaskRunStatus::ErrorWillRetry,
         ] {
             let row = status_row(status, 1);
 
@@ -433,7 +433,10 @@ mod tests {
 
     #[test]
     fn submission_reruns_after_a_settled_run() {
-        for status in [StatusCode::CompleteSuccess, StatusCode::CompleteFailure] {
+        for status in [
+            TaskRunStatus::CompleteSuccess,
+            TaskRunStatus::CompleteFailure,
+        ] {
             let row = status_row_of_run(status, 1, 3);
 
             assert_eq!(
@@ -446,12 +449,16 @@ mod tests {
 
     /// A `task_status` row with only the fields the pure helpers read set to
     /// meaningful values.
-    fn status_row(status: StatusCode, attempts: i32) -> model::task_status::Model {
+    fn status_row(status: TaskRunStatus, attempts: i32) -> model::task_run_status::Model {
         status_row_of_run(status, attempts, 1)
     }
 
-    fn status_row_of_run(status: StatusCode, attempts: i32, run: i32) -> model::task_status::Model {
-        model::task_status::Model {
+    fn status_row_of_run(
+        status: TaskRunStatus,
+        attempts: i32,
+        run: i32,
+    ) -> model::task_run_status::Model {
+        model::task_run_status::Model {
             id: 0,
             user_id: 1,
             envelope_id: "u1-illuminate-capture1".to_string(),
@@ -500,7 +507,7 @@ mod tests {
             fail: false,
         };
 
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .illumination_queue(queue)
             .build()
@@ -524,7 +531,7 @@ mod tests {
             return;
         };
 
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .build()
             .expect("build should succeed with a db");
@@ -545,7 +552,7 @@ mod tests {
             captures: Arc::new(Mutex::new(Vec::new())),
             fail: true,
         };
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .illumination_queue(queue)
             .build()
@@ -559,7 +566,7 @@ mod tests {
 
     #[tokio::test]
     async fn build_without_db_is_an_error() {
-        let result = TaskDispatcher::builder().build();
+        let result = TaskMaster::builder().build();
         assert!(result.is_err(), "TaskMaster must require a database");
     }
 
@@ -570,7 +577,7 @@ mod tests {
             return;
         };
 
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -590,7 +597,7 @@ mod tests {
             .expect("query should succeed");
 
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].status_code, StatusCode::Queued.as_i32());
+        assert_eq!(rows[0].status_code, TaskRunStatus::Queued.as_i32());
         assert_eq!(rows[0].attempts, 0);
         assert_eq!(rows[0].envelope_id, "u1-illuminate-capture42");
         assert_eq!(rows[0].run, 1);
@@ -604,7 +611,7 @@ mod tests {
         };
 
         let captures = Arc::new(Mutex::new(Vec::new()));
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::clone(&captures),
@@ -639,7 +646,7 @@ mod tests {
             return;
         };
 
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -681,7 +688,7 @@ mod tests {
             return;
         };
 
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .max_attempts(1) // exhaust on the first failure
             .illumination_queue(RecordingQueue {
@@ -712,7 +719,7 @@ mod tests {
             .expect("finish_attempt should succeed");
         assert_eq!(
             outcome,
-            StatusCode::CompleteFailure,
+            TaskRunStatus::CompleteFailure,
             "max_attempts=1 means the first failure is terminal"
         );
 
@@ -730,7 +737,7 @@ mod tests {
 
         assert_eq!(rows.len(), 1, "only the latest run is reported");
         assert_eq!(rows[0].run, 2);
-        assert_eq!(rows[0].status_code, StatusCode::Queued.as_i32());
+        assert_eq!(rows[0].status_code, TaskRunStatus::Queued.as_i32());
     }
 
     /// A rerun supersedes the run before it: only the latest run is reported,
@@ -741,7 +748,7 @@ mod tests {
             return;
         };
 
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .max_attempts(1) // exhaust on the first failure
             .illumination_queue(RecordingQueue {
@@ -794,7 +801,7 @@ mod tests {
 
         assert_eq!(rows.len(), 1, "only the latest run is reported");
         assert_eq!(rows[0].run, 2, "the completed rerun supersedes run 1");
-        assert_eq!(rows[0].status_code, StatusCode::CompleteSuccess.as_i32());
+        assert_eq!(rows[0].status_code, TaskRunStatus::CompleteSuccess.as_i32());
     }
 
     /// Attempt counting is per-run: a rerun starts its attempts from scratch.
@@ -804,7 +811,7 @@ mod tests {
             return;
         };
 
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .max_attempts(2) // two attempts, then exhaust
             .illumination_queue(RecordingQueue {
@@ -832,7 +839,7 @@ mod tests {
             .finish_attempt(&first, attempt, &failure)
             .await
             .expect("finish_attempt should succeed");
-        assert_eq!(outcome, StatusCode::ErrorWillRetry);
+        assert_eq!(outcome, TaskRunStatus::ErrorWillRetry);
 
         let attempt = service
             .begin_attempt(&first)
@@ -846,7 +853,7 @@ mod tests {
             .expect("finish_attempt should succeed");
         assert_eq!(
             outcome,
-            StatusCode::CompleteFailure,
+            TaskRunStatus::CompleteFailure,
             "run 1 has now spent its budget"
         );
 
@@ -872,7 +879,7 @@ mod tests {
             return;
         };
 
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -900,7 +907,7 @@ mod tests {
             .finish_attempt(&envelope, attempt, &Ok(()))
             .await
             .expect("finish_attempt should succeed");
-        assert_eq!(outcome, StatusCode::CompleteSuccess);
+        assert_eq!(outcome, TaskRunStatus::CompleteSuccess);
 
         // The completed row is reported: a caller must be able to see that its
         // work finished.
@@ -909,7 +916,7 @@ mod tests {
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].status_code, StatusCode::CompleteSuccess.as_i32());
+        assert_eq!(rows[0].status_code, TaskRunStatus::CompleteSuccess.as_i32());
     }
 
     /// A transient failure retries while budget remains, then exhausts.
@@ -919,7 +926,7 @@ mod tests {
             return;
         };
 
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .max_attempts(2)
             .illumination_queue(RecordingQueue {
@@ -948,7 +955,7 @@ mod tests {
             .finish_attempt(&envelope, attempt, &failure)
             .await
             .expect("finish_attempt should succeed");
-        assert_eq!(outcome, StatusCode::ErrorWillRetry);
+        assert_eq!(outcome, TaskRunStatus::ErrorWillRetry);
 
         // Attempt 2: budget spent, so it exhausts.
         let attempt = service
@@ -961,7 +968,7 @@ mod tests {
             .finish_attempt(&envelope, attempt, &failure)
             .await
             .expect("finish_attempt should succeed");
-        assert_eq!(outcome, StatusCode::CompleteFailure);
+        assert_eq!(outcome, TaskRunStatus::CompleteFailure);
 
         // The exhausted run is still reported (the user should see it).
         let rows = service
@@ -969,7 +976,7 @@ mod tests {
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].status_code, StatusCode::CompleteFailure.as_i32());
+        assert_eq!(rows[0].status_code, TaskRunStatus::CompleteFailure.as_i32());
         assert_eq!(rows[0].attempts, 2);
     }
 
@@ -980,7 +987,7 @@ mod tests {
             return;
         };
 
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -1025,7 +1032,7 @@ mod tests {
             return;
         };
 
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -1056,8 +1063,8 @@ mod tests {
     }
 
     /// A service with an illumination queue that records (or fails) enqueues.
-    fn service(db: &crate::test_support::test_db::TestDb, queue_fails: bool) -> TaskDispatcher {
-        TaskDispatcher::builder()
+    fn service(db: &crate::test_support::test_db::TestDb, queue_fails: bool) -> TaskMaster {
+        TaskMaster::builder()
             .db(db.handle())
             .illumination_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
@@ -1097,7 +1104,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .build()
             .expect("build should succeed with a db");
@@ -1140,7 +1147,7 @@ mod tests {
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].status_code, StatusCode::Queued.as_i32());
+        assert_eq!(rows[0].status_code, TaskRunStatus::Queued.as_i32());
     }
 
     /// Only `Completed` is protected from redelivery. An exhausted run is not,
@@ -1154,7 +1161,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let service = TaskDispatcher::builder()
+        let service = TaskMaster::builder()
             .db(db.handle())
             .max_attempts(1)
             .illumination_queue(RecordingQueue {
@@ -1183,7 +1190,7 @@ mod tests {
             )
             .await
             .expect("finish_attempt should succeed");
-        assert_eq!(outcome, StatusCode::CompleteFailure);
+        assert_eq!(outcome, TaskRunStatus::CompleteFailure);
 
         let redelivery = service
             .begin_attempt(&envelope)

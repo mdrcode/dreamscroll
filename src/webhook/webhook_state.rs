@@ -9,5 +9,5 @@ pub struct WebhookState {
     pub firestarter: Box<dyn ignition::Firestarter>,
     pub embedder: search::gcloud::GeminiEmbedder,
     pub vector_store: search::gcloud::VertexVectorStore,
-    pub task_master: Arc<task::TaskDispatcher>,
+    pub task_master: Arc<task::TaskMaster>,
 }

@@ -14,10 +14,12 @@ fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
     )
 }
 
-/// All direct reads/writes to `task_status`, so the SeaORM queries live in one
-/// place. `TaskMaster` owns an instance for its writes and status queries;
-/// `StatusListener` will read through it once SSE lands (see
-/// `_project/plans/sse.md`).
+/// Contains all direct reads/writes to `task_run_status` in the db.
+///
+/// `TaskMaster` owns an instance of this for its status management.
+///
+/// In the future, we'll support subscribing/listening to real time task status
+/// updates (see `_project/plans/sse.md`).
 #[derive(Clone)]
 pub struct TaskStatusTracker {
     db: database::DbHandle,
@@ -28,16 +30,15 @@ impl TaskStatusTracker {
         Self { db }
     }
 
-    /// Insert the first row for a run. `Ok(false)` if `(envelope_id, run)`
-    /// already exists — the *lost-a-race* case, where a concurrent submit
-    /// claimed the run first. The unique index, not the read, is what makes
-    /// correctness here.
+    /// Insert the row for the first run of a TaskEnvelope.
     ///
-    /// Requires the task payload (submitters and workers always hold it).
+    /// Returns `Ok(false)` if `(envelope_id, run)`already exists — this covers
+    /// the *lost-a-race* scenario, where a concurrent submit claimed the run
+    /// first. The unique index, not the read, is what makes correctness here.
     pub async fn create_run<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
-        status: StatusCode,
+        status: TaskRunStatus,
         attempts: i32,
     ) -> anyhow::Result<bool> {
         let db = &self.db;
@@ -49,7 +50,7 @@ impl TaskStatusTracker {
             );
         };
 
-        let result = model::task_status::ActiveModel::builder()
+        let result = model::task_run_status::ActiveModel::builder()
             .set_task_type(T::task_type())
             .set_envelope_id(envelope.envelope_id.as_str())
             .set_run(envelope.run)
@@ -72,26 +73,26 @@ impl TaskStatusTracker {
     pub async fn update_run<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
-        status: StatusCode,
+        status: TaskRunStatus,
         attempts: i32,
     ) -> anyhow::Result<()> {
         let db = &self.db;
 
-        model::task_status::Entity::update_many()
+        model::task_run_status::Entity::update_many()
             .col_expr(
-                model::task_status::Column::StatusCode,
+                model::task_run_status::Column::StatusCode,
                 sea_orm::sea_query::Expr::value(status.as_i32()),
             )
             .col_expr(
-                model::task_status::Column::Attempts,
+                model::task_run_status::Column::Attempts,
                 sea_orm::sea_query::Expr::value(attempts),
             )
             .col_expr(
-                model::task_status::Column::UpdatedAt,
+                model::task_run_status::Column::UpdatedAt,
                 sea_orm::sea_query::Expr::value(chrono::Utc::now()),
             )
-            .filter(model::task_status::Column::EnvelopeId.eq(envelope.envelope_id.as_str()))
-            .filter(model::task_status::Column::Run.eq(envelope.run))
+            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope.envelope_id.as_str()))
+            .filter(model::task_run_status::Column::Run.eq(envelope.run))
             .exec(&db.conn)
             .await?;
 
@@ -99,16 +100,15 @@ impl TaskStatusTracker {
     }
 
     /// The most recent run of a logical task, or `None` if it has never run.
-    /// The decision input for submit: in flight → refuse, otherwise → rerun.
     pub async fn latest_run(
         &self,
         envelope_id: &str,
-    ) -> anyhow::Result<Option<model::task_status::Model>> {
+    ) -> anyhow::Result<Option<model::task_run_status::Model>> {
         let db = &self.db;
 
-        let row = model::task_status::Entity::find()
-            .filter(model::task_status::Column::EnvelopeId.eq(envelope_id))
-            .order_by_desc(model::task_status::Column::Run)
+        let row = model::task_run_status::Entity::find()
+            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope_id))
+            .order_by_desc(model::task_run_status::Column::Run)
             .one(&db.conn)
             .await?;
 
@@ -120,12 +120,12 @@ impl TaskStatusTracker {
         &self,
         envelope_id: &str,
         run: i32,
-    ) -> anyhow::Result<Option<model::task_status::Model>> {
+    ) -> anyhow::Result<Option<model::task_run_status::Model>> {
         let db = &self.db;
 
-        let row = model::task_status::Entity::find()
-            .filter(model::task_status::Column::EnvelopeId.eq(envelope_id))
-            .filter(model::task_status::Column::Run.eq(run))
+        let row = model::task_run_status::Entity::find()
+            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope_id))
+            .filter(model::task_run_status::Column::Run.eq(run))
             .one(&db.conn)
             .await?;
 
@@ -142,15 +142,15 @@ impl TaskStatusTracker {
         user_id: i32,
         entity_type: &str,
         entity_id: i32,
-    ) -> anyhow::Result<Vec<model::task_status::Model>> {
+    ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
         let db = &self.db;
 
         // TODO(REVISIT): wants a composite index on
         // (user_id, entity_type, entity_id, status_code).
-        let rows = model::task_status::Entity::find()
-            .filter(model::task_status::Column::UserId.eq(user_id))
-            .filter(model::task_status::Column::EntityType.eq(entity_type))
-            .filter(model::task_status::Column::EntityId.eq(entity_id))
+        let rows = model::task_run_status::Entity::find()
+            .filter(model::task_run_status::Column::UserId.eq(user_id))
+            .filter(model::task_run_status::Column::EntityType.eq(entity_type))
+            .filter(model::task_run_status::Column::EntityId.eq(entity_id))
             .all(&db.conn)
             .await?;
 
@@ -165,12 +165,12 @@ impl TaskStatusTracker {
     pub async fn query_task_status_for_user(
         &self,
         user_id: i32,
-    ) -> anyhow::Result<Vec<model::task_status::Model>> {
+    ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
         let db = &self.db;
 
         // TODO(REVISIT): wants a composite index on (user_id, run).
-        let rows = model::task_status::Entity::find()
-            .filter(model::task_status::Column::UserId.eq(user_id))
+        let rows = model::task_run_status::Entity::find()
+            .filter(model::task_run_status::Column::UserId.eq(user_id))
             .all(&db.conn)
             .await?;
 
@@ -180,8 +180,10 @@ impl TaskStatusTracker {
 
 /// Reduce rows to the latest run per logical task. No status is filtered out:
 /// completed work is reported alongside in-flight and failed work.
-fn latest_runs_per_task(rows: Vec<model::task_status::Model>) -> Vec<model::task_status::Model> {
-    let mut latest: std::collections::HashMap<String, model::task_status::Model> =
+fn latest_runs_per_task(
+    rows: Vec<model::task_run_status::Model>,
+) -> Vec<model::task_run_status::Model> {
+    let mut latest: std::collections::HashMap<String, model::task_run_status::Model> =
         std::collections::HashMap::new();
 
     for row in rows {
@@ -222,8 +224,8 @@ mod tests {
         TaskEnvelope::new(user_id, TestTask { id }, run)
     }
 
-    fn row(envelope_id: &str, run: i32, status: StatusCode) -> model::task_status::Model {
-        model::task_status::Model {
+    fn row(envelope_id: &str, run: i32, status: TaskRunStatus) -> model::task_run_status::Model {
+        model::task_run_status::Model {
             id: 0,
             user_id: 1,
             envelope_id: envelope_id.to_string(),
@@ -243,8 +245,8 @@ mod tests {
     #[test]
     fn collapse_keeps_the_latest_run() {
         let kept = latest_runs_per_task(vec![
-            row("a", 1, StatusCode::CompleteFailure),
-            row("a", 2, StatusCode::Queued),
+            row("a", 1, TaskRunStatus::CompleteFailure),
+            row("a", 2, TaskRunStatus::Queued),
         ]);
 
         assert_eq!(kept.len(), 1);
@@ -254,9 +256,9 @@ mod tests {
     #[test]
     fn collapse_returns_one_row_per_envelope() {
         let kept = latest_runs_per_task(vec![
-            row("a", 1, StatusCode::Queued),
-            row("b", 1, StatusCode::InProgress),
-            row("a", 2, StatusCode::Queued),
+            row("a", 1, TaskRunStatus::Queued),
+            row("b", 1, TaskRunStatus::InProgress),
+            row("a", 2, TaskRunStatus::Queued),
         ]);
 
         assert_eq!(kept.len(), 2, "one row per logical task");
@@ -266,18 +268,18 @@ mod tests {
     /// to observe that its work finished.
     #[test]
     fn collapse_keeps_a_completed_latest_run() {
-        let kept = latest_runs_per_task(vec![row("a", 1, StatusCode::CompleteSuccess)]);
+        let kept = latest_runs_per_task(vec![row("a", 1, TaskRunStatus::CompleteSuccess)]);
 
         assert_eq!(kept.len(), 1);
-        assert_eq!(kept[0].status_code, StatusCode::CompleteSuccess.as_i32());
+        assert_eq!(kept[0].status_code, TaskRunStatus::CompleteSuccess.as_i32());
     }
 
     #[test]
     fn collapse_keeps_every_task_regardless_of_status() {
         let kept = latest_runs_per_task(vec![
-            row("a", 1, StatusCode::CompleteSuccess),
-            row("b", 1, StatusCode::CompleteFailure),
-            row("c", 1, StatusCode::Queued),
+            row("a", 1, TaskRunStatus::CompleteSuccess),
+            row("b", 1, TaskRunStatus::CompleteFailure),
+            row("c", 1, TaskRunStatus::Queued),
         ]);
 
         assert_eq!(kept.len(), 3, "no status is filtered out");
@@ -295,7 +297,7 @@ mod tests {
 
         assert!(
             tracker
-                .create_run(&env, StatusCode::Queued, 0)
+                .create_run(&env, TaskRunStatus::Queued, 0)
                 .await
                 .expect("create_run should succeed")
         );
@@ -311,7 +313,7 @@ mod tests {
         assert_eq!(stored.entity_id, 42);
         assert_eq!(stored.entity_type, "capture");
         assert_eq!(stored.task_type, "test");
-        assert_eq!(stored.status_code, StatusCode::Queued.as_i32());
+        assert_eq!(stored.status_code, TaskRunStatus::Queued.as_i32());
         assert_eq!(stored.attempts, 0);
     }
 
@@ -326,11 +328,11 @@ mod tests {
         let env = envelope(1, 42, 1);
 
         let first = tracker
-            .create_run(&env, StatusCode::Queued, 0)
+            .create_run(&env, TaskRunStatus::Queued, 0)
             .await
             .expect("first create_run should succeed");
         let second = tracker
-            .create_run(&env, StatusCode::Queued, 0)
+            .create_run(&env, TaskRunStatus::Queued, 0)
             .await
             .expect("a conflict must not be an error");
 
@@ -347,13 +349,13 @@ mod tests {
 
         assert!(
             tracker
-                .create_run(&envelope(1, 42, 1), StatusCode::CompleteSuccess, 1)
+                .create_run(&envelope(1, 42, 1), TaskRunStatus::CompleteSuccess, 1)
                 .await
                 .expect("run 1 should be created")
         );
         assert!(
             tracker
-                .create_run(&envelope(1, 42, 2), StatusCode::Queued, 0)
+                .create_run(&envelope(1, 42, 2), TaskRunStatus::Queued, 0)
                 .await
                 .expect("run 2 should be created")
         );
@@ -376,7 +378,7 @@ mod tests {
         let mut env = envelope(1, 42, 1);
         env.task = None;
 
-        let result = tracker.create_run(&env, StatusCode::Queued, 0).await;
+        let result = tracker.create_run(&env, TaskRunStatus::Queued, 0).await;
 
         assert!(result.is_err(), "an envelope without a payload is a bug");
     }
@@ -391,16 +393,16 @@ mod tests {
         let run2 = envelope(1, 42, 2);
 
         tracker
-            .create_run(&run1, StatusCode::CompleteFailure, 1)
+            .create_run(&run1, TaskRunStatus::CompleteFailure, 1)
             .await
             .expect("run 1 should be created");
         tracker
-            .create_run(&run2, StatusCode::Queued, 0)
+            .create_run(&run2, TaskRunStatus::Queued, 0)
             .await
             .expect("run 2 should be created");
 
         tracker
-            .update_run(&run1, StatusCode::InProgress, 7)
+            .update_run(&run1, TaskRunStatus::InProgress, 7)
             .await
             .expect("update should succeed");
 
@@ -415,11 +417,11 @@ mod tests {
             .expect("query should succeed")
             .expect("run 2 should exist");
 
-        assert_eq!(stored1.status_code, StatusCode::InProgress.as_i32());
+        assert_eq!(stored1.status_code, TaskRunStatus::InProgress.as_i32());
         assert_eq!(stored1.attempts, 7);
         assert_eq!(
             stored2.status_code,
-            StatusCode::Queued.as_i32(),
+            TaskRunStatus::Queued.as_i32(),
             "run 2 must be untouched"
         );
 
@@ -439,7 +441,7 @@ mod tests {
         let tracker = TaskStatusTracker::new(db.handle());
 
         tracker
-            .create_run(&envelope(1, 42, 1), StatusCode::Queued, 0)
+            .create_run(&envelope(1, 42, 1), TaskRunStatus::Queued, 0)
             .await
             .expect("create_run should succeed");
 

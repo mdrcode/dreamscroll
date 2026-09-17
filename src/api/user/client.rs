@@ -12,7 +12,7 @@ pub struct UserApiClient {
     pub db: database::DbHandle,
     storage: Box<dyn storage::StorageProvider>,
     info_maker: InfoMaker,
-    task_master: Arc<task::TaskDispatcher>,
+    task_master: Arc<task::TaskMaster>,
     capture_searcher: search::CaptureSearcher,
 }
 
@@ -21,7 +21,7 @@ impl UserApiClient {
         db: database::DbHandle,
         storage: Box<dyn storage::StorageProvider>,
         url_maker: storage::UrlMaker,
-        task_master: Arc<task::TaskDispatcher>,
+        task_master: Arc<task::TaskMaster>,
         capture_searcher: search::CaptureSearcher,
     ) -> Self {
         Self {

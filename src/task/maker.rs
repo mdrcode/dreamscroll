@@ -14,7 +14,7 @@ use super::*;
 pub async fn make_task_master(
     cfg: &config::Config,
     db: DbHandle,
-) -> anyhow::Result<Arc<TaskDispatcher>> {
+) -> anyhow::Result<Arc<TaskMaster>> {
     match cfg.task_backend {
         TaskQueueBackend::Local => {
             let base_url = format!("http://localhost:{}", cfg.port);
@@ -40,7 +40,7 @@ pub async fn make_task_master(
                 });
 
             Ok(Arc::new(
-                TaskDispatcher::builder()
+                TaskMaster::builder()
                     .db(db)
                     .max_attempts(cfg.task_max_attempts)
                     .illumination_queue(illumination_queue)
@@ -81,7 +81,7 @@ pub async fn make_task_master(
             .context("Failed to initialize Cloud Tasks Queue: SearchIndex")?;
 
             Ok(Arc::new(
-                TaskDispatcher::builder()
+                TaskMaster::builder()
                     .db(db)
                     .max_attempts(cfg.task_max_attempts)
                     .illumination_queue(illumination_queue)

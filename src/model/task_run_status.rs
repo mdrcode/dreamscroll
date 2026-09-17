@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
 /// One row per task **run** — the canonical source of truth for
-/// background-task status. See `_project/plans/task-status.md` §3 and §6.
+/// background task runs. See `_project/plans/task-status.md` §3 and §6.
 ///
 /// A logical task (`envelope_id`) can be run more than once; each run gets its
 /// own row, numbered from 1. `(envelope_id, run)` is unique, which is what
@@ -20,7 +20,7 @@ use sea_orm::entity::prelude::*;
 /// single-user app and the table is tiny.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "task_status")]
+#[sea_orm(table_name = "task_run_status")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
@@ -44,7 +44,7 @@ pub struct Model {
     #[sea_orm(indexed)]
     pub entity_id: i32,
 
-    /// Integer discriminant of `task::StatusCode`.
+    /// Integer discriminant of `task::TaskStatus`.
     pub status_code: i32,
 
     pub attempts: i32,
