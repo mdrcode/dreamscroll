@@ -34,6 +34,7 @@ pub async fn post(
         &state.user_api,
         &context_user,
         multipart,
+        state.max_upload_bytes,
     )
     .await?;
     tracing::info!("Capture {} inserted via v2 upload", cap.id);

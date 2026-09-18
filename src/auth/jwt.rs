@@ -33,8 +33,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{AuthError, DreamscrollAuthUser};
 
-const DEFAULT_JWT_USER_EXPIRATION_SECS: u64 = 24 * 60 * 60;
-
 /// Configuration for JWT token generation and validation.
 ///
 /// This struct holds the cryptographic keys and settings needed for JWT operations.
@@ -73,7 +71,7 @@ impl JwtConfig {
         Self {
             encoding_key: EncodingKey::from_secret(secret),
             decoding_key: DecodingKey::from_secret(secret),
-            user_expiration_secs: DEFAULT_JWT_USER_EXPIRATION_SECS,
+            user_expiration_secs: 24 * 60 * 60,
             leeway: 0,
         }
     }

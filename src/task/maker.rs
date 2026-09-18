@@ -17,7 +17,7 @@ pub async fn make_task_master(
 ) -> anyhow::Result<Arc<TaskMaster>> {
     match cfg.task_backend {
         config::TaskQueueBackend::Local => {
-            let base_url = format!("http://localhost:{}", cfg.port);
+            let base_url = format!("http://{}:{}", cfg.task_local_webhook_host, cfg.port);
 
             let dev_client_illuminate = LocalWebhookClient::new(&base_url);
             let illumination_queue =

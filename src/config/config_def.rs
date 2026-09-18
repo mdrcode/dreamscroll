@@ -49,6 +49,22 @@ fn default_task_max_attempts() -> i32 {
     3
 }
 
+fn default_task_local_webhook_host() -> String {
+    "localhost".to_string()
+}
+
+fn default_jwt_user_expiration_secs() -> u64 {
+    24 * 60 * 60
+}
+
+fn default_jwt_validation_leeway_secs() -> u64 {
+    0
+}
+
+fn default_max_upload_bytes() -> usize {
+    5 * 1024 * 1024
+}
+
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub gcloud_project_id: String,
@@ -96,9 +112,19 @@ pub struct Config {
     pub task_backend: TaskQueueBackend,
     #[serde(default = "default_task_max_attempts")]
     pub task_max_attempts: i32,
+    #[serde(default = "default_task_local_webhook_host")]
+    pub task_local_webhook_host: String,
     pub task_cloudtask_queue_illumination: Option<String>,
     pub task_cloudtask_queue_search_index: Option<String>,
     pub task_cloudtask_queue_spark: Option<String>,
+
+    #[serde(default = "default_jwt_user_expiration_secs")]
+    pub jwt_user_expiration_secs: u64,
+    #[serde(default = "default_jwt_validation_leeway_secs")]
+    pub jwt_validation_leeway_secs: u64,
+
+    #[serde(default = "default_max_upload_bytes")]
+    pub max_upload_bytes: usize,
 }
 
 pub fn make() -> anyhow::Result<Config> {
@@ -177,6 +203,10 @@ mod tests {
         assert!(default_session_always_save());
         assert_eq!(default_gemini_payload_method(), GeminiPayloadMethod::Inline);
         assert_eq!(default_task_max_attempts(), 3);
+        assert_eq!(default_task_local_webhook_host(), "localhost");
+        assert_eq!(default_jwt_user_expiration_secs(), 86400);
+        assert_eq!(default_jwt_validation_leeway_secs(), 0);
+        assert_eq!(default_max_upload_bytes(), 5 * 1024 * 1024);
     }
 
     fn required_vars(storage_backend: &str) -> Vec<(String, String)> {
@@ -216,6 +246,10 @@ mod tests {
         assert_eq!(config.storage_backend, StorageBackend::GCloud);
         assert_eq!(config.task_backend, TaskQueueBackend::Local);
         assert_eq!(config.task_max_attempts, 3);
+        assert_eq!(config.task_local_webhook_host, "localhost");
+        assert_eq!(config.jwt_user_expiration_secs, 86400);
+        assert_eq!(config.jwt_validation_leeway_secs, 0);
+        assert_eq!(config.max_upload_bytes, 5 * 1024 * 1024);
         assert_eq!(config.gemini_payload_method, GeminiPayloadMethod::Inline);
         assert!(config.cookie_secure);
         assert!(config.session_always_save);

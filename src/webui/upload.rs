@@ -4,12 +4,11 @@ use axum_extra::extract::Multipart;
 
 use crate::{api, auth};
 
-const MAX_UPLOAD_BYTES: usize = 5 * 1024 * 1024;
-
 pub async fn insert_capture_from_multipart(
     user_api: &api::UserApiClient,
     context: &auth::Context,
     multipart: Multipart,
+    max_upload_bytes: usize,
 ) -> Result<api::CaptureInfo, api::ApiError> {
     let image_payload = match extract_first_image_payload(multipart).await? {
         Some(payload) => payload,
@@ -24,7 +23,7 @@ pub async fn insert_capture_from_multipart(
         tracing::info!(original_filename = %filename, "Upload multipart filename detected");
     }
 
-    if image_payload.bytes.len() > MAX_UPLOAD_BYTES {
+    if image_payload.bytes.len() > max_upload_bytes {
         return Err(api::ApiError::payload_too_large(anyhow!(
             "Payload too large."
         )));

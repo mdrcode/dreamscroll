@@ -14,6 +14,7 @@ pub struct WebState {
     pub user_api: api::UserApiClient,
     pub tera: Tera,
     pub static_asset_version: String,
+    pub max_upload_bytes: usize,
 }
 
 impl WebState {
@@ -28,6 +29,7 @@ pub fn make_ui_router(
     user_api: api::UserApiClient,
     auth_backend: auth::WebAuthBackend,
     session_layer: SessionManagerLayer<impl tower_sessions::SessionStore + Clone>,
+    max_upload_bytes: usize,
 ) -> Router {
     let tera = Tera::new("web/v2/templates/**/*.tera").expect("Failed to load v2 templates");
     tracing::info!("Loaded v2 tera templates");
@@ -41,6 +43,7 @@ pub fn make_ui_router(
         user_api,
         tera,
         static_asset_version,
+        max_upload_bytes,
     });
 
     let auth_layer = AuthManagerLayerBuilder::new(auth_backend, session_layer).build();
@@ -81,7 +84,7 @@ pub fn make_ui_router(
         .with_state(state);
 
     router = router.nest_service("/static", ServeDir::new("web/v2/static"));
-    router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));
+    router = router.layer(DefaultBodyLimit::max(max_upload_bytes));
     router = telemetry::add_axum_trace_propagation(router);
     router
 }

@@ -82,6 +82,7 @@ async fn main() -> anyhow::Result<()> {
             user_api.clone(),
             auth_backend.clone(),
             session_layer.clone(),
+            cfg.max_upload_bytes,
         );
 
         router = router.merge(ui_router);
@@ -103,13 +104,16 @@ async fn main() -> anyhow::Result<()> {
             .as_ref()
             .context("JWT_SECRET not set, required for API")?
             .as_bytes();
-        let jwt = auth::JwtConfig::from_secret(secret);
+        let jwt = auth::JwtConfig::from_secret(secret)
+            .with_user_expiration_secs(cfg.jwt_user_expiration_secs)
+            .with_leeway(cfg.jwt_validation_leeway_secs);
 
         let api_router = rest::make_api_router(
             user_api.clone(),
             service_api.clone(),
             task_master.clone(),
             jwt,
+            cfg.max_upload_bytes,
         );
 
         router = router.nest("/api", api_router);

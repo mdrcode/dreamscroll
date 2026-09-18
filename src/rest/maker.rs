@@ -31,6 +31,7 @@ pub fn make_api_router(
     service_api: api::ServiceApiClient,
     task_master: Arc<crate::task::TaskMaster>,
     jwt_config: auth::JwtConfig,
+    max_upload_bytes: usize,
 ) -> Router {
     let admin_api = api::AdminApiClient::new(user_api.db.clone(), service_api, task_master);
 
@@ -68,7 +69,7 @@ pub fn make_api_router(
         .merge(routes_open)
         .with_state(state);
 
-    router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));
+    router = router.layer(DefaultBodyLimit::max(max_upload_bytes));
     router = telemetry::add_axum_trace_propagation(router); // Cloud Run trace headers
     router
 }
