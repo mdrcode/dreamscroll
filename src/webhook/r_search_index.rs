@@ -12,11 +12,7 @@ pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(envelope): Json<task::TaskEnvelope<logic::search_index::SearchIndexTask>>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let Some(task) = envelope.task.clone() else {
-        return Err(api::ApiError::bad_request(anyhow::anyhow!(
-            "TaskEnvelope missing payload"
-        )));
-    };
+    let task = envelope.task.clone();
 
     // `None` means the task already completed (at-least-once redelivery); ack it.
     let Some(attempt) = state

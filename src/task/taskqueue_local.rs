@@ -207,7 +207,7 @@ mod tests {
         let queue = LocalTaskQueue::connect(4, move |task: TaskEnvelope<TestTask>| {
             let seen = Arc::clone(&seen_for_worker);
             async move {
-                seen.lock().await.push(task.task.unwrap().id);
+                seen.lock().await.push(task.task.id);
                 Ok(())
             }
         });
@@ -341,7 +341,7 @@ mod tests {
         let queue = LocalTaskQueue::connect(1, move |task: TaskEnvelope<TestTask>| {
             let processed = Arc::clone(&processed_for_worker);
             async move {
-                let id = task.task.as_ref().unwrap().id;
+                let id = task.task.id;
                 if id == 2 {
                     anyhow::bail!("intentional failure for task 2")
                 }

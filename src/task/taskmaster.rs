@@ -516,7 +516,7 @@ mod tests {
                 .captures
                 .lock()
                 .expect("RecordingQueue captures mutex should not be poisoned");
-            captures.push(envelope.task.unwrap().capture_id);
+            captures.push(envelope.task.capture_id);
             Ok(())
         }
     }

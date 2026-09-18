@@ -57,7 +57,7 @@ Upload (webui/v2/r_upload.rs)
   `task_type() -> &'static str`, `entity_type() -> &'static str` (e.g.
   `"capture"`, `"spark"`), and `entity_id(&self) -> i32`. A `TaskEnvelope<T>`
   wraps a task with `user_id`, `envelope_id`, `run`, and the payload
-  (`task: Option<T>`).
+  (`task: T`).
 - **Task identity is deterministic.** `TaskEnvelope::make_envelope_id(user_id,
   task)` builds `envelope_id = "u{user_id}-{task_type}-{entity_type}{entity_id}"`
   (e.g. `u1-illuminate-capture123`). There is **no UUID** and no separate
@@ -455,10 +455,6 @@ must always see the **most recent** illumination, so:
   submits `IlluminationTask` through the illumination queue, so the route has no
   live caller. Kept deliberately — it's the entry point for the future backfill
   and rerun flows. *Tolerated — see `pragmatism.md`.*
-- **`TaskEnvelope.task` is `Option<T>` but never `None` in practice:** all
-  handlers carry a `task: None` → 400 guard that can never fire, since the queue
-  always serializes the payload. Kept deliberately: forward-compatible with a
-  future payload-less query handle. *Tolerated — see `pragmatism.md`.*
 
 ---
 

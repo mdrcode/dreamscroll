@@ -36,7 +36,7 @@ pub struct TaskEnvelope<T: Task> {
     /// Which run of this logical task this envelope carries, counting from 1.
     #[serde(default = "first_run")]
     pub run: i32,
-    pub task: Option<T>, // convenience, not always available (e.g. when dequeued)
+    pub task: T,
 }
 
 fn first_run() -> i32 {
@@ -52,7 +52,7 @@ impl<T: Task> TaskEnvelope<T> {
             user_id,
             envelope_id: Self::make_envelope_id(user_id, &task),
             run,
-            task: Some(task),
+            task,
         }
     }
 
@@ -83,22 +83,16 @@ impl<T: Task> std::fmt::Debug for TaskEnvelope<T> {
 
         // Bounded preview of the serialized payload, so logs stay readable for
         // large tasks (e.g. a spark with many capture_ids).
-        let payload_preview = self
-            .task
-            .as_ref()
-            .map(|task| {
-                let json =
-                    serde_json::to_string(task).unwrap_or("<serialization error>".to_string());
-                if json.chars().count() > 200 {
-                    // Char-boundary-safe prefix, so a multi-byte UTF-8 boundary
-                    // can never panic.
-                    let preview: String = json.chars().take(200).collect();
-                    format!("{preview}...")
-                } else {
-                    json
-                }
-            })
-            .unwrap_or("<no payload>".to_string());
+        let json = serde_json::to_string(&self.task)
+            .unwrap_or_else(|_| "<serialization error>".to_string());
+        let payload_preview = if json.chars().count() > 200 {
+            // Char-boundary-safe prefix, so a multi-byte UTF-8 boundary
+            // can never panic.
+            let preview: String = json.chars().take(200).collect();
+            format!("{preview}...")
+        } else {
+            json
+        };
         debug.field("payload", &payload_preview);
 
         debug.finish()
@@ -165,7 +159,7 @@ mod tests {
 
         assert_eq!(envelope.user_id, 3);
         assert_eq!(envelope.run, 2);
-        assert_eq!(envelope.task.as_ref().map(|t| t.id), Some(9));
+        assert_eq!(envelope.task.id, 9);
     }
 
     /// A deserialized envelope without a `run` must not land on run 0, which

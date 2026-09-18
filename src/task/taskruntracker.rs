@@ -43,12 +43,7 @@ impl TaskStatusTracker {
     ) -> anyhow::Result<bool> {
         let db = &self.db;
 
-        let Some(task) = envelope.task.as_ref() else {
-            anyhow::bail!(
-                "cannot record status for envelope without payload: {}",
-                envelope.envelope_id
-            );
-        };
+        let task = &envelope.task;
 
         let result = model::task_run_status::ActiveModel::builder()
             .set_task_type(T::task_type())
@@ -370,17 +365,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_run_requires_a_payload() {
+    async fn create_run_accepts_the_required_payload() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
         let tracker = TaskStatusTracker::new(db.handle());
-        let mut env = envelope(1, 42, 1);
-        env.task = None;
-
+        let env = envelope(1, 42, 1);
         let result = tracker.create_run(&env, TaskRunStatus::Queued, 0).await;
 
-        assert!(result.is_err(), "an envelope without a payload is a bug");
+        assert!(result.is_ok(), "a valid envelope carries its task payload");
     }
 
     #[tokio::test]
