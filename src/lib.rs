@@ -12,7 +12,7 @@ pub mod search;
 pub mod storage;
 pub mod task;
 pub mod telemetry;
-pub mod util;
+pub mod util_cmds;
 pub mod webhook;
 pub mod webui;
 
