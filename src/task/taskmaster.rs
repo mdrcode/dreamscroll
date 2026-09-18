@@ -22,7 +22,7 @@ use super::*;
 ///
 /// Not `Clone`; share via `Arc`.
 pub struct TaskMaster {
-    status: TaskStatusTracker,
+    status: TaskRunTracker,
     max_attempts_per_run: i32, // mirrors `Config::task_max_attempts`
     illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
@@ -360,7 +360,7 @@ impl TaskMasterBuilder {
         };
 
         Ok(TaskMaster {
-            status: TaskStatusTracker::new(db),
+            status: TaskRunTracker::new(db),
             // Mirrors `Config::task_max_attempts` so a builder that forgets
             // `.max_attempts(..)` behaves like production rather than disabling retries.
             max_attempts_per_run: self.max_attempts.unwrap_or(3).max(1),
@@ -471,6 +471,20 @@ mod tests {
                 "{status} is settled, so the next run is permitted"
             );
         }
+    }
+
+    #[test]
+    fn submission_failed_allows_a_new_run() {
+        let row = status_row_of_run(TaskRunStatus::SubmissionFailed, 0, 4);
+
+        assert_eq!(decide_next_run(Some(&row)), Some(5));
+    }
+
+    #[test]
+    fn zero_max_attempts_is_effectively_one_attempt() {
+        let err = api::ApiError::internal(anyhow::anyhow!("transient"));
+
+        assert!(!decide_will_retry(&err, 1, 0));
     }
 
     /// A `task_run_status` row with only the fields the pure helpers read set to

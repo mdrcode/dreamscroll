@@ -174,6 +174,35 @@ mod tests {
         assert_eq!(envelope.run, 1);
     }
 
+    #[test]
+    fn deserializing_without_a_task_fails() {
+        let json = r#"{"user_id":1,"envelope_id":"u1-illuminate-capture5"}"#;
+
+        assert!(serde_json::from_str::<TaskEnvelope<TestTask>>(json).is_err());
+    }
+
+    #[test]
+    fn serialization_round_trip_preserves_identity_and_payload() {
+        let original = TaskEnvelope::new(4, TestTask { id: 17 }, 3);
+
+        let encoded = serde_json::to_string(&original).expect("envelope should serialize");
+        let decoded: TaskEnvelope<TestTask> =
+            serde_json::from_str(&encoded).expect("envelope should deserialize");
+
+        assert_eq!(decoded.user_id, 4);
+        assert_eq!(decoded.envelope_id, original.envelope_id);
+        assert_eq!(decoded.run, 3);
+        assert_eq!(decoded.task.id, 17);
+    }
+
+    #[test]
+    fn debug_includes_identity_and_payload_preview() {
+        let rendered = format!("{:?}", TaskEnvelope::new(2, TestTask { id: 8 }, 1));
+
+        assert!(rendered.contains("u2-illuminate-capture8"));
+        assert!(rendered.contains("id\\\":8"));
+    }
+
     /// Debug must not panic on a multi-byte payload cut at the 200-char preview.
     #[test]
     fn debug_truncates_a_multibyte_payload_without_panicking() {

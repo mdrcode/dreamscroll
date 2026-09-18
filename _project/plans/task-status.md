@@ -80,7 +80,7 @@ Upload (webui/v2/r_upload.rs)
   number) and `finish_attempt` (writes the outcome and returns an
   `AttemptOutcome` that drives the HTTP response). This keeps `attempts` and the
   retry decision consistent with the recorded status.
-- **`TaskStatusTracker`** (`task/taskruntracker.rs`) owns all `task_run_status`
+- **`TaskRunTracker`** (`task/taskruntracker.rs`) owns all `task_run_status`
   persistence. `TaskRunStatus` (`task/taskrunstatus.rs`) is the strongly-typed status
   enum; the DB stores only its integer discriminant (`status_code INT`).
 - **Deployment is a single Cloud Run service.** Tasks are queued via Cloud Tasks,
@@ -237,9 +237,9 @@ The query API is deliberately **"incomplete", not "non-terminal"**. Two
 entity-scoped entry points, both returning every row whose status is **not
 `CompleteSuccess`**:
 
-- `TaskStatusTracker::query_incomplete_for_entity(user_id, entity_type, entity_id)`
+- `TaskRunTracker::query_incomplete_for_entity(user_id, entity_type, entity_id)`
   — the tasks for one entity (e.g. one capture).
-- `TaskStatusTracker::query_incomplete_for_user(user_id)` — every outstanding
+- `TaskRunTracker::query_incomplete_for_user(user_id)` — every outstanding
   task for a user, across all entities.
 
 Rationale:
@@ -468,7 +468,7 @@ must always see the **most recent** illumination, so:
 | `src/task/taskqueue_cloudtask.rs`         | `CloudTaskQueue` — Google Cloud Tasks backend                                                                                                                                                            | ✅      |
 | `src/task/taskqueue_pubsub.rs`            | **removed** — Pub/Sub support stripped out; Cloud Tasks is the focus                                                                                                                                     | ✅      |
 | `src/task/taskmaster.rs`                  | `TaskMaster` — owns queues + `task_run_status`; `submit_*` / `begin_attempt` / `finish_attempt` / `query_*`; `update_status` is **private**; records `Queued` on enqueue; shared via `Arc`               | ✅      |
-| `src/task/taskruntracker.rs`              | `TaskStatusTracker` — owns all `task_run_status` persistence (create/update keyed by `(envelope_id, run)`); `latest_run`, `query_run_status`, `query_incomplete_for_entity`, `query_incomplete_for_user` | ✅      |
+| `src/task/taskruntracker.rs`              | `TaskRunTracker` — owns all `task_run_status` persistence (create/update keyed by `(envelope_id, run)`); `latest_run`, `query_run_status`, `query_incomplete_for_entity`, `query_incomplete_for_user` | ✅      |
 | `src/task/taskrunstatus.rs`               | `TaskRunStatus` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                                | ✅      |
 | `src/task/status_listener.rs`             | `StatusListener` — the `LISTEN`/`NOTIFY` thread (**stub**; see `sse.md`)                                                                                                                                 | ⬜      |
 | `src/task/beacon.rs`                      | **removed** — replaced by `TaskMaster`                                                                                                                                                                   | ✅      |

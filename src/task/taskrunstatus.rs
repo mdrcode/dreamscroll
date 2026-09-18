@@ -112,4 +112,35 @@ mod tests {
         assert!(!TaskRunStatus::CompleteSuccess.is_in_flight());
         assert!(!TaskRunStatus::CompleteFailure.is_in_flight());
     }
+
+    #[test]
+    fn display_includes_name_and_persisted_code() {
+        assert_eq!(
+            TaskRunStatus::SubmissionFailed.to_string(),
+            "SubmissionFailed(0)"
+        );
+        assert_eq!(
+            TaskRunStatus::CompleteFailure.to_string(),
+            "CompleteFailure(5)"
+        );
+    }
+
+    #[test]
+    fn only_in_flight_statuses_block_duplicate_submission() {
+        for status in [
+            TaskRunStatus::Queued,
+            TaskRunStatus::InProgress,
+            TaskRunStatus::ErrorWillRetry,
+        ] {
+            assert!(status.is_in_flight(), "{status} should block duplicates");
+        }
+
+        for status in [
+            TaskRunStatus::SubmissionFailed,
+            TaskRunStatus::CompleteSuccess,
+            TaskRunStatus::CompleteFailure,
+        ] {
+            assert!(!status.is_in_flight(), "{status} should allow a rerun");
+        }
+    }
 }

@@ -225,6 +225,32 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn single_worker_preserves_fifo_dispatch_order() -> anyhow::Result<()> {
+        let seen = Arc::new(AsyncMutex::new(Vec::new()));
+        let seen_for_worker = Arc::clone(&seen);
+
+        let queue = LocalTaskQueue::connect(1, move |task: TaskEnvelope<TestTask>| {
+            let seen = Arc::clone(&seen_for_worker);
+            async move {
+                seen.lock().await.push(task.task.id);
+                Ok(())
+            }
+        });
+
+        for id in 1..=5 {
+            queue.enqueue(envelope(id)).await?;
+        }
+
+        wait_until("all FIFO tasks to run", || {
+            seen.try_lock().map(|items| items.len() == 5).unwrap_or(false)
+        })
+        .await;
+
+        assert_eq!(*seen.lock().await, vec![1, 2, 3, 4, 5]);
+        Ok(())
+    }
+
     /// The semaphore must both *allow* parallelism and *bound* it. Asserting
     /// only the lower bound would pass even if the semaphore were removed.
     #[tokio::test]
@@ -387,4 +413,5 @@ mod tests {
         wait_until("the task to run", || done.load(Ordering::SeqCst) == 1).await;
         Ok(())
     }
+
 }

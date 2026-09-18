@@ -132,4 +132,15 @@ mod tests {
             "projects/p/locations/r/queues/q/tasks/u7-test-capture42-run3"
         );
     }
+
+    #[test]
+    fn task_name_changes_for_a_rerun() {
+        let run1 = TaskEnvelope::new(7, TestTask { id: 42 }, 1);
+        let run2 = TaskEnvelope::new(7, TestTask { id: 42 }, 2);
+
+        assert_ne!(
+            CloudTaskQueue::<TestTask>::task_name("projects/p/locations/r/queues/q", &run1),
+            CloudTaskQueue::<TestTask>::task_name("projects/p/locations/r/queues/q", &run2)
+        );
+    }
 }

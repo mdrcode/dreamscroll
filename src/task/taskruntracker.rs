@@ -21,11 +21,11 @@ fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
 /// In the future, we'll support subscribing/listening to real time task status
 /// updates (see `_project/plans/sse.md`).
 #[derive(Clone)]
-pub struct TaskStatusTracker {
+pub struct TaskRunTracker {
     db: database::DbHandle,
 }
 
-impl TaskStatusTracker {
+impl TaskRunTracker {
     pub fn new(db: database::DbHandle) -> Self {
         Self { db }
     }
@@ -259,6 +259,38 @@ mod tests {
         assert_eq!(kept.len(), 2, "one row per logical task");
     }
 
+    #[test]
+    fn collapse_is_independent_of_input_order() {
+        let rows = vec![
+            row("a", 3, TaskRunStatus::CompleteSuccess),
+            row("b", 1, TaskRunStatus::Queued),
+            row("a", 1, TaskRunStatus::CompleteFailure),
+            row("a", 2, TaskRunStatus::InProgress),
+        ];
+
+        let kept = latest_runs_per_task(rows);
+
+        assert_eq!(kept.len(), 2);
+        assert_eq!(
+            kept.iter()
+                .find(|item| item.envelope_id == "a")
+                .unwrap()
+                .run,
+            3
+        );
+    }
+
+    #[test]
+    fn collapse_preserves_latest_row_status_and_attempts() {
+        let mut latest = row("a", 2, TaskRunStatus::InProgress);
+        latest.attempts = 7;
+
+        let kept = latest_runs_per_task(vec![row("a", 1, TaskRunStatus::CompleteFailure), latest]);
+
+        assert_eq!(kept[0].status_code, TaskRunStatus::InProgress.as_i32());
+        assert_eq!(kept[0].attempts, 7);
+    }
+
     /// The whole point of dropping the incomplete filter: a caller must be able
     /// to observe that its work finished.
     #[test]
@@ -287,7 +319,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskStatusTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle());
         let env = envelope(1, 42, 1);
 
         assert!(
@@ -319,7 +351,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskStatusTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle());
         let env = envelope(1, 42, 1);
 
         let first = tracker
@@ -340,7 +372,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskStatusTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle());
 
         assert!(
             tracker
@@ -369,7 +401,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskStatusTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle());
         let env = envelope(1, 42, 1);
         let result = tracker.create_run(&env, TaskRunStatus::Queued, 0).await;
 
@@ -381,7 +413,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskStatusTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle());
         let run1 = envelope(1, 42, 1);
         let run2 = envelope(1, 42, 2);
 
@@ -431,7 +463,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskStatusTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle());
 
         tracker
             .create_run(&envelope(1, 42, 1), TaskRunStatus::Queued, 0)
