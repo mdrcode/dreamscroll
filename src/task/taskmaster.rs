@@ -53,7 +53,7 @@ fn decide_next_run(latest_run: Option<&model::task_run_status::Model>) -> Option
             _ => Some(latest.run + 1),
         }
     } else {
-        return Some(1); // no prior run, so this is the first
+        Some(1) // no prior run, so this is the first
     }
 }
 
