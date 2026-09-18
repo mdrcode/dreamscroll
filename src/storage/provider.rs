@@ -33,7 +33,7 @@ dyn_clone::clone_trait_object!(StorageProvider);
 
 pub async fn make_provider(cfg: &config::Config) -> Box<dyn StorageProvider> {
     let provider = match cfg.storage_backend {
-        StorageBackend::Local => {
+        config::StorageBackend::Local => {
             let local_file_path = cfg
                 .storage_local_file_path
                 .as_ref()
@@ -43,7 +43,7 @@ pub async fn make_provider(cfg: &config::Config) -> Box<dyn StorageProvider> {
             Box::new(local) as Box<dyn StorageProvider>
         }
 
-        StorageBackend::GCloud => {
+        config::StorageBackend::GCloud => {
             let bucket_name = cfg
                 .storage_gcloud_bucket_name
                 .as_ref()

@@ -16,7 +16,7 @@ pub async fn make_task_master(
     db: DbHandle,
 ) -> anyhow::Result<Arc<TaskMaster>> {
     match cfg.task_backend {
-        TaskQueueBackend::Local => {
+        config::TaskQueueBackend::Local => {
             let base_url = format!("http://localhost:{}", cfg.port);
 
             let dev_client_illuminate = LocalWebhookClient::new(&base_url);
@@ -49,7 +49,7 @@ pub async fn make_task_master(
                     .build()?,
             ))
         }
-        TaskQueueBackend::GCloudTasks => {
+        config::TaskQueueBackend::GCloudTasks => {
             let illumination_queue = CloudTaskQueue::connect(
                 cfg.gcloud_project_id.as_str(),
                 cfg.gcloud_project_region.as_str(),
@@ -67,13 +67,11 @@ pub async fn make_task_master(
             let spark_queue = CloudTaskQueue::connect(
                 cfg.gcloud_project_id.as_str(),
                 cfg.gcloud_project_region.as_str(),
-                cfg.task_cloudtask_queue_spark
-                    .as_ref()
-                    .ok_or_else(|| {
-                        anyhow::anyhow!(
-                            "TASK_CLOUDTASK_QUEUE_SPARK must be set for the GCloudTasks backend"
-                        )
-                    })?,
+                cfg.task_cloudtask_queue_spark.as_ref().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "TASK_CLOUDTASK_QUEUE_SPARK must be set for the GCloudTasks backend"
+                    )
+                })?,
             )
             .await
             .context("Failed to initialize Cloud Tasks Queue: Spark")?;

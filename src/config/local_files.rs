@@ -2,7 +2,7 @@ use dotenvy;
 
 /// Containerized environments should set `NO_LOCAL_CONFIG_FILES` (any value)
 /// to skip this, since config comes from Containerized real env vars.
-pub fn import_local_if_test_or_dev() {
+pub fn populate_env_if_test_or_dev() {
     if std::env::var("NO_LOCAL_CONFIG_FILES").is_ok() {
         return;
     }

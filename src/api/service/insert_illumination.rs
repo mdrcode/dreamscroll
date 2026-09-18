@@ -65,9 +65,7 @@ pub fn format_for_search(illumination: &Illumination) -> String {
             .map(|e| e.name.clone())
             .collect::<Vec<String>>()
             .join(" "),
-        illumination
-            .suggested_searches.to_vec()
-            .join(" "),
+        illumination.suggested_searches.to_vec().join(" "),
         illumination
             .social_media_accounts
             .iter()

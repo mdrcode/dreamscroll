@@ -1,26 +1,17 @@
+use crate::{api, config, illumination, storage};
 use google_cloud_aiplatform_v1::client::PredictionService;
 use google_cloud_aiplatform_v1::model::{
     Blob, Content, FileData, GenerationConfig, Part, Tool, tool,
 };
-use serde::{Deserialize, Serialize};
-
-use crate::{api, illumination, storage};
 
 use super::*;
-
-#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum PayloadMethod {
-    FileUri,
-    Inline,
-}
 
 /// Gemini-based illumination powered by the Vertex AI API. Uses Application Default Credentials
 /// and can pass either a GCS file URI or inline image bytes.
 #[derive(Clone)]
 pub struct GeminiVertexApiIlluminator {
     model_full_path: String,
-    payload_method: PayloadMethod,
+    payload_method: config::GeminiPayloadMethod,
     storage: Box<dyn storage::StorageProvider>,
 }
 
@@ -28,7 +19,7 @@ impl GeminiVertexApiIlluminator {
     pub fn new(
         project_id: &str,
         model_id: &str,
-        payload_method: PayloadMethod,
+        payload_method: config::GeminiPayloadMethod,
         storage: Box<dyn storage::StorageProvider>,
     ) -> Self {
         let model_full_path = format!(
@@ -47,7 +38,7 @@ impl GeminiVertexApiIlluminator {
 }
 
 pub async fn make_media_payload(
-    payload_method: PayloadMethod,
+    payload_method: config::GeminiPayloadMethod,
     media: &api::MediaInfo,
     storage: &dyn storage::StorageProvider,
 ) -> anyhow::Result<Part> {
@@ -55,7 +46,7 @@ pub async fn make_media_payload(
     let mime_type = media.mime_type.clone().unwrap_or("image/jpeg".to_string());
 
     match payload_method {
-        PayloadMethod::FileUri => {
+        config::GeminiPayloadMethod::FileUri => {
             let gcs_uri = storage
                 .make_prod_uri(&storage_handle)
                 .map_err(|e| anyhow::anyhow!("Failed to make GCS URI: {}", e))?;
@@ -73,7 +64,7 @@ pub async fn make_media_payload(
                     .set_file_uri(gcs_uri),
             ))
         }
-        PayloadMethod::Inline => {
+        config::GeminiPayloadMethod::Inline => {
             let storage_handle = storage::StorageHandle::from(media);
             let image_bytes = storage.retrieve_bytes(&storage_handle).await?;
 
@@ -108,7 +99,8 @@ impl illumination::Illuminator for GeminiVertexApiIlluminator {
         capture: &api::CaptureInfo,
     ) -> anyhow::Result<illumination::Illumination> {
         let media1 = capture
-            .medias.first()
+            .medias
+            .first()
             .ok_or_else(|| anyhow::anyhow!("Capture has no media"))?;
 
         let client = PredictionService::builder()

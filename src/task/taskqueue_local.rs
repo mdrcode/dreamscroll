@@ -243,7 +243,9 @@ mod tests {
         }
 
         wait_until("all FIFO tasks to run", || {
-            seen.try_lock().map(|items| items.len() == 5).unwrap_or(false)
+            seen.try_lock()
+                .map(|items| items.len() == 5)
+                .unwrap_or(false)
         })
         .await;
 
@@ -413,5 +415,4 @@ mod tests {
         wait_until("the task to run", || done.load(Ordering::SeqCst) == 1).await;
         Ok(())
     }
-
 }

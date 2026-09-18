@@ -12,7 +12,7 @@ async fn main() -> anyhow::Result<()> {
         .expect("Failed to install aws_lc_rs as default crypto provider");
 
     // Populates config env vars from local files unless NO_LOCAL_CONFIG_FILES
-    config::import_local_if_test_or_dev();
+    config::populate_env_if_test_or_dev();
 
     let trace_provider = {
         if std::env::var("K_SERVICE").is_ok() {

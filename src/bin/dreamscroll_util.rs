@@ -49,7 +49,7 @@ enum Command {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    config::import_local_if_test_or_dev();
+    config::populate_env_if_test_or_dev();
 
     telemetry::init_local();
 

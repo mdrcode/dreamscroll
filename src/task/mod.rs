@@ -27,12 +27,3 @@ pub use taskqueue_local::*;
 
 mod maker;
 pub use maker::*;
-
-use serde::Deserialize;
-
-#[derive(Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum TaskQueueBackend {
-    Local,
-    GCloudTasks,
-}
