@@ -707,29 +707,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "bon"
-version = "3.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60eafe0d77c3a2fc292c1d1346c3041b33c0a108085a2afabf672b70f69dbbc9"
-dependencies = [
- "bon-macros",
-]
-
-[[package]]
-name = "bon-macros"
-version = "3.10.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bd0f9631d8aaaee112c41985d675ef269e02acbd4f33122836af4f0c5f699ff6"
-dependencies = [
- "darling 0.24.1",
- "ident_case",
- "prettyplease",
- "proc-macro2",
- "quote",
- "syn 3.0.6",
-]
-
-[[package]]
 name = "borsh"
 version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1379,7 +1356,7 @@ dependencies = [
  "dyn-clone",
  "envy",
  "google-cloud-aiplatform-v1",
- "google-cloud-auth 1.16.0",
+ "google-cloud-auth",
  "google-cloud-storage",
  "google-cloud-tasks-v2",
  "google-cloud-vectorsearch-v1",
@@ -1389,7 +1366,7 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-gcloud-trace",
  "opentelemetry_sdk",
- "reqwest 0.13.5",
+ "reqwest",
  "rpassword",
  "rustls",
  "sea-orm",
@@ -1760,7 +1737,7 @@ dependencies = [
  "once_cell",
  "prost",
  "prost-types",
- "reqwest 0.13.5",
+ "reqwest",
  "secret-vault-value",
  "serde",
  "serde_json",
@@ -1848,24 +1825,22 @@ dependencies = [
 
 [[package]]
 name = "google-cloud-aiplatform-v1"
-version = "0.4.5"
+version = "1.16.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5107fa98584038337478df0e92b04ea391095097d572e5e16b211ce016e3a719"
+checksum = "289946d961832a02966886f8a415ad734394def699ff82875ff00f03ca13ef28"
 dependencies = [
  "async-trait",
  "bytes",
  "google-cloud-api",
- "google-cloud-gax 0.24.0",
- "google-cloud-gax-internal 0.5.1",
- "google-cloud-iam-v1 0.4.5",
- "google-cloud-location 0.4.5",
- "google-cloud-longrunning 0.25.5",
- "google-cloud-lro 0.3.5",
- "google-cloud-rpc 0.4.5",
- "google-cloud-type 0.4.5",
- "google-cloud-wkt 0.5.4",
- "lazy_static",
- "reqwest 0.12.28",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-location",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-rpc",
+ "google-cloud-type",
+ "google-cloud-wkt",
  "serde",
  "serde_json",
  "serde_with",
@@ -1874,37 +1849,15 @@ dependencies = [
 
 [[package]]
 name = "google-cloud-api"
-version = "0.4.5"
+version = "1.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "65af2a7c8a7918c2fad32d15317f18a5097b8280ac8ee91471b91ede42066ee8"
+checksum = "19dd5722ba4d24fbc19f6a44b88c335852c9a98d058bc0d6073c9a730c026cad"
 dependencies = [
  "bytes",
- "google-cloud-wkt 0.5.4",
+ "google-cloud-wkt",
  "serde",
  "serde_json",
  "serde_with",
-]
-
-[[package]]
-name = "google-cloud-auth"
-version = "0.22.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7314c5dcd0feb905728aa809f46d10a58587be2bdd90f3003e09bcef05e919dc"
-dependencies = [
- "async-trait",
- "base64 0.22.1",
- "bon",
- "google-cloud-gax 0.24.0",
- "http",
- "reqwest 0.12.28",
- "rustc_version",
- "rustls",
- "rustls-pemfile",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "time",
- "tokio",
 ]
 
 [[package]]
@@ -1917,13 +1870,13 @@ dependencies = [
  "aws-lc-rs",
  "base64 0.23.1",
  "bytes",
- "google-cloud-gax 1.14.0",
+ "google-cloud-gax",
  "hex",
  "hmac 0.13.0",
  "http",
  "jiff",
  "jsonwebtoken",
- "reqwest 0.13.5",
+ "reqwest",
  "rustc_version",
  "rustls",
  "rustls-pki-types",
@@ -1938,34 +1891,14 @@ dependencies = [
 
 [[package]]
 name = "google-cloud-gax"
-version = "0.24.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58148fad34ed71d986c8e3244c1575793445d211bee643740066e3a2388f4319"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "futures",
- "google-cloud-rpc 0.4.5",
- "google-cloud-wkt 0.5.4",
- "http",
- "pin-project",
- "rand 0.9.5",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "google-cloud-gax"
 version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c5615cff28ee59cfe52fbb4c11b8b1e77f650296e2ea4f4c2b7757ac6b19e752"
 dependencies = [
  "bytes",
  "futures",
- "google-cloud-rpc 1.6.0",
- "google-cloud-wkt 1.7.0",
+ "google-cloud-rpc",
+ "google-cloud-wkt",
  "http",
  "pin-project",
  "rand 0.10.2",
@@ -1978,37 +1911,16 @@ dependencies = [
 
 [[package]]
 name = "google-cloud-gax-internal"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd98433cb4b63ad67dc3dabf605b8d81b60532ab4a0f11454e5e50c4b7de28b6"
-dependencies = [
- "bytes",
- "google-cloud-auth 0.22.4",
- "google-cloud-gax 0.24.0",
- "google-cloud-rpc 0.4.5",
- "http",
- "http-body-util",
- "percent-encoding",
- "reqwest 0.12.28",
- "rustc_version",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
-]
-
-[[package]]
-name = "google-cloud-gax-internal"
 version = "0.7.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2766757d877a7a8ac23da9884cb0e3f10ed9b75a0ce59801ce6b19bf9d5819e"
 dependencies = [
  "bytes",
  "futures",
- "google-cloud-auth 1.16.0",
- "google-cloud-gax 1.14.0",
- "google-cloud-rpc 1.6.0",
- "google-cloud-wkt 1.7.0",
+ "google-cloud-auth",
+ "google-cloud-gax",
+ "google-cloud-rpc",
+ "google-cloud-wkt",
  "h2",
  "http",
  "http-body",
@@ -2022,7 +1934,7 @@ dependencies = [
  "pin-project",
  "prost",
  "prost-types",
- "reqwest 0.13.5",
+ "reqwest",
  "rustc_version",
  "serde",
  "serde_json",
@@ -2038,55 +1950,16 @@ dependencies = [
 
 [[package]]
 name = "google-cloud-iam-v1"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fd3e85f307194a75c71e0334b904249ca723ee84ec6fe2adfb5c4f70becef5a2"
-dependencies = [
- "async-trait",
- "bytes",
- "google-cloud-gax 0.24.0",
- "google-cloud-gax-internal 0.5.1",
- "google-cloud-type 0.4.5",
- "google-cloud-wkt 0.5.4",
- "lazy_static",
- "reqwest 0.12.28",
- "serde",
- "serde_json",
- "serde_with",
- "tracing",
-]
-
-[[package]]
-name = "google-cloud-iam-v1"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5f962b40234b1531e6ef73f7558871c96e117231e962086c98804323fb8d2c82"
 dependencies = [
  "async-trait",
  "bytes",
- "google-cloud-gax 1.14.0",
- "google-cloud-gax-internal 0.7.18",
- "google-cloud-type 1.6.0",
- "google-cloud-wkt 1.7.0",
- "serde",
- "serde_json",
- "serde_with",
- "tracing",
-]
-
-[[package]]
-name = "google-cloud-location"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d5cd87c00a682e0240814960e3e1997f1ca169fc0287c29c809ab005eab28d63"
-dependencies = [
- "async-trait",
- "bytes",
- "google-cloud-gax 0.24.0",
- "google-cloud-gax-internal 0.5.1",
- "google-cloud-wkt 0.5.4",
- "lazy_static",
- "reqwest 0.12.28",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-type",
+ "google-cloud-wkt",
  "serde",
  "serde_json",
  "serde_with",
@@ -2101,29 +1974,9 @@ checksum = "280d5acdba8fcb1232c0719ed788d85b7e362b82cbb425b7050d3ce46f075ede"
 dependencies = [
  "async-trait",
  "bytes",
- "google-cloud-gax 1.14.0",
- "google-cloud-gax-internal 0.7.18",
- "google-cloud-wkt 1.7.0",
- "serde",
- "serde_json",
- "serde_with",
- "tracing",
-]
-
-[[package]]
-name = "google-cloud-longrunning"
-version = "0.25.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "950cd494f916958b45e8c86b7778c89fcbdcda51c9ca3f93a0805ffccd2cfbaa"
-dependencies = [
- "async-trait",
- "bytes",
- "google-cloud-gax 0.24.0",
- "google-cloud-gax-internal 0.5.1",
- "google-cloud-rpc 0.4.5",
- "google-cloud-wkt 0.5.4",
- "lazy_static",
- "reqwest 0.12.28",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-wkt",
  "serde",
  "serde_json",
  "serde_with",
@@ -2138,28 +1991,14 @@ checksum = "1c0363c5389ffda2b55cd8a86eef4b19a3481a48467c91dc5d77f626a9572766"
 dependencies = [
  "async-trait",
  "bytes",
- "google-cloud-gax 1.14.0",
- "google-cloud-gax-internal 0.7.18",
- "google-cloud-rpc 1.6.0",
- "google-cloud-wkt 1.7.0",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-rpc",
+ "google-cloud-wkt",
  "serde",
  "serde_json",
  "serde_with",
  "tracing",
-]
-
-[[package]]
-name = "google-cloud-lro"
-version = "0.3.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9433e5b1307fe9c8ae5c096da1e9ffc06725ced30f473fac8468ded9af2a0db3"
-dependencies = [
- "google-cloud-gax 0.24.0",
- "google-cloud-longrunning 0.25.5",
- "google-cloud-rpc 0.4.5",
- "google-cloud-wkt 0.5.4",
- "serde",
- "tokio",
 ]
 
 [[package]]
@@ -2168,27 +2007,14 @@ version = "1.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47af3deef75c14a2983c430898d960c765bddbcc9f9188ca0563108e9227cfe7"
 dependencies = [
- "google-cloud-gax 1.14.0",
- "google-cloud-gax-internal 0.7.18",
- "google-cloud-longrunning 1.13.0",
- "google-cloud-rpc 1.6.0",
- "google-cloud-wkt 1.7.0",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-longrunning",
+ "google-cloud-rpc",
+ "google-cloud-wkt",
  "serde",
  "tokio",
  "tracing",
-]
-
-[[package]]
-name = "google-cloud-rpc"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "94b443385571575a4552687a9072c4c8b7778e3f3c03fe95f3caf8df1a5e4ef2"
-dependencies = [
- "bytes",
- "google-cloud-wkt 0.5.4",
- "serde",
- "serde_json",
- "serde_with",
 ]
 
 [[package]]
@@ -2198,7 +2024,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e2162c08a89118130979ba261080e960e44cdcb2d6e2ab8ca9b1da245285d353"
 dependencies = [
  "bytes",
- "google-cloud-wkt 1.7.0",
+ "google-cloud-wkt",
  "serde",
  "serde_json",
  "serde_with",
@@ -2215,15 +2041,15 @@ dependencies = [
  "bytes",
  "crc32c",
  "futures",
- "google-cloud-auth 1.16.0",
- "google-cloud-gax 1.14.0",
- "google-cloud-gax-internal 0.7.18",
- "google-cloud-iam-v1 1.12.0",
- "google-cloud-longrunning 1.13.0",
- "google-cloud-lro 1.10.0",
- "google-cloud-rpc 1.6.0",
- "google-cloud-type 1.6.0",
- "google-cloud-wkt 1.7.0",
+ "google-cloud-auth",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-rpc",
+ "google-cloud-type",
+ "google-cloud-wkt",
  "hex",
  "http",
  "http-body",
@@ -2252,29 +2078,16 @@ checksum = "26bc6707f5d7c488c8e3347e4fa4dd21fd2ab5da805dbb4a9c55ef9696473bc5"
 dependencies = [
  "async-trait",
  "bytes",
- "google-cloud-gax 1.14.0",
- "google-cloud-gax-internal 0.7.18",
- "google-cloud-iam-v1 1.12.0",
- "google-cloud-location 1.11.0",
- "google-cloud-rpc 1.6.0",
- "google-cloud-wkt 1.7.0",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-iam-v1",
+ "google-cloud-location",
+ "google-cloud-rpc",
+ "google-cloud-wkt",
  "serde",
  "serde_json",
  "serde_with",
  "tracing",
-]
-
-[[package]]
-name = "google-cloud-type"
-version = "0.4.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bc36106fb51a6e8daff1007cd888ef6530e00860f4dcc1bcafac429a8f9af24e"
-dependencies = [
- "bytes",
- "google-cloud-wkt 0.5.4",
- "serde",
- "serde_json",
- "serde_with",
 ]
 
 [[package]]
@@ -2284,7 +2097,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63acc3a92a85f96bab021c3a3e29b53bbacc97651e1b524d4c2991960a63eb82"
 dependencies = [
  "bytes",
- "google-cloud-wkt 1.7.0",
+ "google-cloud-wkt",
  "serde",
  "serde_json",
  "serde_with",
@@ -2292,39 +2105,23 @@ dependencies = [
 
 [[package]]
 name = "google-cloud-vectorsearch-v1"
-version = "0.1.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "160f359c59d0ad7230861372f2f097bcf688bfd9c58643fd7ae1df6f263d2734"
+checksum = "ab926cbef10bf1bc45a4297ba98d7232d32f384e28b947ebb54d49c07b8646e4"
 dependencies = [
  "async-trait",
  "bytes",
- "google-cloud-gax 1.14.0",
- "google-cloud-gax-internal 0.7.18",
- "google-cloud-location 1.11.0",
- "google-cloud-longrunning 1.13.0",
- "google-cloud-lro 1.10.0",
- "google-cloud-rpc 1.6.0",
- "google-cloud-wkt 1.7.0",
+ "google-cloud-gax",
+ "google-cloud-gax-internal",
+ "google-cloud-location",
+ "google-cloud-longrunning",
+ "google-cloud-lro",
+ "google-cloud-rpc",
+ "google-cloud-wkt",
  "serde",
  "serde_json",
  "serde_with",
  "tracing",
-]
-
-[[package]]
-name = "google-cloud-wkt"
-version = "0.5.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2c101cb6257433b87908b91b9d16df9288c7dd0fb8c700f2c8e53cfc23ca13e"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "serde",
- "serde_json",
- "serde_with",
- "thiserror 2.0.20",
- "time",
- "url",
 ]
 
 [[package]]
@@ -2623,7 +2420,6 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tower-service",
- "webpki-roots 1.0.9",
 ]
 
 [[package]]
@@ -3996,16 +3792,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "prettyplease"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2bfe0f4c752e450fc2faf62654f1c134747922825d5b04ca717b8874f41a40c0"
-dependencies = [
- "proc-macro2",
- "syn 3.0.6",
-]
-
-[[package]]
 name = "proc-macro-crate"
 version = "3.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4300,44 +4086,6 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "reqwest"
-version = "0.12.28"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
-dependencies = [
- "base64 0.22.1",
- "bytes",
- "futures-core",
- "http",
- "http-body",
- "http-body-util",
- "hyper",
- "hyper-rustls",
- "hyper-util",
- "js-sys",
- "log",
- "percent-encoding",
- "pin-project-lite",
- "quinn",
- "rustls",
- "rustls-pki-types",
- "serde",
- "serde_json",
- "serde_urlencoded",
- "sync_wrapper",
- "tokio",
- "tokio-rustls",
- "tower",
- "tower-http 0.6.11",
- "tower-service",
- "url",
- "wasm-bindgen",
- "wasm-bindgen-futures",
- "web-sys",
- "webpki-roots 1.0.9",
-]
-
-[[package]]
-name = "reqwest"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16a1cfa75cc186dd73d5818e510e042e40927bccc9c236b061cea97e1eb08029"
@@ -4540,15 +4288,6 @@ dependencies = [
  "rustls-pki-types",
  "schannel",
  "security-framework",
-]
-
-[[package]]
-name = "rustls-pemfile"
-version = "2.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dce314e5fee3f39953d46bb63bb8a46d40c2f8fb7cc5a3b6cab2bde9721d6e50"
-dependencies = [
- "rustls-pki-types",
 ]
 
 [[package]]
