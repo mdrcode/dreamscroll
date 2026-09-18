@@ -12,7 +12,7 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = "1.0"
 argh = "0.1"
-argon2 = { version = "0.6", features = ["rand_core"] }
+argon2 = "0.6"
 async-trait = "0.1"
 axum = "0.8"
 axum-extra = { version = "0.12", features = ["multipart", "typed-header", "query"] }

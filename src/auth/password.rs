@@ -123,4 +123,77 @@ mod tests {
             other => panic!("Expected PasswordHashError, got {other:?}"),
         }
     }
+
+    #[tokio::test]
+    async fn test_authenticate_accepts_valid_credentials() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+
+        let username = format!("auth_test_{}", uuid::Uuid::new_v4().simple());
+        let password = "correct-password";
+        let user = user::ActiveModel::builder()
+            .set_username(username.clone())
+            .set_password_hash(hash(password).unwrap())
+            .set_storage_shard(format!("shard{}", uuid::Uuid::new_v4().simple()))
+            .set_is_admin(false)
+            .save(&db.handle().conn)
+            .await
+            .unwrap();
+
+        let authenticated = authenticate(&db.handle(), &username, password)
+            .await
+            .unwrap();
+
+        assert_eq!(authenticated.user_id(), user.id.unwrap());
+        assert_eq!(authenticated.username(), username);
+    }
+
+    #[tokio::test]
+    async fn test_authenticate_rejects_wrong_or_unknown_credentials() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+
+        let username = format!("auth_test_{}", uuid::Uuid::new_v4().simple());
+        user::ActiveModel::builder()
+            .set_username(username.clone())
+            .set_password_hash(hash("correct-password").unwrap())
+            .set_storage_shard(format!("shard{}", uuid::Uuid::new_v4().simple()))
+            .set_is_admin(false)
+            .save(&db.handle().conn)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            authenticate(&db.handle(), &username, "wrong-password").await,
+            Err(AuthError::InvalidCredentials)
+        ));
+        assert!(matches!(
+            authenticate(&db.handle(), "unknown-user", "wrong-password").await,
+            Err(AuthError::InvalidCredentials)
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_authenticate_rejects_malformed_stored_hash() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+
+        let username = format!("auth_test_{}", uuid::Uuid::new_v4().simple());
+        user::ActiveModel::builder()
+            .set_username(username.clone())
+            .set_password_hash("not-a-valid-argon2-hash".to_string())
+            .set_storage_shard(format!("shard{}", uuid::Uuid::new_v4().simple()))
+            .set_is_admin(false)
+            .save(&db.handle().conn)
+            .await
+            .unwrap();
+
+        assert!(matches!(
+            authenticate(&db.handle(), &username, "password").await,
+            Err(AuthError::PasswordHashError(_))
+        ));
+    }
 }
