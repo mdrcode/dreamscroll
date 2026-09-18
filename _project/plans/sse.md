@@ -33,7 +33,7 @@ accurate, up-to-date, low-latency background-task status to clients. It must:
 
 > **Scope boundary:** this phase is about **task status only**. Capture lifecycle
 > events (a capture uploaded/deleted on another device) are a **separate, TBD
-> concern** — see §9. We deliberately do **not** generalize `task_status` into a
+> concern** — see §9. We deliberately do **not** generalize `task_run_status` into a
 > catch-all event table.
 
 ---
@@ -74,7 +74,7 @@ The cleanest, most flexible design separates two concerns:
 Crucially, **SSE should carry *thin signals*, not full HTML.** This is the
 HATEOAS-friendly pattern that keeps the frontend cruft-free:
 
-- SSE event: `{ task_type: "illumination", envelope_id: "u1-illuminate-capture123", entity_type: "capture", entity_id: 123, status: "completed", attempts: 1 }`
+- SSE event: `{ task_type: "illuminate", envelope_id: "u1-illuminate-capture123", entity_type: "capture", entity_id: 123, status: "complete_success", attempts: 1 }`
 - Client reacts with a normal HTMX request to re-fetch the *partial*
   (`/detail/{id}` fragment or `/cards`), which the existing Tera templates
   already render.
@@ -101,7 +101,7 @@ pub struct TaskStatusEvent {
     pub envelope_id: String, // e.g. "u1-illuminate-capture123"
     pub entity_type: String, // "capture" | "spark"
     pub entity_id: i32,      // the entity this task operates on (fan-out key, §6.2)
-    pub status: task::StatusCode, // Queued | InProgress | Completed | ErrorWillRetry | ErrorExhausted
+    pub status: task::TaskRunStatus, // Queued | InProgress | ErrorWillRetry | CompleteSuccess | CompleteFailure
     pub attempts: i32,       // 1-based attempt number of the latest attempt
     pub user_id: i32,        // for per-user filtering
 }
@@ -110,11 +110,11 @@ pub struct TaskStatusEvent {
 The SSE wire format is a flat JSON object:
 
 ```json
-{ "task_type": "illumination", "envelope_id": "u1-illuminate-capture123", "entity_type": "capture", "entity_id": 123, "status": "completed", "attempts": 1 }
+{ "task_type": "illuminate", "envelope_id": "u1-illuminate-capture123", "entity_type": "capture", "entity_id": 123, "status": "complete_success", "attempts": 1 }
 ```
 
-This maps 1:1 onto a `task_status` row (see `task-status.md` §5). The
-`StatusCode` enum lives in the task module; the DB stores only its integer
+This maps 1:1 onto a `task_run_status` row (see `task-status.md` §5). The
+`TaskRunStatus` enum lives in the task module; the DB stores only its integer
 discriminant.
 
 > **Why a single named SSE event (`task-status`) rather than per-status names
@@ -126,10 +126,10 @@ discriminant.
 ### 3.2 Client subscription filtering
 
 The client **explicitly registers the captures it cares about**. For
-`task_status`, there is **no "listen to everything" default** — the client must
+`task_run_status`, there is **no "listen to everything" default** — the client must
 always send `capture_ids`. This is simpler, better, and more efficient:
 
-1. **`capture_ids`** — **required** for `task_status`. The client lists the
+1. **`capture_ids`** — **required** for `task_run_status`. The client lists the
    capture IDs it's currently rendering. Only events whose `entity_id` is in the
    list are delivered.
 2. **`task_types`** — which task types to receive (e.g.
@@ -146,7 +146,7 @@ re-registration natural).
 
 > **How `capture_ids` maps to the DB:** the query param is a client-facing
 > convenience. Internally it becomes `entity_type = 'capture' AND entity_id IN
-> (...)`, matching the `task_status` columns. The SSE handler translates the
+> (...)`, matching the `task_run_status` columns. The SSE handler translates the
 > subscription into the entity-scoped query (`query_incomplete_for_entity` per
 > capture, or an `IN` variant).
 
@@ -183,7 +183,7 @@ captures. So the flag was never load-bearing as a filter.
 > **Deferred:** backfill/bulk-task handling (marking tasks as background,
 > surfacing backfill progress, an admin progress view) gets a dedicated
 > plan-and-branch session. When it is, the natural shape is a new column on
-> `task_status` plus a subscription param — but that decision is deliberately out
+> `task_run_status` plus a subscription param — but that decision is deliberately out
 > of scope here.
 
 ---
@@ -198,7 +198,7 @@ the one holding the user's SSE connection, so an in-memory channel on instance A
 would never see events published on instance B. Any design that relies on
 in-process state for correctness is wrong here.
 
-**The `task_status` table (Postgres) is the single canonical source of truth.**
+**The `task_run_status` table (Postgres) is the single canonical source of truth.**
 Every status transition is a row write. The SSE handler reads from the DB. There
 is no separate in-memory event bus to keep in sync — the DB *is* the bus.
 
@@ -233,7 +233,7 @@ and `NOTIFY`s**:
 2. **In the webhook handlers** (`webhook/r_illuminate.rs`, `r_spark.rs`,
    `r_search_index.rs`) — each handler deserializes a `TaskEnvelope<T>`, then
    calls `begin_attempt` (writes `InProgress` + the incremented attempt number)
-   and `finish_attempt` (writes `Completed`/`ErrorWillRetry`/`ErrorExhausted` and
+  and `finish_attempt` (writes `CompleteSuccess`/`ErrorWillRetry`/`CompleteFailure` and
    returns the `AttemptOutcome` that decides the HTTP status) around the
    `logic/*::exec` call.
 
@@ -255,7 +255,7 @@ pub struct StatusWriter { /* holds a TaskMaster (or DB conn) + the notify channe
 
 impl StatusWriter {
     pub async fn write(&self, event: &TaskStatusEvent) -> anyhow::Result<()> {
-        // 1. UPSERT the task_status row (keyed by (envelope_id, run))
+        // 1. UPSERT the task_run_status row (keyed by (envelope_id, run))
         // 2. NOTIFY task_status_channel, '<envelope_id>'  (payload is just a hint)
     }
 }
@@ -264,7 +264,7 @@ impl StatusWriter {
 > **Note:** `TaskMaster` already does the row write (step 1). `StatusWriter` is a
 > thin wrapper that adds the `NOTIFY` (step 2) — or `TaskMaster` itself can own
 > the notify. Either way the two-owner rule holds: only
-> `TaskMaster`/`StatusListener` touch `task_status`.
+> `TaskMaster`/`StatusListener` touch `task_run_status`.
 
 ### 4.3 The SSE endpoint
 
@@ -303,7 +303,7 @@ fields.
 
 - **`user_id`** — always, for security. Never leak one user's task status to
   another.
-- **`capture_ids`** — **required** for `task_status`. Only events for the
+- **`capture_ids`** — **required** for `task_run_status`. Only events for the
   registered capture IDs are delivered (§3.2).
 - **`task_types`** — the client's requested task types.
 
@@ -316,9 +316,9 @@ SSE is **ephemeral** — if the browser reconnects (which htmx-ext-sse does
 aggressively), it misses events that happened while disconnected. **Because the
 DB is the source of truth, replay is just a query:**
 
-1. **On connect**, the SSE handler queries `task_status` for this `user_id`
+1. **On connect**, the SSE handler queries `task_run_status` for this `user_id`
    matching the requested `entity_type`/`entity_id`/`task_types`, using the
-   **incomplete** predicate (everything except `Completed`), and emits those rows
+  **incomplete** predicate (everything except `CompleteSuccess`), and emits those rows
    immediately. The client is instantly reconciled with reality — no missed
    events, no cross-instance gap.
 2. **On every `NOTIFY` (or poll tick)**, re-query the DB for this user's matching
@@ -340,7 +340,7 @@ status — a deliberate simplification for this phase.
 1. **Page loads** → the HTML renders the captures (images, metadata) but **not**
    their task status. A capture that's mid-illumination simply shows no status
    pill yet.
-2. **`/events` connects** → the handler's replay (§4.4) queries `task_status` for
+2. **`/events` connects** → the handler's replay (§4.4) queries `task_run_status` for
    the registered `capture_ids` and emits the current in-flight statuses
    immediately. The client applies them (e.g. shows "illuminating…" on the
    matching cards).
@@ -350,9 +350,9 @@ status — a deliberate simplification for this phase.
 **Why this is fine for now:**
 
 - **It's simpler.** The page-load render doesn't need to join against
-  `task_status` or render per-status states.
+  `task_run_status` or render per-status states.
 - **The snapshot is authoritative.** Because the `/events` replay reads the same
-  `task_status` table, the initial status is correct at connect time — no
+  `task_run_status` table, the initial status is correct at connect time — no
   render→connect race, because the snapshot *is* the current state.
 - **The gap is tiny.** The only window where a card shows no status is between
   page load and the SSE connection opening (sub-second).
@@ -360,7 +360,7 @@ status — a deliberate simplification for this phase.
 > **Deferred (revisit later):** having the page-load HTML render also include task
 > status (so the initial view is correct even before SSE connects, and works if
 > SSE is unavailable). This is a clean, additive change later — the card template
-> would render status from `task_status` at render time, and the `/events` replay
+> would render status from `task_run_status` at render time, and the `/events` replay
 > would remain as the safety net.
 
 > **Concretely:** a capture that's mid-illumination (10s) shows no status pill on
@@ -430,7 +430,7 @@ rest. This is the HATEOAS pattern: **SSE says "something changed", HTMX fetches
 the new state.**
 
 > **Note on `capture_ids` in the URL:** `capture_ids` is **required** for
-> `task_status` (§3.2). The template injects the page's visible capture IDs
+> `task_run_status` (§3.2). The template injects the page's visible capture IDs
 > (`{{ visible_capture_ids }}`). Because the connection is re-established on
 > reconnect (and on the adaptive-lifetime cycle in §6.3), the client naturally
 > re-registers its interests each time.
@@ -479,7 +479,7 @@ tasks `entity_type = "capture"` and `entity_id` **is** the capture id. The SSE
 handler just forwards *all* of that user's events down the one connection:
 
 ```
-5 uploads → 5 IlluminationTasks → 5× (Queued → InProgress → Completed|Error*) events
+5 uploads → 5 IlluminationTasks → 5× (Queued → InProgress → CompleteSuccess|CompleteFailure) events
                                                           │
                                                           ▼
               one /events connection, N events, each tagged with entity_id
@@ -674,7 +674,7 @@ so the connection ends gracefully rather than being killed by Cloud Run.
 - **Idiomatic:** SSE is the canonical HTMX companion; `htmx-ext-sse` is the
   official extension. Axum has first-class SSE support. `LISTEN/NOTIFY` is the
   idiomatic Postgres pub/sub.
-- **Robust:** The `task_status` table is the **single canonical source of
+- **Robust:** The `task_run_status` table is the **single canonical source of
   truth** — it survives reconnects, restarts, and multi-instance workers with no
   in-process state to drift. `LISTEN/NOTIFY` gives low latency; the poll fallback
   guarantees correctness; keep-alives + auto-reconnect handle flaky connections.
@@ -727,7 +727,7 @@ is complete (`task-status.md`).
   the canonical source of initial task status; the page-load HTML render does
   **not** include task status. Revisit later — having the page-load render also
   include status is a clean, additive change.
-- **`capture_ids` is required for `task_status`:** the client always registers
+- **`capture_ids` is required for `task_run_status`:** the client always registers
   the captures it's tracking (§3.2). The client must keep its `capture_ids` list
   in sync with what's on screen (via the adaptive-lifetime reconnect, §5.5).
 - **Backfill / bulk tasks (deferred):** the `background` flag was removed (§3.3).
@@ -737,6 +737,6 @@ is complete (`task-status.md`).
 - **TBD — capture lifecycle events (created/deleted elsewhere):** explicitly out
   of scope for this phase. When we tackle it, it should get its **own mechanism**
   (likely a separate table/channel or a deliberate extension), not be shoehorned
-  into `task_status`. The `capture_ids` subscription param and the
+  into `task_run_status`. The `capture_ids` subscription param and the
   single-SSE-connection-per-page design (§5.4) are forward-compatible with adding
   a second event type later.

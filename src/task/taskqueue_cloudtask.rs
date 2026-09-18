@@ -128,10 +128,7 @@ mod tests {
         let envelope = TaskEnvelope::new(7, TestTask { id: 42 }, 3);
 
         assert_eq!(
-            CloudTaskQueue::<TestTask>::task_name(
-                "projects/p/locations/r/queues/q",
-                &envelope
-            ),
+            CloudTaskQueue::<TestTask>::task_name("projects/p/locations/r/queues/q", &envelope),
             "projects/p/locations/r/queues/q/tasks/u7-test-capture42-run3"
         );
     }

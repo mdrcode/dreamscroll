@@ -24,7 +24,7 @@ tests your assumptions about SQL, not your SQL.
 Pure functions, in-memory logic, serialization, parsing, state machines. These
 should be the majority of tests, and they should stay fast.
 
-Examples in the codebase: `StatusCode::incomplete_codes`,
+Examples in the codebase: `TaskRunStatus::is_in_flight`,
 `AttemptOutcome::from_failure`, `next_attempt_number`, `make_url`.
 
 ## DB tests

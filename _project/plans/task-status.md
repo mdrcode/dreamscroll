@@ -18,7 +18,7 @@ When a user uploads a screenshot, the app enqueues an AI-powered illumination in
 the background. There was **no record of that work** — no way to know whether it
 was queued, running, succeeded, or failed, and no way to retry it deliberately.
 
-This document covers the framework that fixes that: a first-class `task_status`
+This document covers the framework that fixes that: a first-class `task_run_status`
 table, a typed task identity, a retry/exhaustion policy, and a run dimension that
 makes reruns expressible.
 
@@ -65,13 +65,13 @@ Upload (webui/v2/r_upload.rs)
   run — see §6.
 - **`TaskQueue<T>` is enqueue-only and generic.** `TaskQueue::get_status()` was
   removed (it was `unimplemented!()` everywhere); status lives in the
-  `task_status` table. The trait is `async fn enqueue(&self, wrapped:
+  `task_run_status` table. The trait is `async fn enqueue(&self, wrapped:
   TaskEnvelope<T>)`. Two backends: `LocalTaskQueue` (in-process mpsc +
   semaphore) and `CloudTaskQueue` (Google Cloud Tasks). **Pub/Sub support was
   removed** to focus on Cloud Tasks.
 - **`TaskMaster`** (`task/taskmaster.rs`) is the single funnel through which
   *all* task enqueues flow — the perfect choke point to also record status. It
-  owns the backend queues **and** the `task_status` table, exposing `submit_*` /
+  owns the backend queues **and** the `task_run_status` table, exposing `submit_*` /
   `begin_attempt` / `finish_attempt` / `query_*`. It is **not `Clone`** — shared
   via `Arc<TaskMaster>`.
 - **Status transitions are not a raw setter.** `TaskMaster::update_status` is
@@ -80,8 +80,8 @@ Upload (webui/v2/r_upload.rs)
   number) and `finish_attempt` (writes the outcome and returns an
   `AttemptOutcome` that drives the HTTP response). This keeps `attempts` and the
   retry decision consistent with the recorded status.
-- **`TaskStatusTracker`** (`task/status_tracker.rs`) owns all `task_status`
-  persistence. `StatusCode` (`task/status_code.rs`) is the strongly-typed status
+- **`TaskStatusTracker`** (`task/taskruntracker.rs`) owns all `task_run_status`
+  persistence. `TaskRunStatus` (`task/taskrunstatus.rs`) is the strongly-typed status
   enum; the DB stores only its integer discriminant (`status_code INT`).
 - **Deployment is a single Cloud Run service.** Tasks are queued via Cloud Tasks,
   so **the worker that completes a task may be a different process/instance than
@@ -90,13 +90,13 @@ Upload (webui/v2/r_upload.rs)
 
 ---
 
-## 3. The `task_status` table
+## 3. The `task_run_status` table
 
 `TaskQueue::get_status()` was removed (unimplemented everywhere). Instead, a
-small, focused **`task_status` table** is the source of truth:
+small, focused **`task_run_status` table** is the source of truth:
 
 ```sql
-CREATE TABLE task_status (
+CREATE TABLE task_run_status (
     id            BIGSERIAL PRIMARY KEY,
     user_id       INT NOT NULL,
     envelope_id   TEXT NOT NULL,          -- logical task identity (§2.2)
@@ -104,7 +104,7 @@ CREATE TABLE task_status (
     task_type     TEXT NOT NULL,          -- 'illumination' | 'spark' | 'search_index'
     entity_type   TEXT NOT NULL,          -- 'capture' | 'spark'
     entity_id     INT NOT NULL,           -- the entity this task operates on
-    status_code   INT NOT NULL,           -- integer discriminant of task::StatusCode
+    status_code   INT NOT NULL,           -- integer discriminant of task::TaskRunStatus
     attempts      INT NOT NULL DEFAULT 0, -- 1-based attempt number within this run
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -113,7 +113,7 @@ CREATE TABLE task_status (
 ```
 
 > **Schema management:** the table is defined by the SeaORM model
-> (`src/model/task_status.rs`) and created/synced automatically at startup via
+> (`src/model/task_run_status.rs`) and created/synced automatically at startup via
 > `conn.get_schema_registry("dreamscroll::model::*").sync(&conn)` in
 > `database/postgres.rs`. There is no hand-written migration file.
 
@@ -123,52 +123,57 @@ CREATE TABLE task_status (
 > the previous outcome. The pair is also the guard that makes duplicate
 > submission safe — see §6.
 
-- **`status_code`** stores the integer discriminant of `task::StatusCode`
-  (`Queued=0`, `InProgress=1`, `Completed=2`, `ErrorWillRetry=3`,
-  `ErrorExhausted=4`). **These integers are persisted — do not renumber them.**
+- **`status_code`** stores the integer discriminant of `task::TaskRunStatus`
+  (`SubmissionFailed=0`, `Queued=1`, `InProgress=2`, `ErrorWillRetry=3`,
+  `CompleteSuccess=4`, `CompleteFailure=5`). **These integers are persisted —
+  do not renumber them.**
 - **`entity_type`/`entity_id`** are the queryable entity linkage. They are what
   makes "give me all the incomplete task statuses for capture 123" expressible
   (§5).
 
-> **Why a focused `task_status` table (not a generic `events` table):** task state
+> **Why a focused `task_run_status` table (not a generic `events` table):** task state
 > is a first-class, non-trivial problem of its own — it has a lifecycle, retries,
 > and reruns. A dedicated table with typed columns models that cleanly and is
 > queryable. A generic `kind`+`payload` JSONB table would dilute this and make
 > task-state queries awkward.
 
 This also fixes a latent bug from the audit notes: *"No task retry/dead-letter in
-LocalTaskQueue — failed tasks silently dropped."* With a `task_status` table,
-`ErrorWillRetry`/`ErrorExhausted` states become observable.
+LocalTaskQueue — failed tasks silently dropped."* With a `task_run_status` table,
+`ErrorWillRetry`/`CompleteFailure` states become observable.
 
 ---
 
 ## 4. The status vocabulary and retry policy
 
-**The status vocabulary** (`task::StatusCode`, `src/task/status_code.rs`):
+**The status vocabulary** (`task::TaskRunStatus`, `src/task/taskrunstatus.rs`):
 
-| Variant          | Code | Meaning                                                                 |
-| ---------------- | ---- | ----------------------------------------------------------------------- |
-| `Queued`         | 0    | Enqueued, not yet picked up.                                            |
-| `InProgress`     | 1    | A worker is currently executing an attempt.                             |
-| `Completed`      | 2    | Succeeded. **The only complete status.**                                |
-| `ErrorWillRetry` | 3    | Failed, but the app still has retry budget — another attempt is coming. |
-| `ErrorExhausted` | 4    | Failed permanently (budget spent, or the error was non-retryable).      |
+| Variant            | Code | Meaning                                                                 |
+| ------------------ | ---- | ----------------------------------------------------------------------- |
+| `Queued`           | 0    | Enqueued, not yet picked up.                                            |
+| `InProgress`       | 1    | A worker is currently executing an attempt.                             |
+| `SubmissionFailed` | 0    | Queue submission failed before a worker could receive the task.         |
+| `Queued`           | 1    | Enqueued, not yet picked up.                                            |
+| `InProgress`       | 2    | A worker is currently executing an attempt.                             |
+| `ErrorWillRetry`   | 3    | Failed, but the app still has retry budget — another attempt is coming. |
+| `CompleteSuccess`  | 4    | Succeeded.                                                              |
+| `CompleteFailure`  | 5    | Failed permanently (budget spent, or the error was non-retryable).      |
 
-> **`ErrorWillRetry`/`ErrorExhausted` are *computed outcomes*, not intrinsic
+> **`ErrorWillRetry`/`CompleteFailure` are *computed outcomes*, not intrinsic
 > properties of an error.** The same underlying failure is `ErrorWillRetry` on
-> attempt 1 and `ErrorExhausted` on the final attempt. The decision is made by
+> attempt 1 and `CompleteFailure` on the final attempt. The decision is made by
 > `AttemptOutcome::from_failure(err, attempt, max_attempts)`.
 
 ### 4.1 Two predicates, deliberately distinct
 
-`StatusCode` exposes two predicates that answer **different questions**:
+`TaskRunStatus` exposes the predicates used to distinguish worker eligibility
+and user-visible incomplete work:
 
 | Predicate         | Members                                  | Question it answers                 |
 | ----------------- | ---------------------------------------- | ----------------------------------- |
 | `is_in_flight()`  | `Queued`, `InProgress`, `ErrorWillRetry` | May a worker still act on this?     |
-| `is_incomplete()` | the above **+ `ErrorExhausted`**         | Does the user still need to see it? |
+| `is_incomplete()` | the above **+ `CompleteFailure`**        | Does the user still need to see it? |
 
-`ErrorExhausted` is the **only** status where they disagree: the user still needs
+`CompleteFailure` is the **only** execution status where they disagree: the user still needs
 to see the failure, but no worker will touch it again — which is exactly what
 makes it rerunnable. A settled run (rerunnable) is simply `!is_in_flight()`;
 there is deliberately no separate `is_settled()` predicate.
@@ -188,7 +193,7 @@ there is deliberately no separate `is_settled()` predicate.
   increments it, writes `InProgress`, and returns the 1-based attempt number.
   Deriving the count from the DB (rather than Cloud Tasks' retry-count header)
   means it works identically for **every** backend, including `LocalTaskQueue`,
-  which has no headers. It returns `None` when the run is already `Completed`, so
+  which has no headers. It returns `None` when the run is already `CompleteSuccess`, so
   an at-least-once redelivery of finished work is acked without resurrecting the
   row to `InProgress`.
 - **`TaskMaster::finish_attempt(envelope, attempt, &result)`** writes the outcome
@@ -197,15 +202,15 @@ there is deliberately no separate `is_settled()` predicate.
 **The key convention: the Cloud Tasks queue is always configured with MORE max
 retries than the app.** This means the app always exhausts its budget *first*, so
 it can ack the task and stop Cloud Tasks from spending its remaining retries. The
-HTTP mapping (`webhook::http_status_for_outcome`) follows from that:
+HTTP mapping (`webhook::http_status_for_task_run`) follows from that:
 
-| Outcome          | HTTP                        | Cloud Tasks behavior |
-| ---------------- | --------------------------- | -------------------- |
-| `Completed`      | `204 No Content`            | ack (stop)           |
-| `ErrorExhausted` | `200 OK`                    | ack (stop)           |
-| `ErrorWillRetry` | `500 Internal Server Error` | retry                |
+| Outcome           | HTTP                        | Cloud Tasks behavior |
+| ----------------- | --------------------------- | -------------------- |
+| `CompleteSuccess` | `204 No Content`            | ack (stop)           |
+| `CompleteFailure` | `200 OK`                    | ack (stop)           |
+| `ErrorWillRetry`  | `500 Internal Server Error` | retry                |
 
-> **Why `ErrorExhausted` returns 2xx:** Cloud Tasks retries on *any* non-2xx and
+> **Why `CompleteFailure` returns 2xx:** Cloud Tasks retries on *any* non-2xx and
 > stops on *any* 2xx — there is no "fail but don't retry" status code. Since the
 > app's budget is smaller than the queue's, the app must ack to short-circuit the
 > queue's remaining retries.
@@ -217,11 +222,11 @@ HTTP mapping (`webhook::http_status_for_outcome`) follows from that:
 
 > **The 204-vs-200 distinction is a debugging nicety, visible only in Cloud Run
 > request logs.** Cloud Tasks' own `lastAttempt.responseStatus` normalizes every
-> 2xx to `OK`. The `task_status` row remains the source of truth.
+> 2xx to `OK`. The `task_run_status` row remains the source of truth.
 
 > **Local dev:** `LocalTaskQueue` does not retry at all (it logs and drops on
 > handler error), so `config_local.env` sets `TASK_MAX_ATTEMPTS=1` — a local
-> failure lands on `ErrorExhausted` immediately rather than appearing stuck at
+> failure lands on `CompleteFailure` immediately rather than appearing stuck at
 > `ErrorWillRetry`.
 
 ---
@@ -230,7 +235,7 @@ HTTP mapping (`webhook::http_status_for_outcome`) follows from that:
 
 The query API is deliberately **"incomplete", not "non-terminal"**. Two
 entity-scoped entry points, both returning every row whose status is **not
-`Completed`**:
+`CompleteSuccess`**:
 
 - `TaskStatusTracker::query_incomplete_for_entity(user_id, entity_type, entity_id)`
   — the tasks for one entity (e.g. one capture).
@@ -239,14 +244,14 @@ entity-scoped entry points, both returning every row whose status is **not
 
 Rationale:
 
-- **`ErrorExhausted` is included on purpose.** The work never succeeded, so the
+- **`CompleteFailure` is included on purpose.** The work never succeeded, so the
   user still wants to see it (and may want to retry it). It is *not* "done".
-- **`Completed` is excluded on purpose.** Completed rows are subject to vacuuming
+- **`CompleteSuccess` is excluded on purpose.** Successful rows are subject to vacuuming
   over time, so an API that returned them would silently present an incomplete
   history. The API therefore cannot express "give me everything" — the usage
   pattern is enforced by what's available.
-- The predicate is derived from `StatusCode::is_incomplete()` via
-  `StatusCode::incomplete_codes()`, so the status set and the SQL predicate can
+- The predicate is derived from `TaskRunStatus::is_incomplete()` via
+  `TaskRunStatus::incomplete_codes()`, so the status set and the SQL predicate can
   never drift apart.
 
 ### 5.1 Only the latest run is returned
@@ -256,7 +261,7 @@ the run before it, and callers want current state, not a run history.
 
 **The order matters:** rows are collapsed to the latest run **before** the
 incomplete predicate is applied. Filtering first would let an older incomplete
-run shadow a newer completed one, reporting finished work as outstanding. This is
+run shadow a newer `CompleteSuccess` one, reporting finished work as outstanding. This is
 locked by the `completed_latest_run_hides_an_older_failed_run` test.
 
 Implemented by `incomplete_latest_runs()` in Rust rather than SQL: the result set
@@ -277,17 +282,17 @@ subquery or window function.
 
 `TaskEnvelope.envelope_id` names the **logical task**
 (`u1-illuminate-capture123`) and `TaskEnvelope.run` names **one attempt to carry
-it out**, counting from 1. `(envelope_id, run)` is unique and keys a `task_status`
+it out**, counting from 1. `(envelope_id, run)` is unique and keys a `task_run_status`
 row, so a rerun appends a row rather than overwriting the previous outcome.
 
 A submission is planned by reading the latest run of the logical task
 (`plan_submission`):
 
-| Latest run                                         | Decision                                           |
-| -------------------------------------------------- | -------------------------------------------------- |
-| none                                               | start run 1                                        |
-| in flight (`Queued`/`InProgress`/`ErrorWillRetry`) | **refuse** — the work is already queued or running |
-| settled (`Completed`/`ErrorExhausted`)             | start `run + 1`                                    |
+| Latest run                                                       | Decision                                           |
+| ---------------------------------------------------------------- | -------------------------------------------------- |
+| none                                                             | start run 1                                        |
+| in flight (`Queued`/`InProgress`/`ErrorWillRetry`)               | **refuse** — the work is already queued or running |
+| settled (`SubmissionFailed`/`CompleteSuccess`/`CompleteFailure`) | start `run + 1`                                    |
 
 This gives two properties at once:
 
@@ -355,7 +360,7 @@ re-illuminates and re-embeds.
 **Cost accepted:** a retry re-calls the LLM and re-embeds. Failing tasks are the
 minority, and both are API calls we already tolerate duplicating.
 
-> **Consequence:** `task_status.attempts` and the illumination count can diverge
+> **Consequence:** `task_run_status.attempts` and the illumination count can diverge
 > (a run that exhausts *after* inserting an illumination leaves a row behind).
 > Harmless, since only the most recent illumination is displayed (§7.1).
 
@@ -384,15 +389,15 @@ must always see the **most recent** illumination, so:
 
 ## 8. Open questions / follow-ups
 
-- **`task_status` retention (REVISIT):** add a cleanup/eviction policy to avoid
+- **`task_run_status` retention (REVISIT):** add a cleanup/eviction policy to avoid
   unbounded table growth. Note the run dimension means a rerun task keeps *all*
   its rows, so growth is per-run rather than per-task. This is the reason the
-  incomplete queries deliberately exclude `Completed` (§5). *Tolerated — see
+  incomplete queries deliberately exclude `CompleteSuccess` (§5). *Tolerated — see
   `pragmatism.md`.*
 - **Stuck tasks (REVISIT):** there is no heartbeat or timeout, so a task that is
   enqueued but never picked up (queue dropped, worker crash) stays `Queued`
   forever and looks active. Consider treating `Queued`/`InProgress` rows older
-  than N minutes as dead, or a periodic sweep that stamps `ErrorExhausted`.
+  than N minutes as dead, or a periodic sweep that stamps `CompleteFailure`.
   *Tolerated — see `pragmatism.md`.*
 - **Incomplete queries have no `ORDER BY` (REVISIT):** they collapse to the
   latest run per logical task but return rows in non-deterministic order. Add an
@@ -424,7 +429,7 @@ must always see the **most recent** illumination, so:
   being single-user:
   1. **Attribution.** `api/admin/backfill.rs` passes the requesting admin's
      `context.user_id()` to `submit_search_index`, so every backfill task's
-     `task_status` row is owned by the **admin**, not the capture's owner. The
+     `task_run_status` row is owned by the **admin**, not the capture's owner. The
      task itself still works (`logic::search_index::exec` fetches via
      `service_api.get_captures`, which is not user-scoped), but a user-scoped
      status view would **not** show the owner their own captures' backfill
@@ -459,25 +464,25 @@ must always see the **most recent** illumination, so:
 
 ## 9. File map
 
-| File                              | Role                                                                                                                                                                                                 | Status |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `src/task/task.rs`                | `Task` trait (`task_type()`/`entity_type()`/`entity_id()`) + `TaskEnvelope<T>` (`user_id`, `envelope_id`, `run`, payload) + `TaskEnvelope::new(user_id, task, run)` / `make_envelope_id`             | ✅      |
-| `src/task/taskqueue.rs`           | `TaskQueue<T>` trait, enqueue-only (takes `TaskEnvelope<T>`)                                                                                                                                         | ✅      |
-| `src/task/taskqueue_local.rs`     | `LocalTaskQueue` — in-process mpsc + semaphore backend (no retry)                                                                                                                                    | ✅      |
-| `src/task/taskqueue_cloudtask.rs` | `CloudTaskQueue` — Google Cloud Tasks backend                                                                                                                                                        | ✅      |
-| `src/task/taskqueue_pubsub.rs`    | **removed** — Pub/Sub support stripped out; Cloud Tasks is the focus                                                                                                                                 | ✅      |
-| `src/task/taskmaster.rs`          | `TaskMaster` — owns queues + `task_status`; `submit_*` / `begin_attempt` / `finish_attempt` / `query_*`; `update_status` is **private**; records `Queued` on enqueue; shared via `Arc`               | ✅      |
-| `src/task/status_tracker.rs`      | `TaskStatusTracker` — owns all `task_status` persistence (create/update keyed by `(envelope_id, run)`); `latest_run`, `query_run_status`, `query_incomplete_for_entity`, `query_incomplete_for_user` | ✅      |
-| `src/task/status_code.rs`         | `StatusCode` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                               | ✅      |
-| `src/task/status_listener.rs`     | `StatusListener` — the `LISTEN`/`NOTIFY` thread (**stub**; see `sse.md`)                                                                                                                             | ⬜      |
-| `src/task/beacon.rs`              | **removed** — replaced by `TaskMaster`                                                                                                                                                               | ✅      |
-| `src/model/task_status.rs`        | `task_status` SeaORM model (`(envelope_id, run)` unique, `entity_type`/`entity_id`, `status_code`, `attempts`) — auto-synced at startup                                                              | ✅      |
-| `src/api/apierror.rs`             | `ApiError::is_retryable()` — 5xx retryable, 4xx permanent                                                                                                                                            | ✅      |
-| `src/config/schema.rs`            | `Config.task_max_attempts` (env `TASK_MAX_ATTEMPTS`, default 3)                                                                                                                                      | ✅      |
-| `src/webhook/mod.rs`              | `http_status_for_outcome` — maps `AttemptOutcome` to the HTTP status Cloud Tasks sees                                                                                                                | ✅      |
-| `src/webhook/webhook_state.rs`    | `WebhookState` carries `task_master: Arc<TaskMaster>`                                                                                                                                                | ✅      |
-| `src/webhook/r_*.rs`              | accept `TaskEnvelope<T>`; `begin_attempt`/`finish_attempt` around `logic::exec`; return `http_status_for_outcome`                                                                                    | ✅      |
-| `src/logic/illuminate.rs`         | `IlluminationTask` + `exec` (illuminate **and** index; no idempotency guard — §7)                                                                                                                    | ✅      |
-| `src/logic/search_index.rs`       | `SearchIndexTask` + `exec` (no idempotency guard — §7)                                                                                                                                               | ✅      |
-| `src/api/schema/infomaker.rs`     | collapses `illuminations` to the most recent (§7.1)                                                                                                                                                  | ✅      |
-| `src/test_support/test_db.rs`     | schema-per-test DB harness (see `testing.md`)                                                                                                                                                        | ✅      |
+| File                                      | Role                                                                                                                                                                                                     | Status |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
+| `src/task/task_def.rs`                    | `Task` trait (`task_type()`/`entity_type()`/`entity_id()`) + `TaskEnvelope<T>` (`user_id`, `envelope_id`, `run`, payload) + `TaskEnvelope::new(user_id, task, run)` / `make_envelope_id`                 | ✅      |
+| `src/task/taskqueue.rs`                   | `TaskQueue<T>` trait, enqueue-only (takes `TaskEnvelope<T>`)                                                                                                                                             | ✅      |
+| `src/task/taskqueue_local.rs`             | `LocalTaskQueue` — in-process mpsc + semaphore backend (no retry)                                                                                                                                        | ✅      |
+| `src/task/taskqueue_cloudtask.rs`         | `CloudTaskQueue` — Google Cloud Tasks backend                                                                                                                                                            | ✅      |
+| `src/task/taskqueue_pubsub.rs`            | **removed** — Pub/Sub support stripped out; Cloud Tasks is the focus                                                                                                                                     | ✅      |
+| `src/task/taskmaster.rs`                  | `TaskMaster` — owns queues + `task_run_status`; `submit_*` / `begin_attempt` / `finish_attempt` / `query_*`; `update_status` is **private**; records `Queued` on enqueue; shared via `Arc`               | ✅      |
+| `src/task/taskruntracker.rs`              | `TaskStatusTracker` — owns all `task_run_status` persistence (create/update keyed by `(envelope_id, run)`); `latest_run`, `query_run_status`, `query_incomplete_for_entity`, `query_incomplete_for_user` | ✅      |
+| `src/task/taskrunstatus.rs`               | `TaskRunStatus` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                                | ✅      |
+| `src/task/status_listener.rs`             | `StatusListener` — the `LISTEN`/`NOTIFY` thread (**stub**; see `sse.md`)                                                                                                                                 | ⬜      |
+| `src/task/beacon.rs`                      | **removed** — replaced by `TaskMaster`                                                                                                                                                                   | ✅      |
+| `src/model/task_run_status.rs`            | `task_run_status` SeaORM model (`(envelope_id, run)` unique, `entity_type`/`entity_id`, `status_code`, `attempts`) — auto-synced at startup                                                              | ✅      |
+| `src/api/apierror.rs`                     | `ApiError::is_retryable()` — 5xx retryable, 4xx permanent                                                                                                                                                | ✅      |
+| `src/config/schema.rs`                    | `Config.task_max_attempts` (env `TASK_MAX_ATTEMPTS`, default 3)                                                                                                                                          | ✅      |
+| `src/webhook/http_status_for_task_run.rs` | `http_status_for_task_run` — maps `AttemptOutcome` to the HTTP status Cloud Tasks sees                                                                                                                   | ✅      |
+| `src/webhook/webhook_state.rs`            | `WebhookState` carries `task_master: Arc<TaskMaster>`                                                                                                                                                    | ✅      |
+| `src/webhook/r_*.rs`                      | accept `TaskEnvelope<T>`; `begin_attempt`/`finish_attempt` around `logic::exec`; return `http_status_for_task_run`                                                                                       | ✅      |
+| `src/logic/illuminate.rs`                 | `IlluminationTask` + `exec` (illuminate **and** index; no idempotency guard — §7)                                                                                                                        | ✅      |
+| `src/logic/search_index.rs`               | `SearchIndexTask` + `exec` (no idempotency guard — §7)                                                                                                                                                   | ✅      |
+| `src/api/schema/infomaker.rs`             | collapses `illuminations` to the most recent (§7.1)                                                                                                                                                      | ✅      |
+| `src/test_support/test_db.rs`             | schema-per-test DB harness (see `testing.md`)                                                                                                                                                            | ✅      |
