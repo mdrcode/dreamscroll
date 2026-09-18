@@ -25,13 +25,21 @@ impl WebState {
     }
 }
 
+fn load_templates() -> Result<Tera, tera::Error> {
+    let mut tera = Tera::new();
+    tera.register_filter("json_encode", tera_contrib::json::json_encode);
+    tera.register_filter("urlencode", tera_contrib::urlencode::urlencode);
+    tera.load_from_glob("web/v2/templates/**/*.tera")?;
+    Ok(tera)
+}
+
 pub fn make_ui_router(
     user_api: api::UserApiClient,
     auth_backend: auth::WebAuthBackend,
     session_layer: SessionManagerLayer<impl tower_sessions::SessionStore + Clone>,
     max_upload_bytes: usize,
 ) -> Router {
-    let tera = Tera::new("web/v2/templates/**/*.tera").expect("Failed to load v2 templates");
+    let tera = load_templates().expect("Failed to load v2 templates");
     tracing::info!("Loaded v2 tera templates");
 
     let static_asset_version = std::env::var("K_REVISION")
@@ -87,4 +95,14 @@ pub fn make_ui_router(
     router = router.layer(DefaultBodyLimit::max(max_upload_bytes));
     router = telemetry::add_axum_trace_propagation(router);
     router
+}
+
+#[cfg(test)]
+mod tests {
+    use super::load_templates;
+
+    #[test]
+    fn templates_load_successfully() {
+        load_templates().expect("all v2 templates should load");
+    }
 }
