@@ -2,7 +2,9 @@
 mod task_def;
 pub use task_def::*;
 
-// TaskMaster is the primary entry point for manipulating Task instances.
+// TaskMaster is the primary entry point for starting a new Run
+// of a Task. It owns the queues and the database handle, and is responsible
+// for enforcing the "one run at a time" rule for each logical task.
 mod taskmaster;
 pub use taskmaster::*;
 

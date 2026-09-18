@@ -19,16 +19,16 @@ pub trait Task: Clone + Debug + Send + Sync + Serialize {
 }
 
 /// A TaskEnvelope is a properly wrapped Task which has been submitted to a TaskQueue.
-/// 
+///
 /// An Envelope refers to a specific run of a logical task. If one run is already
 /// in flight, then the system rejects duplicate submission of the same logical Task.
 /// However, once the run completes (either CompleteSuccess or CompleteFailure),
 /// then it can be resubmitted, which achieve a "re-run" of the task.
 ///
 /// `envelope_id` identifies the *logical* task; `run` identifies one attempt to
-/// carry it out. Together they key a `task_status` row, so a rerun of Complete
-/// work (regardless of CompleteSuccess or CompleteFailure) is a new run rather
-/// than an overwrite.
+/// carry it out. Together they key a `task_run_status` row, so a rerun of
+/// Complete work (regardless of CompleteSuccess or CompleteFailure) is a new
+/// run rather than an overwrite.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TaskEnvelope<T: Task> {
     pub user_id: i32,
@@ -46,7 +46,7 @@ fn first_run() -> i32 {
 impl<T: Task> TaskEnvelope<T> {
     /// Build an envelope for a run of a task.
     ///
-    /// `run` counts from 1; callers get it from the latest `task_status` row.
+    /// `run` counts from 1; callers get it from the latest `task_run_status` row.
     pub fn new(user_id: i32, task: T, run: i32) -> Self {
         Self {
             user_id,
@@ -127,7 +127,7 @@ mod tests {
     }
 
     /// The id format is persisted, so changing it silently would orphan every
-    /// existing `task_status` row.
+    /// existing `task_run_status` row.
     #[test]
     fn envelope_id_format_is_stable() {
         assert_eq!(

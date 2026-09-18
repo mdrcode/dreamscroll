@@ -18,7 +18,7 @@ pub enum TaskRunStatus {
 }
 
 impl TaskRunStatus {
-    /// The integer persisted in the `task_status.status_code` column.
+    /// The integer persisted in the `task_run_status.status_code` column.
     pub fn as_i32(&self) -> i32 {
         match self {
             TaskRunStatus::Queued => 0,

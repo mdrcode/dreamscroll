@@ -9,7 +9,7 @@ use super::*;
 
 /// The primary entry point for manipulating `Task` instances.
 ///
-/// Owns the backend queues **and** the `task_status` table. Everything else
+/// Owns the backend queues **and** the `task_run_status` table. Everything else
 /// talks to tasks through this API:
 ///
 /// - `submit_*` — enqueue + record a `Queued` row.
@@ -111,7 +111,7 @@ impl TaskMaster {
     /// Submit a task for execution.
     ///
     /// Wraps the Task in a TaskEnvelope, enqueues it in the corresponding backend,
-    /// and records a `Queued` row in the `task_status` table for that envelope_id.
+    /// and records a `Queued` row in the `task_run_status` table for that envelope_id.
     ///
     /// Tasks submitted for the first time start a "run" of 1.
     ///
@@ -280,7 +280,7 @@ impl TaskMaster {
         entity_id: i32,
     ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
         self.status
-            .query_task_status_for_entity(user_id, entity_type, entity_id)
+            .query_task_run_status_for_entity(user_id, entity_type, entity_id)
             .await
     }
 
@@ -290,7 +290,7 @@ impl TaskMaster {
         &self,
         user_id: i32,
     ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
-        self.status.query_task_status_for_user(user_id).await
+        self.status.query_task_run_status_for_user(user_id).await
     }
 }
 
@@ -447,7 +447,7 @@ mod tests {
         }
     }
 
-    /// A `task_status` row with only the fields the pure helpers read set to
+    /// A `task_run_status` row with only the fields the pure helpers read set to
     /// meaningful values.
     fn status_row(status: TaskRunStatus, attempts: i32) -> model::task_run_status::Model {
         status_row_of_run(status, attempts, 1)
