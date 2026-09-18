@@ -1,16 +1,12 @@
-use argon2::{
-    Argon2, PasswordHash, PasswordVerifier,
-    password_hash::{SaltString, rand_core::OsRng},
-};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 
 use crate::{database::DbHandle, model::user};
 
 use super::{autherror::AuthError, authuser::DreamscrollAuthUser};
 
 pub fn hash(password: &str) -> Result<String, AuthError> {
-    let salt = SaltString::generate(&mut OsRng);
     let argon2 = Argon2::default();
-    let password_hash = PasswordHash::generate(argon2, password.as_bytes(), &salt)?.to_string();
+    let password_hash = argon2.hash_password(password.as_bytes())?.to_string();
     Ok(password_hash)
 }
 

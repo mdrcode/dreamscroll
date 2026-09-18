@@ -52,8 +52,16 @@ impl From<sea_orm::DbErr> for AuthError {
     }
 }
 
+// Covers hashing, RNG, and algorithm errors returned by Argon2.
 impl From<argon2::password_hash::Error> for AuthError {
     fn from(e: argon2::password_hash::Error) -> Self {
+        AuthError::PasswordHashError(e.to_string())
+    }
+}
+
+// Covers malformed PHC strings while parsing stored password hashes.
+impl From<argon2::password_hash::phc::Error> for AuthError {
+    fn from(e: argon2::password_hash::phc::Error) -> Self {
         AuthError::PasswordHashError(e.to_string())
     }
 }
