@@ -121,12 +121,13 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Initialized REST API routes");
     }
 
-    // Webhook routes (no auth locally, protected by GCloud IAM/OIDC in prod)
+    // Webhook routes are unauthenticated locally but require OIDC in prod.
     if cfg.services.contains(&config::Service::Webhook) {
         let illuminator = illumination::make_illuminator(&cfg, stg.clone());
         let firestarter = ignition::make_firestarter(&cfg)?;
         let embedder = search::gcloud::GeminiEmbedder::from_config(&cfg)?;
         let vector_store = search::gcloud::VertexVectorStore::from_config(&cfg).await?;
+        let webhook_oidc = webhook::oidc_from_config(&cfg)?;
 
         let webhook_router = webhook::make_webhook_router(
             service_api,
@@ -136,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
             embedder,
             vector_store,
             task_master.clone(),
+            webhook_oidc,
         );
 
         router = router.nest("/_wh", webhook_router);

@@ -49,8 +49,8 @@ fn default_task_max_attempts() -> i32 {
     3
 }
 
-fn default_task_local_webhook_host() -> String {
-    "localhost".to_string()
+fn default_task_webhook_base_url() -> String {
+    "http://localhost:8080".to_string()
 }
 
 fn default_jwt_user_expiration_secs() -> u64 {
@@ -112,11 +112,17 @@ pub struct Config {
     pub task_backend: TaskQueueBackend,
     #[serde(default = "default_task_max_attempts")]
     pub task_max_attempts: i32,
-    #[serde(default = "default_task_local_webhook_host")]
-    pub task_local_webhook_host: String,
-    pub task_cloudtask_queue_illumination: Option<String>,
-    pub task_cloudtask_queue_search_index: Option<String>,
-    pub task_cloudtask_queue_spark: Option<String>,
+    #[serde(default = "default_task_webhook_base_url")]
+    pub task_webhook_base_url: String,
+    pub task_oidc_service_account_email: Option<String>,
+    pub task_oidc_audience: Option<String>,
+
+    // Currently, we assume that the queue_name below is used for *BOTH*
+    //  - the Cloud Task resource: projects/{project_id}/locations/{region}/queues/$QUEUE_NAME
+    //  - the app internal webhook URL: /_wh/cloudtask/$QUEUE_NAME
+    pub task_queue_name_illumination: String,
+    pub task_queue_name_search_index: String,
+    pub task_queue_name_spark: String,
 
     #[serde(default = "default_jwt_user_expiration_secs")]
     pub jwt_user_expiration_secs: u64,
@@ -153,6 +159,26 @@ where
             require_some(
                 &cfg.storage_gcloud_bucket_name,
                 "STORAGE_BACKEND is gcloud but no STORAGE_GCLOUD_BUCKET_NAME",
+            )?;
+        }
+    }
+
+    match cfg.task_backend {
+        TaskQueueBackend::Local => {
+            if cfg.task_oidc_service_account_email.is_some() || cfg.task_oidc_audience.is_some() {
+                tracing::info!(
+                    "Ignoring webhook OIDC settings which are not used with the local backend"
+                );
+            }
+        }
+        TaskQueueBackend::GCloudTasks => {
+            require_some(
+                &cfg.task_oidc_service_account_email,
+                "TASK_BACKEND is gcloudtasks but no TASK_OIDC_SERVICE_ACCOUNT_EMAIL",
+            )?;
+            require_some(
+                &cfg.task_oidc_audience,
+                "TASK_BACKEND is gcloudtasks but no TASK_OIDC_AUDIENCE",
             )?;
         }
     }
@@ -203,7 +229,7 @@ mod tests {
         assert!(default_session_always_save());
         assert_eq!(default_gemini_payload_method(), GeminiPayloadMethod::Inline);
         assert_eq!(default_task_max_attempts(), 3);
-        assert_eq!(default_task_local_webhook_host(), "localhost");
+        assert_eq!(default_task_webhook_base_url(), "http://localhost:8080");
         assert_eq!(default_jwt_user_expiration_secs(), 86400);
         assert_eq!(default_jwt_validation_leeway_secs(), 0);
         assert_eq!(default_max_upload_bytes(), 5 * 1024 * 1024);
@@ -223,6 +249,9 @@ mod tests {
             ("POSTGRES_DB".into(), "database".into()),
             ("STORAGE_BACKEND".into(), storage_backend.into()),
             ("TASK_BACKEND".into(), "local".into()),
+            ("TASK_QUEUE_NAME_ILLUMINATION".into(), "illumination".into()),
+            ("TASK_QUEUE_NAME_SEARCH_INDEX".into(), "search-index".into()),
+            ("TASK_QUEUE_NAME_SPARK".into(), "spark".into()),
         ]
     }
 
@@ -246,12 +275,44 @@ mod tests {
         assert_eq!(config.storage_backend, StorageBackend::GCloud);
         assert_eq!(config.task_backend, TaskQueueBackend::Local);
         assert_eq!(config.task_max_attempts, 3);
-        assert_eq!(config.task_local_webhook_host, "localhost");
+        assert_eq!(config.task_webhook_base_url, "http://localhost:8080");
         assert_eq!(config.jwt_user_expiration_secs, 86400);
         assert_eq!(config.jwt_validation_leeway_secs, 0);
         assert_eq!(config.max_upload_bytes, 5 * 1024 * 1024);
         assert_eq!(config.gemini_payload_method, GeminiPayloadMethod::Inline);
         assert!(config.cookie_secure);
         assert!(config.session_always_save);
+    }
+
+    #[test]
+    fn local_tasks_ignore_oidc_settings() {
+        let mut vars = required_vars("gcloud");
+        vars.push(("STORAGE_GCLOUD_BUCKET_NAME".into(), "bucket".into()));
+        vars.push((
+            "TASK_WEBHOOK_BASE_URL".into(),
+            "https://unused.example".into(),
+        ));
+        vars.push((
+            "TASK_OIDC_SERVICE_ACCOUNT_EMAIL".into(),
+            "unused@example.iam.gserviceaccount.com".into(),
+        ));
+        vars.push(("TASK_OIDC_AUDIENCE".into(), "https://unused.example".into()));
+        make_from_envy_iter(vars).expect("local config should ignore OIDC settings");
+    }
+
+    #[test]
+    fn cloud_tasks_require_complete_oidc_settings() {
+        let mut vars = required_vars("gcloud");
+        vars.push(("STORAGE_GCLOUD_BUCKET_NAME".into(), "bucket".into()));
+        vars.iter_mut()
+            .find(|(key, _)| key == "TASK_BACKEND")
+            .expect("required vars should include TASK_BACKEND")
+            .1 = "gcloudtasks".into();
+
+        let error = make_from_envy_iter(vars).expect_err("Cloud Tasks config should require OIDC");
+        assert_eq!(
+            error.to_string(),
+            "TASK_BACKEND is gcloudtasks but no TASK_OIDC_SERVICE_ACCOUNT_EMAIL"
+        );
     }
 }

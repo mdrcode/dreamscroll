@@ -1,4 +1,4 @@
-use axum::{Router, extract::DefaultBodyLimit, routing::post};
+use axum::{Router, extract::DefaultBodyLimit, middleware, routing::post};
 use std::sync::Arc;
 
 use crate::{api, ignition, illumination, search, storage, task, telemetry};
@@ -13,6 +13,7 @@ pub fn make_webhook_router(
     embedder: search::gcloud::GeminiEmbedder,
     vector_store: search::gcloud::VertexVectorStore,
     task_master: Arc<task::TaskMaster>,
+    oidc: Option<Arc<google_cloud_auth::credentials::idtoken::verifier::Verifier>>,
 ) -> Router {
     let state = Arc::new(WebhookState {
         service_api,
@@ -29,13 +30,21 @@ pub fn make_webhook_router(
     //
     // This router is nested under "/_wh", so full path will be e.g.
     // "/_wh/cloudtask/illuminate"
+    //
+    // TODO these names like "illuminate" should come from the queue name in config
     let mut router = Router::new()
-        .route("/cloudtask/illuminate", post(r_illuminate::post))
+        .route("/cloudtask/illumination", post(r_illuminate::post))
         .route("/cloudtask/search_index", post(r_search_index::post))
         .route("/cloudtask/spark", post(r_spark::post))
         .with_state(state);
 
     router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));
+    // Local queues omit this layer; Cloud Tasks always supplies it.
+    if let Some(oidc_verifier) = oidc {
+        router = router.layer(middleware::from_fn(move |request, next| {
+            require_google_id_token(oidc_verifier.clone(), request, next)
+        }));
+    }
     router = telemetry::add_axum_trace_propagation(router); // Cloud Run trace headers
     router
 }

@@ -80,13 +80,13 @@ be made explicit before adding external OIDC verification.
 There are good third-party building blocks, but no reason to replace the current
 implementation wholesale with a general authentication framework.
 
-| Crate | Fit for this application |
-| --- | --- |
-| `jsonwebtoken` | Best low-level JWT/JWK primitive for the current use. It provides typed claims, explicit algorithms, validation, JWK types, and supports the project's `aws-lc-rs` crypto backend. It does not provide a complete issuer/JWKS cache or Axum policy layer, so those must be supplied by the application or a higher-level crate. |
-| `google-cloud-auth` | Best fit for the planned Cloud Tasks Google ID-token verifier. The version family already used by this project exposes `credentials::idtoken::verifier::Builder`; it validates Google issuers, audience, signature keys, clock skew, and optionally verified service-account email. It also caches/fetches Google signing certificates. Prefer this over implementing Google JWKS retrieval ourselves. |
-| `openidconnect` | Mature, strongly typed OIDC protocol library with discovery, provider metadata, JWKS, and ID-token verification. It is appropriate if Dreamscroll becomes a general OIDC relying party for user login or multiple providers. It is broader than needed for Google Cloud Tasks service-account tokens and would add substantial generic protocol surface. |
-| `jwt-simple-jwks` | A small JWKS-oriented option, but less established in this codebase and less Google-specific. It would still leave issuer/audience/service-account policy and integration decisions to us. Do not add it merely to avoid using `jsonwebtoken`. |
-| `josekit` / `jwt-simple` | General JOSE/JWT alternatives, not a compelling improvement for this project. Switching would create migration and audit work without solving the application-specific trust-policy problem. |
+| Crate                    | Fit for this application                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `jsonwebtoken`           | Best low-level JWT/JWK primitive for the current use. It provides typed claims, explicit algorithms, validation, JWK types, and supports the project's `aws-lc-rs` crypto backend. It does not provide a complete issuer/JWKS cache or Axum policy layer, so those must be supplied by the application or a higher-level crate.                                                                        |
+| `google-cloud-auth`      | Best fit for the planned Cloud Tasks Google ID-token verifier. The version family already used by this project exposes `credentials::idtoken::verifier::Builder`; it validates Google issuers, audience, signature keys, clock skew, and optionally verified service-account email. It also caches/fetches Google signing certificates. Prefer this over implementing Google JWKS retrieval ourselves. |
+| `openidconnect`          | Mature, strongly typed OIDC protocol library with discovery, provider metadata, JWKS, and ID-token verification. It is appropriate if Dreamscroll becomes a general OIDC relying party for user login or multiple providers. It is broader than needed for Google Cloud Tasks service-account tokens and would add substantial generic protocol surface.                                               |
+| `jwt-simple-jwks`        | A small JWKS-oriented option, but less established in this codebase and less Google-specific. It would still leave issuer/audience/service-account policy and integration decisions to us. Do not add it merely to avoid using `jsonwebtoken`.                                                                                                                                                         |
+| `josekit` / `jwt-simple` | General JOSE/JWT alternatives, not a compelling improvement for this project. Switching would create migration and audit work without solving the application-specific trust-policy problem.                                                                                                                                                                                                           |
 
 The practical conclusion is to keep `jsonwebtoken` for Dreamscroll-issued HS256
 tokens and use the existing `google-cloud-auth` verifier for Google-issued Cloud
@@ -179,17 +179,13 @@ three independently configured full URLs.
 
 Suggested new settings:
 
-- `TASK_CLOUDTASK_WEBHOOK_BASE_URL` — required for `gcloudtasks`; e.g.
+- `TASK_WEBHOOK_BASE_URL` — the webhook base URL; e.g.
   `https://prod.example.com`
-- `TASK_CLOUDTASK_OIDC_SERVICE_ACCOUNT_EMAIL` — required for `gcloudtasks`
-- `TASK_CLOUDTASK_OIDC_AUDIENCE` — optional, defaulting to the base URL if omitted
-- `WEBHOOK_OIDC_SERVICE_ACCOUNT_EMAIL` — required when production webhook auth is
-  enabled; normally the same value as the task setting
-- `WEBHOOK_OIDC_AUDIENCE` — required when production webhook auth is enabled; normally
-  the same value as the task setting
-
-Keeping the sender and receiver settings separate makes accidental trust expansion
-visible, while deployment configuration can set them to the same values.
+- `TASK_OIDC_SERVICE_ACCOUNT_EMAIL` — required for `gcloudtasks`
+- `TASK_OIDC_AUDIENCE` — required for `gcloudtasks`
+The Cloud Tasks OIDC service-account email and audience are also the webhook verifier's
+expected identity and audience. Keeping one canonical pair avoids configuration drift
+between the sender and receiver.
 
 ## Rust implementation design
 
@@ -217,16 +213,21 @@ The layer should reject:
 - Tokens whose verified `email`/`sub` is not the configured task service account.
 - Tokens without the expected verified service-account identity.
 
-Use Google's published signing keys and cache them with a bounded refresh policy. Do
-not fetch keys for every request. Key rotation must work without a deployment; on an
-unknown key ID, refresh once and retry verification before rejecting the request.
+Use Google's published signing keys and cache them with a bounded refresh policy. The
+current `google-cloud-auth` verifier already does this: its internal JWKS client caches
+each key for one hour and shares that cache across requests using the single verifier
+created at application startup. It also fetches the JWKS when it encounters an unknown
+key ID, so normal Google key rotation does not require a deployment. Do not fetch keys
+for every request.
 
-`jsonwebtoken` is already present in `Cargo.toml`, and the existing TLS/HTTP
-stack can support key retrieval. Before implementation, confirm whether the current
-Google auth dependencies expose a suitable ID-token verifier; prefer a maintained
-library verifier over hand-rolling JWKS refresh if one fits the current dependency
-versions. If not, implement the smallest isolated verifier with strict claims and a
-bounded cache.
+The crate does not retry a failed JWKS fetch. A transient Google certificate-endpoint
+failure can therefore cause webhook authentication failures until a later request
+retries the fetch. This is an intentional MVP trade-off documented in
+`plan/pragmatism.md`; add retry/backoff only if this becomes operationally visible.
+
+The application uses the maintained Google verifier rather than hand-rolling JWKS
+retrieval. `jsonwebtoken` remains the underlying JWT primitive, but the application
+does not own the Google key cache or certificate-fetch logic.
 
 ### 2. Keep local development simple
 
