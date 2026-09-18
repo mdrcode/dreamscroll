@@ -25,10 +25,10 @@ dotenvy = "0.15"
 dyn-clone = "1.0"
 envy = "0.4"
 google-cloud-aiplatform-v1 = { version = "0.4", features = ["prediction-service"] }
-google-cloud-auth = { version = "1.5", features = ["idtoken"] }
+google-cloud-auth = { version = "1.16", features = ["idtoken"] }
 google-cloud-gax = "0.19"
-google-cloud-storage = "1.7"
-google-cloud-tasks-v2 = "1.5"
+google-cloud-storage = "1.18"
+google-cloud-tasks-v2 = "1.12"
 google-cloud-vectorsearch-v1 = "0.1"
 infer = "0.19"
 jsonwebtoken = { version = "10.3", features = ["aws_lc_rs"] }
@@ -37,7 +37,7 @@ opentelemetry = { version = "0.31", features = ["trace"] }
 opentelemetry-gcloud-trace = "0.22"
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "trace"] }
 reqwest = { version = "0.13", features = ["json"] }
-rpassword = "7.4"
+rpassword = "7.5"
 rustls = "0.23"
 sea-orm = { version = "2.0", features = [
     "sqlx-postgres",
@@ -60,5 +60,5 @@ tower-sessions-sqlx-store = { version = "0.15", features = ["postgres"] }
 tracing = "0.1"
 tracing-opentelemetry = "0.32"
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json", "registry"] }
-uuid = { version = "1.0", features = ["v4"] }
-webbrowser = "1.0"
+uuid = { version = "1.26", features = ["v4"] }
+webbrowser = "1.2"
