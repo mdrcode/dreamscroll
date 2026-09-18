@@ -290,8 +290,8 @@ impl TaskMaster {
     }
 
     /// Incomplete task statuses recorded against one entity, scoped by
-    /// `user_id`. Includes `ErrorExhausted` (the user still wants to see
-    /// failed work); excludes `Completed`.
+    /// `user_id`. Includes `CompleteFailure` (the user still wants to see
+    /// failed work); excludes `CompleteSuccess`.
     pub async fn query_incomplete_for_entity(
         &self,
         user_id: i32,
@@ -1203,10 +1203,10 @@ mod tests {
         assert_eq!(rows[0].run, 2);
     }
 
-    /// Only `Completed` is protected from redelivery. An exhausted run is not,
+    /// Only `CompleteSuccess` is protected from redelivery. An exhausted run is not,
     /// so a redelivery would move it back to `InProgress`.
     ///
-    /// Unreachable today: we ack `ErrorExhausted` with a 2xx, so Cloud Tasks
+    /// Unreachable today: we ack `CompleteFailure` with a 2xx, so Cloud Tasks
     /// stops redelivering. Pinned here because the boundary is subtle and would
     /// matter if the ack policy ever changed.
     #[tokio::test]
