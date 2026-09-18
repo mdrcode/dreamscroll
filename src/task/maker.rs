@@ -16,11 +16,11 @@ pub fn make_cloud_tasks_queue_path(project_id: &str, region: &str, queue_id: &st
     format!("projects/{project_id}/locations/{region}/queues/{queue_id}")
 }
 
-pub fn make_webhook_url(base_url: &str, route: &str) -> String {
+pub fn make_prod_webhook_url(base_url: &str, queue_name: &str) -> String {
     format!(
         "{}/_wh/cloudtask/{}",
         base_url.trim_end_matches('/'),
-        route.trim_start_matches('/')
+        queue_name.trim_start_matches('/')
     )
 }
 
@@ -31,7 +31,7 @@ pub async fn make_task_master(
     match cfg.task_backend {
         config::TaskQueueBackend::Local => {
             let illumination_queue = {
-                let url = make_webhook_url(
+                let url = make_prod_webhook_url(
                     &cfg.task_webhook_base_url,
                     &cfg.task_queue_name_illumination,
                 );
@@ -43,7 +43,8 @@ pub async fn make_task_master(
             };
 
             let spark_queue = {
-                let url = make_webhook_url(&cfg.task_webhook_base_url, &cfg.task_queue_name_spark);
+                let url =
+                    make_prod_webhook_url(&cfg.task_webhook_base_url, &cfg.task_queue_name_spark);
                 LocalTaskQueue::connect(4, move |task: TaskEnvelope<SparkTask>| {
                     let client = LocalWebhookClient::new();
                     let url = url.clone();
@@ -52,7 +53,7 @@ pub async fn make_task_master(
             };
 
             let search_index_queue = {
-                let url = make_webhook_url(
+                let url = make_prod_webhook_url(
                     &cfg.task_webhook_base_url,
                     &cfg.task_queue_name_search_index,
                 );
@@ -82,7 +83,7 @@ pub async fn make_task_master(
                     &cfg.gcloud_project_region,
                     &cfg.task_queue_name_illumination,
                 ),
-                make_webhook_url(&cfg.task_webhook_base_url, "illuminate"),
+                make_prod_webhook_url(&cfg.task_webhook_base_url, "illuminate"),
                 oidc_token.clone(),
             )
             .await
@@ -94,7 +95,7 @@ pub async fn make_task_master(
                     &cfg.gcloud_project_region,
                     &cfg.task_queue_name_spark,
                 ),
-                make_webhook_url(&cfg.task_webhook_base_url, "spark"),
+                make_prod_webhook_url(&cfg.task_webhook_base_url, "spark"),
                 oidc_token.clone(),
             )
             .await
@@ -106,7 +107,7 @@ pub async fn make_task_master(
                     &cfg.gcloud_project_region,
                     &cfg.task_queue_name_search_index,
                 ),
-                make_webhook_url(&cfg.task_webhook_base_url, "search_index"),
+                make_prod_webhook_url(&cfg.task_webhook_base_url, "search_index"),
                 oidc_token.clone(),
             )
             .await

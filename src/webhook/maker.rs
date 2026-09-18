@@ -25,13 +25,13 @@ pub fn make_webhook_router(
         task_master,
     });
 
-    // These routes are protected by GCloud IAM/OIDC in production, but have no
+    // These routes are protected by GCloud OIDC in production, but have no
     // auth locally since they're only called by the local TaskQueue.
     //
     // This router is nested under "/_wh", so full path will be e.g.
     // "/_wh/cloudtask/illuminate"
     //
-    // TODO these names like "illuminate" should come from the queue name in config
+    // TODO the names like "illumination" should come from QUEUE_NAME in config
     let mut router = Router::new()
         .route("/cloudtask/illumination", post(r_illuminate::post))
         .route("/cloudtask/search_index", post(r_search_index::post))
