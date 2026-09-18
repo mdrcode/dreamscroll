@@ -6,6 +6,50 @@ This is a pragmatic, repeatable process for updating Dreamscroll's Rust
 dependencies safely without turning one maintenance task into an uncontrolled
 rewrite.
 
+## Core workflow
+
+The practical loop is:
+
+```text
+# Establish a known-good baseline first
+git status --short
+cargo check --all-targets
+cargo test --all-targets
+
+# See what is stale
+cargo outdated --root-deps-only
+
+# Preview one crate or a small compatible batch
+cargo upgrade -p <crate> --compatible --dry-run
+
+# Apply the manifest requirement change, then resolve the lockfile
+cargo upgrade -p <crate> --compatible
+cargo update -p <crate>
+
+# Review and verify
+git diff -- Cargo.toml Cargo.lock
+cargo tree -d
+cargo fmt -- --check
+cargo check --locked --all-targets
+cargo test --locked --all-targets
+cargo clippy --locked --all-targets --all-features -- -D warnings
+cargo audit
+```
+
+Repeat this loop package by package, or family by family when crates are
+coupled. Do not upgrade the whole dependency graph blindly. The key distinction
+is that `cargo upgrade` changes the version requirements in `Cargo.toml`, while
+`cargo update` changes the concrete versions recorded in `Cargo.lock`. If the
+existing requirement already permits the desired version, skip `cargo upgrade`
+and use only `cargo update -p <crate>`.
+
+The commands are a workflow, not a guarantee. Before upgrading a crate with a
+public API, read its release notes and migration guide. Review every manifest
+and lockfile diff, keep each batch easy to revert, and treat database, HTTP,
+authentication, crypto, TLS, and generated-client crates as higher-risk than
+ordinary utility crates. `cargo outdated` reports freshness; `cargo audit`
+checks RustSec advisories; neither replaces tests or release-note review.
+
 ## 1. What "update dependencies" means
 
 Keep these activities separate:
@@ -29,7 +73,8 @@ At the time this plan was written:
 
 - The service is a single Cargo package, edition 2024, with a checked-in
   `Cargo.lock` containing about 586 package entries.
-- Rust/Cargo are `1.95.0` locally.
+- Rust/Cargo were `1.95.0` when this baseline was recorded; rerun
+  `rustc --version` and `cargo --version` before starting an upgrade.
 - `cargo-outdated` is installed; `cargo-audit` and `cargo-deny` are not.
 - The direct dependency list contains several tightly coupled families:
   Google Cloud crates, OpenTelemetry crates, Axum/Tower crates, and SeaORM/
@@ -54,7 +99,9 @@ as a snapshot, not as a prescription; rerun it immediately before upgrading.
 ### Phase A — Establish a known-good baseline
 
 1. Ensure the working tree is clean enough to identify upgrade changes. Commit
-   or stash unrelated work; do not discard it.
+  or stash unrelated work; do not discard it. If there are existing uncommitted
+  dependency edits, decide explicitly whether they are the baseline or should
+  be set aside before continuing.
 2. Record the toolchain (`rustc --version`, `cargo --version`) and decide the
    project's MSRV policy. If the service has a deployment toolchain, test that
    toolchain too; local success on Rust 1.95 is not enough.
@@ -104,8 +151,8 @@ Use a branch and one logical change per commit/PR. A sensible order is:
    `cargo update`, or update a selected package conservatively:
 
    ```text
-   cargo update --dry-run
-   cargo update <crate>
+  cargo update --dry-run
+  cargo update -p <crate>
    ```
 
    Review `Cargo.lock`; do not hand-edit it. If the manifest requirement must
@@ -129,7 +176,9 @@ For a production service, commit the lockfile and use `--locked` in CI/builds.
 
 `cargo-edit`'s `cargo upgrade` can rewrite manifest requirements, but use its
 compatible-only/dry-run modes first and review every manifest diff. It is an
-optional convenience, not a substitute for release-note review.
+optional convenience, not a substitute for release-note review. Recent Cargo
+versions already provide `cargo add` and `cargo rm`; `cargo-edit` is mainly
+useful here for `cargo upgrade`.
 
 ### Phase D — Validate each batch
 
@@ -199,6 +248,11 @@ cargo audit
 cargo tree -d
 ```
 
+Use `cargo outdated` as an inventory, not as an instruction to upgrade every
+line it reports. The `--root-deps-only` view is usually the best starting point;
+inspect the full transitive graph when investigating advisories, duplicates, or
+an unexpectedly large lockfile change.
+
 Install missing tools with locked installs when appropriate:
 
 ```text
@@ -212,11 +266,14 @@ accepting all defaults blindly.
 
 ### 4.2 Conservative compatible refresh
 
-First preview, then update only a small compatible group:
+First preview, then update only a small compatible group. If the manifest
+requirement already permits the new version, this is a lockfile-only operation;
+otherwise use `cargo upgrade` deliberately before `cargo update`:
 
 ```text
-cargo update --dry-run
-cargo update anyhow async-trait blake3 bytes chrono reqwest rustls serde serde_json tokio uuid webbrowser
+cargo upgrade -p anyhow -p async-trait -p blake3 --compatible --dry-run
+cargo upgrade -p anyhow -p async-trait -p blake3 --compatible
+cargo update -p anyhow -p async-trait -p blake3
 cargo check --all-targets
 cargo test --all-targets
 ```
@@ -278,15 +335,15 @@ a recent, trustworthy test baseline.
 
 ## 6. Tool reference
 
-| Tool | Use | Important distinction |
-| --- | --- | --- |
-| Cargo resolver / `cargo update` | Resolve versions and update `Cargo.lock` | Does not replace API/migration review |
-| `cargo outdated` | Find stale direct/transitive crates | Freshness, not vulnerability analysis |
-| `cargo audit` | Check RustSec advisories | Advisory coverage, not general quality |
-| `cargo-deny` | Advisories, licenses, sources, duplicate versions | Policy enforcement; configure deliberately |
-| `cargo tree` | Inspect graph, duplicates, and features | Explains why a version/feature is present |
-| `cargo-edit` / `cargo upgrade` | Rewrite manifest requirements | Optional; review generated changes |
-| Dependabot/Renovate | Open automated update PRs | Automation should be bounded by CI and grouping |
+| Tool                            | Use                                               | Important distinction                           |
+| ------------------------------- | ------------------------------------------------- | ----------------------------------------------- |
+| Cargo resolver / `cargo update` | Resolve versions and update `Cargo.lock`          | Does not replace API/migration review           |
+| `cargo outdated`                | Find stale direct/transitive crates               | Freshness, not vulnerability analysis           |
+| `cargo audit`                   | Check RustSec advisories                          | Advisory coverage, not general quality          |
+| `cargo-deny`                    | Advisories, licenses, sources, duplicate versions | Policy enforcement; configure deliberately      |
+| `cargo tree`                    | Inspect graph, duplicates, and features           | Explains why a version/feature is present       |
+| `cargo-edit` / `cargo upgrade`  | Rewrite manifest requirements                     | Optional; review generated changes              |
+| Dependabot/Renovate             | Open automated update PRs                         | Automation should be bounded by CI and grouping |
 
 ## Definition of done
 
