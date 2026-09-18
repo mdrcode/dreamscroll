@@ -43,6 +43,5 @@ pub async fn post(
         .await
         .map_err(api::ApiError::internal)?;
 
-    // See webhook::http_status_for_outcome for why exhausted errors still ack.
-    Ok(webhook::http_status_for_outcome(outcome))
+    Ok(webhook::http_status_for_task_run(outcome))
 }

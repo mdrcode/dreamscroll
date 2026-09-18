@@ -44,7 +44,7 @@ pub struct Model {
     #[sea_orm(indexed)]
     pub entity_id: i32,
 
-    /// Integer discriminant of `task::TaskStatus`.
+    /// Integer discriminant of `task::TaskRunStatus`.
     pub status_code: i32,
 
     pub attempts: i32,

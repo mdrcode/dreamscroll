@@ -2,7 +2,9 @@ use anyhow::anyhow;
 
 /// Typed status values which track a Run of a background Task.
 ///
-/// A run moves `Queued` → `InProgress` → one of the terminal states. A failure
+/// Submission initially creates `Queued`. If the queue rejects the task before
+/// a worker can receive it, the run becomes `SubmissionFailed`. Otherwise it
+/// moves `Queued` → `InProgress` → one of the execution outcomes. A failure
 /// with retry budget left becomes `ErrorWillRetry` (another attempt is coming);
 /// once the budget is spent it becomes `CompleteFailure`.
 ///
@@ -10,33 +12,36 @@ use anyhow::anyhow;
 /// integer and this strongly-typed enum is owned here.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskRunStatus {
-    Queued = 0,
-    InProgress = 1,
-    ErrorWillRetry = 2,
-    CompleteSuccess = 3,
-    CompleteFailure = 4,
+    SubmissionFailed = 0,
+    Queued = 1,
+    InProgress = 2,
+    ErrorWillRetry = 3,
+    CompleteSuccess = 4,
+    CompleteFailure = 5,
 }
 
 impl TaskRunStatus {
     /// The integer persisted in the `task_run_status.status_code` column.
     pub fn as_i32(&self) -> i32 {
         match self {
-            TaskRunStatus::Queued => 0,
-            TaskRunStatus::InProgress => 1,
-            TaskRunStatus::ErrorWillRetry => 2,
-            TaskRunStatus::CompleteSuccess => 3,
-            TaskRunStatus::CompleteFailure => 4,
+            TaskRunStatus::SubmissionFailed => 0,
+            TaskRunStatus::Queued => 1,
+            TaskRunStatus::InProgress => 2,
+            TaskRunStatus::ErrorWillRetry => 3,
+            TaskRunStatus::CompleteSuccess => 4,
+            TaskRunStatus::CompleteFailure => 5,
         }
     }
 
-    /// Reconstruct a `StatusCode` from the integer stored in the DB.
+    /// Reconstruct a `TaskRunStatus` from the integer stored in the DB.
     pub fn from_i32(v: i32) -> Result<Self, anyhow::Error> {
         match v {
-            0 => Ok(TaskRunStatus::Queued),
-            1 => Ok(TaskRunStatus::InProgress),
-            2 => Ok(TaskRunStatus::ErrorWillRetry),
-            3 => Ok(TaskRunStatus::CompleteSuccess),
-            4 => Ok(TaskRunStatus::CompleteFailure),
+            0 => Ok(TaskRunStatus::SubmissionFailed),
+            1 => Ok(TaskRunStatus::Queued),
+            2 => Ok(TaskRunStatus::InProgress),
+            3 => Ok(TaskRunStatus::ErrorWillRetry),
+            4 => Ok(TaskRunStatus::CompleteSuccess),
+            5 => Ok(TaskRunStatus::CompleteFailure),
             other => Err(anyhow!("unknown task status integer: {other}")),
         }
     }
@@ -57,6 +62,7 @@ impl TaskRunStatus {
 impl std::fmt::Display for TaskRunStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let name = match self {
+            TaskRunStatus::SubmissionFailed => "SubmissionFailed",
             TaskRunStatus::Queued => "Queued",
             TaskRunStatus::InProgress => "InProgress",
             TaskRunStatus::ErrorWillRetry => "ErrorWillRetry",
@@ -76,11 +82,12 @@ mod tests {
         // Discriminants are persisted; changing them silently would corrupt
         // every existing row.
         let all = [
-            (TaskRunStatus::Queued, 0),
-            (TaskRunStatus::InProgress, 1),
-            (TaskRunStatus::ErrorWillRetry, 2),
-            (TaskRunStatus::CompleteSuccess, 3),
-            (TaskRunStatus::CompleteFailure, 4),
+            (TaskRunStatus::SubmissionFailed, 0),
+            (TaskRunStatus::Queued, 1),
+            (TaskRunStatus::InProgress, 2),
+            (TaskRunStatus::ErrorWillRetry, 3),
+            (TaskRunStatus::CompleteSuccess, 4),
+            (TaskRunStatus::CompleteFailure, 5),
         ];
 
         for (status, code) in all {
@@ -101,6 +108,7 @@ mod tests {
         assert!(TaskRunStatus::InProgress.is_in_flight());
         assert!(TaskRunStatus::ErrorWillRetry.is_in_flight());
 
+        assert!(!TaskRunStatus::SubmissionFailed.is_in_flight());
         assert!(!TaskRunStatus::CompleteSuccess.is_in_flight());
         assert!(!TaskRunStatus::CompleteFailure.is_in_flight());
     }

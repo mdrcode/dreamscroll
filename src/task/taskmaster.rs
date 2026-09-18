@@ -43,7 +43,7 @@ pub enum SubmitOutcome {
     RefusedAlreadyInFlight { run: i32 },
 }
 
-// Determine whether a new run is permitted, and if so what its 1-based run number is.
+/// Determine whether a new run is permitted, and if so what its 1-based run number is.
 fn decide_next_run(latest_run: Option<&model::task_run_status::Model>) -> Option<i32> {
     if let Some(latest) = latest_run {
         match TaskRunStatus::from_i32(latest.status_code) {
@@ -64,6 +64,7 @@ fn decide_next_run(latest_run: Option<&model::task_run_status::Model>) -> Option
 fn decide_next_attempt(status: Option<&model::task_run_status::Model>) -> Option<i32> {
     match status {
         Some(row) if row.status_code == TaskRunStatus::CompleteSuccess.as_i32() => None,
+        Some(row) if row.status_code == TaskRunStatus::SubmissionFailed.as_i32() => None,
         Some(row) => Some(row.attempts + 1),
         None => Some(1),
     }
@@ -112,6 +113,8 @@ impl TaskMaster {
     ///
     /// Wraps the Task in a TaskEnvelope, enqueues it in the corresponding backend,
     /// and records a `Queued` row in the `task_run_status` table for that envelope_id.
+    /// If enqueueing fails, the row is changed to `SubmissionFailed` before the
+    /// enqueue error is returned.
     ///
     /// Tasks submitted for the first time start a "run" of 1.
     ///
@@ -164,7 +167,6 @@ impl TaskMaster {
 
         // Record `Queued` before enqueueing, since `enqueue` moves the envelope.
         // `false` = another submit claimed this run first; refuse, don't double-enqueue.
-        // TODO should we rethink this and possibly record QueueFailure as a status code?
         let created = self
             .status
             .create_run(&envelope, TaskRunStatus::Queued, 0)
@@ -179,14 +181,29 @@ impl TaskMaster {
             return Ok(SubmitOutcome::RefusedAlreadyInFlight { run: next_run });
         }
 
-        queue.enqueue(envelope.clone()).await.inspect_err(|err| {
+        if let Err(enqueue_err) = queue.enqueue(envelope.clone()).await {
             tracing::error!(
                 queue = ?queue,
                 envelope = ?envelope,
-                error = ?err,
+                error = ?enqueue_err,
                 "Failed to enqueue task",
-            )
-        })?;
+            );
+
+            if let Err(status_err) = self
+                .status
+                .update_run(&envelope, TaskRunStatus::SubmissionFailed, 0)
+                .await
+            {
+                tracing::error!(
+                    envelope_id = %envelope.envelope_id,
+                    run = envelope.run,
+                    error = ?status_err,
+                    "Failed to record SubmissionFailed task status",
+                );
+            }
+
+            return Err(enqueue_err);
+        }
 
         Ok(SubmitOutcome::Enqueued { run: next_run })
     }
@@ -197,6 +214,7 @@ impl TaskMaster {
     /// restarts and works for every queue backend (Cloud Tasks' retry-count
     /// header isn't available on the local queue). `None` if the run already
     /// `CompleteSuccess` — that redelivery must be ignored, not resurrected.
+    /// A `SubmissionFailed` run never reached a worker and is also ignored.
     pub async fn begin_attempt<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
@@ -407,6 +425,13 @@ mod tests {
             None,
             "an at-least-once redelivery of finished work must be ignored"
         );
+    }
+
+    #[test]
+    fn failed_submission_is_not_a_worker_attempt() {
+        let row = status_row(TaskRunStatus::SubmissionFailed, 0);
+
+        assert_eq!(decide_next_attempt(Some(&row)), None);
     }
 
     #[test]
@@ -1126,12 +1151,10 @@ mod tests {
         );
     }
 
-    /// The row is written *before* the enqueue, so a failed enqueue leaves a
-    /// `Queued` row that nothing will ever pick up. Documented as a tolerated
-    /// orphan (see pragmatism.md) — this test pins the behaviour so a change is
-    /// deliberate rather than accidental.
+    /// The row is written before the enqueue, then marked `SubmissionFailed` if
+    /// the queue rejects it, so a later submission can start a new run.
     #[tokio::test]
-    async fn failed_enqueue_leaves_a_queued_row() {
+    async fn failed_enqueue_records_submission_failed() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -1147,7 +1170,22 @@ mod tests {
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
-        assert_eq!(rows[0].status_code, TaskRunStatus::Queued.as_i32());
+        assert_eq!(
+            rows[0].status_code,
+            TaskRunStatus::SubmissionFailed.as_i32()
+        );
+
+        let retry = service
+            .submit_illumination(1, IlluminationTask { capture_id: 9 })
+            .await;
+        assert!(retry.is_err(), "the test queue is still configured to fail");
+
+        let rows = service
+            .query_incomplete_for_entity(1, "capture", 9)
+            .await
+            .expect("query should succeed");
+        assert_eq!(rows.len(), 1, "only the latest run is returned");
+        assert_eq!(rows[0].run, 2);
     }
 
     /// Only `Completed` is protected from redelivery. An exhausted run is not,
