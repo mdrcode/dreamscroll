@@ -55,7 +55,11 @@ pub async fn make_task_master(
                 cfg.gcloud_project_region.as_str(),
                 cfg.task_cloudtask_queue_illumination
                     .as_ref()
-                    .expect("TASK_CLOUDTASK_QUEUE_ILLUMINATION not set"),
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "TASK_CLOUDTASK_QUEUE_ILLUMINATION must be set for the GCloudTasks backend"
+                        )
+                    })?,
             )
             .await
             .context("Failed to initialize Cloud Tasks Queue: Illumination")?;
@@ -65,7 +69,11 @@ pub async fn make_task_master(
                 cfg.gcloud_project_region.as_str(),
                 cfg.task_cloudtask_queue_spark
                     .as_ref()
-                    .expect("TASK_CLOUDTASK_QUEUE_SPARK not set"),
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "TASK_CLOUDTASK_QUEUE_SPARK must be set for the GCloudTasks backend"
+                        )
+                    })?,
             )
             .await
             .context("Failed to initialize Cloud Tasks Queue: Spark")?;
@@ -75,7 +83,11 @@ pub async fn make_task_master(
                 cfg.gcloud_project_region.as_str(),
                 cfg.task_cloudtask_queue_search_index
                     .as_ref()
-                    .expect("TASK_CLOUDTASK_QUEUE_SEARCH_INDEX not set"),
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "TASK_CLOUDTASK_QUEUE_SEARCH_INDEX must be set for the GCloudTasks backend"
+                        )
+                    })?,
             )
             .await
             .context("Failed to initialize Cloud Tasks Queue: SearchIndex")?;

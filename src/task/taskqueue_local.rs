@@ -99,8 +99,12 @@ where
             let handler = Arc::clone(&handler);
             tokio::spawn(async move {
                 let _permit = permit; // releases when dropped
-                if let Err(err) = (handler)(task).await {
-                    tracing::error!(error = ?err, "Local task execution failed");
+                if let Err(err) = (handler)(task.clone()).await {
+                    tracing::error!(
+                        envelope = ?task,
+                        error = ?err,
+                        "Local task delivery failed; the task will not be retried by LocalTaskQueue"
+                    );
                 }
             });
         }

@@ -27,6 +27,13 @@ impl<T: Task> std::fmt::Debug for CloudTaskQueue<T> {
 }
 
 impl<T: Task> CloudTaskQueue<T> {
+    fn task_name(queue_path: &str, envelope: &TaskEnvelope<T>) -> String {
+        format!(
+            "{queue_path}/tasks/{}-run{}",
+            envelope.envelope_id, envelope.run
+        )
+    }
+
     pub async fn connect(project_id: &str, region: &str, queue_id: &str) -> anyhow::Result<Self> {
         let client = CloudTasks::builder().build().await?;
 
@@ -56,7 +63,12 @@ impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
             .set_headers([("Content-Type", "application/json")])
             .set_body(body);
 
-        let pending_task = CloudTask::new().set_http_request(webhook_request);
+        // A deterministic name makes client retries idempotent at the Cloud
+        // Tasks layer. The run is included so intentional reruns get a new
+        // Cloud Task name.
+        let pending_task = CloudTask::new()
+            .set_name(Self::task_name(&self.inner.queue_path, &envelope))
+            .set_http_request(webhook_request);
 
         let created_task = self
             .inner
@@ -84,5 +96,43 @@ impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
         );
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Serialize;
+
+    #[derive(Debug, Clone, Serialize)]
+    struct TestTask {
+        id: i32,
+    }
+
+    impl Task for TestTask {
+        fn task_type() -> &'static str {
+            "test"
+        }
+
+        fn entity_type() -> &'static str {
+            "capture"
+        }
+
+        fn entity_id(&self) -> i32 {
+            self.id
+        }
+    }
+
+    #[test]
+    fn task_name_is_stable_per_run() {
+        let envelope = TaskEnvelope::new(7, TestTask { id: 42 }, 3);
+
+        assert_eq!(
+            CloudTaskQueue::<TestTask>::task_name(
+                "projects/p/locations/r/queues/q",
+                &envelope
+            ),
+            "projects/p/locations/r/queues/q/tasks/u7-test-capture42-run3"
+        );
     }
 }

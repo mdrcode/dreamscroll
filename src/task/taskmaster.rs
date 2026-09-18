@@ -70,6 +70,7 @@ fn decide_next_attempt(status: Option<&model::task_run_status::Model>) -> Option
     }
 }
 
+/// Determines whether a failed attempt should be retried.
 fn decide_will_retry(err: &api::ApiError, attempt: i32, max_attempts: i32) -> bool {
     attempt < max_attempts && err.is_retryable()
 }
