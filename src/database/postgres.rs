@@ -25,6 +25,7 @@ pub async fn connect_postgres_db(
     let url = make_url_from_config(cfg, None, false);
     let mut options = sea_orm::ConnectOptions::new(url);
     options.max_connections(5).min_connections(0); // TODO make configurable
+    options.sqlx_logging(false);
 
     let conn = sea_orm::Database::connect(options).await?;
 
