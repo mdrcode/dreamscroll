@@ -50,6 +50,48 @@ authentication, crypto, TLS, and generated-client crates as higher-risk than
 ordinary utility crates. `cargo outdated` reports freshness; `cargo audit`
 checks RustSec advisories; neither replaces tests or release-note review.
 
+### Answering "what depends on X?"
+
+Use `cargo tree --invert` to reverse the dependency graph. It answers the
+practical question: *which direct or transitive dependencies are bringing this
+crate into my project?*
+
+```text
+# Everything that depends on sqlx
+cargo tree --invert sqlx
+
+# Investigate a particular resolved version when duplicates exist
+cargo tree --invert sqlx@0.8.6
+cargo tree --invert sqlx@0.9.0
+
+# Include normal, build, and development dependency edges
+cargo tree --invert sqlx --edges all
+
+# Show feature paths as well
+cargo tree --invert sqlx --edges features
+
+# Show only the first level of reverse dependencies
+cargo tree --invert sqlx --depth 1
+
+# Find packages that occur in multiple versions
+cargo tree --duplicates
+```
+
+For a dependency upgrade, start with the version-specific reverse trees if
+`cargo tree --duplicates` shows multiple versions. A result such as
+
+```text
+dreamscroll
+└── tower-sessions-sqlx-store
+  └── sqlx v0.8.6
+```
+
+means the session-store crate is the path that prevents that part of the graph
+from using another SQLx version. Compare it with the reverse tree for the other
+version, then decide whether to upgrade the parent crate, accept the duplicate,
+or defer the upgrade. This investigation is often more useful than looking at
+the top-level `Cargo.toml` alone.
+
 ## 1. What "update dependencies" means
 
 Keep these activities separate:

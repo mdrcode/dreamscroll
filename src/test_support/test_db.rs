@@ -30,7 +30,7 @@
 //! `sqlx::test`, and transaction-rollback.
 
 use sea_orm::DatabaseConnection;
-use sqlx::postgres::PgPoolOptions;
+use sqlx::{AssertSqlSafe, postgres::PgPoolOptions};
 
 use crate::{config, database, test_support};
 
@@ -68,9 +68,11 @@ impl Drop for TestDb {
                 .connect(&base_url)
                 .await
             {
-                let _ = sqlx::query(&format!("DROP SCHEMA IF EXISTS {test_schema} CASCADE"))
-                    .execute(&pool)
-                    .await;
+                let _ = sqlx::query(AssertSqlSafe(format!(
+                    "DROP SCHEMA IF EXISTS {test_schema} CASCADE"
+                )))
+                .execute(&pool)
+                .await;
             }
         });
     }
@@ -108,7 +110,7 @@ pub async fn test_db() -> Option<TestDb> {
 
     // Create the new, "current" test schema
     let new_test_schema = format!("test_{}", uuid::Uuid::new_v4().simple());
-    if let Err(err) = sqlx::query(&format!("CREATE SCHEMA {new_test_schema}"))
+    if let Err(err) = sqlx::query(AssertSqlSafe(format!("CREATE SCHEMA {new_test_schema}")))
         .execute(&base_pool)
         .await
     {
@@ -123,9 +125,11 @@ pub async fn test_db() -> Option<TestDb> {
         Ok(conn) => conn,
         Err(err) => {
             eprintln!("test_support::test_db: skipping DB test, cannot connect: {err}");
-            let _ = sqlx::query(&format!("DROP SCHEMA IF EXISTS {new_test_schema} CASCADE"))
-                .execute(&base_pool)
-                .await;
+            let _ = sqlx::query(AssertSqlSafe(format!(
+                "DROP SCHEMA IF EXISTS {new_test_schema} CASCADE"
+            )))
+            .execute(&base_pool)
+            .await;
             return None;
         }
     };
@@ -137,9 +141,11 @@ pub async fn test_db() -> Option<TestDb> {
         .await
     {
         eprintln!("test_support::test_db: skipping DB test, schema sync failed: {err}");
-        let _ = sqlx::query(&format!("DROP SCHEMA IF EXISTS {new_test_schema} CASCADE"))
-            .execute(&base_pool)
-            .await;
+        let _ = sqlx::query(AssertSqlSafe(format!(
+            "DROP SCHEMA IF EXISTS {new_test_schema} CASCADE"
+        )))
+        .execute(&base_pool)
+        .await;
         return None;
     }
 
@@ -158,12 +164,7 @@ async fn connect_with_schema(
 ) -> anyhow::Result<DatabaseConnection> {
     let url_with_schema = database::make_url_from_config(cfg, Some(schema), false);
 
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&url_with_schema)
-        .await?;
-
-    let conn = sea_orm::SqlxPostgresConnector::from_sqlx_postgres_pool(pool);
+    let conn = sea_orm::Database::connect(url_with_schema).await?;
 
     Ok(conn)
 }
@@ -194,9 +195,11 @@ async fn sweep_stale_schemas(pool: &sqlx::PgPool) {
             };
 
             for schema in stale {
-                let _ = sqlx::query(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
-                    .execute(pool)
-                    .await;
+                let _ = sqlx::query(AssertSqlSafe(format!(
+                    "DROP SCHEMA IF EXISTS {schema} CASCADE"
+                )))
+                .execute(pool)
+                .await;
             }
         })
         .await;

@@ -181,8 +181,8 @@ impl InfoMaker {
 
         let meta = match spark_model.spark_meta {
             HasOne::Unloaded => None,
-            HasOne::NotFound => None,
-            HasOne::Loaded(meta) => Some(SparkMetaInfo {
+            HasOne::Loaded(None) => None,
+            HasOne::Loaded(Some(meta)) => Some(SparkMetaInfo {
                 provider_name: meta.provider_name,
                 duration_ms: meta.duration_ms,
                 input_capture_count: meta.input_capture_count,

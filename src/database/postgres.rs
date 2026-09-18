@@ -1,6 +1,6 @@
 use anyhow;
 use sea_orm::{self, DbErr};
-use sqlx;
+use sqlx08;
 use tower_sessions_sqlx_store::PostgresStore;
 
 use crate::config;
@@ -8,33 +8,25 @@ use crate::config;
 pub async fn connect(
     cfg: &config::Config,
 ) -> anyhow::Result<(sea_orm::DatabaseConnection, PostgresStore)> {
-    let pool = create_postgres_pool(cfg).await?;
-    let db_connection = connect_postgres_db(pool.clone()).await?;
-    let session_store = connect_postgres_session_store(pool.clone()).await?;
+    // TODO: Currently we must support TWO CONNECTION POOLS to account
+    // for sqlx version mismatch between sea-orm and tower_sessions_sqlx_store.
+    // Once tower_sessions_sqlx_store is updated to use sqlx 0.9, we can remove
+    // the second pool. This means currently we are doubling up on connection
+    // budget.
+    let db_connection = connect_postgres_db(cfg).await?; // pool #1 internally
+    let sqlx08_pool = create_session_sqlx08_pool(cfg).await?; // pool #2
+    let session_store = connect_postgres_session_store(sqlx08_pool).await?;
     Ok((db_connection, session_store))
 }
 
-pub async fn create_postgres_pool(cfg: &config::Config) -> anyhow::Result<sqlx::postgres::PgPool> {
-    let url = make_url_from_config(cfg, None, false);
-    let url_redacted = make_url_from_config(cfg, None, true);
-
-    tracing::info!(
-        url_redacted = %url_redacted,
-        "Connecting to Postgres connection pool..."
-    );
-
-    let pool = sqlx::postgres::PgPoolOptions::new()
-        .max_connections(5) // low for db-f1-micro's constraint
-        .connect(&url)
-        .await?;
-
-    Ok(pool)
-}
-
 pub async fn connect_postgres_db(
-    pool: sqlx::postgres::PgPool,
+    cfg: &config::Config,
 ) -> Result<sea_orm::DatabaseConnection, DbErr> {
-    let conn = sea_orm::SqlxPostgresConnector::from_sqlx_postgres_pool(pool);
+    let url = make_url_from_config(cfg, None, false);
+    let mut options = sea_orm::ConnectOptions::new(url);
+    options.max_connections(5).min_connections(0); // TODO make configurable
+
+    let conn = sea_orm::Database::connect(options).await?;
 
     conn.get_schema_registry("dreamscroll::model::*")
         .sync(&conn)
@@ -45,8 +37,16 @@ pub async fn connect_postgres_db(
     Ok(conn)
 }
 
+async fn create_session_sqlx08_pool(cfg: &config::Config) -> anyhow::Result<sqlx08::PgPool> {
+    let url = make_url_from_config(cfg, None, false);
+    Ok(sqlx08::postgres::PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&url)
+        .await?)
+}
+
 pub async fn connect_postgres_session_store(
-    pool: sqlx::PgPool,
+    pool: sqlx08::PgPool,
 ) -> anyhow::Result<tower_sessions_sqlx_store::PostgresStore> {
     let store = tower_sessions_sqlx_store::PostgresStore::new(pool);
     store.migrate().await?;

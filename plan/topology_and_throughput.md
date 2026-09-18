@@ -23,8 +23,15 @@
 
 - Cloud Run caps each instance at **100 connections** to a Cloud SQL database (when using the built-in Cloud SQL connection).
 - This limit is **per instance** and grows as the service scales.
-- Dreamscroll's current pool is `max_connections(5)` in `src/database/postgres.rs`, sized for the `db-f1-micro` tier.
-- The SSE design adds **1 dedicated `LISTEN` connection per instance** (for Postgres `LISTEN/NOTIFY`), plus the pool of 5 → **6 DB connections per instance**. Trivial against the 100 cap.
+- The session-store pool is `max_connections(5)` in `src/database/postgres.rs`,
+	sized for the `db-f1-micro` tier. SeaORM currently has a separate pool with
+	its default maximum because the service temporarily uses incompatible SQLx
+	versions.
+- The SSE design adds **1 dedicated `LISTEN` connection per instance** (for
+	Postgres `LISTEN/NOTIFY`). The current upper-bound estimate is therefore
+	**SeaORM's configured/default maximum + 5 session-store connections + 1
+	listener per instance**; measure and configure this explicitly before relying
+	on the old six-connection estimate.
 
 **Conclusion:** DB connections are **not** the binding constraint. Even with several instances, the budget is comfortable.
 
@@ -51,7 +58,11 @@ The cheaper tiers and their approximate connection limits:
 
 ### Why this matters for Dreamscroll
 
-- **`db-f1-micro` (~25 connections) is the current constraint.** The pool of 5 in `src/database/postgres.rs` is deliberately conservative to stay under this. Adding the SSE `LISTEN` connection (1/instance) means **each Cloud Run instance uses 6 connections** — so on `f1-micro` you can only run **~4 instances** before exhausting the DB's ~25-connection budget.
+- **`db-f1-micro` (~25 connections) is the current constraint.** The session
+	pool of 5 is deliberately conservative, but the separate SeaORM pool and SSE
+	listener must also be included. The safe instance count depends on the
+	SeaORM pool's actual configured maximum; do not use the former six-connection
+	estimate until both pools are explicitly budgeted.
 - **This is the one place the DB budget *can* bite** — not per-instance, but in the *total* across instances on a tiny tier. The HTTP concurrency budget (section 3) is still the primary SSE constraint, but on `f1-micro` the DB connection total is a close second.
 - **Upgrading to `db-custom-1-3840` (~100) or `db-custom-2-7680` (~200)** removes the DB connection total as a practical constraint for a personal/small app, and lets you raise the pool size if needed.
 
@@ -100,7 +111,13 @@ From the Cloud Run container contract — long-lived connections are **treated a
 
 - **No concurrency / max-instances / min-instances set** in `cloudbuild.yaml`, `docker-build-push.sh`, or deploy scripts → Dreamscroll runs on Cloud Run defaults.
 - Cloud SQL connection: **private IP + Direct VPC egress** (`config_prod.env` → `10.128.0.10:5432`; see `_project/gcloud/cloudsql_postgres.md`).
-- DB pool: `max_connections(5)` in `src/database/postgres.rs`.
+- SeaORM pool: currently uses SeaORM's default pool settings in
+	`src/database/postgres.rs` (no configured `max_connections`).
+- Session-store pool: `max_connections(5)` in `src/database/postgres.rs`.
+- Temporary SQLx split: SeaORM uses SQLx 0.9 while
+	`tower-sessions-sqlx-store` uses SQLx 0.8, so the service currently has two
+	PostgreSQL pools. The consolidation TODO is recorded next to the pool setup
+	in `src/database/postgres.rs`.
 
 ---
 
