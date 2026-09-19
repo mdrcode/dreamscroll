@@ -46,8 +46,8 @@ Upload (webui/v2/r_upload.rs)
 > no real purpose without search indexing, so `logic/illuminate::exec` now runs
 > **both** steps as a single unit of work. The capture-create path calls
 > `submit_illumination` directly. `r_illuminate` + the illumination queue are the
-> live path; the `/_wh/cloudtask/illuminate` route is also available for future
-> reserved for future backfill / rerun flows.
+> live path; the `/_wh/cloudtask/illuminate` route is reserved for future
+> backfill / rerun flows.
 
 ### 2.2 Key facts
 
@@ -63,8 +63,7 @@ Upload (webui/v2/r_upload.rs)
   (e.g. `u1-illuminate-capture123`). There is **no UUID** and no separate
   `task_id.rs`. The id names the *logical work* and deliberately **excludes** the
   run — see §6.
-- **`TaskQueue<T>` is enqueue-only and generic.** `TaskQueue::get_status()` was
-  removed (it was `unimplemented!()` everywhere); status lives in the
+- **`TaskQueue<T>` is enqueue-only and generic.** Status lives in the
   `task_run_status` table. The trait is `async fn enqueue(&self, wrapped:
   TaskEnvelope<T>)`. Two backends: `LocalTaskQueue` (in-process mpsc +
   semaphore) and `CloudTaskQueue` (Google Cloud Tasks). **Pub/Sub support was
@@ -92,8 +91,7 @@ Upload (webui/v2/r_upload.rs)
 
 ## 3. The `task_run_status` table
 
-`TaskQueue::get_status()` was removed (unimplemented everywhere). Instead, a
-small, focused **`task_run_status` table** is the source of truth:
+The small, focused **`task_run_status` table** is the source of truth:
 
 ```sql
 CREATE TABLE task_run_status (
@@ -149,8 +147,6 @@ LocalTaskQueue — failed tasks silently dropped."* With a `task_run_status` tab
 
 | Variant            | Code | Meaning                                                                 |
 | ------------------ | ---- | ----------------------------------------------------------------------- |
-| `Queued`           | 0    | Enqueued, not yet picked up.                                            |
-| `InProgress`       | 1    | A worker is currently executing an attempt.                             |
 | `SubmissionFailed` | 0    | Queue submission failed before a worker could receive the task.         |
 | `Queued`           | 1    | Enqueued, not yet picked up.                                            |
 | `InProgress`       | 2    | A worker is currently executing an attempt.                             |
@@ -194,7 +190,7 @@ there is deliberately no separate `is_settled()` predicate.
   Deriving the count from the DB (rather than Cloud Tasks' retry-count header)
   means it works identically for **every** backend, including `LocalTaskQueue`,
   which has no headers. It returns `None` when the run is already `CompleteSuccess`, so
-  an at-least-once redelivery of finished work is acked without resurrecting the
+  an at-least-once redelivery of successful work is acked without resurrecting the
   row to `InProgress`.
 - **`TaskMaster::finish_attempt(envelope, attempt, &result)`** writes the outcome
   and returns an `AttemptOutcome`.

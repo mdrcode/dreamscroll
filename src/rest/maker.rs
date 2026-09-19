@@ -54,6 +54,10 @@ pub fn make_api_router(
             "/captures/{capture_id}/unarchive",
             post(r_capture::unarchive),
         )
+        .route(
+            "/captures/{capture_id}/illuminate",
+            post(r_capture::illuminate),
+        )
         .route("/captures/{capture_id}/annotation", post(r_annotation::set))
         .route(
             "/captures/{capture_id}/annotation/archive",

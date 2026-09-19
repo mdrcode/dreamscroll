@@ -58,6 +58,11 @@ POST https://dreamscroll.ai/api/captures/605/unarchive
 Authorization: Bearer {{token}}
 
 ###
+# Returns 204 No Content on success, 409 Conflict if in flight, or 404 
+POST https://dreamscroll.ai/api/captures/608/illuminate
+Authorization: Bearer {{token.response.body.access_token}}
+
+###
 # Requires an admin JWT token
 POST https://dreamscroll.ai/api/admin/users
 Authorization: Bearer {{token}}

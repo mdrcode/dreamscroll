@@ -60,6 +60,11 @@ POST http://localhost:8080/api/captures/572/unarchive
 Authorization: Bearer {{token.response.body.access_token}}
 
 ###
+# Returns 204 No Content on success, 409 Conflict if in flight, or 404 
+POST http://localhost:8080/api/captures/608/illuminate
+Authorization: Bearer {{token.response.body.access_token}}
+
+###
 # Requires an admin JWT token
 POST http://localhost:8080/api/admin/users
 Authorization: Bearer {{token.response.body.access_token}}

@@ -325,6 +325,33 @@ impl UserApiClient {
         super::unarchive_capture(&self.db, context, capture_id).await
     }
 
+    #[tracing::instrument(skip(self, context))]
+    pub async fn rerun_illumination(
+        &self,
+        context: &auth::Context,
+        capture_id: i32,
+    ) -> Result<task::SubmitOutcome, ApiError> {
+        // Fetch through the user-scoped API first so this endpoint does not
+        // reveal whether another user's capture exists.
+        if super::get_captures(&self.db, context, vec![capture_id])
+            .await?
+            .is_empty()
+        {
+            return Err(ApiError::not_found(anyhow!(
+                "Capture with id {} not found or access denied",
+                capture_id
+            )));
+        }
+
+        self.task_master
+            .submit_illumination(
+                context.user_id(),
+                logic::illuminate::IlluminationTask { capture_id },
+            )
+            .await
+            .map_err(ApiError::from)
+    }
+
     #[tracing::instrument(skip(self, context, current_password, new_password))]
     pub async fn change_password(
         &self,

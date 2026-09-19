@@ -104,6 +104,33 @@ pub async fn unarchive(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// POST /api/captures/{capture_id}/illuminate - Rerun illumination for a capture
+///
+/// Requires JWT authentication. The capture must belong to the authenticated user.
+pub async fn illuminate(
+    user: DreamscrollAuthUser,
+    State(state): State<Arc<RestState>>,
+    Path(capture_id): Path<i32>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    match state
+        .user_api
+        .rerun_illumination(&user.into(), capture_id)
+        .await?
+    {
+        crate::task::SubmitOutcome::Enqueued { run } => {
+            tracing::info!(capture_id, run, "Queued capture illumination rerun");
+            Ok(StatusCode::NO_CONTENT)
+        }
+        crate::task::SubmitOutcome::RefusedAlreadyInFlight { run } => {
+            Err(api::ApiError::conflict(anyhow::anyhow!(
+                "Illumination for capture {} is already in flight (run {})",
+                capture_id,
+                run
+            )))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //use super::*;
