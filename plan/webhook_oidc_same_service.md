@@ -145,7 +145,7 @@ sequenceDiagram
 
 Create a dedicated service account for task delivery, for example:
 
-`dreamscroll-prod-cloud-tasks@mdrcode.iam.gserviceaccount.com`
+`cloud-tasks-invoker@mdrcode.iam.gserviceaccount.com`
 
 Grant it only the permissions needed to invoke the target service if Cloud Run IAM
 is also used elsewhere. For this design, the application validates its identity, so

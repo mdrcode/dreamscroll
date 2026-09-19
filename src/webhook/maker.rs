@@ -34,7 +34,7 @@ pub fn make_webhook_router(
     // Route suffixes intentionally match the configured Cloud Tasks queue names.
     let mut router = Router::new()
         .route("/cloudtask/illuminate", post(r_illuminate::post))
-        .route("/cloudtask/search_index", post(r_search_index::post))
+        .route("/cloudtask/search-index", post(r_search_index::post))
         .route("/cloudtask/spark", post(r_spark::post))
         .with_state(state);
 
