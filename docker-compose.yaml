@@ -6,7 +6,7 @@ services:
     ports:
       - "8080:8080"
     env_file:
-      - .env # .gitignored for secrets like JWT_SECRET_KEY
+      - .env # .gitignored for secrets like JWT_SECRET and POSTGRES_PASSWORD
     environment:
       RUST_LOG: info,axum_login=warn,tower_sessions=warn
       SERVICES: webui,api,webhook
@@ -14,11 +14,16 @@ services:
       NO_LOCAL_CONFIG_FILES: 1 # any value works
 
       GCLOUD_PROJECT_ID: dreamscroll_local
+      GCLOUD_PROJECT_REGION: us-central1
       PORT: 8080
 
+      SESSION_ALWAYS_SAVE: true
       COOKIE_SECURE: false # false for local dev to allow non-HTTPS (localhost)
 
       ILLUMINATOR: geminipublicapi
+      GEMINI_MODEL_ID: gemini-3.8-flash
+      GEMINI_PAYLOAD_METHOD: inline
+      FIRESTARTER: grok
 
       # note that these must be redundantly defined below for db as well
       POSTGRES_USER: dreamscroll_pg_user
@@ -29,6 +34,17 @@ services:
       STORAGE_BACKEND: gcloud
       STORAGE_GCLOUD_EMULATOR: http://fake-gcs:4443
       STORAGE_GCLOUD_BUCKET_NAME: "dreamscroll-dev-media1"
+
+      TASK_BACKEND: local
+      TASK_MAX_ATTEMPTS: 1 # LocalTaskQueue does not retry
+      TASK_WEBHOOK_BASE_URL: http://localhost:8080
+      TASK_QUEUE_NAME_ILLUMINATE: illuminate
+      TASK_QUEUE_NAME_SPARK: spark
+      TASK_QUEUE_NAME_SEARCH_INDEX: search_index
+
+      SEARCH_EMBED_COLLECTION_ID: dreamscroll-dev-collection6
+      SEARCH_EMBED_VECTOR_FIELD: geminiv2
+      SEARCH_EMBED_VECTOR_DIMS: 768
 
     volumes:
       # Cute way to import/export data from the docker environment
