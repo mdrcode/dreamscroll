@@ -46,7 +46,7 @@ Upload (webui/v2/r_upload.rs)
 > no real purpose without search indexing, so `logic/illuminate::exec` now runs
 > **both** steps as a single unit of work. The capture-create path calls
 > `submit_illumination` directly. `r_illuminate` + the illumination queue are the
-> live path; the `/_wh/cloudtask/illuminate` route is currently unused and
+> live path; the `/_wh/cloudtask/illuminate` route is also available for future
 > reserved for future backfill / rerun flows.
 
 ### 2.2 Key facts
@@ -451,7 +451,7 @@ must always see the **most recent** illumination, so:
   populated). Backfill handling — marking tasks as bulk, surfacing progress, an
   admin view, and fixing the `user_id` attribution + global candidate query above
   — gets a dedicated plan-and-branch session.
-- **`/_wh/cloudtask/illuminate` route is unused:** the capture-create path
+- **`/_wh/cloudtask/illuminate` route also serves future reruns:** the capture-create path
   submits `IlluminationTask` through the illumination queue, so the route has no
   live caller. Kept deliberately — it's the entry point for the future backfill
   and rerun flows. *Tolerated — see `pragmatism.md`.*

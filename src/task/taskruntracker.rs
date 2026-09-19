@@ -19,7 +19,7 @@ fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
 /// `TaskMaster` owns an instance of this for its status management.
 ///
 /// In the future, we'll support subscribing/listening to real time task status
-/// updates (see `_project/plans/sse.md`).
+/// updates (see `plan/sse.md`).
 #[derive(Clone)]
 pub struct TaskRunTracker {
     db: database::DbHandle,

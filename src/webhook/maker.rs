@@ -31,9 +31,9 @@ pub fn make_webhook_router(
     // This router is nested under "/_wh", so full path will be e.g.
     // "/_wh/cloudtask/illuminate"
     //
-    // TODO the names like "illumination" should come from QUEUE_NAME in config
+    // Route suffixes intentionally match the configured Cloud Tasks queue names.
     let mut router = Router::new()
-        .route("/cloudtask/illumination", post(r_illuminate::post))
+        .route("/cloudtask/illuminate", post(r_illuminate::post))
         .route("/cloudtask/search_index", post(r_search_index::post))
         .route("/cloudtask/spark", post(r_spark::post))
         .with_state(state);

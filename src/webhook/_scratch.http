@@ -1,10 +1,15 @@
-#printf '{"capture_id":123}' | base64 | tr -d '\n'
+# These examples use the full TaskEnvelope payload expected by the handlers.
 
 POST http://localhost:8080/_wh/cloudtask/illuminate HTTP/1.1
 Content-Type: application/json
 
 {
-    "capture_id": 538
+    "user_id": 1,
+    "envelope_id": "u1-illuminate-capture538",
+    "run": 1,
+    "task": {
+        "capture_id": 538
+    }
 }
 
 ###
@@ -12,7 +17,13 @@ POST http://localhost:8080/_wh/cloudtask/spark HTTP/1.1
 Content-Type: application/json
 
 {
-    "capture_ids": [532, 533, 534, 535, 536, 537, 538]
+    "user_id": 1,
+    "envelope_id": "u1-spark-spark1",
+    "run": 1,
+    "task": {
+        "spark_id": 1,
+        "capture_ids": [532, 533, 534, 535, 536, 537, 538]
+    }
 }
 
 ###

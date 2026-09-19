@@ -1,6 +1,6 @@
 //! Test support utilities.
 //!
-//! Only compiled under `cfg(test)`. See `_project/plans/testing.md` for the
+//! Only compiled under `cfg(test)`. See `plan/testing.md` for the
 //! project-wide testing philosophy.
 //!
 //! Submodules:

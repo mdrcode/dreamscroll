@@ -123,6 +123,6 @@ From the Cloud Run container contract — long-lived connections are **treated a
 
 ## 6. Related
 
-- `_project/plans/sse.md` — the SSE design that motivated this reference.
+- `plan/sse.md` — the SSE design that motivated this reference.
 - `_project/gcloud/cloudsql_postgres.md` — Cloud SQL connectivity setup.
 - `_project/gcloud/cloud_task_queue.md` — task queueing across instances.

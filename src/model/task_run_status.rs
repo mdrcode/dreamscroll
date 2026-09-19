@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
 /// One row per task **run** — the canonical source of truth for
-/// background task runs. See `_project/plans/task-status.md` §3 and §6.
+/// background task runs. See `plan/task-status.md` §3 and §6.
 ///
 /// A logical task (`envelope_id`) can be run more than once; each run gets its
 /// own row, numbered from 1. `(envelope_id, run)` is unique, which is what

@@ -49,10 +49,6 @@ fn default_task_max_attempts() -> i32 {
     3
 }
 
-fn default_task_webhook_base_url() -> String {
-    "http://localhost:8080".to_string()
-}
-
 fn default_jwt_user_expiration_secs() -> u64 {
     24 * 60 * 60
 }
@@ -112,15 +108,13 @@ pub struct Config {
     pub task_backend: TaskQueueBackend,
     #[serde(default = "default_task_max_attempts")]
     pub task_max_attempts: i32,
-    #[serde(default = "default_task_webhook_base_url")]
     pub task_webhook_base_url: String,
     pub task_oidc_service_account_email: Option<String>,
     pub task_oidc_audience: Option<String>,
 
-    // Currently, we assume that the queue_name below is used for *BOTH*
-    //  - the Cloud Task resource: projects/{project_id}/locations/{region}/queues/$QUEUE_NAME
-    //  - the app internal webhook URL: /_wh/cloudtask/$QUEUE_NAME
-    pub task_queue_name_illumination: String,
+    // Queue names are also used as the webhook route suffixes:
+    // /_wh/cloudtask/{queue_name}.
+    pub task_queue_name_illuminate: String,
     pub task_queue_name_search_index: String,
     pub task_queue_name_spark: String,
 
@@ -229,7 +223,6 @@ mod tests {
         assert!(default_session_always_save());
         assert_eq!(default_gemini_payload_method(), GeminiPayloadMethod::Inline);
         assert_eq!(default_task_max_attempts(), 3);
-        assert_eq!(default_task_webhook_base_url(), "http://localhost:8080");
         assert_eq!(default_jwt_user_expiration_secs(), 86400);
         assert_eq!(default_jwt_validation_leeway_secs(), 0);
         assert_eq!(default_max_upload_bytes(), 5 * 1024 * 1024);
@@ -249,8 +242,12 @@ mod tests {
             ("POSTGRES_DB".into(), "database".into()),
             ("STORAGE_BACKEND".into(), storage_backend.into()),
             ("TASK_BACKEND".into(), "local".into()),
-            ("TASK_QUEUE_NAME_ILLUMINATION".into(), "illumination".into()),
-            ("TASK_QUEUE_NAME_SEARCH_INDEX".into(), "search-index".into()),
+            (
+                "TASK_WEBHOOK_BASE_URL".into(),
+                "http://localhost:8080".into(),
+            ),
+            ("TASK_QUEUE_NAME_ILLUMINATE".into(), "illuminate".into()),
+            ("TASK_QUEUE_NAME_SEARCH_INDEX".into(), "search_index".into()),
             ("TASK_QUEUE_NAME_SPARK".into(), "spark".into()),
         ]
     }
@@ -288,10 +285,6 @@ mod tests {
     fn local_tasks_ignore_oidc_settings() {
         let mut vars = required_vars("gcloud");
         vars.push(("STORAGE_GCLOUD_BUCKET_NAME".into(), "bucket".into()));
-        vars.push((
-            "TASK_WEBHOOK_BASE_URL".into(),
-            "https://unused.example".into(),
-        ));
         vars.push((
             "TASK_OIDC_SERVICE_ACCOUNT_EMAIL".into(),
             "unused@example.iam.gserviceaccount.com".into(),

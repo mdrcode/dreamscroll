@@ -13,10 +13,8 @@ use crate::{api, logic, task, webhook};
 /// illumination and the search-indexing steps, since illumination has no real
 /// purpose without search indexing.
 ///
-/// NOTE: this route is currently **unused** — the capture-create path submits
-/// through the same `IlluminationTask` type, so this handler and the
-/// `/_wh/cloudtask/illuminate` route exist for the future backfill and
-/// re-run-with-a-new-model/prompt flows. See `_project/plans/pragmatism.md`.
+/// This is the live worker route for capture-created illumination tasks. It is
+/// also the entry point for future backfill and rerun flows.
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(envelope): Json<task::TaskEnvelope<logic::illuminate::IlluminationTask>>,

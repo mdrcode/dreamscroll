@@ -30,10 +30,10 @@ pub async fn make_task_master(
 ) -> anyhow::Result<Arc<TaskMaster>> {
     match cfg.task_backend {
         config::TaskQueueBackend::Local => {
-            let illumination_queue = {
+            let illuminate_queue = {
                 let url = make_prod_webhook_url(
                     &cfg.task_webhook_base_url,
-                    &cfg.task_queue_name_illumination,
+                    &cfg.task_queue_name_illuminate,
                 );
                 LocalTaskQueue::connect(4, move |task: TaskEnvelope<IlluminationTask>| {
                     let client = LocalWebhookClient::new();
@@ -68,7 +68,7 @@ pub async fn make_task_master(
                 TaskMaster::builder()
                     .db(db)
                     .max_attempts(cfg.task_max_attempts)
-                    .illumination_queue(illumination_queue)
+                    .illumination_queue(illuminate_queue)
                     .search_index_queue(search_index_queue)
                     .spark_queue(spark_queue)
                     .build()?,
@@ -81,9 +81,9 @@ pub async fn make_task_master(
                 make_cloud_tasks_queue_path(
                     &cfg.gcloud_project_id,
                     &cfg.gcloud_project_region,
-                    &cfg.task_queue_name_illumination,
+                    &cfg.task_queue_name_illuminate,
                 ),
-                make_prod_webhook_url(&cfg.task_webhook_base_url, "illuminate"),
+                make_prod_webhook_url(&cfg.task_webhook_base_url, &cfg.task_queue_name_illuminate),
                 oidc_token.clone(),
             )
             .await
@@ -95,7 +95,7 @@ pub async fn make_task_master(
                     &cfg.gcloud_project_region,
                     &cfg.task_queue_name_spark,
                 ),
-                make_prod_webhook_url(&cfg.task_webhook_base_url, "spark"),
+                make_prod_webhook_url(&cfg.task_webhook_base_url, &cfg.task_queue_name_spark),
                 oidc_token.clone(),
             )
             .await
@@ -107,7 +107,10 @@ pub async fn make_task_master(
                     &cfg.gcloud_project_region,
                     &cfg.task_queue_name_search_index,
                 ),
-                make_prod_webhook_url(&cfg.task_webhook_base_url, "search_index"),
+                make_prod_webhook_url(
+                    &cfg.task_webhook_base_url,
+                    &cfg.task_queue_name_search_index,
+                ),
                 oidc_token.clone(),
             )
             .await

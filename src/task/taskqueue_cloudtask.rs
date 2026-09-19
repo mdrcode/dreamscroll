@@ -109,3 +109,49 @@ impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde::Deserialize;
+
+    #[derive(Debug, Clone, Deserialize, serde::Serialize)]
+    struct TestTask {
+        id: i32,
+    }
+
+    impl Task for TestTask {
+        fn task_type() -> &'static str {
+            "illuminate"
+        }
+
+        fn entity_type() -> &'static str {
+            "capture"
+        }
+
+        fn entity_id(&self) -> i32 {
+            self.id
+        }
+    }
+
+    #[test]
+    fn task_name_is_stable_per_run() {
+        let envelope = TaskEnvelope::new(7, TestTask { id: 42 }, 3);
+
+        assert_eq!(
+            make_cloud_tasks_task_name("projects/p/locations/r/queues/q", &envelope),
+            "projects/p/locations/r/queues/q/tasks/u7-illuminate-capture42-run3"
+        );
+    }
+
+    #[test]
+    fn task_name_changes_for_a_rerun() {
+        let run1 = TaskEnvelope::new(7, TestTask { id: 42 }, 1);
+        let run2 = TaskEnvelope::new(7, TestTask { id: 42 }, 2);
+
+        assert_ne!(
+            make_cloud_tasks_task_name("projects/p/locations/r/queues/q", &run1),
+            make_cloud_tasks_task_name("projects/p/locations/r/queues/q", &run2)
+        );
+    }
+}

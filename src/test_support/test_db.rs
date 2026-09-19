@@ -26,7 +26,7 @@
 //!
 //! ## Why a schema per test
 //!
-//! See `_project/plans/testing.md` for why this beats `MockDatabase`,
+//! See `plan/testing.md` for why this beats `MockDatabase`,
 //! `sqlx::test`, and transaction-rollback.
 
 use sea_orm::DatabaseConnection;

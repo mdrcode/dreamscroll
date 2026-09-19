@@ -19,15 +19,15 @@ The important distinction is:
 - **Application-level OIDC verification** can be applied only to the webhook router.
   That is the appropriate mechanism for this mixed public/private service.
 
-## Current integration points
+## Implemented integration points
 
 The existing code already has a natural boundary for this change:
 
 - `src/webhook/maker.rs` constructs the webhook router.
 - `src/bin/dreamscroll_web.rs` nests it under `/_wh` when `SERVICES` includes
   `webhook`.
-- `src/task/taskqueue_cloudtask.rs` creates Cloud Tasks HTTP requests, but currently
-  uses a placeholder URL and does not set an OIDC token configuration.
+- `src/task/taskqueue_cloudtask.rs` creates Cloud Tasks HTTP requests with the
+  configured webhook URL and OIDC token.
 - `src/config/config_def.rs` owns environment-backed configuration.
 - `src/webhook/localclient.rs` intentionally performs unauthenticated local calls.
 
@@ -172,10 +172,9 @@ Cloud Tasks normally supplies the token through the standard `Authorization: Bea
 ...` header. The token is an ID token, not an OAuth access token; do not validate it
 as a user JWT or use the application's `JWT_SECRET` for it.
 
-The queue's target URL should be configuration, not hard-coded. The current dummy URL
-in `src/task/taskqueue_cloudtask.rs` must be replaced by a required production
-configuration value. A single base URL plus route suffixes is less error-prone than
-three independently configured full URLs.
+The queue's target URL is configuration rather than hard-coded. A single base URL
+plus route suffixes is less error-prone than three independently configured full
+URLs.
 
 Suggested new settings:
 
@@ -189,9 +188,9 @@ between the sender and receiver.
 
 ## Rust implementation design
 
-### 1. Add a small webhook authentication layer
+### 1. Implemented webhook authentication layer
 
-Add a module under `src/webhook`, for example `oidc.rs`, containing:
+`src/webhook/oidc.rs` contains:
 
 - Configuration for the expected audience and service-account email.
 - An Axum/Tower layer or middleware that extracts `Authorization`.
@@ -229,7 +228,7 @@ The application uses the maintained Google verifier rather than hand-rolling JWK
 retrieval. `jsonwebtoken` remains the underlying JWT primitive, but the application
 does not own the Google key cache or certificate-fetch logic.
 
-### 2. Keep local development simple
+### 2. Local development behavior
 
 Local task delivery must continue to work without Google credentials. The existing
 `TaskQueueBackend::Local` path and `LocalWebhookClient` should remain unauthenticated.
@@ -248,12 +247,10 @@ Do not add a shared static secret, IP allowlist, or user JWT as a substitute for
 Those approaches are weaker, harder to rotate, or do not prove the caller's Google
 service-account identity.
 
-### 3. Configure Cloud Tasks in code
+### 3. Cloud Tasks configuration in code
 
-Extend `CloudTaskQueue` or its constructor with the target URL, service-account email,
-and audience. Build each task's `HttpRequest` with the OIDC token configuration
-supported by the Google Cloud Tasks client model (`OidcToken` / equivalent for the
-crate version), rather than relying on queue defaults.
+`CloudTaskQueue` receives the target URL and `OidcToken` at construction and puts
+them on each task's `HttpRequest`, rather than relying on queue-level overrides.
 
 Construct the three paths from one base URL:
 
@@ -261,10 +258,8 @@ Construct the three paths from one base URL:
 - `/_wh/cloudtask/search_index`
 - `/_wh/cloudtask/spark`
 
-Validate the base URL at startup. It should be HTTPS in production, have no embedded
-credentials, and have no path unless the application intentionally supports a path
-prefix. Fail startup when required Cloud Tasks/OIDC values are absent; a task queue
-that can enqueue requests which can never authenticate is a configuration error.
+`TASK_WEBHOOK_BASE_URL` and the OIDC settings are required configuration for the
+Cloud Tasks backend. HTTPS and hostname validation remain deployment checks.
 
 ## Failure and security behavior
 
