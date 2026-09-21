@@ -56,7 +56,7 @@ impl VertexVectorSearcher {
 
         Self::new(
             cfg.gcloud_project_id.clone(),
-            cfg.gcloud_project_region.clone(),
+            cfg.gcloud_region.clone(),
             collection_id,
             dense_vector_name,
         )

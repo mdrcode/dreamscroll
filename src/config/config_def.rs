@@ -64,7 +64,7 @@ fn default_max_upload_bytes() -> usize {
 #[derive(Debug, Deserialize)]
 pub struct Config {
     pub gcloud_project_id: String,
-    pub gcloud_project_region: String,
+    pub gcloud_region: String,
 
     pub port: u16,
 
@@ -231,7 +231,7 @@ mod tests {
     fn required_vars(storage_backend: &str) -> Vec<(String, String)> {
         vec![
             ("GCLOUD_PROJECT_ID".into(), "project".into()),
-            ("GCLOUD_PROJECT_REGION".into(), "region".into()),
+            ("GCLOUD_REGION".into(), "region".into()),
             ("PORT".into(), "8080".into()),
             ("SERVICES".into(), "webui,api".into()),
             ("ILLUMINATOR".into(), "loremipsum".into()),

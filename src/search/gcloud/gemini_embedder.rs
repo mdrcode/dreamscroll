@@ -28,7 +28,7 @@ impl GeminiEmbedder {
 
         Self::new(
             cfg.gcloud_project_id.clone(),
-            cfg.gcloud_project_region.clone(),
+            cfg.gcloud_region.clone(),
             MODEL_ID.to_string(),
             output_dims,
         )

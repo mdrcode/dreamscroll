@@ -80,7 +80,7 @@ pub async fn make_task_master(
             let illuminate_queue = CloudTaskQueue::connect(
                 make_cloud_tasks_queue_path(
                     &cfg.gcloud_project_id,
-                    &cfg.gcloud_project_region,
+                    &cfg.gcloud_region,
                     &cfg.task_queue_name_illuminate,
                 ),
                 make_prod_webhook_url(&cfg.task_webhook_base_url, &cfg.task_queue_name_illuminate),
@@ -92,7 +92,7 @@ pub async fn make_task_master(
             let spark_queue = CloudTaskQueue::connect(
                 make_cloud_tasks_queue_path(
                     &cfg.gcloud_project_id,
-                    &cfg.gcloud_project_region,
+                    &cfg.gcloud_region,
                     &cfg.task_queue_name_spark,
                 ),
                 make_prod_webhook_url(&cfg.task_webhook_base_url, &cfg.task_queue_name_spark),
@@ -104,7 +104,7 @@ pub async fn make_task_master(
             let search_index_queue = CloudTaskQueue::connect(
                 make_cloud_tasks_queue_path(
                     &cfg.gcloud_project_id,
-                    &cfg.gcloud_project_region,
+                    &cfg.gcloud_region,
                     &cfg.task_queue_name_search_index,
                 ),
                 make_prod_webhook_url(

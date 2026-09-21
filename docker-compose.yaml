@@ -14,7 +14,7 @@ services:
       NO_LOCAL_CONFIG_FILES: 1 # any value works
 
       GCLOUD_PROJECT_ID: dreamscroll_local
-      GCLOUD_PROJECT_REGION: us-central1
+      GCLOUD_REGION: us-central1
       PORT: 8080
 
       SESSION_ALWAYS_SAVE: true
