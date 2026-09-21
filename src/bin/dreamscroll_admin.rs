@@ -3,11 +3,12 @@ use argh::FromArgs;
 use dreamscroll::{config, telemetry, util_cmds};
 
 #[derive(FromArgs)]
-#[argh(description = "dreamscroll direct database adminiutility")]
+#[argh(description = "dreamscroll direct database administration utility")]
 struct Args {
     #[argh(subcommand)]
     command: Command,
 }
+
 
 #[derive(FromArgs)]
 #[argh(subcommand)]
