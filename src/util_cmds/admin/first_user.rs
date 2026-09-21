@@ -9,7 +9,7 @@ use super::*;
 #[argh(description = "Check if any users exist; if none, create the first admin user")]
 pub struct FirstUserArgs {}
 
-pub async fn run(mut state: CmdState, _args: FirstUserArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: AdminCmdState, _args: FirstUserArgs) -> anyhow::Result<()> {
     let db = state.db_handle().await?;
     database::check_first_user(&db).await?;
 

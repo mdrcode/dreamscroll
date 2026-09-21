@@ -3,6 +3,7 @@ use argh::FromArgs;
 use base64::Engine;
 
 use crate::illumination::*;
+use crate::util_cmds::{auth_helper, html_view};
 
 use super::*;
 
@@ -24,7 +25,7 @@ pub struct IlluminateIdArgs {
     model: String,
 }
 
-pub async fn run(mut state: CmdState, args: IlluminateIdArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: AdminCmdState, args: IlluminateIdArgs) -> anyhow::Result<()> {
     if args.ids.is_empty() {
         return Err(anyhow!("At least one capture ID must be provided."));
     }

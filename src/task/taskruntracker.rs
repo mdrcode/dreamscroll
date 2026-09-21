@@ -4,16 +4,6 @@ use crate::{database, model};
 
 use super::*;
 
-/// True when a `DbErr` is a unique-constraint violation. The
-/// `(envelope_id, run)` unique index is the real guard against a duplicate
-/// submission, so this is expected, not exceptional.
-fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
-    matches!(
-        err.sql_err(),
-        Some(sea_orm::SqlErr::UniqueConstraintViolation(_))
-    )
-}
-
 /// Contains all direct reads/writes to `task_run_status` in the db.
 ///
 /// `TaskMaster` owns an instance of this for its status management.
@@ -23,6 +13,16 @@ fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
 #[derive(Clone)]
 pub struct TaskRunTracker {
     db: database::DbHandle,
+}
+
+/// True when a `DbErr` is a unique-constraint violation. The
+/// `(envelope_id, run)` unique index is the real guard against a duplicate
+/// submission, so this is expected, not exceptional.
+fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
+    matches!(
+        err.sql_err(),
+        Some(sea_orm::SqlErr::UniqueConstraintViolation(_))
+    )
 }
 
 impl TaskRunTracker {

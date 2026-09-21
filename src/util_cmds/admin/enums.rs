@@ -9,7 +9,7 @@ use super::*;
 #[argh(description = "List unique illumination entity types and social media platforms")]
 pub struct EnumsArgs {}
 
-pub async fn run(_state: CmdState, _args: EnumsArgs) -> anyhow::Result<()> {
+pub async fn run(_state: AdminCmdState, _args: EnumsArgs) -> anyhow::Result<()> {
     let knode_types: Vec<String> = {
         use strum::IntoEnumIterator;
         EntityType::iter().map(|e| e.as_ref().to_string()).collect()

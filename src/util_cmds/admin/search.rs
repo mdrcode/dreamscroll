@@ -30,7 +30,7 @@ pub struct SearchArgs {
     vector_only: bool,
 }
 
-pub async fn run(state: CmdState, args: SearchArgs) -> anyhow::Result<()> {
+pub async fn run(state: AdminCmdState, args: SearchArgs) -> anyhow::Result<()> {
     let searcher = search::gcloud::VertexVectorSearcher::from_config(&state.cfg).await?;
 
     if args.text_only && args.vector_only {

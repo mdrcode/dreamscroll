@@ -1,6 +1,7 @@
 use argh::FromArgs;
 
 use super::*;
+use crate::util_cmds::auth_helper;
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "search_similar")]
@@ -15,7 +16,7 @@ pub struct SearchSimilarArgs {
     limit: u64,
 }
 
-pub async fn run(mut state: CmdState, args: SearchSimilarArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: AdminCmdState, args: SearchSimilarArgs) -> anyhow::Result<()> {
     let db = state.db_handle().await?;
     let user = auth_helper::authenticate_user_stdin(&db).await?;
     let context_user: crate::auth::Context = user.into();

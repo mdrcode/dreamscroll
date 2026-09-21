@@ -28,7 +28,7 @@ RUN rm src/lib.rs src/bin/dreamscroll_web.rs  # clean up dummy
 COPY src ./src/
 RUN touch src/bin/dreamscroll_web.rs  # ensure timestamp is updated for cargo to detect changes
 RUN touch src/lib.rs
-RUN cargo build --release --bin dreamscroll_web --bin dreamscroll_util
+RUN cargo build --release --bin dreamscroll_web --bin dreamscroll_api --bin dreamscroll_admin
 
 # Runtime stage
 FROM debian:trixie-slim

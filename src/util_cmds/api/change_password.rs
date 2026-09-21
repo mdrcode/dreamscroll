@@ -8,12 +8,8 @@ use super::*;
 #[argh(description = "Change account password via REST API")]
 pub struct ChangePasswordArgs {}
 
-pub async fn run(mut state: CmdState, _args: ChangePasswordArgs) -> anyhow::Result<()> {
-    let rest_host = state
-        .rest_host
-        .as_deref()
-        .context("REST host missing")?
-        .to_string();
+pub async fn run(mut state: ApiCmdState, _args: ChangePasswordArgs) -> anyhow::Result<()> {
+    let rest_host = state.rest_host.clone();
     let rest_user = state
         .rest_user
         .as_deref()

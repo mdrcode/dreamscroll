@@ -8,8 +8,8 @@ use super::*;
 #[argh(description = "Clear cached API token for the selected host and username")]
 pub struct ClearTokenArgs {}
 
-pub async fn run(state: CmdState, _args: ClearTokenArgs) -> anyhow::Result<()> {
-    let rest_host = state.rest_host.as_deref().context("REST host missing")?;
+pub async fn run(state: ApiCmdState, _args: ClearTokenArgs) -> anyhow::Result<()> {
+    let rest_host = &state.rest_host;
     let rest_user = state
         .rest_user
         .as_deref()

@@ -56,7 +56,7 @@ impl FullDigest {
     }
 }
 
-pub async fn run(mut state: CmdState, args: ExportDigestArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: ApiCmdState, args: ExportDigestArgs) -> anyhow::Result<()> {
     let media_http = reqwest::Client::new();
 
     // Create export folder with timestamp

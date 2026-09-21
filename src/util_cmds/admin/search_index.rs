@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::search::{self, prelude::*};
+use crate::util_cmds::auth_helper;
 
 use super::*;
 
@@ -26,7 +27,7 @@ pub struct SearchIndexArgs {
     no_upsert: bool,
 }
 
-pub async fn run(mut state: CmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: AdminCmdState, args: SearchIndexArgs) -> anyhow::Result<()> {
     if args.all && !args.ids.is_empty() {
         return Err(anyhow!(
             "Provide either --all or explicit capture IDs, not both."

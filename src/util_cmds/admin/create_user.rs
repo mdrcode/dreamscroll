@@ -1,7 +1,5 @@
 use argh::FromArgs;
-use std::sync::Arc;
-
-use crate::{api, auth, task};
+use crate::{api, auth};
 
 use super::*;
 
@@ -10,7 +8,7 @@ use super::*;
 #[argh(description = "Create a new user in the database")]
 pub struct CreateUserArgs {}
 
-pub async fn run(mut state: CmdState, _args: CreateUserArgs) -> anyhow::Result<()> {
+pub async fn run(mut state: AdminCmdState, _args: CreateUserArgs) -> anyhow::Result<()> {
     println!("Enter ADMIN username:");
     let mut admin_username = String::new();
     std::io::stdin().read_line(&mut admin_username)?;
@@ -21,14 +19,6 @@ pub async fn run(mut state: CmdState, _args: CreateUserArgs) -> anyhow::Result<(
     let admin_password = rpassword::read_password()?;
     let admin_user = auth::password::authenticate(&db, &admin_username, &admin_password).await?;
     let admin_context: auth::Context = admin_user.into();
-    let service_api = state.service_api_client().await?;
-    // TODO should api::AdminApiClient be constructed in CmdState ?
-    let admin_client = api::AdminApiClient::new(
-        db.clone(),
-        service_api,
-        Arc::new(task::TaskMaster::builder().db(db.clone()).build()?),
-    );
-
     println!("Enter username for new user:");
     let mut username = String::new();
     std::io::stdin().read_line(&mut username)?;
@@ -42,9 +32,10 @@ pub async fn run(mut state: CmdState, _args: CreateUserArgs) -> anyhow::Result<(
     println!("Enter password for new user:");
     let password = rpassword::read_password()?;
 
-    let new_user_info = admin_client
-        .create_user(&admin_context, username, password, email)
-        .await?;
+    if !admin_context.is_admin() {
+        anyhow::bail!("Authenticated user is not an admin");
+    }
+    let new_user_info = api::create_user(&db, username, password, email).await?;
 
     println!("Created new user: {:?}", new_user_info);
 

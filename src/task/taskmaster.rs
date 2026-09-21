@@ -1166,6 +1166,46 @@ mod tests {
         );
     }
 
+    /// A missing queue must not look like a successful submission to callers.
+    /// Today both submissions report `Enqueued`, even though neither creates a
+    /// status row or reaches a worker. This captures the misleading behavior
+    /// that would make an SSE-enabled UI wait forever for a task that cannot run.
+    #[tokio::test]
+    async fn missing_queue_falsely_reports_enqueued_and_allows_repeated_submissions() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .build()
+            .expect("build should succeed with a db");
+
+        let first = service
+            .submit_illumination(1, IlluminationTask { capture_id: 70 })
+            .await
+            .expect("the current implementation does not report the missing queue");
+        let second = service
+            .submit_illumination(1, IlluminationTask { capture_id: 70 })
+            .await
+            .expect("the current implementation does not report the missing queue");
+
+        assert_eq!(first, SubmitOutcome::Enqueued { run: 1 });
+        assert_eq!(
+            second,
+            SubmitOutcome::Enqueued { run: 1 },
+            "without a row, the second call cannot detect that the first was supposedly enqueued"
+        );
+
+        let rows = service
+            .query_incomplete_for_entity(1, "capture", 70)
+            .await
+            .expect("query should succeed");
+        assert!(
+            rows.is_empty(),
+            "Enqueued must correspond to a persisted status row, but no row exists"
+        );
+    }
+
     /// The row is written before the enqueue, then marked `SubmissionFailed` if
     /// the queue rejects it, so a later submission can start a new run.
     #[tokio::test]

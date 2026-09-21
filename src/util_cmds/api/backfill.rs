@@ -44,14 +44,14 @@ struct BackfillSearchIndexArgs {
     dry_run: bool,
 }
 
-pub async fn run(state: CmdState, args: BackfillArgs) -> anyhow::Result<()> {
+pub async fn run(state: ApiCmdState, args: BackfillArgs) -> anyhow::Result<()> {
     match args.command {
         BackfillCommand::SearchIndex(args) => run_search_index(state, args).await,
     }
 }
 
 async fn run_search_index(
-    mut state: CmdState,
+    mut state: ApiCmdState,
     args: BackfillSearchIndexArgs,
 ) -> anyhow::Result<()> {
     if args.all && !args.capture_ids.is_empty() {

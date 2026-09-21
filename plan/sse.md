@@ -1,7 +1,9 @@
 # Real-time Task Status via SSE — Design
 
-**Status:** **Not implemented.** This is a future, separate project. The task
-framework it depends on is complete and merged — see `task-status.md`.
+**Status:** **Design under review; not implemented.** The task framework is
+implemented, but this document was reviewed against the current code on
+2026-09-21. The implementation details below are being revised before SSE
+code is added.
 **Scope:** Relay accurate, up-to-date, low-latency **background-task status** to
 HTMX clients over Server-Sent Events.
 
@@ -23,7 +25,7 @@ illumination data.
 We want a **simple, idiomatic, robust, and flexible** strategy for relaying
 accurate, up-to-date, low-latency background-task status to clients. It must:
 
-- Scale across different **task types** (illumination, spark, search-index).
+- Scale across different **task types** (`illuminate`, `spark`, `search_index`).
 - Let the client **subscribe to only what it cares about** (avoid noise, e.g.
   during a backfill).
 - Handle **reruns** (e.g. "illuminate this again with a new model").
@@ -88,6 +90,14 @@ This means:
 - **Reruns "just work"** — the event is keyed by `(envelope_id, run)` and the
   client just re-fetches whatever partial is relevant.
 
+> **Important distinction:** for background task status, the database row is
+> the state and the SSE/`LISTEN` notification is primarily a **wake-up hint**.
+> A notification does not need to preserve or describe every transition. When
+> the hint arrives, the SSE handler re-queries the current matching rows and
+> emits a thin signal; the HTMX client then refreshes the relevant partial.
+> Polling/replay remains the correctness mechanism if a hint is delayed or
+> missed.
+
 ### 3.1 The task-status event shape
 
 Every task-status transition is a small, typed struct. The SSE event name is
@@ -97,7 +107,7 @@ to route and react:
 ```rust
 // src/events/mod.rs — the shape of a task-status transition
 pub struct TaskStatusEvent {
-    pub task_type: String,   // "illumination" | "spark" | "search_index"
+    pub task_type: String,   // "illuminate" | "spark" | "search_index"
     pub envelope_id: String, // e.g. "u1-illuminate-capture123"
     pub entity_type: String, // "capture" | "spark"
     pub entity_id: i32,      // the entity this task operates on (fan-out key, §6.2)
@@ -113,9 +123,17 @@ The SSE wire format is a flat JSON object:
 { "task_type": "illuminate", "envelope_id": "u1-illuminate-capture123", "entity_type": "capture", "entity_id": 123, "status": "complete_success", "attempts": 1 }
 ```
 
-This maps 1:1 onto a `task_run_status` row (see `task-status.md` §5). The
-`TaskRunStatus` enum lives in the task module; the DB stores only its integer
-discriminant.
+This maps to the current state of a `task_run_status` row (see
+`task-status.md` §3). It is not a historical event: the table stores one row
+per logical task run and updates that row in place. The `TaskRunStatus` enum
+lives in the task module; the DB stores only its integer discriminant.
+
+**Design decision:** `TaskRunStatus` should derive `serde::Serialize` (and,
+if useful for tests or future request handling, `Deserialize`) with an explicit
+snake-case representation such as `"complete_success"`. The persisted integer
+mapping remains independent and must not change. A dedicated event DTO can
+still wrap the status with task identity, but the status itself need not be
+duplicated as a second string enum.
 
 > **Why a single named SSE event (`task-status`) rather than per-status names
 > (`illumination-complete`, etc.):** named events are fine for a fixed set, but
@@ -133,10 +151,10 @@ always send `capture_ids`. This is simpler, better, and more efficient:
    capture IDs it's currently rendering. Only events whose `entity_id` is in the
    list are delivered.
 2. **`task_types`** — which task types to receive (e.g.
-   `task_types=illumination,spark`). Defaults to all.
+  `task_types=illuminate,spark`). Defaults to all.
 
 ```http
-GET /events?task_types=illumination,spark&capture_ids=123,456,789
+GET /events?task_types=illuminate,spark&capture_ids=123,456,789
 ```
 
 The server filters on both `user_id` (always, for security) and the requested
@@ -224,8 +242,8 @@ mechanisms, used together:
 
 ### 4.2 Where task status gets written (and notified)
 
-Task status is written at the natural choke points, each of which **writes a row
-and `NOTIFY`s**:
+Task status is written at the natural choke points. Each status write should
+also cause a `NOTIFY`, but the notification is only a **wake-up hint**:
 
 1. **In `TaskMaster::submit_*`** — every task enqueue funnels through here. It
    records a `Queued` row on enqueue. This gives "queued" status for free,
@@ -317,12 +335,17 @@ aggressively), it misses events that happened while disconnected. **Because the
 DB is the source of truth, replay is just a query:**
 
 1. **On connect**, the SSE handler queries `task_run_status` for this `user_id`
-   matching the requested `entity_type`/`entity_id`/`task_types`, using the
-  **incomplete** predicate (everything except `CompleteSuccess`), and emits those rows
-   immediately. The client is instantly reconciled with reality — no missed
-   events, no cross-instance gap.
+  matching the requested `entity_type`/`entity_id`/`task_types` and emits the
+  latest row for each logical task immediately. The snapshot must include
+  terminal states, especially `CompleteSuccess` and `CompleteFailure`, or the
+  client cannot learn that work finished. The existing
+  `TaskMaster::query_incomplete_*` names are stale: their current
+  implementation returns the latest row regardless of status. The SSE design
+  must either rename/add an explicitly scoped query API or document that
+  behavior before implementation.
 2. **On every `NOTIFY` (or poll tick)**, re-query the DB for this user's matching
-   rows that changed since the last emission, and emit them.
+  current rows and emit refresh signals as needed. `NOTIFY` is not treated as
+  an event-history cursor; the database snapshot is authoritative.
 
 There is **no in-memory state to lose** and **no cross-instance coordination
 problem** — the DB row is the single record, and both the producer (writer) and
@@ -407,7 +430,7 @@ Add to the base templates (`index.html.tera`, `detail.html.tera`):
 
 ```html
 <body hx-ext="sse">
-  <div sse-connect="/events?task_types=illumination,spark,search_index&capture_ids={{ visible_capture_ids }}"></div>
+  <div sse-connect="/events?task_types=illuminate,spark,search_index&capture_ids={{ visible_capture_ids }}"></div>
 
   <!-- On a task-status event, re-fetch the detail partial -->
   <div hx-get="/detail/{{ capture.id }}"
@@ -441,7 +464,7 @@ Show a live "illuminating…" state with a second listener that swaps in a tiny
 status partial:
 
 ```html
-<div sse-connect="/events?task_types=illumination&capture_ids={{ visible_capture_ids }}">
+<div sse-connect="/events?task_types=illuminate&capture_ids={{ visible_capture_ids }}">
   <div sse-swap="task-status">
     <span class="status-pill">queued</span>
   </div>
@@ -690,11 +713,11 @@ so the connection ends gracefully rather than being killed by Cloud Run.
 ## 8. Implementation status
 
 **Nothing in this document is implemented yet.** The task framework it depends on
-is complete (`task-status.md`).
+is implemented, subject to the review findings in §10.
 
 | #   | Step                                                                                          | Status |
 | --- | --------------------------------------------------------------------------------------------- | ------ |
-| 1   | `StatusWriter` + `NOTIFY task_status_channel`                                                 | ⬜      |
+| 1   | Integrate `NOTIFY task_status_channel` with every `TaskMaster` status write                       | ⬜      |
 | 2   | `/events` SSE route — user filtering + DB replay + poll fallback + `task_types`/`capture_ids` | ⬜      |
 | 3   | Client wiring (`hx-ext="sse"`, `sse-connect`, `hx-trigger="sse:task-status"`)                 | ⬜      |
 | 4   | Adaptive lifetime (5-min idle close + reconnect-on-interaction)                               | ⬜      |
@@ -703,9 +726,9 @@ is complete (`task-status.md`).
 
 | File                               | Change                                                                                                              | Status |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------ |
-| `src/events/mod.rs` *(new)*        | `TaskStatusEvent` struct + `StatusWriter` (write row + `NOTIFY`)                                                    | ⬜      |
+| `src/events/mod.rs` *(new)*        | `TaskStatusEvent` struct and explicit wire serialization                                                           | ⬜      |
 | `src/events/notifier.rs` *(new)*   | dedicated `LISTEN` connection + local fan-out to SSE receivers                                                      | ⬜      |
-| `src/task/status_listener.rs`      | `StatusListener` — the `LISTEN`/`NOTIFY` thread (stub exists today)                                                 | ⬜      |
+| `src/task/status_listener.rs`      | `StatusListener` — the `LISTEN`/`NOTIFY` listener (file does not exist yet)                                        | ⬜      |
 | `src/webui/v2/maker.rs`            | add `/events` SSE route; thread `StatusListener` into `WebState`                                                    | ⬜      |
 | `src/webui/v2/r_events.rs` *(new)* | SSE handler (replay from DB, listen for notifications, filter by user + task_types + entity ids, adaptive lifetime) | ⬜      |
 | `web/v2/templates/*.tera`          | add `hx-ext="sse"`, `sse-connect` (with `task_types`/`capture_ids`), `hx-trigger="sse:task-status"`                 | ⬜      |
@@ -713,10 +736,61 @@ is complete (`task-status.md`).
 
 ---
 
-## 9. Open questions / follow-ups
+## 9. Review findings — 2026-09-21
 
-- **SSE payload format:** thin JSON signals (recommended) vs. small HTML
-  fragments for direct `sse-swap`. The design supports both; pick per use-case.
+The following items were stale or inconsistent with the current code and must
+be resolved as implementation work begins:
+
+1. **Task type spelling:** the implementation returns `illuminate`, not
+  `illumination`; all query examples and filters now use `illuminate`.
+2. **No `StatusListener` exists:** `src/task/status_listener.rs` is not a stub,
+  and there is no `src/events` module. The file map now treats both as new
+  work.
+3. **No database notification exists:** `TaskRunTracker::create_run` and
+  `update_run` only write rows. `TaskMaster` currently has no `NOTIFY` path,
+  so the proposed listener cannot receive transitions until notification is
+  integrated at the status-write boundary.
+4. **The status table is not an event log:** updates mutate one row identified
+  by `(envelope_id, run)`. A notification payload must therefore identify the
+  changed logical run (or be treated only as a wake-up hint); it cannot by
+  itself represent every transition.
+5. **Query API naming is stale:** `query_incomplete_for_entity` and
+  `query_incomplete_for_user` currently return the latest row for every task,
+  including successful rows. The original design incorrectly treated
+  "incomplete" as the universal query needed by the UI. The revised design
+  needs an explicitly named **latest-status snapshot** query for SSE, returning
+  terminal and in-flight states alike. A genuinely incomplete query should be
+  retained separately only for callers that actually need outstanding work.
+6. **Serialization needs an explicit decision:** the preferred design is to
+  serialize `TaskRunStatus` directly with stable snake-case names, while keeping
+  its integer DB discriminants private to persistence. The event envelope still
+  carries identity and routing fields around that status.
+7. **Optional queues are a real edge case:** `TaskMaster::submit_inner` returns
+  `Enqueued` without creating a status row when a queue is absent (the source
+  even marks this as `// THIS IS WRONG`). A focused regression test now captures
+  the behavior: repeated submissions both report `Enqueued`, no row exists,
+  and no worker can ever process the task. This is not merely an SSE concern —
+  it violates the submission contract. The fix should be to make queues
+  mandatory for production `TaskMaster` instances, or return a distinct
+  submission failure and record `SubmissionFailed` before SSE rollout.
+8. **Illumination is a pipeline:** `IlluminationTask` runs illumination and
+  search indexing inside one worker attempt. The current status model exposes
+  one aggregate `illuminate` task, not separate progress for the two stages.
+  The first SSE version should document this as aggregate progress, or add a
+  deliberate stage model; it should not imply stage-level feedback.
+9. **Spark identity remains placeholder-based:** `SparkTask` uses a `spark_id`
+  placeholder before the spark row exists and is not capture-queryable. SSE
+  should treat spark subscriptions as spark-entity subscriptions until the
+  planned spark identity work is done.
+10. **Auth/router wiring is absent:** `WebState` currently contains no
+   `TaskMaster`, and `make_ui_router` has no `/events` route. The endpoint must
+   be wired into the protected router and use the existing session auth.
+
+## 10. Open questions / follow-ups
+
+- **SSE payload format:** thin JSON signals remain the recommendation. The
+  status field should use the directly serialized `TaskRunStatus`; small HTML
+  fragments for direct `sse-swap` remain an optional future use-case.
 - **Cloud Run timeout:** confirm the service-level request timeout is set high
   enough for long-lived SSE connections (and above the 5-min adaptive idle
   close).
