@@ -66,6 +66,8 @@ pub fn make_api_router(
         .route("/captures/import", post(r_import_capture::post))
         .route("/dummy", get(r_dummy::get))
         .route("/timeline", get(r_timeline::get))
+        .route("/search", get(r_search::get))
+        .route("/search/similar/{capture_id}", get(r_search_similar::get))
         .layer(auth::JwtAxumLayer::new(jwt_config));
 
     let mut router = Router::new()

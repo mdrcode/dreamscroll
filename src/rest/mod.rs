@@ -9,6 +9,8 @@ pub mod r_dummy;
 pub mod r_import_capture;
 pub mod r_timeline;
 pub mod r_token;
+pub mod r_search;
+pub mod r_search_similar;
 
 mod maker;
 pub use maker::*;

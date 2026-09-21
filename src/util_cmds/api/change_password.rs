@@ -8,7 +8,7 @@ use super::*;
 #[argh(description = "Change account password via REST API")]
 pub struct ChangePasswordArgs {}
 
-pub async fn run(mut state: ApiCmdState, _args: ChangePasswordArgs) -> anyhow::Result<()> {
+pub async fn run(state: ApiCmdState, _args: ChangePasswordArgs) -> anyhow::Result<()> {
     let rest_host = state.rest_host.clone();
     let rest_user = state
         .rest_user
@@ -29,8 +29,8 @@ pub async fn run(mut state: ApiCmdState, _args: ChangePasswordArgs) -> anyhow::R
         anyhow::bail!("New password and confirmation do not match");
     }
 
-    let rest_client = state.rest_client().await?;
-    rest_client
+    state
+        .client
         .change_password(&current_password, &new_password)
         .await
         .context("failed to change password")?;

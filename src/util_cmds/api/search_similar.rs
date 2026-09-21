@@ -1,8 +1,6 @@
 use argh::FromArgs;
 
 use super::*;
-use crate::util_cmds::auth_helper;
-
 #[derive(FromArgs)]
 #[argh(subcommand, name = "search_similar")]
 #[argh(description = "Search captures similar to a given capture ID")]
@@ -16,14 +14,10 @@ pub struct SearchSimilarArgs {
     limit: u64,
 }
 
-pub async fn run(mut state: AdminCmdState, args: SearchSimilarArgs) -> anyhow::Result<()> {
-    let db = state.db_handle().await?;
-    let user = auth_helper::authenticate_user_stdin(&db).await?;
-    let context_user: crate::auth::Context = user.into();
-
-    let user_api = state.user_api_client().await?;
-    let capture_infos = user_api
-        .search_similar(&context_user, args.capture_id, Some(args.limit))
+pub async fn run(state: ApiCmdState, args: SearchSimilarArgs) -> anyhow::Result<()> {
+    let capture_infos = state
+        .client
+        .search_similar(args.capture_id, Some(args.limit))
         .await?;
 
     println!(

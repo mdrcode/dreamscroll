@@ -56,7 +56,7 @@ impl FullDigest {
     }
 }
 
-pub async fn run(mut state: ApiCmdState, args: ExportDigestArgs) -> anyhow::Result<()> {
+pub async fn run(state: ApiCmdState, args: ExportDigestArgs) -> anyhow::Result<()> {
     let media_http = reqwest::Client::new();
 
     // Create export folder with timestamp
@@ -67,8 +67,7 @@ pub async fn run(mut state: ApiCmdState, args: ExportDigestArgs) -> anyhow::Resu
     println!("Created export directory: {}", export_dir.display());
 
     // Fetch all capture_infos from REST API for this user
-    let rest_client = state.rest_client().await?;
-    let capture_infos = rest_client.get_captures(None).await?;
+    let capture_infos = state.client.get_captures(None).await?;
 
     println!("Found {} captures to export.", capture_infos.len());
 

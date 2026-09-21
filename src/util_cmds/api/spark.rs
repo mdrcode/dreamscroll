@@ -93,15 +93,14 @@ fn parse_capture_ids(tokens: &[String]) -> anyhow::Result<Vec<i32>> {
     Ok(parsed_ids)
 }
 
-pub async fn run(mut state: ApiCmdState, args: SparkArgs) -> anyhow::Result<()> {
+pub async fn run(state: ApiCmdState, args: SparkArgs) -> anyhow::Result<()> {
     if args.ids.is_empty() {
         return Err(anyhow!("At least one capture ID must be provided."));
     }
 
     let capture_ids = parse_capture_ids(&args.ids)?;
 
-    let rest_client = state.rest_client().await?;
-    let captures = rest_client.get_captures(Some(&capture_ids)).await?;
+    let captures = state.client.get_captures(Some(&capture_ids)).await?;
 
     if captures.is_empty() {
         return Err(anyhow!("No matching captures found for provided IDs."));

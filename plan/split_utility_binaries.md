@@ -55,10 +55,6 @@ Commands:
 - `enums`
 - `first_user`
 - `hash_password`
-- `illuminate_id`
-- `search`
-- `search_index`
-- `search_similar`
 
 The old `dreamscroll_util` binary was removed.
 
@@ -92,15 +88,10 @@ Commands accept the state type matching their transport boundary.
 
 ## Remaining follow-up
 
-Some direct admin commands (`illuminate_id`, `search_index`, and
-`search_similar`) use `AdminCmdState::user_api_client()`. That client still
-requires a `TaskMaster`, so the admin state currently constructs one without
-queues. This is isolated to direct exploratory commands and does not affect
-`dreamscroll_api`.
-
-When those commands are simplified, moved, or retired, remove that remaining
-empty-`TaskMaster` workaround. Then `TaskMaster` can require all production
-queues without preserving a utility-only exception.
+The direct admin command set no longer constructs a `UserApiClient` or an
+empty `TaskMaster`. User-facing search commands use REST through
+`dreamscroll_api`; synchronous illumination and indexing utilities were
+removed rather than preserving a second execution path.
 
 ## Validation
 

@@ -14,7 +14,7 @@ pub struct ImportDigestArgs {
     export_dir: PathBuf,
 }
 
-pub async fn run(mut state: ApiCmdState, args: ImportDigestArgs) -> anyhow::Result<()> {
+pub async fn run(state: ApiCmdState, args: ImportDigestArgs) -> anyhow::Result<()> {
     let export_dir = &args.export_dir;
 
     if !export_dir.is_dir() {
@@ -56,8 +56,8 @@ pub async fn run(mut state: ApiCmdState, args: ImportDigestArgs) -> anyhow::Resu
 
         let media_bytes = tokio::fs::read(&media_path).await?.into();
 
-        let rest_client = state.rest_client().await?;
-        match rest_client
+        match state
+            .client
             .import_capture(media_bytes, entry.created_at)
             .await
         {

@@ -1,4 +1,4 @@
-const SERVICE_NAME: &str = "dreamscroll-util-rest-token";
+const SERVICE_NAME: &str = "dreamscroll-api-rest-token";
 
 fn canonicalize_host_for_cache(host: &str) -> String {
     let mut normalized = host.trim().trim_end_matches('/').to_ascii_lowercase();

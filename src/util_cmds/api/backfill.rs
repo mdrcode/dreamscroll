@@ -45,13 +45,14 @@ struct BackfillSearchIndexArgs {
 }
 
 pub async fn run(state: ApiCmdState, args: BackfillArgs) -> anyhow::Result<()> {
+    // Just one data type to backfill now, but may be more in the future...
     match args.command {
         BackfillCommand::SearchIndex(args) => run_search_index(state, args).await,
     }
 }
 
 async fn run_search_index(
-    mut state: ApiCmdState,
+    state: ApiCmdState,
     args: BackfillSearchIndexArgs,
 ) -> anyhow::Result<()> {
     if args.all && !args.capture_ids.is_empty() {
@@ -87,8 +88,7 @@ async fn run_search_index(
         dry_run: args.dry_run,
     };
 
-    let rest_client = state.rest_client().await?;
-    let response = rest_client.admin_enqueue_backfill(&request).await?;
+    let response = state.client.admin_enqueue_backfill(&request).await?;
 
     println!("Backfill enqueue response");
     println!("- Task type: search_index");

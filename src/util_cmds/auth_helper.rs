@@ -15,14 +15,11 @@ pub fn prompt_password_stdin() -> anyhow::Result<String> {
     Ok(password)
 }
 
-pub fn prompt_credentials_stdin() -> anyhow::Result<(String, String)> {
+pub async fn authenticate_db_user_from_stdin(
+    db: &DbHandle,
+) -> anyhow::Result<auth::DreamscrollAuthUser> {
     let username = prompt_username_stdin()?;
     let password = prompt_password_stdin()?;
-    Ok((username, password))
-}
-
-pub async fn authenticate_user_stdin(db: &DbHandle) -> anyhow::Result<auth::DreamscrollAuthUser> {
-    let (username, password) = prompt_credentials_stdin()?;
 
     let user = auth::password::authenticate(db, &username, &password)
         .await

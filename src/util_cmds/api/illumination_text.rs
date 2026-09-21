@@ -12,10 +12,10 @@ pub struct IlluminationTextArgs {
     capture_id: i32,
 }
 
-pub async fn run(mut state: ApiCmdState, args: IlluminationTextArgs) -> anyhow::Result<()> {
+pub async fn run(state: ApiCmdState, args: IlluminationTextArgs) -> anyhow::Result<()> {
     let capture_id = args.capture_id;
-    let rest_client = state.rest_client().await?;
-    let captures = rest_client
+    let captures = state
+        .client
         .get_captures(Some(&[capture_id]))
         .await
         .with_context(|| format!("failed to fetch capture {} via REST", capture_id))?;

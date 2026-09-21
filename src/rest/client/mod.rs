@@ -130,6 +130,45 @@ impl Client {
         Self::parse_json_response(response).await
     }
 
+    pub async fn search(
+        &self,
+        query: &str,
+        limit: Option<u64>,
+    ) -> anyhow::Result<Vec<api::CaptureInfo>> {
+        let mut request = self
+            .reqwest_client
+            .get(format!("{}/search", self.base_url))
+            .bearer_auth(&self.access_token)
+            .query(&[("q", query)]);
+        if let Some(limit) = limit {
+            request = request.query(&[("limit", limit)]);
+        }
+        let response = request
+            .send()
+            .await
+            .context("failed to call search endpoint")?;
+        Self::parse_json_response(response).await
+    }
+
+    pub async fn search_similar(
+        &self,
+        capture_id: i32,
+        limit: Option<u64>,
+    ) -> anyhow::Result<Vec<api::CaptureInfo>> {
+        let mut request = self
+            .reqwest_client
+            .get(format!("{}/search/similar/{}", self.base_url, capture_id))
+            .bearer_auth(&self.access_token);
+        if let Some(limit) = limit {
+            request = request.query(&[("limit", limit)]);
+        }
+        let response = request
+            .send()
+            .await
+            .context("failed to call similar search endpoint")?;
+        Self::parse_json_response(response).await
+    }
+
     pub async fn import_capture(
         &self,
         media_bytes: bytes::Bytes,
