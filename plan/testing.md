@@ -40,7 +40,7 @@ async fn submit_illumination_records_a_queued_row() {
 
     let service = TaskMaster::builder()
         .db(db.handle())
-        .illumination_queue(queue)
+        .illuminate_queue(queue)
         .build()
         .expect("build should succeed with a db");
 

@@ -24,9 +24,9 @@ use super::*;
 pub struct TaskMaster {
     status: TaskRunTracker,
     max_attempts_per_run: i32, // mirrors `Config::task_max_attempts`
-    illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
-    search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
-    spark_queue: Option<Box<dyn TaskQueue<SparkTask>>>,
+    illuminate_queue: Box<dyn TaskQueue<IlluminationTask>>,
+    search_index_queue: Box<dyn TaskQueue<SearchIndexTask>>,
+    spark_queue: Box<dyn TaskQueue<SparkTask>>,
 }
 
 /// The outcome of a Task submission.
@@ -80,12 +80,12 @@ impl TaskMaster {
         TaskMasterBuilder::default()
     }
 
-    pub async fn submit_illumination(
+    pub async fn submit_illuminate(
         &self,
         user_id: i32,
         task: IlluminationTask,
     ) -> anyhow::Result<SubmitOutcome> {
-        self.submit_inner(self.illumination_queue.as_deref(), user_id, task)
+        self.submit_inner(self.illuminate_queue.as_ref(), user_id, task)
             .await
     }
 
@@ -97,7 +97,7 @@ impl TaskMaster {
         if task.capture_ids.is_empty() {
             anyhow::bail!("submit_spark requires at least one capture_id");
         }
-        self.submit_inner(self.spark_queue.as_deref(), user_id, task)
+        self.submit_inner(self.spark_queue.as_ref(), user_id, task)
             .await
     }
 
@@ -106,7 +106,7 @@ impl TaskMaster {
         user_id: i32,
         task: SearchIndexTask,
     ) -> anyhow::Result<SubmitOutcome> {
-        self.submit_inner(self.search_index_queue.as_deref(), user_id, task)
+        self.submit_inner(self.search_index_queue.as_ref(), user_id, task)
             .await
     }
 
@@ -130,11 +130,10 @@ impl TaskMaster {
     ///     intentional reruns of the same logical task are expressed.
     async fn submit_inner<T: Task>(
         &self,
-        queue: Option<&dyn TaskQueue<T>>, // TODO SHOULD NOT BE OPTIONAL
+        queue: &dyn TaskQueue<T>,
         user_id: i32,
         task: T,
     ) -> anyhow::Result<SubmitOutcome> {
-        let task_type = T::task_type();
         let envelope_id = TaskEnvelope::<T>::make_envelope_id(user_id, &task);
 
         let latest_run = self.status.latest_run(&envelope_id).await?;
@@ -156,15 +155,6 @@ impl TaskMaster {
         };
 
         let envelope = TaskEnvelope::new(user_id, task, next_run);
-
-        let Some(queue) = queue else {
-            tracing::warn!(
-                envelope = ?envelope,
-                "{} submitted but no queue configured, skipping enqueue.",
-                task_type,
-            );
-            return Ok(SubmitOutcome::Enqueued { run: next_run }); // THIS IS WRONG
-        };
 
         // Record `Queued` before enqueueing, since `enqueue` moves the envelope.
         // `false` = another submit claimed this run first; refuse, don't double-enqueue.
@@ -317,7 +307,7 @@ impl TaskMaster {
 pub struct TaskMasterBuilder {
     db: Option<DbHandle>,
     max_attempts: Option<i32>,
-    illumination_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
+    illuminate_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
     spark_queue: Option<Box<dyn TaskQueue<SparkTask>>>,
 }
@@ -333,11 +323,11 @@ impl TaskMasterBuilder {
         self
     }
 
-    pub fn illumination_queue(
+    pub fn illuminate_queue(
         mut self,
-        illumination_queue: impl TaskQueue<IlluminationTask> + 'static,
+        illuminate_queue: impl TaskQueue<IlluminationTask> + 'static,
     ) -> Self {
-        self.illumination_queue = Some(Box::new(illumination_queue));
+        self.illuminate_queue = Some(Box::new(illuminate_queue));
         self
     }
 
@@ -358,16 +348,56 @@ impl TaskMasterBuilder {
         let Some(db) = self.db else {
             anyhow::bail!("TaskMaster requires a database handle");
         };
+        #[cfg(not(test))]
+        let (Some(illuminate_queue), Some(search_index_queue), Some(spark_queue)) = (
+            self.illuminate_queue,
+            self.search_index_queue,
+            self.spark_queue,
+        ) else {
+            anyhow::bail!("TaskMaster requires all task queues");
+        };
+
+        #[cfg(test)]
+        let illuminate_queue = self
+            .illuminate_queue
+            .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
+        #[cfg(test)]
+        let search_index_queue = self
+            .search_index_queue
+            .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
+        #[cfg(test)]
+        let spark_queue = self
+            .spark_queue
+            .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
 
         Ok(TaskMaster {
             status: TaskRunTracker::new(db),
             // Mirrors `Config::task_max_attempts` so a builder that forgets
             // `.max_attempts(..)` behaves like production rather than disabling retries.
             max_attempts_per_run: self.max_attempts.unwrap_or(3).max(1),
-            illumination_queue: self.illumination_queue,
-            search_index_queue: self.search_index_queue,
-            spark_queue: self.spark_queue,
+            illuminate_queue,
+            search_index_queue,
+            spark_queue,
         })
+    }
+}
+
+#[cfg(test)]
+#[derive(Debug, Clone)]
+struct TestNoopQueue<T>(std::marker::PhantomData<T>);
+
+#[cfg(test)]
+impl<T> Default for TestNoopQueue<T> {
+    fn default() -> Self {
+        Self(std::marker::PhantomData)
+    }
+}
+
+#[cfg(test)]
+#[async_trait::async_trait]
+impl<T: Task> TaskQueue<T> for TestNoopQueue<T> {
+    async fn enqueue(&self, _envelope: TaskEnvelope<T>) -> anyhow::Result<()> {
+        Ok(())
     }
 }
 
@@ -549,12 +579,12 @@ mod tests {
 
         let service = TaskMaster::builder()
             .db(db.handle())
-            .illumination_queue(queue)
+            .illuminate_queue(queue)
             .build()
             .expect("build should succeed with a db");
 
         service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("submit should succeed");
 
@@ -563,23 +593,6 @@ mod tests {
             .expect("captures mutex should not be poisoned")
             .clone();
         assert_eq!(recorded, vec![42]);
-    }
-
-    #[tokio::test]
-    async fn submit_without_queue_is_noop() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .build()
-            .expect("build should succeed with a db");
-
-        service
-            .submit_illumination(1, IlluminationTask { capture_id: 7 })
-            .await
-            .expect("submit should be a no-op when queue is absent");
     }
 
     #[tokio::test]
@@ -594,12 +607,12 @@ mod tests {
         };
         let service = TaskMaster::builder()
             .db(db.handle())
-            .illumination_queue(queue)
+            .illuminate_queue(queue)
             .build()
             .expect("build should succeed with a db");
 
         let result = service
-            .submit_illumination(1, IlluminationTask { capture_id: 9 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 9 })
             .await;
         assert!(result.is_err());
     }
@@ -619,7 +632,7 @@ mod tests {
 
         let service = TaskMaster::builder()
             .db(db.handle())
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: false,
             })
@@ -627,7 +640,7 @@ mod tests {
             .expect("build should succeed with a db");
 
         service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("submit should succeed");
 
@@ -653,7 +666,7 @@ mod tests {
         let captures = Arc::new(Mutex::new(Vec::new()));
         let service = TaskMaster::builder()
             .db(db.handle())
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::clone(&captures),
                 fail: false,
             })
@@ -661,11 +674,11 @@ mod tests {
             .expect("build should succeed with a db");
 
         let first = service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("first submit should succeed");
         let second = service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("second submit should be answered, not error");
 
@@ -688,7 +701,7 @@ mod tests {
 
         let service = TaskMaster::builder()
             .db(db.handle())
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: false,
             })
@@ -696,7 +709,7 @@ mod tests {
             .expect("build should succeed with a db");
 
         service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("first submit should succeed");
 
@@ -713,7 +726,7 @@ mod tests {
             .expect("finish_attempt should succeed");
 
         let rerun = service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("rerun submit should succeed");
 
@@ -731,7 +744,7 @@ mod tests {
         let service = TaskMaster::builder()
             .db(db.handle())
             .max_attempts(1) // exhaust on the first failure
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: false,
             })
@@ -740,7 +753,7 @@ mod tests {
 
         // Run 1 exhausts (incomplete, settled).
         service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("first submit should succeed");
         let envelope = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 1);
@@ -765,7 +778,7 @@ mod tests {
 
         // Run 2 is queued (in flight).
         let rerun = service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("rerun submit should succeed");
         assert_eq!(rerun, SubmitOutcome::Enqueued { run: 2 });
@@ -791,7 +804,7 @@ mod tests {
         let service = TaskMaster::builder()
             .db(db.handle())
             .max_attempts(1) // exhaust on the first failure
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: false,
             })
@@ -800,7 +813,7 @@ mod tests {
 
         // Run 1 exhausts and stays incomplete.
         service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("first submit should succeed");
         let first = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 1);
@@ -820,7 +833,7 @@ mod tests {
 
         // Run 2 completes.
         service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("rerun submit should succeed");
         let second = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 2);
@@ -854,7 +867,7 @@ mod tests {
         let service = TaskMaster::builder()
             .db(db.handle())
             .max_attempts(2) // two attempts, then exhaust
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: false,
             })
@@ -863,7 +876,7 @@ mod tests {
 
         // Run 1: two attempts, then exhaust.
         service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("first submit should succeed");
         let first = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 1);
@@ -899,7 +912,7 @@ mod tests {
 
         // Run 2 begins at attempt 1 again, even though run 1 used attempts.
         service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("rerun submit should succeed");
         let second = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 2);
@@ -921,7 +934,7 @@ mod tests {
 
         let service = TaskMaster::builder()
             .db(db.handle())
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: false,
             })
@@ -930,7 +943,7 @@ mod tests {
 
         let task = IlluminationTask { capture_id: 7 };
         service
-            .submit_illumination(1, task.clone())
+            .submit_illuminate(1, task.clone())
             .await
             .expect("submit should succeed");
 
@@ -969,7 +982,7 @@ mod tests {
         let service = TaskMaster::builder()
             .db(db.handle())
             .max_attempts(2)
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: false,
             })
@@ -978,7 +991,7 @@ mod tests {
 
         let task = IlluminationTask { capture_id: 9 };
         service
-            .submit_illumination(1, task.clone())
+            .submit_illuminate(1, task.clone())
             .await
             .expect("submit should succeed");
 
@@ -1029,7 +1042,7 @@ mod tests {
 
         let service = TaskMaster::builder()
             .db(db.handle())
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: false,
             })
@@ -1038,7 +1051,7 @@ mod tests {
 
         let task = IlluminationTask { capture_id: 11 };
         service
-            .submit_illumination(1, task.clone())
+            .submit_illuminate(1, task.clone())
             .await
             .expect("submit should succeed");
 
@@ -1074,7 +1087,7 @@ mod tests {
 
         let service = TaskMaster::builder()
             .db(db.handle())
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: false,
             })
@@ -1083,7 +1096,7 @@ mod tests {
 
         for capture_id in [1, 2, 3] {
             service
-                .submit_illumination(1, IlluminationTask { capture_id })
+                .submit_illuminate(1, IlluminationTask { capture_id })
                 .await
                 .expect("submit should succeed");
         }
@@ -1102,11 +1115,11 @@ mod tests {
         assert!(other.is_empty(), "queries must be scoped by user_id");
     }
 
-    /// A service with an illumination queue that records (or fails) enqueues.
+    /// A service with an illuminate queue that records (or fails) enqueues.
     fn service(db: &crate::test_support::test_db::TestDb, queue_fails: bool) -> TaskMaster {
         TaskMaster::builder()
             .db(db.handle())
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: queue_fails,
             })
@@ -1137,75 +1150,6 @@ mod tests {
         );
     }
 
-    /// With no queue configured the submit is accepted but nothing is recorded,
-    /// and it is NOT enqueued anywhere. This is the util/test path.
-    #[tokio::test]
-    async fn submit_without_queue_records_no_row() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .build()
-            .expect("build should succeed with a db");
-
-        let outcome = service
-            .submit_illumination(1, IlluminationTask { capture_id: 7 })
-            .await
-            .expect("submit should be answered, not error");
-
-        assert_eq!(outcome, SubmitOutcome::Enqueued { run: 1 });
-
-        let rows = service
-            .query_incomplete_for_user(1)
-            .await
-            .expect("query should succeed");
-        assert!(
-            rows.is_empty(),
-            "without a queue there is no work to track, so no row is written"
-        );
-    }
-
-    /// A missing queue must not look like a successful submission to callers.
-    /// Today both submissions report `Enqueued`, even though neither creates a
-    /// status row or reaches a worker. This captures the misleading behavior
-    /// that would make an SSE-enabled UI wait forever for a task that cannot run.
-    #[tokio::test]
-    async fn missing_queue_falsely_reports_enqueued_and_allows_repeated_submissions() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let service = TaskMaster::builder()
-            .db(db.handle())
-            .build()
-            .expect("build should succeed with a db");
-
-        let first = service
-            .submit_illumination(1, IlluminationTask { capture_id: 70 })
-            .await
-            .expect("the current implementation does not report the missing queue");
-        let second = service
-            .submit_illumination(1, IlluminationTask { capture_id: 70 })
-            .await
-            .expect("the current implementation does not report the missing queue");
-
-        assert_eq!(first, SubmitOutcome::Enqueued { run: 1 });
-        assert_eq!(
-            second,
-            SubmitOutcome::Enqueued { run: 1 },
-            "without a row, the second call cannot detect that the first was supposedly enqueued"
-        );
-
-        let rows = service
-            .query_incomplete_for_entity(1, "capture", 70)
-            .await
-            .expect("query should succeed");
-        assert!(
-            rows.is_empty(),
-            "Enqueued must correspond to a persisted status row, but no row exists"
-        );
-    }
-
     /// The row is written before the enqueue, then marked `SubmissionFailed` if
     /// the queue rejects it, so a later submission can start a new run.
     #[tokio::test]
@@ -1216,7 +1160,7 @@ mod tests {
         let service = service(&db, true);
 
         let result = service
-            .submit_illumination(1, IlluminationTask { capture_id: 9 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 9 })
             .await;
         assert!(result.is_err(), "the enqueue error must propagate");
 
@@ -1231,7 +1175,7 @@ mod tests {
         );
 
         let retry = service
-            .submit_illumination(1, IlluminationTask { capture_id: 9 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 9 })
             .await;
         assert!(retry.is_err(), "the test queue is still configured to fail");
 
@@ -1257,7 +1201,7 @@ mod tests {
         let service = TaskMaster::builder()
             .db(db.handle())
             .max_attempts(1)
-            .illumination_queue(RecordingQueue {
+            .illuminate_queue(RecordingQueue {
                 captures: Arc::new(Mutex::new(Vec::new())),
                 fail: false,
             })
@@ -1265,7 +1209,7 @@ mod tests {
             .expect("build should succeed with a db");
 
         service
-            .submit_illumination(1, IlluminationTask { capture_id: 5 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 5 })
             .await
             .expect("submit should succeed");
 
@@ -1308,7 +1252,7 @@ mod tests {
         let service = service(&db, false);
 
         service
-            .submit_illumination(1, IlluminationTask { capture_id: 42 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
             .expect("submit should succeed");
 
@@ -1335,7 +1279,7 @@ mod tests {
         // First "process": one attempt that will retry.
         let first_process = service(&db, false);
         first_process
-            .submit_illumination(1, IlluminationTask { capture_id: 3 })
+            .submit_illuminate(1, IlluminationTask { capture_id: 3 })
             .await
             .expect("submit should succeed");
         let envelope = TaskEnvelope::new(1, IlluminationTask { capture_id: 3 }, 1);

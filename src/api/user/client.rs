@@ -242,7 +242,7 @@ impl UserApiClient {
         // TODO Should this live inside the inner insert_capture function instead?
         if let Err(e) = self
             .task_master
-            .submit_illumination(
+            .submit_illuminate(
                 user_context.user_id(),
                 logic::illuminate::IlluminationTask {
                     capture_id: capture_model.id,
@@ -280,7 +280,7 @@ impl UserApiClient {
         // TODO Should this live inside the inner insert_capture function instead?
         if let Err(e) = self
             .task_master
-            .submit_illumination(
+            .submit_illuminate(
                 user_context.user_id(),
                 logic::illuminate::IlluminationTask {
                     capture_id: capture_model.id,
@@ -344,7 +344,7 @@ impl UserApiClient {
         }
 
         self.task_master
-            .submit_illumination(
+            .submit_illuminate(
                 context.user_id(),
                 logic::illuminate::IlluminationTask { capture_id },
             )

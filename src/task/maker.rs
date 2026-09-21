@@ -68,7 +68,7 @@ pub async fn make_task_master(
                 TaskMaster::builder()
                     .db(db)
                     .max_attempts(cfg.task_max_attempts)
-                    .illumination_queue(illuminate_queue)
+                    .illuminate_queue(illuminate_queue)
                     .search_index_queue(search_index_queue)
                     .spark_queue(spark_queue)
                     .build()?,
@@ -77,7 +77,7 @@ pub async fn make_task_master(
         config::TaskQueueBackend::GCloudTasks => {
             let oidc_token = make_webhook_oidc_token(cfg)?;
 
-            let illumination_queue = CloudTaskQueue::connect(
+            let illuminate_queue = CloudTaskQueue::connect(
                 make_cloud_tasks_queue_path(
                     &cfg.gcloud_project_id,
                     &cfg.gcloud_project_region,
@@ -120,7 +120,7 @@ pub async fn make_task_master(
                 TaskMaster::builder()
                     .db(db)
                     .max_attempts(cfg.task_max_attempts)
-                    .illumination_queue(illumination_queue)
+                    .illuminate_queue(illuminate_queue)
                     .search_index_queue(search_index_queue)
                     .spark_queue(spark_queue)
                     .build()?,

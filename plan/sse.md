@@ -717,7 +717,7 @@ is implemented, subject to the review findings in §10.
 
 | #   | Step                                                                                          | Status |
 | --- | --------------------------------------------------------------------------------------------- | ------ |
-| 1   | Integrate `NOTIFY task_status_channel` with every `TaskMaster` status write                       | ⬜      |
+| 1   | Integrate `NOTIFY task_status_channel` with every `TaskMaster` status write                   | ⬜      |
 | 2   | `/events` SSE route — user filtering + DB replay + poll fallback + `task_types`/`capture_ids` | ⬜      |
 | 3   | Client wiring (`hx-ext="sse"`, `sse-connect`, `hx-trigger="sse:task-status"`)                 | ⬜      |
 | 4   | Adaptive lifetime (5-min idle close + reconnect-on-interaction)                               | ⬜      |
@@ -726,9 +726,9 @@ is implemented, subject to the review findings in §10.
 
 | File                               | Change                                                                                                              | Status |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------ |
-| `src/events/mod.rs` *(new)*        | `TaskStatusEvent` struct and explicit wire serialization                                                           | ⬜      |
+| `src/events/mod.rs` *(new)*        | `TaskStatusEvent` struct and explicit wire serialization                                                            | ⬜      |
 | `src/events/notifier.rs` *(new)*   | dedicated `LISTEN` connection + local fan-out to SSE receivers                                                      | ⬜      |
-| `src/task/status_listener.rs`      | `StatusListener` — the `LISTEN`/`NOTIFY` listener (file does not exist yet)                                        | ⬜      |
+| `src/task/status_listener.rs`      | `StatusListener` — the `LISTEN`/`NOTIFY` listener (file does not exist yet)                                         | ⬜      |
 | `src/webui/v2/maker.rs`            | add `/events` SSE route; thread `StatusListener` into `WebState`                                                    | ⬜      |
 | `src/webui/v2/r_events.rs` *(new)* | SSE handler (replay from DB, listen for notifications, filter by user + task_types + entity ids, adaptive lifetime) | ⬜      |
 | `web/v2/templates/*.tera`          | add `hx-ext="sse"`, `sse-connect` (with `task_types`/`capture_ids`), `hx-trigger="sse:task-status"`                 | ⬜      |
@@ -765,14 +765,12 @@ be resolved as implementation work begins:
   serialize `TaskRunStatus` directly with stable snake-case names, while keeping
   its integer DB discriminants private to persistence. The event envelope still
   carries identity and routing fields around that status.
-7. **Optional queues are a real edge case:** `TaskMaster::submit_inner` returns
-  `Enqueued` without creating a status row when a queue is absent (the source
-  even marks this as `// THIS IS WRONG`). A focused regression test now captures
-  the behavior: repeated submissions both report `Enqueued`, no row exists,
-  and no worker can ever process the task. This is not merely an SSE concern —
-  it violates the submission contract. The fix should be to make queues
-  mandatory for production `TaskMaster` instances, or return a distinct
-  submission failure and record `SubmissionFailed` before SSE rollout.
+7. **Queue availability is now enforced:** `TaskMaster` owns all three queues
+  as required dependencies, and its production builder fails unless the
+  illumination, search-index, and spark queues are supplied. The former
+  missing-queue path, which returned `Enqueued` without a status row, has been
+  removed. Unit tests use explicit test-only no-op queues where a test does not
+  exercise that task type.
 8. **Illumination is a pipeline:** `IlluminationTask` runs illumination and
   search indexing inside one worker attempt. The current status model exposes
   one aggregate `illuminate` task, not separate progress for the two stages.
