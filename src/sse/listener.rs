@@ -11,13 +11,18 @@ pub enum ReceivedServerEvent {
     Availability(AvailabilityEvent),
 }
 
-/// Owns the dedicated PostgreSQL connection required by `LISTEN`.
+/// Owns a dedicated, long-lived PostgreSQL connection required by `LISTEN`.
+///
+/// This must not use a connection borrowed from the application's `PgPool`:
+/// the listener needs to remain connected while waiting for notifications.
 pub struct ServerEventListener {
     listener: PgListener,
 }
 
 impl ServerEventListener {
-    /// Connect and subscribe to the server-event channel.
+    /// Open a dedicated connection and subscribe to the server-event channel.
+    ///
+    /// The connection is owned, long-lived, and held for the listener's lifetime.
     pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
         let mut listener = PgListener::connect(database_url)
             .await
