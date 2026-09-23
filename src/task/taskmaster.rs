@@ -4,6 +4,7 @@ use crate::logic::illuminate::IlluminationTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
 use crate::model;
+use crate::sse::{ServerEvent, ServerEventNotifier, TaskStatusPayload};
 
 use super::*;
 
@@ -12,8 +13,8 @@ use super::*;
 /// Owns the backend queues **and** the `task_run_status` table. Everything else
 /// talks to tasks through this API:
 ///
-/// - `submit_*` — enqueue + record a `Queued` row.
-/// - `begin_attempt` / `finish_attempt` — the Run/attempt lifecycle of the Task
+/// - `submit_*` — enqueue in the backend, and record a `Queued` row.
+/// - `begin_attempt` / `finish_attempt` — manage lifecycle of a Task Run
 /// - `query_*` — read status (replay / polling).
 ///
 /// Status is deliberately not exposed as a raw setter: workers go through
@@ -22,7 +23,8 @@ use super::*;
 ///
 /// Not `Clone`; share via `Arc`.
 pub struct TaskMaster {
-    status: TaskRunTracker,
+    run_tracker: TaskRunTracker,
+    notifier: ServerEventNotifier,
     max_attempts_per_run: i32, // mirrors `Config::task_max_attempts`
     illuminate_queue: Box<dyn TaskQueue<IlluminationTask>>,
     search_index_queue: Box<dyn TaskQueue<SearchIndexTask>>,
@@ -38,22 +40,19 @@ pub struct TaskMaster {
 pub enum SubmitOutcome {
     /// A new run was created and enqueued. `run` counts from 1.
     Enqueued { run: i32 },
-    /// The latest run is still in flight, so nothing was enqueued. `run` is the
-    /// in-flight run that blocked the submission.
-    RefusedAlreadyInFlight { run: i32 },
+    /// The latest run is still in flight, so nothing was enqueued.
+    RefusedAlreadyInFlight,
 }
 
-/// Determine whether a new run is permitted, and if so what its 1-based run number is.
+/// Return the next 1-based run number, or `None` if the latest run is in flight.
 fn decide_next_run(latest_run: Option<&model::task_run_status::Model>) -> Option<i32> {
     if let Some(latest) = latest_run {
         match TaskRunStatus::from_i32(latest.status_code) {
-            // If latest run is still in flight, refuse the submission
             Ok(status) if status.is_in_flight() => None,
-            // Latest run is not in flight, so a rerun is permitted
             _ => Some(latest.run + 1),
         }
     } else {
-        Some(1) // no prior run, so this is the first
+        Some(1)
     }
 }
 
@@ -71,6 +70,8 @@ fn decide_next_attempt(status: Option<&model::task_run_status::Model>) -> Option
 }
 
 /// Determines whether a failed attempt should be retried.
+///
+/// We define internal retry-ability to the ApiError code
 fn decide_will_retry(err: &api::ApiError, attempt: i32, max_attempts: i32) -> bool {
     attempt < max_attempts && err.is_retryable()
 }
@@ -136,42 +137,44 @@ impl TaskMaster {
     ) -> anyhow::Result<SubmitOutcome> {
         let envelope_id = TaskEnvelope::<T>::make_envelope_id(user_id, &task);
 
-        let latest_run = self.status.latest_run(&envelope_id).await?;
+        let latest_run = self.run_tracker.latest_run(&envelope_id).await?;
         let next_run = match decide_next_run(latest_run.as_ref()) {
             Some(run) => run,
             None => {
-                // `decide_next_run` refuses only when a run already exists.
-                let run = latest_run
-                    .as_ref()
-                    .expect("refusal implies an existing run")
-                    .run;
                 tracing::debug!(
                     envelope_id = %envelope_id,
-                    run,
-                    "Refusing submit: latest run is still in flight",
+                    "Refuse submit: latest run still in flight",
                 );
-                return Ok(SubmitOutcome::RefusedAlreadyInFlight { run });
+                return Ok(SubmitOutcome::RefusedAlreadyInFlight);
             }
         };
 
         let envelope = TaskEnvelope::new(user_id, task, next_run);
 
-        // Record `Queued` before enqueueing, since `enqueue` moves the envelope.
-        // `false` = another submit claimed this run first; refuse, don't double-enqueue.
-        let created = self
-            .status
+        // Create the Run and record `Queued` (in the database) before truly
+        // enqueueing (in the backend).
+        // `false` = another submit won the raise and claimed this run first
+        if !self
+            .run_tracker
             .create_run(&envelope, TaskRunStatus::Queued, 0)
-            .await?;
-
-        if !created {
+            .await?
+        {
             tracing::debug!(
                 envelope_id = %envelope_id,
                 next_run,
-                "Refusing submit: lost a race for this run",
+                "Refusing submit: lost the race",
             );
-            return Ok(SubmitOutcome::RefusedAlreadyInFlight { run: next_run });
+            return Ok(SubmitOutcome::RefusedAlreadyInFlight);
         }
 
+        // Notify status before a backend enqueue: otherwise, a fast worker
+        // could otherwise publish `InProgress` first, followed by this stale
+        //`Queued` hint.
+        self.notify_status(&envelope, TaskRunStatus::Queued, 0)
+            .await;
+
+        // Actually enqueue in the backend (theoretically execution could
+        // start immediately)
         if let Err(enqueue_err) = queue.enqueue(envelope.clone()).await {
             tracing::error!(
                 queue = ?queue,
@@ -180,18 +183,12 @@ impl TaskMaster {
                 "Failed to enqueue task",
             );
 
-            if let Err(status_err) = self
-                .status
+            self.run_tracker
                 .update_run(&envelope, TaskRunStatus::SubmissionFailed, 0)
-                .await
-            {
-                tracing::error!(
-                    envelope_id = %envelope.envelope_id,
-                    run = envelope.run,
-                    error = ?status_err,
-                    "Failed to record SubmissionFailed task status",
-                );
-            }
+                .await?;
+
+            self.notify_status(&envelope, TaskRunStatus::SubmissionFailed, 0)
+                .await;
 
             return Err(enqueue_err);
         }
@@ -211,7 +208,7 @@ impl TaskMaster {
         envelope: &TaskEnvelope<T>,
     ) -> anyhow::Result<Option<i32>> {
         let status = self
-            .status
+            .run_tracker
             .query_run_status(&envelope.envelope_id, envelope.run)
             .await?;
 
@@ -224,8 +221,11 @@ impl TaskMaster {
             return Ok(None);
         };
 
-        self.update_status(envelope, TaskRunStatus::InProgress, attempt)
+        self.run_tracker
+            .update_run(envelope, TaskRunStatus::InProgress, attempt)
             .await?;
+        self.notify_status(envelope, TaskRunStatus::InProgress, attempt)
+            .await;
 
         Ok(Some(attempt))
     }
@@ -240,8 +240,11 @@ impl TaskMaster {
     ) -> anyhow::Result<TaskRunStatus> {
         match run_result {
             Ok(()) => {
-                self.update_status(envelope, TaskRunStatus::CompleteSuccess, attempt)
+                self.run_tracker
+                    .update_run(envelope, TaskRunStatus::CompleteSuccess, attempt)
                     .await?;
+                self.notify_status(envelope, TaskRunStatus::CompleteSuccess, attempt)
+                    .await;
                 Ok(TaskRunStatus::CompleteSuccess)
             }
             Err(err) => {
@@ -251,7 +254,10 @@ impl TaskMaster {
                     TaskRunStatus::CompleteFailure
                 };
 
-                self.update_status(envelope, status_code, attempt).await?;
+                self.run_tracker
+                    .update_run(envelope, status_code, attempt)
+                    .await?;
+                self.notify_status(envelope, status_code, attempt).await;
 
                 tracing::warn!(
                     envelope_id = %envelope.envelope_id,
@@ -268,42 +274,38 @@ impl TaskMaster {
         }
     }
 
-    /// Record a status transition for a run. Private: callers must use
-    /// `begin_attempt`/`finish_attempt`.
-    async fn update_status<T: Task>(
+    async fn notify_status<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
         status: TaskRunStatus,
         attempts: i32,
-    ) -> anyhow::Result<()> {
-        self.status.update_run(envelope, status, attempts).await
+    ) {
+        let event = ServerEvent::<TaskStatusPayload>::from_envelope(envelope, status, attempts);
+        if let Err(error) = self.notifier.notify(&event).await {
+            tracing::debug!(
+                envelope = ?envelope,
+                error = ?error,
+                "Failed to publish task-status notification"
+            );
+        }
     }
 
-    /// Latest task status snapshots for one entity, scoped by `user_id`.
-    /// Includes both terminal and in-flight statuses for SSE replay.
-    pub async fn query_latest_status_for_entity(
+    pub async fn query_latest_status_for_entities(
         &self,
         user_id: i32,
         entity_type: &str,
-        entity_id: i32,
+        entity_ids: &[i32],
     ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
-        self.status
-            .query_latest_status_for_entity(user_id, entity_type, entity_id)
+        self.run_tracker
+            .query_latest_status_for_entities(user_id, entity_type, entity_ids)
             .await
-    }
-
-    /// Latest task status snapshots for a user, across all entities.
-    pub async fn query_latest_status_for_user(
-        &self,
-        user_id: i32,
-    ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
-        self.status.query_latest_status_for_user(user_id).await
     }
 }
 
 #[derive(Default)]
 pub struct TaskMasterBuilder {
     db: Option<DbHandle>,
+    notifier: Option<ServerEventNotifier>,
     max_attempts: Option<i32>,
     illuminate_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
@@ -313,6 +315,10 @@ pub struct TaskMasterBuilder {
 impl TaskMasterBuilder {
     pub fn db(mut self, db: DbHandle) -> Self {
         self.db = Some(db);
+        self
+    }
+    pub fn notifier(mut self, notifier: ServerEventNotifier) -> Self {
+        self.notifier = Some(notifier);
         self
     }
     /// Maximum number of attempts per task. See `Config::task_max_attempts`.
@@ -346,6 +352,9 @@ impl TaskMasterBuilder {
         let Some(db) = self.db else {
             anyhow::bail!("TaskMaster requires a database handle");
         };
+        let notifier = self.notifier.unwrap_or_else(|| {
+            ServerEventNotifier::new(db.conn.get_postgres_connection_pool().clone())
+        });
         #[cfg(not(test))]
         let (Some(illuminate_queue), Some(search_index_queue), Some(spark_queue)) = (
             self.illuminate_queue,
@@ -369,7 +378,8 @@ impl TaskMasterBuilder {
             .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
 
         Ok(TaskMaster {
-            status: TaskRunTracker::new(db),
+            run_tracker: TaskRunTracker::new(db),
+            notifier,
             // Mirrors `Config::task_max_attempts` so a builder that forgets
             // `.max_attempts(..)` behaves like production rather than disabling retries.
             max_attempts_per_run: self.max_attempts.unwrap_or(3).max(1),
@@ -643,7 +653,7 @@ mod tests {
             .expect("submit should succeed");
 
         let rows = service
-            .query_latest_status_for_entity(1, "capture", 42)
+            .query_latest_status_for_entities(1, "capture", &[42])
             .await
             .expect("query should succeed");
 
@@ -681,7 +691,7 @@ mod tests {
             .expect("second submit should be answered, not error");
 
         assert_eq!(first, SubmitOutcome::Enqueued { run: 1 });
-        assert_eq!(second, SubmitOutcome::RefusedAlreadyInFlight { run: 1 });
+        assert_eq!(second, SubmitOutcome::RefusedAlreadyInFlight);
         assert_eq!(
             captures.lock().unwrap().len(),
             1,
@@ -782,7 +792,7 @@ mod tests {
         assert_eq!(rerun, SubmitOutcome::Enqueued { run: 2 });
 
         let rows = service
-            .query_latest_status_for_entity(1, "capture", 42)
+            .query_latest_status_for_entities(1, "capture", &[42])
             .await
             .expect("query should succeed");
 
@@ -846,7 +856,7 @@ mod tests {
             .expect("finish_attempt should succeed");
 
         let rows = service
-            .query_latest_status_for_entity(1, "capture", 42)
+            .query_latest_status_for_entities(1, "capture", &[42])
             .await
             .expect("query should succeed");
 
@@ -963,7 +973,7 @@ mod tests {
         // The completed row is reported: a caller must be able to see that its
         // work finished.
         let rows = service
-            .query_latest_status_for_entity(1, "capture", 7)
+            .query_latest_status_for_entities(1, "capture", &[7])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1023,7 +1033,7 @@ mod tests {
 
         // The exhausted run is still reported (the user should see it).
         let rows = service
-            .query_latest_status_for_entity(1, "capture", 9)
+            .query_latest_status_for_entities(1, "capture", &[9])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1078,7 +1088,7 @@ mod tests {
 
     /// The user-scoped query returns work across entities.
     #[tokio::test]
-    async fn query_latest_status_for_user_spans_entities() {
+    async fn query_latest_status_for_entities_spans_requested_entities() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -1100,14 +1110,14 @@ mod tests {
         }
 
         let rows = service
-            .query_latest_status_for_user(1)
+            .query_latest_status_for_entities(1, "capture", &[1, 2, 3])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 3);
 
-        // Another user sees nothing.
+        // A different user cannot see these entities.
         let other = service
-            .query_latest_status_for_user(2)
+            .query_latest_status_for_entities(2, "capture", &[1, 2, 3])
             .await
             .expect("query should succeed");
         assert!(other.is_empty(), "queries must be scoped by user_id");
@@ -1163,7 +1173,7 @@ mod tests {
         assert!(result.is_err(), "the enqueue error must propagate");
 
         let rows = service
-            .query_latest_status_for_entity(1, "capture", 9)
+            .query_latest_status_for_entities(1, "capture", &[9])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1178,7 +1188,7 @@ mod tests {
         assert!(retry.is_err(), "the test queue is still configured to fail");
 
         let rows = service
-            .query_latest_status_for_entity(1, "capture", 9)
+            .query_latest_status_for_entities(1, "capture", &[9])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1, "only the latest run is returned");
@@ -1255,7 +1265,7 @@ mod tests {
             .expect("submit should succeed");
 
         let rows = service
-            .query_latest_status_for_entity(1, "capture", 42)
+            .query_latest_status_for_entities(1, "capture", &[42])
             .await
             .expect("query should succeed");
 

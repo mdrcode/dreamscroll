@@ -127,50 +127,27 @@ impl TaskRunTracker {
         Ok(row)
     }
 
-    /// Status rows for one entity, **all statuses included** — a caller must be
-    /// able to see that its work finished, not just that it is outstanding.
-    ///
-    /// Only the **latest run** per logical task is returned — a rerun supersedes
-    /// the run before it.
-    pub async fn query_latest_status_for_entity(
+    /// Latest task statuses for several entities of the same type and user.
+    pub async fn query_latest_status_for_entities(
         &self,
         user_id: i32,
         entity_type: &str,
-        entity_id: i32,
+        entity_ids: &[i32],
     ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
-        let db = &self.db;
+        if entity_ids.is_empty() {
+            return Ok(Vec::new());
+        }
 
-        // TODO(REVISIT): wants a composite index on
-        // (user_id, entity_type, entity_id, status_code).
         let rows = model::task_run_status::Entity::find()
             .filter(model::task_run_status::Column::UserId.eq(user_id))
             .filter(model::task_run_status::Column::EntityType.eq(entity_type))
-            .filter(model::task_run_status::Column::EntityId.eq(entity_id))
-            .all(&db.conn)
+            .filter(model::task_run_status::Column::EntityId.is_in(entity_ids.iter().copied()))
+            .all(&self.db.conn)
             .await?;
 
         Ok(latest_runs_per_task(rows))
     }
 
-    /// Status rows for one user, **all statuses included** — a caller must be
-    /// able to see that its work finished, not just that it is outstanding.
-    ///
-    /// Only the **latest run** per logical task is returned — a rerun supersedes
-    /// the run before it.
-    pub async fn query_latest_status_for_user(
-        &self,
-        user_id: i32,
-    ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
-        let db = &self.db;
-
-        // TODO(REVISIT): wants a composite index on (user_id, run).
-        let rows = model::task_run_status::Entity::find()
-            .filter(model::task_run_status::Column::UserId.eq(user_id))
-            .all(&db.conn)
-            .await?;
-
-        Ok(latest_runs_per_task(rows))
-    }
 }
 
 /// Reduce rows to the latest run per logical task. No status is filtered out:
@@ -459,7 +436,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_latest_status_for_entity_is_user_scoped() {
+    async fn query_latest_status_for_entities_is_user_scoped() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -471,15 +448,74 @@ mod tests {
             .expect("create_run should succeed");
 
         let mine = tracker
-            .query_latest_status_for_entity(1, "capture", 42)
+            .query_latest_status_for_entities(1, "capture", &[42])
             .await
             .expect("query should succeed");
         let theirs = tracker
-            .query_latest_status_for_entity(2, "capture", 42)
+            .query_latest_status_for_entities(2, "capture", &[42])
             .await
             .expect("query should succeed");
 
         assert_eq!(mine.len(), 1);
         assert!(theirs.is_empty(), "entity ids are not a security boundary");
+    }
+
+    #[tokio::test]
+    async fn query_latest_status_for_entities_filters_and_collapses_runs() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle());
+
+        tracker
+            .create_run(&envelope(1, 42, 1), TaskRunStatus::CompleteFailure, 2)
+            .await
+            .expect("older run should be created");
+        tracker
+            .create_run(&envelope(1, 42, 2), TaskRunStatus::CompleteSuccess, 1)
+            .await
+            .expect("newer run should be created");
+        tracker
+            .create_run(&envelope(1, 43, 1), TaskRunStatus::Queued, 0)
+            .await
+            .expect("second entity should be created");
+        tracker
+            .create_run(&envelope(2, 42, 1), TaskRunStatus::InProgress, 1)
+            .await
+            .expect("other user's entity should be created");
+
+        let rows = tracker
+            .query_latest_status_for_entities(1, "capture", &[42, 43, 999])
+            .await
+            .expect("multi-entity query should succeed");
+
+        assert_eq!(rows.len(), 2, "only matching user/entity rows are returned");
+        assert_eq!(
+            rows.iter().find(|row| row.entity_id == 42).unwrap().run,
+            2,
+            "only the latest run for an entity is returned"
+        );
+        assert_eq!(
+            rows.iter()
+                .find(|row| row.entity_id == 42)
+                .unwrap()
+                .status_code,
+            TaskRunStatus::CompleteSuccess.as_i32()
+        );
+    }
+
+    #[tokio::test]
+    async fn query_latest_status_for_entities_empty_input_returns_empty() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle());
+
+        let rows = tracker
+            .query_latest_status_for_entities(1, "capture", &[])
+            .await
+            .expect("empty query should succeed");
+
+        assert!(rows.is_empty());
     }
 }

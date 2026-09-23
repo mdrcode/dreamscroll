@@ -10,4 +10,3 @@ pub fn prompt_password_stdin() -> anyhow::Result<String> {
     let password = rpassword::read_password()?;
     Ok(password)
 }
-

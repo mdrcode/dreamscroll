@@ -60,6 +60,10 @@ async fn main() -> anyhow::Result<()> {
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving
     if cfg.services.contains(&config::Service::WebUI) {
+        let server_event_listener =
+            sse::ServerEventListener::connect(&database::make_url_from_config(&cfg, None, false))
+                .await?;
+        let server_events = sse::spawn_local_fanout(server_event_listener);
         let auth_backend = auth::WebAuthBackend::new(db.clone());
 
         let session_layer = SessionManagerLayer::new(session_store)
@@ -80,6 +84,8 @@ async fn main() -> anyhow::Result<()> {
 
         let ui_router = webui::v2::make_ui_router(
             user_api.clone(),
+            task_master.clone(),
+            server_events.clone(),
             auth_backend.clone(),
             session_layer.clone(),
             cfg.max_upload_bytes,
@@ -121,7 +127,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Initialized REST API routes");
     }
 
-    // Webhook routes are unauthenticated locally but require OIDC in prod.
+    // Webhook routes (unauthenticated locally but require OIDC in prod)
     if cfg.services.contains(&config::Service::Webhook) {
         let illuminator = illumination::make_illuminator(&cfg, stg.clone());
         let firestarter = ignition::make_firestarter(&cfg)?;

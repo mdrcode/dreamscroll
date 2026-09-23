@@ -1,6 +1,7 @@
 use anyhow::{Context, bail};
 use serde_json::Value;
 use sqlx::postgres::PgListener;
+use tokio::sync::broadcast;
 
 use super::{AvailabilityEvent, TaskStatusEvent, notifier::SERVER_EVENT_CHANNEL};
 
@@ -14,7 +15,8 @@ pub enum ReceivedServerEvent {
 /// Owns a dedicated, long-lived PostgreSQL connection required by `LISTEN`.
 ///
 /// This must not use a connection borrowed from the application's `PgPool`:
-/// the listener needs to remain connected while waiting for notifications.
+/// the listener needs to remain connected forever while waiting for
+/// notifications.
 pub struct ServerEventListener {
     listener: PgListener,
 }
@@ -22,11 +24,12 @@ pub struct ServerEventListener {
 impl ServerEventListener {
     /// Open a dedicated connection and subscribe to the server-event channel.
     ///
-    /// The connection is owned, long-lived, and held for the listener's lifetime.
+    /// The connection is exclusively owned and held for the listener's lifetime.
     pub async fn connect(database_url: &str) -> anyhow::Result<Self> {
         let mut listener = PgListener::connect(database_url)
             .await
             .context("connect server-event listener")?;
+
         listener
             .listen(SERVER_EVENT_CHANNEL)
             .await
@@ -45,6 +48,32 @@ impl ServerEventListener {
     }
 }
 
+/// Start the dedicated Postgres listener and expose its decoded notifications
+/// to SSE connections on this instance. Lagged receivers may miss hints; that
+/// is acceptable for this informational stream.
+pub fn spawn_local_fanout(
+    mut listener: ServerEventListener,
+) -> broadcast::Sender<ReceivedServerEvent> {
+    let (sender, _) = broadcast::channel(128); // TODO where did 128 come from?
+    let task_sender = sender.clone();
+
+    tokio::spawn(async move {
+        loop {
+            match listener.recv().await {
+                Ok(event) => {
+                    let _ = task_sender.send(event);
+                }
+                Err(error) => {
+                    tracing::warn!(error = ?error, "Server-event listener stopped");
+                    break;
+                }
+            }
+        }
+    });
+
+    sender
+}
+
 fn decode_server_event(payload: &str) -> anyhow::Result<ReceivedServerEvent> {
     let value: Value = serde_json::from_str(payload).context("parse server-event JSON")?;
     let event_type = value
@@ -53,9 +82,14 @@ fn decode_server_event(payload: &str) -> anyhow::Result<ReceivedServerEvent> {
         .context("server event has no string event_type")?;
 
     match event_type {
-        "task_status" => Ok(ReceivedServerEvent::TaskStatus(
-            serde_json::from_value(value).context("decode task-status event")?,
-        )),
+        "task_status" => {
+            let event: TaskStatusEvent =
+                serde_json::from_value(value).context("decode task-status event")?;
+            if event.payload.user_id == 0 {
+                bail!("PostgreSQL task-status notification has no routing user_id");
+            }
+            Ok(ReceivedServerEvent::TaskStatus(event))
+        }
         "availability" => Ok(ReceivedServerEvent::Availability(
             serde_json::from_value(value).context("decode availability event")?,
         )),
@@ -69,7 +103,7 @@ mod tests {
 
     #[test]
     fn decodes_task_status_event() {
-        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"subchannel":"illuminate","status":{"name":"complete_success","discriminant":4},"run":3}}"#;
+        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"subchannel":"illuminate","status":{"name":"complete_success","discriminant":4},"attempts":1,"run":3,"user_id":7}}"#;
         assert!(matches!(
             decode_server_event(payload).unwrap(),
             ReceivedServerEvent::TaskStatus(_)
@@ -88,6 +122,19 @@ mod tests {
     #[test]
     fn rejects_unknown_event_type() {
         let payload = r#"{"event_type":"unknown"}"#;
+        assert!(decode_server_event(payload).is_err());
+    }
+
+    #[test]
+    fn rejects_task_status_notification_without_owner_id() {
+        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"subchannel":"illuminate","status":{"name":"complete_success","discriminant":4},"attempts":1,"run":3}}"#;
+        let error = decode_server_event(payload).unwrap_err();
+        assert!(error.to_string().contains("routing user_id"));
+    }
+
+    #[test]
+    fn rejects_malformed_task_status_payload() {
+        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"subchannel":"illuminate","status":"not-an-object"}}"#;
         assert!(decode_server_event(payload).is_err());
     }
 }

@@ -1308,6 +1308,7 @@ dependencies = [
  "dotenvy",
  "dyn-clone",
  "envy",
+ "futures-util",
  "google-cloud-aiplatform-v1",
  "google-cloud-auth",
  "google-cloud-storage",

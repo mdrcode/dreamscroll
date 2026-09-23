@@ -5,7 +5,12 @@ This app empowers users to build a personal, AI-enriched knowledge graph from sc
 - **Velocity First:** We are rapidly exploring and validating our use case, not obsessing about production hardening. Trade robustness for speed.
 - **Log Technical Debt:** Document all shortcuts and tradeoffs in `plan/pragmatism.md`.
 - **Confirm Big Changes:** Do not go down deep refactoring or architectural rabbit holes without seeking confirmation first.
+- **Confirm New Dependencies:** If a new third-party crate is helpful, please
+  explain your research/conclusion about this and seek confirmation first.
 - **No Schema Overhead:** Do not worry about data migrations or backward compatibility. Nuke the database or use crude hacks if needed for prototype speed.
+- **Document Along The Way::** Update the various plan* files as you go. If you
+  are informed by useful third-party docs/websites, include links to those in
+  the plan.
 
 # Architecture & Module Conventions
 - **Module Layout:** Follow the existing clean folder structure under `src/`.
