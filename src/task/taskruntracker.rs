@@ -132,7 +132,7 @@ impl TaskRunTracker {
     ///
     /// Only the **latest run** per logical task is returned — a rerun supersedes
     /// the run before it.
-    pub async fn query_task_run_status_for_entity(
+    pub async fn query_latest_status_for_entity(
         &self,
         user_id: i32,
         entity_type: &str,
@@ -157,7 +157,7 @@ impl TaskRunTracker {
     ///
     /// Only the **latest run** per logical task is returned — a rerun supersedes
     /// the run before it.
-    pub async fn query_task_run_status_for_user(
+    pub async fn query_latest_status_for_user(
         &self,
         user_id: i32,
     ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
@@ -459,7 +459,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_task_run_status_for_entity_is_user_scoped() {
+    async fn query_latest_status_for_entity_is_user_scoped() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -471,11 +471,11 @@ mod tests {
             .expect("create_run should succeed");
 
         let mine = tracker
-            .query_task_run_status_for_entity(1, "capture", 42)
+            .query_latest_status_for_entity(1, "capture", 42)
             .await
             .expect("query should succeed");
         let theirs = tracker
-            .query_task_run_status_for_entity(2, "capture", 42)
+            .query_latest_status_for_entity(2, "capture", 42)
             .await
             .expect("query should succeed");
 

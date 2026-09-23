@@ -1,11 +1,12 @@
 # Real-time Task Status via SSE — Design
 
-**Status:** **Design under review; not implemented.** The task framework is
-implemented, but this document was reviewed against the current code on
-2026-09-21. The implementation details below are being revised before SSE
-code is added.
-**Scope:** Relay accurate, up-to-date, low-latency **background-task status** to
-HTMX clients over Server-Sent Events.
+**Status:** **Design under review; standalone Postgres prototype implemented.**
+The task framework is implemented, and `src/sse` now contains an isolated
+`NOTIFY`/`LISTEN` prototype. It is not wired into `TaskMaster`, the web router,
+or the client yet.
+**Scope:** Relay best-effort, low-latency **background-task status hints** to
+HTMX clients over Server-Sent Events. This is informational UI feedback, not a
+workflow engine, durable change log, or source of truth for task orchestration.
 
 > **See also:**
 > - `task-status.md` — the task framework this builds on (done).
@@ -23,7 +24,7 @@ the user must guess and manually refresh the page to see the updated
 illumination data.
 
 We want a **simple, idiomatic, robust, and flexible** strategy for relaying
-accurate, up-to-date, low-latency background-task status to clients. It must:
+best-effort background-task status information to clients. It should:
 
 - Scale across different **task types** (`illuminate`, `spark`, `search_index`).
 - Let the client **subscribe to only what it cares about** (avoid noise, e.g.
@@ -32,6 +33,18 @@ accurate, up-to-date, low-latency background-task status to clients. It must:
 - **Respect the connection budget** of our narrow topology — long-lived SSE
   connections must not be held open indefinitely when idle.
 - Minimize frontend cruft/complexity (the author is not a JS coder).
+
+The user-facing purpose is deliberately narrow:
+
+- tell the user our best-effort knowledge of what is happening in the backend;
+- provide a smart hint that a small page component may be stale;
+- let the client refresh or remove that component when appropriate.
+
+Task status is **not** part of deterministic multi-stage pipeline logic. A task
+can continue, finish, retry, or fail independently of whether a browser is
+connected, and losing a notification is acceptable because the UI can remain
+stale until its next refresh/reconnect. No durable transition history is
+needed for this feature.
 
 > **Scope boundary:** this phase is about **task status only**. Capture lifecycle
 > events (a capture uploaded/deleted on another device) are a **separate, TBD
@@ -69,7 +82,7 @@ backoff, and swaps in whatever HTML the server sends for a named event.
 The cleanest, most flexible design separates two concerns:
 
 1. **A server-side task-status source** that any code (webhook logic, admin
-   backfill, rerun handlers) can publish task-status transitions to.
+  backfill, rerun handlers) can publish current status hints to.
 2. **A thin SSE endpoint** that subscribes a user's browser to that source,
    filtered by `user_id` **and** by the client's requested task types / captures.
 
@@ -90,37 +103,45 @@ This means:
 - **Reruns "just work"** — the event is keyed by `(envelope_id, run)` and the
   client just re-fetches whatever partial is relevant.
 
-> **Important distinction:** for background task status, the database row is
-> the state and the SSE/`LISTEN` notification is primarily a **wake-up hint**.
-> A notification does not need to preserve or describe every transition. When
-> the hint arrives, the SSE handler re-queries the current matching rows and
-> emits a thin signal; the HTMX client then refreshes the relevant partial.
-> Polling/replay remains the correctness mechanism if a hint is delayed or
-> missed.
+> **Important distinction:** for this informational UI feature, the database
+> row is the best available current status, while the SSE/`LISTEN` notification
+> is a **best-effort hint**. A notification does not need to preserve or
+> describe every transition. When the hint arrives, the SSE handler may use the
+> included snapshot directly or re-query the current matching row before
+> emitting a thin signal; the HTMX client then refreshes the relevant partial.
+> A missed hint is acceptable. Replay/reconnect and optional polling merely
+> improve the chance that the UI catches up; they are not a durable-log
+> recovery protocol.
 
-### 3.1 The task-status event shape
+### 3.1 The update-event shape
 
-Every task-status transition is a small, typed struct. The SSE event name is
-constant (`event: task-status`); the payload carries the fields the client needs
-to route and react:
+Every update is a small, typed payload inside the generic `ServerEvent<E>`
+envelope implemented in `src/sse/event.rs`:
 
 ```rust
-// src/events/mod.rs — the shape of a task-status transition
-pub struct TaskStatusEvent {
-    pub task_type: String,   // "illuminate" | "spark" | "search_index"
-    pub envelope_id: String, // e.g. "u1-illuminate-capture123"
-    pub entity_type: String, // "capture" | "spark"
-    pub entity_id: i32,      // the entity this task operates on (fan-out key, §6.2)
-    pub status: task::TaskRunStatus, // Queued | InProgress | ErrorWillRetry | CompleteSuccess | CompleteFailure
-    pub attempts: i32,       // 1-based attempt number of the latest attempt
-    pub user_id: i32,        // for per-user filtering
+pub struct ServerEvent<E> {
+  pub schema_version: u8,
+  pub event_type: ServerEvents,
+  pub timestamp: DateTime<Utc>,
+  pub entity_type: String,
+  pub entity_id: i32,
+  pub payload: P,
 }
+
+pub type TaskStatusUpdate = ServerEvent<TaskStatusPayload>;
+pub type AvailabilityUpdate = ServerEvent<AvailabilityPayload>;
 ```
 
-The SSE wire format is a flat JSON object:
+The task-status wire format is:
 
 ```json
-{ "task_type": "illuminate", "envelope_id": "u1-illuminate-capture123", "entity_type": "capture", "entity_id": 123, "status": "complete_success", "attempts": 1 }
+{ "schema_version": 1, "event_type": "task_status", "timestamp": "2026-09-21T18:42:10Z", "entity_type": "capture", "entity_id": 123, "payload": { "subchannel": "illuminate", "run": 1, "status": { "name": "complete_success", "discriminant": 4 } } }
+```
+
+Availability uses the same envelope with a different payload:
+
+```json
+{ "schema_version": 1, "event_type": "entity_availability", "timestamp": "2026-09-21T18:42:15Z", "entity_type": "capture", "entity_id": 123, "payload": { "operation": "deleted" } }
 ```
 
 This maps to the current state of a `task_run_status` row (see
@@ -128,12 +149,18 @@ This maps to the current state of a `task_run_status` row (see
 per logical task run and updates that row in place. The `TaskRunStatus` enum
 lives in the task module; the DB stores only its integer discriminant.
 
-**Design decision:** `TaskRunStatus` should derive `serde::Serialize` (and,
-if useful for tests or future request handling, `Deserialize`) with an explicit
-snake-case representation such as `"complete_success"`. The persisted integer
-mapping remains independent and must not change. A dedicated event DTO can
-still wrap the status with task identity, but the status itself need not be
-duplicated as a second string enum.
+**Design decision:** `TaskRunStatus` serializes as an object containing both its
+stable snake-case name and persisted integer discriminant, for example
+`{"name":"complete_success","discriminant":4}`. Deserialization validates
+that the two representations agree. The persisted integer mapping remains
+independent and must not change. A dedicated event DTO can still wrap the
+status with task identity, but the status itself need not be duplicated as a
+second string enum.
+
+The generic envelope is a compile-time Rust convenience; `event_type` is the
+runtime discriminator used by clients and other JSON consumers. The SSE event
+name may remain specific (`task-status` or `entity-availability`) for HTMX,
+even though both payloads share the same envelope shape.
 
 > **Why a single named SSE event (`task-status`) rather than per-status names
 > (`illumination-complete`, etc.):** named events are fine for a fixed set, but
@@ -240,6 +267,16 @@ mechanisms, used together:
 > `LISTEN/NOTIFY` is the *distributed* equivalent — the same pub/sub idea, but
 > the channel lives in Postgres, which every instance already shares.
 
+> **SeaORM / SQLx boundary:** SeaORM remains responsible for ordinary
+> `task_run_status` reads and writes. It can execute raw PostgreSQL statements,
+> including `SELECT pg_notify(...)`, but it does not expose a first-class
+> asynchronous notification listener comparable to SQLx's
+> `sqlx::postgres::PgListener`. `LISTEN` requires a dedicated connection to
+> remain checked out while it waits for server-pushed messages, which does not
+> fit SeaORM's normal pooled query abstraction. The standalone `src/sse`
+> prototype therefore uses SQLx only for notification publishing/listening; it
+> does not replace SeaORM as the application's ORM.
+
 ### 4.2 Where task status gets written (and notified)
 
 Task status is written at the natural choke points. Each status write should
@@ -274,7 +311,7 @@ pub struct StatusWriter { /* holds a TaskMaster (or DB conn) + the notify channe
 impl StatusWriter {
     pub async fn write(&self, event: &TaskStatusEvent) -> anyhow::Result<()> {
         // 1. UPSERT the task_run_status row (keyed by (envelope_id, run))
-        // 2. NOTIFY task_status_channel, '<envelope_id>'  (payload is just a hint)
+        // 2. NOTIFY task_status_channel, '<serialized current row snapshot>'
     }
 }
 ```
@@ -283,6 +320,39 @@ impl StatusWriter {
 > thin wrapper that adds the `NOTIFY` (step 2) — or `TaskMaster` itself can own
 > the notify. Either way the two-owner rule holds: only
 > `TaskMaster`/`StatusListener` touch `task_run_status`.
+
+### 4.2.1 Notification payload: current-row snapshot
+
+The channel semantic is deliberately simple: whenever a `task_run_status` row
+changes, publish the newest snapshot of that row as the notification payload.
+This is **best effort**. The payload is useful for low-latency consumers, but
+it is never the correctness mechanism; reconnects, polling, and replay still
+query the database.
+
+The standalone module now has a generic `ServerEvent<E>` envelope. The concrete
+`TaskStatusUpdate` uses a `TaskStatusPayload` containing the stable logical
+`subchannel` (currently names such as `illuminate`), the logical `run` number,
+and the compound-serialized `TaskRunStatus`. The envelope supplies the
+timestamp and entity routing key. `AvailabilityUpdate` uses the same envelope
+with an `AvailabilityPayload`. These are informational update payloads;
+additional metadata can be added later without changing the basic notification
+semantics.
+
+The trade-offs are acceptable for this table:
+
+- **Payload size:** PostgreSQL notification payloads are limited to roughly 8 KB.
+  The current row is comfortably below that, but fields should not be added to
+  the snapshot casually. If the row grows beyond that limit, publish only a
+  compact identity hint and re-query.
+- **Staleness:** a later update can occur before a consumer processes an older
+  notification. Consumers must treat the payload as a hint/snapshot and may
+  re-read the row before emitting browser state.
+- **Delivery:** notifications can be missed while a listener is disconnected,
+  and they are not retained as an event log. Database replay and polling cover
+  that gap.
+- **Transaction boundary:** PostgreSQL delivers `NOTIFY` only when the
+  transaction commits. The write and notification should therefore be issued
+  in the same transaction when atomic row/payload correspondence matters.
 
 ### 4.3 The SSE endpoint
 
@@ -697,10 +767,11 @@ so the connection ends gracefully rather than being killed by Cloud Run.
 - **Idiomatic:** SSE is the canonical HTMX companion; `htmx-ext-sse` is the
   official extension. Axum has first-class SSE support. `LISTEN/NOTIFY` is the
   idiomatic Postgres pub/sub.
-- **Robust:** The `task_run_status` table is the **single canonical source of
-  truth** — it survives reconnects, restarts, and multi-instance workers with no
-  in-process state to drift. `LISTEN/NOTIFY` gives low latency; the poll fallback
-  guarantees correctness; keep-alives + auto-reconnect handle flaky connections.
+- **Robust:** The `task_run_status` table is the **best available current status**
+  — it survives reconnects, restarts, and multi-instance workers with no
+  in-process state to drift. `LISTEN/NOTIFY` gives low latency; replay and an
+  optional poll fallback help the UI catch up; keep-alives + auto-reconnect
+  handle flaky connections. None of these components form a durable change log.
   The adaptive lifetime keeps idle connections from accumulating.
 - **Flexible:** The `(task_type, envelope_id, entity_type, entity_id)` model is
   generic — illumination, spark, search-index all flow through the same
@@ -726,7 +797,9 @@ is implemented, subject to the review findings in §10.
 
 | File                               | Change                                                                                                              | Status |
 | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------- | ------ |
-| `src/events/mod.rs` *(new)*        | `TaskStatusEvent` struct and explicit wire serialization                                                            | ⬜      |
+| `src/sse/event.rs`                 | Generic `ServerEvent<E>`, task-status and availability payloads, and wire serialization                             | ✅      |
+| `src/sse/notifier.rs`              | PostgreSQL `NOTIFY` publisher for typed server events                                                                | 🟡      |
+| `src/sse/listener.rs`              | Dedicated PostgreSQL `LISTEN` receiver and event decoding                                                          | 🟡      |
 | `src/events/notifier.rs` *(new)*   | dedicated `LISTEN` connection + local fan-out to SSE receivers                                                      | ⬜      |
 | `src/task/status_listener.rs`      | `StatusListener` — the `LISTEN`/`NOTIFY` listener (file does not exist yet)                                         | ⬜      |
 | `src/webui/v2/maker.rs`            | add `/events` SSE route; thread `StatusListener` into `WebState`                                                    | ⬜      |
@@ -754,17 +827,14 @@ be resolved as implementation work begins:
   by `(envelope_id, run)`. A notification payload must therefore identify the
   changed logical run (or be treated only as a wake-up hint); it cannot by
   itself represent every transition.
-5. **Query API naming is stale:** `query_incomplete_for_entity` and
-  `query_incomplete_for_user` currently return the latest row for every task,
-  including successful rows. The original design incorrectly treated
-  "incomplete" as the universal query needed by the UI. The revised design
-  needs an explicitly named **latest-status snapshot** query for SSE, returning
-  terminal and in-flight states alike. A genuinely incomplete query should be
-  retained separately only for callers that actually need outstanding work.
-6. **Serialization needs an explicit decision:** the preferred design is to
-  serialize `TaskRunStatus` directly with stable snake-case names, while keeping
-  its integer DB discriminants private to persistence. The event envelope still
-  carries identity and routing fields around that status.
+5. **Resolved:** the old `query_incomplete_for_entity` and
+  `query_incomplete_for_user` names were misleading because those methods
+  return the latest row for every task, including successful rows. They are now
+  `query_latest_status_for_entity` and `query_latest_status_for_user`.
+6. **Resolved:** `TaskRunStatus` now serializes directly as a compound object
+  containing its stable snake-case name and integer discriminant. Deserialization
+  rejects mismatched representations. The event envelope still carries identity
+  and routing fields around that status.
 7. **Queue availability is now enforced:** `TaskMaster` owns all three queues
   as required dependencies, and its production builder fails unless the
   illumination, search-index, and spark queues are supplied. The former
@@ -783,6 +853,18 @@ be resolved as implementation work begins:
 10. **Auth/router wiring is absent:** `WebState` currently contains no
    `TaskMaster`, and `make_ui_router` has no `/events` route. The endpoint must
    be wired into the protected router and use the existing session auth.
+11. **Standalone prototype added:** `src/sse` now demonstrates the database
+  boundary without coupling it to task submission or HTTP. `StatusNotifier`
+  uses `pg_notify` through a pool; `StatusListener` owns a dedicated
+  `sqlx::postgres::PgListener` connection. Its JSON payload identifies
+  `task_type`, `(envelope_id, run)`, and `(entity_type, entity_id)` so a
+  consumer can route the wake-up without another identity lookup. It remains a
+  wake-up hint, not a durable event.
+12. **Product scope clarified:** task-status SSE is informational UI feedback
+  only. It tells the user what the backend probably knows and hints that a slim
+  page component may need refresh or removal. It is not deterministic pipeline
+  logic, a workflow coordinator, or a durable change log. Missed notifications
+  are acceptable.
 
 ## 10. Open questions / follow-ups
 

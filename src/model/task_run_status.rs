@@ -9,7 +9,7 @@ use sea_orm::entity::prelude::*;
 /// prevents a duplicate submission of work that is still in flight.
 ///
 /// TODO(REVISIT): the primary read pattern is
-/// `query_incomplete_for_entity` — `WHERE user_id = ? AND entity_type = ?
+/// `query_latest_status_for_entity` — `WHERE user_id = ? AND entity_type = ?
 /// AND entity_id = ? AND status_code IN (...)` — which currently only has the
 /// single-column `entity_id` index to work with. Add a composite index on
 /// `(user_id, entity_type, entity_id, status_code)` once the table is large
@@ -36,7 +36,7 @@ pub struct Model {
     #[sea_orm(unique_key = "task_run")]
     pub run: i32,
 
-    /// 'illumination' | 'spark' | 'search_index' | ...
+    /// 'illuminate' | 'spark' | 'search_index' | ...
     pub task_type: String,
 
     /// The type and id of the entity this task operates on, e.g. "capture" and 42.

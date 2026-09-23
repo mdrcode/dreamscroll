@@ -21,6 +21,18 @@ pub enum TaskRunStatus {
 }
 
 impl TaskRunStatus {
+    /// Stable snake-case name used on the JSON wire.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskRunStatus::SubmissionFailed => "submission_failed",
+            TaskRunStatus::Queued => "queued",
+            TaskRunStatus::InProgress => "in_progress",
+            TaskRunStatus::ErrorWillRetry => "error_will_retry",
+            TaskRunStatus::CompleteSuccess => "complete_success",
+            TaskRunStatus::CompleteFailure => "complete_failure",
+        }
+    }
+
     /// The integer persisted in the `task_run_status.status_code` column.
     pub fn as_i32(&self) -> i32 {
         match self {
@@ -56,6 +68,44 @@ impl TaskRunStatus {
             self,
             TaskRunStatus::Queued | TaskRunStatus::InProgress | TaskRunStatus::ErrorWillRetry
         )
+    }
+}
+
+#[derive(serde::Deserialize, serde::Serialize)]
+struct TaskRunStatusWire {
+    name: String,
+    discriminant: i32,
+}
+
+impl serde::Serialize for TaskRunStatus {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        TaskRunStatusWire {
+            name: self.as_str().to_string(),
+            discriminant: self.as_i32(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for TaskRunStatus {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let wire = TaskRunStatusWire::deserialize(deserializer)?;
+        let status = Self::from_i32(wire.discriminant).map_err(serde::de::Error::custom)?;
+
+        if wire.name != status.as_str() {
+            return Err(serde::de::Error::custom(format!(
+                "task status name {:?} does not match discriminant {}",
+                wire.name, wire.discriminant
+            )));
+        }
+
+        Ok(status)
     }
 }
 
@@ -122,6 +172,28 @@ mod tests {
         assert_eq!(
             TaskRunStatus::CompleteFailure.to_string(),
             "CompleteFailure(5)"
+        );
+    }
+
+    #[test]
+    fn serde_uses_name_and_discriminant() {
+        assert_eq!(
+            serde_json::to_string(&TaskRunStatus::CompleteSuccess).unwrap(),
+            r#"{"name":"complete_success","discriminant":4}"#
+        );
+        assert_eq!(
+            serde_json::from_str::<TaskRunStatus>(
+                r#"{"name":"error_will_retry","discriminant":3}"#
+            )
+            .unwrap(),
+            TaskRunStatus::ErrorWillRetry
+        );
+    }
+
+    #[test]
+    fn serde_rejects_mismatched_name_and_discriminant() {
+        assert!(
+            serde_json::from_str::<TaskRunStatus>(r#"{"name":"queued","discriminant":4}"#).is_err()
         );
     }
 

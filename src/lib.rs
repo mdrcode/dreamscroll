@@ -9,6 +9,7 @@ pub mod logic;
 pub mod model;
 pub mod rest;
 pub mod search;
+pub mod sse;
 pub mod storage;
 pub mod task;
 pub mod telemetry;

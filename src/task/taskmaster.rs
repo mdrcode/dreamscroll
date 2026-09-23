@@ -279,27 +279,25 @@ impl TaskMaster {
         self.status.update_run(envelope, status, attempts).await
     }
 
-    /// Incomplete task statuses recorded against one entity, scoped by
-    /// `user_id`. Includes `CompleteFailure` (the user still wants to see
-    /// failed work); excludes `CompleteSuccess`.
-    pub async fn query_incomplete_for_entity(
+    /// Latest task status snapshots for one entity, scoped by `user_id`.
+    /// Includes both terminal and in-flight statuses for SSE replay.
+    pub async fn query_latest_status_for_entity(
         &self,
         user_id: i32,
         entity_type: &str,
         entity_id: i32,
     ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
         self.status
-            .query_task_run_status_for_entity(user_id, entity_type, entity_id)
+            .query_latest_status_for_entity(user_id, entity_type, entity_id)
             .await
     }
 
-    /// Every incomplete task status for a user, across all entities. The
-    /// user-level counterpart to `query_incomplete_for_entity`.
-    pub async fn query_incomplete_for_user(
+    /// Latest task status snapshots for a user, across all entities.
+    pub async fn query_latest_status_for_user(
         &self,
         user_id: i32,
     ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
-        self.status.query_task_run_status_for_user(user_id).await
+        self.status.query_latest_status_for_user(user_id).await
     }
 }
 
@@ -645,7 +643,7 @@ mod tests {
             .expect("submit should succeed");
 
         let rows = service
-            .query_incomplete_for_entity(1, "capture", 42)
+            .query_latest_status_for_entity(1, "capture", 42)
             .await
             .expect("query should succeed");
 
@@ -784,7 +782,7 @@ mod tests {
         assert_eq!(rerun, SubmitOutcome::Enqueued { run: 2 });
 
         let rows = service
-            .query_incomplete_for_entity(1, "capture", 42)
+            .query_latest_status_for_entity(1, "capture", 42)
             .await
             .expect("query should succeed");
 
@@ -848,7 +846,7 @@ mod tests {
             .expect("finish_attempt should succeed");
 
         let rows = service
-            .query_incomplete_for_entity(1, "capture", 42)
+            .query_latest_status_for_entity(1, "capture", 42)
             .await
             .expect("query should succeed");
 
@@ -965,7 +963,7 @@ mod tests {
         // The completed row is reported: a caller must be able to see that its
         // work finished.
         let rows = service
-            .query_incomplete_for_entity(1, "capture", 7)
+            .query_latest_status_for_entity(1, "capture", 7)
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1025,7 +1023,7 @@ mod tests {
 
         // The exhausted run is still reported (the user should see it).
         let rows = service
-            .query_incomplete_for_entity(1, "capture", 9)
+            .query_latest_status_for_entity(1, "capture", 9)
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1080,7 +1078,7 @@ mod tests {
 
     /// The user-scoped query returns work across entities.
     #[tokio::test]
-    async fn query_incomplete_for_user_spans_entities() {
+    async fn query_latest_status_for_user_spans_entities() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -1102,14 +1100,14 @@ mod tests {
         }
 
         let rows = service
-            .query_incomplete_for_user(1)
+            .query_latest_status_for_user(1)
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 3);
 
         // Another user sees nothing.
         let other = service
-            .query_incomplete_for_user(2)
+            .query_latest_status_for_user(2)
             .await
             .expect("query should succeed");
         assert!(other.is_empty(), "queries must be scoped by user_id");
@@ -1165,7 +1163,7 @@ mod tests {
         assert!(result.is_err(), "the enqueue error must propagate");
 
         let rows = service
-            .query_incomplete_for_entity(1, "capture", 9)
+            .query_latest_status_for_entity(1, "capture", 9)
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1180,7 +1178,7 @@ mod tests {
         assert!(retry.is_err(), "the test queue is still configured to fail");
 
         let rows = service
-            .query_incomplete_for_entity(1, "capture", 9)
+            .query_latest_status_for_entity(1, "capture", 9)
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1, "only the latest run is returned");
@@ -1257,7 +1255,7 @@ mod tests {
             .expect("submit should succeed");
 
         let rows = service
-            .query_incomplete_for_entity(1, "capture", 42)
+            .query_latest_status_for_entity(1, "capture", 42)
             .await
             .expect("query should succeed");
 
