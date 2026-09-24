@@ -81,21 +81,46 @@ function setupTaskStatusEvents() {
         params.set('capture_ids', Array.from(captureIds).join(','));
     }
     const eventsUrl = '/events' + (captureIds.size > 0 ? '?' + params.toString() : '');
-    console.info('Connecting task-status SSE.', eventsUrl);
-    const source = new EventSource(eventsUrl, { withCredentials: true });
-    source.addEventListener('task-status', function (event) {
-        let update;
-        try {
-            update = JSON.parse(event.data);
-        } catch (_error) {
-            console.warn('Ignoring malformed task-status SSE payload.');
-            return;
-        }
-        refreshSubscribedEntity(update);
-    });
-    source.onerror = function () {
-        console.warn('Task-status SSE connection error; EventSource will retry.', source.readyState);
-    };
+    const baseRetryMs = 1000;
+    const maxRetryMs = 60000;
+    let retryAttempt = 0;
+    let reconnectTimer = null;
+
+    function connect() {
+        console.info('Connecting task-status SSE.', eventsUrl);
+        const source = new EventSource(eventsUrl, { withCredentials: true });
+        source.addEventListener('open', function () {
+            retryAttempt = 0;
+        });
+        source.addEventListener('task-status', function (event) {
+            let update;
+            try {
+                update = JSON.parse(event.data);
+            } catch (_error) {
+                console.warn('Ignoring malformed task-status SSE payload.');
+                return;
+            }
+            refreshSubscribedEntity(update);
+        });
+        source.onerror = function () {
+            // Native EventSource retries on a short fixed interval. Close it
+            // and schedule a replacement so prolonged local/server outages use
+            // capped exponential backoff with jitter instead of request churn.
+            source.close();
+            if (reconnectTimer !== null) return;
+
+            const exponentialDelay = Math.min(maxRetryMs, baseRetryMs * (2 ** retryAttempt));
+            const delay = Math.round(exponentialDelay * (0.8 + Math.random() * 0.4));
+            retryAttempt += 1;
+            console.warn('Task-status SSE unavailable; retrying in', delay, 'ms.');
+            reconnectTimer = window.setTimeout(function () {
+                reconnectTimer = null;
+                connect();
+            }, delay);
+        };
+    }
+
+    connect();
 }
 
 function setupAnnotationEditorCaret(rootNode) {

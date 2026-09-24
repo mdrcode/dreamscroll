@@ -399,10 +399,13 @@ server whenever visible cards change.
 ### 4.4 Delivery and reconnect semantics
 
 SSE is **ephemeral** — a browser reconnect receives a fresh snapshot for the
-capture IDs in its URL, but not a replay of missed transitions. Native
-EventSource reconnects automatically after transport-level failures using the
-same stable URL. The initial snapshot is current state, not a transition log;
-updates remain informational hints.
+capture IDs in its URL, but not a replay of missed transitions. The browser
+client closes a failed native `EventSource` and creates a replacement using
+capped exponential backoff with jitter (starting near one second and capping
+near one minute). A successful `open` resets the backoff. This avoids native
+EventSource's short fixed retry loop generating repeated `/events` requests
+while the local server is stopped. The initial snapshot is current state, not a
+transition log; updates remain informational hints.
 
 Feed swaps update the DOM and the JS router's possible refresh targets; they do
 not change or reopen the EventSource subscription. The catch-up ID set is fixed
