@@ -699,6 +699,47 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn concurrent_duplicate_submissions_enqueue_exactly_one_run() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+
+        let captures = Arc::new(Mutex::new(Vec::new()));
+        let service = Arc::new(
+            TaskMaster::builder()
+                .db(db.handle())
+                .illuminate_queue(RecordingQueue {
+                    captures: Arc::clone(&captures),
+                    fail: false,
+                })
+                .build()
+                .expect("build should succeed with a db"),
+        );
+        let (first, second) = tokio::join!(
+            service.submit_illuminate(1, IlluminationTask { capture_id: 42 }),
+            service.submit_illuminate(1, IlluminationTask { capture_id: 42 }),
+        );
+        let outcomes = [first.unwrap(), second.unwrap()];
+
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| **outcome == SubmitOutcome::Enqueued { run: 1 })
+                .count(),
+            1,
+            "only one concurrent submit may enqueue run one"
+        );
+        assert_eq!(
+            outcomes
+                .iter()
+                .filter(|outcome| **outcome == SubmitOutcome::RefusedAlreadyInFlight)
+                .count(),
+            1
+        );
+        assert_eq!(captures.lock().unwrap().as_slice(), &[42]);
+    }
+
     /// Once a run settles, a new submit starts a *new run* rather than being
     /// refused — this is how reruns are expressed.
     #[tokio::test]

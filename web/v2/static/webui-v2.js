@@ -86,6 +86,10 @@ function setupTaskStatusEvents() {
     let retryAttempt = 0;
     let reconnectTimer = null;
 
+    // TODO: Revisit this lightweight retry policy if frontend tooling is added.
+    // The app intentionally has no Node-based build/test pipeline today; keep
+    // this browser-native implementation small until richer client behavior
+    // justifies adding one.
     function connect() {
         console.info('Connecting task-status SSE.', eventsUrl);
         const source = new EventSource(eventsUrl, { withCredentials: true });

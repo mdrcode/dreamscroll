@@ -344,6 +344,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn concurrent_create_run_calls_are_arbitrated_by_unique_index() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle());
+        let first = envelope(1, 42, 1);
+        let second = envelope(1, 42, 1);
+
+        let (first_created, second_created) = tokio::join!(
+            tracker.create_run(&first, TaskRunStatus::Queued, 0),
+            tracker.create_run(&second, TaskRunStatus::Queued, 0),
+        );
+        let created = [first_created.unwrap(), second_created.unwrap()];
+
+        assert_eq!(
+            created.iter().filter(|was_created| **was_created).count(),
+            1,
+            "the unique (envelope_id, run) constraint must arbitrate concurrent inserts"
+        );
+    }
+
+    #[tokio::test]
     async fn create_run_allows_a_new_run_of_the_same_task() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
@@ -516,5 +538,120 @@ mod tests {
             .expect("empty query should succeed");
 
         assert!(rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn query_latest_status_for_entities_keeps_distinct_tasks_and_filters_entity_type() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle());
+
+        tracker
+            .create_run(&envelope(1, 42, 1), TaskRunStatus::CompleteSuccess, 1)
+            .await
+            .unwrap();
+        let search_task = TaskEnvelope::new(
+            1,
+            crate::logic::search_index::SearchIndexTask { capture_id: 42 },
+            1,
+        );
+        tracker
+            .create_run(&search_task, TaskRunStatus::Queued, 0)
+            .await
+            .unwrap();
+        let spark_task = TaskEnvelope::new(
+            1,
+            crate::logic::spark::SparkTask {
+                spark_id: 42,
+                capture_ids: vec![1],
+            },
+            1,
+        );
+        tracker
+            .create_run(&spark_task, TaskRunStatus::InProgress, 1)
+            .await
+            .unwrap();
+
+        let capture_rows = tracker
+            .query_latest_status_for_entities(1, "capture", &[42])
+            .await
+            .unwrap();
+        assert_eq!(
+            capture_rows.len(),
+            2,
+            "different logical tasks remain distinct"
+        );
+        assert!(capture_rows.iter().all(|row| row.entity_type == "capture"));
+        assert!(capture_rows.iter().any(|row| row.task_type == "test"));
+        assert!(
+            capture_rows
+                .iter()
+                .any(|row| row.task_type == "search_index")
+        );
+
+        let spark_rows = tracker
+            .query_latest_status_for_entities(1, "spark", &[42])
+            .await
+            .unwrap();
+        assert_eq!(spark_rows.len(), 1);
+        assert_eq!(spark_rows[0].task_type, "spark");
+    }
+
+    #[tokio::test]
+    async fn latest_run_returns_highest_run_and_none_for_missing_task() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle());
+        let first = envelope(1, 42, 1);
+        let second = envelope(1, 42, 2);
+
+        tracker
+            .create_run(&first, TaskRunStatus::CompleteFailure, 1)
+            .await
+            .unwrap();
+        tracker
+            .create_run(&second, TaskRunStatus::Queued, 0)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            tracker
+                .latest_run(&first.envelope_id)
+                .await
+                .unwrap()
+                .unwrap()
+                .run,
+            2
+        );
+        assert!(
+            tracker
+                .latest_run("missing-envelope")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn update_run_for_missing_row_is_a_noop() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle());
+
+        tracker
+            .update_run(&envelope(1, 42, 1), TaskRunStatus::InProgress, 1)
+            .await
+            .expect("updating a missing run is a no-op");
+
+        assert!(
+            tracker
+                .latest_run("u1-test-capture42")
+                .await
+                .unwrap()
+                .is_none()
+        );
     }
 }

@@ -40,9 +40,24 @@ pub async fn get(
         .await?
         .into_iter()
         .filter_map(task_status_event_from_row)
-        .map(serialize_task_event)
         .collect::<Vec<_>>();
 
+    let events =
+        task_status_stream(snapshot, receiver, user_id, shutdown).map(serialize_task_event);
+
+    Ok(Sse::new(events).keep_alive(
+        KeepAlive::new()
+            .interval(Duration::from_secs(20))
+            .text("keep-alive"),
+    ))
+}
+
+fn task_status_stream(
+    snapshot: Vec<sse::TaskStatusEvent>,
+    receiver: broadcast::Receiver<sse::ReceivedServerEvent>,
+    user_id: i32,
+    shutdown: tokio::sync::watch::Receiver<bool>,
+) -> impl futures_util::Stream<Item = sse::TaskStatusEvent> {
     let live_events = stream::unfold(
         (receiver, user_id, shutdown),
         |(mut receiver, user_id, mut shutdown)| async move {
@@ -62,7 +77,7 @@ pub async fn get(
                             Ok(received) => {
                                 if let Some(update) = task_status_for_user(received, user_id) {
                                     return Some((
-                                        serialize_task_event(update),
+                                        update,
                                         (receiver, user_id, shutdown),
                                     ));
                                 }
@@ -80,13 +95,7 @@ pub async fn get(
             }
         },
     );
-    let events = stream::iter(snapshot).chain(live_events);
-
-    Ok(Sse::new(events).keep_alive(
-        KeepAlive::new()
-            .interval(Duration::from_secs(20))
-            .text("keep-alive"),
-    ))
+    stream::iter(snapshot).chain(live_events)
 }
 
 fn task_status_for_user(
@@ -174,6 +183,8 @@ fn task_event_json(update: &sse::TaskStatusEvent) -> String {
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
+    use futures_util::StreamExt;
+    use tokio::sync::{broadcast, watch};
 
     use super::*;
 
@@ -230,6 +241,25 @@ mod tests {
     }
 
     #[test]
+    fn snapshot_row_with_unknown_status_is_skipped() {
+        let row = crate::model::task_run_status::Model {
+            id: 2,
+            user_id: 7,
+            envelope_id: "u7-illuminate-capture42".to_string(),
+            run: 1,
+            task_type: "illuminate".to_string(),
+            entity_type: "capture".to_string(),
+            entity_id: 42,
+            status_code: i32::MAX,
+            attempts: 0,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        assert!(task_status_event_from_row(row).is_none());
+    }
+
+    #[test]
     fn live_stream_forwards_only_the_authenticated_users_task_status() {
         let own = sse::ServerEvent::<sse::TaskStatusPayload>::task_status(
             Utc::now(),
@@ -269,5 +299,82 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn stream_emits_snapshot_then_user_wide_live_events() {
+        let snapshot = task_status_event(7, 42, crate::task::TaskRunStatus::InProgress);
+        let (sender, receiver) = broadcast::channel(8);
+        let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
+        let mut events = Box::pin(task_status_stream(
+            vec![snapshot.clone()],
+            receiver,
+            7,
+            shutdown_receiver,
+        ));
+
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), events.next())
+                .await
+                .expect("snapshot should be immediate")
+                .unwrap(),
+            snapshot,
+            "snapshot must be the first event"
+        );
+
+        // Live delivery is user-wide, not limited to the initial entity IDs.
+        sender
+            .send(sse::ReceivedServerEvent::TaskStatus(task_status_event(
+                7,
+                999,
+                crate::task::TaskRunStatus::CompleteSuccess,
+            )))
+            .unwrap();
+        let live = tokio::time::timeout(Duration::from_secs(1), events.next())
+            .await
+            .expect("live event should follow the snapshot")
+            .unwrap();
+        assert_eq!(live.entity_id, 999);
+        assert_eq!(
+            live.payload.status,
+            crate::task::TaskRunStatus::CompleteSuccess
+        );
+    }
+
+    #[tokio::test]
+    async fn shutdown_ends_a_stream_even_before_first_event() {
+        let (_sender, receiver) = broadcast::channel(8);
+        let (shutdown_sender, shutdown_receiver) = watch::channel(false);
+        let mut events = Box::pin(task_status_stream(
+            Vec::new(),
+            receiver,
+            7,
+            shutdown_receiver,
+        ));
+
+        shutdown_sender.send(true).unwrap();
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), events.next())
+                .await
+                .expect("shutdown should end stream promptly")
+                .is_none()
+        );
+    }
+
+    fn task_status_event(
+        user_id: i32,
+        entity_id: i32,
+        status: crate::task::TaskRunStatus,
+    ) -> sse::TaskStatusEvent {
+        sse::ServerEvent::task_status(
+            Utc::now(),
+            "capture",
+            entity_id,
+            "illuminate",
+            status,
+            1,
+            1,
+            user_id,
+        )
     }
 }

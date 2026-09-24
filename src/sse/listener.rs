@@ -108,6 +108,10 @@ fn decode_server_event(payload: &str) -> anyhow::Result<ReceivedServerEvent> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Duration;
+
+    use chrono::Utc;
+
     use super::*;
 
     #[test]
@@ -145,5 +149,86 @@ mod tests {
     fn rejects_malformed_task_status_payload() {
         let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"subchannel":"illuminate","status":"not-an-object"}}"#;
         assert!(decode_server_event(payload).is_err());
+    }
+
+    #[tokio::test]
+    async fn postgres_notification_reaches_local_fanout() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let config = crate::test_support::test_config::load()
+            .expect("test configuration should load when test DB is available");
+        let database_url = crate::database::make_url_from_config(&config, None, false);
+        let listener = ServerEventListener::connect(&database_url)
+            .await
+            .expect("listener should connect and LISTEN");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let events = spawn_local_fanout(listener, shutdown_rx);
+        let mut receiver = events.subscribe();
+        let notifier = super::super::ServerEventNotifier::new(
+            db.handle().conn.get_postgres_connection_pool().clone(),
+        );
+
+        let event_id = (uuid::Uuid::new_v4().as_u128() as u32) as i32;
+        let task_status = super::super::TaskStatusEvent::task_status(
+            Utc::now(),
+            "capture",
+            event_id,
+            "illuminate",
+            crate::task::TaskRunStatus::InProgress,
+            2,
+            3,
+            741_258,
+        );
+        notifier
+            .notify(&task_status)
+            .await
+            .expect("task status notification should publish");
+
+        let received_task = receive_matching_entity(&mut receiver, event_id).await;
+        assert_eq!(received_task, ReceivedServerEvent::TaskStatus(task_status));
+
+        let availability_id = event_id.wrapping_add(1);
+        let availability = super::super::AvailabilityEvent::new(
+            super::super::ServerEventTypes::Availability,
+            Utc::now(),
+            "capture",
+            availability_id,
+            super::super::AvailabilityPayload {
+                operation: super::super::AvailabilityState::Deleted,
+            },
+        );
+        notifier
+            .notify(&availability)
+            .await
+            .expect("availability notification should publish");
+
+        let received_availability = receive_matching_entity(&mut receiver, availability_id).await;
+        assert_eq!(
+            received_availability,
+            ReceivedServerEvent::Availability(availability)
+        );
+
+        shutdown_tx.send(true).expect("fanout is still subscribed");
+    }
+
+    async fn receive_matching_entity(
+        receiver: &mut broadcast::Receiver<ReceivedServerEvent>,
+        entity_id: i32,
+    ) -> ReceivedServerEvent {
+        tokio::time::timeout(Duration::from_secs(5), async {
+            loop {
+                let event = receiver.recv().await.expect("fanout should remain open");
+                let received_id = match &event {
+                    ReceivedServerEvent::TaskStatus(event) => event.entity_id,
+                    ReceivedServerEvent::Availability(event) => event.entity_id,
+                };
+                if received_id == entity_id {
+                    return event;
+                }
+            }
+        })
+        .await
+        .expect("notification should reach the local fanout promptly")
     }
 }
