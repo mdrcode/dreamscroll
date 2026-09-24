@@ -73,9 +73,10 @@ impl ServerEvent<TaskStatusPayload> {
         envelope: &TaskEnvelope<T>,
         status: TaskRunStatus,
         attempts: i32,
+        timestamp: DateTime<Utc>,
     ) -> Self {
         Self::task_status(
-            Utc::now(),
+            timestamp,
             T::entity_type(),
             envelope.task.entity_id(),
             T::task_type(),
@@ -190,7 +191,8 @@ mod tests {
         }
 
         let envelope = TaskEnvelope::new(17, TestTask { id: 91 }, 4);
-        let event = TaskStatusEvent::from_envelope(&envelope, TaskRunStatus::InProgress, 2);
+        let event =
+            TaskStatusEvent::from_envelope(&envelope, TaskRunStatus::InProgress, 2, timestamp());
 
         assert_eq!(event.entity_type, "capture");
         assert_eq!(event.entity_id, 91);
@@ -198,6 +200,7 @@ mod tests {
         assert_eq!(event.payload.status, TaskRunStatus::InProgress);
         assert_eq!(event.payload.attempts, 2);
         assert_eq!(event.payload.run, 4);
+        assert_eq!(event.timestamp, timestamp());
         assert_eq!(event.payload.user_id, 17);
     }
 

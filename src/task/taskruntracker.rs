@@ -55,12 +55,13 @@ impl TaskRunTracker {
             .set_user_id(envelope.user_id)
             .set_status_code(TaskRunStatus::Queued.as_i32())
             .set_attempts(0)
-            .save(&db.conn)
+            .insert(&db.conn)
             .await;
 
         match result {
-            Ok(_) => {
-                self.notify_status(envelope, TaskRunStatus::Queued, 0).await;
+            Ok(row) => {
+                self.notify_status(envelope, TaskRunStatus::Queued, 0, row.updated_at)
+                    .await;
                 Ok(true)
             }
             Err(err) if is_unique_violation(&err) => Ok(false),
@@ -88,14 +89,14 @@ impl TaskRunTracker {
             )
             .col_expr(
                 model::task_run_status::Column::UpdatedAt,
-                sea_orm::sea_query::Expr::value(chrono::Utc::now()),
+                sea_orm::sea_query::Expr::current_timestamp(),
             )
             .filter(model::task_run_status::Column::EnvelopeId.eq(envelope.envelope_id.as_str()))
             .filter(model::task_run_status::Column::Run.eq(envelope.run))
-            .exec(&db.conn)
+            .exec_with_returning(&db.conn)
             .await?;
 
-        if result.rows_affected == 0 {
+        let Some(row) = result.into_iter().next() else {
             tracing::warn!(
                 envelope_id = %envelope.envelope_id,
                 run = envelope.run,
@@ -103,9 +104,10 @@ impl TaskRunTracker {
                 "Ignoring task status update because the run row is missing"
             );
             return Ok(());
-        }
+        };
 
-        self.notify_status(envelope, status, attempts).await;
+        self.notify_status(envelope, status, attempts, row.updated_at)
+            .await;
         Ok(())
     }
 
@@ -114,12 +116,13 @@ impl TaskRunTracker {
         envelope: &TaskEnvelope<T>,
         status: TaskRunStatus,
         attempts: i32,
+        timestamp: chrono::DateTime<chrono::Utc>,
     ) {
         let Some(notifier) = &self.notifier else {
             return;
         };
 
-        let event = sse::TaskStatusEvent::from_envelope(envelope, status, attempts);
+        let event = sse::TaskStatusEvent::from_envelope(envelope, status, attempts, timestamp);
         if let Err(error) = notifier.notify_task_status(&event).await {
             tracing::debug!(
                 envelope = ?envelope,

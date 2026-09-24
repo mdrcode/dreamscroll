@@ -3,6 +3,9 @@ pub use maker::*;
 
 mod content;
 
+mod web_state;
+pub use web_state::WebState;
+
 mod r_annotation;
 mod r_auth;
 mod r_capture_card;

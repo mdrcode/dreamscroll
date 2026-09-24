@@ -22,12 +22,14 @@ pub async fn get(
     let user = auth.user.unwrap();
     let context_user = user.into();
 
+    let page_snapshot_at = state.current_db_timestamp().await?;
     let is_search = query.is_search();
     let cards = render_content(&state.user_api, &context_user, &query).await?;
     let q = query.search_query();
     let content = query.content_mode();
 
     let mut context = state.template_context();
+    context.insert("page_snapshot_at", &page_snapshot_at);
     let feed_content_mode = if is_search { "search" } else { "timeline" };
     context.insert("is_search", &is_search);
     context.insert("feed_content_mode", &feed_content_mode);

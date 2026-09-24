@@ -230,12 +230,14 @@ when multiple task types have status rows for that entity. This is only
 snapshot coalescing; subsequent live task-status updates are still forwarded
 individually.
 
-The browser only fetches a partial for `ErrorWillRetry`, `CompleteSuccess`, or
-`CompleteFailure`. It ignores `Queued`, `InProgress`, and `SubmissionFailed`,
-which do not by themselves indicate newly available capture content. The same
-filter applies to catch-up and live hints. `ErrorWillRetry` and
-`CompleteFailure` remain refresh-worthy because a task may have written useful
-content before a later pipeline step failed.
+The browser considers a partial refresh only for `ErrorWillRetry`,
+`CompleteSuccess`, or `CompleteFailure`. It ignores `Queued`, `InProgress`, and
+`SubmissionFailed`, which do not by themselves indicate newly available
+capture content. It then compares the event's DB timestamp with the card's
+render watermark (§9.1); a settled status from an old catch-up snapshot is not
+enough on its own to trigger a request. `ErrorWillRetry` and `CompleteFailure`
+remain refresh-worthy because a task may have written useful content before a
+later pipeline step failed.
 
 ### 3.3 Backfill / bulk tasks — deferred
 **Why it isn't needed for this phase:** the SSE route filters by user and
@@ -851,26 +853,51 @@ be resolved as implementation work begins:
   page component may need refresh or removal. It is not deterministic pipeline
   logic, a workflow coordinator, or a durable change log. Missed notifications
   are acceptable.
-13. **Significant known bug — catch-up refresh amplification:** the initial
-  snapshot reports the latest status for each requested capture, including
-  long-settled `CompleteSuccess` rows. The browser currently treats every
-  refresh-worthy snapshot status like a newly received live transition and
-  requests that capture's partial. As task history fills in, a page reload can
-  therefore issue one unnecessary partial request per rendered capture. This
-  has no known user-visible correctness consequence, but adds avoidable client,
-  server, and database work proportional to the number of cards. Keep this open
-  until a design distinguishes useful catch-up from live updates; do not hide it
-  by weakening the live-event refresh behavior.
+13. **Resolved — catch-up refresh amplification:** a page/card read now carries
+  a Postgres-generated snapshot watermark captured before the data fetch. The
+  browser compares each refresh-worthy task event's timestamp with the
+  rendered card watermark and only fetches the partial when the event is newer.
+  Task status writes use Postgres `CURRENT_TIMESTAMP`, and the live event uses
+  the timestamp returned from the persisted row, so both sides share the same
+  clock. This avoids refreshing every card for old settled catch-up rows while
+  retaining refreshes for status changes racing with the render or arriving
+  later. The watermark is transient render metadata, not a persisted capture
+  field or an HTTP ETag.
+
+### 9.1 DB-clock render watermarks
+
+The capture card's `data-snapshot-at` is the instant **before** its underlying
+data read starts, fetched from the same Postgres database that stores task
+status. Capture feed/page, HTMX feed, capture-card, detail-page, and
+detail-partial render paths use this watermark. For a batch feed it is shared
+across all cards in that render. This conservative boundary handles a task
+transition that commits after the watermark while its card data is being read:
+the event is newer, so the browser refreshes the card.
+
+Live task-status event timestamps come from the persisted task row's
+`updated_at`, not `Utc::now()` on whichever Cloud Run instance handled the
+worker. Snapshot events already use that same row timestamp. The browser only
+refreshes for the existing outcome-status set and only if
+`event.timestamp > card.data-snapshot-at`; after a partial swap, the new card
+watermark becomes the comparison baseline. Missing/invalid timestamps fail
+closed (no speculative partial request).
+
+This is an ordering watermark, not a content hash/strong validator: equality or
+older events mean the rendered read began after that status write, not that the
+HTML bytes are identical. It is intentionally not stored on the capture model;
+it describes a particular rendered snapshot. Database wall-clock semantics
+(`CURRENT_TIMESTAMP` is transaction-start time in Postgres) are shared by the
+task write and watermark queries. Keep the watermark query and task update
+timestamps on the same database clock; do not mix application-instance clocks
+into this comparison.
 
 ## 10. Open questions / follow-ups
 
-- **Catch-up refresh amplification (significant bug):** design a way for the
-  client to refresh only when catch-up status indicates content may be stale,
-  without refreshing every card whose latest persisted task status is already
-  settled. Candidate directions to evaluate include distinguishing snapshot
-  events from live events, or comparing task status timestamps against the page
-  render time. Preserve refreshes for qualifying live outcomes and account for
-  reconnect snapshots; select an approach before implementing it.
+- **DB-clock watermark validation:** add focused browser/route coverage proving
+  that an old catch-up status triggers no partial, a status newer than the
+  rendered watermark triggers one partial, and a card's new watermark suppresses
+  that same event after replacement. Also verify all page and partial render
+  paths provide the watermark. See `plan/testing-js-and-browser.md`.
 - **Coverage gaps from the 2026-09-23 review:** add authenticated route tests for
   capture-card/detail partial access and rendering; assert TaskMaster lifecycle
   status notifications (Queued → InProgress → outcomes, including retry and

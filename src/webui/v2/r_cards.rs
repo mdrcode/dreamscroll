@@ -40,9 +40,11 @@ pub async fn get(
         return Ok(Redirect::to(&canonical).into_response());
     }
 
+    let page_snapshot_at = state.current_db_timestamp().await?;
     let cards = render_content(&state.user_api, &context_user, &query).await?;
 
     let mut context = state.template_context();
+    context.insert("page_snapshot_at", &page_snapshot_at);
     context.insert("cards", &cards);
 
     let rendered = state

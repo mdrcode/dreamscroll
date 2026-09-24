@@ -19,6 +19,7 @@ pub async fn get(
     let user = auth.user.unwrap();
     let context_user = user.into();
 
+    let page_snapshot_at = state.current_db_timestamp().await?;
     let captures = state.user_api.get_captures(&context_user, vec![id]).await?;
 
     let capture = captures
@@ -27,6 +28,7 @@ pub async fn get(
         .ok_or_else(|| api::ApiError::not_found(anyhow!("Capture with id {} not found", id)))?;
 
     let mut context = state.template_context();
+    context.insert("page_snapshot_at", &page_snapshot_at);
     context.insert("feed_content_mode", "detail");
     context.insert("capture", &capture);
 

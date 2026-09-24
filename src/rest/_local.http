@@ -61,7 +61,7 @@ Authorization: Bearer {{token.response.body.access_token}}
 
 ###
 # Returns 204 No Content on success, 409 Conflict if in flight, or 404 
-POST http://localhost:8080/api/captures/608/illuminate
+POST http://localhost:8080/api/captures/612/illuminate
 Authorization: Bearer {{token.response.body.access_token}}
 
 ###

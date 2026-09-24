@@ -53,6 +53,8 @@ function setupTaskStatusEvents() {
 
         if (mode === 'detail') {
             if (document.body.dataset.captureId !== captureId) return;
+            const card = document.querySelector('#card-feed [data-snapshot-at]');
+            if (!card || !isNewerThanSnapshot(update.timestamp, card.dataset.snapshotAt)) return;
             window.htmx.ajax('GET', '/detail/' + captureId + '/partial', {
                 target: '#card-feed',
                 swap: 'innerHTML'
@@ -61,13 +63,31 @@ function setupTaskStatusEvents() {
         }
 
         const card = document.getElementById('capture-card-' + captureId);
-        if (card) {
+        if (card && isNewerThanSnapshot(update.timestamp, card.dataset.snapshotAt)) {
             window.htmx.ajax('GET', '/cards/capture/' + captureId, {
                 source: card,
                 target: card,
                 swap: 'outerHTML'
             });
         }
+    }
+
+    function isNewerThanSnapshot(eventTimestamp, snapshotTimestamp) {
+        if (typeof eventTimestamp !== 'string' || typeof snapshotTimestamp !== 'string') return false;
+        const eventTime = parseUtcTimestampNanoseconds(eventTimestamp);
+        const snapshotTime = parseUtcTimestampNanoseconds(snapshotTimestamp);
+        return eventTime !== null && snapshotTime !== null && eventTime > snapshotTime;
+    }
+
+    function parseUtcTimestampNanoseconds(timestamp) {
+        const match = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?(?:Z|\+00:00)$/.exec(timestamp);
+        if (!match) return null;
+
+        const second = Date.parse(match[1] + 'Z');
+        if (!Number.isFinite(second)) return null;
+        const fractionalNanoseconds = (match[2] || '').slice(0, 9).padEnd(9, '0');
+        return BigInt(Math.trunc(second / 1000)) * 1000000000n
+            + BigInt(fractionalNanoseconds || '0');
     }
 
     function shouldRefreshForTaskStatus(status) {

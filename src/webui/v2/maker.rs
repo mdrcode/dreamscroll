@@ -2,31 +2,13 @@ use std::sync::Arc;
 
 use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
 use axum_login::{AuthManagerLayerBuilder, login_required};
-use tera::{Context, Tera};
+use tera::Tera;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_sessions::SessionManagerLayer;
 
 use crate::{api, auth, sse, task, telemetry};
 
 use super::*;
-
-pub struct WebState {
-    pub user_api: api::UserApiClient,
-    pub task_master: Arc<task::TaskMaster>,
-    pub server_events: tokio::sync::broadcast::Sender<sse::ReceivedServerEvent>,
-    pub shutdown: tokio::sync::watch::Receiver<bool>,
-    pub tera: Tera,
-    pub static_asset_version: String,
-    pub max_upload_bytes: usize,
-}
-
-impl WebState {
-    pub fn template_context(&self) -> Context {
-        let mut context = Context::new();
-        context.insert("static_asset_version", &self.static_asset_version);
-        context
-    }
-}
 
 fn load_templates() -> Result<Tera, tera::Error> {
     let mut tera = Tera::new();

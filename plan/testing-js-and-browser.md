@@ -16,6 +16,10 @@ Prefer a real-browser test for behavior involving native `EventSource`, page vis
 - interaction or returning to a visible tab opens a new connection;
 - feed swaps do not open extra connections;
 - task-status events refresh only a matching rendered capture;
+- a settled catch-up event older than the card's DB-clock snapshot watermark
+	does not request a partial, while a newer event triggers exactly one refresh;
+- after the refreshed card installs its new watermark, replaying the same event
+	does not trigger another request;
 - transport failures use capped exponential backoff, while an ordinary server lifetime close reconnects normally.
 
 Keep tests focused on observable browser behavior rather than mirroring each implementation detail. Use controllable/fake timers or a short test-only duration seam instead of waiting several minutes.
