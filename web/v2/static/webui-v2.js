@@ -63,6 +63,7 @@ function setupTaskStatusEvents() {
         const card = document.getElementById('capture-card-' + captureId);
         if (card) {
             window.htmx.ajax('GET', '/cards/capture/' + captureId, {
+                source: card,
                 target: card,
                 swap: 'outerHTML'
             });
@@ -105,8 +106,7 @@ function setupTaskStatusEvents() {
     // this browser-native implementation small until richer client behavior
     // justifies adding one.
     function connect() {
-        if (source || document.visibilityState === 'hidden') return;
-        cancelReconnect();
+        if (source || reconnectTimer !== null || document.visibilityState === 'hidden') return;
 
         console.info('Connecting task-status SSE.', eventsUrl);
         source = new EventSource(eventsUrl, { withCredentials: true });
@@ -117,6 +117,7 @@ function setupTaskStatusEvents() {
             armIdleClose();
         });
         currentSource.addEventListener('task-status', function (event) {
+            if (source !== currentSource) return;
             let update;
             try {
                 update = JSON.parse(event.data);
@@ -130,9 +131,10 @@ function setupTaskStatusEvents() {
             // Native EventSource retries on a short fixed interval. Close it
             // and schedule a replacement so prolonged local/server outages use
             // capped exponential backoff with jitter instead of request churn.
+            // User activity must not cancel/bypass this failure backoff.
+            if (source !== currentSource) return;
             currentSource.close();
-            if (source === currentSource) source = null;
-            if (reconnectTimer !== null) return;
+            source = null;
 
             const exponentialDelay = Math.min(maxRetryMs, baseRetryMs * (2 ** retryAttempt));
             const delay = Math.round(exponentialDelay * (0.8 + Math.random() * 0.4));
@@ -145,18 +147,11 @@ function setupTaskStatusEvents() {
         };
     }
 
-    function cancelReconnect() {
-        if (reconnectTimer !== null) {
-            window.clearTimeout(reconnectTimer);
-            reconnectTimer = null;
-        }
-    }
-
     function closeSource() {
-        cancelReconnect();
         if (source) {
-            source.close();
+            const oldSource = source;
             source = null;
+            oldSource.close();
         }
     }
 
@@ -173,7 +168,7 @@ function setupTaskStatusEvents() {
     function onUserInteraction() {
         if (document.visibilityState === 'hidden') return;
         lastUserActivityAt = Date.now();
-        if (!source) connect();
+        if (!source && reconnectTimer === null) connect();
         else armIdleClose();
     }
 
@@ -187,7 +182,7 @@ function setupTaskStatusEvents() {
             closeSource();
         } else {
             lastUserActivityAt = Date.now();
-            connect();
+            if (reconnectTimer === null) connect();
             armIdleClose();
         }
     });

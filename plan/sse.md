@@ -433,6 +433,11 @@ streams periodically end even if a tab remains continuously active. The initial
 snapshot is current state, not a transition log; updates remain informational
 hints.
 
+Activity does not bypass a pending failure backoff: while the server is
+unavailable, scroll/pointer events only refresh the idle clock and do not start
+new connection attempts. A single reconnect timer gates attempts until the
+scheduled backoff expires.
+
 Feed swaps update the DOM and the JS router's possible refresh targets; they do
 not change or reopen the EventSource subscription. The catch-up ID set is fixed
 when the page first opens the stream. Newly displayed entities still receive
@@ -846,9 +851,26 @@ be resolved as implementation work begins:
   page component may need refresh or removal. It is not deterministic pipeline
   logic, a workflow coordinator, or a durable change log. Missed notifications
   are acceptable.
+13. **Significant known bug — catch-up refresh amplification:** the initial
+  snapshot reports the latest status for each requested capture, including
+  long-settled `CompleteSuccess` rows. The browser currently treats every
+  refresh-worthy snapshot status like a newly received live transition and
+  requests that capture's partial. As task history fills in, a page reload can
+  therefore issue one unnecessary partial request per rendered capture. This
+  has no known user-visible correctness consequence, but adds avoidable client,
+  server, and database work proportional to the number of cards. Keep this open
+  until a design distinguishes useful catch-up from live updates; do not hide it
+  by weakening the live-event refresh behavior.
 
 ## 10. Open questions / follow-ups
 
+- **Catch-up refresh amplification (significant bug):** design a way for the
+  client to refresh only when catch-up status indicates content may be stale,
+  without refreshing every card whose latest persisted task status is already
+  settled. Candidate directions to evaluate include distinguishing snapshot
+  events from live events, or comparing task status timestamps against the page
+  render time. Preserve refreshes for qualifying live outcomes and account for
+  reconnect snapshots; select an approach before implementing it.
 - **Coverage gaps from the 2026-09-23 review:** add authenticated route tests for
   capture-card/detail partial access and rendering; assert TaskMaster lifecycle
   status notifications (Queued → InProgress → outcomes, including retry and
