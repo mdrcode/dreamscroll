@@ -99,6 +99,7 @@ fn task_status_stream(
     stream::iter(snapshot).chain(live_events)
 }
 
+/// TODO add a comment here (one line is fine)
 fn deduplicate_snapshot_entities(events: Vec<sse::TaskStatusEvent>) -> Vec<sse::TaskStatusEvent> {
     let mut latest_by_entity: std::collections::HashMap<(String, i32), sse::TaskStatusEvent> =
         std::collections::HashMap::new();

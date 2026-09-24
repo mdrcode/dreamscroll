@@ -13,7 +13,7 @@ use super::*;
 
 /// The primary entry point for manipulating `Task` instances.
 ///
-/// Owns the backend queues **and** the `task_run_status` table. Everything else
+/// Owns the backend queues **and** the TaskRunTracker. Everything else
 /// talks to tasks through this API:
 ///
 /// - `submit_*` — enqueue in the backend, and record a `Queued` row.
@@ -139,13 +139,13 @@ impl TaskMaster {
     ) -> anyhow::Result<SubmitOutcome> {
         let envelope_id = TaskEnvelope::<T>::make_envelope_id(user_id, &task);
 
-        let latest_run = self.run_tracker.latest_run(&envelope_id).await?;
-        let next_run = match decide_next_run(latest_run.as_ref()) {
+        let latest = self.run_tracker.query_latest_run(&envelope_id).await?;
+        let next_run = match decide_next_run(latest.as_ref()) {
             Some(run) => run,
             None => {
                 tracing::debug!(
                     envelope_id = %envelope_id,
-                    "Refuse submit: latest run still in flight",
+                    "Refused submit: latest run still in flight",
                 );
                 return Ok(SubmitOutcome::RefusedAlreadyInFlight);
             }
@@ -156,11 +156,7 @@ impl TaskMaster {
         // Create the Run and record `Queued` (in the database) before truly
         // enqueueing (in the backend).
         // `false` = another submit won the raise and claimed this run first
-        if !self
-            .run_tracker
-            .create_run(&envelope, TaskRunStatus::Queued, 0)
-            .await?
-        {
+        if !self.run_tracker.create_run(&envelope).await? {
             tracing::debug!(
                 envelope_id = %envelope_id,
                 next_run,
@@ -169,10 +165,10 @@ impl TaskMaster {
             return Ok(SubmitOutcome::RefusedAlreadyInFlight);
         }
 
-        // Tracker publishes Queued before enqueue, so a fast worker cannot
-        // publish InProgress first and then be followed by this stale hint.
-        // Actually enqueue in the backend (theoretically execution could
-        // start immediately)
+        // The Tracker publishes Queued before enqueue, so a fast worker
+        // cannot publish InProgress first and then be followed by this stale
+        // hint. Now, we actually try to enqueue in the backend (theoretically
+        // execution could start immediately).
         if let Err(enqueue_err) = queue.enqueue(envelope.clone()).await {
             tracing::error!(
                 queue = ?queue,
@@ -250,7 +246,7 @@ impl TaskMaster {
                     .await?;
 
                 tracing::warn!(
-                    envelope_id = %envelope.envelope_id,
+                    envelope = ?envelope,
                     attempt,
                     max_attempts = self.max_attempts_per_run,
                     retryable = err.is_retryable(),
@@ -264,6 +260,7 @@ impl TaskMaster {
         }
     }
 
+    // TODO should we return something better than the internal Model instances here??
     pub async fn query_latest_status_for_entities(
         &self,
         user_id: i32,
