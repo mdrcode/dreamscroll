@@ -165,10 +165,10 @@ impl TaskMaster {
             return Ok(SubmitOutcome::RefusedAlreadyInFlight);
         }
 
-        // The Tracker publishes Queued before enqueue, so a fast worker
-        // cannot publish InProgress first and then be followed by this stale
-        // hint. Now, we actually try to enqueue in the backend (theoretically
-        // execution could start immediately).
+        // Tracker publishes Queued in the DB before enqueue in the backend,
+        // so that a fast worker cannot publish InProgress first and then be
+        // followed by this stale hint. Now, we actually try to enqueue in the
+        // backend (theoretically execution could start immediately).
         if let Err(enqueue_err) = queue.enqueue(envelope.clone()).await {
             tracing::error!(
                 queue = ?queue,
@@ -288,8 +288,8 @@ impl TaskMasterBuilder {
         self.db = Some(db);
         self
     }
-    pub fn notifier(mut self, notifier: Arc<dyn ServerEventNotifier>) -> Self {
-        self.notifier = Some(notifier);
+    pub fn notifier(mut self, notifier: Option<Arc<dyn ServerEventNotifier>>) -> Self {
+        self.notifier = notifier;
         self
     }
 

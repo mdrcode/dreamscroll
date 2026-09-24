@@ -43,7 +43,11 @@ async fn main() -> anyhow::Result<()> {
 
     let stg = storage::make_provider(&cfg).await;
     let url_maker = storage::UrlMaker::from_config(&cfg);
-    let task_master = task::make_task_master(&cfg, db.clone()).await?;
+    // Every app instance may produce or consume these user-wide events.
+    let notifier = Some(std::sync::Arc::new(sse::PostgresServerEventNotifier::new(
+        db.conn.get_postgres_connection_pool().clone(),
+    )) as std::sync::Arc<dyn sse::ServerEventNotifier>);
+    let task_master = task::make_task_master(&cfg, db.clone(), notifier).await?;
     let searcher = search::CaptureSearcher::from_config(&cfg).await?;
 
     let user_api = api::UserApiClient::new(

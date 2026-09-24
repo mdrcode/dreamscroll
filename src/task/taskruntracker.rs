@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::{database, model, sse};
@@ -13,7 +15,7 @@ use super::*;
 #[derive(Clone)]
 pub struct TaskRunTracker {
     db: database::DbHandle,
-    notifier: Option<std::sync::Arc<dyn sse::ServerEventNotifier>>,
+    notifier: Option<Arc<dyn sse::ServerEventNotifier>>,
 }
 
 /// True when a `DbErr` is a unique-constraint violation. The
@@ -29,7 +31,7 @@ fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
 impl TaskRunTracker {
     pub fn new(
         db: database::DbHandle,
-        notifier: Option<std::sync::Arc<dyn sse::ServerEventNotifier>>,
+        notifier: Option<Arc<dyn sse::ServerEventNotifier>>,
     ) -> Self {
         Self { db, notifier }
     }
@@ -66,7 +68,7 @@ impl TaskRunTracker {
         }
     }
 
-    /// Update the row for an existing `(envelope_id, run)`. No-op if missing.
+    /// Update an existing `(envelope_id, run)`. Warn and ignore if the run is missing.
     pub async fn update_run<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
@@ -93,10 +95,17 @@ impl TaskRunTracker {
             .exec(&db.conn)
             .await?;
 
-        if result.rows_affected > 0 {
-            self.notify_status(envelope, status, attempts).await;
+        if result.rows_affected == 0 {
+            tracing::warn!(
+                envelope_id = %envelope.envelope_id,
+                run = envelope.run,
+                status = %status,
+                "Ignoring task status update because the run row is missing"
+            );
+            return Ok(());
         }
 
+        self.notify_status(envelope, status, attempts).await;
         Ok(())
     }
 
@@ -779,16 +788,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_run_for_missing_row_is_a_noop() {
+    async fn update_run_for_missing_row_warns_and_does_not_publish() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let notifier = RecordingNotifier::default();
+        let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
 
         tracker
             .update_run(&envelope(1, 42, 1), TaskRunStatus::InProgress, 1)
             .await
-            .expect("updating a missing run is a no-op");
+            .expect("missing-run update is ignored after logging a warning");
 
         assert!(
             tracker
@@ -797,5 +807,6 @@ mod tests {
                 .unwrap()
                 .is_none()
         );
+        assert!(notifier.0.lock().unwrap().is_empty());
     }
 }
