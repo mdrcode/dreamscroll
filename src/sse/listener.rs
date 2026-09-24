@@ -1,7 +1,7 @@
 use anyhow::{Context, bail};
 use serde_json::Value;
 use sqlx::postgres::PgListener;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, watch};
 
 use super::{AvailabilityEvent, TaskStatusEvent, notifier::SERVER_EVENT_CHANNEL};
 
@@ -53,19 +53,28 @@ impl ServerEventListener {
 /// is acceptable for this informational stream.
 pub fn spawn_local_fanout(
     mut listener: ServerEventListener,
+    mut shutdown: watch::Receiver<bool>,
 ) -> broadcast::Sender<ReceivedServerEvent> {
     let (sender, _) = broadcast::channel(128); // TODO where did 128 come from?
     let task_sender = sender.clone();
 
     tokio::spawn(async move {
         loop {
-            match listener.recv().await {
-                Ok(event) => {
-                    let _ = task_sender.send(event);
+            tokio::select! {
+                changed = shutdown.changed() => {
+                    if changed.is_err() || *shutdown.borrow() {
+                        tracing::info!("Server-event listener shutting down");
+                        break;
+                    }
                 }
-                Err(error) => {
-                    tracing::warn!(error = ?error, "Server-event listener stopped");
-                    break;
+                result = listener.recv() => {
+                    match result {
+                        Ok(event) => { let _ = task_sender.send(event); }
+                        Err(error) => {
+                            tracing::warn!(error = ?error, "Server-event listener stopped");
+                            break;
+                        }
+                    }
                 }
             }
         }

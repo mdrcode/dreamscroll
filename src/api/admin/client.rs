@@ -15,7 +15,11 @@ impl AdminApiClient {
         service_api: ServiceApiClient,
         task_master: Arc<task::TaskMaster>,
     ) -> Self {
-        Self { db, service_api, task_master }
+        Self {
+            db,
+            service_api,
+            task_master,
+        }
     }
 
     pub async fn create_user(

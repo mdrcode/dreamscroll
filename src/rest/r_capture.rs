@@ -121,11 +121,10 @@ pub async fn illuminate(
             tracing::info!(capture_id, run, "Queued capture illumination rerun");
             Ok(StatusCode::NO_CONTENT)
         }
-        crate::task::SubmitOutcome::RefusedAlreadyInFlight { run } => {
+        crate::task::SubmitOutcome::RefusedAlreadyInFlight => {
             Err(api::ApiError::conflict(anyhow::anyhow!(
-                "Illumination for capture {} is already in flight (run {})",
-                capture_id,
-                run
+                "Illumination for capture {} is already in flight",
+                capture_id
             )))
         }
     }

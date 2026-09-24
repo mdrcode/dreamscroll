@@ -51,10 +51,7 @@ pub async fn run(state: ApiCmdState, args: BackfillArgs) -> anyhow::Result<()> {
     }
 }
 
-async fn run_search_index(
-    state: ApiCmdState,
-    args: BackfillSearchIndexArgs,
-) -> anyhow::Result<()> {
+async fn run_search_index(state: ApiCmdState, args: BackfillSearchIndexArgs) -> anyhow::Result<()> {
     if args.all && !args.capture_ids.is_empty() {
         return Err(anyhow!(
             "Provide either --all or explicit capture IDs, not both"

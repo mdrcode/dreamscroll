@@ -1,5 +1,5 @@
-use argh::FromArgs;
 use crate::{api, auth};
+use argh::FromArgs;
 
 use super::*;
 

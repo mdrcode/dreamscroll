@@ -147,7 +147,6 @@ impl TaskRunTracker {
 
         Ok(latest_runs_per_task(rows))
     }
-
 }
 
 /// Reduce rows to the latest run per logical task. No status is filtered out:

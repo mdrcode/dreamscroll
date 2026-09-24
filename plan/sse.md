@@ -1,10 +1,10 @@
 # Real-time Task Status via SSE — Design
 
-**Status:** **First end-to-end task-status SSE path implemented; still under
-review.** TaskMaster now emits best-effort status notifications; the web app
-starts one listener and fans events out to an authenticated `/events` route;
-feed/detail pages subscribe and refresh the affected capture partial. Entity
-availability has a wire type but no producer or client behavior yet.
+**Status:** Task-status SSE is wired as one authenticated stream per page.
+`capture_ids` selects a one-time initial status snapshot in the SSE response;
+after that snapshot, the same connection receives all live task-status events
+for the authenticated user. Entity availability has a wire type but no producer
+or client behavior yet.
 **Scope:** Relay best-effort, low-latency **background-task status hints** to
 HTMX clients over Server-Sent Events. This is informational UI feedback, not a
 workflow engine, durable change log, or source of truth for task orchestration.
@@ -28,8 +28,8 @@ We want a **simple, idiomatic, robust, and flexible** strategy for relaying
 best-effort background-task status information to clients. It should:
 
 - Scale across different **task types** (`illuminate`, `spark`, `search_index`).
-- Let the client **subscribe to only what it cares about** (avoid noise, e.g.
-  during a backfill).
+- Catch up the page's initially rendered captures, then keep the protocol
+  simple by forwarding all live status events for the authenticated user.
 - Handle **reruns** (e.g. "illuminate this again with a new model").
 - **Respect the connection budget** of our narrow topology — long-lived SSE
   connections must not be held open indefinitely when idle.
@@ -54,6 +54,9 @@ needed for this feature.
 > not implemented. These events do not turn `task_run_status` into a catch-all
 > event table.
 
+  restarts. `LISTEN/NOTIFY` gives low-latency hints; normal page refresh can
+  help the UI catch up; keep-alives + native EventSource reconnect handle
+  flaky connections. This is not a durable change
 ---
 
 ## 2. Why SSE (and not WebSockets or polling)
@@ -65,9 +68,10 @@ needed for this feature.
 | HTMX polling (`hx-trigger="every 2s"`) | Zero server work                                                                                                                                                  | Latency = poll interval; wasteful; still needs a "done?" endpoint                  | ⚠️ Fallback only |
 | Long-polling                           | Simple                                                                                                                                                            | Reconnect churn, more complex server bookkeeping                                   | ❌               |
 
-**SSE is the idiomatic HTMX answer.** The htmx team maintains `htmx-ext-sse`
-specifically for this. The entire client-side surface is **three HTML
-attributes** — no custom JS for the transport itself:
+**SSE is a natural fit beside HTMX.** The htmx team maintains `htmx-ext-sse`
+for declarative integrations, but this project currently uses native browser
+`EventSource` plus a small JS router because events need routing by entity ID.
+The earlier three-attribute example below is conceptual, not current wiring:
 
 ```html
 <body hx-ext="sse">
@@ -109,9 +113,8 @@ This means:
 > **Important distinction:** for this informational UI feature, the database
 > row is the best available current status, while the SSE/`LISTEN` notification
 > is a **best-effort hint**. A notification does not need to preserve or
-> describe every transition. When the hint arrives, the SSE handler may use the
-> included snapshot directly or re-query the current matching row before
-> emitting a thin signal; the HTMX client then refreshes the relevant partial.
+> describe every transition. The SSE handler forwards the received typed hint;
+> the HTMX client then refreshes the relevant partial.
 > A missed hint is acceptable. Replay/reconnect and optional polling merely
 > improve the chance that the UI catches up; they are not a durable-log
 > recovery protocol.
@@ -173,60 +176,60 @@ even though both payloads share the same envelope shape.
 
 ### 3.2 Client subscription filtering
 
-The client **explicitly registers the captures it cares about**. For
-`task_run_status`, there is **no "listen to everything" default** — the client must
-always send `capture_ids`. This is simpler, better, and more efficient:
+**Subscription decision:** use one stable, user-authenticated `/events` stream
+per page. `capture_ids` is used only for the initial catch-up snapshot emitted
+at the beginning of the SSE response. After the snapshot, the server sends all
+live task-status events for that user without entity filtering. The browser's
+JS router checks `entity_type`/`entity_id` and only refreshes entities currently
+present in the DOM. This avoids a registration flow and connection churn as
+cards enter or leave the feed.
 
-1. **`capture_ids`** — **required** for `task_run_status`. The client lists the
-   capture IDs it's currently rendering. Only events whose `entity_id` is in the
-   list are delivered.
-2. **`task_types`** — which task types to receive (e.g.
-  `task_types=illuminate,spark`). Defaults to all.
+This means the browser does **not** subscribe/unsubscribe as elements enter or
+leave the page. It opens one stream when the page loads and keeps that URL for
+the page lifetime. Native EventSource may reconnect after network/server
+failure; application code should not close/recreate it on HTMX swaps or ordinary
+user interaction.
+
+The stream lifecycle is simple: subscribe to the local event receiver first,
+query latest status for the requested capture IDs, emit those rows as ordinary
+`task-status` events, then continue consuming the already-subscribed live
+receiver. Subscribing first avoids a gap while the snapshot query runs; a
+duplicate hint around the handoff is harmless because events trigger a refresh
+of current state.
+
+This trades narrower live filtering for a stable connection:
+
+- Every live task-status hint for the user may reach the browser, including
+  hints for entities not currently rendered (e.g. backfill). The client cheaply
+  ignores those IDs. Backfill-specific suppression is deferred to a separate
+  plan and feature branch.
+- User filtering remains server-side and mandatory. Client-side DOM routing is
+  only a relevance optimization: it must never be used as an authorization
+  boundary. Follow-up partial requests remain protected and user-scoped.
+- Future entity-availability hints can share the same stable stream and be
+  routed by entity ID/type in the client.
+
+Native `EventSource` is a GET-only stream with no subscription-update message.
+Recreating it is technically valid and `close()` prevents intentional overlap,
+but it creates extra `/events` requests and snapshot/query work. If server-side
+dynamic interests become necessary later, design an explicit subscription
+update protocol separately rather than reconnecting on every DOM change.
 
 ```http
-GET /events?task_types=illuminate,spark&capture_ids=123,456,789
+GET /events?capture_ids=12,34,56
 ```
 
-The server filters on both `user_id` (always, for security) and the requested
-`capture_ids`/`task_types` (for relevance). The client **re-registers** its
-interests by reconnecting with new query params (see §6.3, which makes
-re-registration natural).
-
-> **How `capture_ids` maps to the DB:** the query param is a client-facing
-> convenience. Internally it becomes `entity_type = 'capture' AND entity_id IN
-> (...)`, matching the `task_run_status` columns. The SSE handler should use
-> the batched latest-status snapshot query (`query_latest_status_for_entities`)
-> for all registered capture IDs.
-
-> **Why force explicit `capture_ids` (rather than a "listen to all" default)?**
-> - **It's simpler.** No special-casing of "all vs. some" — the rule is uniform:
->   *you get events for the captures you registered.*
-> - **It's more efficient.** The server filters at the source, so the stream only
->   carries events the page can actually use.
-> - **It fits the app's shape.** Because Dreamscroll is photo-heavy, a page
->   renders only a bounded number of captures — images are render/memory heavy,
->   so **a page will realistically never exceed a few hundred captures MAX**.
->   Registering a few hundred IDs is trivial, and far cheaper than streaming
->   every task event for the user.
-> - **It makes backfill tracking natural.** If you're watching a specific set of
->   captures, you get their events. No separate "opt in to backfill" mode needed.
->
-> **The trade-off:** the client must keep its `capture_ids` list in sync with
-> what's on screen (as the user scrolls, add/remove IDs). This is a small amount
-> of JS, and it's exactly the kind of bookkeeping the adaptive-lifetime reconnect
-> (§6.3) already makes natural — each reconnect re-registers the current set.
+The route scopes both the initial snapshot query and live notifications to the
+authenticated `user_id`. Snapshot entity IDs are only a catch-up selection;
+they do not filter subsequent notifications. The client determines whether a
+live entity is currently relevant by looking for its DOM target. A task update
+for a non-rendered entity is ignored without causing a partial request.
 
 ### 3.3 Backfill / bulk tasks — deferred
-
-An earlier revision carried a **`background` flag** on each task to distinguish
-bulk/backfill work from user-initiated work. **That field was removed** — it was
-never populated and backfill deserves its own design pass rather than a
-speculative column.
-
-**Why it isn't needed for this phase:** the mandatory `capture_ids` subscription
-(§3.2) already prevents backfill noise. A backfill of hundreds of captures simply
-never reaches a page unless that page is explicitly tracking one of those
-captures. So the flag was never load-bearing as a filter.
+**Why it isn't needed for this phase:** the SSE route filters by user and
+the client only refreshes entities present in the DOM. Off-screen/backfill
+hints may reach the browser but are ignored; the flag is not needed for UI
+correctness.
 
 > **Deferred:** backfill/bulk-task handling (marking tasks as background,
 > surfacing backfill progress, an admin progress view) gets a dedicated
@@ -254,14 +257,10 @@ The remaining question is purely about **latency**: how does a connected browser
 learn about a new row *quickly* instead of waiting for a poll interval? Two
 mechanisms, used together:
 
-1. **Postgres `LISTEN`/`NOTIFY`** — the built-in database mechanism for
-  cross-instance push. A worker writes the status row, then `NOTIFY`s a channel.
-  Every instance's listener wakes up on the notification and fans it out to
-  local SSE streams.
-2. **A short poll fallback** — belt-and-suspenders. Even if `LISTEN/NOTIFY` is
-   unavailable or a notification is missed, the SSE handler can re-query the DB
-  on a modest interval (e.g. every 5–10s) to help the UI catch up. This is a
-  product choice, not a strict correctness guarantee.
+Postgres `LISTEN`/`NOTIFY` carries cross-instance best-effort hints. A worker
+writes the status row, then notifies the shared channel. Each WebUI-enabled
+instance's listener forwards received events to its local SSE streams. No poll
+fallback is currently implemented.
 
 > **Why `LISTEN/NOTIFY` and not the in-process bus:** the in-process bus only
 > works when producer and consumer share a process. In Cloud Run they don't.
@@ -321,9 +320,9 @@ The implementation is split by responsibility:
   `ServerEvent<E>`, and sends it to `server_event_channel` using SQLx `pg_notify`.
 - `src/sse/listener.rs` holds a dedicated SQLx `PgListener` connection, decodes
   notifications, and fans them out to per-instance SSE receivers.
-- `src/webui/v2/r_events.rs` authenticates the connection, requires explicit
-  `capture_ids`, sends current status snapshots, and forwards live events only
-  for the connected user's registered captures.
+- `src/webui/v2/r_events.rs` authenticates the connection, emits a one-time
+  latest-status snapshot for the requested capture IDs, then forwards every
+  live task-status event for that user.
 
 The status row write and notification are separate operations. Notification
 failure is logged and does not fail task processing; this is intentional for
@@ -334,7 +333,7 @@ best-effort UI feedback.
 The channel semantic is deliberately simple: after a `task_run_status` row
 changes, publish a typed update describing the new status. This is **best
 effort**. The payload is useful for low-latency consumers, but is not a durable
-event log; an initial snapshot on connection helps the UI catch up.
+event log. The stable-stream design does not query/send an initial snapshot.
 
 The standalone module now has a generic `ServerEvent<E>` envelope. The concrete
 `TaskStatusEvent` uses a `TaskStatusPayload` containing the stable logical
@@ -355,13 +354,14 @@ The trade-offs are acceptable for this table:
   notification. Consumers must treat the payload as a hint/snapshot and may
   re-read the row before emitting browser state.
 - **Delivery:** notifications can be missed while a listener is disconnected,
-  and they are not retained as an event log. Database replay and polling cover
-  that gap.
+  and they are not retained as an event log. The connect-time current-state
+  snapshot helps with status already present for the page's initial captures;
+  it does not replay missed transitions or cover arbitrary disconnected time.
 - **Transaction boundary:** PostgreSQL delivers `NOTIFY` only when the
   transaction commits. The write and notification should therefore be issued
   in the same transaction when atomic row/payload correspondence matters.
 
-### 4.3 The future SSE endpoint
+### 4.3 The SSE endpoint
 
 A new route in `webui/v2/maker.rs` (protected by the same `login_required` layer
 as everything else — **auth is free**):
@@ -371,21 +371,11 @@ as everything else — **auth is free**):
 pub async fn get(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
-    Query(params): Query<EventParams>,   // task_types=..., capture_ids=...
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
     let user_id = user.id;
 
-    let stream = async_stream::stream::from_fn(async move |emit| {
-        // 1. Replay recent task status for this user matching the subscription (§4.4)
-        // 2. Loop:
-        //    a. Wait on the LISTEN channel (with a timeout) for a NOTIFY
-        //    b. On notify (or timeout), re-query the DB for this user's matching rows
-        //    c. Emit an Event for each
-        // 3. Send a keep-alive comment periodically
-        // 4. Enforce the adaptive lifetime (§6.3)
-    });
-
+    let stream = /* await authenticated user's task-status hints */;
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()).into_response())
 }
 ```
@@ -398,77 +388,60 @@ fields.
 
 - **`user_id`** — always, for security. Never leak one user's task status to
   another.
-- **`capture_ids`** — **required** for `task_run_status`. Only events for the
-  registered capture IDs are delivered (§3.2).
-- **`task_types`** — the client's requested task types.
+- **Entity membership** — not filtered on the server. The client routes by
+  `entity_type`/`entity_id` and only refreshes a matching rendered component.
 
 Since the SSE connection is authenticated via the session cookie, `user_id` is
-known at connect time and used both in the DB query and in the emitted events.
+known at connect time and used to filter received notifications. Entity
+relevance is intentionally decided in the browser, not by resubscribing the
+server whenever visible cards change.
 
-### 4.4 Optional initial snapshot / reconnect behavior
+### 4.4 Delivery and reconnect semantics
 
-SSE is **ephemeral** — a browser reconnect does not receive notifications sent
-while it was disconnected. Since this feature is best-effort and informational,
-the reconnect strategy can either send a fresh task-status snapshot from the DB
-or simply resume listening for notifications. A snapshot improves UI catch-up
-but does not constitute durable replay.
+SSE is **ephemeral** — a browser reconnect receives a fresh snapshot for the
+capture IDs in its URL, but not a replay of missed transitions. Native
+EventSource reconnects automatically after transport-level failures using the
+same stable URL. The initial snapshot is current state, not a transition log;
+updates remain informational hints.
 
-1. **Optional on connect**, the SSE handler can query `task_run_status` for this `user_id`
-  matching the requested `entity_type`/`entity_id`/`task_types` and emits the
-  latest row for each logical task immediately. The snapshot must include
-  terminal states, especially `CompleteSuccess` and `CompleteFailure`, or the
-  client cannot learn that work finished. The existing
-  `TaskMaster::query_latest_status_for_entities` is the snapshot API and
-  includes terminal as well as in-flight states. It batches all registered
-  entity IDs in one query. Use it for initial UI snapshots; do not mistake it
-  for a durable replay cursor.
-2. **On every `NOTIFY` (or optional poll tick)**, re-query the DB for this user's matching
-  current rows and emit refresh signals as needed. `NOTIFY` is not treated as
-  an event-history cursor; the database snapshot reflects status when queried.
+Feed swaps update the DOM and the JS router's possible refresh targets; they do
+not change or reopen the EventSource subscription. The catch-up ID set is fixed
+when the page first opens the stream. Newly displayed entities still receive
+future live hints; statuses already current before they became visible are
+obtained through normal page rendering/refresh.
 
-There is no requirement to recover every missed transition. The current route
-does send one fresh snapshot for each subscribed capture when the stream starts;
-this is a convenience for a more current UI, not durable event replay.
+### 4.5 Initial status catch-up
 
-### 4.5 Where the initial (clean-slate) status comes from
-
-**For now, the `/events` "current status snapshot" is the best available initial
-task status.** The page-load HTML render does **not** include task
-status — a deliberate simplification for this phase.
+The same `/events` response begins with the latest task status rows for the
+page's initial capture IDs, then continues as a live user-wide stream. Page-load
+HTML does not need to join task status.
 
 **The flow:**
 
 1. **Page loads** → the HTML renders the captures (images, metadata) but **not**
    their task status. A capture that's mid-illumination simply shows no status
    pill yet.
-2. **`/events` connects** → the handler's initial snapshot (§4.4) queries `task_run_status` for
-  the registered `capture_ids` and emits the current statuses
-   immediately. The client applies them (e.g. shows "illuminating…" on the
-   matching cards).
-3. **Subsequent updates** → SSE `task-status` events keep the status current as
-   tasks transition.
+2. **`/events` connects** → the handler subscribes to live notifications, then
+  emits the latest status for the capture IDs in the URL as `task-status`
+  events on this response.
+3. **Subsequent updates** → the same response streams all live task-status
+  events for the authenticated user. The client refreshes matching rendered
+  entities. A race may cause a duplicate event; partial refreshes are
+  idempotent enough for this best-effort UI use.
 
 **Why this is fine for now:**
 
 - **It's simpler.** The page-load render doesn't need to join against
   `task_run_status` or render per-status states.
-- **The snapshot is current when read.** The `/events` query reads the same
-  `task_run_status` table used by task processing, reducing the stale window;
-  it does not provide historical replay guarantees.
-- **The gap is tiny.** The only window where a card shows no status is between
-  page load and the SSE connection opening (sub-second).
+- A stable stream avoids per-card requests and feed-change reconnections.
+- The catch-up is one batched query, scoped by user and selected entity IDs.
 
-> **Deferred (revisit later):** having the page-load HTML render also include task
-> status (so the initial view is correct even before SSE connects, and works if
-> SSE is unavailable). This is a clean, additive change later — the card template
-> would render status from `task_run_status` at render time, and the `/events` replay
-> would remain as the safety net.
+> **Deferred (revisit later):** having the page-load HTML render include task
+> status, so it is visible even before SSE connects and when SSE is unavailable.
 
-> **Concretely:** a capture that's mid-illumination (10s) shows no status pill on
-> initial page load; the `/events` replay delivers `{ status: "in_progress" }` for
-> it on connect, the client shows "illuminating…"; when the task completes, the
-> SSE `task-status` event fires, the client re-fetches the card partial, and it
-> re-renders as "done."
+> **Concretely:** the catch-up reflects the latest task row for each requested
+> logical task. It does not replay every transition or guarantee that a missed
+> notification was observed.
 
 ### 4.6 `LISTEN/NOTIFY` mechanics and the connection budget
 
@@ -501,69 +474,66 @@ connection indefinitely and reduce capacity for regular queries. So:
 > notification is a best-effort delivery hint, and local fan-out does not imply
 > retained history or correctness guarantees.
 
+**Shutdown behavior:** `dreamscroll_web` has a single watch-based shutdown
+signal shared with the listener task and each SSE response stream. Ctrl-C on
+macOS and SIGTERM on Cloud Run first trigger Axum graceful shutdown, then signal
+these long-lived SSE tasks to exit. Without this propagation, open SSE streams
+can keep graceful shutdown waiting indefinitely.
+
 ---
 
 ## 5. Client-side design (minimal cruft)
 
-### 5.1 One SSE connection per page
+### 5.1 One stable SSE connection per page
 
-Add to the base templates (`index.html.tera`, `detail.html.tera`):
+Create one native `EventSource('/events')` per page and keep it open for that
+page's lifetime (subject to normal browser/network reconnects and process
+shutdown). The initial page capture IDs are included in the URL for the
+one-time catch-up snapshot. The client does not update this list or recreate the
+EventSource after feed swaps.
 
-```html
-<body hx-ext="sse">
-  <div sse-connect="/events?task_types=illuminate,spark,search_index&capture_ids={{ visible_capture_ids }}"></div>
+The route authenticates the session and filters notifications by `user_id`.
+The URL carries no capture list. Each `task-status` payload contains
+`entity_type`/`entity_id`; `webui-v2.js` checks whether the matching card is
+currently in the DOM, then asks HTMX to fetch and replace just that partial.
+This keeps one stream while retaining precise per-card refreshes.
 
-  <!-- On a task-status event, re-fetch the detail partial -->
-  <div hx-get="/detail/{{ capture.id }}"
-       hx-trigger="sse:task-status"
-       hx-target="#card-feed"
-       hx-swap="innerHTML">
-  </div>
-</body>
-```
+**Why not resubscribe on DOM changes?** Native EventSource is GET-only and has
+no way to update server-side interests in place. Recreating it for each new
+visible-ID set is valid, but adds requests, reconnect races, and snapshot/query
+work. Since updates are small, best-effort hints and the product is currently
+single-user/low-volume, user-scoped delivery plus client-side routing is the
+simpler first version. Revisit only if measured event volume warrants narrower
+server filtering.
 
-**Subtlety:** `sse-swap` swaps the SSE *data* into the element, but we want to
-*trigger a re-fetch* instead. The htmx-ext-sse docs give exactly the right tool:
-**`hx-trigger="sse:<event>"`** for callbacks, and `sse-swap` for direct content
-swap.
+**HTMX's role:** JavaScript uses `htmx.ajax()` to fetch ordinary authenticated
+partials. We do not load `htmx-ext-sse`; the SSE transport is native
+`EventSource`, and the server continues to render all refreshed HTML through
+Tera.
 
-This is **pure HTML** — no JS. The server sends a single named event
-`task-status` whose payload carries the `status`/`task_type`/`entity_id` fields;
-htmx fires a GET to re-render the partial, and the existing Tera templates do the
-rest. This is the HATEOAS pattern: **SSE says "something changed", HTMX fetches
-the new state.**
+**Transport:** the contract is one stable `EventSource('/events')` connection
+per page. The browser uses native `EventSource` in `webui-v2.js`, not
+htmx-ext-sse. It parses event JSON, checks
+`entity_type`/`entity_id`, and uses `htmx.ajax()` to refresh the matching
+ordinary Tera-rendered partial.
 
-> **Note on `capture_ids` in the URL:** `capture_ids` is **required** for
-> `task_run_status` (§3.2). The template injects the page's visible capture IDs
-> (`{{ visible_capture_ids }}`). Because the connection is re-established on
-> reconnect (and on the adaptive-lifetime cycle in §6.3), the client naturally
-> re-registers its interests each time.
+The `capture_ids` query parameter only selects the initial snapshot. It is not
+a live subscription filter; the server continues to send all events for the
+authenticated user.
 
-### 5.2 A small status indicator (optional, still no JS)
+### 5.2 Direct status indicators (future UI work)
 
-Show a live "illuminating…" state with a second listener that swaps in a tiny
-status partial:
+If we later want to display status directly rather than refresh a partial, the
+existing JavaScript router can update a status indicator from the received
+payload. This is not implemented; current behavior uses ordinary partial
+refreshes.
 
-```html
-<div sse-connect="/events?task_types=illuminate&capture_ids={{ visible_capture_ids }}">
-  <div sse-swap="task-status">
-    <span class="status-pill">queued</span>
-  </div>
-</div>
-```
-
-The server sends small HTML fragments for the relevant `task-status` payloads.
-This keeps the "live status" feel without any imperative JS.
-
-### 5.3 What about the upload flow?
+### 5.3 What about the upload flow? (future polish)
 
 The upload already uses a custom XHR with progress. After upload completes, the
-server returns `{capture_id, detail_url}`. The client can **immediately open the
-SSE connection scoped to that capture** (or just rely on the page-wide `/events`
-connection) and show "Illuminating…" until the completion event arrives, then
-re-fetch. Since the page already has `/events` connected, **zero new JS** — just
-the existing `showUploadNotice` logic extended to also listen for the completion
-event.
+server returns `{capture_id, detail_url}`. Under the selected stable-stream
+design, no second connection is opened: the page's stream can deliver the new
+capture's task hints. Upload notices/status indicators are future client polish.
 
 ### 5.4 One SSE channel, many cards
 
@@ -571,8 +541,8 @@ event.
 can upload 5 screenshots in quick succession so all 5 are queued/illuminating at
 once. How does *one* page-level SSE channel relay the status of *all 5*?
 
-**The answer: the SSE channel is a *multiplexed bus*, not a per-card
-connection.** There is exactly **one** `EventSource` per page. It carries a
+**The target is a multiplexed stream, not a per-card connection.** There is
+exactly **one** `EventSource` per page. It carries a
 *stream of many named events*, each tagged with which capture it belongs to. The
 client fans that single stream out to the right card. Nothing about the number of
 cards or concurrent tasks changes the connection count — it's always 1.
@@ -589,14 +559,36 @@ handler just forwards *all* of that user's events down the one connection:
               one /events connection, N events, each tagged with entity_id
 ```
 
-**Client side** — htmx-ext-sse dispatches each SSE event as a DOM `CustomEvent`
-on the element that declares the listener, and the event's `detail` carries the
-raw SSE `data`. So a card can listen for *its own* completion by filtering on the
-payload's `entity_id`.
+**Client side** — the base templates put small `data-*` hints in the DOM for
+`web/v2/static/webui-v2.js`:
 
-**Pattern A — one listener per card, filtered by `entity_id` (recommended for the
-timeline).** Each card carries a tiny listener that reacts only when the event's
-`entity_id` matches its own:
+- `data-sse-mode="feed"` on the index page selects feed refresh behavior.
+- `data-sse-mode="detail"` plus `data-capture-id="..."` on the detail page
+  tells it which capture detail partial to refresh.
+- `data-capture-id` on feed capture-card roots is used to identify entities
+  currently rendered in the feed. The detail page uses its body-level
+  `data-capture-id` instead.
+- `id="capture-card-{id}"` gives the script a stable target for a one-card
+  replacement request.
+
+These are ordinary HTML data attributes, exposed as `element.dataset` in
+JavaScript. They are routing metadata only: they neither enable SSE by
+themselves nor affect HTMX. The script uses `data-sse-mode` to choose page
+behavior, opens the stable `/events` stream, parses each `task-status` JSON
+payload, and refreshes the matching capture partial if it is rendered. It does
+not update subscriptions or reconnect when feed IDs change.
+
+This is a custom `EventSource` listener in `webui-v2.js`, not htmx-ext-sse; the
+current templates load HTMX core but do not load the SSE extension. The
+EventSource should remain stable as feed DOM changes: only the client-side set
+of currently rendered targets changes. An HTMX swap does not warrant closing
+and reopening `/events`.
+
+The current implementation uses the single JavaScript router (Pattern B below).
+The per-card declarative alternative is historical only; HTMX event triggers do
+not inspect JSON payloads for a matching `entity_id`.
+
+**Pattern A — one listener per card (not recommended for precise routing).** Each card could listen for the event:
 
 ```html
 <!-- inside each card, e.g. #card-{{ capture.id }} -->
@@ -619,8 +611,7 @@ re-fetch is scoped to that card's own URL, so it only re-renders itself.
 > changes is harmless (it just re-renders the same content). If you want to avoid
 > even that, use the JS filter in Pattern B.
 
-**Pattern B — a single JS listener that routes by `entity_id` (for precise
-fan-out / status pills).** One listener on the shared connection reads
+**Pattern B — the selected approach: one JS listener that routes by `entity_id`.** One listener on the shared connection reads
 `event.detail`, checks `entity_id`, and updates only the matching card:
 
 ```js
@@ -655,88 +646,20 @@ concurrent tasks update 5 distinct cards independently, in any completion order.
 > the payload's `entity_type` tells the client which routing key is appropriate —
 > the mechanism is identical.
 
-### 5.5 Adaptive connection lifetime
+### 5.5 Deferred: adaptive connection lifetime
 
-**The problem:** our topology is narrow (see `topology_and_throughput.md`). Each
+The earlier proposal identified this possible concern: our topology is narrow (see `topology_and_throughput.md`). Each
 open SSE connection occupies a Cloud Run HTTP concurrency slot for its entire
 duration, and on `db-f1-micro` the DB connection total is also tight. Holding
 connections open indefinitely when idle is wasteful and risks exhausting the
 budget as users accumulate.
 
-**The strategy: a dynamic, adaptive lifetime.** By default the page listens to
-`/events` for **5 minutes**, and the connection **automatically extends**
-whenever:
-
-- **(a) the user does something** (any interaction — a click, an HTMX request, an
-  upload, a scroll-triggered fetch), or
-- **(b) something meaningful happens on the server** (an event is delivered).
-
-If neither happens for 5 minutes, the connection **closes gracefully** and the
-page falls back to on-demand refresh (the pre-SSE behavior). The next user action
-reopens it.
-
-**Why this works:**
-
-- **Idle pages don't hold connections forever.** A user who opens the timeline
-  and walks away releases the slot after 5 min of inactivity.
-- **Active pages stay live.** As long as the user is interacting or events are
-  flowing, the connection keeps extending.
-- **It's a natural fit for SSE.** SSE is designed to be re-established;
-  htmx-ext-sse auto-reconnects. Closing after idle is just a graceful stream end,
-  and the next interaction reconnects.
-
-**How it's implemented:**
-
-**Server side** — the SSE handler tracks two timestamps:
-
-- `last_activity` — updated on every delivered event (condition b).
-- `last_client_touch` — updated when the client signals activity (condition a).
-
-The stream ends when `now - max(last_activity, last_client_touch) > IDLE_TIMEOUT`
-(5 min). It sends a final event so the client knows the close was intentional,
-not an error.
-
-**Client side** — two mechanisms keep the connection alive while active:
-
-1. **Server events extend it automatically** (condition b) — no client work.
-2. **Client activity extends it** (condition a) — the client sends a lightweight
-   signal on user interaction. The cleanest way: piggyback on the existing HTMX
-   request cycle. Simpler still: since the page reconnects on the next action
-   anyway, the client can just **reconnect** (re-issue `sse-connect`) on user
-   activity rather than maintaining a heartbeat — the reconnect itself resets the
-   5-min timer.
-
-> **Recommended (simplest):** rely on **server events** to extend the lifetime
-> during active work, and let the client **reconnect on user interaction**. No
-> heartbeat endpoint needed. The flow:
-> - Page loads → opens `/events` (5-min timer starts).
-> - User interacts → htmx fires a request → on response, the client reconnects
->   `/events` (fresh 5-min timer). A few lines in `webui-v2.js` (listen for
->   `htmx:afterRequest` and re-issue the SSE connect).
-> - Server event arrives → timer resets server-side.
-> - 5 min of neither → server closes the stream; page is static until the next
->   interaction.
-
-**Re-registration on reconnect.** Because the connection is re-established on
-every reconnect, the client **re-registers its subscription each time** — the
-`sse-connect` URL carries the current `task_types` and `capture_ids`. Since
-`capture_ids` is **required** (§3.2), this re-registration is essential: as the
-user scrolls and the set of visible cards changes, the page updates the
-`sse-connect` URL to track only what's on screen. The adaptive lifetime and the
-mandatory-`capture_ids` subscription model reinforce each other.
-
-**Interaction with the topology budget:**
-
-- **Idle connections are released** after 5 min → concurrency slots free up.
-- **Active connections are bounded** to actual use → no unbounded accumulation.
-- **Reconnect is cheap** and the DB replay (§4.4) reconciles any missed events.
-
-> **Caveat:** the 5-min idle timeout must be **shorter than the Cloud Run request
-> timeout** (default 5 min, max 60 min). If the service timeout is left at the
-> 5-min default, an SSE connection idle for 5 min would be killed by Cloud Run
-> anyway — so the adaptive close should happen *before* that, or the service
-> timeout must be raised. Set the service timeout to e.g. 15 min and let the
-> adaptive 5-min idle close happen first. (See `topology_and_throughput.md` §4.)
+Adaptive lifetime is deferred. The current product/design preference is one
+stable native `EventSource` per page, closed by navigation, browser/network
+failure, or process shutdown. Native EventSource handles transport reconnects.
+If Cloud Run concurrency measurements later show idle streams are costly, add a
+simple bounded lifetime then; do not reopen the stream on ordinary feed swaps
+or every user interaction.
 
 ---
 
@@ -750,10 +673,12 @@ Because the worker can be a different instance than the browser's connection,
   typed `TaskStatusEvent` via `ServerEventNotifier` to `server_event_channel`.
 2. **Every WebUI-enabled instance** runs one dedicated `LISTEN` connection
   (owned by `ServerEventListener`). On a notification, it fans the event out to
-  local SSE handlers; each handler filters by owner and subscribed capture IDs.
-3. **Optional initial snapshot** makes the UI more current on connect — the SSE
-  handler may query the DB for matching status rows. This is not event replay,
-  and it does not guarantee the browser observes every transition.
+  local SSE handlers; each handler filters by owner only. Capture IDs are used
+  solely to select the connect-time snapshot.
+3. **Catch-up then live stream.** On connect, the SSE handler subscribes to
+  notifications, queries the current status for the requested capture IDs, and
+  emits those rows before streaming live events. It does not replay transitions
+  that are no longer represented by current rows.
 4. **Optional polling** may help the UI catch up if `LISTEN/NOTIFY` is
   unavailable; it is not a correctness guarantee.
 
@@ -777,12 +702,12 @@ so the connection ends gracefully rather than being killed by Cloud Run.
 - **Idiomatic:** SSE is the canonical HTMX companion; `htmx-ext-sse` is the
   official extension. Axum has first-class SSE support. `LISTEN/NOTIFY` is the
   idiomatic Postgres pub/sub.
-- **Robust:** `task_run_status` persists the best available current status across
-  restarts. `LISTEN/NOTIFY` gives low-latency hints; optional initial snapshots
-  and polling may help the UI catch up; keep-alives + auto-reconnect handle
-  flaky connections. None of these components form a durable change log or
-  guarantee delivery of every transition. The adaptive lifetime keeps idle
-  connections from accumulating.
+- **Robust for the intended scope:** `task_run_status` persists the best
+  available current status across restarts. `LISTEN/NOTIFY` gives low-latency
+  hints; normal page refresh can help the UI catch up; keep-alives + native
+  EventSource reconnect handle flaky connections. This is not a durable change
+  log and does not guarantee every transition is delivered. Adaptive lifetime
+  remains deferred.
 - **Flexible:** The `(task_type, envelope_id, entity_type, entity_id)` model is
   generic — illumination, spark, search-index all flow through the same
   table/channel. Adding a new task type = implement `Task` (with its
@@ -794,15 +719,16 @@ so the connection ends gracefully rather than being killed by Cloud Run.
 ## 8. Implementation status
 
 **Implemented:** the typed, versioned event model; status notifications from
-TaskMaster; one per-instance listener/fan-out; authenticated SSE route with
-user and capture filtering plus initial status snapshots; and targeted capture
-partial refresh in the client. **Not yet implemented:** adaptive idle lifetime,
-entity-availability producers/consumers, and full-page status rendering.
+TaskMaster; one per-instance listener/fan-out; authenticated stable SSE route
+with a one-time, user-scoped capture snapshot followed by user-wide live events;
+and client routing to targeted capture partial refreshes. Also pending:
+adaptive idle lifetime, entity-availability producers/consumers, and full-page
+status rendering.
 
 | #   | Step                                                                        | Status |
 | --- | --------------------------------------------------------------------------- | ------ |
 | 1   | Integrate `ServerEventNotifier` with task-status writes                     | ✅      |
-| 2   | Authenticated `/events` route — user/capture filtering and initial snapshot | ✅      |
+| 2   | Authenticated `/events` route — initial capture snapshot then user-wide live stream | ✅ |
 | 3   | Client routing by entity ID and targeted capture partial refresh            | ✅      |
 | 4   | Adaptive lifetime (5-min idle close + reconnect-on-interaction)             | ⬜      |
 
@@ -814,12 +740,12 @@ entity-availability producers/consumers, and full-page status rendering.
 | `src/sse/notifier.rs`              | PostgreSQL `NOTIFY` publisher for typed server events                                       | ✅      |
 | `src/sse/listener.rs`              | Dedicated PostgreSQL `LISTEN` receiver and event decoding                                   | ✅      |
 | `src/bin/dreamscroll_web.rs`       | start WebUI listener and local fan-out                                                      | ✅      |
-| `src/webui/v2/maker.rs`            | add `/events`, pass shared event receiver to `WebState`                                     | ✅      |
-| `src/webui/v2/r_events.rs`         | authenticated stream, explicit capture subscriptions, batched initial snapshot, live filter | ✅      |
+| `src/webui/v2/maker.rs`            | add `/events`, pass shared event receiver to `WebState`, fingerprint local static assets    | ✅      |
+| `src/webui/v2/r_events.rs`         | emit the initial capture snapshot, then user-filtered live updates           | ✅      |
 | `src/webui/v2/r_capture_card.rs`   | authenticated capture-card refresh endpoint                                                 | ✅      |
 | `src/webui/v2/r_detail_partial.rs` | authenticated capture-detail partial refresh endpoint                                       | ✅      |
-| `web/v2/templates/*.tera`          | stable capture IDs/data attributes for client event routing                                 | ✅      |
-| `web/v2/static/webui-v2.js`        | subscribe, route by entity, refresh affected capture partial                                | ✅      |
+| `web/v2/templates/*.tera`          | `data-sse-mode`, `data-capture-id`, and stable card IDs for client event routing            | ✅      |
+| `web/v2/static/webui-v2.js`        | maintain one stable EventSource; send initial IDs and route all live events by entity ID | ✅ |
 | `Cargo.toml`                       | direct `futures-util` dependency for `stream::unfold` in the Axum SSE handler               | ✅      |
 
 **Dependency note:** `futures-util` was already present transitively in
@@ -872,16 +798,17 @@ be resolved as implementation work begins:
   should treat spark subscriptions as spark-entity subscriptions until the
   planned spark identity work is done.
 10. **Resolved:** the authenticated `/events` route and per-instance listener
-  fan-out are wired. The stream requires explicit capture IDs, filters both by
-  authenticated owner and entity membership, and begins with a latest-status
-  snapshot before forwarding live events.
+  fan-out are wired. The route emits a one-time current-status snapshot for the
+  initial capture IDs, then filters live updates by authenticated owner only.
+  The browser keeps one EventSource through feed swaps and routes by entity ID
+  to matching DOM targets.
 11. **Integrated prototype:** `src/sse` defines `ServerEvent<E>`, the
   `TaskStatusEvent` and `AvailabilityEvent` aliases, typed payloads, and
   versioned JSON serialization. `ServerEventNotifier` publishes to
   `server_event_channel`; `ServerEventListener` owns a dedicated
   `sqlx::postgres::PgListener` connection and decodes the two current event
   types. `webui-v2.js` routes task status by entity ID and refreshes only the
-  affected capture card/detail partial.
+  affected capture card/detail partial while keeping a stable per-page stream.
 12. **Product scope clarified:** task-status SSE is informational UI feedback
   only. It tells the user what the backend probably knows and hints that a slim
   page component may need refresh or removal. It is not deterministic pipeline
@@ -893,26 +820,21 @@ be resolved as implementation work begins:
 - **SSE payload format:** thin JSON signals remain the recommendation. The
   status field should use the directly serialized `TaskRunStatus`; small HTML
   fragments for direct `sse-swap` remain an optional future use-case.
-- **Cloud Run timeout:** confirm the service-level request timeout is set high
-  enough for long-lived SSE connections (and above the 5-min adaptive idle
-  close).
-- **Reconnect-on-interaction cost:** confirm that re-issuing `sse-connect` on
-  every HTMX request is cheap enough (it should be — SSE reconnect is lightweight
-  and the DB replay reconciles state).
-- **Initial-state source (resolved in §4.5):** for now, an optional `/events`
-  snapshot can provide best-available initial task status; the page-load HTML
-  render does **not** include task status. Revisit later — having the page-load
-  render also include status is a clean, additive change.
-- **`capture_ids` is required for `task_run_status`:** the client always registers
-  the captures it's tracking (§3.2). The client must keep its `capture_ids` list
-  in sync with what's on screen (via the adaptive-lifetime reconnect, §5.5).
-- **Backfill / bulk tasks (deferred):** the `background` flag was removed (§3.3).
-  Backfill handling — marking tasks as bulk, surfacing backfill progress, an
-  admin progress view, and fixing the `user_id` attribution + global candidate
-  query — gets a dedicated plan-and-branch session. See `task-status.md` §8.
+- **Cloud Run timeout:** verify the configured request timeout comfortably
+  exceeds the currently unbounded SSE stream duration, or implement a bounded
+  lifetime deliberately if the deployment requires it.
+- **Feed changes after connect:** the initial `capture_ids` list is not updated
+  when HTMX changes the feed. Newly displayed entities receive future live
+  events; a current status for an already-finished task appears on page refresh
+  or another targeted partial load.
+- **Backfill / bulk tasks (deferred):** status events from backfill currently
+  reach the user's stream like any other event. Suppressing or distinguishing
+  them is out of scope; create a separate `plan/backfill.md` and feature branch
+  when that work starts. A `background` annotation may be considered then.
 - **Capture lifecycle publishing:** the `AvailabilityEvent` wire type already
   models `available`/`deleted` operations for any entity type. Publishing these
   updates remains future work and should use a deliberate source/producer; do
   not shoehorn lifecycle events into `task_run_status`. The entity-scoped
-  subscription and single-SSE-connection design are intended to accommodate
-  this later.
+  snapshot selection and single-SSE-connection design are intended to
+  accommodate this later. Its operation hints can use the same stable per-user
+  stream.

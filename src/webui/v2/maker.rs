@@ -6,12 +6,15 @@ use tera::{Context, Tera};
 use tower_http::services::{ServeDir, ServeFile};
 use tower_sessions::SessionManagerLayer;
 
-use crate::{api, auth, telemetry};
+use crate::{api, auth, sse, task, telemetry};
 
 use super::*;
 
 pub struct WebState {
     pub user_api: api::UserApiClient,
+    pub task_master: Arc<task::TaskMaster>,
+    pub server_events: tokio::sync::broadcast::Sender<sse::ReceivedServerEvent>,
+    pub shutdown: tokio::sync::watch::Receiver<bool>,
     pub tera: Tera,
     pub static_asset_version: String,
     pub max_upload_bytes: usize,
@@ -35,6 +38,9 @@ fn load_templates() -> Result<Tera, tera::Error> {
 
 pub fn make_ui_router(
     user_api: api::UserApiClient,
+    task_master: Arc<task::TaskMaster>,
+    server_events: tokio::sync::broadcast::Sender<sse::ReceivedServerEvent>,
+    shutdown: tokio::sync::watch::Receiver<bool>,
     auth_backend: auth::WebAuthBackend,
     session_layer: SessionManagerLayer<impl tower_sessions::SessionStore + Clone>,
     max_upload_bytes: usize,
@@ -45,10 +51,28 @@ pub fn make_ui_router(
     let static_asset_version = std::env::var("K_REVISION")
         .ok()
         .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| env!("CARGO_PKG_VERSION").to_string());
+        .unwrap_or_else(|| {
+            let mut hasher = blake3::Hasher::new();
+            for path in [
+                "web/v2/static/dreamscroll-v2.css",
+                "web/v2/static/webui-v2.js",
+            ] {
+                if let Ok(contents) = std::fs::read(path) {
+                    hasher.update(&contents);
+                }
+            }
+            format!(
+                "{}-{}",
+                env!("CARGO_PKG_VERSION"),
+                &hasher.finalize().to_hex()[..12]
+            )
+        });
 
     let state = Arc::new(WebState {
         user_api,
+        task_master,
+        server_events,
+        shutdown,
         tera,
         static_asset_version,
         max_upload_bytes,
@@ -68,8 +92,11 @@ pub fn make_ui_router(
     let routes_protected = Router::new()
         .route("/", get(r_index::get))
         .route("/detail/{id}", get(r_detail::get))
+        .route("/detail/{id}/partial", get(r_detail_partial::get))
         .route("/detail/{id}/related", get(r_related::get))
         .route("/cards", get(r_cards::get))
+        .route("/cards/capture/{id}", get(r_capture_card::get))
+        .route("/events", get(r_events::get))
         .route(
             "/annotation/{capture_id}",
             get(r_annotation::block).post(r_annotation::set),

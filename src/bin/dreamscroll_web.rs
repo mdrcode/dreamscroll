@@ -57,13 +57,14 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Initialized storage, task master, and API clients");
 
     let mut router = axum::Router::new();
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
 
     // Web UI routes (Session-auth protected) + static JS/CSS serving
     if cfg.services.contains(&config::Service::WebUI) {
         let server_event_listener =
             sse::ServerEventListener::connect(&database::make_url_from_config(&cfg, None, false))
                 .await?;
-        let server_events = sse::spawn_local_fanout(server_event_listener);
+        let server_events = sse::spawn_local_fanout(server_event_listener, shutdown_rx.clone());
         let auth_backend = auth::WebAuthBackend::new(db.clone());
 
         let session_layer = SessionManagerLayer::new(session_store)
@@ -86,6 +87,7 @@ async fn main() -> anyhow::Result<()> {
             user_api.clone(),
             task_master.clone(),
             server_events.clone(),
+            shutdown_rx.clone(),
             auth_backend.clone(),
             session_layer.clone(),
             cfg.max_upload_bytes,
@@ -160,7 +162,7 @@ async fn main() -> anyhow::Result<()> {
         cfg.services
     );
     let serve_result = axum::serve(listener, router)
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(shutdown_signal(shutdown_tx))
         .await;
 
     if let Some(provider) = trace_provider {
@@ -176,7 +178,7 @@ async fn main() -> anyhow::Result<()> {
 }
 
 // Cloud Run sends SIGTERM, so simply relying on tokio's ctrl_c() is inadequate
-async fn shutdown_signal() {
+async fn shutdown_signal(shutdown: tokio::sync::watch::Sender<bool>) {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{SignalKind, signal};
@@ -197,4 +199,8 @@ async fn shutdown_signal() {
         let _ = tokio::signal::ctrl_c().await;
         tracing::info!("Received shutdown signal, starting graceful shutdown...");
     }
+
+    // Close the listener task and open SSE streams as Axum begins graceful
+    // shutdown. Sending is harmless when WebUI disabled and no receivers exist
+    let _ = shutdown.send(true);
 }

@@ -7,10 +7,10 @@ pub mod r_change_password;
 pub mod r_create_user;
 pub mod r_dummy;
 pub mod r_import_capture;
-pub mod r_timeline;
-pub mod r_token;
 pub mod r_search;
 pub mod r_search_similar;
+pub mod r_timeline;
+pub mod r_token;
 
 mod maker;
 pub use maker::*;

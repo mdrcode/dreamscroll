@@ -9,7 +9,6 @@ struct Args {
     command: Command,
 }
 
-
 #[derive(FromArgs)]
 #[argh(subcommand)]
 enum Command {

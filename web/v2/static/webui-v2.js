@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }
 
     setupPwaServiceWorker();
+    setupTaskStatusEvents();
     setupSearchShortcut();
     setupSearchClearButton();
     setupSearchEndpointRouting();
@@ -29,6 +30,73 @@ document.addEventListener('DOMContentLoaded', function () {
         }
     });
 });
+
+function setupTaskStatusEvents() {
+    if (!window.EventSource) {
+        console.warn('Task-status SSE unavailable: this browser has no EventSource support.');
+        return;
+    }
+
+    const mode = document.body ? document.body.dataset.sseMode : '';
+    if (mode !== 'feed' && mode !== 'detail') {
+        console.warn('Task-status SSE not started: missing or invalid data-sse-mode.', mode);
+        return;
+    }
+    function refreshSubscribedEntity(update) {
+        if (!update || update.entity_type !== 'capture' || !Number.isInteger(update.entity_id)) {
+            return;
+        }
+        const captureId = String(update.entity_id);
+
+        if (mode === 'detail') {
+            if (document.body.dataset.captureId !== captureId) return;
+            window.htmx.ajax('GET', '/detail/' + captureId + '/partial', {
+                target: '#card-feed',
+                swap: 'innerHTML'
+            });
+            return;
+        }
+
+        const card = document.getElementById('capture-card-' + captureId);
+        if (card) {
+            window.htmx.ajax('GET', '/cards/capture/' + captureId, {
+                target: card,
+                swap: 'outerHTML'
+            });
+        }
+    }
+
+    const captureIds = new Set();
+    if (mode === 'detail' && document.body.dataset.captureId) {
+        captureIds.add(document.body.dataset.captureId);
+    }
+    if (mode === 'feed') {
+        document.querySelectorAll('[data-capture-id]').forEach(function (node) {
+            if (node.dataset.captureId) captureIds.add(node.dataset.captureId);
+        });
+    }
+
+    const params = new URLSearchParams();
+    if (captureIds.size > 0) {
+        params.set('capture_ids', Array.from(captureIds).join(','));
+    }
+    const eventsUrl = '/events' + (captureIds.size > 0 ? '?' + params.toString() : '');
+    console.info('Connecting task-status SSE.', eventsUrl);
+    const source = new EventSource(eventsUrl, { withCredentials: true });
+    source.addEventListener('task-status', function (event) {
+        let update;
+        try {
+            update = JSON.parse(event.data);
+        } catch (_error) {
+            console.warn('Ignoring malformed task-status SSE payload.');
+            return;
+        }
+        refreshSubscribedEntity(update);
+    });
+    source.onerror = function () {
+        console.warn('Task-status SSE connection error; EventSource will retry.', source.readyState);
+    };
+}
 
 function setupAnnotationEditorCaret(rootNode) {
     const editors = [];
