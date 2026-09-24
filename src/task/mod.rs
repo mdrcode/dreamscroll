@@ -12,10 +12,10 @@ pub use taskmaster::*;
 mod taskrunstatus;
 pub use taskrunstatus::*;
 
-// TaskRunTracker supports querying the status of task runs, and (in the future)
-// will support subscribing to status changes.
+// TaskRunTracker is TaskMaster's private persistence component for task-run
+// status. Callers go through TaskMaster so lifecycle policy and status writes
+// remain encapsulated together.
 mod taskruntracker;
-pub use taskruntracker::*;
 
 // TaskQueue trait which abstracts over the underlying queue backends.
 mod taskqueue;

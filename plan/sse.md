@@ -225,6 +225,11 @@ they do not filter subsequent notifications. The client determines whether a
 live entity is currently relevant by looking for its DOM target. A task update
 for a non-rendered entity is ignored without causing a partial request.
 
+The initial catch-up snapshot emits at most one refresh hint per entity, even
+when multiple task types have status rows for that entity. This is only
+snapshot coalescing; subsequent live task-status updates are still forwarded
+individually.
+
 ### 3.3 Backfill / bulk tasks — deferred
 **Why it isn't needed for this phase:** the SSE route filters by user and
 the client only refreshes entities present in the DOM. Off-screen/backfill
@@ -318,6 +323,9 @@ The implementation is split by responsibility:
   and typed task-status/availability payloads.
 - `src/sse/notifier.rs` shares SeaORM's SQLx 0.9 pool, serializes a
   `ServerEvent<E>`, and sends it to `server_event_channel` using SQLx `pg_notify`.
+- `TaskMaster` is the public task lifecycle boundary and coordinates tracker
+  writes with best-effort event publication. `TaskRunTracker` is private to the
+  `task` module, so production callers cannot bypass this lifecycle boundary.
 - `src/sse/listener.rs` holds a dedicated SQLx `PgListener` connection, decodes
   notifications, and fans them out to per-instance SSE receivers.
 - `src/webui/v2/r_events.rs` authenticates the connection, emits a one-time
@@ -728,28 +736,28 @@ and client routing to targeted capture partial refreshes. Also pending:
 adaptive idle lifetime, entity-availability producers/consumers, and full-page
 status rendering.
 
-| #   | Step                                                                        | Status |
-| --- | --------------------------------------------------------------------------- | ------ |
-| 1   | Integrate `ServerEventNotifier` with task-status writes                     | ✅      |
-| 2   | Authenticated `/events` route — initial capture snapshot then user-wide live stream | ✅ |
-| 3   | Client routing by entity ID and targeted capture partial refresh            | ✅      |
-| 4   | Adaptive lifetime (5-min idle close + reconnect-on-interaction)             | ⬜      |
+| #   | Step                                                                                | Status |
+| --- | ----------------------------------------------------------------------------------- | ------ |
+| 1   | Integrate `ServerEventNotifier` with task-status writes                             | ✅      |
+| 2   | Authenticated `/events` route — initial capture snapshot then user-wide live stream | ✅      |
+| 3   | Client routing by entity ID and targeted capture partial refresh                    | ✅      |
+| 4   | Adaptive lifetime (5-min idle close + reconnect-on-interaction)                     | ⬜      |
 
 ### File changes
 
-| File                               | Change                                                                                      | Status |
-| ---------------------------------- | ------------------------------------------------------------------------------------------- | ------ |
-| `src/sse/event.rs`                 | Generic `ServerEvent<E>`, task-status and availability payloads, and wire serialization     | ✅      |
-| `src/sse/notifier.rs`              | PostgreSQL `NOTIFY` publisher for typed server events                                       | ✅      |
-| `src/sse/listener.rs`              | Dedicated PostgreSQL `LISTEN` receiver and event decoding                                   | ✅      |
-| `src/bin/dreamscroll_web.rs`       | start WebUI listener and local fan-out                                                      | ✅      |
-| `src/webui/v2/maker.rs`            | add `/events`, pass shared event receiver to `WebState`, fingerprint local static assets    | ✅      |
-| `src/webui/v2/r_events.rs`         | emit the initial capture snapshot, then user-filtered live updates           | ✅      |
-| `src/webui/v2/r_capture_card.rs`   | authenticated capture-card refresh endpoint                                                 | ✅      |
-| `src/webui/v2/r_detail_partial.rs` | authenticated capture-detail partial refresh endpoint                                       | ✅      |
-| `web/v2/templates/*.tera`          | `data-sse-mode`, `data-capture-id`, and stable card IDs for client event routing            | ✅      |
-| `web/v2/static/webui-v2.js`        | maintain one stable EventSource; send initial IDs and route all live events by entity ID | ✅ |
-| `Cargo.toml`                       | direct `futures-util` dependency for `stream::unfold` in the Axum SSE handler               | ✅      |
+| File                               | Change                                                                                   | Status |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- | ------ |
+| `src/sse/event.rs`                 | Generic `ServerEvent<E>`, task-status and availability payloads, and wire serialization  | ✅      |
+| `src/sse/notifier.rs`              | PostgreSQL `NOTIFY` publisher for typed server events                                    | ✅      |
+| `src/sse/listener.rs`              | Dedicated PostgreSQL `LISTEN` receiver and event decoding                                | ✅      |
+| `src/bin/dreamscroll_web.rs`       | start WebUI listener and local fan-out                                                   | ✅      |
+| `src/webui/v2/maker.rs`            | add `/events`, pass shared event receiver to `WebState`, fingerprint local static assets | ✅      |
+| `src/webui/v2/r_events.rs`         | emit the initial capture snapshot, then user-filtered live updates                       | ✅      |
+| `src/webui/v2/r_capture_card.rs`   | authenticated capture-card refresh endpoint                                              | ✅      |
+| `src/webui/v2/r_detail_partial.rs` | authenticated capture-detail partial refresh endpoint                                    | ✅      |
+| `web/v2/templates/*.tera`          | `data-sse-mode`, `data-capture-id`, and stable card IDs for client event routing         | ✅      |
+| `web/v2/static/webui-v2.js`        | maintain one stable EventSource; send initial IDs and route all live events by entity ID | ✅      |
+| `Cargo.toml`                       | direct `futures-util` dependency for `stream::unfold` in the Axum SSE handler            | ✅      |
 
 **Dependency note:** `futures-util` was already present transitively in
 `Cargo.lock`; listing it directly in `Cargo.toml` makes the application's use
@@ -820,6 +828,19 @@ be resolved as implementation work begins:
 
 ## 10. Open questions / follow-ups
 
+- **Coverage gaps from the 2026-09-23 review:** add authenticated route tests for
+  capture-card/detail partial access and rendering; assert TaskMaster lifecycle
+  status notifications (Queued → InProgress → outcomes, including retry and
+  submission failure) through the real publisher; test the SSE snapshot query
+  against mixed users/entities/statuses and snapshot/live handoff; and test
+  client EventSource reconnect/backoff behavior. Also cover listener failure
+  visibility and WebUI startup/shutdown wiring. See `plan/testing.md` for the
+  prioritized list. These are follow-up coverage tasks, not blockers for the
+  current informational SSE behavior.
+- **Spark catch-up:** the initial snapshot currently covers captures only.
+  Although feed pages may also show sparks, catch-up for spark entities is
+  explicitly deferred; live user-wide status updates continue to be delivered.
+  Revisit only if spark status becomes important to the validated use case.
 - **SSE payload format:** thin JSON signals remain the recommendation. The
   status field should use the directly serialized `TaskRunStatus`; small HTML
   fragments for direct `sse-swap` remain an optional future use-case.

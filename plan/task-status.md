@@ -68,20 +68,24 @@ Upload (webui/v2/r_upload.rs)
   TaskEnvelope<T>)`. Two backends: `LocalTaskQueue` (in-process mpsc +
   semaphore) and `CloudTaskQueue` (Google Cloud Tasks). **Pub/Sub support was
   removed** to focus on Cloud Tasks.
-- **`TaskMaster`** (`task/taskmaster.rs`) is the single funnel through which
-  *all* task enqueues flow — the perfect choke point to also record status. It
-  owns the backend queues **and** the `task_run_status` table, exposing `submit_*` /
-  `begin_attempt` / `finish_attempt` / `query_*`. It is **not `Clone`** — shared
-  via `Arc<TaskMaster>`.
+- **`TaskMaster`** (`task/taskmaster.rs`) is the single public funnel through
+  which *all* task enqueues and worker lifecycle updates flow. It owns the
+  backend queues and coordinates `task_run_status` persistence with queue
+  behavior and best-effort SSE notification. It exposes `submit_*` /
+  `begin_attempt` / `finish_attempt` / status queries. It is **not `Clone`** —
+  shared via `Arc<TaskMaster>`.
 - **Status transitions are not a raw setter.** `TaskMaster::update_status` is
   **private**; workers must go through `begin_attempt` (reads the persisted
   attempt count, increments, writes `InProgress`, returns the 1-based attempt
   number) and `finish_attempt` (writes the outcome and returns an
   `AttemptOutcome` that drives the HTTP response). This keeps `attempts` and the
   retry decision consistent with the recorded status.
-- **`TaskRunTracker`** (`task/taskruntracker.rs`) owns all `task_run_status`
-  persistence. `TaskRunStatus` (`task/taskrunstatus.rs`) is the strongly-typed status
-  enum; the DB stores only its integer discriminant (`status_code INT`).
+- **`TaskRunTracker`** (`task/taskruntracker.rs`) is a private persistence
+  component owned by `TaskMaster`; Rust visibility prevents production callers
+  outside the `task` module from bypassing TaskMaster's lifecycle API. It owns
+  direct `task_run_status` queries and writes. `TaskRunStatus`
+  (`task/taskrunstatus.rs`) is the strongly-typed status enum; the DB stores
+  only its integer discriminant (`status_code INT`).
 - **Deployment is a single Cloud Run service.** Tasks are queued via Cloud Tasks,
   so **the worker that completes a task may be a different process/instance than
   the one holding the user's HTTP connection.** This is why the DB — not an
@@ -463,8 +467,8 @@ must always see the **most recent** illumination, so:
 | `src/task/taskqueue_local.rs`             | `LocalTaskQueue` — in-process mpsc + semaphore backend (no retry)                                                                                                                                     | ✅      |
 | `src/task/taskqueue_cloudtask.rs`         | `CloudTaskQueue` — Google Cloud Tasks backend                                                                                                                                                         | ✅      |
 | `src/task/taskqueue_pubsub.rs`            | **removed** — Pub/Sub support stripped out; Cloud Tasks is the focus                                                                                                                                  | ✅      |
-| `src/task/taskmaster.rs`                  | `TaskMaster` — owns queues + `task_run_status`; `submit_*` / `begin_attempt` / `finish_attempt` / `query_*`; `update_status` is **private**; records `Queued` on enqueue; shared via `Arc`            | ✅      |
-| `src/task/taskruntracker.rs`              | `TaskRunTracker` — owns all `task_run_status` persistence (create/update keyed by `(envelope_id, run)`); `latest_run`, `query_run_status`, `query_incomplete_for_entity`, `query_incomplete_for_user` | ✅      |
+| `src/task/taskmaster.rs`                  | `TaskMaster` — public lifecycle/API boundary; owns queues and coordinates status persistence + notifications; `submit_*` / `begin_attempt` / `finish_attempt` / status query; shared via `Arc` | ✅      |
+| `src/task/taskruntracker.rs`              | `TaskRunTracker` — private-to-task-module persistence component; creates/updates keyed by `(envelope_id, run)` and reads status rows | ✅      |
 | `src/task/taskrunstatus.rs`               | `TaskRunStatus` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                             | ✅      |
 | `src/task/status_listener.rs`             | `StatusListener` — the `LISTEN`/`NOTIFY` thread (**stub**; see `sse.md`)                                                                                                                              | ⬜      |
 | `src/task/beacon.rs`                      | **removed** — replaced by `TaskMaster`                                                                                                                                                                | ✅      |

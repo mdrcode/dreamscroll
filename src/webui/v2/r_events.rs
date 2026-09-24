@@ -41,6 +41,7 @@ pub async fn get(
         .into_iter()
         .filter_map(task_status_event_from_row)
         .collect::<Vec<_>>();
+    let snapshot = deduplicate_snapshot_entities(snapshot);
 
     let events =
         task_status_stream(snapshot, receiver, user_id, shutdown).map(serialize_task_event);
@@ -96,6 +97,21 @@ fn task_status_stream(
         },
     );
     stream::iter(snapshot).chain(live_events)
+}
+
+fn deduplicate_snapshot_entities(events: Vec<sse::TaskStatusEvent>) -> Vec<sse::TaskStatusEvent> {
+    let mut latest_by_entity: std::collections::HashMap<(String, i32), sse::TaskStatusEvent> =
+        std::collections::HashMap::new();
+    for event in events {
+        let key = (event.entity_type.clone(), event.entity_id);
+        match latest_by_entity.get(&key) {
+            Some(existing) if existing.timestamp >= event.timestamp => {}
+            _ => {
+                latest_by_entity.insert(key, event);
+            }
+        }
+    }
+    latest_by_entity.into_values().collect()
 }
 
 fn task_status_for_user(
@@ -339,6 +355,21 @@ mod tests {
             live.payload.status,
             crate::task::TaskRunStatus::CompleteSuccess
         );
+    }
+
+    #[test]
+    fn catchup_snapshot_keeps_only_latest_event_per_entity() {
+        let mut earlier = task_status_event(7, 42, crate::task::TaskRunStatus::Queued);
+        earlier.timestamp = Utc::now() - chrono::Duration::seconds(1);
+        let later = task_status_event(7, 42, crate::task::TaskRunStatus::CompleteSuccess);
+        let other_entity = task_status_event(7, 43, crate::task::TaskRunStatus::InProgress);
+
+        let deduplicated =
+            deduplicate_snapshot_entities(vec![earlier, later.clone(), other_entity]);
+
+        assert_eq!(deduplicated.len(), 2);
+        assert!(deduplicated.iter().any(|event| event == &later));
+        assert!(deduplicated.iter().any(|event| event.entity_id == 43));
     }
 
     #[tokio::test]

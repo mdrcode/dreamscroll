@@ -132,3 +132,38 @@ thing to check.
   under test.
 - **Don't assert on row counts across the whole table.** Assert on the specific
   rows you created. (Isolation makes this safe, but it keeps tests readable.)
+
+## Deferred coverage gaps — SSE/task ecosystem (2026-09-23)
+
+The current SSE/task tests cover core serialization, DB lifecycle, and stream
+helpers, but these end-to-end seams still need coverage. Prioritize in this
+order; keep each as a focused unit or isolated-schema DB test:
+
+1. **Authenticated partial routes:** test capture-card and detail partial
+  rendering, missing/inaccessible capture behavior, and that ownership is not
+  leaked.
+2. **TaskMaster notification lifecycle:** assert `Queued`, `InProgress`,
+  retry/final outcome, and enqueue-failure notifications include the expected
+  user/entity/task/run/attempt fields through a real Postgres listener.
+3. **SSE catch-up endpoint:** DB-backed coverage for selected captures, owner
+  scope, all latest task types/statuses, and subscribe-before-snapshot handoff;
+  retain the unit tests for the pure stream ordering/filter/shutdown helpers.
+4. **Browser reconnect behavior:** exercise capped exponential backoff, jitter
+  bounds, reset-on-open, and that only one EventSource/timer is active. This
+  will need a browser test harness or lightweight frontend tooling; avoid
+  adding Node solely for this until the behavior is worth the dependency.
+5. **Listener/process lifecycle:** ensure a Postgres listener failure becomes
+  observable to SSE clients instead of leaving streams apparently open, and
+  cover WebUI-enabled startup plus graceful shutdown propagation.
+6. **Task edge cases:** cover missing-run `begin_attempt` semantics, successful
+  submissions for each task type, and ensure enqueue failures both persist the
+  terminal status and allow a later run.
+7. **SSE catch-up fan-out:** the catch-up currently emits one event per latest
+  entity after coalescing multiple logical-task rows to the newest snapshot
+  event. Add/retain a contract test that distinct task types or runs sharing an
+  entity cause only one initial refresh hint, while live task updates remain
+  individually delivered.
+
+These items were identified during the 2026-09-23 holistic review. They are
+deferred coverage work; existing passing tests do not imply these seams are
+fully exercised.

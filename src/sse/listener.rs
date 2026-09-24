@@ -3,7 +3,9 @@ use serde_json::Value;
 use sqlx::postgres::PgListener;
 use tokio::sync::{broadcast, watch};
 
-use super::{AvailabilityEvent, TaskStatusEvent, notifier::SERVER_EVENT_CHANNEL};
+use super::{
+    AvailabilityEvent, CURRENT_SCHEMA_VERSION, TaskStatusEvent, notifier::SERVER_EVENT_CHANNEL,
+};
 
 /// A decoded notification received from the shared server-event channel.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -39,6 +41,11 @@ impl ServerEventListener {
 
     /// Wait for and decode the next best-effort server event.
     pub async fn recv(&mut self) -> anyhow::Result<ReceivedServerEvent> {
+        // SQLx 0.9 PgListener::recv() transparently reconnects after an
+        // intermittent connection loss and restores its LISTEN subscriptions.
+        // This fan-out task only stops if recv returns a terminal error (for
+        // example, payload decoding fails); client SSE retries alone cannot
+        // restart this task once it has exited.
         let notification = self
             .listener
             .recv()
@@ -51,6 +58,10 @@ impl ServerEventListener {
 /// Start the dedicated Postgres listener and expose its decoded notifications
 /// to SSE connections on this instance. Lagged receivers may miss hints; that
 /// is acceptable for this informational stream.
+///
+/// PgListener::recv() handles transient Postgres connection loss itself. If
+/// recv returns an error, this task logs and exits; the SSE client can reconnect
+/// but cannot revive this fan-out task. See `plan/sse.md` §6 for the distinction.
 pub fn spawn_local_fanout(
     mut listener: ServerEventListener,
     mut shutdown: watch::Receiver<bool>,
@@ -85,6 +96,16 @@ pub fn spawn_local_fanout(
 
 fn decode_server_event(payload: &str) -> anyhow::Result<ReceivedServerEvent> {
     let value: Value = serde_json::from_str(payload).context("parse server-event JSON")?;
+    let schema_version = value
+        .get("schema_version")
+        .and_then(Value::as_u64)
+        .context("server event has no unsigned integer schema_version")?;
+    if schema_version != u64::from(CURRENT_SCHEMA_VERSION) {
+        bail!(
+            "unsupported server-event schema_version: {schema_version} (current: {CURRENT_SCHEMA_VERSION})"
+        );
+    }
+
     let event_type = value
         .get("event_type")
         .and_then(Value::as_str)
@@ -136,6 +157,32 @@ mod tests {
     fn rejects_unknown_event_type() {
         let payload = r#"{"event_type":"unknown"}"#;
         assert!(decode_server_event(payload).is_err());
+    }
+
+    #[test]
+    fn rejects_missing_and_unsupported_schema_versions() {
+        let missing = r#"{"event_type":"availability"}"#;
+        let unsupported = r#"{"schema_version":2,"event_type":"availability"}"#;
+        let negative = r#"{"schema_version":-1,"event_type":"availability"}"#;
+
+        assert!(
+            decode_server_event(missing)
+                .unwrap_err()
+                .to_string()
+                .contains("schema_version")
+        );
+        assert!(
+            decode_server_event(unsupported)
+                .unwrap_err()
+                .to_string()
+                .contains("unsupported")
+        );
+        assert!(
+            decode_server_event(negative)
+                .unwrap_err()
+                .to_string()
+                .contains("schema_version")
+        );
     }
 
     #[test]

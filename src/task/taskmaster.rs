@@ -6,6 +6,7 @@ use crate::logic::spark::SparkTask;
 use crate::model;
 use crate::sse::{ServerEvent, ServerEventNotifier, TaskStatusPayload};
 
+use super::taskruntracker::TaskRunTracker;
 use super::*;
 
 /// The primary entry point for manipulating `Task` instances.
