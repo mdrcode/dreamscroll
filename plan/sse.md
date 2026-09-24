@@ -752,21 +752,21 @@ status rendering.
 
 ### File changes
 
-| File                               | Change                                                                                   | Status |
-| ---------------------------------- | ---------------------------------------------------------------------------------------- | ------ |
-| `src/sse/event.rs`                 | Generic `ServerEvent<E>`, task-status and availability payloads, and wire serialization  | ✅      |
-| `src/sse/notifier.rs`              | PostgreSQL `NOTIFY` publisher for typed server events                                    | ✅      |
-| `src/sse/listener.rs`              | Dedicated PostgreSQL `LISTEN` receiver and event decoding                                | ✅      |
-| `src/task/taskruntracker.rs`       | private status persistence component; publishes through injected notifier after successful writes | ✅ |
-| `src/task/maker.rs`                | selects PostgreSQL notifier and injects it through `TaskMasterBuilder`                  | ✅      |
-| `src/bin/dreamscroll_web.rs`       | start WebUI listener and local fan-out                                                   | ✅      |
-| `src/webui/v2/maker.rs`            | add `/events`, pass shared event receiver to `WebState`, fingerprint local static assets | ✅      |
-| `src/webui/v2/r_events.rs`         | emit the initial capture snapshot, then user-filtered live updates                       | ✅      |
-| `src/webui/v2/r_capture_card.rs`   | authenticated capture-card refresh endpoint                                              | ✅      |
-| `src/webui/v2/r_detail_partial.rs` | authenticated capture-detail partial refresh endpoint                                    | ✅      |
-| `web/v2/templates/*.tera`          | `data-sse-mode`, `data-capture-id`, and stable card IDs for client event routing         | ✅      |
-| `web/v2/static/webui-v2.js`        | maintain one stable EventSource; send initial IDs and route all live events by entity ID | ✅      |
-| `Cargo.toml`                       | direct `futures-util` dependency for `stream::unfold` in the Axum SSE handler            | ✅      |
+| File                               | Change                                                                                            | Status |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------- | ------ |
+| `src/sse/event.rs`                 | Generic `ServerEvent<E>`, task-status and availability payloads, and wire serialization           | ✅      |
+| `src/sse/notifier.rs`              | PostgreSQL `NOTIFY` publisher for typed server events                                             | ✅      |
+| `src/sse/listener.rs`              | Dedicated PostgreSQL `LISTEN` receiver and event decoding                                         | ✅      |
+| `src/task/taskruntracker.rs`       | private status persistence component; publishes through injected notifier after successful writes | ✅      |
+| `src/task/maker.rs`                | selects PostgreSQL notifier and injects it through `TaskMasterBuilder`                            | ✅      |
+| `src/bin/dreamscroll_web.rs`       | start WebUI listener and local fan-out                                                            | ✅      |
+| `src/webui/v2/maker.rs`            | add `/events`, pass shared event receiver to `WebState`, fingerprint local static assets          | ✅      |
+| `src/webui/v2/r_events.rs`         | emit the initial capture snapshot, then user-filtered live updates                                | ✅      |
+| `src/webui/v2/r_capture_card.rs`   | authenticated capture-card refresh endpoint                                                       | ✅      |
+| `src/webui/v2/r_detail_partial.rs` | authenticated capture-detail partial refresh endpoint                                             | ✅      |
+| `web/v2/templates/*.tera`          | `data-sse-mode`, `data-capture-id`, and stable card IDs for client event routing                  | ✅      |
+| `web/v2/static/webui-v2.js`        | maintain one stable EventSource; send initial IDs and route all live events by entity ID          | ✅      |
+| `Cargo.toml`                       | direct `futures-util` dependency for `stream::unfold` in the Axum SSE handler                     | ✅      |
 
 **Dependency note:** `futures-util` was already present transitively in
 `Cargo.lock`; listing it directly in `Cargo.toml` makes the application's use
