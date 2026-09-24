@@ -1,18 +1,18 @@
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
-use crate::{database, model};
+use crate::{database, model, sse};
 
 use super::*;
 
 /// Contains all direct reads/writes to `task_run_status` in the db.
 ///
-/// `TaskMaster` owns an instance of this for its status management.
-///
-/// In the future, we'll support subscribing/listening to real time task status
-/// updates (see `plan/sse.md`).
+/// `TaskMaster` owns this private persistence component. It publishes a
+/// best-effort status hint after each successful row insert/update; TaskMaster
+/// retains lifecycle policy and queue coordination.
 #[derive(Clone)]
 pub struct TaskRunTracker {
     db: database::DbHandle,
+    notifier: Option<std::sync::Arc<dyn sse::ServerEventNotifier>>,
 }
 
 /// True when a `DbErr` is a unique-constraint violation. The
@@ -26,8 +26,11 @@ fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
 }
 
 impl TaskRunTracker {
-    pub fn new(db: database::DbHandle) -> Self {
-        Self { db }
+    pub fn new(
+        db: database::DbHandle,
+        notifier: Option<std::sync::Arc<dyn sse::ServerEventNotifier>>,
+    ) -> Self {
+        Self { db, notifier }
     }
 
     /// Insert the row for the first run of a TaskEnvelope.
@@ -58,7 +61,10 @@ impl TaskRunTracker {
             .await;
 
         match result {
-            Ok(_) => Ok(true),
+            Ok(_) => {
+                self.notify_status(envelope, status, attempts).await;
+                Ok(true)
+            }
             Err(err) if is_unique_violation(&err) => Ok(false),
             Err(err) => Err(err.into()),
         }
@@ -73,7 +79,7 @@ impl TaskRunTracker {
     ) -> anyhow::Result<()> {
         let db = &self.db;
 
-        model::task_run_status::Entity::update_many()
+        let result = model::task_run_status::Entity::update_many()
             .col_expr(
                 model::task_run_status::Column::StatusCode,
                 sea_orm::sea_query::Expr::value(status.as_i32()),
@@ -91,7 +97,31 @@ impl TaskRunTracker {
             .exec(&db.conn)
             .await?;
 
+        if result.rows_affected > 0 {
+            self.notify_status(envelope, status, attempts).await;
+        }
+
         Ok(())
+    }
+
+    async fn notify_status<T: Task>(
+        &self,
+        envelope: &TaskEnvelope<T>,
+        status: TaskRunStatus,
+        attempts: i32,
+    ) {
+        let Some(notifier) = &self.notifier else {
+            return;
+        };
+
+        let event = sse::TaskStatusEvent::from_envelope(envelope, status, attempts);
+        if let Err(error) = notifier.notify_task_status(&event).await {
+            tracing::debug!(
+                envelope = ?envelope,
+                error = ?error,
+                "Failed to publish task-status notification"
+            );
+        }
     }
 
     /// The most recent run of a logical task, or `None` if it has never run.
@@ -171,7 +201,29 @@ fn latest_runs_per_task(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+
     use super::*;
+
+    #[derive(Clone, Default)]
+    struct RecordingNotifier(Arc<Mutex<Vec<sse::TaskStatusEvent>>>);
+
+    #[async_trait::async_trait]
+    impl sse::ServerEventNotifier for RecordingNotifier {
+        async fn notify_task_status(&self, event: &sse::TaskStatusEvent) -> anyhow::Result<()> {
+            self.0.lock().unwrap().push(event.clone());
+            Ok(())
+        }
+    }
+
+    struct FailingNotifier;
+
+    #[async_trait::async_trait]
+    impl sse::ServerEventNotifier for FailingNotifier {
+        async fn notify_task_status(&self, _event: &sse::TaskStatusEvent) -> anyhow::Result<()> {
+            anyhow::bail!("simulated notification failure")
+        }
+    }
 
     /// A minimal task, so tracker tests don't depend on a real task type.
     #[derive(Debug, Clone, serde::Serialize)]
@@ -295,7 +347,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
         let env = envelope(1, 42, 1);
 
         assert!(
@@ -320,6 +372,70 @@ mod tests {
         assert_eq!(stored.attempts, 0);
     }
 
+    #[tokio::test]
+    async fn successful_status_writes_publish_events_but_conflicts_and_missing_updates_do_not() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let notifier = RecordingNotifier::default();
+        let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
+        let task_envelope = envelope(1, 42, 1);
+
+        assert!(
+            tracker
+                .create_run(&task_envelope, TaskRunStatus::Queued, 0)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !tracker
+                .create_run(&task_envelope, TaskRunStatus::Queued, 0)
+                .await
+                .unwrap()
+        );
+        tracker
+            .update_run(&task_envelope, TaskRunStatus::InProgress, 1)
+            .await
+            .unwrap();
+        tracker
+            .update_run(&envelope(1, 99, 1), TaskRunStatus::CompleteSuccess, 1)
+            .await
+            .unwrap();
+
+        let events = notifier.0.lock().unwrap();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[0].payload.status, TaskRunStatus::Queued);
+        assert_eq!(events[1].payload.status, TaskRunStatus::InProgress);
+        assert_eq!(events[1].entity_id, 42);
+    }
+
+    #[tokio::test]
+    async fn notification_failure_does_not_fail_a_status_write() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(FailingNotifier)));
+        let task_envelope = envelope(1, 42, 1);
+
+        assert!(
+            tracker
+                .create_run(&task_envelope, TaskRunStatus::Queued, 0)
+                .await
+                .expect("best-effort notification failure must not fail persistence")
+        );
+        tracker
+            .update_run(&task_envelope, TaskRunStatus::InProgress, 1)
+            .await
+            .expect("best-effort notification failure must not fail persistence");
+
+        let stored = tracker
+            .query_run_status(&task_envelope.envelope_id, task_envelope.run)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.status_code, TaskRunStatus::InProgress.as_i32());
+    }
+
     /// The unique index is what actually prevents a duplicate submission, so the
     /// tracker must report the conflict rather than propagate it as an error.
     #[tokio::test]
@@ -327,7 +443,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
         let env = envelope(1, 42, 1);
 
         let first = tracker
@@ -348,7 +464,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
         let first = envelope(1, 42, 1);
         let second = envelope(1, 42, 1);
 
@@ -370,7 +486,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
 
         assert!(
             tracker
@@ -399,7 +515,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
         let env = envelope(1, 42, 1);
         let result = tracker.create_run(&env, TaskRunStatus::Queued, 0).await;
 
@@ -411,7 +527,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
         let run1 = envelope(1, 42, 1);
         let run2 = envelope(1, 42, 2);
 
@@ -461,7 +577,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
 
         tracker
             .create_run(&envelope(1, 42, 1), TaskRunStatus::Queued, 0)
@@ -486,7 +602,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
 
         tracker
             .create_run(&envelope(1, 42, 1), TaskRunStatus::CompleteFailure, 2)
@@ -530,7 +646,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
 
         let rows = tracker
             .query_latest_status_for_entities(1, "capture", &[])
@@ -545,7 +661,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
 
         tracker
             .create_run(&envelope(1, 42, 1), TaskRunStatus::CompleteSuccess, 1)
@@ -603,7 +719,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
         let first = envelope(1, 42, 1);
         let second = envelope(1, 42, 2);
 
@@ -639,7 +755,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle());
+        let tracker = TaskRunTracker::new(db.handle(), None);
 
         tracker
             .update_run(&envelope(1, 42, 1), TaskRunStatus::InProgress, 1)

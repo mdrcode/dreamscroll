@@ -8,6 +8,7 @@ use crate::database::DbHandle;
 use crate::logic::illuminate::IlluminationTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
+use crate::sse::{PostgresServerEventNotifier, ServerEventNotifier};
 use crate::webhook::localclient::LocalWebhookClient;
 
 use super::*;
@@ -28,6 +29,10 @@ pub async fn make_task_master(
     cfg: &config::Config,
     db: DbHandle,
 ) -> anyhow::Result<Arc<TaskMaster>> {
+    let notifier: Arc<dyn ServerEventNotifier> = Arc::new(PostgresServerEventNotifier::new(
+        db.conn.get_postgres_connection_pool().clone(),
+    ));
+
     match cfg.task_backend {
         config::TaskQueueBackend::Local => {
             let illuminate_queue = {
@@ -67,6 +72,7 @@ pub async fn make_task_master(
             Ok(Arc::new(
                 TaskMaster::builder()
                     .db(db)
+                    .notifier(notifier)
                     .max_attempts(cfg.task_max_attempts)
                     .illuminate_queue(illuminate_queue)
                     .search_index_queue(search_index_queue)
@@ -119,6 +125,7 @@ pub async fn make_task_master(
             Ok(Arc::new(
                 TaskMaster::builder()
                     .db(db)
+                    .notifier(notifier)
                     .max_attempts(cfg.task_max_attempts)
                     .illuminate_queue(illuminate_queue)
                     .search_index_queue(search_index_queue)

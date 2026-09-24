@@ -294,28 +294,31 @@ fallback is currently implemented.
 
 ### 4.2 Where task status gets written (and notified)
 
-Task status is written at the natural choke points. Each status write publishes
-a `TaskStatusEvent` after the row update; the notification is a **best-effort UI
-hint**:
+Task status is written at the natural lifecycle choke points. `TaskMaster`
+chooses statuses and coordinates queue ordering; its private `TaskRunTracker`
+owns row persistence and publishes a **best-effort UI hint** after each
+successful status write:
 
-1. **In `TaskMaster::submit_*`** — every task enqueue funnels through here. It
-   records a `Queued` row on enqueue. This gives "queued" status for free,
-   everywhere, including admin backfill.
+1. **During `TaskMaster::submit_*`** — each submission creates the `Queued` row
+  and its event before enqueueing. A definite enqueue failure updates it to
+  `SubmissionFailed` and publishes that result. A duplicate insert emits no
+  event.
 2. **In the webhook handlers** (`webhook/r_illuminate.rs`, `r_spark.rs`,
    `r_search_index.rs`) — each handler deserializes a `TaskEnvelope<T>`, then
-   calls `begin_attempt` (writes `InProgress` + the incremented attempt number)
-  and `finish_attempt` (writes `CompleteSuccess`/`ErrorWillRetry`/`CompleteFailure` and
-   returns the `AttemptOutcome` that decides the HTTP status) around the
-   `logic/*::exec` call.
+  calls `begin_attempt` (which writes `InProgress` with the incremented attempt
+  number) and `finish_attempt` (which writes `CompleteSuccess`, `ErrorWillRetry`,
+  or `CompleteFailure` and returns the status used to decide the HTTP response)
+  around the `logic/*::exec` call. Tracker events follow successful row updates.
 
 > **Note:** status is written in the **webhook handler**, not inside
 > `logic/*::exec`. The `logic` functions stay pure (they take the bare task and
 > don't know about task identity/status). The handler owns the envelope and
 > reports status around the `exec` call.
 
-> **Note:** `TaskMaster::update_status` is **private**. The raw setter is
-> deliberately not exposed, so callers cannot write a status that disagrees with
-> the attempt count or the retry decision.
+> **Note:** `TaskRunTracker` is private to the `task` module and owned by
+> `TaskMaster`. It performs persistence and best-effort notification together;
+> TaskMaster remains responsible for lifecycle policy, attempts, retry decisions,
+> and ordering with queue operations.
 
 The implementation is split by responsibility:
 
@@ -323,18 +326,21 @@ The implementation is split by responsibility:
   and typed task-status/availability payloads.
 - `src/sse/notifier.rs` shares SeaORM's SQLx 0.9 pool, serializes a
   `ServerEvent<E>`, and sends it to `server_event_channel` using SQLx `pg_notify`.
-- `TaskMaster` is the public task lifecycle boundary and coordinates tracker
-  writes with best-effort event publication. `TaskRunTracker` is private to the
-  `task` module, so production callers cannot bypass this lifecycle boundary.
+- `TaskMaster` is the public task lifecycle boundary and coordinates lifecycle
+  policy with queue operations. Its private `TaskRunTracker` dependency owns
+  status persistence and invokes an injected `ServerEventNotifier` after
+  successful writes. `task::make_task_master` selects the PostgreSQL notifier
+  and injects it through `TaskMasterBuilder`; notification errors remain best
+  effort and do not fail persistence.
 - `src/sse/listener.rs` holds a dedicated SQLx `PgListener` connection, decodes
   notifications, and fans them out to per-instance SSE receivers.
 - `src/webui/v2/r_events.rs` authenticates the connection, emits a one-time
   latest-status snapshot for the requested capture IDs, then forwards every
   live task-status event for that user.
 
-The status row write and notification are separate operations. Notification
-failure is logged and does not fail task processing; this is intentional for
-best-effort UI feedback.
+The status row write and notification are separate operations within the
+tracker. Notification failure is logged and does not fail task processing;
+this is intentional for best-effort UI feedback.
 
 ### 4.2.1 Notification payload: current-row snapshot
 
@@ -679,9 +685,10 @@ or every user interaction.
 Because the worker can be a different instance than the browser's connection,
 `LISTEN/NOTIFY` provides a cross-instance best-effort push hint:
 
-1. **Worker (any instance)** writes the task-status row via
-  `TaskMaster::submit_*`, `begin_attempt`, or `finish_attempt`, then publishes a
-  typed `TaskStatusEvent` via `ServerEventNotifier` to `server_event_channel`.
+1. **Worker (any instance)** enters the lifecycle through `TaskMaster`; its
+  private `TaskRunTracker` writes the task-status row and then publishes a typed
+  `TaskStatusEvent` via the injected `ServerEventNotifier` to
+  `server_event_channel`.
 2. **Every WebUI-enabled instance** runs one dedicated `LISTEN` connection
   (owned by `ServerEventListener`). On a notification, it fans the event out to
   local SSE handlers; each handler filters by owner only. Capture IDs are used
@@ -730,7 +737,7 @@ so the connection ends gracefully rather than being killed by Cloud Run.
 ## 8. Implementation status
 
 **Implemented:** the typed, versioned event model; status notifications from
-TaskMaster; one per-instance listener/fan-out; authenticated stable SSE route
+TaskRunTracker after successful persistence; one per-instance listener/fan-out; authenticated stable SSE route
 with a one-time, user-scoped capture snapshot followed by user-wide live events;
 and client routing to targeted capture partial refreshes. Also pending:
 adaptive idle lifetime, entity-availability producers/consumers, and full-page
@@ -750,6 +757,8 @@ status rendering.
 | `src/sse/event.rs`                 | Generic `ServerEvent<E>`, task-status and availability payloads, and wire serialization  | ✅      |
 | `src/sse/notifier.rs`              | PostgreSQL `NOTIFY` publisher for typed server events                                    | ✅      |
 | `src/sse/listener.rs`              | Dedicated PostgreSQL `LISTEN` receiver and event decoding                                | ✅      |
+| `src/task/taskruntracker.rs`       | private status persistence component; publishes through injected notifier after successful writes | ✅ |
+| `src/task/maker.rs`                | selects PostgreSQL notifier and injects it through `TaskMasterBuilder`                  | ✅      |
 | `src/bin/dreamscroll_web.rs`       | start WebUI listener and local fan-out                                                   | ✅      |
 | `src/webui/v2/maker.rs`            | add `/events`, pass shared event receiver to `WebState`, fingerprint local static assets | ✅      |
 | `src/webui/v2/r_events.rs`         | emit the initial capture snapshot, then user-filtered live updates                       | ✅      |
@@ -775,12 +784,12 @@ be resolved as implementation work begins:
 
 1. **Task type spelling:** the implementation returns `illuminate`, not
   `illumination`; all query examples and filters now use `illuminate`.
-2. **Standalone event modules exist:** `src/sse/event.rs`, `notifier.rs`, and
-  `listener.rs` define the event envelope and Postgres primitives. They remain
-  disconnected from task persistence and the UI.
-3. **Resolved:** TaskMaster now publishes a `TaskStatusEvent` after status row
-  writes for queueing, submission failure, attempt start, and attempt outcome.
-  Notification failure is logged but does not affect task processing.
+2. **Resolved:** `src/sse/event.rs`, `notifier.rs`, and `listener.rs` are wired
+  to task persistence and the UI.
+3. **Resolved:** private `TaskRunTracker` publishes a `TaskStatusEvent` after
+  successful row inserts/updates for queueing, submission failure, attempt
+  start, and attempt outcome. Notification failure is logged but does not affect
+  task processing; TaskMaster retains lifecycle policy and ordering.
 4. **The status table is not an event log:** updates mutate one row identified
   by `(envelope_id, run)`. A notification payload must therefore identify the
   changed logical run (or be treated only as a wake-up hint); it cannot by

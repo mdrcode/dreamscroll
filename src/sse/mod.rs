@@ -9,4 +9,4 @@ pub mod notifier;
 
 pub use event::*;
 pub use listener::{ReceivedServerEvent, ServerEventListener, spawn_local_fanout};
-pub use notifier::ServerEventNotifier;
+pub use notifier::{PostgresServerEventNotifier, ServerEventNotifier};

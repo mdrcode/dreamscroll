@@ -1,10 +1,12 @@
+use std::sync::Arc;
+
 use crate::api;
 use crate::database::DbHandle;
 use crate::logic::illuminate::IlluminationTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
 use crate::model;
-use crate::sse::{ServerEvent, ServerEventNotifier, TaskStatusPayload};
+use crate::sse::ServerEventNotifier;
 
 use super::taskruntracker::TaskRunTracker;
 use super::*;
@@ -25,7 +27,6 @@ use super::*;
 /// Not `Clone`; share via `Arc`.
 pub struct TaskMaster {
     run_tracker: TaskRunTracker,
-    notifier: ServerEventNotifier,
     max_attempts_per_run: i32, // mirrors `Config::task_max_attempts`
     illuminate_queue: Box<dyn TaskQueue<IlluminationTask>>,
     search_index_queue: Box<dyn TaskQueue<SearchIndexTask>>,
@@ -168,12 +169,8 @@ impl TaskMaster {
             return Ok(SubmitOutcome::RefusedAlreadyInFlight);
         }
 
-        // Notify status before a backend enqueue: otherwise, a fast worker
-        // could otherwise publish `InProgress` first, followed by this stale
-        //`Queued` hint.
-        self.notify_status(&envelope, TaskRunStatus::Queued, 0)
-            .await;
-
+        // Tracker publishes Queued before enqueue, so a fast worker cannot
+        // publish InProgress first and then be followed by this stale hint.
         // Actually enqueue in the backend (theoretically execution could
         // start immediately)
         if let Err(enqueue_err) = queue.enqueue(envelope.clone()).await {
@@ -187,9 +184,6 @@ impl TaskMaster {
             self.run_tracker
                 .update_run(&envelope, TaskRunStatus::SubmissionFailed, 0)
                 .await?;
-
-            self.notify_status(&envelope, TaskRunStatus::SubmissionFailed, 0)
-                .await;
 
             return Err(enqueue_err);
         }
@@ -225,8 +219,6 @@ impl TaskMaster {
         self.run_tracker
             .update_run(envelope, TaskRunStatus::InProgress, attempt)
             .await?;
-        self.notify_status(envelope, TaskRunStatus::InProgress, attempt)
-            .await;
 
         Ok(Some(attempt))
     }
@@ -244,8 +236,6 @@ impl TaskMaster {
                 self.run_tracker
                     .update_run(envelope, TaskRunStatus::CompleteSuccess, attempt)
                     .await?;
-                self.notify_status(envelope, TaskRunStatus::CompleteSuccess, attempt)
-                    .await;
                 Ok(TaskRunStatus::CompleteSuccess)
             }
             Err(err) => {
@@ -258,7 +248,6 @@ impl TaskMaster {
                 self.run_tracker
                     .update_run(envelope, status_code, attempt)
                     .await?;
-                self.notify_status(envelope, status_code, attempt).await;
 
                 tracing::warn!(
                     envelope_id = %envelope.envelope_id,
@@ -272,22 +261,6 @@ impl TaskMaster {
 
                 Ok(status_code)
             }
-        }
-    }
-
-    async fn notify_status<T: Task>(
-        &self,
-        envelope: &TaskEnvelope<T>,
-        status: TaskRunStatus,
-        attempts: i32,
-    ) {
-        let event = ServerEvent::<TaskStatusPayload>::from_envelope(envelope, status, attempts);
-        if let Err(error) = self.notifier.notify(&event).await {
-            tracing::debug!(
-                envelope = ?envelope,
-                error = ?error,
-                "Failed to publish task-status notification"
-            );
         }
     }
 
@@ -306,7 +279,7 @@ impl TaskMaster {
 #[derive(Default)]
 pub struct TaskMasterBuilder {
     db: Option<DbHandle>,
-    notifier: Option<ServerEventNotifier>,
+    notifier: Option<Arc<dyn ServerEventNotifier>>,
     max_attempts: Option<i32>,
     illuminate_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
@@ -318,10 +291,11 @@ impl TaskMasterBuilder {
         self.db = Some(db);
         self
     }
-    pub fn notifier(mut self, notifier: ServerEventNotifier) -> Self {
+    pub fn notifier(mut self, notifier: Arc<dyn ServerEventNotifier>) -> Self {
         self.notifier = Some(notifier);
         self
     }
+
     /// Maximum number of attempts per task. See `Config::task_max_attempts`.
     pub fn max_attempts(mut self, max_attempts: i32) -> Self {
         self.max_attempts = Some(max_attempts);
@@ -353,9 +327,6 @@ impl TaskMasterBuilder {
         let Some(db) = self.db else {
             anyhow::bail!("TaskMaster requires a database handle");
         };
-        let notifier = self.notifier.unwrap_or_else(|| {
-            ServerEventNotifier::new(db.conn.get_postgres_connection_pool().clone())
-        });
         #[cfg(not(test))]
         let (Some(illuminate_queue), Some(search_index_queue), Some(spark_queue)) = (
             self.illuminate_queue,
@@ -379,8 +350,7 @@ impl TaskMasterBuilder {
             .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
 
         Ok(TaskMaster {
-            run_tracker: TaskRunTracker::new(db),
-            notifier,
+            run_tracker: TaskRunTracker::new(db, self.notifier),
             // Mirrors `Config::task_max_attempts` so a builder that forgets
             // `.max_attempts(..)` behaves like production rather than disabling retries.
             max_attempts_per_run: self.max_attempts.unwrap_or(3).max(1),

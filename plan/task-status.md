@@ -70,20 +70,25 @@ Upload (webui/v2/r_upload.rs)
   removed** to focus on Cloud Tasks.
 - **`TaskMaster`** (`task/taskmaster.rs`) is the single public funnel through
   which *all* task enqueues and worker lifecycle updates flow. It owns the
-  backend queues and coordinates `task_run_status` persistence with queue
-  behavior and best-effort SSE notification. It exposes `submit_*` /
-  `begin_attempt` / `finish_attempt` / status queries. It is **not `Clone`** —
-  shared via `Arc<TaskMaster>`.
+  backend queues and coordinates lifecycle policy and queue behavior. It exposes
+  `submit_*` / `begin_attempt` / `finish_attempt` / status queries. It is **not
+  `Clone`** — shared via `Arc<TaskMaster>`.
 - **Status transitions are not a raw setter.** `TaskMaster::update_status` is
   **private**; workers must go through `begin_attempt` (reads the persisted
   attempt count, increments, writes `InProgress`, returns the 1-based attempt
-  number) and `finish_attempt` (writes the outcome and returns an
-  `AttemptOutcome` that drives the HTTP response). This keeps `attempts` and the
+  number) and `finish_attempt` (writes the outcome and returns a status that
+  drives the HTTP response). This keeps `attempts` and the
   retry decision consistent with the recorded status.
 - **`TaskRunTracker`** (`task/taskruntracker.rs`) is a private persistence
   component owned by `TaskMaster`; Rust visibility prevents production callers
   outside the `task` module from bypassing TaskMaster's lifecycle API. It owns
-  direct `task_run_status` queries and writes. `TaskRunStatus`
+  direct `task_run_status` queries/writes and emits an optional best-effort
+  status event after successful inserts and updates. Its notifier is injected
+  through the `ServerEventNotifier` trait; notification failures are logged and
+  do not fail persistence. The task composition factory selects the PostgreSQL
+  implementation and injects it through `TaskMasterBuilder`; tests may inject a
+  recorder or omit notifications.
+  `TaskRunStatus`
   (`task/taskrunstatus.rs`) is the strongly-typed status enum; the DB stores
   only its integer discriminant (`status_code INT`).
 - **Deployment is a single Cloud Run service.** Tasks are queued via Cloud Tasks,

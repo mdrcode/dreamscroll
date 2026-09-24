@@ -212,7 +212,7 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let events = spawn_local_fanout(listener, shutdown_rx);
         let mut receiver = events.subscribe();
-        let notifier = super::super::ServerEventNotifier::new(
+        let notifier = super::super::PostgresServerEventNotifier::new(
             db.handle().conn.get_postgres_connection_pool().clone(),
         );
 
