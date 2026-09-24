@@ -230,6 +230,13 @@ when multiple task types have status rows for that entity. This is only
 snapshot coalescing; subsequent live task-status updates are still forwarded
 individually.
 
+The browser only fetches a partial for `ErrorWillRetry`, `CompleteSuccess`, or
+`CompleteFailure`. It ignores `Queued`, `InProgress`, and `SubmissionFailed`,
+which do not by themselves indicate newly available capture content. The same
+filter applies to catch-up and live hints. `ErrorWillRetry` and
+`CompleteFailure` remain refresh-worthy because a task may have written useful
+content before a later pipeline step failed.
+
 ### 3.3 Backfill / bulk tasks — deferred
 **Why it isn't needed for this phase:** the SSE route filters by user and
 the client only refreshes entities present in the DOM. Off-screen/backfill
@@ -418,8 +425,13 @@ client closes a failed native `EventSource` and creates a replacement using
 capped exponential backoff with jitter (starting near one second and capping
 near one minute). A successful `open` resets the backoff. This avoids native
 EventSource's short fixed retry loop generating repeated `/events` requests
-while the local server is stopped. The initial snapshot is current state, not a
-transition log; updates remain informational hints.
+while the local server is stopped. Independently, the client closes the stream
+after five minutes without user interaction and while the tab is hidden; user
+activity or tab visibility reconnects it, and the initial snapshot catches up
+current rendered captures. The server caps each response at four minutes so
+streams periodically end even if a tab remains continuously active. The initial
+snapshot is current state, not a transition log; updates remain informational
+hints.
 
 Feed swaps update the DOM and the JS router's possible refresh targets; they do
 not change or reopen the EventSource subscription. The catch-up ID set is fixed
@@ -663,20 +675,21 @@ concurrent tasks update 5 distinct cards independently, in any completion order.
 > the payload's `entity_type` tells the client which routing key is appropriate —
 > the mechanism is identical.
 
-### 5.5 Deferred: adaptive connection lifetime
+### 5.5 Idle close and bounded server lifetime
 
-The earlier proposal identified this possible concern: our topology is narrow (see `topology_and_throughput.md`). Each
-open SSE connection occupies a Cloud Run HTTP concurrency slot for its entire
-duration, and on `db-f1-micro` the DB connection total is also tight. Holding
-connections open indefinitely when idle is wasteful and risks exhausting the
-budget as users accumulate.
+Each open SSE response occupies a Cloud Run request/concurrency slot, so the
+client does not keep the stream open indefinitely. It closes the connection
+when the tab is hidden or after five minutes without user interaction; pointer,
+keyboard, touch, or wheel activity reconnects a closed stream, and showing the
+tab also reconnects it. Reconnection uses the same URL and receives the
+connect-time snapshot for the page's original capture IDs.
 
-Adaptive lifetime is deferred. The current product/design preference is one
-stable native `EventSource` per page, closed by navigation, browser/network
-failure, or process shutdown. Native EventSource handles transport reconnects.
-If Cloud Run concurrency measurements later show idle streams are costly, add a
-simple bounded lifetime then; do not reopen the stream on ordinary feed swaps
-or every user interaction.
+The server independently closes each response after four minutes, below the
+client idle window and any Cloud Run request timeout configured for SSE. A
+normal server-side lifetime expiry uses native EventSource reconnect with a
+fresh snapshot; transport errors are explicitly closed and retried with
+exponential backoff. Reopening also occurs on user activity or when the tab
+becomes visible. Do not recreate the stream on HTMX swaps or feed changes.
 
 ---
 
@@ -703,12 +716,11 @@ Because the worker can be a different instance than the browser's connection,
 The local channel is only a delivery optimization for notifications received
 from Postgres; neither channel provides retained history.
 
-For Cloud Run specifically: SSE works fine through the Cloud Run ingress as long
-as the service **doesn't set a short request timeout** (SSE is a long-lived
-request). A streaming response that keeps sending keep-alives is fine. Set the
-service timeout appropriately (e.g. 15 min) and rely on `KeepAlive::default()`.
-**The adaptive 5-min idle close (§5.5) must happen before the service timeout**,
-so the connection ends gracefully rather than being killed by Cloud Run.
+For Cloud Run specifically: SSE works through the ingress with periodic
+keep-alives. Each server response is intentionally capped at four minutes; keep
+that below the configured service request timeout so the application, rather
+than Cloud Run, normally ends the response. The browser independently closes
+idle/hidden streams as described in §5.5.
 
 ---
 
@@ -748,7 +760,7 @@ status rendering.
 | 1   | Integrate `ServerEventNotifier` with task-status writes                             | ✅      |
 | 2   | Authenticated `/events` route — initial capture snapshot then user-wide live stream | ✅      |
 | 3   | Client routing by entity ID and targeted capture partial refresh                    | ✅      |
-| 4   | Adaptive lifetime (5-min idle close + reconnect-on-interaction)                     | ⬜      |
+| 4   | Client idle/hidden close + bounded server stream lifetime                           | ✅      |
 
 ### File changes
 

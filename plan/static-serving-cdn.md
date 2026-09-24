@@ -1,10 +1,18 @@
 # Static asset serving and CDN plan
 
-**Status:** research and recommendation (2026-09-24)
+**Status:** cost-sensitive research and recommendation (2026-09-24)
 
 ## Executive recommendation
 
-Use the existing Cloud Run service as the **origin**, put it behind one Google global external Application Load Balancer with a **serverless NEG**, and enable **Cloud CDN on the backend service**. Keep the current application URLs and local development flow unchanged.
+Do **not** add a Google Application Load Balancer solely to cache this app's small static bundle. The LB has a standing forwarding-rule charge plus per-byte processing charges, and Cloud CDN adds its own request and bandwidth charges. For a small or early-stage app, that fixed network cost can easily exceed the Cloud Run compute saved by caching CSS and JavaScript.
+
+The cost-conscious recommendation is:
+
+1. **Now:** keep serving assets from Cloud Run, but add explicit browser-friendly cache headers and retain the existing revision-based asset versioning. This gets most of the benefit for zero new infrastructure and makes repeat visits avoid the origin in the user's browser.
+2. **If a real edge cache is worth paying for:** put the existing service behind **Firebase Hosting**, use Hosting's CDN and Cloud Run rewrite, and preserve the same hostname if practical. Firebase Hosting is the lower-cost Google-managed alternative to a Google Application Load Balancer, but it adds a Firebase Hosting deployment/configuration layer and must be tested against this app's cookies, SSE, uploads, and webhooks.
+3. **Only at meaningful traffic:** use the global external Application Load Balancer plus Cloud CDN. It is the cleanest native Google Cloud architecture and supports path routing/security controls, but it is not the cheap option.
+
+Keep the current application URLs and local development flow unchanged where possible. Do not adopt the original LB-first recommendation without first comparing the measured static egress and request volume with the LB/CDN estimate.
 
 Do **not** introduce a second static-site deployment, a bucket-sync job, a frontend build pipeline, Terraform, or a new third-party CDN for this optimization. Those would add deployment and invalidation machinery that the app does not currently need.
 
@@ -14,7 +22,24 @@ The only application change should be to make the static responses explicitly ca
 - local development: continue serving `web/v2/static` directly from Axum at `localhost:8080`;
 - HTML, API, login, SSE, webhook, and uploads: remain dynamic and are not cached.
 
-This is the smallest change that uses Google’s native edge cache while preserving the current repository and deployment shape.
+The first option is the smallest change and preserves the current repository and deployment shape. It does not provide a global shared CDN cache, but immutable browser caching is likely sufficient for this app's current scale.
+
+## Cost comparison
+
+Prices change, so use the linked pricing pages and the Google Cloud pricing calculator for the final estimate. The figures below are the important cost shape as of 2026-09-24, not a billing quote.
+
+| Option | New standing cost | Usage costs | Deployment hassle | Recommendation |
+| --- | --- | --- | --- | --- |
+| Cloud Run + browser caching | None beyond current Cloud Run/network usage | Cloud Run handles first requests; browser handles repeat requests | None | **Default now** |
+| Firebase Hosting + Cloud Run rewrite | Hosting usage/storage/network pricing; verify current plan and quotas | Hosting CDN delivery and any Cloud Run requests that miss/are dynamic | Moderate: add `firebase.json` and a Hosting deploy step | Best low-cost managed edge option to investigate |
+| Cloud Storage public objects | Low storage/operation cost; internet egress still applies | Storage reads and egress; no CDN unless another CDN is added | Moderate: copy assets and manage URLs/versioning | Cheap asset origin, not automatically an edge CDN |
+| Cloud Storage + LB + Cloud CDN | LB forwarding rule and data processing, plus Storage/CDN | CDN lookups, cache fill, cache egress, Storage | High | Only when traffic justifies it |
+| External CDN proxy (for example Cloudflare Free) | Potentially no CDN subscription charge | Origin egress and provider-specific limits/policies | Moderate: DNS/proxy, cookie/SSE testing, vendor dependency | Viable cheapest shared CDN if non-Google service is acceptable |
+| Cloud Run + global LB + Cloud CDN | One global forwarding rule is currently listed at $0.025/hour, about $18.25/month, before data processing | LB processing plus CDN request/cache-fill/egress charges | High | **Do not use for this small bundle solely for caching** |
+
+The LB pricing page states that the first five forwarding rules cost $0.025/hour and regional external Application Load Balancers can be cheaper in some single-region cases. However, even the roughly $18/month global forwarding-rule baseline is material for a low-traffic prototype, before the $0.008/GiB regional processing example, internet egress, and Cloud CDN charges. Cloud CDN itself lists cache lookup, cache fill, and cache data-transfer-out charges; it is not a free cache layer.
+
+Cloud Run's current pricing documentation says traffic passed from an external Application Load Balancer does not incur Cloud Run data-transfer charges, but that does not make the LB free. The correct comparison is total bill, not one line item.
 
 ## Why this is the best fit here
 
@@ -127,11 +152,30 @@ Because `K_REVISION` is used in asset URLs, a new revision naturally creates new
 
 ## Alternatives considered
 
+### Firebase Hosting + Cloud Run rewrite (new cost-sensitive candidate)
+
+Firebase Hosting provides a managed global CDN and can rewrite requests to Cloud Run. Firebase documents that static content is automatically cached and that dynamic Cloud Run content is not cached by default; explicit `Cache-Control` headers can control cache behavior. This avoids adding a Google Cloud Load Balancer, but it adds Firebase Hosting configuration and a separate Hosting deployment/release step.
+
+This is the most promising managed option if browser caching is insufficient and the app can tolerate the integration boundary. Do not blindly route the whole application through it: test the session cookie, login/logout, SSE, uploads, Cloud Tasks, webhook OIDC, request timeout, and large request-body behavior. Firebase Hosting documents a 60-second request timeout for rewrites, which may conflict with long-lived `/events` SSE requests or slow uploads. A path split could be safer, but it may require a new asset hostname or a separate frontend origin.
+
+Potential shape:
+
+```text
+app.example.com/static/*  -> Firebase Hosting static/CDN content
+app.example.com/*         -> Cloud Run rewrite (only if timeout/cookie behavior is acceptable)
+```
+
+The low-hassle version would deploy the same checked-in static directory through Firebase Hosting, but that means adding a Hosting deployment command to the release flow. If that is considered unacceptable, stay with browser caching.
+
 ### Cloud Storage bucket + backend bucket + Cloud CDN
 
 This is a good architecture for a genuinely independent static frontend or a large asset library. It is not the best first move here. It requires copying assets out of the image, coordinating asset versions with HTML deployments, managing bucket IAM/public access, and deciding whether the bucket is public. It would create the deployment hassle the request explicitly wants to avoid.
 
 It remains a future option if static assets become independently deployed, large, shared by multiple services, or numerous enough that container packaging is a measurable problem.
+
+### Cloud Storage without a CDN
+
+Moving the assets to a public Cloud Storage bucket is cheaper than an LB/CDN and removes static requests from Cloud Run, but it is not an edge cache. It also introduces a copy step and public-bucket/security decisions. It can be worthwhile if Cloud Run origin load is the main concern and global edge latency is not.
 
 ### Direct Cloud Run static serving without CDN
 
@@ -139,7 +183,7 @@ This is the current design and has the fewest infrastructure components, but eve
 
 ### A separate third-party CDN
 
-Unnecessary operational surface and another vendor. Google’s native Cloud CDN already integrates with the required Cloud Run serverless NEG and global load balancer.
+An external reverse-proxy CDN such as Cloudflare can avoid the Google LB fixed charge and is worth considering if the lowest possible CDN bill matters more than keeping all traffic inside Google Cloud. Cloudflare documents a free plan and edge caching available on all plans. The tradeoff is DNS/proxy ownership, vendor dependency, origin-egress behavior, cookie/SSE testing, and possible free-plan limitations. Do not put user-specific media or authenticated responses into a shared cache.
 
 ### Asset URLs on a separate CDN hostname
 
@@ -148,16 +192,19 @@ Not recommended initially. It introduces environment configuration, CORS/origin 
 ## Rollout checklist
 
 - [ ] Confirm the current production hostname, Cloud Run region/service name, DNS provider, and task/webhook reachability.
-- [ ] Create and test the global HTTPS load balancer and serverless NEG without changing application code.
-- [ ] Add explicit cache headers only to static responses.
+- [ ] Measure current static request count, bytes, Cloud Run request/compute cost, and geographic latency.
+- [ ] Add explicit browser cache headers only to static responses.
+- [ ] Decide whether browser caching is sufficient before adding any proxy/CDN.
+- [ ] If shared edge caching is required, price Firebase Hosting and an external CDN before Google Cloud LB/CDN.
+- [ ] Only if the measured traffic justifies it, create and test the global HTTPS load balancer and serverless NEG.
 - [ ] Verify static response headers through the production hostname:
   - `Cache-Control` is present and correct;
   - `Set-Cookie` is absent;
   - authenticated HTML/API responses are not cacheable;
   - `Age`/CDN cache status appears on a repeated request where available.
-- [ ] Enable Cloud CDN on the backend service.
-- [ ] Update DNS and test HTML, login, CSS, JS, manifest, service worker, API, SSE, and webhook/task paths.
-- [ ] Only after validation, restrict Cloud Run ingress to Internal and Cloud Load Balancing if all non-browser callers have been accounted for.
+- [ ] If using the LB path, enable Cloud CDN on the backend service.
+- [ ] If using Firebase Hosting or an external CDN, test HTML, login, CSS, JS, manifest, service worker, API, SSE, and webhook/task paths before changing DNS.
+- [ ] Only after validation, restrict Cloud Run ingress to Internal and Cloud Load Balancing if the chosen architecture supports all non-browser callers.
 - [ ] Monitor Cloud CDN cache hit ratio and Cloud Run request/CPU reduction.
 - [ ] Document the final resource names and DNS records in the deployment runbook.
 
@@ -167,7 +214,8 @@ Not recommended initially. It introduces environment configuration, CORS/origin 
 - **Stale service worker:** keep `/sw.js` short-lived/no-cache even when other assets are immutable.
 - **Unversioned references:** add version parameters or use a short TTL for any asset reference that lacks one.
 - **Ingress breakage:** changing Cloud Run ingress can break Cloud Tasks, webhooks, health/ops tooling, or direct administrative access. Test each caller first.
-- **Infrastructure cost:** the load balancer and CDN add fixed/per-request network costs. For the current small app, confirm the cache hit ratio and Cloud Run reduction justify them; the architectural setup is still the cleanest native option if a CDN is desired.
+- **Infrastructure cost:** the load balancer and CDN add fixed/per-request network costs. For the current small app, assume the LB is not justified until measured savings exceed roughly its monthly forwarding-rule baseline plus processing/CDN charges.
+- **Firebase integration cost:** Firebase may be cheaper than an LB, but its rewrite timeout and cookie/request behavior can conflict with this app. Use it for static hosting only or do not use it if the required path split creates more hassle than it saves.
 - **Cache invalidation:** prefer new versioned URLs. Use explicit CDN invalidation only for an emergency or a mistakenly cacheable response, not as part of normal releases.
 
 ## Sources
@@ -178,7 +226,12 @@ Not recommended initially. It introduces environment configuration, CORS/origin 
 - [Cloud CDN cache modes](https://docs.cloud.google.com/cdn/docs/using-cache-modes) — choosing how origin headers and CDN policy interact.
 - [Cloud Run ingress settings](https://docs.cloud.google.com/run/docs/securing/ingress) — restricting traffic to the load balancer after migration.
 - [Cloud CDN pricing](https://cloud.google.com/cdn/pricing) — evaluate the added CDN/load-balancer cost against origin savings.
+- [Cloud Load Balancing pricing](https://cloud.google.com/load-balancing/pricing) — forwarding-rule and data-processing charges; first five forwarding rules are listed at $0.025/hour.
+- [Cloud Run pricing](https://cloud.google.com/run/pricing) — current Cloud Run compute, request, and data-transfer pricing.
+- [Firebase Hosting with Cloud Run](https://firebase.google.com/docs/hosting/cloud-run) — Hosting rewrites to Cloud Run and the 60-second rewrite timeout.
+- [Firebase Hosting cache behavior](https://firebase.google.com/docs/hosting/manage-cache) — static caching and `Cache-Control` behavior.
+- [Cloudflare Free plan](https://www.cloudflare.com/plans/free/) and [Cloudflare Cache](https://developers.cloudflare.com/cache/) — external low-cost/free CDN alternative.
 
 ## Decision
 
-Adopt **Cloud CDN in front of the existing Cloud Run origin via a global external HTTPS Application Load Balancer and serverless NEG**, with explicit static-route cache headers and no new asset deployment pipeline. Defer Cloud Storage-backed static hosting until assets need independent lifecycle/deployment or the container-based approach becomes a measurable bottleneck.
+Adopt **browser caching first**, with explicit static-route cache headers and the existing revision-based URLs. Record the Google LB + Cloud CDN design as the high-scale/native option, but reject it as the default because of its fixed and usage-based cost. If browser caching is insufficient, investigate Firebase Hosting and an external CDN as lower-cost alternatives before paying for a Google Application Load Balancer. Defer Cloud Storage-backed static hosting until assets need an independent lifecycle or Cloud Run origin load becomes measurable.

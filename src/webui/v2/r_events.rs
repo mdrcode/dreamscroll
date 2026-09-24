@@ -13,6 +13,8 @@ use crate::{api, auth, sse};
 
 use super::WebState;
 
+const MAX_STREAM_LIFETIME: Duration = Duration::from_secs(4 * 60);
+
 #[derive(Debug, Deserialize)]
 pub struct EventParams {
     // Catch-up currently supports capture IDs only. Ideally this becomes a
@@ -43,8 +45,9 @@ pub async fn get(
         .collect::<Vec<_>>();
     let snapshot = deduplicate_snapshot_entities(snapshot);
 
-    let events =
-        task_status_stream(snapshot, receiver, user_id, shutdown).map(serialize_task_event);
+    let deadline = tokio::time::Instant::now() + MAX_STREAM_LIFETIME;
+    let events = task_status_stream(snapshot, receiver, user_id, shutdown, deadline)
+        .map(serialize_task_event);
 
     Ok(Sse::new(events).keep_alive(
         KeepAlive::new()
@@ -58,16 +61,18 @@ fn task_status_stream(
     receiver: broadcast::Receiver<sse::ReceivedServerEvent>,
     user_id: i32,
     shutdown: tokio::sync::watch::Receiver<bool>,
+    deadline: tokio::time::Instant,
 ) -> impl futures_util::Stream<Item = sse::TaskStatusEvent> {
     let live_events = stream::unfold(
-        (receiver, user_id, shutdown),
-        |(mut receiver, user_id, mut shutdown)| async move {
+        (receiver, user_id, shutdown, deadline),
+        |(mut receiver, user_id, mut shutdown, deadline)| async move {
             loop {
                 if *shutdown.borrow() {
                     return None;
                 }
 
                 tokio::select! {
+                    _ = tokio::time::sleep_until(deadline) => return None,
                     changed = shutdown.changed() => {
                         if changed.is_err() || *shutdown.borrow() {
                             return None;
@@ -79,7 +84,7 @@ fn task_status_stream(
                                 if let Some(update) = task_status_for_user(received, user_id) {
                                     return Some((
                                         update,
-                                        (receiver, user_id, shutdown),
+                                        (receiver, user_id, shutdown, deadline),
                                     ));
                                 }
                             }
@@ -328,6 +333,7 @@ mod tests {
             receiver,
             7,
             shutdown_receiver,
+            tokio::time::Instant::now() + Duration::from_secs(10),
         ));
 
         assert_eq!(
@@ -382,6 +388,7 @@ mod tests {
             receiver,
             7,
             shutdown_receiver,
+            tokio::time::Instant::now() + Duration::from_secs(10),
         ));
 
         shutdown_sender.send(true).unwrap();
@@ -389,6 +396,27 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(1), events.next())
                 .await
                 .expect("shutdown should end stream promptly")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn server_deadline_ends_a_live_stream() {
+        let (_sender, receiver) = broadcast::channel(8);
+        let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
+        let mut events = Box::pin(task_status_stream(
+            Vec::new(),
+            receiver,
+            7,
+            shutdown_receiver,
+            deadline,
+        ));
+
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), events.next())
+                .await
+                .expect("bounded server stream should finish")
                 .is_none()
         );
     }

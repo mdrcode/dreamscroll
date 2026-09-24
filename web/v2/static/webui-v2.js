@@ -43,7 +43,10 @@ function setupTaskStatusEvents() {
         return;
     }
     function refreshSubscribedEntity(update) {
-        if (!update || update.entity_type !== 'capture' || !Number.isInteger(update.entity_id)) {
+        if (!update || !shouldRefreshForTaskStatus(update.payload && update.payload.status)) {
+            return;
+        }
+        if (update.entity_type !== 'capture' || !Number.isInteger(update.entity_id)) {
             return;
         }
         const captureId = String(update.entity_id);
@@ -66,6 +69,13 @@ function setupTaskStatusEvents() {
         }
     }
 
+    function shouldRefreshForTaskStatus(status) {
+        if (!status || typeof status.name !== 'string') return false;
+        return status.name === 'error_will_retry'
+            || status.name === 'complete_success'
+            || status.name === 'complete_failure';
+    }
+
     const captureIds = new Set();
     if (mode === 'detail' && document.body.dataset.captureId) {
         captureIds.add(document.body.dataset.captureId);
@@ -83,20 +93,30 @@ function setupTaskStatusEvents() {
     const eventsUrl = '/events' + (captureIds.size > 0 ? '?' + params.toString() : '');
     const baseRetryMs = 1000;
     const maxRetryMs = 60000;
+    const idleCloseMs = 5 * 60 * 1000;
     let retryAttempt = 0;
     let reconnectTimer = null;
+    let idleTimer = null;
+    let source = null;
+    let lastUserActivityAt = Date.now();
 
     // TODO: Revisit this lightweight retry policy if frontend tooling is added.
     // The app intentionally has no Node-based build/test pipeline today; keep
     // this browser-native implementation small until richer client behavior
     // justifies adding one.
     function connect() {
+        if (source || document.visibilityState === 'hidden') return;
+        cancelReconnect();
+
         console.info('Connecting task-status SSE.', eventsUrl);
-        const source = new EventSource(eventsUrl, { withCredentials: true });
-        source.addEventListener('open', function () {
+        source = new EventSource(eventsUrl, { withCredentials: true });
+        const currentSource = source;
+        currentSource.addEventListener('open', function () {
+            if (source !== currentSource) return;
             retryAttempt = 0;
+            armIdleClose();
         });
-        source.addEventListener('task-status', function (event) {
+        currentSource.addEventListener('task-status', function (event) {
             let update;
             try {
                 update = JSON.parse(event.data);
@@ -106,11 +126,12 @@ function setupTaskStatusEvents() {
             }
             refreshSubscribedEntity(update);
         });
-        source.onerror = function () {
+        currentSource.onerror = function () {
             // Native EventSource retries on a short fixed interval. Close it
             // and schedule a replacement so prolonged local/server outages use
             // capped exponential backoff with jitter instead of request churn.
-            source.close();
+            currentSource.close();
+            if (source === currentSource) source = null;
             if (reconnectTimer !== null) return;
 
             const exponentialDelay = Math.min(maxRetryMs, baseRetryMs * (2 ** retryAttempt));
@@ -124,7 +145,55 @@ function setupTaskStatusEvents() {
         };
     }
 
+    function cancelReconnect() {
+        if (reconnectTimer !== null) {
+            window.clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+    }
+
+    function closeSource() {
+        cancelReconnect();
+        if (source) {
+            source.close();
+            source = null;
+        }
+    }
+
+    function armIdleClose() {
+        if (idleTimer !== null) window.clearTimeout(idleTimer);
+        const idleRemainingMs = Math.max(0, idleCloseMs - (Date.now() - lastUserActivityAt));
+        idleTimer = window.setTimeout(function () {
+            idleTimer = null;
+            closeSource();
+            console.info('Closed idle task-status SSE connection.');
+        }, idleRemainingMs);
+    }
+
+    function onUserInteraction() {
+        if (document.visibilityState === 'hidden') return;
+        lastUserActivityAt = Date.now();
+        if (!source) connect();
+        else armIdleClose();
+    }
+
+    ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(function (eventName) {
+        window.addEventListener(eventName, onUserInteraction, { passive: true });
+    });
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'hidden') {
+            if (idleTimer !== null) window.clearTimeout(idleTimer);
+            idleTimer = null;
+            closeSource();
+        } else {
+            lastUserActivityAt = Date.now();
+            connect();
+            armIdleClose();
+        }
+    });
+
     connect();
+    armIdleClose();
 }
 
 function setupAnnotationEditorCaret(rootNode) {
