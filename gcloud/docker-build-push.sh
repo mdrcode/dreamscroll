@@ -3,7 +3,9 @@
 set -euo pipefail
 
 IMAGE_NAME="dreamscroll-web"
-TAG=$(git rev-parse --short HEAD)
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
+TAG=$(git -C "$REPO_ROOT" rev-parse --short HEAD)
 
 PROJECT=$(gcloud config get-value project 2>/dev/null)
 if [[ -z "$PROJECT" || "$PROJECT" == "(unset)" ]]; then
@@ -25,7 +27,11 @@ fi
 
 IMAGE_BASE="$LOCATION-docker.pkg.dev/$PROJECT/$REPO/$IMAGE_NAME"
 
-docker build --platform linux/amd64 -t "$IMAGE_BASE:latest" -t "$IMAGE_BASE:$TAG" .
+docker build --platform linux/amd64 \
+	-f "$REPO_ROOT/Dockerfile" \
+	-t "$IMAGE_BASE:latest" \
+	-t "$IMAGE_BASE:$TAG" \
+	"$REPO_ROOT"
 
 docker push "$IMAGE_BASE:latest"
 

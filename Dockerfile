@@ -14,8 +14,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Step 1: Copy manifests and create a dummy src to cache deps. Note, we must
 # create our dummy at src/bin/dreamscroll_web.rs because that's referenced in
 # Cargo.toml as the default-run binary and cargo will fail if it doesn't
-# exist. But below, when actually building the real source, we only build the
-# dreamscroll_cloudrun binary.
+# exist. The real source build below explicitly builds each binary shipped in
+# the runtime image.
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir src/
 RUN mkdir src/bin
@@ -40,7 +40,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean
 
 COPY --from=builder /app/target/release/dreamscroll_web /app/dreamscroll_web
-COPY --from=builder /app/target/release/dreamscroll_util /app/dreamscroll_util
+COPY --from=builder /app/target/release/dreamscroll_api /app/dreamscroll_api
+COPY --from=builder /app/target/release/dreamscroll_admin /app/dreamscroll_admin
 COPY web/v1 /app/web/v1
 COPY web/v2 /app/web/v2
 
