@@ -28,14 +28,14 @@ The first option is the smallest change and preserves the current repository and
 
 Prices change, so use the linked pricing pages and the Google Cloud pricing calculator for the final estimate. The figures below are the important cost shape as of 2026-09-24, not a billing quote.
 
-| Option | New standing cost | Usage costs | Deployment hassle | Recommendation |
-| --- | --- | --- | --- | --- |
-| Cloud Run + browser caching | None beyond current Cloud Run/network usage | Cloud Run handles first requests; browser handles repeat requests | None | **Default now** |
-| Firebase Hosting + Cloud Run rewrite | Hosting usage/storage/network pricing; verify current plan and quotas | Hosting CDN delivery and any Cloud Run requests that miss/are dynamic | Moderate: add `firebase.json` and a Hosting deploy step | Best low-cost managed edge option to investigate |
-| Cloud Storage public objects | Low storage/operation cost; internet egress still applies | Storage reads and egress; no CDN unless another CDN is added | Moderate: copy assets and manage URLs/versioning | Cheap asset origin, not automatically an edge CDN |
-| Cloud Storage + LB + Cloud CDN | LB forwarding rule and data processing, plus Storage/CDN | CDN lookups, cache fill, cache egress, Storage | High | Only when traffic justifies it |
-| External CDN proxy (for example Cloudflare Free) | Potentially no CDN subscription charge | Origin egress and provider-specific limits/policies | Moderate: DNS/proxy, cookie/SSE testing, vendor dependency | Viable cheapest shared CDN if non-Google service is acceptable |
-| Cloud Run + global LB + Cloud CDN | One global forwarding rule is currently listed at $0.025/hour, about $18.25/month, before data processing | LB processing plus CDN request/cache-fill/egress charges | High | **Do not use for this small bundle solely for caching** |
+| Option                                           | New standing cost                                                                                         | Usage costs                                                           | Deployment hassle                                          | Recommendation                                                 |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------- | -------------------------------------------------------------- |
+| Cloud Run + browser caching                      | None beyond current Cloud Run/network usage                                                               | Cloud Run handles first requests; browser handles repeat requests     | None                                                       | **Default now**                                                |
+| Firebase Hosting + Cloud Run rewrite             | Hosting usage/storage/network pricing; verify current plan and quotas                                     | Hosting CDN delivery and any Cloud Run requests that miss/are dynamic | Moderate: add `firebase.json` and a Hosting deploy step    | Best low-cost managed edge option to investigate               |
+| Cloud Storage public objects                     | Low storage/operation cost; internet egress still applies                                                 | Storage reads and egress; no CDN unless another CDN is added          | Moderate: copy assets and manage URLs/versioning           | Cheap asset origin, not automatically an edge CDN              |
+| Cloud Storage + LB + Cloud CDN                   | LB forwarding rule and data processing, plus Storage/CDN                                                  | CDN lookups, cache fill, cache egress, Storage                        | High                                                       | Only when traffic justifies it                                 |
+| External CDN proxy (for example Cloudflare Free) | Potentially no CDN subscription charge                                                                    | Origin egress and provider-specific limits/policies                   | Moderate: DNS/proxy, cookie/SSE testing, vendor dependency | Viable cheapest shared CDN if non-Google service is acceptable |
+| Cloud Run + global LB + Cloud CDN                | One global forwarding rule is currently listed at $0.025/hour, about $18.25/month, before data processing | LB processing plus CDN request/cache-fill/egress charges              | High                                                       | **Do not use for this small bundle solely for caching**        |
 
 The LB pricing page states that the first five forwarding rules cost $0.025/hour and regional external Application Load Balancers can be cheaper in some single-region cases. However, even the roughly $18/month global forwarding-rule baseline is material for a low-traffic prototype, before the $0.008/GiB regional processing example, internet egress, and Cloud CDN charges. Cloud CDN itself lists cache lookup, cache fill, and cache data-transfer-out charges; it is not a free cache layer.
 
@@ -43,16 +43,7 @@ Cloud Run's current pricing documentation says traffic passed from an external A
 
 ## Why this is the best fit here
 
-The current image copies `web/v1` and `web/v2` into the container, and
-`src/webui/v2/maker.rs` serves `web/v2/static` through `ServeDir`. The
-`Dockerfile` packages `dreamscroll_web`, `dreamscroll_api`, and
-`dreamscroll_admin`. `gcloud/cloudbuild.yaml` builds and publishes the image but
-does not currently deploy or synchronize a separate asset store. The manual
-`gcloud/docker-build-push.sh` helper can be run from the repository root while
-using the root Dockerfile/build context. Separating assets into Cloud Storage
-would require a new upload/copy step, bucket IAM/public-access decisions, URL
-configuration, and a coordination rule between the asset version and the Cloud
-Run revision.
+The current image copies `web/v1` and `web/v2` into the container, and `src/webui/v2/maker.rs` serves `web/v2/static` through `ServeDir`. `cloudbuild.yaml` builds and publishes the image but does not currently deploy or synchronize a separate asset store. Separating assets into Cloud Storage would require a new upload/copy step, bucket IAM/public-access decisions, URL configuration, and a coordination rule between the asset version and the Cloud Run revision.
 
 A global external Application Load Balancer plus Cloud CDN avoids that split:
 
@@ -94,10 +85,10 @@ For `/static/favicon-32x32.png`, `/static/masonry.css`, and other static files t
 - add the same version query parameter in templates where practical; or
 - use a shorter explicit TTL for unversioned assets, such as `public, max-age=3600`.
 
-Prefer adding the version parameter to all application-controlled static asset references. Service worker and manifest URLs need special care because browsers give them update semantics:
+Prefer adding the version parameter to all application-controlled static asset references. Service worker and manifest URLs need special care because browsers give them different update semantics:
 
 - `/sw.js`: `Cache-Control: no-cache` (or a short TTL), so service-worker updates are discovered;
-- `/manifest.webmanifest`: `public, max-age=3600` unless it is also deliberately versioned.
+- `/manifest.webmanifest?v=<revision>`: `public, max-age=31536000, immutable`, because the manifest URL changes with each deployed revision.
 
 Do not apply the long immutable policy to HTML, `/api/*`, `/_wh/*`, `/events`, login/logout, or any response containing user-specific data or session cookies.
 
@@ -112,8 +103,8 @@ Do not cache responses that vary by user/session. The static asset routes are pu
 Add a small response-header layer around the static routes in `src/webui/v2/maker.rs` (or an equivalent focused static-serving helper):
 
 - `/static/*`: long-lived cache headers only for known static assets that are safe to publish;
-- `/sw.js`: short/no-cache;
-- `/manifest.webmanifest`: short cache;
+- `/sw.js`: stable URL with `no-cache` so the browser checks for service-worker updates;
+- `/manifest.webmanifest?v=<revision>`: long-lived immutable cache.
 - leave dynamic routes unchanged.
 
 Use the existing relative URLs and `static_asset_version`; do not add an `ASSET_CDN_URL` environment variable unless a later requirement calls for a separate hostname.
@@ -139,10 +130,10 @@ Google’s documented backend command shape is:
 gcloud compute backend-services update BACKEND_SERVICE_NAME --enable-cdn --global
 ```
 
-The exact resource names and certificate/DNS commands should be recorded during the real production setup, but should not be embedded in the normal `gcloud/cloudbuild.yaml` application build. This keeps the daily flow exactly as it is today:
+The exact resource names and certificate/DNS commands should be recorded during the real production setup, but should not be embedded in the normal `cloudbuild.yaml` application build. This keeps the daily flow exactly as it is today:
 
 ```text
-gcloud builds submit --config gcloud/cloudbuild.yaml --substitutions=_IMAGE_TAG=<git revision>
+gcloud builds submit --config cloudbuild.yaml --substitutions=_IMAGE_TAG=<git revision>
 ```
 
 If deployment is performed separately, deploy the newly built image to the same Cloud Run service as before. No asset synchronization or cache purge is needed for normal releases.
@@ -244,3 +235,15 @@ Not recommended initially. It introduces environment configuration, CORS/origin 
 ## Decision
 
 Adopt **browser caching first**, with explicit static-route cache headers and the existing revision-based URLs. Record the Google LB + Cloud CDN design as the high-scale/native option, but reject it as the default because of its fixed and usage-based cost. If browser caching is insufficient, investigate Firebase Hosting and an external CDN as lower-cost alternatives before paying for a Google Application Load Balancer. Defer Cloud Storage-backed static hosting until assets need an independent lifecycle or Cloud Run origin load becomes measurable.
+
+### Pragmatic implementation decision
+
+- Keep the current asset filenames; do not add manual `v1`/`v2` names.
+- Keep automatic `K_REVISION`/content-hash query-string versioning in generated HTML.
+- When running outside Cloud Run, compute the fallback content hash from all cacheable static files.
+- Version the manifest URL as well and cache it immutably.
+- Keep `/sw.js` stable with `no-cache` so browsers can discover service-worker updates.
+- Apply one-hour caching to unversioned `/static/*` URLs, including the icon paths embedded in the manifest; apply one-year immutable caching to `/static/*?v=...`.
+- Do not add an asset build, copy, purge, or deployment pipeline.
+
+This intentionally keeps a small query-string check in the static middleware. It is simpler and less error-prone than manually renaming every asset while still avoiding long-lived caching for the manifest's currently unversioned icon references. The local fallback hash includes all cacheable assets, but deliberately excludes `sw.js` because its stable URL must remain revalidated rather than immutable.

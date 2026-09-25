@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{Router, extract::DefaultBodyLimit, routing::get, routing::post};
+use axum::{Router, extract::DefaultBodyLimit, middleware, routing::get, routing::post};
 use axum_login::{AuthManagerLayerBuilder, login_required};
 use tera::Tera;
 use tower_http::services::{ServeDir, ServeFile};
@@ -8,6 +8,9 @@ use tower_sessions::SessionManagerLayer;
 
 use crate::{api, auth, sse, task, telemetry};
 
+use super::static_cache::{
+    manifest_cache_headers, service_worker_cache_headers, static_asset_cache_headers,
+};
 use super::*;
 
 fn load_templates() -> Result<Tera, tera::Error> {
@@ -35,8 +38,16 @@ pub fn make_ui_router(
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| {
             let mut hasher = blake3::Hasher::new();
+            // MUST OMIT sw.js: its stable URL is no-cache so browsers
+            // can discover service-worker updates.
             for path in [
+                "web/v2/static/app-icon-192x192.png",
+                "web/v2/static/app-icon-512x512.png",
+                "web/v2/static/app-icon.svg",
                 "web/v2/static/dreamscroll-v2.css",
+                "web/v2/static/favicon-32x32.png",
+                "web/v2/static/manifest.webmanifest",
+                "web/v2/static/masonry.css",
                 "web/v2/static/webui-v2.js",
             ] {
                 if let Ok(contents) = std::fs::read(path) {
@@ -66,9 +77,16 @@ pub fn make_ui_router(
         .route("/login", get(r_login_page::get).post(r_auth::login_post))
         .route_service(
             "/manifest.webmanifest",
-            ServeFile::new("web/v2/static/manifest.webmanifest"),
+            tower::ServiceBuilder::new()
+                .layer(middleware::from_fn(manifest_cache_headers))
+                .service(ServeFile::new("web/v2/static/manifest.webmanifest")),
         )
-        .route_service("/sw.js", ServeFile::new("web/v2/static/sw.js"))
+        .route_service(
+            "/sw.js",
+            tower::ServiceBuilder::new()
+                .layer(middleware::from_fn(service_worker_cache_headers))
+                .service(ServeFile::new("web/v2/static/sw.js")),
+        )
         .layer(auth_layer.clone());
 
     let routes_protected = Router::new()
@@ -100,7 +118,12 @@ pub fn make_ui_router(
         .merge(routes_open)
         .with_state(state);
 
-    router = router.nest_service("/static", ServeDir::new("web/v2/static"));
+    router = router.nest_service(
+        "/static",
+        tower::ServiceBuilder::new()
+            .layer(middleware::from_fn(static_asset_cache_headers))
+            .service(ServeDir::new("web/v2/static")),
+    );
     router = router.layer(DefaultBodyLimit::max(max_upload_bytes));
     router = telemetry::add_axum_trace_propagation(router);
     router

@@ -780,7 +780,7 @@ status rendering.
 | `src/task/maker.rs`                | selects PostgreSQL notifier and injects it through `TaskMasterBuilder`                            | ✅      |
 | `src/bin/dreamscroll_web.rs`       | start WebUI listener and local fan-out                                                            | ✅      |
 | `src/webui/v2/maker.rs`            | build routes and shared state; fingerprint local static assets                                    | ✅      |
-| `src/webui/v2/web_state.rs`        | hold shared WebUI state, template context, and DB-clock timestamp helper                           | ✅      |
+| `src/webui/v2/web_state.rs`        | hold shared WebUI state, template context, and DB-clock timestamp helper                          | ✅      |
 | `src/webui/v2/r_events.rs`         | emit the initial capture snapshot, then user-filtered live updates                                | ✅      |
 | `src/webui/v2/r_capture_card.rs`   | authenticated capture-card refresh endpoint                                                       | ✅      |
 | `src/webui/v2/r_detail_partial.rs` | authenticated capture-detail partial refresh endpoint                                             | ✅      |

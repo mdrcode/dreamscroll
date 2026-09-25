@@ -1,6 +1,8 @@
 mod maker;
 pub use maker::*;
 
+mod static_cache;
+
 mod content;
 
 mod web_state;
