@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::info!("Starting dreamscroll_web with services: {:?}", cfg.services);
     }
 
+    tracing::info!("Synchronizing DB schemas if necessary...");
     let (db_connection, session_store) = database::connect(&cfg).await?;
     let db = database::DbHandle::new(db_connection);
     tracing::info!("Connected to database");

@@ -1,6 +1,7 @@
 use anyhow;
 use sea_orm::{self, DbErr};
 use sqlx08;
+use std::time::Instant;
 use tower_sessions_sqlx_store::PostgresStore;
 
 use crate::config;
@@ -8,32 +9,53 @@ use crate::config;
 pub async fn connect(
     cfg: &config::Config,
 ) -> anyhow::Result<(sea_orm::DatabaseConnection, PostgresStore)> {
+    let started_at = Instant::now();
     // TODO: Currently we must support TWO CONNECTION POOLS to account
     // for sqlx version mismatch between sea-orm and tower_sessions_sqlx_store.
     // Once tower_sessions_sqlx_store is updated to use sqlx 0.9, we can remove
     // the second pool. This means currently we are doubling up on connection
     // budget.
     let db_connection = connect_postgres_db(cfg).await?; // pool #1 internally
+    tracing::info!(
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "Initialized database pool and schema"
+    );
     let sqlx08_pool = create_session_sqlx08_pool(cfg).await?; // pool #2
+    tracing::info!(
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "Initialized session database pool"
+    );
     let session_store = connect_postgres_session_store(sqlx08_pool).await?;
+    tracing::info!(
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "Migrated session store"
+    );
     Ok((db_connection, session_store))
 }
 
 pub async fn connect_postgres_db(
     cfg: &config::Config,
 ) -> Result<sea_orm::DatabaseConnection, DbErr> {
+    let started_at = Instant::now();
     let url = make_url_from_config(cfg, None, false);
     let mut options = sea_orm::ConnectOptions::new(url);
     options.max_connections(5).min_connections(0); // TODO make configurable
     options.sqlx_logging(false);
 
     let conn = sea_orm::Database::connect(options).await?;
+    tracing::info!(
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "Connected SeaORM database pool"
+    );
 
     conn.get_schema_registry("dreamscroll::model::*")
         .sync(&conn)
         .await?;
 
-    tracing::info!("Successfully synchronized Postgres database schema");
+    tracing::info!(
+        elapsed_ms = started_at.elapsed().as_millis(),
+        "Successfully synchronized Postgres database schema"
+    );
 
     Ok(conn)
 }

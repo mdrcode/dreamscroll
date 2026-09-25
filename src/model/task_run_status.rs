@@ -41,7 +41,8 @@ pub struct Model {
 
     /// The type and id of the entity this task operates on, e.g. "capture" and 42.
     pub entity_type: String,
-    #[sea_orm(indexed)]
+    // TODO: Restore this index annotation when schema synchronization avoids
+    // reissuing redundant CREATE INDEX statements on every startup.
     pub entity_id: i32,
 
     /// Integer discriminant of `task::TaskRunStatus`.
