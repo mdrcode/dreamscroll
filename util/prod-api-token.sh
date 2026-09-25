@@ -3,7 +3,7 @@ set -euo pipefail
 
 API_BASE_URL="${API_BASE_URL:-https://dreamscroll.ai}"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-TOKEN_ENV_FILE="${TOKEN_ENV_FILE:-$SCRIPT_DIR/src/rest/.env}"
+TOKEN_ENV_FILE="${TOKEN_ENV_FILE:-$SCRIPT_DIR/../src/rest/.env}"
 PRINT_TOKEN="${PRINT_TOKEN:-0}"
 
 usage() {

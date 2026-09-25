@@ -109,7 +109,10 @@ From the Cloud Run container contract — long-lived connections are **treated a
 
 ## 5. Current repo state
 
-- **No concurrency / max-instances / min-instances set** in `cloudbuild.yaml`, `docker-build-push.sh`, or deploy scripts → Dreamscroll runs on Cloud Run defaults.
+- **No concurrency / max-instances / min-instances set** in
+	`gcloud/cloudbuild.yaml`, `gcloud/docker-build-push.sh`, or deploy scripts →
+	Dreamscroll runs on Cloud Run defaults. These files build and publish the
+	image; deployment configuration remains separate.
 - Cloud SQL connection: **private IP + Direct VPC egress** (`config_prod.env` → `10.128.0.10:5432`; see `_project/gcloud/cloudsql_postgres.md`).
 - SeaORM pool: currently uses SeaORM's default pool settings in
 	`src/database/postgres.rs` (no configured `max_connections`).

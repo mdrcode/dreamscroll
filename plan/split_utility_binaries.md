@@ -79,8 +79,13 @@ Commands accept the state type matching their transport boundary.
 
 ## Related changes
 
-- `Dockerfile` builds `dreamscroll_web`, `dreamscroll_api`, and
-  `dreamscroll_admin`.
+- `Dockerfile` builds and packages `dreamscroll_web`, `dreamscroll_api`, and
+  `dreamscroll_admin`; the runtime image includes all three.
+- The manual image build/push helper and Cloud Build config now live under
+  `gcloud/`. `gcloud/docker-build-push.sh` resolves the repository root from
+  its own location, explicitly selects the root `Dockerfile`, and uses the root
+  as the Docker build context, so it can still be invoked from the repository
+  root (or another working directory).
 - Database startup guidance now recommends
   `dreamscroll_admin first_user`.
 - Direct admin user creation calls the database-backed admin operation without
@@ -96,4 +101,7 @@ removed rather than preserving a second execution path.
 ## Validation
 
 - `cargo check --bins` passes.
-- `cargo test --lib` passes: 160 tests.
+- The current Docker image builds successfully for `linux/amd64` with all three
+  packaged binaries.
+- Current suite: `cargo test` passes with 189 tests; `cargo check --all-targets`
+  passes.

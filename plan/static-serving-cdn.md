@@ -43,7 +43,16 @@ Cloud Run's current pricing documentation says traffic passed from an external A
 
 ## Why this is the best fit here
 
-The current image copies `web/v1` and `web/v2` into the container, and `src/webui/v2/maker.rs` serves `web/v2/static` through `ServeDir`. `cloudbuild.yaml` builds and publishes the image but does not currently deploy or synchronize a separate asset store. Separating assets into Cloud Storage would require a new upload/copy step, bucket IAM/public-access decisions, URL configuration, and a coordination rule between the asset version and the Cloud Run revision.
+The current image copies `web/v1` and `web/v2` into the container, and
+`src/webui/v2/maker.rs` serves `web/v2/static` through `ServeDir`. The
+`Dockerfile` packages `dreamscroll_web`, `dreamscroll_api`, and
+`dreamscroll_admin`. `gcloud/cloudbuild.yaml` builds and publishes the image but
+does not currently deploy or synchronize a separate asset store. The manual
+`gcloud/docker-build-push.sh` helper can be run from the repository root while
+using the root Dockerfile/build context. Separating assets into Cloud Storage
+would require a new upload/copy step, bucket IAM/public-access decisions, URL
+configuration, and a coordination rule between the asset version and the Cloud
+Run revision.
 
 A global external Application Load Balancer plus Cloud CDN avoids that split:
 
@@ -130,10 +139,10 @@ Google’s documented backend command shape is:
 gcloud compute backend-services update BACKEND_SERVICE_NAME --enable-cdn --global
 ```
 
-The exact resource names and certificate/DNS commands should be recorded during the real production setup, but should not be embedded in the normal `cloudbuild.yaml` application build. This keeps the daily flow exactly as it is today:
+The exact resource names and certificate/DNS commands should be recorded during the real production setup, but should not be embedded in the normal `gcloud/cloudbuild.yaml` application build. This keeps the daily flow exactly as it is today:
 
 ```text
-gcloud builds submit --config cloudbuild.yaml --substitutions=_IMAGE_TAG=<git revision>
+gcloud builds submit --config gcloud/cloudbuild.yaml --substitutions=_IMAGE_TAG=<git revision>
 ```
 
 If deployment is performed separately, deploy the newly built image to the same Cloud Run service as before. No asset synchronization or cache purge is needed for normal releases.

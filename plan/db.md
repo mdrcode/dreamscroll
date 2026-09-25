@@ -13,12 +13,13 @@ must be obtained from the same Postgres database clock.
 
 ## Render watermark
 
-Before fetching the data used to render capture cards, the route queries
-`SELECT CURRENT_TIMESTAMP`. It threads this value through the template context
-to the card root as `data-snapshot-at`. A feed render shares one watermark
-across its cards. Full index/detail responses, HTMX feed responses, capture-card
-partials, and detail partials must all use this ordering: obtain the watermark
-first, then read card data, then serialize both together.
+Before fetching the data used to render capture cards,
+`WebState::current_db_timestamp` queries `SELECT CURRENT_TIMESTAMP`. It threads
+this value through the template context to the card root as
+`data-snapshot-at`. A feed render shares one watermark across its cards. Full
+index/detail responses, HTMX feed responses, capture-card partials, and detail
+partials must all use this ordering: obtain the watermark first, then read card
+data, then serialize both together.
 
 The watermark is per-render metadata, not a model/database field. It marks the
 start of the read window conservatively: if a task update commits after the

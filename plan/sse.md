@@ -779,7 +779,8 @@ status rendering.
 | `src/task/taskruntracker.rs`       | private status persistence component; publishes through injected notifier after successful writes | ✅      |
 | `src/task/maker.rs`                | selects PostgreSQL notifier and injects it through `TaskMasterBuilder`                            | ✅      |
 | `src/bin/dreamscroll_web.rs`       | start WebUI listener and local fan-out                                                            | ✅      |
-| `src/webui/v2/maker.rs`            | add `/events`, pass shared event receiver to `WebState`, fingerprint local static assets          | ✅      |
+| `src/webui/v2/maker.rs`            | build routes and shared state; fingerprint local static assets                                    | ✅      |
+| `src/webui/v2/web_state.rs`        | hold shared WebUI state, template context, and DB-clock timestamp helper                           | ✅      |
 | `src/webui/v2/r_events.rs`         | emit the initial capture snapshot, then user-filtered live updates                                | ✅      |
 | `src/webui/v2/r_capture_card.rs`   | authenticated capture-card refresh endpoint                                                       | ✅      |
 | `src/webui/v2/r_detail_partial.rs` | authenticated capture-detail partial refresh endpoint                                             | ✅      |
@@ -914,9 +915,11 @@ into this comparison.
 - **SSE payload format:** thin JSON signals remain the recommendation. The
   status field should use the directly serialized `TaskRunStatus`; small HTML
   fragments for direct `sse-swap` remain an optional future use-case.
-- **Cloud Run timeout:** verify the configured request timeout comfortably
-  exceeds the currently unbounded SSE stream duration, or implement a bounded
-  lifetime deliberately if the deployment requires it.
+- **Resolved — bounded SSE lifetime:** each server stream ends after four
+  minutes, below the default Cloud Run request timeout, and the browser
+  reconnects with a fresh snapshot. The client also closes on hidden tabs or
+  five minutes of inactivity and reopens on visibility/activity as documented
+  in §5.5.
 - **Feed changes after connect:** the initial `capture_ids` list is not updated
   when HTMX changes the feed. Newly displayed entities receive future live
   events; a current status for an already-finished task appears on page refresh

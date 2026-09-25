@@ -236,7 +236,7 @@ cargo tree -d
 ```
 
 Also run the relevant feature/platform matrix. At minimum, verify the Linux
-`linux/amd64` Docker build used by `cloudbuild.yaml`; local macOS compilation
+`linux/amd64` Docker build used by `gcloud/cloudbuild.yaml`; local macOS compilation
 can miss Linux-only code, linker behavior, and system-library issues. Use
 `cargo build --locked` (or the exact Docker build path) to ensure the checked-in
 lockfile is honored. Run DB tests with Postgres available, and run API/auth,
