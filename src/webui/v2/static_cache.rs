@@ -5,9 +5,19 @@ use axum::{
     response::Response,
 };
 
+// We "version" asset links by applying a ?v= query parameter.
+// Such versioned assets are safe to keep for a year because a new deployment
+// changes the `?v=` value in generated HTML. Unversioned references get a
+// shorter TTL. The service worker is handled separately with `no-cache` because
+// its URL must remain stable while browsers check for updates.
 pub(crate) const VERSIONED_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
 pub(crate) const UNVERSIONED_ASSET_CACHE_CONTROL: &str = "public, max-age=3600";
 
+/// Choose the cache lifetime for a `/static/*` request.
+///
+/// The query string is already part of the browser/cache key. We only inspect
+/// it here to distinguish deployment-versioned URLs from unversioned asset
+/// references; this is deliberately not a general query-string parser.
 fn asset_cache_control(query: Option<&str>) -> &'static str {
     let is_versioned = query.is_some_and(|query| {
         query.split('&').any(|part| {
@@ -23,6 +33,8 @@ fn asset_cache_control(query: Option<&str>) -> &'static str {
     }
 }
 
+/// Apply the static asset policy to responses served from `/static`. Nothing
+/// dynamic should pass through this.
 pub(crate) async fn static_asset_cache_headers(request: Request<Body>, next: Next) -> Response {
     let cache_control = asset_cache_control(request.uri().query());
 
@@ -34,6 +46,8 @@ pub(crate) async fn static_asset_cache_headers(request: Request<Body>, next: Nex
     response
 }
 
+/// The manifest URL includes `?v=<revision>`, so it can use the same immutable
+/// policy as versioned CSS, JavaScript, and image URLs.
 pub(crate) async fn manifest_cache_headers(request: Request<Body>, next: Next) -> Response {
     let mut response = next.run(request).await;
     response.headers_mut().insert(
@@ -43,6 +57,10 @@ pub(crate) async fn manifest_cache_headers(request: Request<Body>, next: Next) -
     response
 }
 
+/// Keep the service-worker URL stable and revalidate it on each browser check.
+///
+/// Unlike ordinary static assets, a long immutable TTL here could prevent the
+/// browser from discovering a new service worker after deployment.
 pub(crate) async fn service_worker_cache_headers(request: Request<Body>, next: Next) -> Response {
     let mut response = next.run(request).await;
     response
