@@ -41,7 +41,12 @@ pub async fn insert_capture(
 
     let bytes_len = bytes.len();
     let handle = storage
-        .store_bytes(bytes, shard, Some(media_type.extension()))
+        .store_bytes(
+            bytes,
+            shard,
+            Some(media_type.extension()),
+            Some(media_type.mime_type()),
+        )
         .await?;
 
     let media_builder = model::media::ActiveModel::builder()

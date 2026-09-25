@@ -15,6 +15,7 @@ pub trait StorageProvider: DynClone + Send + Sync {
         bytes: Bytes,
         user_shard: &str,
         ext: Option<&str>,
+        mime_type: Option<&str>,
     ) -> anyhow::Result<StorageHandle>;
 
     async fn store_from_local_path(
@@ -22,6 +23,7 @@ pub trait StorageProvider: DynClone + Send + Sync {
         path: &Path,
         user_shard: &str,
         ext: Option<&str>,
+        mime_type: Option<&str>,
     ) -> anyhow::Result<StorageHandle>;
 
     async fn retrieve_bytes(&self, id: &StorageHandle) -> anyhow::Result<Vec<u8>>;

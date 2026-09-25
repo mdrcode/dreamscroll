@@ -8,6 +8,8 @@ use uuid::Uuid;
 
 use super::*;
 
+const MEDIA_CACHE_CONTROL: &str = "private, max-age=604800, immutable";
+
 #[derive(Clone)]
 pub struct GCloudStorageProvider {
     bucket_name: String,
@@ -66,6 +68,7 @@ impl provider::StorageProvider for GCloudStorageProvider {
         bytes: Bytes,
         user_shard: &str,
         ext: Option<&str>,
+        mime_type: Option<&str>,
     ) -> anyhow::Result<StorageHandle> {
         let uuid = Uuid::new_v4();
         let object_key = make_object_key(uuid, user_shard, ext);
@@ -74,8 +77,16 @@ impl provider::StorageProvider for GCloudStorageProvider {
         // BUG currently if the GCS client cannot connect to the emulator
         // endpoint, it will hang indefinitely rather than timeout :-/
         let write_start = std::time::Instant::now();
-        self.gcloud_client
+        let upload = self
+            .gcloud_client
             .write_object(&self.bucket_path, &object_key, bytes)
+            .set_cache_control(MEDIA_CACHE_CONTROL);
+        let upload = if let Some(mime_type) = mime_type {
+            upload.set_content_type(mime_type)
+        } else {
+            upload
+        };
+        upload
             //.with_resumable_upload_threshold(5 * 1024 * 1024_usize) // TODO investigate this?
             .send_unbuffered()
             .await
@@ -110,6 +121,7 @@ impl provider::StorageProvider for GCloudStorageProvider {
         path: &Path,
         user_shard: &str,
         ext: Option<&str>,
+        mime_type: Option<&str>,
     ) -> anyhow::Result<StorageHandle> {
         let uuid = Uuid::new_v4();
         let object_key = make_object_key(uuid, user_shard, ext);
@@ -122,9 +134,16 @@ impl provider::StorageProvider for GCloudStorageProvider {
         );
 
         let file = tokio::fs::File::open(path).await?;
-        self.gcloud_client
+        let upload = self
+            .gcloud_client
             .write_object(&self.bucket_path, &object_key, file)
-            .send_unbuffered()
+            .set_cache_control(MEDIA_CACHE_CONTROL);
+        let upload = if let Some(mime_type) = mime_type {
+            upload.set_content_type(mime_type)
+        } else {
+            upload
+        };
+        upload.send_unbuffered()
             .await
             .map_err(|e| {
                 tracing::error!("Failed to store object from path in GCS: {:?}", e);

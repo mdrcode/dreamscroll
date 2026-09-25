@@ -26,6 +26,7 @@ impl StorageProvider for LocalStorageProvider {
         bytes: Bytes,
         user_shard: &str,
         ext: Option<&str>,
+        _mime_type: Option<&str>,
     ) -> anyhow::Result<StorageHandle> {
         let shard_dir = Path::new(&self.path).join(user_shard);
         tokio::fs::create_dir_all(&shard_dir).await?;
@@ -50,6 +51,7 @@ impl StorageProvider for LocalStorageProvider {
         source_path: &Path,
         user_shard: &str,
         ext: Option<&str>,
+        _mime_type: Option<&str>,
     ) -> anyhow::Result<StorageHandle> {
         let shard_dir = Path::new(&self.path).join(user_shard);
         tokio::fs::create_dir_all(&shard_dir).await?;
