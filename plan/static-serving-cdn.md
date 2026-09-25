@@ -16,10 +16,9 @@ Keep the current application URLs and local development flow unchanged where pos
 
 Do **not** introduce a second static-site deployment, a bucket-sync job, a frontend build pipeline, Terraform, or a new third-party CDN for this optimization. Those would add deployment and invalidation machinery that the app does not currently need.
 
-The only application change should be to make the static responses explicitly cacheable. The existing templates already append `?v={{ static_asset_version }}` to CSS and JavaScript URLs, and `K_REVISION` changes on every Cloud Run revision. That gives us safe cache-busting with no asset-copy script:
+The only application change is to make static responses explicitly cacheable. The templates append `?v={{ static_asset_version }}` to CSS, JavaScript, favicon, and manifest URLs. `K_REVISION` changes on every Cloud Run revision; outside Cloud Run, the fallback version hashes all cacheable static files. This gives us safe cache-busting with no asset-copy script:
 
-- production: deploy the same Docker image as today; the load balancer/CDN serves `/static/*`, `/manifest.webmanifest`, and `/sw.js` from the Cloud Run origin;
-- local development: continue serving `web/v2/static` directly from Axum at `localhost:8080`;
+- production and local development: deploy/run the same image and serve assets directly from Cloud Run/Axum with browser cache headers;
 - HTML, API, login, SSE, webhook, and uploads: remain dynamic and are not cached.
 
 The first option is the smallest change and preserves the current repository and deployment shape. It does not provide a global shared CDN cache, but immutable browser caching is likely sufficient for this app's current scale.
@@ -43,7 +42,7 @@ Cloud Run's current pricing documentation says traffic passed from an external A
 
 ## Why this is the best fit here
 
-The current image copies `web/v1` and `web/v2` into the container, and `src/webui/v2/maker.rs` serves `web/v2/static` through `ServeDir`. `cloudbuild.yaml` builds and publishes the image but does not currently deploy or synchronize a separate asset store. Separating assets into Cloud Storage would require a new upload/copy step, bucket IAM/public-access decisions, URL configuration, and a coordination rule between the asset version and the Cloud Run revision.
+The current image copies `web/v1` and `web/v2` into the container, and `src/webui/v2/maker.rs` serves `web/v2/static` through `ServeDir`. Cache middleware lives in `src/webui/v2/static_cache.rs`. `cloudbuild.yaml` builds and publishes the image but does not deploy or synchronize a separate asset store. Separating assets into Cloud Storage would require a new upload/copy step, bucket IAM/public-access decisions, URL configuration, and a coordination rule between the asset version and the Cloud Run revision.
 
 A global external Application Load Balancer plus Cloud CDN avoids that split:
 
@@ -98,14 +97,16 @@ Start with Cloud CDN’s standard **Use origin headers** behavior and explicit a
 
 Do not cache responses that vary by user/session. The static asset routes are public and do not require the session-auth layer, but verify this with response headers before rollout.
 
-## Required application change
+## Implemented application behavior
 
-Add a small response-header layer around the static routes in `src/webui/v2/maker.rs` (or an equivalent focused static-serving helper):
+The implementation adds a small response-header layer in `src/webui/v2/static_cache.rs`:
 
-- `/static/*`: long-lived cache headers only for known static assets that are safe to publish;
+- versioned `/static/*?v=...`: `public, max-age=31536000, immutable`;
+- unversioned `/static/*`: `public, max-age=3600`;
 - `/sw.js`: stable URL with `no-cache` so the browser checks for service-worker updates;
 - `/manifest.webmanifest?v=<revision>`: long-lived immutable cache.
-- leave dynamic routes unchanged.
+
+Dynamic routes are unchanged.
 
 Use the existing relative URLs and `static_asset_version`; do not add an `ASSET_CDN_URL` environment variable unless a later requirement calls for a separate hostname.
 
@@ -146,7 +147,7 @@ No CDN is involved. `ServeDir` continues to serve files from the checked-out `we
 
 ### Production release
 
-The Dockerfile remains the asset packaging mechanism. `COPY web/v1` and `COPY web/v2` ensure that the exact assets used by the templates are present in the deployed image. Cloud Build remains responsible only for building/publishing the image. The load balancer and CDN sit in front of the unchanged service.
+The Dockerfile remains the asset packaging mechanism. `COPY web/v1` and `COPY web/v2` ensure that the exact assets used by the templates are present in the deployed image. Cloud Build remains responsible only for building/publishing the image. No load balancer or CDN is part of the current deployment.
 
 Because `K_REVISION` is used in asset URLs, a new revision naturally creates new cache keys. This is preferable to an invalidation script for this project: it avoids ordering/race problems and makes rollback safe. A rollback points HTML at the previous revision’s asset URL; that URL should still be available from the old Cloud Run revision if the service retains it, or it will be refetched from the currently routed origin and the asset must exist there. Verify the chosen Cloud Run revision/traffic behavior before relying on rollback semantics.
 
@@ -193,8 +194,8 @@ Not recommended initially. It introduces environment configuration, CORS/origin 
 
 - [ ] Confirm the current production hostname, Cloud Run region/service name, DNS provider, and task/webhook reachability.
 - [ ] Measure current static request count, bytes, Cloud Run request/compute cost, and geographic latency.
-- [ ] Add explicit browser cache headers only to static responses.
-- [ ] Decide whether browser caching is sufficient before adding any proxy/CDN.
+- [x] Add explicit browser cache headers only to static responses.
+- [x] Decide to use browser caching first; defer any proxy/CDN.
 - [ ] If shared edge caching is required, price Firebase Hosting and an external CDN before Google Cloud LB/CDN.
 - [ ] Only if the measured traffic justifies it, create and test the global HTTPS load balancer and serverless NEG.
 - [ ] Verify static response headers through the production hostname:
@@ -202,7 +203,7 @@ Not recommended initially. It introduces environment configuration, CORS/origin 
   - `Set-Cookie` is absent;
   - authenticated HTML/API responses are not cacheable;
   - `Age`/CDN cache status appears on a repeated request where available.
-- [ ] If using the LB path, enable Cloud CDN on the backend service.
+- [ ] If a future LB path is adopted, enable Cloud CDN on the backend service.
 - [ ] If using Firebase Hosting or an external CDN, test HTML, login, CSS, JS, manifest, service worker, API, SSE, and webhook/task paths before changing DNS.
 - [ ] Only after validation, restrict Cloud Run ingress to Internal and Cloud Load Balancing if the chosen architecture supports all non-browser callers.
 - [ ] Monitor Cloud CDN cache hit ratio and Cloud Run request/CPU reduction.
