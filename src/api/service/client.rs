@@ -17,10 +17,7 @@ impl ServiceApiClient {
     pub async fn get_captures(&self, ids: Option<Vec<i32>>) -> Result<Vec<CaptureInfo>, ApiError> {
         let capture_models = super::get_captures(&self.db, ids).await?;
 
-        Ok(capture_models
-            .into_iter()
-            .map(|m| self.info_maker.make_capture_info(m))
-            .collect())
+        Ok(self.info_maker.make_capture_infos(capture_models).await?)
     }
 
     pub async fn get_captures_need_search_index(

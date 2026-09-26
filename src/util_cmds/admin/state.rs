@@ -22,7 +22,7 @@ impl AdminCmdState {
 
     pub async fn service_api_client(&mut self) -> anyhow::Result<api::ServiceApiClient> {
         if self.service_api.is_none() {
-            let url_maker = storage::UrlMaker::from_config(&self.cfg);
+            let url_maker = storage::UrlMaker::from_config(&self.cfg)?;
             self.service_api = Some(api::ServiceApiClient::new(self.db.clone(), url_maker));
         }
         Ok(self

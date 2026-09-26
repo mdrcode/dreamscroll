@@ -42,10 +42,7 @@ impl UserApiClient {
         let captures = super::get_captures(&self.db, context, ids).await;
 
         // TODO probably more efficient way here?
-        Ok(captures?
-            .into_iter()
-            .map(|m| self.info_maker.make_capture_info(m))
-            .collect())
+        Ok(self.info_maker.make_capture_infos(captures?).await?)
     }
 
     #[tracing::instrument(skip(self, context))]
@@ -102,14 +99,15 @@ impl UserApiClient {
             } else {
                 let captures =
                     super::get_captures(&self.db, context, referenced_capture_ids).await?;
-                captures
-                    .into_iter()
-                    .filter_map(|capture| {
-                        self.info_maker
-                            .make_capture_preview_info(&capture)
-                            .map(|preview| (capture.id, preview))
-                    })
-                    .collect()
+                let mut previews = HashMap::new();
+                for capture in captures {
+                    if let Some(preview) =
+                        self.info_maker.make_capture_preview_info(&capture).await?
+                    {
+                        previews.insert(capture.id, preview);
+                    }
+                }
+                previews
             };
 
         Ok(sparks
@@ -145,7 +143,10 @@ impl UserApiClient {
     ) -> Result<schema::EntityInfo, ApiError> {
         let (knode, capture) = super::get_knode(&self.db, context, knode_id).await?;
 
-        Ok(self.info_maker.make_knode_entity_info(knode, capture))
+        Ok(self
+            .info_maker
+            .make_knode_entity_info(knode, capture)
+            .await?)
     }
 
     #[tracing::instrument(skip(self, context))]
@@ -156,7 +157,10 @@ impl UserApiClient {
     ) -> Result<schema::EntityInfo, ApiError> {
         let (sm, capture) = super::get_social_media(&self.db, context, social_media_id).await?;
 
-        Ok(self.info_maker.make_social_media_entity_info(sm, capture))
+        Ok(self
+            .info_maker
+            .make_social_media_entity_info(sm, capture)
+            .await?)
     }
 
     #[tracing::instrument(skip(self, context))]
@@ -167,10 +171,7 @@ impl UserApiClient {
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
         let captures = super::get_timeline_captures(&self.db, context, limit).await;
 
-        Ok(captures?
-            .into_iter()
-            .map(|m| self.info_maker.make_capture_info(m))
-            .collect())
+        Ok(self.info_maker.make_capture_infos(captures?).await?)
     }
 
     #[tracing::instrument(skip(self, context, capture_ids))]
@@ -257,7 +258,7 @@ impl UserApiClient {
             );
         }
 
-        Ok(self.info_maker.make_capture_info(capture_model))
+        Ok(self.info_maker.make_capture_info(capture_model).await?)
     }
 
     #[tracing::instrument(skip(self, user_context, media_bytes))]
@@ -295,7 +296,7 @@ impl UserApiClient {
             );
         }
 
-        Ok(self.info_maker.make_capture_info(capture_model))
+        Ok(self.info_maker.make_capture_info(capture_model).await?)
     }
 
     #[tracing::instrument(skip(self, context))]
@@ -396,10 +397,7 @@ impl UserApiClient {
 
         let capture_models = super::get_captures(&self.db, context, capture_ids).await?;
 
-        Ok(capture_models
-            .into_iter()
-            .map(|m| self.info_maker.make_capture_info(m))
-            .collect())
+        Ok(self.info_maker.make_capture_infos(capture_models).await?)
     }
 
     #[tracing::instrument(skip(self, context), fields(capture_id = capture_id))]
@@ -414,7 +412,10 @@ impl UserApiClient {
         let Some(query_capture_model) = query_capture_models.pop() else {
             return Ok(vec![]);
         };
-        let query_capture = self.info_maker.make_capture_info(query_capture_model);
+        let query_capture = self
+            .info_maker
+            .make_capture_info(query_capture_model)
+            .await?;
 
         let capture_ids = self
             .capture_searcher
@@ -427,9 +428,6 @@ impl UserApiClient {
 
         let capture_models = super::get_captures(&self.db, context, capture_ids).await?;
 
-        Ok(capture_models
-            .into_iter()
-            .map(|m| self.info_maker.make_capture_info(m))
-            .collect())
+        Ok(self.info_maker.make_capture_infos(capture_models).await?)
     }
 }

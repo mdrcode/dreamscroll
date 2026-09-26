@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
     database::check_users(&db).await?;
 
     let stg = storage::make_provider(&cfg).await;
-    let url_maker = storage::UrlMaker::from_config(&cfg);
+    let url_maker = storage::UrlMaker::from_config(&cfg)?;
     // Every app instance may produce or consume these user-wide events.
     let notifier = Some(std::sync::Arc::new(sse::PostgresServerEventNotifier::new(
         db.conn.get_postgres_connection_pool().clone(),

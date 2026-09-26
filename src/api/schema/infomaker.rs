@@ -20,13 +20,19 @@ impl InfoMaker {
         Self { url_maker }
     }
 
-    pub fn make_capture_info(&self, capture_model: model::capture::ModelEx) -> CaptureInfo {
+    pub async fn make_capture_info(
+        &self,
+        capture_model: model::capture::ModelEx,
+    ) -> anyhow::Result<CaptureInfo> {
         let medias = match capture_model.medias {
             HasMany::Unloaded => vec![],
-            HasMany::Loaded(models) => models
-                .into_iter()
-                .map(|m| self.make_media_info(m))
-                .collect(),
+            HasMany::Loaded(models) => {
+                let mut medias = Vec::with_capacity(models.len());
+                for model in models {
+                    medias.push(self.make_media_info(model).await?);
+                }
+                medias
+            }
         };
 
         // Only the most recent illumination is exposed. Reruns append rows (one
@@ -54,7 +60,7 @@ impl InfoMaker {
                 .map(|m| self.make_annotation_info(m)),
         };
 
-        CaptureInfo {
+        Ok(CaptureInfo {
             id: capture_model.id,
             user_id: capture_model.user_id,
             created_at: capture_model.created_at,
@@ -62,7 +68,18 @@ impl InfoMaker {
             medias,
             illuminations,
             annotation,
+        })
+    }
+
+    pub async fn make_capture_infos(
+        &self,
+        capture_models: Vec<model::capture::ModelEx>,
+    ) -> anyhow::Result<Vec<CaptureInfo>> {
+        let mut infos = Vec::with_capacity(capture_models.len());
+        for capture in capture_models {
+            infos.push(self.make_capture_info(capture).await?);
         }
+        Ok(infos)
     }
 
     pub fn make_annotation_info(
@@ -79,12 +96,15 @@ impl InfoMaker {
         }
     }
 
-    pub fn make_media_info(&self, media_model: model::media::ModelEx) -> MediaInfo {
+    pub async fn make_media_info(
+        &self,
+        media_model: model::media::ModelEx,
+    ) -> anyhow::Result<MediaInfo> {
         let handle = storage::StorageHandle::from(&media_model);
 
-        MediaInfo {
+        Ok(MediaInfo {
             id: media_model.id,
-            url: self.url_maker.make_url(&handle),
+            url: self.url_maker.make_url(&handle).await?,
 
             mime_type: media_model.mime_type,
             hash_blake3: media_model.hash_blake3,
@@ -94,7 +114,7 @@ impl InfoMaker {
             storage_shard: media_model.storage_user_shard,
             storage_uuid: media_model.storage_uuid,
             storage_extension: media_model.storage_extension,
-        }
+        })
     }
 
     pub fn make_illumination_info(
@@ -127,13 +147,16 @@ impl InfoMaker {
         }
     }
 
-    pub fn make_capture_preview_info(
+    pub async fn make_capture_preview_info(
         &self,
         capture_model: &model::capture::ModelEx,
-    ) -> Option<CapturePreviewInfo> {
+    ) -> anyhow::Result<Option<CapturePreviewInfo>> {
         let media = match &capture_model.medias {
-            HasMany::Unloaded => return None,
-            HasMany::Loaded(models) => models.first()?,
+            HasMany::Unloaded => return Ok(None),
+            HasMany::Loaded(models) => match models.first() {
+                Some(media) => media,
+                None => return Ok(None),
+            },
         };
 
         let summary = match &capture_model.illuminations {
@@ -146,11 +169,11 @@ impl InfoMaker {
 
         let handle = storage::StorageHandle::from(media);
 
-        Some(CapturePreviewInfo {
+        Ok(Some(CapturePreviewInfo {
             id: capture_model.id,
-            url: self.url_maker.make_url(&handle),
+            url: self.url_maker.make_url(&handle).await?,
             summary,
-        })
+        }))
     }
 
     pub fn make_spark_info(
@@ -234,35 +257,35 @@ impl InfoMaker {
         }
     }
 
-    pub fn make_knode_entity_info(
+    pub async fn make_knode_entity_info(
         &self,
         knode_model: model::knode::ModelEx,
         capture: model::capture::ModelEx,
-    ) -> EntityInfo {
-        let capture_info = self.make_capture_info(capture);
+    ) -> anyhow::Result<EntityInfo> {
+        let capture_info = self.make_capture_info(capture).await?;
 
-        EntityInfo::KNode {
+        Ok(EntityInfo::KNode {
             id: knode_model.id,
             name: knode_model.name,
             description: knode_model.description,
             k_type: knode_model.k_type,
             capture: capture_info,
-        }
+        })
     }
 
-    pub fn make_social_media_entity_info(
+    pub async fn make_social_media_entity_info(
         &self,
         social_media_model: model::social_media::ModelEx,
         capture: model::capture::ModelEx,
-    ) -> EntityInfo {
-        let capture_info = self.make_capture_info(capture);
+    ) -> anyhow::Result<EntityInfo> {
+        let capture_info = self.make_capture_info(capture).await?;
 
-        EntityInfo::SocialMedia {
+        Ok(EntityInfo::SocialMedia {
             id: social_media_model.id,
             display_name: social_media_model.display_name,
             handle: social_media_model.handle,
             platform: social_media_model.platform,
             capture: capture_info,
-        }
+        })
     }
 }
