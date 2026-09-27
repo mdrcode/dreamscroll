@@ -252,6 +252,9 @@ mod tests {
             status_code: crate::task::TaskRunStatus::InProgress.as_i32(),
             attempts: 2,
             created_at: Utc::now(),
+            processing_started_at: None,
+            last_error_duration_ms: None,
+            success_duration_ms: None,
             updated_at: Utc::now(),
         };
 
@@ -275,6 +278,9 @@ mod tests {
             status_code: i32::MAX,
             attempts: 0,
             created_at: Utc::now(),
+            processing_started_at: None,
+            last_error_duration_ms: None,
+            success_duration_ms: None,
             updated_at: Utc::now(),
         };
 

@@ -111,6 +111,90 @@ impl TaskRunTracker {
         Ok(())
     }
 
+    /// Mark the most recent attempt as processing and record its start time.
+    pub async fn begin_attempt<T: Task>(
+        &self,
+        envelope: &TaskEnvelope<T>,
+        attempts: i32,
+    ) -> anyhow::Result<()> {
+        let rows = model::task_run_status::Entity::update_many()
+            .col_expr(
+                model::task_run_status::Column::StatusCode,
+                sea_orm::sea_query::Expr::value(TaskRunStatus::InProgress.as_i32()),
+            )
+            .col_expr(
+                model::task_run_status::Column::Attempts,
+                sea_orm::sea_query::Expr::value(attempts),
+            )
+            .col_expr(
+                model::task_run_status::Column::ProcessingStartedAt,
+                sea_orm::sea_query::Expr::current_timestamp(),
+            )
+            .col_expr(
+                model::task_run_status::Column::UpdatedAt,
+                sea_orm::sea_query::Expr::current_timestamp(),
+            )
+            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope.envelope_id.as_str()))
+            .filter(model::task_run_status::Column::Run.eq(envelope.run))
+            .exec_with_returning(&self.db.conn)
+            .await?;
+
+        self.notify_updated_row(envelope, rows.into_iter().next(), TaskRunStatus::InProgress, attempts)
+            .await;
+        Ok(())
+    }
+
+    /// Record an attempt outcome and preserve the duration of the attempt.
+    pub async fn finish_attempt<T: Task>(
+        &self,
+        envelope: &TaskEnvelope<T>,
+        status: TaskRunStatus,
+        attempts: i32,
+    ) -> anyhow::Result<()> {
+        let mut update = model::task_run_status::Entity::update_many();
+        update = update
+            .col_expr(model::task_run_status::Column::StatusCode, sea_orm::sea_query::Expr::value(status.as_i32()))
+            .col_expr(model::task_run_status::Column::Attempts, sea_orm::sea_query::Expr::value(attempts))
+            .col_expr(model::task_run_status::Column::UpdatedAt, sea_orm::sea_query::Expr::current_timestamp());
+        if status == TaskRunStatus::CompleteSuccess {
+            update = update.col_expr(
+                model::task_run_status::Column::SuccessDurationMs,
+                sea_orm::sea_query::Expr::cust(
+                    "CAST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - processing_started_at)) * 1000 AS BIGINT)",
+                ),
+            );
+        } else if matches!(status, TaskRunStatus::ErrorWillRetry | TaskRunStatus::CompleteFailure) {
+            update = update.col_expr(
+                model::task_run_status::Column::LastErrorDurationMs,
+                sea_orm::sea_query::Expr::cust(
+                    "CAST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - processing_started_at)) * 1000 AS BIGINT)",
+                ),
+            );
+        }
+
+        let rows = update
+            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope.envelope_id.as_str()))
+            .filter(model::task_run_status::Column::Run.eq(envelope.run))
+            .exec_with_returning(&self.db.conn)
+            .await?;
+        self.notify_updated_row(envelope, rows.into_iter().next(), status, attempts).await;
+        Ok(())
+    }
+
+    async fn notify_updated_row<T: Task>(
+        &self,
+        envelope: &TaskEnvelope<T>,
+        row: Option<model::task_run_status::Model>,
+        status: TaskRunStatus,
+        attempts: i32,
+    ) {
+        if let Some(row) = row {
+            self.notify_status(envelope, status, attempts, row.updated_at).await;
+        } else {
+            tracing::warn!(envelope_id = %envelope.envelope_id, run = envelope.run, status = %status, "Ignoring task status update because the run row is missing");
+        }
+    }
+
     async fn notify_status<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
@@ -280,6 +364,9 @@ mod tests {
             status_code: status.as_i32(),
             attempts: 0,
             created_at: chrono::Utc::now(),
+            processing_started_at: None,
+            last_error_duration_ms: None,
+            success_duration_ms: None,
             updated_at: chrono::Utc::now(),
         }
     }
@@ -391,6 +478,9 @@ mod tests {
         assert_eq!(stored.task_type, "test");
         assert_eq!(stored.status_code, TaskRunStatus::Queued.as_i32());
         assert_eq!(stored.attempts, 0);
+        assert!(stored.processing_started_at.is_none());
+        assert!(stored.last_error_duration_ms.is_none());
+        assert!(stored.success_duration_ms.is_none());
     }
 
     #[tokio::test]
@@ -416,6 +506,76 @@ mod tests {
         assert_eq!(published.len(), 1);
         assert_eq!(published[0].payload.status, TaskRunStatus::Queued);
         assert_eq!(published[0].payload.attempts, 0);
+    }
+
+    #[tokio::test]
+    async fn attempt_timing_records_success_and_retry_failure_durations() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle(), None);
+        let env = envelope(1, 53, 1);
+        assert!(tracker.create_run(&env).await.unwrap());
+
+        tracker.begin_attempt(&env, 1).await.unwrap();
+        let started = tracker
+            .query_run_status(&env.envelope_id, env.run)
+            .await
+            .unwrap()
+            .unwrap()
+            .processing_started_at
+            .unwrap();
+        tracker
+            .finish_attempt(&env, TaskRunStatus::ErrorWillRetry, 1)
+            .await
+            .unwrap();
+        let after_first_failure = tracker
+            .query_run_status(&env.envelope_id, env.run)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(after_first_failure.processing_started_at.unwrap() >= started);
+        assert!(after_first_failure.last_error_duration_ms.unwrap() >= 0);
+        assert!(after_first_failure.success_duration_ms.is_none());
+
+        tracker.begin_attempt(&env, 2).await.unwrap();
+        tracker
+            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 2)
+            .await
+            .unwrap();
+        let completed = tracker
+            .query_run_status(&env.envelope_id, env.run)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(completed.processing_started_at.unwrap() >= started);
+        assert!(completed.last_error_duration_ms.unwrap() >= 0);
+        assert!(completed.success_duration_ms.unwrap() >= 0);
+    }
+
+    #[tokio::test]
+    async fn finishing_without_a_processing_start_preserves_null_duration() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle(), None);
+        let env = envelope(1, 54, 1);
+        assert!(tracker.create_run(&env).await.unwrap());
+
+        tracker
+            .finish_attempt(&env, TaskRunStatus::CompleteFailure, 1)
+            .await
+            .unwrap();
+
+        let stored = tracker
+            .query_run_status(&env.envelope_id, env.run)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.status_code, TaskRunStatus::CompleteFailure.as_i32());
+        assert!(stored.processing_started_at.is_none());
+        assert!(stored.last_error_duration_ms.is_none());
+        assert!(stored.success_duration_ms.is_none());
     }
 
     #[tokio::test]

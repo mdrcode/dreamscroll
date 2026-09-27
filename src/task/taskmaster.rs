@@ -213,7 +213,7 @@ impl TaskMaster {
         };
 
         self.run_tracker
-            .update_run(envelope, TaskRunStatus::InProgress, attempt)
+            .begin_attempt(envelope, attempt)
             .await?;
 
         Ok(Some(attempt))
@@ -230,7 +230,7 @@ impl TaskMaster {
         match run_result {
             Ok(()) => {
                 self.run_tracker
-                    .update_run(envelope, TaskRunStatus::CompleteSuccess, attempt)
+                    .finish_attempt(envelope, TaskRunStatus::CompleteSuccess, attempt)
                     .await?;
                 Ok(TaskRunStatus::CompleteSuccess)
             }
@@ -242,7 +242,7 @@ impl TaskMaster {
                 };
 
                 self.run_tracker
-                    .update_run(envelope, status_code, attempt)
+                    .finish_attempt(envelope, status_code, attempt)
                     .await?;
 
                 tracing::warn!(
@@ -515,6 +515,9 @@ mod tests {
             status_code: status.as_i32(),
             attempts,
             created_at: chrono::Utc::now(),
+            processing_started_at: None,
+            last_error_duration_ms: None,
+            success_duration_ms: None,
             updated_at: chrono::Utc::now(),
         }
     }
@@ -742,6 +745,16 @@ mod tests {
             .await
             .expect("finish_attempt should succeed");
 
+        let row = service
+            .run_tracker
+            .query_run_status(&envelope.envelope_id, envelope.run)
+            .await
+            .expect("timing query should succeed")
+            .expect("completed run should exist");
+        assert!(row.processing_started_at.is_some());
+        assert!(row.success_duration_ms.is_some());
+        assert!(row.last_error_duration_ms.is_none());
+
         let rerun = service
             .submit_illuminate(1, IlluminationTask { capture_id: 42 })
             .await
@@ -926,6 +939,16 @@ mod tests {
             TaskRunStatus::CompleteFailure,
             "run 1 has now spent its budget"
         );
+
+        let row = service
+            .run_tracker
+            .query_run_status(&first.envelope_id, first.run)
+            .await
+            .expect("timing query should succeed")
+            .expect("failed run should exist");
+        assert!(row.processing_started_at.is_some());
+        assert!(row.last_error_duration_ms.is_some());
+        assert!(row.success_duration_ms.is_none());
 
         // Run 2 begins at attempt 1 again, even though run 1 used attempts.
         service

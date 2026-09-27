@@ -53,6 +53,15 @@ pub struct Model {
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub created_at: DateTime<Utc>,
 
+    /// When the most recent attempt entered `InProgress`.
+    pub processing_started_at: Option<DateTime<Utc>>,
+
+    /// Processing duration of the most recent failed attempt, in milliseconds.
+    pub last_error_duration_ms: Option<i64>,
+
+    /// Processing duration of the successful attempt, in milliseconds.
+    pub success_duration_ms: Option<i64>,
+
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub updated_at: DateTime<Utc>,
 }

@@ -114,6 +114,9 @@ CREATE TABLE task_run_status (
     status_code   INT NOT NULL,           -- integer discriminant of task::TaskRunStatus
     attempts      INT NOT NULL DEFAULT 0, -- 1-based attempt number within this run
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    processing_started_at TIMESTAMPTZ NULL, -- most recent attempt start
+    last_error_duration_ms BIGINT NULL,
+    success_duration_ms BIGINT NULL,
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (envelope_id, run)
 );
@@ -137,6 +140,10 @@ CREATE TABLE task_run_status (
 - **`entity_type`/`entity_id`** are the queryable entity linkage. They are what
   makes "give me all the incomplete task statuses for capture 123" expressible
   (§5).
+- **`created_at`** is the first queued timestamp for the run. Timing fields use
+  milliseconds; `processing_started_at` is reset for each retry, while the
+  duration fields retain the most recent failed attempt and the successful
+  attempt respectively.
 
 > **Why a focused `task_run_status` table (not a generic `events` table):** task state
 > is a first-class, non-trivial problem of its own — it has a lifecycle, retries,
