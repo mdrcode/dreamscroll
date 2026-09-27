@@ -212,9 +212,7 @@ impl TaskMaster {
             return Ok(None);
         };
 
-        self.run_tracker
-            .begin_attempt(envelope, attempt)
-            .await?;
+        self.run_tracker.begin_attempt(envelope, attempt).await?;
 
         Ok(Some(attempt))
     }

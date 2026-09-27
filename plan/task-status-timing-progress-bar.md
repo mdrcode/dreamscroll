@@ -1,6 +1,6 @@
 # Task Status Timing & Progress Bar — Design Plan
 
-**Status:** Timing persistence implemented; SSE and UI remain intentionally deferred.
+**Status:** Timing persistence, update-in-place aggregate measures, SSE metadata, and client-side estimated progress implemented.
 **Scope:** Add persisted timing facts to `task_run_status`, expose them through task-status reads/SSE, and define the data needed for an estimated illumination progress indicator.
 
 > Related: `plan/task-status.md`, `plan/sse.md`, `src/task/taskruntracker.rs`,
@@ -12,17 +12,18 @@
 - `updated_at` is changed on every status update, but it is not a lifecycle timestamp: it can represent a retry transition, a late update, or any future metadata update.
 - `begin_attempt` changes `Queued`/`ErrorWillRetry` to `InProgress` and increments `attempts`.
 - `finish_attempt` changes `InProgress` to `CompleteSuccess`, `ErrorWillRetry`, or `CompleteFailure`.
-- Status events currently carry status, attempts, run, and routing identity, but no timing information.
+- Status events carry status, attempts, run, routing identity, processing start,
+  and optional aggregate timing estimates.
 
 ## 2. Proposed persisted facts
 
 Add these columns to each `(envelope_id, run)` row:
 
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `processing_started_at` | `TIMESTAMPTZ NULL` | When the **most recent attempt** entered `InProgress`; null before any worker starts. |
-| `last_error_duration_ms` | `BIGINT NULL` | Duration of the most recent failed attempt, from its processing start until `finish_attempt`; null if no attempt has failed. |
-| `success_duration_ms` | `BIGINT NULL` | Duration of the successful attempt; null until this run succeeds. |
+| Field                    | Type               | Meaning                                                                                                                      |
+| ------------------------ | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `processing_started_at`  | `TIMESTAMPTZ NULL` | When the **most recent attempt** entered `InProgress`; null before any worker starts.                                        |
+| `last_error_duration_ms` | `BIGINT NULL`      | Duration of the most recent failed attempt, from its processing start until `finish_attempt`; null if no attempt has failed. |
+| `success_duration_ms`    | `BIGINT NULL`      | Duration of the successful attempt; null until this run succeeds.                                                            |
 
 Keep `created_at` as the first-queued timestamp for now. Consider a later rename or an API alias such as `queued_at` if the distinction becomes confusing; a rename is not required to implement the feature.
 
@@ -30,10 +31,10 @@ Keep `created_at` as the first-queued timestamp for now. Consider a later rename
 
 `processing_started_at` should mean **most recent attempt**, not first-ever processing. A retry is a new processing interval and must reset this timestamp in `begin_attempt`. The two duration fields preserve the useful terminal/history facts across retries:
 
-- On every failed attempt, overwrite `last_error_processing_duration_ms`.
-- On success, set `success_processing_duration_ms` for the successful attempt.
+- On every failed attempt, overwrite `last_error_duration_ms`.
+- On success, set `success_duration_ms` for the successful attempt.
 - Do not clear the prior error duration on success; it can help diagnose a run that succeeded only after retries.
-- A run that is permanently failed still has `last_error_processing_duration_ms` for its final error.
+- A run that is permanently failed still has `last_error_duration_ms` for its final error.
 
 If product instead wants the first worker-start timestamp, add a separate immutable `first_processing_started_at`; do not overload the proposed field with two meanings.
 
@@ -56,19 +57,25 @@ If `finish_attempt` finds `processing_started_at IS NULL`, do not invent a durat
 Expose timing fields as part of the task status model/event, using names that distinguish timestamps from durations. Proposed JSON fields:
 
 ```text
-queued_at                         // current created_at, or an explicit alias
-processing_started_at             // nullable timestamp for current/last attempt
-queue_wait_duration_ms            // derived when processing has started; nullable otherwise
-last_error_processing_duration_ms // nullable
-success_processing_duration_ms    // nullable
+processing_started_at       // nullable timestamp for current/last attempt
+estimated_avg_duration_ms   // optional aggregate estimate
+estimated_p50_duration_ms   // optional aggregate estimate used by the client
+estimated_p75_duration_ms   // optional aggregate estimate
+estimated_p90_duration_ms   // optional aggregate estimate
+estimate_sample_count       // optional confidence/context value
 ```
 
 `queue_wait_duration_ms` does not need to be persisted initially: derive it as
 `processing_started_at - created_at` for a run that has started. If the UI needs a stable value after later retries, add a separate persisted `first_processing_started_at` or `queue_wait_duration_ms`; do not derive it from the mutable most-recent start timestamp.
 
-SSE is intentionally deferred until the persistence and query behavior is proven. The progress bar is a UI concern, not a database field or task-status concern.
+Task-status SSE events include optional `processing_started_at` and aggregate
+estimate metadata. The browser uses p50 to animate an estimated processing bar
+locally; the server does not stream timer ticks.
 
-The existing `TaskStatusEvent::from_envelope` path currently receives only status/attempts/timestamp. It will need either the timing values or a status-row/snapshot object so notifications contain the same timing facts as polling responses. Avoid making notifier code query the database after every write.
+`TaskStatusEvent::from_envelope` accepts the complete `task_run_status` row and
+an optional `TaskTimingEstimate`. `TaskStatusEvent::from_row` supports snapshot
+events without an envelope. This keeps row-to-payload construction in the SSE
+event module while database access remains in `task_timing.rs`.
 
 ## 5. Tracker/TaskMaster implementation shape
 
@@ -89,9 +96,115 @@ These timings provide a useful first estimate but not true percentage completion
 - **Retrying:** show that the attempt failed and is queued again; do not reset the overall UI state to zero.
 - **Success/failure:** show 100%/terminal state.
 
-A single `success_processing_duration_ms` on the current run is not enough to estimate progress for that same run before completion. The estimate needs an aggregate over prior completed runs (or a configured task-type baseline). This should be a separate query/model concern rather than another status enum value.
+A single `success_duration_ms` on the current run is not enough to estimate progress for that same run before completion. The estimate uses aggregate measures from prior completed runs. This is separate from the status enum.
 
-For the initial UI, prefer an indeterminate bar with a human-readable elapsed time. Add a determinate estimate only after collecting enough successful durations and deciding whether the estimate is per task type, per user, or global.
+The current UI uses p50 when available, caps live progress at 92%, and switches
+to an indeterminate long-tail state after the estimate is exceeded. It falls
+back to an indeterminate bar when no estimate exists.
+
+## 6.1 Empirical duration estimator proposal
+
+The next iteration should use recent successful processing durations as an empirical
+estimate rather than hard-coded lifecycle percentages.
+
+### Estimate population
+
+- Keep the most recent 100 successful `success_duration_ms` values.
+- Scope the population by `task_type` initially (`illumination`), not by user or
+	entity. This gives enough samples sooner and avoids leaking user-specific data.
+- Exclude failed attempts, queue wait, and the current in-progress run.
+- Prefer the median as the central estimate. A mean is too sensitive to an
+	occasional slow LLM/API call. Later, a p75 or p90 can provide a more honest
+	"likely complete by" bound.
+- Require a minimum sample count before using a determinate estimate (for
+	example, 5 or 10). Until then, retain the indeterminate bar.
+
+The query would conceptually be:
+
+```sql
+SELECT success_duration_ms
+FROM task_run_status
+WHERE task_type = $1
+	AND status_code = <CompleteSuccess>
+	AND success_duration_ms IS NOT NULL
+ORDER BY updated_at DESC
+LIMIT 100;
+```
+
+PostgreSQL calculates average and ordered-set percentiles over the bounded
+result set.
+
+### Refresh policy
+
+For the first implementation, recompute the affected estimate after each
+relevant task-run update. The source query is bounded to the most recent 100
+relevant rows, and the result is stored in a single update-in-place measure row
+for use by clients. `InProgress` refreshes `queue_wait`; `CompleteSuccess`
+refreshes `processing_successful`; other statuses do not refresh a measure.
+
+The processing estimator derives its population only from successful runs.
+Adaptive refreshing, debouncing, and modulo/coin-flip sampling are explicitly
+deferred.
+
+### Measure storage
+
+Use the database-backed `task_run_timing` measure keyed by
+`(task_type, operation_type)`, where operation type is the strongly typed
+`TaskTimingMeasure` value `queue_wait` or `processing_successful`. It stores `sample_count`, `avg`,
+`p50`, `p75`, `p90`, and `updated_at`. It is aggregate metadata, not a lifecycle
+fact about one run, and is updated in place rather than recorded as history.
+Each relevant task-run update selects the latest 100 source rows, computes the
+aggregates in PostgreSQL, and upserts the corresponding measure row. The
+operations are `queue_wait` and `processing_successful`; the source durations are respectively
+`processing_started_at - created_at` and `success_duration_ms`.
+
+The measure model is `src/model/task_run_timing.rs` and is synchronized with
+the rest of the schema. It stores `sample_count`, `avg_duration_ms`,
+`p50_duration_ms`, `p75_duration_ms`, `p90_duration_ms`, and `updated_at`.
+
+### Relaying the estimate to clients
+
+Task-status SSE payloads include the following optional estimate metadata:
+
+```text
+estimated_avg_duration_ms
+estimated_p50_duration_ms
+estimated_p75_duration_ms
+estimated_p90_duration_ms
+estimate_sample_count
+```
+
+The existing status event can carry this because the client needs the estimate
+when the run enters `InProgress`. The event does not need to stream elapsed time
+every second. The browser already knows the `processing_started_at` timestamp (or
+can begin a local timer when it receives `InProgress`) and animates locally.
+
+The server attaches the current measure to lifecycle status events. It does not
+emit synthetic status transitions for measure refreshes.
+
+### Client-side calculation
+
+When the client receives `InProgress`:
+
+1. Record the local start time from the server timestamp.
+2. Read `estimated_p50_duration_ms` from the event.
+3. Animate a determinate bar as `elapsed / estimated_p50_duration_ms`, capped below 100% (for
+	 example at 92%) while work is still running.
+4. Switch to a subtle indeterminate/slow tail after the estimate is exceeded;
+	 never move backward or claim certainty.
+5. Set 100% only for `CompleteSuccess` or `CompleteFailure`.
+
+This gives a live bar correlated with empirical history while honestly handling
+long-tail tasks. Queue time should remain a separate queued state and should not
+consume processing progress.
+
+### Open design choice: task versus attempt estimate
+
+The first version should estimate the processing duration of one attempt. A retry
+can reset the attempt bar while retaining a user-facing message such as
+"Retrying (attempt 2)". If retries become common, add an overall run-level
+estimate that combines expected attempt count and retry probability; do not hide
+that complexity inside the basic progress percentage.
 
 ## 7. Tests to add
 
@@ -134,6 +247,6 @@ Once an estimate query is designed, test that it has no estimate with insufficie
 2. Add nullable timing columns to the SeaORM model and update `plan/task-status.md`'s schema/file map.
 3. Add lifecycle-specific tracker writes and TaskMaster integration. **Done.**
 4. Add DB-backed tracker tests.
-5. Add timing to status snapshots. SSE remains a separate follow-up.
-6. Add an indeterminate progress UI using current status and elapsed time.
-7. Separately design historical timing aggregation for a determinate estimate.
+5. Add timing to status snapshots and extend SSE with optional estimator metadata. **Done.**
+6. Replace the milestone-only sketch with a client-side elapsed/estimate bar. **Done.**
+7. Add bounded historical aggregation and refresh update-in-place measures on relevant status updates. **Done.**

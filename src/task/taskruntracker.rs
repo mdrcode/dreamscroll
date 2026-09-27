@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, sea_query::Expr};
 
 use crate::{database, model, sse};
 
@@ -8,24 +8,13 @@ use super::*;
 
 /// Manages all direct reads/writes to `task_run_status` in the db.
 ///
-/// Publishes a best-effort status hint after each successful row
-/// insert/update.
+/// Intended to be owned/leveraged by TaskMaster.
 ///
-/// TaskMaster retains Task lifecycle policy and queue coordination.
+/// Publishes a best-effort status hint after each successful insert/update.
 #[derive(Clone)]
 pub struct TaskRunTracker {
     db: database::DbHandle,
     notifier: Option<Arc<dyn sse::ServerEventNotifier>>,
-}
-
-/// True when a `DbErr` is a unique-constraint violation. The
-/// `(envelope_id, run)` unique index is the real guard against a duplicate
-/// submission, so this is expected, not exceptional.
-fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
-    matches!(
-        err.sql_err(),
-        Some(sea_orm::SqlErr::UniqueConstraintViolation(_))
-    )
 }
 
 impl TaskRunTracker {
@@ -42,26 +31,21 @@ impl TaskRunTracker {
     /// the *lost-a-race* scenario, where a concurrent submit claimed the run
     /// first. The unique index, not the read, is what makes correctness here.
     pub async fn create_run<T: Task>(&self, envelope: &TaskEnvelope<T>) -> anyhow::Result<bool> {
-        let db = &self.db;
-
-        let task = &envelope.task;
-
         let result = model::task_run_status::ActiveModel::builder()
             .set_task_type(T::task_type())
             .set_envelope_id(envelope.envelope_id.as_str())
             .set_run(envelope.run)
             .set_entity_type(T::entity_type())
-            .set_entity_id(task.entity_id())
+            .set_entity_id((&envelope.task).entity_id())
             .set_user_id(envelope.user_id)
             .set_status_code(TaskRunStatus::Queued.as_i32())
             .set_attempts(0)
-            .insert(&db.conn)
+            .insert(&(&self.db).conn)
             .await;
-
         match result {
             Ok(row) => {
-                self.notify_status(envelope, TaskRunStatus::Queued, 0, row.updated_at)
-                    .await;
+                task_timing::refresh_measure::<T>(&self.db, TaskRunStatus::Queued).await?;
+                self.notify_status(envelope, &row.into()).await;
                 Ok(true)
             }
             Err(err) if is_unique_violation(&err) => Ok(false),
@@ -76,38 +60,34 @@ impl TaskRunTracker {
         status: TaskRunStatus,
         attempts: i32,
     ) -> anyhow::Result<()> {
-        let db = &self.db;
-
         let result = model::task_run_status::Entity::update_many()
             .col_expr(
                 model::task_run_status::Column::StatusCode,
-                sea_orm::sea_query::Expr::value(status.as_i32()),
+                Expr::value(status.as_i32()),
             )
             .col_expr(
                 model::task_run_status::Column::Attempts,
-                sea_orm::sea_query::Expr::value(attempts),
+                Expr::value(attempts),
             )
             .col_expr(
                 model::task_run_status::Column::UpdatedAt,
-                sea_orm::sea_query::Expr::current_timestamp(),
+                Expr::current_timestamp(),
             )
             .filter(model::task_run_status::Column::EnvelopeId.eq(envelope.envelope_id.as_str()))
             .filter(model::task_run_status::Column::Run.eq(envelope.run))
-            .exec_with_returning(&db.conn)
+            .exec_with_returning(&(&self.db).conn)
             .await?;
 
-        let Some(row) = result.into_iter().next() else {
+        let Some(row) = result.into_iter().next().map(Into::into) else {
             tracing::warn!(
-                envelope_id = %envelope.envelope_id,
-                run = envelope.run,
-                status = %status,
+                envelope = ?envelope,
                 "Ignoring task status update because the run row is missing"
             );
             return Ok(());
         };
 
-        self.notify_status(envelope, status, attempts, row.updated_at)
-            .await;
+        task_timing::refresh_measure::<T>(&self.db, status).await?;
+        self.notify_status(envelope, &row).await;
         Ok(())
     }
 
@@ -120,27 +100,34 @@ impl TaskRunTracker {
         let rows = model::task_run_status::Entity::update_many()
             .col_expr(
                 model::task_run_status::Column::StatusCode,
-                sea_orm::sea_query::Expr::value(TaskRunStatus::InProgress.as_i32()),
+                Expr::value(TaskRunStatus::InProgress.as_i32()),
             )
             .col_expr(
                 model::task_run_status::Column::Attempts,
-                sea_orm::sea_query::Expr::value(attempts),
+                Expr::value(attempts),
             )
             .col_expr(
                 model::task_run_status::Column::ProcessingStartedAt,
-                sea_orm::sea_query::Expr::current_timestamp(),
+                Expr::current_timestamp(),
             )
             .col_expr(
                 model::task_run_status::Column::UpdatedAt,
-                sea_orm::sea_query::Expr::current_timestamp(),
+                Expr::current_timestamp(),
             )
             .filter(model::task_run_status::Column::EnvelopeId.eq(envelope.envelope_id.as_str()))
             .filter(model::task_run_status::Column::Run.eq(envelope.run))
             .exec_with_returning(&self.db.conn)
             .await?;
 
-        self.notify_updated_row(envelope, rows.into_iter().next(), TaskRunStatus::InProgress, attempts)
-            .await;
+        let Some(row) = rows.into_iter().next().map(Into::into) else {
+            tracing::warn!(
+                envelope = ?envelope,
+                "Ignoring task status update because the run row is missing"
+            );
+            return Ok(());
+        };
+        task_timing::refresh_measure::<T>(&self.db, TaskRunStatus::InProgress).await?;
+        self.notify_status(envelope, &row).await;
         Ok(())
     }
 
@@ -153,20 +140,32 @@ impl TaskRunTracker {
     ) -> anyhow::Result<()> {
         let mut update = model::task_run_status::Entity::update_many();
         update = update
-            .col_expr(model::task_run_status::Column::StatusCode, sea_orm::sea_query::Expr::value(status.as_i32()))
-            .col_expr(model::task_run_status::Column::Attempts, sea_orm::sea_query::Expr::value(attempts))
-            .col_expr(model::task_run_status::Column::UpdatedAt, sea_orm::sea_query::Expr::current_timestamp());
+            .col_expr(
+                model::task_run_status::Column::StatusCode,
+                Expr::value(status.as_i32()),
+            )
+            .col_expr(
+                model::task_run_status::Column::Attempts,
+                Expr::value(attempts),
+            )
+            .col_expr(
+                model::task_run_status::Column::UpdatedAt,
+                Expr::current_timestamp(),
+            );
         if status == TaskRunStatus::CompleteSuccess {
             update = update.col_expr(
                 model::task_run_status::Column::SuccessDurationMs,
-                sea_orm::sea_query::Expr::cust(
+                Expr::cust(
                     "CAST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - processing_started_at)) * 1000 AS BIGINT)",
                 ),
             );
-        } else if matches!(status, TaskRunStatus::ErrorWillRetry | TaskRunStatus::CompleteFailure) {
+        } else if matches!(
+            status,
+            TaskRunStatus::ErrorWillRetry | TaskRunStatus::CompleteFailure
+        ) {
             update = update.col_expr(
                 model::task_run_status::Column::LastErrorDurationMs,
-                sea_orm::sea_query::Expr::cust(
+                Expr::cust(
                     "CAST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - processing_started_at)) * 1000 AS BIGINT)",
                 ),
             );
@@ -177,36 +176,34 @@ impl TaskRunTracker {
             .filter(model::task_run_status::Column::Run.eq(envelope.run))
             .exec_with_returning(&self.db.conn)
             .await?;
-        self.notify_updated_row(envelope, rows.into_iter().next(), status, attempts).await;
+        task_timing::refresh_measure::<T>(&self.db, status).await?;
+        let Some(row) = rows.into_iter().next().map(Into::into) else {
+            tracing::warn!(
+                envelope = ?envelope,
+                "Ignoring task status update because the run row is missing"
+            );
+            return Ok(());
+        };
+        self.notify_status(envelope, &row).await;
         Ok(())
-    }
-
-    async fn notify_updated_row<T: Task>(
-        &self,
-        envelope: &TaskEnvelope<T>,
-        row: Option<model::task_run_status::Model>,
-        status: TaskRunStatus,
-        attempts: i32,
-    ) {
-        if let Some(row) = row {
-            self.notify_status(envelope, status, attempts, row.updated_at).await;
-        } else {
-            tracing::warn!(envelope_id = %envelope.envelope_id, run = envelope.run, status = %status, "Ignoring task status update because the run row is missing");
-        }
     }
 
     async fn notify_status<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
-        status: TaskRunStatus,
-        attempts: i32,
-        timestamp: chrono::DateTime<chrono::Utc>,
+        row: &model::task_run_status::Model,
     ) {
         let Some(notifier) = &self.notifier else {
             return;
         };
 
-        let event = sse::TaskStatusEvent::from_envelope(envelope, status, attempts, timestamp);
+        let estimate = task_timing::measure(
+            &self.db,
+            T::task_type(),
+            task_timing::TaskTimingMeasure::ProcessingSuccessful,
+        )
+        .await;
+        let event = sse::TaskStatusEvent::from_envelope(envelope, row, estimate.as_ref());
         if let Err(error) = notifier.notify_task_status(&event).await {
             tracing::debug!(
                 envelope = ?envelope,
@@ -221,12 +218,10 @@ impl TaskRunTracker {
         &self,
         envelope_id: &str,
     ) -> anyhow::Result<Option<model::task_run_status::Model>> {
-        let db = &self.db;
-
         let row = model::task_run_status::Entity::find()
             .filter(model::task_run_status::Column::EnvelopeId.eq(envelope_id))
             .order_by_desc(model::task_run_status::Column::Run)
-            .one(&db.conn)
+            .one(&(&self.db).conn)
             .await?;
 
         Ok(row)
@@ -238,12 +233,10 @@ impl TaskRunTracker {
         envelope_id: &str,
         run: i32,
     ) -> anyhow::Result<Option<model::task_run_status::Model>> {
-        let db = &self.db;
-
         let row = model::task_run_status::Entity::find()
             .filter(model::task_run_status::Column::EnvelopeId.eq(envelope_id))
             .filter(model::task_run_status::Column::Run.eq(run))
-            .one(&db.conn)
+            .one(&(&self.db).conn)
             .await?;
 
         Ok(row)
@@ -269,6 +262,16 @@ impl TaskRunTracker {
 
         Ok(latest_runs_per_task(rows))
     }
+}
+
+/// True when a `DbErr` is a unique-constraint violation. The
+/// `(envelope_id, run)` unique index is the real guard against a duplicate
+/// submission, so this is expected, not exceptional.
+fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
+    matches!(
+        err.sql_err(),
+        Some(sea_orm::SqlErr::UniqueConstraintViolation(_))
+    )
 }
 
 /// Reduce rows to the latest run per logical task. No status is filtered out:
@@ -576,6 +579,98 @@ mod tests {
         assert!(stored.processing_started_at.is_none());
         assert!(stored.last_error_duration_ms.is_none());
         assert!(stored.success_duration_ms.is_none());
+    }
+
+    #[tokio::test]
+    async fn successful_attempt_refreshes_processing_measure() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle(), None);
+        let env = envelope(1, 55, 1);
+        assert!(tracker.create_run(&env).await.unwrap());
+        tracker.begin_attempt(&env, 1).await.unwrap();
+        tracker
+            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 1)
+            .await
+            .unwrap();
+
+        let measure = task_timing::measure(
+            &tracker.db,
+            "test",
+            task_timing::TaskTimingMeasure::ProcessingSuccessful,
+        )
+        .await
+        .expect("successful attempt should create a processing measure");
+        assert_eq!(measure.sample_count, 1);
+        assert!(measure.duration_ms_avg >= 0);
+        assert!(measure.duration_ms_p50 >= 0);
+        assert!(measure.duration_ms_p75 >= 0);
+        assert!(measure.duration_ms_p90 >= 0);
+    }
+
+    #[tokio::test]
+    async fn timing_measure_excludes_failures_and_updates_in_place() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle(), None);
+
+        let first = envelope(1, 56, 1);
+        assert!(tracker.create_run(&first).await.unwrap());
+        tracker.begin_attempt(&first, 1).await.unwrap();
+        tracker
+            .finish_attempt(&first, TaskRunStatus::CompleteSuccess, 1)
+            .await
+            .unwrap();
+
+        let failed = envelope(1, 57, 1);
+        assert!(tracker.create_run(&failed).await.unwrap());
+        tracker.begin_attempt(&failed, 1).await.unwrap();
+        tracker
+            .finish_attempt(&failed, TaskRunStatus::CompleteFailure, 1)
+            .await
+            .unwrap();
+
+        let measure = task_timing::measure(
+            &tracker.db,
+            "test",
+            task_timing::TaskTimingMeasure::ProcessingSuccessful,
+        )
+        .await
+        .expect("successful processing measure should exist");
+        assert_eq!(measure.sample_count, 1, "failures are excluded");
+
+        let timing_row = model::task_run_timing::Entity::find()
+            .filter(model::task_run_timing::Column::TaskType.eq("test"))
+            .filter(
+                model::task_run_timing::Column::OperationType
+                    .eq(task_timing::TaskTimingMeasure::ProcessingSuccessful.as_ref()),
+            )
+            .one(&tracker.db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+
+        let second = envelope(1, 58, 1);
+        assert!(tracker.create_run(&second).await.unwrap());
+        tracker.begin_attempt(&second, 1).await.unwrap();
+        tracker
+            .finish_attempt(&second, TaskRunStatus::CompleteSuccess, 1)
+            .await
+            .unwrap();
+        let updated_row = model::task_run_timing::Entity::find()
+            .filter(model::task_run_timing::Column::TaskType.eq("test"))
+            .filter(
+                model::task_run_timing::Column::OperationType
+                    .eq(task_timing::TaskTimingMeasure::ProcessingSuccessful.as_ref()),
+            )
+            .one(&tracker.db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated_row.id, timing_row.id, "measure updates in place");
+        assert_eq!(updated_row.sample_count, 2);
     }
 
     #[tokio::test]

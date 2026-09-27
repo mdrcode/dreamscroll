@@ -13,5 +13,6 @@ pub mod spark_link;
 pub mod spark_meta;
 pub mod spark_output_ref;
 pub mod task_run_status;
+pub mod task_run_timing;
 pub mod user;
 pub mod xquery;
