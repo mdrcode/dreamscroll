@@ -33,31 +33,36 @@ pub async fn get(
         .user
         .expect("protected route requires an authenticated user")
         .user_id();
-    let receiver = state.server_events.subscribe();
-    let shutdown = state.shutdown.clone();
+    let live_events = state.server_events.subscribe();
     let capture_ids = parse_capture_ids(params.capture_ids.as_deref())?;
-    let snapshot = state
-        .task_master
-        .query_latest_status_for_entities(user_id, "capture", &capture_ids)
-        .await?
-        .into_iter()
-        .filter_map(task_status_event_from_row)
-        .collect::<Vec<_>>();
-    let snapshot = deduplicate_snapshot_entities(snapshot);
+    let catchup_events = dedupe_catchup(
+        state
+            .task_master
+            .query_latest_status_for_entities(user_id, "capture", &capture_ids)
+            .await?
+            .into_iter()
+            .filter_map(|row| sse::TaskStatusEvent::from_row(&row, None)),
+    );
 
     let deadline = tokio::time::Instant::now() + MAX_STREAM_LIFETIME;
-    let events = task_status_stream(snapshot, receiver, user_id, shutdown, deadline)
-        .map(serialize_task_event);
+    let event_stream = stream_task_status(
+        catchup_events,
+        live_events,
+        user_id,
+        state.shutdown.clone(),
+        deadline,
+    )
+    .map(serialize_task_event);
 
-    Ok(Sse::new(events).keep_alive(
+    Ok(Sse::new(event_stream).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(20))
             .text("keep-alive"),
     ))
 }
 
-fn task_status_stream(
-    snapshot: Vec<sse::TaskStatusEvent>,
+fn stream_task_status(
+    catchup: Vec<sse::TaskStatusEvent>,
     receiver: broadcast::Receiver<sse::ReceivedServerEvent>,
     user_id: i32,
     shutdown: tokio::sync::watch::Receiver<bool>,
@@ -81,7 +86,7 @@ fn task_status_stream(
                     received = receiver.recv() => {
                         match received {
                             Ok(received) => {
-                                if let Some(update) = task_status_for_user(received, user_id) {
+                                if let Some(update) = filter_for_user(received, user_id) {
                                     return Some((
                                         update,
                                         (receiver, user_id, shutdown, deadline),
@@ -101,11 +106,13 @@ fn task_status_stream(
             }
         },
     );
-    stream::iter(snapshot).chain(live_events)
+    stream::iter(catchup).chain(live_events)
 }
 
 /// Keep only the newest catch-up status per entity to avoid duplicate partial refreshes.
-fn deduplicate_snapshot_entities(events: Vec<sse::TaskStatusEvent>) -> Vec<sse::TaskStatusEvent> {
+fn dedupe_catchup(
+    events: impl IntoIterator<Item = sse::TaskStatusEvent>,
+) -> Vec<sse::TaskStatusEvent> {
     let mut latest_by_entity: std::collections::HashMap<(String, i32), sse::TaskStatusEvent> =
         std::collections::HashMap::new();
     for event in events {
@@ -120,12 +127,12 @@ fn deduplicate_snapshot_entities(events: Vec<sse::TaskStatusEvent>) -> Vec<sse::
     latest_by_entity.into_values().collect()
 }
 
-fn task_status_for_user(
+fn filter_for_user(
     received: sse::ReceivedServerEvent,
     user_id: i32,
 ) -> Option<sse::TaskStatusEvent> {
     match received {
-        sse::ReceivedServerEvent::TaskStatus(update) if update.payload.user_id == user_id => {
+        sse::ReceivedServerEvent::TaskStatus(update) if update.user_id == Some(user_id) => {
             Some(update)
         }
         sse::ReceivedServerEvent::TaskStatus(_) | sse::ReceivedServerEvent::Availability(_) => None,
@@ -157,34 +164,6 @@ fn parse_capture_ids(raw: Option<&str>) -> Result<Vec<i32>, api::ApiError> {
     Ok(ids)
 }
 
-fn task_status_event_from_row(
-    row: crate::model::task_run_status::Model,
-) -> Option<sse::TaskStatusEvent> {
-    let status = match crate::task::TaskRunStatus::from_i32(row.status_code) {
-        Ok(status) => status,
-        Err(error) => {
-            tracing::warn!(
-                task_run_status_id = row.id,
-                status_code = row.status_code,
-                error = ?error,
-                "Skipping snapshot row with an unknown task status"
-            );
-            return None;
-        }
-    };
-
-    Some(sse::ServerEvent::task_status(
-        row.updated_at,
-        row.entity_type,
-        row.entity_id,
-        row.task_type,
-        status,
-        row.attempts,
-        row.run,
-        row.user_id,
-    ))
-}
-
 fn serialize_task_event(update: sse::TaskStatusEvent) -> Result<Event, Infallible> {
     Ok(Event::default()
         .event("task-status")
@@ -193,11 +172,8 @@ fn serialize_task_event(update: sse::TaskStatusEvent) -> Result<Event, Infallibl
 
 fn task_event_json(update: &sse::TaskStatusEvent) -> String {
     let mut data = serde_json::to_value(&update).unwrap_or_default();
-    if let Some(payload) = data
-        .get_mut("payload")
-        .and_then(serde_json::Value::as_object_mut)
-    {
-        payload.remove("user_id");
+    if let Some(object) = data.as_object_mut() {
+        object.remove("user_id");
     }
     serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string())
 }
@@ -212,16 +188,24 @@ mod tests {
 
     #[test]
     fn task_status_sse_omits_internal_user_id() {
-        let update = sse::ServerEvent::<sse::TaskStatusPayload>::task_status(
+        let update = sse::ServerEvent::<sse::TaskStatusPayload>::new(
+            sse::ServerEventTypes::TaskStatus,
             Utc::now(),
             "capture",
             42,
-            "illuminate",
-            crate::task::TaskRunStatus::InProgress,
-            1,
-            2,
-            77,
+            sse::TaskStatusPayload {
+                task_type: "illuminate".to_string(),
+                status: crate::task::TaskRunStatus::InProgress,
+                attempts: 1,
+                run: 2,
+                processing_started_at: None,
+                estimated_duration_ms_p50: None,
+            },
         );
+        let update = sse::ServerEvent {
+            user_id: Some(77),
+            ..update
+        };
 
         let event_json = task_event_json(&update);
         assert!(!event_json.contains("user_id"));
@@ -240,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn snapshot_row_becomes_a_task_status_event() {
+    fn catchup_row_becomes_a_task_status_event() {
         let row = crate::model::task_run_status::Model {
             id: 1,
             user_id: 7,
@@ -258,15 +242,15 @@ mod tests {
             updated_at: Utc::now(),
         };
 
-        let event = task_status_event_from_row(row).unwrap();
+        let event = sse::TaskStatusEvent::from_row(&row, None).unwrap();
         assert_eq!(event.entity_id, 42);
         assert_eq!(event.payload.status, crate::task::TaskRunStatus::InProgress);
         assert_eq!(event.payload.run, 3);
-        assert_eq!(event.payload.user_id, 7);
+        assert_eq!(event.user_id, Some(7));
     }
 
     #[test]
-    fn snapshot_row_with_unknown_status_is_skipped() {
+    fn catchup_row_with_unknown_status_is_skipped() {
         let row = crate::model::task_run_status::Model {
             id: 2,
             user_id: 7,
@@ -284,36 +268,18 @@ mod tests {
             updated_at: Utc::now(),
         };
 
-        assert!(task_status_event_from_row(row).is_none());
+        assert!(sse::TaskStatusEvent::from_row(&row, None).is_none());
     }
 
     #[test]
     fn live_stream_forwards_only_the_authenticated_users_task_status() {
-        let own = sse::ServerEvent::<sse::TaskStatusPayload>::task_status(
-            Utc::now(),
-            "capture",
-            42,
-            "illuminate",
-            crate::task::TaskRunStatus::InProgress,
-            1,
-            1,
-            7,
-        );
-        let other = sse::ServerEvent::<sse::TaskStatusPayload>::task_status(
-            Utc::now(),
-            "capture",
-            43,
-            "illuminate",
-            crate::task::TaskRunStatus::InProgress,
-            1,
-            1,
-            8,
-        );
+        let own = task_status_event(7, 42, crate::task::TaskRunStatus::InProgress);
+        let other = task_status_event(8, 43, crate::task::TaskRunStatus::InProgress);
 
-        assert!(task_status_for_user(sse::ReceivedServerEvent::TaskStatus(own), 7).is_some());
-        assert!(task_status_for_user(sse::ReceivedServerEvent::TaskStatus(other), 7).is_none());
+        assert!(filter_for_user(sse::ReceivedServerEvent::TaskStatus(own), 7).is_some());
+        assert!(filter_for_user(sse::ReceivedServerEvent::TaskStatus(other), 7).is_none());
         assert!(
-            task_status_for_user(
+            filter_for_user(
                 sse::ReceivedServerEvent::Availability(sse::AvailabilityEvent::new(
                     sse::ServerEventTypes::Availability,
                     Utc::now(),
@@ -330,12 +296,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn stream_emits_snapshot_then_user_wide_live_events() {
-        let snapshot = task_status_event(7, 42, crate::task::TaskRunStatus::InProgress);
+    async fn stream_emits_catchup_then_user_wide_live_events() {
+        let catchup = task_status_event(7, 42, crate::task::TaskRunStatus::InProgress);
         let (sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(task_status_stream(
-            vec![snapshot.clone()],
+        let mut events = Box::pin(stream_task_status(
+            vec![catchup.clone()],
             receiver,
             7,
             shutdown_receiver,
@@ -345,10 +311,10 @@ mod tests {
         assert_eq!(
             tokio::time::timeout(Duration::from_secs(1), events.next())
                 .await
-                .expect("snapshot should be immediate")
+                .expect("catch-up should be immediate")
                 .unwrap(),
-            snapshot,
-            "snapshot must be the first event"
+            catchup,
+            "catch-up must be the first event"
         );
 
         // Live delivery is user-wide, not limited to the initial entity IDs.
@@ -361,7 +327,7 @@ mod tests {
             .unwrap();
         let live = tokio::time::timeout(Duration::from_secs(1), events.next())
             .await
-            .expect("live event should follow the snapshot")
+            .expect("live event should follow the catch-up")
             .unwrap();
         assert_eq!(live.entity_id, 999);
         assert_eq!(
@@ -371,14 +337,13 @@ mod tests {
     }
 
     #[test]
-    fn catchup_snapshot_keeps_only_latest_event_per_entity() {
+    fn catchup_keeps_only_latest_event_per_entity() {
         let mut earlier = task_status_event(7, 42, crate::task::TaskRunStatus::Queued);
         earlier.timestamp = Utc::now() - chrono::Duration::seconds(1);
         let later = task_status_event(7, 42, crate::task::TaskRunStatus::CompleteSuccess);
         let other_entity = task_status_event(7, 43, crate::task::TaskRunStatus::InProgress);
 
-        let deduplicated =
-            deduplicate_snapshot_entities(vec![earlier, later.clone(), other_entity]);
+        let deduplicated = dedupe_catchup(vec![earlier, later.clone(), other_entity]);
 
         assert_eq!(deduplicated.len(), 2);
         assert!(deduplicated.iter().any(|event| event == &later));
@@ -389,7 +354,7 @@ mod tests {
     async fn shutdown_ends_a_stream_even_before_first_event() {
         let (_sender, receiver) = broadcast::channel(8);
         let (shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(task_status_stream(
+        let mut events = Box::pin(stream_task_status(
             Vec::new(),
             receiver,
             7,
@@ -411,7 +376,7 @@ mod tests {
         let (_sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
         let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
-        let mut events = Box::pin(task_status_stream(
+        let mut events = Box::pin(stream_task_status(
             Vec::new(),
             receiver,
             7,
@@ -432,15 +397,22 @@ mod tests {
         entity_id: i32,
         status: crate::task::TaskRunStatus,
     ) -> sse::TaskStatusEvent {
-        sse::ServerEvent::task_status(
-            Utc::now(),
-            "capture",
-            entity_id,
-            "illuminate",
-            status,
-            1,
-            1,
-            user_id,
-        )
+        sse::ServerEvent {
+            user_id: Some(user_id),
+            ..sse::ServerEvent::new(
+                sse::ServerEventTypes::TaskStatus,
+                Utc::now(),
+                "capture",
+                entity_id,
+                sse::TaskStatusPayload {
+                    task_type: "illuminate".to_string(),
+                    status,
+                    attempts: 1,
+                    run: 1,
+                    processing_started_at: None,
+                    estimated_duration_ms_p50: None,
+                },
+            )
+        }
     }
 }

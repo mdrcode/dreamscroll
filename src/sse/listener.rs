@@ -3,9 +3,7 @@ use serde_json::Value;
 use sqlx::postgres::PgListener;
 use tokio::sync::{broadcast, watch};
 
-use super::{
-    AvailabilityEvent, CURRENT_SCHEMA_VERSION, TaskStatusEvent, notifier::SERVER_EVENT_CHANNEL,
-};
+use super::*;
 
 /// A decoded notification received from the shared server-event channel.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -33,7 +31,7 @@ impl ServerEventListener {
             .context("connect server-event listener")?;
 
         listener
-            .listen(SERVER_EVENT_CHANNEL)
+            .listen(notifier::SERVER_EVENT_CHANNEL)
             .await
             .context("listen for server events")?;
         Ok(Self { listener })
@@ -115,8 +113,11 @@ fn decode_server_event(payload: &str) -> anyhow::Result<ReceivedServerEvent> {
         "task_status" => {
             let event: TaskStatusEvent =
                 serde_json::from_value(value).context("decode task-status event")?;
-            if event.payload.user_id == 0 {
+            let Some(user_id) = event.user_id else {
                 bail!("PostgreSQL task-status notification has no routing user_id");
+            };
+            if user_id <= 0 {
+                bail!("PostgreSQL task-status notification has invalid routing user_id");
             }
             Ok(ReceivedServerEvent::TaskStatus(event))
         }
@@ -137,7 +138,7 @@ mod tests {
 
     #[test]
     fn decodes_task_status_event() {
-        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"subchannel":"illuminate","status":{"name":"complete_success","discriminant":4},"attempts":1,"run":3,"user_id":7}}"#;
+        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"user_id":7,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"attempts":1,"run":3}}"#;
         assert!(matches!(
             decode_server_event(payload).unwrap(),
             ReceivedServerEvent::TaskStatus(_)
@@ -187,14 +188,14 @@ mod tests {
 
     #[test]
     fn rejects_task_status_notification_without_owner_id() {
-        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"subchannel":"illuminate","status":{"name":"complete_success","discriminant":4},"attempts":1,"run":3}}"#;
+        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"attempts":1,"run":3}}"#;
         let error = decode_server_event(payload).unwrap_err();
         assert!(error.to_string().contains("routing user_id"));
     }
 
     #[test]
     fn rejects_malformed_task_status_payload() {
-        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"subchannel":"illuminate","status":"not-an-object"}}"#;
+        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":"not-an-object"}}"#;
         assert!(decode_server_event(payload).is_err());
     }
 
@@ -217,16 +218,24 @@ mod tests {
         );
 
         let event_id = (uuid::Uuid::new_v4().as_u128() as u32) as i32;
-        let task_status = super::super::TaskStatusEvent::task_status(
+        let task_status = super::super::TaskStatusEvent::new(
+            super::super::ServerEventTypes::TaskStatus,
             Utc::now(),
             "capture",
             event_id,
-            "illuminate",
-            crate::task::TaskRunStatus::InProgress,
-            2,
-            3,
-            741_258,
+            super::super::TaskStatusPayload {
+                task_type: "illuminate".to_string(),
+                status: crate::task::TaskRunStatus::InProgress,
+                attempts: 2,
+                run: 3,
+                processing_started_at: None,
+                estimated_duration_ms_p50: None,
+            },
         );
+        let task_status = super::super::ServerEvent {
+            user_id: Some(741_258),
+            ..task_status
+        };
         notifier
             .notify(&task_status)
             .await

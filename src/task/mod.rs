@@ -16,7 +16,9 @@ pub use taskrunstatus::*;
 // status. Callers go through TaskMaster so lifecycle policy and status writes
 // remain encapsulated together.
 mod taskruntracker;
-pub(crate) mod task_timing;
+
+// Task timing aggregates used to estimate how long queued work will take.
+pub mod timing;
 
 // TaskQueue trait which abstracts over the underlying queue backends.
 mod taskqueue;

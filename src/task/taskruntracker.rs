@@ -44,7 +44,7 @@ impl TaskRunTracker {
             .await;
         match result {
             Ok(row) => {
-                task_timing::refresh_measure::<T>(&self.db, TaskRunStatus::Queued).await?;
+                timing::refresh_measure::<T>(&self.db, TaskRunStatus::Queued).await?;
                 self.notify_status(envelope, &row.into()).await;
                 Ok(true)
             }
@@ -86,7 +86,7 @@ impl TaskRunTracker {
             return Ok(());
         };
 
-        task_timing::refresh_measure::<T>(&self.db, status).await?;
+        timing::refresh_measure::<T>(&self.db, status).await?;
         self.notify_status(envelope, &row).await;
         Ok(())
     }
@@ -126,7 +126,7 @@ impl TaskRunTracker {
             );
             return Ok(());
         };
-        task_timing::refresh_measure::<T>(&self.db, TaskRunStatus::InProgress).await?;
+        timing::refresh_measure::<T>(&self.db, TaskRunStatus::InProgress).await?;
         self.notify_status(envelope, &row).await;
         Ok(())
     }
@@ -176,7 +176,7 @@ impl TaskRunTracker {
             .filter(model::task_run_status::Column::Run.eq(envelope.run))
             .exec_with_returning(&self.db.conn)
             .await?;
-        task_timing::refresh_measure::<T>(&self.db, status).await?;
+        timing::refresh_measure::<T>(&self.db, status).await?;
         let Some(row) = rows.into_iter().next().map(Into::into) else {
             tracing::warn!(
                 envelope = ?envelope,
@@ -197,10 +197,10 @@ impl TaskRunTracker {
             return;
         };
 
-        let estimate = task_timing::measure(
+        let estimate = timing::measure(
             &self.db,
             T::task_type(),
-            task_timing::TaskTimingMeasure::ProcessingSuccessful,
+            timing::TaskTimingMeasure::ProcessingSuccessful,
         )
         .await;
         let event = sse::TaskStatusEvent::from_envelope(envelope, row, estimate.as_ref());
@@ -595,10 +595,10 @@ mod tests {
             .await
             .unwrap();
 
-        let measure = task_timing::measure(
+        let measure = timing::measure(
             &tracker.db,
             "test",
-            task_timing::TaskTimingMeasure::ProcessingSuccessful,
+            timing::TaskTimingMeasure::ProcessingSuccessful,
         )
         .await
         .expect("successful attempt should create a processing measure");
@@ -632,10 +632,10 @@ mod tests {
             .await
             .unwrap();
 
-        let measure = task_timing::measure(
+        let measure = timing::measure(
             &tracker.db,
             "test",
-            task_timing::TaskTimingMeasure::ProcessingSuccessful,
+            timing::TaskTimingMeasure::ProcessingSuccessful,
         )
         .await
         .expect("successful processing measure should exist");
@@ -645,7 +645,7 @@ mod tests {
             .filter(model::task_run_timing::Column::TaskType.eq("test"))
             .filter(
                 model::task_run_timing::Column::OperationType
-                    .eq(task_timing::TaskTimingMeasure::ProcessingSuccessful.as_ref()),
+                    .eq(timing::TaskTimingMeasure::ProcessingSuccessful.as_ref()),
             )
             .one(&tracker.db.conn)
             .await
@@ -663,7 +663,7 @@ mod tests {
             .filter(model::task_run_timing::Column::TaskType.eq("test"))
             .filter(
                 model::task_run_timing::Column::OperationType
-                    .eq(task_timing::TaskTimingMeasure::ProcessingSuccessful.as_ref()),
+                    .eq(timing::TaskTimingMeasure::ProcessingSuccessful.as_ref()),
             )
             .one(&tracker.db.conn)
             .await

@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
     setupPwaServiceWorker();
     setupTaskStatusEvents();
+    setupTaskProgress();
     setupSearchShortcut();
     setupSearchClearButton();
     setupSearchEndpointRouting();
@@ -43,13 +44,19 @@ function setupTaskStatusEvents() {
         return;
     }
     function refreshSubscribedEntity(update) {
-        if (!update || !shouldRefreshForTaskStatus(update.payload && update.payload.status)) {
+        if (!update) {
             return;
         }
         if (update.entity_type !== 'capture' || !Number.isInteger(update.entity_id)) {
             return;
         }
         const captureId = String(update.entity_id);
+        if (window.dreamscrollTaskProgress) {
+            window.dreamscrollTaskProgress.accept(update);
+        }
+        if (!shouldRefreshForTaskStatus(update.payload && update.payload.status)) {
+            return;
+        }
 
         if (mode === 'detail') {
             if (document.body.dataset.captureId !== captureId) return;
@@ -209,6 +216,87 @@ function setupTaskStatusEvents() {
 
     connect();
     armIdleClose();
+}
+
+// Rough, client-only lifecycle progress. Percentages represent milestones,
+// not measured work completed inside the AI task.
+function setupTaskProgress() {
+    const wrap = document.getElementById('task-progress');
+    const bar = document.getElementById('task-progress-bar');
+    const text = document.getElementById('task-progress-text');
+    if (!wrap || !bar || !text) return;
+
+    let captureId = null;
+    let hideTimer = null;
+    let progressTimer = null;
+    let processingStartedAt = null;
+    let estimatedDurationMs = null;
+
+    function show(percent, label, indeterminate) {
+        wrap.hidden = false;
+        wrap.classList.toggle('is-indeterminate', indeterminate);
+        bar.style.width = percent + '%';
+        text.textContent = label;
+    }
+
+    function hideSoon() {
+        if (hideTimer) window.clearTimeout(hideTimer);
+        if (progressTimer) window.clearInterval(progressTimer);
+        hideTimer = window.setTimeout(function () {
+            wrap.hidden = true;
+            wrap.classList.remove('is-indeterminate');
+            captureId = null;
+            processingStartedAt = null;
+            estimatedDurationMs = null;
+        }, 1800);
+    }
+
+    function animateEstimatedProgress() {
+        if (!processingStartedAt || !estimatedDurationMs) return;
+        if (progressTimer) window.clearInterval(progressTimer);
+        progressTimer = window.setInterval(function () {
+            const elapsed = Math.max(0, Date.now() - processingStartedAt);
+            const estimatedPercent = Math.min(92, (elapsed / estimatedDurationMs) * 100);
+            show(estimatedPercent, estimatedPercent >= 92
+                ? 'Taking a little longer than usual...'
+                : 'Illuminating...', estimatedPercent >= 92);
+        }, 500);
+    }
+
+    window.dreamscrollTaskProgress = {
+        start: function (newCaptureId) {
+            captureId = String(newCaptureId);
+            processingStartedAt = null;
+            estimatedDurationMs = null;
+            show(12, 'Queued for illumination...', true);
+        },
+        accept: function (update) {
+            if (!captureId || !update || String(update.entity_id) !== captureId) return;
+            const name = update.payload && update.payload.status && update.payload.status.name;
+            if (name === 'queued') {
+                show(12, 'Queued for illumination...', true);
+            } else if (name === 'in_progress') {
+                processingStartedAt = Date.parse(update.payload.processing_started_at || '') || Date.now();
+                estimatedDurationMs = Number(update.payload.estimated_duration_ms_p50);
+                if (Number.isFinite(estimatedDurationMs) && estimatedDurationMs > 0) {
+                    animateEstimatedProgress();
+                } else {
+                    show(48, 'Illuminating...', true);
+                }
+            } else if (name === 'error_will_retry') {
+                if (progressTimer) window.clearInterval(progressTimer);
+                show(58, 'Retrying illumination...', true);
+            } else if (name === 'complete_success') {
+                if (progressTimer) window.clearInterval(progressTimer);
+                show(100, 'Illumination complete.', false);
+                hideSoon();
+            } else if (name === 'complete_failure') {
+                if (progressTimer) window.clearInterval(progressTimer);
+                show(100, 'Illumination failed.', false);
+                hideSoon();
+            }
+        }
+    };
 }
 
 function setupAnnotationEditorCaret(rootNode) {
@@ -799,6 +887,10 @@ function setupUploadInteractions() {
             if (xhr.status >= 200 && xhr.status < 300) {
                 const uploadResult = parseUploadResult(xhr);
                 setUploadProgress(100, 'Processing...');
+
+                if (uploadResult && window.dreamscrollTaskProgress) {
+                    window.dreamscrollTaskProgress.start(uploadResult.capture_id);
+                }
 
                 if (shouldShowUploadNotice() && uploadResult) {
                     showUploadNotice(uploadResult.capture_id, uploadResult.detail_url);

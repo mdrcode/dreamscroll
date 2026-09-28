@@ -1,9 +1,7 @@
 use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, Set};
-
-use crate::{database, model};
-
 use strum::{AsRefStr, Display};
 
+use crate::{database, model};
 use super::{Task, TaskRunStatus};
 
 #[derive(Clone, Copy, Debug, Display, Eq, PartialEq, AsRefStr)]
@@ -23,6 +21,16 @@ pub(crate) struct TaskTimingEstimate {
     pub duration_ms_p50: i64,
     pub duration_ms_p75: i64,
     pub duration_ms_p90: i64,
+}
+
+/// Minimum successful samples required before exposing a processing estimate
+/// to clients. The aggregate remains stored with fewer samples.
+const MINIMUM_CLIENT_ESTIMATE_SAMPLES: i64 = 5;
+
+impl TaskTimingEstimate {
+    pub(crate) fn client_processing_duration_ms(&self) -> Option<i64> {
+        (self.sample_count >= MINIMUM_CLIENT_ESTIMATE_SAMPLES).then_some(self.duration_ms_p50)
+    }
 }
 
 pub(crate) async fn measure(

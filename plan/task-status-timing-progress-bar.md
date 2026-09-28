@@ -58,11 +58,7 @@ Expose timing fields as part of the task status model/event, using names that di
 
 ```text
 processing_started_at       // nullable timestamp for current/last attempt
-estimated_avg_duration_ms   // optional aggregate estimate
-estimated_p50_duration_ms   // optional aggregate estimate used by the client
-estimated_p75_duration_ms   // optional aggregate estimate
-estimated_p90_duration_ms   // optional aggregate estimate
-estimate_sample_count       // optional confidence/context value
+estimated_duration_ms_p50   // optional aggregate estimate used by the client
 ```
 
 `queue_wait_duration_ms` does not need to be persisted initially: derive it as
@@ -167,10 +163,7 @@ the rest of the schema. It stores `sample_count`, `avg_duration_ms`,
 Task-status SSE payloads include the following optional estimate metadata:
 
 ```text
-estimated_avg_duration_ms
-estimated_p50_duration_ms
-estimated_p75_duration_ms
-estimated_p90_duration_ms
+estimated_duration_ms_p50
 estimate_sample_count
 ```
 
@@ -182,13 +175,17 @@ can begin a local timer when it receives `InProgress`) and animates locally.
 The server attaches the current measure to lifecycle status events. It does not
 emit synthetic status transitions for measure refreshes.
 
+The server only exposes `estimated_duration_ms_p50` when the timing aggregate
+has at least five successful samples. The aggregate row and sample count remain
+database-side observability data; the sample count is not sent to the browser.
+
 ### Client-side calculation
 
 When the client receives `InProgress`:
 
 1. Record the local start time from the server timestamp.
-2. Read `estimated_p50_duration_ms` from the event.
-3. Animate a determinate bar as `elapsed / estimated_p50_duration_ms`, capped below 100% (for
+2. Read `estimated_duration_ms_p50` from the event.
+3. Animate a determinate bar as `elapsed / estimated_duration_ms_p50`, capped below 100% (for
 	 example at 92%) while work is still running.
 4. Switch to a subtle indeterminate/slow tail after the estimate is exceeded;
 	 never move backward or claim certainty.
