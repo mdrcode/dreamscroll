@@ -33,6 +33,7 @@ document.addEventListener('DOMContentLoaded', function () {
             setupAnnotationEditorCaret(e.target);
         }
     });
+
 });
 
 function setupTaskStatusEvents() {
@@ -65,7 +66,7 @@ function setupTaskStatusEvents() {
             if (document.body.dataset.captureId !== captureId) return;
             const card = document.querySelector('#card-feed [data-snapshot-at]');
             if (!card || !isNewerThanSnapshot(update.timestamp, card.dataset.snapshotAt)) return;
-            window.htmx.ajax('GET', '/detail/' + captureId + '/partial', {
+            window.htmx.ajax('GET', '/detail/' + captureId + '/partial?animate_illumination=true', {
                 target: '#card-feed',
                 swap: 'innerHTML'
             });
@@ -74,7 +75,7 @@ function setupTaskStatusEvents() {
 
         const card = document.getElementById('capture-card-' + captureId);
         if (card && isNewerThanSnapshot(update.timestamp, card.dataset.snapshotAt)) {
-            window.htmx.ajax('GET', '/cards/capture/' + captureId, {
+            window.htmx.ajax('GET', '/cards/capture/' + captureId + '?animate_illumination=true', {
                 source: card,
                 target: card,
                 swap: 'outerHTML'

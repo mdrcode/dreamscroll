@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     response::{Html, IntoResponse, Response},
 };
 use axum_login::AuthSession;
@@ -11,10 +11,16 @@ use crate::{api, auth};
 
 use super::WebState;
 
+#[derive(Debug, serde::Deserialize)]
+pub struct CardParams {
+    animate_illumination: Option<bool>,
+}
+
 pub async fn get(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     Path(id): Path<i32>,
+    Query(params): Query<CardParams>,
 ) -> Result<Response, api::ApiError> {
     let user = auth
         .user
@@ -31,6 +37,10 @@ pub async fn get(
     let mut context = state.template_context();
     context.insert("page_snapshot_at", &page_snapshot_at);
     context.insert("card", &card);
+    context.insert(
+        "animate_illumination",
+        &params.animate_illumination.unwrap_or(false),
+    );
     let rendered = state
         .tera
         .render("partials/card.html.tera", &context)

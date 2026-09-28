@@ -246,6 +246,32 @@ body {
     color: var(--color-text-primary);
 }
 
+.capture-card__illumination {
+    opacity: 1;
+}
+
+.capture-card__illumination.is-revealing {
+    animation: capture-illumination-reveal 600ms ease-out both;
+}
+
+@keyframes capture-illumination-reveal {
+    from {
+        opacity: 0;
+        transform: translateY(4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .capture-card__illumination {
+        animation: none;
+    }
+}
+
 @keyframes task-progress-indeterminate {
     from {
         transform: translateX(-100%);

@@ -19,6 +19,8 @@
         {% set illum = capture.illuminations | first %}
         {% set has_details = illum.details %}
 
+        <div class="capture-card__illumination{% if animate_illumination %} is-revealing{% endif %}">
+
         {% if illum.summary or has_details %}
         <div class="capture-detail-disclosure metadata-card">
             <div class="metadata-card__content capture-card__details-panel">
@@ -36,6 +38,7 @@
             </div>
         </div>
         {% endif %}
+        </div>
         {% endif %}
 
     </div>
