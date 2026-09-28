@@ -107,7 +107,7 @@ estimate rather than hard-coded lifecycle percentages.
 
 ### Estimate population
 
-- Keep the most recent 100 successful `success_duration_ms` values.
+- Keep the most recent 30 successful `success_duration_ms` values.
 - Scope the population by `task_type` initially (`illumination`), not by user or
 	entity. This gives enough samples sooner and avoids leaking user-specific data.
 - Exclude failed attempts, queue wait, and the current in-progress run.
@@ -126,7 +126,7 @@ WHERE task_type = $1
 	AND status_code = <CompleteSuccess>
 	AND success_duration_ms IS NOT NULL
 ORDER BY updated_at DESC
-LIMIT 100;
+LIMIT 30;
 ```
 
 PostgreSQL calculates average and ordered-set percentiles over the bounded
@@ -135,7 +135,7 @@ result set.
 ### Refresh policy
 
 For the first implementation, recompute the affected estimate after each
-relevant task-run update. The source query is bounded to the most recent 100
+relevant task-run update. The source query is bounded to the most recent 30
 relevant rows, and the result is stored in a single update-in-place measure row
 for use by clients. `InProgress` refreshes `queue_wait`; `CompleteSuccess`
 refreshes `processing_successful`; other statuses do not refresh a measure.

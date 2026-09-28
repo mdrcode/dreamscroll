@@ -7,6 +7,7 @@ use crate::{database, model};
 /// Minimum successful samples required before exposing a processing estimate
 /// to clients. The aggregate remains stored with fewer samples.
 pub const MINIMUM_CLIENT_ESTIMATE_SAMPLES: i64 = 5;
+const TIMING_SAMPLE_LIMIT: i64 = 30;
 
 #[derive(Clone, Copy, Debug, Display, Eq, PartialEq, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
@@ -57,7 +58,7 @@ pub async fn get_timing_estimate(
         })
 }
 
-/// Recalculate one update-in-place timing aggregate from the most recent 100
+/// Recalculate one update-in-place timing aggregate from the most recent 30
 /// relevant task-run rows.
 pub async fn refresh_timing_measures<T: Task>(
     db: &database::DbHandle,
@@ -79,7 +80,7 @@ pub async fn refresh_timing_measures<T: Task>(
         return Ok(());
     };
     let sql = format!(
-        "WITH recent AS (SELECT {duration} AS duration_ms FROM task_run_status WHERE task_type = $1 AND {filter} ORDER BY updated_at DESC LIMIT 100) SELECT COUNT(*)::BIGINT AS sample_count, COALESCE(ROUND(AVG(duration_ms)), 0)::BIGINT AS duration_ms_avg, COALESCE(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p50, COALESCE(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p75, COALESCE(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p90 FROM recent"
+        "WITH recent AS (SELECT {duration} AS duration_ms FROM task_run_status WHERE task_type = $1 AND {filter} ORDER BY updated_at DESC LIMIT {TIMING_SAMPLE_LIMIT}) SELECT COUNT(*)::BIGINT AS sample_count, COALESCE(ROUND(AVG(duration_ms)), 0)::BIGINT AS duration_ms_avg, COALESCE(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p50, COALESCE(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p75, COALESCE(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p90 FROM recent"
     );
     let statement = sea_orm::Statement::from_sql_and_values(
         DatabaseBackend::Postgres,

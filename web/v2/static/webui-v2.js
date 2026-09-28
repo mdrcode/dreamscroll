@@ -277,9 +277,14 @@ function setupTaskProgress() {
             const estimatedPercent = Math.min(92, (elapsed / state.estimatedDurationMs) * 100);
             state.percent = Math.max(state.percent, estimatedPercent);
             show(captureId, state.percent, state.percent >= 92
-                ? 'Taking a little longer than usual...'
-                : 'Illuminating...', state.percent >= 92, true);
+                ? 'Illuminating (longer than est.)...'
+                : 'Illuminating (est. ' + formatDuration(state.estimatedDurationMs) + ')',
+                state.percent >= 92, true);
         }, 500);
+    }
+
+    function formatDuration(durationMs) {
+        return Math.max(1, Math.ceil(durationMs / 1000)) + 's';
     }
 
     function renderState(captureId, state) {
@@ -352,7 +357,9 @@ function setupTaskProgress() {
                 state.estimatedDurationMs = Number(update.payload.estimated_duration_ms_p50);
                 if (Number.isFinite(state.estimatedDurationMs) && state.estimatedDurationMs > 0) {
                     animateEstimatedProgress(captureId, state);
-                    show(captureId, Math.max(state.percent, 12), 'Illuminating...', false, true);
+                    show(captureId, Math.max(state.percent, 12),
+                        'Illuminating (est. ' + formatDuration(state.estimatedDurationMs) + ')',
+                        false, true);
                 } else {
                     show(captureId, Math.max(state.percent, 48), 'Illuminating...', true, true);
                 }
