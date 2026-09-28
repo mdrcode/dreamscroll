@@ -87,20 +87,21 @@ This keeps timing invariants next to the existing attempts/status invariants and
 
 These timings provide a useful first estimate but not true percentage completion:
 
-- **Queued:** show indeterminate progress, or elapsed queue time against a queue-wait estimate.
+- **Queued:** show a queued-for-illumination message without a progress bar.
 - **InProgress:** estimate remaining time from historical successful processing durations for the same task type, ideally using a rolling median/percentile rather than the last run.
 - **Retrying:** show that the attempt failed and is queued again; do not reset the overall UI state to zero.
-- **Success/failure:** show 100%/terminal state.
+- **Success:** hide the progress UI. **Failure:** show a temporary failure message.
 
 A single `success_duration_ms` on the current run is not enough to estimate progress for that same run before completion. The estimate uses aggregate measures from prior completed runs. This is separate from the status enum.
 
 The current UI renders progress inside each capture card, so multiple
 simultaneously processing captures have independent bars. It uses p50 when
 available, caps live progress at 92%, and switches to an indeterminate
-long-tail state after the estimate is exceeded. It falls back to an
-indeterminate bar when no estimate exists.
+long-tail state after the estimate is exceeded. It uses an indeterminate bar
+while processing when no estimate exists. Queued and retrying states show
+message-only UI; successful completion hides the UI immediately.
 
-## 6.1 Empirical duration estimator proposal
+## 6.1 Empirical duration estimator
 
 The next iteration should use recent successful processing durations as an empirical
 estimate rather than hard-coded lifecycle percentages.
@@ -114,8 +115,8 @@ estimate rather than hard-coded lifecycle percentages.
 - Prefer the median as the central estimate. A mean is too sensitive to an
 	occasional slow LLM/API call. Later, a p75 or p90 can provide a more honest
 	"likely complete by" bound.
-- Require a minimum sample count before using a determinate estimate (for
-	example, 5 or 10). Until then, retain the indeterminate bar.
+- Require five successful samples before using a determinate estimate. Until
+	 then, retain the indeterminate processing bar.
 
 The query would conceptually be:
 
@@ -151,7 +152,7 @@ Use the database-backed `task_run_timing` measure keyed by
 `TaskTimingMeasure` value `queue_wait` or `processing_successful`. It stores `sample_count`, `avg`,
 `p50`, `p75`, `p90`, and `updated_at`. It is aggregate metadata, not a lifecycle
 fact about one run, and is updated in place rather than recorded as history.
-Each relevant task-run update selects the latest 100 source rows, computes the
+Each relevant task-run update selects the latest 30 source rows, computes the
 aggregates in PostgreSQL, and upserts the corresponding measure row. The
 operations are `queue_wait` and `processing_successful`; the source durations are respectively
 `processing_started_at - created_at` and `success_duration_ms`.
@@ -166,7 +167,6 @@ Task-status SSE payloads include the following optional estimate metadata:
 
 ```text
 estimated_duration_ms_p50
-estimate_sample_count
 ```
 
 The existing status event can carry this because the client needs the estimate
@@ -192,7 +192,8 @@ When the client receives `InProgress`:
 	 capture card so concurrent captures do not share progress.
 4. Switch to a subtle indeterminate/slow tail after the estimate is exceeded;
 	 never move backward or claim certainty.
-5. Set 100% only for `CompleteSuccess` or `CompleteFailure`.
+5. Hide the UI on `CompleteSuccess`; show a temporary message on
+	`CompleteFailure`.
 
 This gives a live bar correlated with empirical history while honestly handling
 long-tail tasks. Queue time should remain a separate queued state and should not
