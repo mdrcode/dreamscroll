@@ -44,7 +44,7 @@ impl TaskRunTracker {
             .await;
         match result {
             Ok(row) => {
-                timing::refresh_measure::<T>(&self.db, TaskRunStatus::Queued).await?;
+                timing::refresh_timing_measures::<T>(&self.db, TaskRunStatus::Queued).await?;
                 self.notify_status(envelope, &row.into()).await;
                 Ok(true)
             }
@@ -86,7 +86,7 @@ impl TaskRunTracker {
             return Ok(());
         };
 
-        timing::refresh_measure::<T>(&self.db, status).await?;
+        timing::refresh_timing_measures::<T>(&self.db, status).await?;
         self.notify_status(envelope, &row).await;
         Ok(())
     }
@@ -126,7 +126,7 @@ impl TaskRunTracker {
             );
             return Ok(());
         };
-        timing::refresh_measure::<T>(&self.db, TaskRunStatus::InProgress).await?;
+        timing::refresh_timing_measures::<T>(&self.db, TaskRunStatus::InProgress).await?;
         self.notify_status(envelope, &row).await;
         Ok(())
     }
@@ -176,7 +176,7 @@ impl TaskRunTracker {
             .filter(model::task_run_status::Column::Run.eq(envelope.run))
             .exec_with_returning(&self.db.conn)
             .await?;
-        timing::refresh_measure::<T>(&self.db, status).await?;
+        timing::refresh_timing_measures::<T>(&self.db, status).await?;
         let Some(row) = rows.into_iter().next().map(Into::into) else {
             tracing::warn!(
                 envelope = ?envelope,
@@ -197,7 +197,7 @@ impl TaskRunTracker {
             return;
         };
 
-        let estimate = timing::measure(
+        let estimate = timing::get_timing_estimate(
             &self.db,
             T::task_type(),
             timing::TaskTimingMeasure::ProcessingSuccessful,
@@ -595,7 +595,7 @@ mod tests {
             .await
             .unwrap();
 
-        let measure = timing::measure(
+        let measure = timing::get_timing_estimate(
             &tracker.db,
             "test",
             timing::TaskTimingMeasure::ProcessingSuccessful,
@@ -632,7 +632,7 @@ mod tests {
             .await
             .unwrap();
 
-        let measure = timing::measure(
+        let measure = timing::get_timing_estimate(
             &tracker.db,
             "test",
             timing::TaskTimingMeasure::ProcessingSuccessful,

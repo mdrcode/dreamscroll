@@ -94,9 +94,11 @@ These timings provide a useful first estimate but not true percentage completion
 
 A single `success_duration_ms` on the current run is not enough to estimate progress for that same run before completion. The estimate uses aggregate measures from prior completed runs. This is separate from the status enum.
 
-The current UI uses p50 when available, caps live progress at 92%, and switches
-to an indeterminate long-tail state after the estimate is exceeded. It falls
-back to an indeterminate bar when no estimate exists.
+The current UI renders progress inside each capture card, so multiple
+simultaneously processing captures have independent bars. It uses p50 when
+available, caps live progress at 92%, and switches to an indeterminate
+long-tail state after the estimate is exceeded. It falls back to an
+indeterminate bar when no estimate exists.
 
 ## 6.1 Empirical duration estimator proposal
 
@@ -186,7 +188,8 @@ When the client receives `InProgress`:
 1. Record the local start time from the server timestamp.
 2. Read `estimated_duration_ms_p50` from the event.
 3. Animate a determinate bar as `elapsed / estimated_duration_ms_p50`, capped below 100% (for
-	 example at 92%) while work is still running.
+	 example at 92%) while work is still running. Keep this state scoped to the
+	 capture card so concurrent captures do not share progress.
 4. Switch to a subtle indeterminate/slow tail after the estimate is exceeded;
 	 never move backward or claim certainty.
 5. Set 100% only for `CompleteSuccess` or `CompleteFailure`.

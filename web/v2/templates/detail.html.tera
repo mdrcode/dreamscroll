@@ -55,11 +55,6 @@
             <div id="upload-progress-text">0%</div>
         </div>
 
-        <div id="task-progress" aria-live="polite" aria-label="Illumination progress" hidden>
-            <div id="task-progress-track"><div id="task-progress-bar"></div></div>
-            <div id="task-progress-text">Preparing illumination...</div>
-        </div>
-
         <div id="upload-notice" class="feed-card" hidden aria-live="polite" aria-label="Upload result">
             <p class="capture-card__summary" id="upload-notice-message"></p>
         </div>

@@ -20,6 +20,9 @@ document.addEventListener('DOMContentLoaded', function () {
         if (e.target && e.target.id === 'card-feed') {
             setupCaptureExpandToggle(e.target);
             setupMetadataCardExpandToggle(e.target);
+            if (window.dreamscrollTaskProgress) {
+                window.dreamscrollTaskProgress.refresh();
+            }
         }
 
         if (e.target && e.target.id === 'related-captures') {
@@ -218,83 +221,165 @@ function setupTaskStatusEvents() {
     armIdleClose();
 }
 
-// Rough, client-only lifecycle progress. Percentages represent milestones,
-// not measured work completed inside the AI task.
+// Client-side estimated progress, scoped to each capture card. The percentage
+// represents elapsed time against the server's empirical p50 estimate; it is
+// not a measurement of work completed inside the AI task.
 function setupTaskProgress() {
-    const wrap = document.getElementById('task-progress');
-    const bar = document.getElementById('task-progress-bar');
-    const text = document.getElementById('task-progress-text');
-    if (!wrap || !bar || !text) return;
+    const states = new Map();
 
-    let captureId = null;
-    let hideTimer = null;
-    let progressTimer = null;
-    let processingStartedAt = null;
-    let estimatedDurationMs = null;
-
-    function show(percent, label, indeterminate) {
-        wrap.hidden = false;
-        wrap.classList.toggle('is-indeterminate', indeterminate);
-        bar.style.width = percent + '%';
-        text.textContent = label;
+    function elementsFor(captureId) {
+        const card = document.getElementById('capture-card-' + captureId);
+        if (!card) return null;
+        const wrap = card.querySelector('[data-capture-task-progress]');
+        if (!wrap) return null;
+        return {
+            wrap: wrap,
+            bar: wrap.querySelector('.capture-card__task-progress-bar'),
+            text: wrap.querySelector('.capture-card__task-progress-text')
+        };
     }
 
-    function hideSoon() {
-        if (hideTimer) window.clearTimeout(hideTimer);
-        if (progressTimer) window.clearInterval(progressTimer);
-        hideTimer = window.setTimeout(function () {
-            wrap.hidden = true;
-            wrap.classList.remove('is-indeterminate');
-            captureId = null;
-            processingStartedAt = null;
-            estimatedDurationMs = null;
+    function show(captureId, percent, label, indeterminate, showBar) {
+        const elements = elementsFor(captureId);
+        if (!elements || !elements.bar || !elements.text) return;
+        elements.wrap.hidden = false;
+        elements.wrap.classList.toggle('is-indeterminate', indeterminate);
+        elements.wrap.classList.toggle('is-message-only', !showBar);
+        elements.bar.style.width = percent + '%';
+        elements.text.textContent = label;
+    }
+
+    function stopTimer(state) {
+        if (state.progressTimer) {
+            window.clearInterval(state.progressTimer);
+            state.progressTimer = null;
+        }
+    }
+
+    function hideSoon(captureId, state) {
+        stopTimer(state);
+        if (state.hideTimer) window.clearTimeout(state.hideTimer);
+        state.hideTimer = window.setTimeout(function () {
+            const elements = elementsFor(captureId);
+            if (elements) {
+                elements.wrap.hidden = true;
+                elements.wrap.classList.remove('is-indeterminate');
+            }
+            states.delete(captureId);
         }, 1800);
     }
 
-    function animateEstimatedProgress() {
-        if (!processingStartedAt || !estimatedDurationMs) return;
-        if (progressTimer) window.clearInterval(progressTimer);
-        progressTimer = window.setInterval(function () {
-            const elapsed = Math.max(0, Date.now() - processingStartedAt);
-            const estimatedPercent = Math.min(92, (elapsed / estimatedDurationMs) * 100);
-            show(estimatedPercent, estimatedPercent >= 92
+    function animateEstimatedProgress(captureId, state) {
+        if (!state.processingStartedAt || !state.estimatedDurationMs) return;
+        stopTimer(state);
+        state.progressTimer = window.setInterval(function () {
+            const elapsed = Math.max(0, Date.now() - state.processingStartedAt);
+            const estimatedPercent = Math.min(92, (elapsed / state.estimatedDurationMs) * 100);
+            state.percent = Math.max(state.percent, estimatedPercent);
+            show(captureId, state.percent, state.percent >= 92
                 ? 'Taking a little longer than usual...'
-                : 'Illuminating...', estimatedPercent >= 92);
+                : 'Illuminating...', state.percent >= 92, true);
         }, 500);
+    }
+
+    function renderState(captureId, state) {
+        if (state.status === 'queued') {
+            show(captureId, state.percent, 'Queued for illumination...', true, false);
+        } else if (state.status === 'in_progress') {
+            show(captureId, state.percent, state.percent >= 92
+                ? 'Taking a little longer than usual...'
+                : 'Illuminating...', state.percent >= 92, true);
+        } else if (state.status === 'error_will_retry') {
+            show(captureId, state.percent, 'Retrying illumination...', true, false);
+        } else if (state.status === 'complete_failure') {
+            show(captureId, state.percent, 'Illumination failed.', false, false);
+        }
     }
 
     window.dreamscrollTaskProgress = {
         start: function (newCaptureId) {
-            captureId = String(newCaptureId);
-            processingStartedAt = null;
-            estimatedDurationMs = null;
-            show(12, 'Queued for illumination...', true);
+            const captureId = String(newCaptureId);
+            const existingState = states.get(captureId);
+            if (existingState) {
+                if (existingState.status === 'in_progress' && existingState.progressTimer === null) {
+                    animateEstimatedProgress(captureId, existingState);
+                }
+                renderState(captureId, existingState);
+                return;
+            }
+            const state = {
+                percent: 12,
+                status: 'queued',
+                processingStartedAt: null,
+                estimatedDurationMs: null,
+                progressTimer: null,
+                hideTimer: null
+            };
+            states.set(captureId, state);
+            show(captureId, state.percent, 'Queued for illumination...', true, false);
         },
         accept: function (update) {
-            if (!captureId || !update || String(update.entity_id) !== captureId) return;
+            if (!update || String(update.entity_id) === 'undefined') return;
+            const captureId = String(update.entity_id);
             const name = update.payload && update.payload.status && update.payload.status.name;
+            let state = states.get(captureId);
+
+            // Catch-up includes the latest status for every capture. Terminal
+            // statuses should not create transient UI during a page load.
+            if (!state && (name === 'complete_success' || name === 'complete_failure')) {
+                return;
+            }
+
+            if (!state && name !== 'queued' && name !== 'in_progress' && name !== 'error_will_retry') return;
+
+            if (!state) {
+                state = {
+                    percent: 0,
+                    status: null,
+                    processingStartedAt: null,
+                    estimatedDurationMs: null,
+                    progressTimer: null,
+                    hideTimer: null
+                };
+                states.set(captureId, state);
+            }
+            state.status = name;
             if (name === 'queued') {
-                show(12, 'Queued for illumination...', true);
+                state.percent = Math.max(state.percent, 12);
+                show(captureId, state.percent, 'Queued for illumination...', true, false);
             } else if (name === 'in_progress') {
-                processingStartedAt = Date.parse(update.payload.processing_started_at || '') || Date.now();
-                estimatedDurationMs = Number(update.payload.estimated_duration_ms_p50);
-                if (Number.isFinite(estimatedDurationMs) && estimatedDurationMs > 0) {
-                    animateEstimatedProgress();
+                state.processingStartedAt = Date.parse(update.payload.processing_started_at || '') || Date.now();
+                state.estimatedDurationMs = Number(update.payload.estimated_duration_ms_p50);
+                if (Number.isFinite(state.estimatedDurationMs) && state.estimatedDurationMs > 0) {
+                    animateEstimatedProgress(captureId, state);
+                    show(captureId, Math.max(state.percent, 12), 'Illuminating...', false, true);
                 } else {
-                    show(48, 'Illuminating...', true);
+                    show(captureId, Math.max(state.percent, 48), 'Illuminating...', true, true);
                 }
             } else if (name === 'error_will_retry') {
-                if (progressTimer) window.clearInterval(progressTimer);
-                show(58, 'Retrying illumination...', true);
+                stopTimer(state);
+                show(captureId, state.percent, 'Retrying illumination...', true, false);
             } else if (name === 'complete_success') {
-                if (progressTimer) window.clearInterval(progressTimer);
-                show(100, 'Illumination complete.', false);
-                hideSoon();
+                stopTimer(state);
+                const elements = elementsFor(captureId);
+                if (elements) {
+                    elements.wrap.hidden = true;
+                    elements.wrap.classList.remove('is-indeterminate', 'is-message-only');
+                }
+                states.delete(captureId);
             } else if (name === 'complete_failure') {
-                if (progressTimer) window.clearInterval(progressTimer);
-                show(100, 'Illumination failed.', false);
-                hideSoon();
+                stopTimer(state);
+                show(captureId, state.percent, 'Illumination failed.', false, false);
+                hideSoon(captureId, state);
             }
+        },
+        refresh: function () {
+            states.forEach(function (state, captureId) {
+                if (state.status === 'in_progress' && state.progressTimer === null) {
+                    animateEstimatedProgress(captureId, state);
+                }
+                renderState(captureId, state);
+            });
         }
     };
 }

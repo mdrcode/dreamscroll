@@ -1,39 +1,40 @@
 use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, Set};
 use strum::{AsRefStr, Display};
 
-use crate::{database, model};
 use super::{Task, TaskRunStatus};
+use crate::{database, model};
+
+/// Minimum successful samples required before exposing a processing estimate
+/// to clients. The aggregate remains stored with fewer samples.
+pub const MINIMUM_CLIENT_ESTIMATE_SAMPLES: i64 = 5;
 
 #[derive(Clone, Copy, Debug, Display, Eq, PartialEq, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
-pub(crate) enum TaskTimingMeasure {
+pub enum TaskTimingMeasure {
     QueueWait,
     ProcessingSuccessful,
 }
 
 /// Aggregate timing estimate used by task-status events.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct TaskTimingEstimate {
-    pub task_type: String,
-    pub measure: TaskTimingMeasure,
-    pub sample_count: i64,
-    pub duration_ms_avg: i64,
-    pub duration_ms_p50: i64,
-    pub duration_ms_p75: i64,
-    pub duration_ms_p90: i64,
+pub struct TaskTimingEstimate {
+    pub(crate) task_type: String,
+    pub(crate) measure: TaskTimingMeasure,
+    pub(crate) sample_count: i64,
+    pub(crate) duration_ms_avg: i64,
+    pub(crate) duration_ms_p50: i64,
+    pub(crate) duration_ms_p75: i64,
+    pub(crate) duration_ms_p90: i64,
 }
 
-/// Minimum successful samples required before exposing a processing estimate
-/// to clients. The aggregate remains stored with fewer samples.
-const MINIMUM_CLIENT_ESTIMATE_SAMPLES: i64 = 5;
-
 impl TaskTimingEstimate {
-    pub(crate) fn client_processing_duration_ms(&self) -> Option<i64> {
+    /// Return the processing estimate when enough history makes it useful to clients.
+    pub fn client_processing_duration_ms(&self) -> Option<i64> {
         (self.sample_count >= MINIMUM_CLIENT_ESTIMATE_SAMPLES).then_some(self.duration_ms_p50)
     }
 }
 
-pub(crate) async fn measure(
+pub async fn get_timing_estimate(
     db: &database::DbHandle,
     task_type: &str,
     operation_type: TaskTimingMeasure,
@@ -58,7 +59,7 @@ pub(crate) async fn measure(
 
 /// Recalculate one update-in-place timing aggregate from the most recent 100
 /// relevant task-run rows.
-pub(crate) async fn refresh_measure<T: Task>(
+pub async fn refresh_timing_measures<T: Task>(
     db: &database::DbHandle,
     status: TaskRunStatus,
 ) -> anyhow::Result<()> {

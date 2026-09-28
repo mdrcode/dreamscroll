@@ -6,6 +6,11 @@
     </div>
 
     <div class="capture-card__body">
+        <div class="capture-card__task-progress" data-capture-task-progress hidden aria-live="polite" aria-label="Illumination progress">
+            <div class="capture-card__task-progress-track"><div class="capture-card__task-progress-bar"></div></div>
+            <div class="capture-card__task-progress-text">Preparing illumination...</div>
+        </div>
+
         {% if card.capture.illuminations | length > 0 %}
         {% set illum = card.capture.illuminations | first %}
         {% set has_details = illum.details %}

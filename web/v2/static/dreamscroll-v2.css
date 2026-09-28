@@ -207,16 +207,16 @@ body {
     color: var(--color-text-primary);
 }
 
-#task-progress {
+.capture-card__task-progress {
     width: 100%;
     margin-bottom: 10px;
 }
 
-#task-progress[hidden] {
+.capture-card__task-progress[hidden] {
     display: none;
 }
 
-#task-progress-track {
+.capture-card__task-progress-track {
     width: 100%;
     height: 8px;
     border-radius: 999px;
@@ -224,19 +224,23 @@ body {
     overflow: hidden;
 }
 
-#task-progress-bar {
+.capture-card__task-progress-bar {
     width: 12%;
     height: 100%;
     background: var(--color-stroke);
     transition: width 260ms ease-out;
 }
 
-#task-progress.is-indeterminate #task-progress-bar {
+.capture-card__task-progress.is-indeterminate .capture-card__task-progress-bar {
     width: 35%;
     animation: task-progress-indeterminate 1.2s ease-in-out infinite alternate;
 }
 
-#task-progress-text {
+.capture-card__task-progress.is-message-only .capture-card__task-progress-track {
+    display: none;
+}
+
+.capture-card__task-progress-text {
     margin-top: 3px;
     font-size: 0.75rem;
     color: var(--color-text-primary);

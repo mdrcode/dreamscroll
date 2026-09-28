@@ -1,4 +1,4 @@
-<article data-snapshot-at="{{ page_snapshot_at }}" class="feed-card feed-card--capture capture-card capture-card--detail">
+<article id="capture-card-{{ capture.id }}" data-capture-id="{{ capture.id }}" data-snapshot-at="{{ page_snapshot_at }}" class="feed-card feed-card--capture capture-card capture-card--detail">
     <div class="card-header card-header--detail">
         <p class="metadata-subsection-title">Capture {{ capture.id }}</p>
     </div>
@@ -10,6 +10,11 @@
     </div>
 
     <div class="capture-card__body">
+        <div class="capture-card__task-progress" data-capture-task-progress hidden aria-live="polite" aria-label="Illumination progress">
+            <div class="capture-card__task-progress-track"><div class="capture-card__task-progress-bar"></div></div>
+            <div class="capture-card__task-progress-text">Preparing illumination...</div>
+        </div>
+
         {% if capture.illuminations | length > 0 %}
         {% set illum = capture.illuminations | first %}
         {% set has_details = illum.details %}
