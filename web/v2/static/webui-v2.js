@@ -245,7 +245,7 @@ function setupTaskProgress() {
         elements.wrap.hidden = false;
         elements.wrap.classList.toggle('is-indeterminate', indeterminate);
         elements.wrap.classList.toggle('is-message-only', !showBar);
-        elements.bar.style.width = percent + '%';
+        elements.bar.style.width = indeterminate ? '' : percent + '%';
         elements.text.textContent = label;
     }
 
@@ -943,11 +943,8 @@ function setupUploadInteractions() {
 
         uploadForm.classList.remove('is-uploading');
         filePicker.value = '';
-        hideProgressTimer = window.setTimeout(function () {
-            progressWrap.classList.remove('is-visible');
-            setUploadProgress(0, '0%');
-            hideProgressTimer = null;
-        }, 1400);
+        progressWrap.classList.remove('is-visible');
+        setUploadProgress(0, '0%');
     }
 
     function submitManagedUpload(file) {
@@ -978,7 +975,6 @@ function setupUploadInteractions() {
         xhr.addEventListener('load', function () {
             if (xhr.status >= 200 && xhr.status < 300) {
                 const uploadResult = parseUploadResult(xhr);
-                setUploadProgress(100, 'Processing...');
 
                 if (uploadResult && window.dreamscrollTaskProgress) {
                     window.dreamscrollTaskProgress.start(uploadResult.capture_id);
