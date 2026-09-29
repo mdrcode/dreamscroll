@@ -96,10 +96,10 @@ A single `success_duration_ms` on the current run is not enough to estimate prog
 
 The current UI renders progress inside each capture card, so multiple
 simultaneously processing captures have independent bars. It uses p50 when
-available, caps live progress at 92%, and switches to an indeterminate
-long-tail state after the estimate is exceeded. It uses an indeterminate bar
-while processing when no estimate exists. Queued and retrying states show
-message-only UI; successful completion hides the UI immediately.
+available, caps live progress at 92%, and freezes at that determinate value
+after the estimate is exceeded. It uses an indeterminate bar while processing
+when no estimate exists. Queued and retrying states show message-only UI;
+successful completion hides the UI immediately.
 
 ## 6.1 Empirical duration estimator
 
@@ -190,8 +190,8 @@ When the client receives `InProgress`:
 3. Animate a determinate bar as `elapsed / estimated_duration_ms_p50`, capped below 100% (for
 	 example at 92%) while work is still running. Keep this state scoped to the
 	 capture card so concurrent captures do not share progress.
-4. Switch to a subtle indeterminate/slow tail after the estimate is exceeded;
-	 never move backward or claim certainty.
+4. Freeze at the 92% cap after the estimate is exceeded; never move backward
+	 or claim certainty.
 5. Hide the UI on `CompleteSuccess`; show a temporary message on
 	`CompleteFailure`.
 

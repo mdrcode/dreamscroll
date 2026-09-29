@@ -258,7 +258,7 @@ function setupTaskProgress() {
         };
     }
 
-    function show(captureId, percent, label, indeterminate, showBar) {
+    function show(captureId, label, indeterminate, showBar, percent) {
         const elements = elementsFor(captureId);
         if (!elements || !elements.bar || !elements.text) return;
         elements.wrap.hidden = false;
@@ -291,15 +291,17 @@ function setupTaskProgress() {
     function animateEstimatedProgress(captureId, state) {
         if (!state.processingStartedAt || !state.estimatedDurationMs) return;
         stopTimer(state);
-        state.progressTimer = window.setInterval(function () {
+        const update = function () {
             const elapsed = Math.max(0, Date.now() - state.processingStartedAt);
-            const estimatedPercent = Math.min(92, (elapsed / state.estimatedDurationMs) * 100);
-            state.percent = Math.max(state.percent, estimatedPercent);
-            show(captureId, state.percent, state.percent >= 92
+            state.percent = Math.max(state.percent,
+                Math.min(92, (elapsed / state.estimatedDurationMs) * 100));
+            show(captureId, state.percent >= 92
                 ? 'Illuminating (longer than est.)...'
                 : 'Illuminating (est. ' + formatDuration(state.estimatedDurationMs) + ')',
-                state.percent >= 92, true);
-        }, 500);
+                false, true, state.percent);
+        };
+        update();
+        state.progressTimer = window.setInterval(update, 150);
     }
 
     function formatDuration(durationMs) {
@@ -308,15 +310,21 @@ function setupTaskProgress() {
 
     function renderState(captureId, state) {
         if (state.status === 'queued') {
-            show(captureId, state.percent, 'Queued for illumination...', true, false);
+            show(captureId, 'Queued for illumination...', true, false);
         } else if (state.status === 'in_progress') {
-            show(captureId, state.percent, state.percent >= 92
-                ? 'Taking a little longer than usual...'
-                : 'Illuminating...', state.percent >= 92, true);
+            if (state.estimatedDurationMs > 0) {
+                if (state.progressTimer === null) animateEstimatedProgress(captureId, state);
+                else show(captureId, state.percent >= 92
+                    ? 'Illuminating (longer than est.)...'
+                    : 'Illuminating (est. ' + formatDuration(state.estimatedDurationMs) + ')',
+                    false, true, state.percent);
+            } else {
+                show(captureId, 'Illuminating...', true, true);
+            }
         } else if (state.status === 'error_will_retry') {
-            show(captureId, state.percent, 'Retrying illumination...', true, false);
+            show(captureId, 'Retrying illumination...', true, false);
         } else if (state.status === 'complete_failure') {
-            show(captureId, state.percent, 'Illumination failed.', false, false);
+            show(captureId, 'Illumination failed.', false, false);
         }
     }
 
@@ -325,14 +333,11 @@ function setupTaskProgress() {
             const captureId = String(newCaptureId);
             const existingState = states.get(captureId);
             if (existingState) {
-                if (existingState.status === 'in_progress' && existingState.progressTimer === null) {
-                    animateEstimatedProgress(captureId, existingState);
-                }
                 renderState(captureId, existingState);
                 return;
             }
             const state = {
-                percent: 12,
+                percent: 0,
                 status: 'queued',
                 processingStartedAt: null,
                 estimatedDurationMs: null,
@@ -340,7 +345,7 @@ function setupTaskProgress() {
                 hideTimer: null
             };
             states.set(captureId, state);
-            show(captureId, state.percent, 'Queued for illumination...', true, false);
+            show(captureId, 'Queued for illumination...', true, false);
         },
         accept: function (update) {
             if (!update || String(update.entity_id) === 'undefined') return;
@@ -369,22 +374,18 @@ function setupTaskProgress() {
             }
             state.status = name;
             if (name === 'queued') {
-                state.percent = Math.max(state.percent, 12);
-                show(captureId, state.percent, 'Queued for illumination...', true, false);
+                show(captureId, 'Queued for illumination...', true, false);
             } else if (name === 'in_progress') {
                 state.processingStartedAt = Date.parse(update.payload.processing_started_at || '') || Date.now();
                 state.estimatedDurationMs = Number(update.payload.estimated_duration_ms_p50);
                 if (Number.isFinite(state.estimatedDurationMs) && state.estimatedDurationMs > 0) {
                     animateEstimatedProgress(captureId, state);
-                    show(captureId, Math.max(state.percent, 12),
-                        'Illuminating (est. ' + formatDuration(state.estimatedDurationMs) + ')',
-                        false, true);
                 } else {
-                    show(captureId, Math.max(state.percent, 48), 'Illuminating...', true, true);
+                    show(captureId, 'Illuminating...', true, true);
                 }
             } else if (name === 'error_will_retry') {
                 stopTimer(state);
-                show(captureId, state.percent, 'Retrying illumination...', true, false);
+                show(captureId, 'Retrying illumination...', true, false);
             } else if (name === 'complete_success') {
                 stopTimer(state);
                 const elements = elementsFor(captureId);
@@ -395,15 +396,12 @@ function setupTaskProgress() {
                 states.delete(captureId);
             } else if (name === 'complete_failure') {
                 stopTimer(state);
-                show(captureId, state.percent, 'Illumination failed.', false, false);
+                show(captureId, 'Illumination failed.', false, false);
                 hideSoon(captureId, state);
             }
         },
         refresh: function () {
             states.forEach(function (state, captureId) {
-                if (state.status === 'in_progress' && state.progressTimer === null) {
-                    animateEstimatedProgress(captureId, state);
-                }
                 renderState(captureId, state);
             });
         }
