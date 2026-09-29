@@ -143,12 +143,10 @@ impl provider::StorageProvider for GCloudStorageProvider {
         } else {
             upload
         };
-        upload.send_unbuffered()
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to store object from path in GCS: {:?}", e);
-                anyhow::anyhow!("Failed to store object from path in GCS: {}", e)
-            })?;
+        upload.send_unbuffered().await.map_err(|e| {
+            tracing::error!("Failed to store object from path in GCS: {:?}", e);
+            anyhow::anyhow!("Failed to store object from path in GCS: {}", e)
+        })?;
 
         tracing::debug!(
             "Stored object {} in bucket {}",
