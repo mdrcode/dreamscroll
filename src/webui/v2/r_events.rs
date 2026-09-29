@@ -171,7 +171,7 @@ fn serialize_task_event(update: sse::TaskStatusEvent) -> Result<Event, Infallibl
 }
 
 fn task_event_json(update: &sse::TaskStatusEvent) -> String {
-    let mut data = serde_json::to_value(&update).unwrap_or_default();
+    let mut data = serde_json::to_value(update).unwrap_or_default();
     if let Some(object) = data.as_object_mut() {
         object.remove("user_id");
     }

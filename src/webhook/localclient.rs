@@ -9,6 +9,12 @@ pub struct LocalWebhookClient {
     client: reqwest::Client,
 }
 
+impl Default for LocalWebhookClient {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LocalWebhookClient {
     pub fn new() -> Self {
         Self {

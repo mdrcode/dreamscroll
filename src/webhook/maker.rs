@@ -1,30 +1,15 @@
 use axum::{Router, extract::DefaultBodyLimit, middleware, routing::post};
 use std::sync::Arc;
 
-use crate::{api, ignition, illumination, search, storage, task, telemetry};
+use crate::telemetry;
 
 use super::*;
 
 pub fn make_webhook_router(
-    service_api: api::ServiceApiClient,
-    storage: Box<dyn storage::StorageProvider>,
-    illuminator: Box<dyn illumination::Illuminator>,
-    firestarter: Box<dyn ignition::Firestarter>,
-    embedder: search::gcloud::GeminiEmbedder,
-    vector_store: search::gcloud::VertexVectorStore,
-    task_master: Arc<task::TaskMaster>,
+    state: WebhookState,
     oidc: Option<Arc<google_cloud_auth::credentials::idtoken::verifier::Verifier>>,
 ) -> Router {
-    let state = Arc::new(WebhookState {
-        service_api,
-        stg: storage,
-        illuminator,
-        firestarter,
-        embedder,
-        vector_store,
-        task_master,
-    });
-
+    let state = Arc::new(state);
     // These routes are protected by GCloud OIDC in production, but have no
     // auth locally since they're only called by the local TaskQueue.
     //

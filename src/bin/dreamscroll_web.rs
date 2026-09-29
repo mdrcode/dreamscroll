@@ -143,13 +143,15 @@ async fn main() -> anyhow::Result<()> {
         let webhook_oidc = webhook::oidc_from_config(&cfg)?;
 
         let webhook_router = webhook::make_webhook_router(
-            service_api,
-            stg,
-            illuminator,
-            firestarter,
-            embedder,
-            vector_store,
-            task_master.clone(),
+            webhook::WebhookState {
+                service_api,
+                stg,
+                illuminator,
+                firestarter,
+                embedder,
+                vector_store,
+                task_master: task_master.clone(),
+            },
             webhook_oidc,
         );
 

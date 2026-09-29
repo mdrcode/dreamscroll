@@ -36,11 +36,11 @@ impl TaskRunTracker {
             .set_envelope_id(envelope.envelope_id.as_str())
             .set_run(envelope.run)
             .set_entity_type(T::entity_type())
-            .set_entity_id((&envelope.task).entity_id())
+            .set_entity_id(envelope.task.entity_id())
             .set_user_id(envelope.user_id)
             .set_status_code(TaskRunStatus::Queued.as_i32())
             .set_attempts(0)
-            .insert(&(&self.db).conn)
+            .insert(&self.db.conn)
             .await;
         match result {
             Ok(row) => {
@@ -75,10 +75,10 @@ impl TaskRunTracker {
             )
             .filter(model::task_run_status::Column::EnvelopeId.eq(envelope.envelope_id.as_str()))
             .filter(model::task_run_status::Column::Run.eq(envelope.run))
-            .exec_with_returning(&(&self.db).conn)
+            .exec_with_returning(&self.db.conn)
             .await?;
 
-        let Some(row) = result.into_iter().next().map(Into::into) else {
+        let Some(row) = result.into_iter().next() else {
             tracing::warn!(
                 envelope = ?envelope,
                 "Ignoring task status update because the run row is missing"
@@ -119,7 +119,7 @@ impl TaskRunTracker {
             .exec_with_returning(&self.db.conn)
             .await?;
 
-        let Some(row) = rows.into_iter().next().map(Into::into) else {
+        let Some(row) = rows.into_iter().next() else {
             tracing::warn!(
                 envelope = ?envelope,
                 "Ignoring task status update because the run row is missing"
@@ -177,7 +177,7 @@ impl TaskRunTracker {
             .exec_with_returning(&self.db.conn)
             .await?;
         timing::refresh_timing_measures::<T>(&self.db, status).await?;
-        let Some(row) = rows.into_iter().next().map(Into::into) else {
+        let Some(row) = rows.into_iter().next() else {
             tracing::warn!(
                 envelope = ?envelope,
                 "Ignoring task status update because the run row is missing"
@@ -221,7 +221,7 @@ impl TaskRunTracker {
         let row = model::task_run_status::Entity::find()
             .filter(model::task_run_status::Column::EnvelopeId.eq(envelope_id))
             .order_by_desc(model::task_run_status::Column::Run)
-            .one(&(&self.db).conn)
+            .one(&self.db.conn)
             .await?;
 
         Ok(row)
@@ -236,7 +236,7 @@ impl TaskRunTracker {
         let row = model::task_run_status::Entity::find()
             .filter(model::task_run_status::Column::EnvelopeId.eq(envelope_id))
             .filter(model::task_run_status::Column::Run.eq(run))
-            .one(&(&self.db).conn)
+            .one(&self.db.conn)
             .await?;
 
         Ok(row)
