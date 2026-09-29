@@ -131,13 +131,19 @@ function setupTaskStatusEvents() {
     let idleTimer = null;
     let source = null;
     let lastUserActivityAt = Date.now();
+    let uploadRequiresEvents = false;
 
     // TODO: Revisit this lightweight retry policy if frontend tooling is added.
     // The app intentionally has no Node-based build/test pipeline today; keep
     // this browser-native implementation small until richer client behavior
     // justifies adding one.
-    function connect() {
-        if (source || reconnectTimer !== null || document.visibilityState === 'hidden') return;
+    function connect(force) {
+        if (source || (document.visibilityState === 'hidden' && !force)) return;
+        if (force && reconnectTimer !== null) {
+            window.clearTimeout(reconnectTimer);
+            reconnectTimer = null;
+        }
+        if (reconnectTimer !== null) return;
 
         console.info('Connecting task-status SSE.', eventsUrl);
         source = new EventSource(eventsUrl, { withCredentials: true });
@@ -173,7 +179,7 @@ function setupTaskStatusEvents() {
             console.warn('Task-status SSE unavailable; retrying in', delay, 'ms.');
             reconnectTimer = window.setTimeout(function () {
                 reconnectTimer = null;
-                connect();
+                connect(uploadRequiresEvents);
             }, delay);
         };
     }
@@ -203,6 +209,18 @@ function setupTaskStatusEvents() {
         else armIdleClose();
     }
 
+    window.dreamscrollTaskStatusEvents = {
+        ensureConnected: function () {
+            uploadRequiresEvents = true;
+            lastUserActivityAt = Date.now();
+            if (source) {
+                armIdleClose();
+            } else {
+                connect(true);
+            }
+        }
+    };
+
     ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(function (eventName) {
         window.addEventListener(eventName, onUserInteraction, { passive: true });
     });
@@ -213,12 +231,12 @@ function setupTaskStatusEvents() {
             closeSource();
         } else {
             lastUserActivityAt = Date.now();
-            if (reconnectTimer === null) connect();
+            if (reconnectTimer === null) connect(uploadRequiresEvents);
             armIdleClose();
         }
     });
 
-    connect();
+    connect(false);
     armIdleClose();
 }
 
@@ -951,6 +969,10 @@ function setupUploadInteractions() {
     function submitManagedUpload(file) {
         if (!file || isUploading) {
             return;
+        }
+
+        if (window.dreamscrollTaskStatusEvents) {
+            window.dreamscrollTaskStatusEvents.ensureConnected();
         }
 
         const formData = new FormData();

@@ -435,6 +435,15 @@ streams periodically end even if a tab remains continuously active. The initial
 snapshot is current state, not a transition log; updates remain informational
 hints.
 
+**Operational cost:** every `/events` connection executes the same initial
+catch-up query for its requested capture IDs, even when a reconnect is made by
+the same page and none of those statuses changed. Reconnects therefore repeat
+the database read and can create substantial database churn: repeated stream
+connections produce approximately linear duplicate catch-up query volume over
+time. This is accepted for the current prototype, but a cursor, durable event
+sequence, or another server-side freshness mechanism would be needed to avoid
+that cost.
+
 Activity does not bypass a pending failure backoff: while the server is
 unavailable, scroll/pointer events only refresh the idle clock and do not start
 new connection attempts. A single reconnect timer gates attempts until the
