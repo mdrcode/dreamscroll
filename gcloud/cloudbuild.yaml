@@ -2,14 +2,18 @@
 #
 # Typical manual submit:
 # (bash/zsh):
-# gcloud beta builds submit --config gcloud/cloudbuild.yaml --substitutions=_IMAGE_TAG=$(git rev-parse --short HEAD) --machine-type=e2-highcpu-32 .
+# gcloud beta builds submit --config gcloud/cloudbuild.yaml --substitutions=_IMAGE_TAG=$(git rev-parse HEAD) .
 # (fish):
-# gcloud beta builds submit --config gcloud/cloudbuild.yaml --substitutions=_IMAGE_TAG=(git rev-parse --short HEAD) --machine-type=e2-highcpu-32  .
+# gcloud beta builds submit --config gcloud/cloudbuild.yaml --substitutions=_IMAGE_TAG=(git rev-parse HEAD) .
+#
+# Override the build machine type (default E2_HIGHCPU_32) by adding it to the
+# substitutions, e.g. --substitutions=_IMAGE_TAG=abc1234,_MACHINE_TYPE=E2_HIGHCPU_32
 #
 substitutions:
   _LOCATION: 'us-central1'
   _REPOSITORY: 'dreamscroll-repo'
   _IMAGE_NAME: 'dreamscroll-web'
+  _MACHINE_TYPE: 'E2_HIGHCPU_32'
 
 steps:
   - name: 'gcr.io/cloud-builders/docker'
@@ -26,3 +30,4 @@ images:
 
 options:
   logging: CLOUD_LOGGING_ONLY
+  machineType: '${_MACHINE_TYPE}'
