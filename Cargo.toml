@@ -62,4 +62,3 @@ tracing = "0.1"
 tracing-opentelemetry = "0.33"
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json", "registry"] }
 uuid = { version = "1.26", features = ["v4"] }
-webbrowser = "1.2"

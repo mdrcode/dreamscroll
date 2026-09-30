@@ -3,6 +3,7 @@ use rustls::crypto;
 use tokio::net::TcpListener;
 use tower_http::services::ServeDir;
 use tower_sessions::{Expiry, SessionManagerLayer, cookie};
+use tracing::Instrument;
 
 use dreamscroll::*;
 
@@ -27,6 +28,29 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    let (listener, router, shutdown_tx) = initialize()
+        .instrument(tracing::info_span!("init", service = "dreamscroll_web"))
+        .await?;
+
+    let serve_result = axum::serve(listener, router)
+        .with_graceful_shutdown(shutdown_signal(shutdown_tx))
+        .await;
+
+    if let Some(provider) = trace_provider {
+        tracing::info!("Flushing Cloud Trace spans before shutdown...");
+        if let Err(error) = provider.shutdown() {
+            tracing::error!(error = %error, "Failed to flush Cloud Trace spans");
+        }
+    }
+
+    serve_result.context("Axum failed to serve routes")?;
+
+    Ok(())
+}
+
+/// Loads config and wires up dependencies and routes
+async fn initialize()
+-> anyhow::Result<(TcpListener, axum::Router, tokio::sync::watch::Sender<bool>)> {
     let cfg = config::make()?;
 
     if cfg.services.is_empty() {
@@ -168,20 +192,7 @@ async fn main() -> anyhow::Result<()> {
         host_port,
         cfg.services
     );
-    let serve_result = axum::serve(listener, router)
-        .with_graceful_shutdown(shutdown_signal(shutdown_tx))
-        .await;
-
-    if let Some(provider) = trace_provider {
-        tracing::info!("Flushing Cloud Trace spans before shutdown...");
-        if let Err(error) = provider.shutdown() {
-            tracing::error!(error = %error, "Failed to flush Cloud Trace spans");
-        }
-    }
-
-    serve_result.context("Axum failed to serve routes")?;
-
-    Ok(())
+    Ok((listener, router, shutdown_tx))
 }
 
 // Cloud Run sends SIGTERM, so simply relying on tokio's ctrl_c() is inadequate

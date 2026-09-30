@@ -1,14 +1,12 @@
-# Build with both `latest` and an immutable tag.
+# Build the image with an immutable tag.
 #
-# Typical manual usage:
+# Typical manual submit:
 # (bash/zsh):
-# gcloud builds submit --config cloudbuild.yaml --substitutions=_IMAGE_TAG=$(git rev-parse --short HEAD)
+# gcloud beta builds submit --config gcloud/cloudbuild.yaml --substitutions=_IMAGE_TAG=$(git rev-parse --short HEAD) --machine-type=e2-highcpu-32 .
 # (fish):
-# gcloud builds submit --config cloudbuild.yaml --substitutions=_IMAGE_TAG=(git rev-parse --short HEAD)
+# gcloud beta builds submit --config gcloud/cloudbuild.yaml --substitutions=_IMAGE_TAG=(git rev-parse --short HEAD) --machine-type=e2-highcpu-32  .
 #
-# If substitutions are not provided, defaults below are used.
 substitutions:
-  _IMAGE_TAG: 'manual'
   _LOCATION: 'us-central1'
   _REPOSITORY: 'dreamscroll-repo'
   _IMAGE_NAME: 'dreamscroll-web'
@@ -20,11 +18,8 @@ steps:
       - '--platform'
       - 'linux/amd64'
       - '-t'
-      - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:latest'
-      - '-t'
       - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}'
       - '.'
 
 images:
-  - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:latest'
   - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}'

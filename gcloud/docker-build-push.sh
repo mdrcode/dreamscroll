@@ -29,10 +29,7 @@ IMAGE_BASE="$LOCATION-docker.pkg.dev/$PROJECT/$REPO/$IMAGE_NAME"
 
 docker build --platform linux/amd64 \
 	-f "$REPO_ROOT/Dockerfile" \
-	-t "$IMAGE_BASE:latest" \
 	-t "$IMAGE_BASE:$TAG" \
 	"$REPO_ROOT"
-
-docker push "$IMAGE_BASE:latest"
 
 docker push "$IMAGE_BASE:$TAG"

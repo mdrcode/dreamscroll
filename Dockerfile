@@ -22,7 +22,7 @@ RUN mkdir -p src/bin \
 # Step 2: Copy real source and rebuild (reuses dep cache)
 COPY src ./src/
 RUN touch src/lib.rs src/bin/dreamscroll_web.rs \
-    && cargo build --release --bin dreamscroll_web --bin dreamscroll_api --bin dreamscroll_admin
+    && cargo build --release --bin dreamscroll_web
 
 # Runtime stage
 FROM debian:trixie-slim
@@ -34,9 +34,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean
 
 COPY --from=builder /app/target/release/dreamscroll_web /app/dreamscroll_web
-COPY --from=builder /app/target/release/dreamscroll_api /app/dreamscroll_api
-COPY --from=builder /app/target/release/dreamscroll_admin /app/dreamscroll_admin
-COPY web/v1 /app/web/v1
 COPY web/v2 /app/web/v2
 
 # Create non-root user
