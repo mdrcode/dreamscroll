@@ -108,27 +108,38 @@ function setupTaskStatusEvents() {
             || status.name === 'complete_failure';
     }
 
-    const captureIds = new Set();
-    if (mode === 'detail' && document.body.dataset.captureId) {
-        captureIds.add(document.body.dataset.captureId);
-    }
-    if (mode === 'feed') {
-        document.querySelectorAll('[data-capture-id]').forEach(function (node) {
-            if (node.dataset.captureId) captureIds.add(node.dataset.captureId);
-        });
+    function captureIdsForCatchup() {
+        const captureIds = new Set();
+        if (mode === 'feed') {
+            document.querySelectorAll('[data-capture-id]').forEach(function (node) {
+                if (node.dataset.captureId) captureIds.add(node.dataset.captureId);
+            });
+        } else if (document.body.dataset.captureId) {
+            captureIds.add(document.body.dataset.captureId);
+        }
+        if (window.dreamscrollTaskProgress) {
+            window.dreamscrollTaskProgress.captureIds().forEach(function (id) {
+                captureIds.add(id);
+            });
+        }
+        return Array.from(captureIds);
     }
 
-    const params = new URLSearchParams();
-    if (captureIds.size > 0) {
-        params.set('capture_ids', Array.from(captureIds).join(','));
+    function eventsUrlForConnection() {
+        const captureIds = captureIdsForCatchup();
+        if (captureIds.length === 0) return '/events';
+        const params = new URLSearchParams();
+        params.set('capture_ids', captureIds.join(','));
+        return '/events?' + params.toString();
     }
-    const eventsUrl = '/events' + (captureIds.size > 0 ? '?' + params.toString() : '');
+
     const baseRetryMs = 1000;
     const maxRetryMs = 60000;
     const idleCloseMs = 5 * 60 * 1000;
     let retryAttempt = 0;
     let reconnectTimer = null;
     let idleTimer = null;
+    let resumeTimer = null;
     let source = null;
     let lastUserActivityAt = Date.now();
     let uploadRequiresEvents = false;
@@ -138,13 +149,14 @@ function setupTaskStatusEvents() {
     // this browser-native implementation small until richer client behavior
     // justifies adding one.
     function connect(force) {
-        if (source || (document.visibilityState === 'hidden' && !force)) return;
+        if (source || document.visibilityState === 'hidden') return;
         if (force && reconnectTimer !== null) {
             window.clearTimeout(reconnectTimer);
             reconnectTimer = null;
         }
         if (reconnectTimer !== null) return;
 
+        const eventsUrl = eventsUrlForConnection();
         console.info('Connecting task-status SSE.', eventsUrl);
         source = new EventSource(eventsUrl, { withCredentials: true });
         const currentSource = source;
@@ -173,6 +185,8 @@ function setupTaskStatusEvents() {
             currentSource.close();
             source = null;
 
+            if (document.visibilityState === 'hidden') return;
+
             const exponentialDelay = Math.min(maxRetryMs, baseRetryMs * (2 ** retryAttempt));
             const delay = Math.round(exponentialDelay * (0.8 + Math.random() * 0.4));
             retryAttempt += 1;
@@ -190,6 +204,20 @@ function setupTaskStatusEvents() {
             source = null;
             oldSource.close();
         }
+    }
+
+    function resumeInForeground() {
+        if (document.visibilityState === 'hidden' || resumeTimer !== null) return;
+        // visibilitychange, pageshow, and online can all fire during one
+        // foreground transition. Coalesce them into one reconnect/reconcile.
+        resumeTimer = window.setTimeout(function () {
+            resumeTimer = null;
+            if (document.visibilityState === 'hidden') return;
+            closeSource();
+            lastUserActivityAt = Date.now();
+            connect(reconnectTimer !== null);
+            armIdleClose();
+        }, 0);
     }
 
     function armIdleClose() {
@@ -226,15 +254,24 @@ function setupTaskStatusEvents() {
     });
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'hidden') {
+            if (resumeTimer !== null) window.clearTimeout(resumeTimer);
+            resumeTimer = null;
             if (idleTimer !== null) window.clearTimeout(idleTimer);
             idleTimer = null;
             closeSource();
+            if (reconnectTimer !== null) {
+                window.clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
         } else {
-            lastUserActivityAt = Date.now();
-            if (reconnectTimer === null) connect(uploadRequiresEvents);
-            armIdleClose();
+            resumeInForeground();
         }
     });
+
+    window.addEventListener('pageshow', function (event) {
+        if (event.persisted) resumeInForeground();
+    });
+    window.addEventListener('online', resumeInForeground);
 
     connect(false);
     armIdleClose();
@@ -408,6 +445,9 @@ function setupTaskProgress() {
             states.forEach(function (state, captureId) {
                 renderState(captureId, state);
             });
+        },
+        captureIds: function () {
+            return Array.from(states.keys());
         }
     };
 }

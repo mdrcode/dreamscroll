@@ -1,10 +1,11 @@
 # Real-time Task Status via SSE — Design
 
 **Status:** Task-status SSE is wired as one authenticated stream per page.
-`capture_ids` selects a one-time initial status snapshot in the SSE response;
+`capture_ids` selects a current-status snapshot each time a stream connects;
 after that snapshot, the same connection receives all live task-status events
-for the authenticated user. Entity availability has a wire type but no producer
-or client behavior yet.
+for the authenticated user. The browser refreshes the catch-up IDs on foreground
+resume and replaces stale streams. Entity availability has a wire type but no
+producer or client behavior yet.
 **Scope:** Relay best-effort, low-latency **background-task status hints** to
 HTMX clients over Server-Sent Events. This is informational UI feedback, not a
 workflow engine, durable change log, or source of truth for task orchestration.
@@ -449,17 +450,66 @@ unavailable, scroll/pointer events only refresh the idle clock and do not start
 new connection attempts. A single reconnect timer gates attempts until the
 scheduled backoff expires.
 
+#### Mobile foreground/resume recovery
+
+The stream is foreground-only. On iOS and other mobile platforms, switching to
+another app can suspend the page, JavaScript timers, and network activity. The
+backend task continues independently; SSE is not a background-delivery channel,
+and keep-alive comments cannot make a suspended page process events. On return,
+`visibilitychange` is the normal signal to reconnect, but a suspended/restored
+page may retain a stale `EventSource` reference if lifecycle cleanup did not run
+before suspension. Since the current `connect()` path refuses to connect while
+that reference is non-null, it can fail to establish a healthy stream until a
+later transport error or user interaction clears it.
+
+Reconnect alone is also insufficient for full UI recovery: the catch-up
+snapshot covers only `capture_ids` from the initial page load. Captures uploaded
+after that URL was created can miss terminal status notifications while the
+page is suspended and are not included in the reconnect snapshot. The event
+stream is a best-effort hint, not a replay log, so a missed transition must be
+reconciled from current persisted task status.
+
+**Implemented recovery behavior:**
+
+1. When the page becomes visible again, force a clean stream replacement:
+  close any existing `EventSource`, cancel any pending reconnect timer, and
+  reconnect once the document is visible. Handle `visibilitychange` and
+  `pageshow` through a shared, coalesced resume path; `pageshow` covers mobile
+  pages restored from a frozen state or the back-forward cache. Consider
+  `online` as an additional prompt to use that path, not as proof that the
+  stream is already healthy. Preserve exponential backoff for actual
+  connection failures and avoid duplicate simultaneous streams.
+2. On foreground resume, reconcile active upload/task UI against the server's
+  current status, including captures uploaded after the page's initial
+  `capture_ids` snapshot. Reuse the existing authenticated `/events` catch-up
+  snapshot: rebuild its `capture_ids` from the current DOM and locally tracked
+  progress states each time a replacement stream is opened. Do not add a
+  second status endpoint or try to replay every missed transition.
+3. Keep native `EventSource` for low-latency updates while foregrounded.
+  WebSockets do not avoid OS suspension, and a service worker is not a general
+  persistent background-SSE runtime. Any future requirement for notification
+  while the app is closed/backgrounded should be designed separately (for
+  example, web push), rather than relying on a live page connection.
+
+This resume repair is intended to improve recovery without changing the
+best-effort status contract or task execution. The browser can only process the
+catch-up once it resumes in the foreground; until then the card may remain
+stale.
+
 Feed swaps update the DOM and the JS router's possible refresh targets; they do
-not change or reopen the EventSource subscription. The catch-up ID set is fixed
-when the page first opens the stream. Newly displayed entities still receive
-future live hints; statuses already current before they became visible are
-obtained through normal page rendering/refresh.
+not change or reopen the EventSource subscription. The catch-up ID set is
+rebuilt when a stream is opened, including after foreground resume; ordinary
+feed swaps do not reconnect. Newly displayed entities still receive future
+live hints; statuses already current before they became visible are obtained
+through normal page rendering/refresh or the next resume catch-up.
 
 ### 4.5 Initial status catch-up
 
 The same `/events` response begins with the latest task status rows for the
-page's initial capture IDs, then continues as a live user-wide stream. Page-load
-HTML does not need to join task status.
+current capture IDs supplied by the browser, then continues as a live user-wide
+stream. On foreground resume, the browser rebuilds that ID list from rendered
+captures and locally tracked active progress states before replacing the
+stream. Page-load HTML does not need to join task status.
 
 **The flow:**
 
@@ -751,7 +801,9 @@ idle/hidden streams as described in §5.5.
 - **Robust for the intended scope:** `task_run_status` persists the best
   available current status across restarts. `LISTEN/NOTIFY` gives low-latency
   hints; normal page refresh can help the UI catch up; keep-alives + native
-  EventSource reconnect handle flaky connections. This is not a durable change
+  EventSource reconnect handle flaky connections. Foreground resume on mobile
+  should force a clean reconnect and reconcile active task UI from current
+  status; background delivery is not provided. This is not a durable change
   log and does not guarantee every transition is delivered. Adaptive lifetime
   remains deferred.
 - **Flexible:** The `(task_type, envelope_id, entity_type, entity_id)` model is
@@ -847,10 +899,11 @@ be resolved as implementation work begins:
   should treat spark subscriptions as spark-entity subscriptions until the
   planned spark identity work is done.
 10. **Resolved:** the authenticated `/events` route and per-instance listener
-  fan-out are wired. The route emits a one-time current-status snapshot for the
-  initial capture IDs, then filters live updates by authenticated owner only.
-  The browser keeps one EventSource through feed swaps and routes by entity ID
-  to matching DOM targets.
+  fan-out are wired. Each new `/events` connection emits a current-status
+  snapshot for its supplied capture IDs, then filters live updates by
+  authenticated owner only. The browser keeps one EventSource through feed
+  swaps, rebuilds catch-up IDs on foreground resume, and routes by entity ID to
+  matching DOM targets.
 11. **Integrated prototype:** `src/sse` defines `ServerEvent<E>`, the
   `TaskStatusEvent` and `AvailabilityEvent` aliases, typed payloads, and
   versioned JSON serialization. `ServerEventNotifier` publishes to
