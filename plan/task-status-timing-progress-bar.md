@@ -190,8 +190,10 @@ When the client receives `InProgress`:
 3. Animate a determinate bar as `elapsed / estimated_duration_ms_p50`, capped below 100% (for
 	 example at 92%) while work is still running. Keep this state scoped to the
 	 capture card so concurrent captures do not share progress.
-4. Freeze at the 92% cap after the estimate is exceeded; never move backward
-	 or claim certainty.
+4. Count the displayed remaining estimate down with elapsed time. Once the
+	 estimate is reached, replace the countdown with a "longer than estimated"
+	 message and freeze the bar at the 92% cap; never move backward or claim
+	 certainty.
 5. Hide the UI on `CompleteSuccess`; show a temporary message on
 	`CompleteFailure`.
 
