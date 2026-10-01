@@ -13,8 +13,10 @@ substitutions:
   _LOCATION: 'us-central1'
   _REPOSITORY: 'dreamscroll-repo'
   _IMAGE_NAME: 'dreamscroll-web'
+  _CLOUD_RUN_SERVICE: 'dreamscroll-webui-api'
 
 steps:
+  # 1. Build image with the immutable tag
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'
@@ -23,6 +25,25 @@ steps:
       - '-t'
       - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}'
       - '.'
+
+  # 2. Push image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}'
+
+  # 3. Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_CLOUD_RUN_SERVICE}'
+      - '--image'
+      - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}'
+      - '--region'
+      - '${_LOCATION}'
+      - '--allow-unauthenticated'
 
 images:
   - '${_LOCATION}-docker.pkg.dev/$PROJECT_ID/${_REPOSITORY}/${_IMAGE_NAME}:${_IMAGE_TAG}'

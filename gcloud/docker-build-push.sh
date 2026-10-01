@@ -5,7 +5,7 @@ set -euo pipefail
 IMAGE_NAME="dreamscroll-web"
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel)"
-TAG=$(git -C "$REPO_ROOT" rev-parse --short HEAD)
+TAG=$(git -C "$REPO_ROOT" rev-parse HEAD)
 
 PROJECT=$(gcloud config get-value project 2>/dev/null)
 if [[ -z "$PROJECT" || "$PROJECT" == "(unset)" ]]; then
