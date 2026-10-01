@@ -37,8 +37,8 @@ COPY --from=builder /app/target/release/dreamscroll_web /app/dreamscroll_web
 COPY web/v2 /app/web/v2
 
 # Create non-root user
-RUN groupadd --system --gid 1001 appgroup \
-    && useradd --system --uid 1001 --gid 1001 --no-create-home --shell /usr/sbin/nologin appuser
+RUN groupadd --system --gid 808 appgroup \
+    && useradd --system --uid 808 --gid 808 --no-create-home --shell /usr/sbin/nologin appuser
 
 USER appuser
 
