@@ -108,12 +108,12 @@ pub struct Config {
     pub task_backend: TaskQueueBackend,
     #[serde(default = "default_task_max_attempts")]
     pub task_max_attempts: i32,
-    pub task_webhook_base_url: String,
     pub task_oidc_service_account_email: Option<String>,
     pub task_oidc_audience: Option<String>,
 
     // Queue names are also used as the webhook route suffixes:
     // /_wh/cloudtask/{queue_name}.
+    pub task_webhook_base_url: String,
     pub task_queue_name_illuminate: String,
     pub task_queue_name_search_index: String,
     pub task_queue_name_spark: String,

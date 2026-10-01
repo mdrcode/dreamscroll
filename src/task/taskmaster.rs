@@ -141,7 +141,10 @@ impl TaskMaster {
         let user_id = context.user_id();
         let envelope_id = TaskEnvelope::<T>::make_envelope_id(user_id, &task);
 
-        let latest = self.run_tracker.query_latest_run(&envelope_id).await?;
+        let latest = self
+            .run_tracker
+            .query_run_status(&envelope_id, None, None)
+            .await?;
         let next_run = match decide_next_run(latest.as_ref()) {
             Some(run) => run,
             None => {
@@ -202,7 +205,7 @@ impl TaskMaster {
     ) -> anyhow::Result<Option<i32>> {
         let status = self
             .run_tracker
-            .query_run_status(&envelope.envelope_id, envelope.run)
+            .query_run_status(&envelope.envelope_id, Some(envelope.run), None)
             .await?;
 
         let Some(attempt) = decide_next_attempt(status.as_ref()) else {
@@ -261,14 +264,25 @@ impl TaskMaster {
     }
 
     // TODO should we return something better than the internal Model instances here??
-    pub async fn query_latest_status_for_entities(
+    pub async fn query_latest_runs_for_entities(
         &self,
-        user_id: i32,
+        context: &auth::Context,
         entity_type: &str,
         entity_ids: &[i32],
     ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
         self.run_tracker
-            .query_latest_status_for_entities(user_id, entity_type, entity_ids)
+            .query_latest_status_for_entities(context.user_id(), entity_type, entity_ids)
+            .await
+    }
+
+    pub async fn query_run_status(
+        &self,
+        context: &auth::Context,
+        envelope_id: &str,
+        run: i32,
+    ) -> anyhow::Result<Option<model::task_run_status::Model>> {
+        self.run_tracker
+            .query_run_status(envelope_id, Some(run), Some(context.user_id()))
             .await
     }
 }
@@ -628,7 +642,7 @@ mod tests {
             .expect("submit should succeed");
 
         let rows = service
-            .query_latest_status_for_entities(1, "capture", &[42])
+            .query_latest_runs_for_entities(&test_context(1), "capture", &[42])
             .await
             .expect("query should succeed");
 
@@ -752,7 +766,7 @@ mod tests {
 
         let row = service
             .run_tracker
-            .query_run_status(&envelope.envelope_id, envelope.run)
+            .query_run_status(&envelope.envelope_id, Some(envelope.run), None)
             .await
             .expect("timing query should succeed")
             .expect("completed run should exist");
@@ -819,7 +833,7 @@ mod tests {
         assert_eq!(rerun, SubmitOutcome::Enqueued { run: 2 });
 
         let rows = service
-            .query_latest_status_for_entities(1, "capture", &[42])
+            .query_latest_runs_for_entities(&test_context(1), "capture", &[42])
             .await
             .expect("query should succeed");
 
@@ -883,7 +897,7 @@ mod tests {
             .expect("finish_attempt should succeed");
 
         let rows = service
-            .query_latest_status_for_entities(1, "capture", &[42])
+            .query_latest_runs_for_entities(&test_context(1), "capture", &[42])
             .await
             .expect("query should succeed");
 
@@ -947,7 +961,7 @@ mod tests {
 
         let row = service
             .run_tracker
-            .query_run_status(&first.envelope_id, first.run)
+            .query_run_status(&first.envelope_id, Some(first.run), None)
             .await
             .expect("timing query should succeed")
             .expect("failed run should exist");
@@ -1010,7 +1024,7 @@ mod tests {
         // The completed row is reported: a caller must be able to see that its
         // work finished.
         let rows = service
-            .query_latest_status_for_entities(1, "capture", &[7])
+            .query_latest_runs_for_entities(&test_context(1), "capture", &[7])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1070,7 +1084,7 @@ mod tests {
 
         // The exhausted run is still reported (the user should see it).
         let rows = service
-            .query_latest_status_for_entities(1, "capture", &[9])
+            .query_latest_runs_for_entities(&test_context(1), "capture", &[9])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1147,14 +1161,14 @@ mod tests {
         }
 
         let rows = service
-            .query_latest_status_for_entities(1, "capture", &[1, 2, 3])
+            .query_latest_runs_for_entities(&test_context(1), "capture", &[1, 2, 3])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 3);
 
         // A different user cannot see these entities.
         let other = service
-            .query_latest_status_for_entities(2, "capture", &[1, 2, 3])
+            .query_latest_runs_for_entities(&test_context(2), "capture", &[1, 2, 3])
             .await
             .expect("query should succeed");
         assert!(other.is_empty(), "queries must be scoped by user_id");
@@ -1210,7 +1224,7 @@ mod tests {
         assert!(result.is_err(), "the enqueue error must propagate");
 
         let rows = service
-            .query_latest_status_for_entities(1, "capture", &[9])
+            .query_latest_runs_for_entities(&test_context(1), "capture", &[9])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1225,7 +1239,7 @@ mod tests {
         assert!(retry.is_err(), "the test queue is still configured to fail");
 
         let rows = service
-            .query_latest_status_for_entities(1, "capture", &[9])
+            .query_latest_runs_for_entities(&test_context(1), "capture", &[9])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1, "only the latest run is returned");
@@ -1302,7 +1316,7 @@ mod tests {
             .expect("submit should succeed");
 
         let rows = service
-            .query_latest_status_for_entities(1, "capture", &[42])
+            .query_latest_runs_for_entities(&test_context(1), "capture", &[42])
             .await
             .expect("query should succeed");
 

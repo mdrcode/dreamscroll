@@ -54,10 +54,6 @@ pub fn make_api_router(
             "/captures/{capture_id}/unarchive",
             post(r_capture::unarchive),
         )
-        .route(
-            "/captures/{capture_id}/illuminate",
-            post(r_capture::illuminate),
-        )
         .route("/captures/{capture_id}/annotation", post(r_annotation::set))
         .route(
             "/captures/{capture_id}/annotation/archive",
@@ -68,6 +64,9 @@ pub fn make_api_router(
         .route("/timeline", get(r_timeline::get))
         .route("/search", get(r_search::get))
         .route("/search/similar/{capture_id}", get(r_search_similar::get))
+        .route("/queues/illuminate", post(r_task::post_illuminate))
+        .route("/queues/search_index", post(r_task::post_search_index))
+        .route("/tasks/{envelope_id}/{run}", get(r_task::get_run))
         .layer(auth::JwtAxumLayer::new(jwt_config));
 
     let mut router = Router::new()

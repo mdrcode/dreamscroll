@@ -39,5 +39,8 @@ pub use sparkinfo::*;
 mod sparkmetainfo;
 pub use sparkmetainfo::*;
 
+mod taskruninfo;
+pub use taskruninfo::*;
+
 mod userinfo;
 pub use userinfo::*;

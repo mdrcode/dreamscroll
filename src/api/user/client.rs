@@ -326,13 +326,11 @@ impl UserApiClient {
     }
 
     #[tracing::instrument(skip(self, context))]
-    pub async fn rerun_illumination(
+    pub async fn enqueue_illumination(
         &self,
         context: &auth::Context,
         capture_id: i32,
-    ) -> Result<task::SubmitOutcome, ApiError> {
-        // Fetch through the user-scoped API first so this endpoint does not
-        // reveal whether another user's capture exists.
+    ) -> Result<TaskRunIdentity, ApiError> {
         if super::get_captures(&self.db, context, vec![capture_id])
             .await?
             .is_empty()
@@ -343,13 +341,57 @@ impl UserApiClient {
             )));
         }
 
-        self.task_master
-            .submit_illuminate(
-                context,
-                logic::illuminate::IlluminationTask { capture_id },
-            )
-            .await
-            .map_err(ApiError::from)
+        let task = logic::illuminate::IlluminationTask { capture_id };
+        let envelope_id = task::TaskEnvelope::make_envelope_id(context.user_id(), &task);
+        match self.task_master.submit_illuminate(context, task).await? {
+            task::SubmitOutcome::Enqueued { run } => Ok(TaskRunIdentity { envelope_id, run }),
+            task::SubmitOutcome::RefusedAlreadyInFlight => Err(ApiError::conflict(anyhow!(
+                "Illumination for capture {} is already in flight",
+                capture_id
+            ))),
+        }
+    }
+
+    #[tracing::instrument(skip(self, context))]
+    pub async fn enqueue_search_index(
+        &self,
+        context: &auth::Context,
+        capture_id: i32,
+    ) -> Result<TaskRunIdentity, ApiError> {
+        if super::get_captures(&self.db, context, vec![capture_id])
+            .await?
+            .is_empty()
+        {
+            return Err(ApiError::not_found(anyhow!(
+                "Capture with id {} not found or access denied",
+                capture_id
+            )));
+        }
+
+        let task = logic::search_index::SearchIndexTask { capture_id };
+        let envelope_id = task::TaskEnvelope::make_envelope_id(context.user_id(), &task);
+        match self.task_master.submit_search_index(context, task).await? {
+            task::SubmitOutcome::Enqueued { run } => Ok(TaskRunIdentity { envelope_id, run }),
+            task::SubmitOutcome::RefusedAlreadyInFlight => Err(ApiError::conflict(anyhow!(
+                "Search indexing for capture {} is already in flight",
+                capture_id
+            ))),
+        }
+    }
+
+    pub async fn get_task_run(
+        &self,
+        context: &auth::Context,
+        envelope_id: &str,
+        run: i32,
+    ) -> Result<TaskRunInfo, ApiError> {
+        let row = self
+            .task_master
+            .query_run_status(context, envelope_id, run)
+            .await?
+            .ok_or_else(|| ApiError::not_found(anyhow!("Task run not found")))?;
+
+        TaskRunInfo::try_from(row).map_err(ApiError::internal)
     }
 
     #[tracing::instrument(skip(self, context, current_password, new_password))]

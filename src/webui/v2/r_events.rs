@@ -29,16 +29,17 @@ pub async fn get(
     State(state): State<Arc<WebState>>,
     Query(params): Query<EventParams>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, api::ApiError> {
-    let user_id = auth
-        .user
-        .expect("protected route requires an authenticated user")
-        .user_id();
+    let context = auth::Context::from(
+        auth.user
+            .expect("protected route requires an authenticated user"),
+    );
+    let user_id = context.user_id();
     let live_events = state.server_events.subscribe();
     let capture_ids = parse_capture_ids(params.capture_ids.as_deref())?;
     let catchup_events = dedupe_catchup(
         state
             .task_master
-            .query_latest_status_for_entities(user_id, "capture", &capture_ids)
+            .query_latest_runs_for_entities(&context, "capture", &capture_ids)
             .await?
             .into_iter()
             .filter_map(|row| sse::TaskStatusEvent::from_row(&row, None)),

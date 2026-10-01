@@ -7,6 +7,7 @@ policy, the run dimension, and the query API.
 
 > **See also:**
 > - `sse.md` — the future SSE delivery layer that consumes this (not implemented).
+> - `rest-task-submission.md` — authenticated REST submission and CLI polling.
 > - `pragmatism.md` — the ledger of deliberately tolerated trade-offs.
 > - `testing.md` — the two-tier test model (unit vs. DB).
 
@@ -75,6 +76,8 @@ Upload (webui/v2/r_upload.rs)
   `Clone`** — shared via `Arc<TaskMaster>`. Every `submit_*` API requires an
   `auth::Context` and derives the task's `user_id` from it, rather than accepting
   a raw user ID.
+- Authenticated REST task submission and exact-run status lookup are documented
+  in `rest-task-submission.md`.
 - **Status transitions are not a raw setter.** `TaskMaster::update_status` is
   **private**; workers must go through `begin_attempt` (reads the persisted
   attempt count, increments, writes `InProgress`, returns the 1-based attempt

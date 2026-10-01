@@ -12,3 +12,4 @@ pub mod import_digest;
 pub mod search;
 pub mod search_similar;
 pub mod spark;
+pub mod task;

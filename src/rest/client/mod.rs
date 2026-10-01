@@ -1,9 +1,8 @@
+use crate::api;
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, Utc};
 use reqwest;
 use serde::{Deserialize, Serialize};
-
-use crate::api;
 
 #[derive(Clone)]
 pub struct Client {
@@ -27,6 +26,11 @@ struct TokenResponse {
 struct ChangePasswordRequest<'a> {
     current_password: &'a str,
     new_password: &'a str,
+}
+
+#[derive(Debug, Serialize)]
+struct CaptureTaskRequest {
+    capture_id: i32,
 }
 
 impl Client {
@@ -273,6 +277,54 @@ impl Client {
             .send()
             .await
             .context("failed to call admin backfill enqueue endpoint")?;
+
+        Self::parse_json_response(response).await
+    }
+
+    pub async fn enqueue_illuminate(
+        &self,
+        capture_id: i32,
+    ) -> anyhow::Result<api::TaskRunIdentity> {
+        let response = self
+            .reqwest_client
+            .post(format!("{}/queues/illuminate", self.base_url))
+            .bearer_auth(&self.access_token)
+            .json(&CaptureTaskRequest { capture_id })
+            .send()
+            .await
+            .context("failed to submit illumination task")?;
+
+        Self::parse_json_response(response).await
+    }
+
+    pub async fn enqueue_search_index(
+        &self,
+        capture_id: i32,
+    ) -> anyhow::Result<api::TaskRunIdentity> {
+        let response = self
+            .reqwest_client
+            .post(format!("{}/queues/search_index", self.base_url))
+            .bearer_auth(&self.access_token)
+            .json(&CaptureTaskRequest { capture_id })
+            .send()
+            .await
+            .context("failed to submit search-index task")?;
+
+        Self::parse_json_response(response).await
+    }
+
+    pub async fn get_task_run(
+        &self,
+        envelope_id: &str,
+        run: i32,
+    ) -> anyhow::Result<api::TaskRunInfo> {
+        let response = self
+            .reqwest_client
+            .get(format!("{}/tasks/{}/{}", self.base_url, envelope_id, run))
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .context("failed to query task-run status")?;
 
         Self::parse_json_response(response).await
     }

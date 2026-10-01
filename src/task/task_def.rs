@@ -32,7 +32,12 @@ pub trait Task: Clone + Debug + Send + Sync + Serialize {
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TaskEnvelope<T: Task> {
     pub user_id: i32,
+
+    /// This should probably have been named `logical_task_id` instead of
+    /// `envelope_id`, because a unique envelope is identified by the
+    /// **combination of** `envelope_id` and `run`. TODO reconsider.
     pub envelope_id: String,
+
     /// Which run of this logical task this envelope carries, counting from 1.
     #[serde(default = "first_run")]
     pub run: i32,

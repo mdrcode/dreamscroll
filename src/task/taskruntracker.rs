@@ -213,33 +213,29 @@ impl TaskRunTracker {
         }
     }
 
-    /// The most recent run of a logical task, or `None` if it has never run.
-    pub async fn query_latest_run(
-        &self,
-        envelope_id: &str,
-    ) -> anyhow::Result<Option<model::task_run_status::Model>> {
-        let row = model::task_run_status::Entity::find()
-            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope_id))
-            .order_by_desc(model::task_run_status::Column::Run)
-            .one(&self.db.conn)
-            .await?;
-
-        Ok(row)
-    }
-
-    /// The status row for one specific run, used by `begin_attempt`.
+    /// Look up a task run, or its latest run when `run` is `None`.
+    ///
+    /// When `user_id` is provided, the lookup is scoped to that user. The
+    /// unscoped form is reserved for TaskMaster's internal lifecycle operations.
     pub async fn query_run_status(
         &self,
         envelope_id: &str,
-        run: i32,
+        run: Option<i32>,
+        user_id: Option<i32>,
     ) -> anyhow::Result<Option<model::task_run_status::Model>> {
-        let row = model::task_run_status::Entity::find()
-            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope_id))
-            .filter(model::task_run_status::Column::Run.eq(run))
-            .one(&self.db.conn)
-            .await?;
+        let mut query = model::task_run_status::Entity::find()
+            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope_id));
+        if let Some(run) = run {
+            query = query.filter(model::task_run_status::Column::Run.eq(run));
+        }
+        if let Some(user_id) = user_id {
+            query = query.filter(model::task_run_status::Column::UserId.eq(user_id));
+        }
 
-        Ok(row)
+        Ok(query
+            .order_by_desc(model::task_run_status::Column::Run)
+            .one(&self.db.conn)
+            .await?)
     }
 
     /// Latest task statuses for several entities of the same type and user.
@@ -469,7 +465,7 @@ mod tests {
         );
 
         let stored = tracker
-            .query_latest_run(&env.envelope_id)
+            .query_run_status(&env.envelope_id, None, None)
             .await
             .expect("query should succeed")
             .expect("row should exist");
@@ -498,7 +494,7 @@ mod tests {
         assert!(tracker.create_run(&task_envelope).await.unwrap());
 
         let stored = tracker
-            .query_run_status(&task_envelope.envelope_id, task_envelope.run)
+            .query_run_status(&task_envelope.envelope_id, Some(task_envelope.run), None)
             .await
             .unwrap()
             .unwrap();
@@ -522,7 +518,7 @@ mod tests {
 
         tracker.begin_attempt(&env, 1).await.unwrap();
         let started = tracker
-            .query_run_status(&env.envelope_id, env.run)
+            .query_run_status(&env.envelope_id, Some(env.run), None)
             .await
             .unwrap()
             .unwrap()
@@ -533,7 +529,7 @@ mod tests {
             .await
             .unwrap();
         let after_first_failure = tracker
-            .query_run_status(&env.envelope_id, env.run)
+            .query_run_status(&env.envelope_id, Some(env.run), None)
             .await
             .unwrap()
             .unwrap();
@@ -547,7 +543,7 @@ mod tests {
             .await
             .unwrap();
         let completed = tracker
-            .query_run_status(&env.envelope_id, env.run)
+            .query_run_status(&env.envelope_id, Some(env.run), None)
             .await
             .unwrap()
             .unwrap();
@@ -571,7 +567,7 @@ mod tests {
             .unwrap();
 
         let stored = tracker
-            .query_run_status(&env.envelope_id, env.run)
+            .query_run_status(&env.envelope_id, Some(env.run), None)
             .await
             .unwrap()
             .unwrap();
@@ -720,7 +716,7 @@ mod tests {
             .expect("best-effort notification failure must not fail persistence");
 
         let stored = tracker
-            .query_run_status(&task_envelope.envelope_id, task_envelope.run)
+            .query_run_status(&task_envelope.envelope_id, Some(task_envelope.run), None)
             .await
             .unwrap()
             .unwrap();
@@ -795,7 +791,7 @@ mod tests {
         );
 
         let latest = tracker
-            .query_latest_run(&envelope(1, 42, 1).envelope_id)
+            .query_run_status(&envelope(1, 42, 1).envelope_id, None, None)
             .await
             .expect("query should succeed")
             .expect("a row should exist");
@@ -838,12 +834,12 @@ mod tests {
             .expect("update should succeed");
 
         let stored1 = tracker
-            .query_run_status(&run1.envelope_id, 1)
+            .query_run_status(&run1.envelope_id, Some(1), None)
             .await
             .expect("query should succeed")
             .expect("run 1 should exist");
         let stored2 = tracker
-            .query_run_status(&run2.envelope_id, 2)
+            .query_run_status(&run2.envelope_id, Some(2), None)
             .await
             .expect("query should succeed")
             .expect("run 2 should exist");
@@ -858,7 +854,7 @@ mod tests {
 
         // A run that was never written is simply absent, not an error.
         let missing = tracker
-            .query_run_status(&run1.envelope_id, 99)
+            .query_run_status(&run1.envelope_id, Some(99), None)
             .await
             .expect("query should succeed");
         assert!(missing.is_none());
@@ -884,9 +880,22 @@ mod tests {
             .query_latest_status_for_entities(2, "capture", &[42])
             .await
             .expect("query should succeed");
+        let my_run = tracker
+            .query_run_status("u1-test-capture42", Some(1), Some(1))
+            .await
+            .expect("exact-run query should succeed");
+        let other_users_run = tracker
+            .query_run_status("u1-test-capture42", Some(1), Some(2))
+            .await
+            .expect("other-user exact-run query should succeed");
 
         assert_eq!(mine.len(), 1);
         assert!(theirs.is_empty(), "entity ids are not a security boundary");
+        assert!(my_run.is_some());
+        assert!(
+            other_users_run.is_none(),
+            "exact-run queries honor the optional owner filter"
+        );
     }
 
     #[tokio::test]
@@ -1029,7 +1038,7 @@ mod tests {
 
         assert_eq!(
             tracker
-                .query_latest_run(&first.envelope_id)
+                .query_run_status(&first.envelope_id, None, None)
                 .await
                 .unwrap()
                 .unwrap()
@@ -1038,7 +1047,7 @@ mod tests {
         );
         assert!(
             tracker
-                .query_latest_run("missing-envelope")
+                .query_run_status("missing-envelope", None, None)
                 .await
                 .unwrap()
                 .is_none()
@@ -1060,7 +1069,7 @@ mod tests {
 
         assert!(
             tracker
-                .query_latest_run("u1-test-capture42")
+                .query_run_status("u1-test-capture42", None, None)
                 .await
                 .unwrap()
                 .is_none()
