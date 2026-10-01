@@ -39,7 +39,7 @@ impl AdminApiClient {
         req: BackfillRequest,
     ) -> Result<BackfillResponse, ApiError> {
         ensure_admin(context)?;
-        super::backfill::enqueue(&self.service_api, &self.task_master, context.user_id(), req).await
+        super::backfill::enqueue(&self.service_api, &self.task_master, context, req).await
     }
 }
 

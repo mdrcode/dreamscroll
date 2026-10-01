@@ -35,7 +35,7 @@ makes reruns expressible.
 
 ```
 Upload (webui/v2/r_upload.rs)
-  └─ insert_capture() → task_master.submit_illumination(user_id, IlluminationTask)
+  └─ insert_capture() → task_master.submit_illumination(context, IlluminationTask)
        └─ /_wh/cloudtask/illuminate → logic/illuminate::exec
             ├─ illuminate_capture()        (no idempotency guard — see §7)
             └─ logic/search_index::exec    (no idempotency guard — see §7)
@@ -72,7 +72,9 @@ Upload (webui/v2/r_upload.rs)
   which *all* task enqueues and worker lifecycle updates flow. It owns the
   backend queues and coordinates lifecycle policy and queue behavior. It exposes
   `submit_*` / `begin_attempt` / `finish_attempt` / status queries. It is **not
-  `Clone`** — shared via `Arc<TaskMaster>`.
+  `Clone`** — shared via `Arc<TaskMaster>`. Every `submit_*` API requires an
+  `auth::Context` and derives the task's `user_id` from it, rather than accepting
+  a raw user ID.
 - **Status transitions are not a raw setter.** `TaskMaster::update_status` is
   **private**; workers must go through `begin_attempt` (reads the persisted
   attempt count, increments, writes `InProgress`, returns the 1-based attempt

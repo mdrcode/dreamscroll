@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::{api::*, logic, task};
+use crate::auth;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -36,7 +37,7 @@ pub struct BackfillResponse {
 pub async fn enqueue(
     service_api: &ServiceApiClient,
     task_master: &Arc<crate::task::TaskMaster>,
-    user_id: i32,
+    context: &auth::Context,
     req: BackfillRequest,
 ) -> Result<BackfillResponse, ApiError> {
     let has_ids = req
@@ -95,7 +96,7 @@ pub async fn enqueue(
             for capture_id in candidate_ids {
                 match task_master
                     .submit_search_index(
-                        user_id,
+                        context,
                         logic::search_index::SearchIndexTask { capture_id },
                     )
                     .await

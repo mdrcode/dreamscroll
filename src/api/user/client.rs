@@ -208,7 +208,7 @@ impl UserApiClient {
 
         self.task_master
             .submit_spark(
-                context.user_id(),
+                context,
                 logic::spark::SparkTask {
                     spark_id: random_spark_id,
                     capture_ids,
@@ -243,7 +243,7 @@ impl UserApiClient {
         if let Err(e) = self
             .task_master
             .submit_illuminate(
-                user_context.user_id(),
+                user_context,
                 logic::illuminate::IlluminationTask {
                     capture_id: capture_model.id,
                 },
@@ -281,7 +281,7 @@ impl UserApiClient {
         if let Err(e) = self
             .task_master
             .submit_illuminate(
-                user_context.user_id(),
+                user_context,
                 logic::illuminate::IlluminationTask {
                     capture_id: capture_model.id,
                 },
@@ -345,7 +345,7 @@ impl UserApiClient {
 
         self.task_master
             .submit_illuminate(
-                context.user_id(),
+                context,
                 logic::illuminate::IlluminationTask { capture_id },
             )
             .await
