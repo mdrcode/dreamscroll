@@ -213,9 +213,8 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let events = spawn_local_fanout(listener, shutdown_rx);
         let mut receiver = events.subscribe();
-        let notifier = super::super::PostgresServerEventNotifier::new(
-            db.handle().conn.get_postgres_connection_pool().clone(),
-        );
+        let db = db.handle();
+        let notifier = super::super::PostgresNotifier::new(&db.conn);
 
         let event_id = (uuid::Uuid::new_v4().as_u128() as u32) as i32;
         let task_status = super::super::TaskStatusEvent::new(

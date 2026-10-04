@@ -1,5 +1,6 @@
 use super::{ServerEvent, TaskStatusEvent};
 use anyhow::Context;
+use sea_orm::DatabaseConnection;
 use sqlx::PgPool;
 
 #[async_trait::async_trait]
@@ -12,13 +13,15 @@ pub const SERVER_EVENT_CHANNEL: &str = "server_event_channel";
 
 /// Publishes task-status events through PostgreSQL `NOTIFY`.
 #[derive(Clone)]
-pub struct PostgresServerEventNotifier {
+pub struct PostgresNotifier {
     pool: PgPool,
 }
 
-impl PostgresServerEventNotifier {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+impl PostgresNotifier {
+    pub fn new(db: &DatabaseConnection) -> Self {
+        Self {
+            pool: db.get_postgres_connection_pool().clone(),
+        }
     }
 
     pub async fn notify<E: serde::Serialize>(&self, event: &ServerEvent<E>) -> anyhow::Result<()> {
@@ -34,7 +37,7 @@ impl PostgresServerEventNotifier {
 }
 
 #[async_trait::async_trait]
-impl ServerEventNotifier for PostgresServerEventNotifier {
+impl ServerEventNotifier for PostgresNotifier {
     /// Publish to listeners on this database. PostgreSQL delivers notifications
     /// on transaction commit; they are best effort and not retained.
     async fn notify_task_status(&self, event: &TaskStatusEvent) -> anyhow::Result<()> {

@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::Context;
 use rustls::crypto;
 use tokio::net::TcpListener;
@@ -69,10 +71,9 @@ async fn initialize()
     let stg = storage::make_provider(&cfg).await;
     let url_maker = storage::UrlMaker::from_config(&cfg);
     // Every app instance may produce or consume these user-wide events.
-    let notifier = Some(std::sync::Arc::new(sse::PostgresServerEventNotifier::new(
-        db.conn.get_postgres_connection_pool().clone(),
-    )) as std::sync::Arc<dyn sse::ServerEventNotifier>);
-    let task_master = task::make_task_master(&cfg, db.clone(), notifier).await?;
+    let notifier: Arc<dyn sse::ServerEventNotifier> =
+        Arc::new(sse::PostgresNotifier::new(&db.conn));
+    let task_master = task::make_task_master(&cfg, db.clone(), Some(notifier)).await?;
     let beacon = logic::Beacon::new(task_master.clone());
     let searcher = search::CaptureSearcher::from_config(&cfg).await?;
 
