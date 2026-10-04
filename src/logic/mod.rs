@@ -7,5 +7,7 @@
 mod beacon;
 pub mod illuminate;
 pub use beacon::Beacon;
+mod logic_state;
+pub use logic_state::LogicState;
 pub mod search_index;
 pub mod spark;

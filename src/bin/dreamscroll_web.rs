@@ -170,13 +170,14 @@ async fn initialize()
 
         let webhook_router = webhook::make_webhook_router(
             webhook::WebhookState {
-                service_api,
-                stg,
-                illuminator,
-                firestarter,
-                beacon,
-                embedder,
-                vector_store,
+                logic: logic::LogicState {
+                    service_api,
+                    storage: stg,
+                    illuminator,
+                    firestarter,
+                    embedder,
+                    vector_store,
+                },
                 task_master: task_master.clone(),
             },
             webhook_oidc,

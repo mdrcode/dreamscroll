@@ -27,13 +27,13 @@ pub async fn post(
         return Ok(axum::http::StatusCode::NO_CONTENT);
     };
 
-    let result = logic::illuminate::exec(
-        &state.service_api,
-        state.illuminator.as_ref(),
-        &state.beacon,
-        task,
-    )
-    .await;
+    let result = match logic::illuminate::exec(&state.logic, task.clone()).await {
+        Ok(user_id) => logic::Beacon::new(state.task_master.clone())
+            .new_illumination(user_id, task.capture_id)
+            .await
+            .map_err(api::ApiError::internal),
+        Err(error) => Err(error),
+    };
 
     let outcome = state
         .task_master

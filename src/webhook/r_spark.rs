@@ -30,7 +30,7 @@ pub async fn post(
         return Ok(axum::http::StatusCode::NO_CONTENT);
     };
 
-    let result = logic::spark::exec(&state.service_api, state.firestarter.as_ref(), task).await;
+    let result = logic::spark::exec(&state.logic, task).await;
 
     let outcome = state
         .task_master

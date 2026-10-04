@@ -24,14 +24,7 @@ pub async fn post(
         return Ok(axum::http::StatusCode::NO_CONTENT);
     };
 
-    let result = logic::search_index::exec(
-        &state.service_api,
-        state.stg.as_ref(),
-        &state.embedder,
-        &state.vector_store,
-        task,
-    )
-    .await;
+    let result = logic::search_index::exec(&state.logic, task).await;
 
     let outcome = state
         .task_master

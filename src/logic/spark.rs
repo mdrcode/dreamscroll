@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{api, ignition, task};
+use crate::{api, task};
 
 /// The concrete task for generating a spark over a set of captures.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,11 +23,7 @@ impl task::Task for SparkTask {
     }
 }
 
-pub async fn exec(
-    service_api: &api::ServiceApiClient,
-    firestarter: &dyn ignition::Firestarter,
-    task: SparkTask,
-) -> Result<(), api::ApiError> {
+pub async fn exec(state: &super::LogicState, task: SparkTask) -> Result<(), api::ApiError> {
     if task.capture_ids.is_empty() {
         return Err(api::ApiError::bad_request(anyhow::anyhow!(
             "capture_ids must contain at least one capture ID"
@@ -36,7 +32,8 @@ pub async fn exec(
 
     tracing::debug!(capture_ids = ?task.capture_ids, "Spark Webhook: task capture IDs");
 
-    let captures = service_api
+    let captures = state
+        .service_api
         .get_captures(Some(task.capture_ids.clone()))
         .await?;
     if captures.is_empty() {
@@ -56,7 +53,11 @@ pub async fn exec(
     let found_ids = captures.iter().map(|c| c.id).collect::<Vec<_>>();
     tracing::debug!(found_ids = ?found_ids, "Spark Webhook: found capture ids");
 
-    let spark_result = firestarter.spark(captures.clone()).await?;
+    let spark_result = state
+        .firestarter
+        .spark(captures.clone())
+        .await
+        .map_err(api::ApiError::internal)?;
     let spark_meta = spark_result.meta.clone();
     let spark = spark_result.spark;
 
@@ -66,7 +67,8 @@ pub async fn exec(
         .flat_map(|cluster| cluster.capture_ids.clone())
         .collect::<Vec<_>>();
 
-    service_api
+    state
+        .service_api
         .insert_spark(user_id, task.capture_ids.clone(), spark, spark_meta)
         .await?;
 
