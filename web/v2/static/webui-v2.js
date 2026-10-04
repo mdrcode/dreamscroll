@@ -54,6 +54,9 @@ function setupTaskStatusEvents() {
         if (update.entity_type !== 'capture' || !Number.isInteger(update.entity_id)) {
             return;
         }
+        if (!update.payload || update.payload.task_type !== 'illuminate') {
+            return;
+        }
         const captureId = String(update.entity_id);
         if (window.dreamscrollTaskProgress) {
             window.dreamscrollTaskProgress.accept(update);

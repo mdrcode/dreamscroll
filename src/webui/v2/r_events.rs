@@ -110,22 +110,26 @@ fn stream_task_status(
     stream::iter(catchup).chain(live_events)
 }
 
-/// Keep only the newest catch-up status per entity to avoid duplicate partial refreshes.
+/// Keep the newest catch-up status per entity and task type.
 fn dedupe_catchup(
     events: impl IntoIterator<Item = sse::TaskStatusEvent>,
 ) -> Vec<sse::TaskStatusEvent> {
-    let mut latest_by_entity: std::collections::HashMap<(String, i32), sse::TaskStatusEvent> =
+    let mut latest_by_task: std::collections::HashMap<(String, i32, String), sse::TaskStatusEvent> =
         std::collections::HashMap::new();
     for event in events {
-        let key = (event.entity_type.clone(), event.entity_id);
-        match latest_by_entity.get(&key) {
+        let key = (
+            event.entity_type.clone(),
+            event.entity_id,
+            event.payload.task_type.clone(),
+        );
+        match latest_by_task.get(&key) {
             Some(existing) if existing.timestamp >= event.timestamp => {}
             _ => {
-                latest_by_entity.insert(key, event);
+                latest_by_task.insert(key, event);
             }
         }
     }
-    latest_by_entity.into_values().collect()
+    latest_by_task.into_values().collect()
 }
 
 fn filter_for_user(
@@ -338,17 +342,25 @@ mod tests {
     }
 
     #[test]
-    fn catchup_keeps_only_latest_event_per_entity() {
+    fn catchup_keeps_latest_event_per_entity_and_task_type() {
         let mut earlier = task_status_event(7, 42, crate::task::TaskRunStatus::Queued);
         earlier.timestamp = Utc::now() - chrono::Duration::seconds(1);
         let later = task_status_event(7, 42, crate::task::TaskRunStatus::CompleteSuccess);
         let other_entity = task_status_event(7, 43, crate::task::TaskRunStatus::InProgress);
+        let mut search_index = task_status_event(7, 42, crate::task::TaskRunStatus::InProgress);
+        search_index.payload.task_type = "search_index".to_string();
 
-        let deduplicated = dedupe_catchup(vec![earlier, later.clone(), other_entity]);
+        let deduplicated = dedupe_catchup(vec![
+            earlier,
+            later.clone(),
+            other_entity,
+            search_index.clone(),
+        ]);
 
-        assert_eq!(deduplicated.len(), 2);
+        assert_eq!(deduplicated.len(), 3);
         assert!(deduplicated.iter().any(|event| event == &later));
         assert!(deduplicated.iter().any(|event| event.entity_id == 43));
+        assert!(deduplicated.iter().any(|event| event == &search_index));
     }
 
     #[tokio::test]
