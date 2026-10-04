@@ -89,7 +89,7 @@ impl TaskMaster {
         context: &auth::Context,
         task: IlluminationTask,
     ) -> anyhow::Result<SubmitOutcome> {
-        self.submit_inner(self.illuminate_queue.as_ref(), context, task)
+        self.submit_inner(self.illuminate_queue.as_ref(), context.user_id(), task)
             .await
     }
 
@@ -101,7 +101,7 @@ impl TaskMaster {
         if task.capture_ids.is_empty() {
             anyhow::bail!("submit_spark requires at least one capture_id");
         }
-        self.submit_inner(self.spark_queue.as_ref(), context, task)
+        self.submit_inner(self.spark_queue.as_ref(), context.user_id(), task)
             .await
     }
 
@@ -110,7 +110,18 @@ impl TaskMaster {
         context: &auth::Context,
         task: SearchIndexTask,
     ) -> anyhow::Result<SubmitOutcome> {
-        self.submit_inner(self.search_index_queue.as_ref(), context, task)
+        self.submit_inner(self.search_index_queue.as_ref(), context.user_id(), task)
+            .await
+    }
+
+    /// Note that this is a "service only" (backend) method and so takes a raw
+    /// user_id instead of an authenticated context.
+    pub(crate) async fn submit_search_index_for_user(
+        &self,
+        user_id: i32,
+        task: SearchIndexTask,
+    ) -> anyhow::Result<SubmitOutcome> {
+        self.submit_inner(self.search_index_queue.as_ref(), user_id, task)
             .await
     }
 
@@ -135,10 +146,9 @@ impl TaskMaster {
     async fn submit_inner<T: Task>(
         &self,
         queue: &dyn TaskQueue<T>,
-        context: &auth::Context,
+        user_id: i32,
         task: T,
     ) -> anyhow::Result<SubmitOutcome> {
-        let user_id = context.user_id();
         let envelope_id = TaskEnvelope::<T>::make_envelope_id(user_id, &task);
 
         let latest = self

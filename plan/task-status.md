@@ -36,19 +36,21 @@ makes reruns expressible.
 
 ```
 Upload (webui/v2/r_upload.rs)
-  └─ insert_capture() → task_master.submit_illumination(context, IlluminationTask)
-       └─ /_wh/cloudtask/illuminate → logic/illuminate::exec
-            ├─ illuminate_capture()        (no idempotency guard — see §7)
-            └─ logic/search_index::exec    (no idempotency guard — see §7)
-                 └─ insert_illumination()  ← row written, status now tracked
+  └─ insert_capture() → Beacon.new_capture(user_id, capture_id)
+    └─ TaskMaster.submit_illuminate → /_wh/cloudtask/illuminate
+      └─ logic/illuminate::exec
+        ├─ generate + insert illumination (no idempotency guard — see §7)
+        └─ Beacon.signal_illuminate(user_id, capture_id)
+             └─ Beacon coordinates follow-up work (currently a separate
+                SearchIndexTask with its own run/status)
 ```
 
-> **Note:** `IngestTask` and `logic/ingest.rs` were **removed**. Illumination has
-> no real purpose without search indexing, so `logic/illuminate::exec` now runs
-> **both** steps as a single unit of work. The capture-create path calls
-> `submit_illumination` directly. `r_illuminate` + the illumination queue are the
-> live path; the `/_wh/cloudtask/illuminate` route is reserved for future
-> backfill / rerun flows.
+> **Note:** `IngestTask` and `logic/ingest.rs` were **removed**. `Beacon` now
+> coordinates capture lifecycle signals: new captures begin the illumination
+> flow, and successful illumination signals Beacon for follow-up. Each task has
+> its own status and retry lifecycle. The
+> `/_wh/cloudtask/illuminate` route is the live path and remains the entry point
+> for future backfill / rerun flows.
 
 ### 2.2 Key facts
 
@@ -69,13 +71,14 @@ Upload (webui/v2/r_upload.rs)
   TaskEnvelope<T>)`. Two backends: `LocalTaskQueue` (in-process mpsc +
   semaphore) and `CloudTaskQueue` (Google Cloud Tasks). **Pub/Sub support was
   removed** to focus on Cloud Tasks.
-- **`TaskMaster`** (`task/taskmaster.rs`) is the single public funnel through
+- **`TaskMaster`** (`task/taskmaster.rs`) is the single funnel through
   which *all* task enqueues and worker lifecycle updates flow. It owns the
   backend queues and coordinates lifecycle policy and queue behavior. It exposes
   `submit_*` / `begin_attempt` / `finish_attempt` / status queries. It is **not
-  `Clone`** — shared via `Arc<TaskMaster>`. Every `submit_*` API requires an
-  `auth::Context` and derives the task's `user_id` from it, rather than accepting
-  a raw user ID.
+  `Clone`** — shared via `Arc<TaskMaster>`. User-facing `submit_*` APIs require
+  an `auth::Context` and derive the task's `user_id` from it. `Beacon` is the
+  narrow trusted coordinator for internal follow-up submissions and uses
+  capture ownership from the loaded capture.
 - Authenticated REST task submission and exact-run status lookup are documented
   in `rest-task-submission.md`.
 - **Status transitions are not a raw setter.** `TaskMaster::update_status` is

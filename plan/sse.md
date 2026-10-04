@@ -889,11 +889,10 @@ be resolved as implementation work begins:
   missing-queue path, which returned `Enqueued` without a status row, has been
   removed. Unit tests use explicit test-only no-op queues where a test does not
   exercise that task type.
-8. **Illumination is a pipeline:** `IlluminationTask` runs illumination and
-  search indexing inside one worker attempt. The current status model exposes
-  one aggregate `illuminate` task, not separate progress for the two stages.
-  The first SSE version should document this as aggregate progress, or add a
-  deliberate stage model; it should not imply stage-level feedback.
+8. **Illumination follow-up is coordinated by Beacon:** `IlluminationTask`
+  performs illumination, then signals Beacon on success. Beacon owns any
+  follow-up work. Illumination and search indexing have separate task runs and
+  status; do not imply that the `illuminate` status represents indexing too.
 9. **Spark identity remains placeholder-based:** `SparkTask` uses a `spark_id`
   placeholder before the spark row exists and is not capture-queryable. SSE
   should treat spark subscriptions as spark-entity subscriptions until the

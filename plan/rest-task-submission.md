@@ -25,9 +25,9 @@ Initial task support:
 | `illuminate`   | `IlluminationTask` | `{ "capture_id": N }` | Capture must belong to authenticated user |
 | `search_index` | `SearchIndexTask`  | `{ "capture_id": N }` | Capture must belong to authenticated user |
 
-These are independent task types. Note that `IlluminationTask` itself also
-performs search indexing as a step; `SearchIndexTask` is the standalone indexing
-operation.
+These are independent task types. `IlluminationTask` performs illumination;
+`SearchIndexTask` performs search indexing. New captures are submitted through
+Beacon, which coordinates the follow-up behavior after illumination succeeds.
 
 This replaces the older `POST /api/captures/{capture_id}/illuminate` route,
 which returned only `204` and could not provide a run identity for polling.

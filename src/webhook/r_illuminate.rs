@@ -9,10 +9,6 @@ use crate::{api, logic, task, webhook};
 /// Expected body is a serialized `TaskEnvelope<IlluminationTask>`, e.g.:
 /// `{ "user_id": 1, "envelope_id": "u1-illuminate-capture123", "task": { "capture_id": 123 } }`
 ///
-/// This is the app's core unit of work: `logic::illuminate::exec` runs both the
-/// illumination and the search-indexing steps, since illumination has no real
-/// purpose without search indexing.
-///
 /// This is the live worker route for capture-created illumination tasks. It is
 /// also the entry point for future backfill and rerun flows.
 pub async fn post(
@@ -34,9 +30,7 @@ pub async fn post(
     let result = logic::illuminate::exec(
         &state.service_api,
         state.illuminator.as_ref(),
-        state.stg.as_ref(),
-        &state.embedder,
-        &state.vector_store,
+        &state.beacon,
         task,
     )
     .await;

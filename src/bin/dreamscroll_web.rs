@@ -73,6 +73,7 @@ async fn initialize()
         db.conn.get_postgres_connection_pool().clone(),
     )) as std::sync::Arc<dyn sse::ServerEventNotifier>);
     let task_master = task::make_task_master(&cfg, db.clone(), notifier).await?;
+    let beacon = logic::Beacon::new(task_master.clone());
     let searcher = search::CaptureSearcher::from_config(&cfg).await?;
 
     let user_api = api::UserApiClient::new(
@@ -80,6 +81,7 @@ async fn initialize()
         stg.clone(),
         url_maker.clone(),
         task_master.clone(),
+        beacon.clone(),
         searcher,
     );
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
@@ -172,6 +174,7 @@ async fn initialize()
                 stg,
                 illuminator,
                 firestarter,
+                beacon,
                 embedder,
                 vector_store,
                 task_master: task_master.clone(),

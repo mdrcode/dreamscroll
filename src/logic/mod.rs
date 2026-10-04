@@ -4,6 +4,8 @@
 // concrete task types and the code paths that execute them, with no knowledge
 // of the HTTP transport (Cloud Tasks / Pub/Sub / local). The webhook layer
 // deserializes a task and calls `logic::<task>::exec`.
+mod beacon;
 pub mod illuminate;
+pub use beacon::Beacon;
 pub mod search_index;
 pub mod spark;
