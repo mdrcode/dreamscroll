@@ -10,8 +10,9 @@ reconnect, even when the same page has already received the relevant statuses
 and nothing changed.
 
 The current browser uses a native `EventSource`. Connections can be recreated
-because of network errors, server lifetime limits, visibility changes, idle
-handling, or an upload initiated by a background window. Each recreated
+because of network errors, server lifetime limits, inactivity followed by user
+activity, or upload activity. Visibility changes alone do not close or reopen
+the stream; the browser may still suspend background networking. Each recreated
 connection receives a fresh catch-up response. Consequently, repeated
 connections produce duplicate database reads and duplicate current-state
 payloads. Over time, catch-up query volume is approximately linear in the

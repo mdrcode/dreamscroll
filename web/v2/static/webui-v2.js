@@ -131,28 +131,23 @@ function setupTaskStatusEvents() {
 
     const baseRetryMs = 1000;
     const maxRetryMs = 60000;
-    const maxRetries = 5; // Per outage, until activity/resume or a stable connection.
+    const maxRetries = 5; // Per outage, until new activity or a stable connection.
     const stableConnectionMs = 10 * 1000;
-    const activeWindowMs = 3 * 60 * 1000; // Close SSE and stop retries after 3 min without activity.
+    const activeWindowMs = 3 * 60 * 1000; // Close SSE after 3 min without input, even in a background tab.
     let retryAttempt = 0;
     let retriesExhausted = false;
     let stableConnectionTimer = null;
     let retryTimer = null;
     let idleTimer = null;
-    let resumeTimer = null;
     let source = null;
     let lastActivityAt = Date.now();
-
-    function isVisible() {
-        return document.visibilityState !== 'hidden';
-    }
 
     function isRecentlyActive() {
         return Date.now() - lastActivityAt < activeWindowMs;
     }
 
     function shouldBeConnected() {
-        return isVisible() && isRecentlyActive();
+        return isRecentlyActive();
     }
 
     function clearRetry() {
@@ -245,10 +240,6 @@ function setupTaskStatusEvents() {
 
     function armIdleClose() {
         if (idleTimer !== null) window.clearTimeout(idleTimer);
-        if (!isVisible()) {
-            idleTimer = null;
-            return;
-        }
 
         const idleRemainingMs = Math.max(0, activeWindowMs - (Date.now() - lastActivityAt));
         idleTimer = window.setTimeout(function () {
@@ -260,12 +251,11 @@ function setupTaskStatusEvents() {
             closeSource('inactivity timeout');
             clearRetry();
             retryAttempt = 0;
-            console.info('Task-status SSE stopped: inactivity timeout.');
+            console.info('Task-status SSE stopped: inactivity timeout (background pages may be suspended by the browser).');
         }, idleRemainingMs);
     }
 
     function recordActivity() {
-        if (!isVisible()) return;
         lastActivityAt = Date.now();
         armIdleClose();
         if (retriesExhausted) {
@@ -275,28 +265,6 @@ function setupTaskStatusEvents() {
         if (!source && retryTimer === null) connectNow('user activity');
     }
 
-    function resumeInForeground() {
-        if (!isVisible() || resumeTimer !== null) return;
-        resumeTimer = window.setTimeout(function () {
-            resumeTimer = null;
-            if (!isVisible()) return;
-            lastActivityAt = Date.now();
-            retryAttempt = 0;
-            retriesExhausted = false;
-            closeSource('foreground resume');
-            clearRetry();
-            armIdleClose();
-            connectNow('foreground resume');
-        }, 0);
-    }
-
-    function onNetworkOnline() {
-        if (!shouldBeConnected()) return;
-        if (source && source.readyState === EventSource.OPEN) return;
-        closeSource('network online');
-        connectNow('network online');
-    }
-
     window.dreamscrollTaskStatusEvents = {
         ensureConnected: recordActivity
     };
@@ -304,25 +272,6 @@ function setupTaskStatusEvents() {
     ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(function (eventName) {
         window.addEventListener(eventName, recordActivity, { passive: true });
     });
-    document.addEventListener('visibilitychange', function () {
-        if (!isVisible()) {
-            if (resumeTimer !== null) window.clearTimeout(resumeTimer);
-            resumeTimer = null;
-            if (idleTimer !== null) window.clearTimeout(idleTimer);
-            idleTimer = null;
-            closeSource('tab hidden');
-            clearRetry();
-            retryAttempt = 0;
-        } else {
-            resumeInForeground();
-        }
-    });
-
-    window.addEventListener('pageshow', function (event) {
-        if (event.persisted) resumeInForeground();
-    });
-    window.addEventListener('online', onNetworkOnline);
-
     lastActivityAt = Date.now();
     armIdleClose();
     connectNow('page load');

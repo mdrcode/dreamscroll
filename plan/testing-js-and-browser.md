@@ -5,22 +5,22 @@
 
 ## Why consider this
 
-`web/v2/static/webui-v2.js` is plain browser JavaScript with no build step. The SSE client now has meaningful lifecycle behavior: it opens one `EventSource`, closes it while the page is hidden or idle, reconnects on user activity, and applies exponential backoff after transport errors. These rules are easy to regress and affect Cloud Run request/concurrency usage as well as UI freshness.
+`web/v2/static/webui-v2.js` is plain browser JavaScript with no build step. The SSE client now has meaningful lifecycle behavior: it opens one `EventSource`, keeps it open while backgrounded when the host allows, closes it after three minutes without recognized activity, and applies a bounded retry budget with exponential backoff after transport errors. These rules are easy to regress and affect Cloud Run request/concurrency usage as well as UI freshness.
 
 ## Recommended starting point
 
-Prefer a real-browser test for behavior involving native `EventSource`, page visibility, DOM events, and HTMX integration. A small Playwright test can load the local WebUI and verify the observable contract:
+Prefer a real-browser test for behavior involving native `EventSource`, user input, background-tab behavior, and HTMX integration. A small Playwright test can load the local WebUI and verify the observable contract:
 
 - one `/events` connection immediately on page load;
-- the connection closes after three minutes without user interaction or when the page is hidden;
+- the connection closes after three minutes without user interaction, regardless of visibility;
+- while hidden, the client keeps the stream and activity timer behavior unchanged, subject to host suspension/cancellation;
 - the server stream lifetime exceeds the three-minute client activity window but is shorter than the configured Cloud Run request timeout;
 - transport failures retry with capped exponential backoff, at most five times per retry budget and only while the last interaction is recent;
 - a retry timer firing after the activity window expires does not reconnect;
-- exhausting retries waits for new activity or foreground resume; ordinary activity does not reset an active retry budget;
+- exhausting retries waits for new activity; ordinary activity does not reset an active retry budget;
 - a connection open for 10 seconds resets the retry budget; a short-lived open does not;
-- user input cancels retry backoff and reconnects immediately;
-- returning to a visible tab or restoring from the back-forward cache counts as fresh activity and opens one connection;
-- an `online` event reconnects only while recent activity is within the window;
+- user input refreshes the idle deadline but does not cancel a pending retry or reset an active retry budget;
+- a page in the background keeps the same connection and inactivity timer, subject to browser/OS suspension;
 - feed swaps do not open extra connections;
 - each new connection computes catch-up IDs from currently rendered capture cards without illumination;
 - task-status events refresh only a matching rendered capture;
@@ -28,13 +28,12 @@ Prefer a real-browser test for behavior involving native `EventSource`, page vis
 	does not request a partial, while a newer event triggers exactly one refresh;
 - after the refreshed card installs its new watermark, replaying the same event
 	does not trigger another request;
-- server lifetime expiry reconnects through the same bounded retry budget as a transport failure.
 
 Keep tests focused on observable browser behavior rather than mirroring each implementation detail. Use controllable/fake timers or a short test-only duration seam instead of waiting several minutes.
 
 ## Lightweight alternative
 
-If installing/running a browser toolchain is too heavy for the current validation phase, extract the retry/idle policy into a small dependency-free module and test that logic under Node's built-in test runner with mocked `EventSource`, timers, and document visibility. This is less representative of browser integration and should not turn into a frontend build system by default.
+If installing/running a browser toolchain is too heavy for the current validation phase, extract the retry/idle policy into a small dependency-free module and test that logic under Node's built-in test runner with mocked `EventSource`, timers, user input, and document events. This is less representative of browser integration and should not turn into a frontend build system by default.
 
 Do not add both approaches initially. Pick the smallest approach that gives useful confidence when the client behavior is next changed.
 

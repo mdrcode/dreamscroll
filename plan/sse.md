@@ -3,9 +3,10 @@
 **Status:** Task-status SSE is wired as one authenticated stream per page.
 `capture_ids` selects a current-status snapshot each time a stream connects;
 after that snapshot, the same connection receives all live task-status events
-for the authenticated user. The browser refreshes the catch-up IDs on foreground
-resume and replaces stale streams. Entity availability has a wire type but no
-producer or client behavior yet.
+for the authenticated user. The client keeps the stream open while hidden until
+its inactivity timeout; reconnects are driven by explicit activity and bounded
+transport retries. Entity availability has a wire type but no producer or client
+behavior yet.
 **Scope:** Relay best-effort, low-latency **background-task status hints** to
 HTMX clients over Server-Sent Events. This is informational UI feedback, not a
 workflow engine, durable change log, or source of truth for task orchestration.
@@ -427,21 +428,21 @@ capture IDs in its URL, but not a replay of missed transitions. The client
 recomputes those IDs from capture cards currently on the page that do not yet
 show an illumination; cards with an illumination are omitted from catch-up.
 
-The client connects immediately on page load. While the page is visible, user
-input refreshes a three-minute activity window and ensures there is one open
-`EventSource`. After three minutes without input, the client closes the stream
-and abandons any pending retry (the 3-minute inactivity cutoff). On transport
-failure or normal server closure, it retries with capped exponential backoff and
-jitter (starting near one second, capped near one minute), up to five times per
-retry budget, and only while the activity window remains open. A connection that
-stays open for 10 seconds resets the retry count. After exhausting the budget,
-it waits for new user activity or foreground resume before trying again. Each
-retry rechecks recency; new input cancels the backoff and reconnects immediately.
-Returning to a visible tab or restoring from the back-forward cache counts as
-fresh activity: it closes any stale source, recomputes catch-up IDs, and connects
-immediately. Hiding the tab closes the source and cancels retries. The `online`
-event reconnects immediately only if the page is still within its activity
-window.
+The client connects immediately on page load. User input refreshes a
+three-minute activity window and ensures there is one open `EventSource`. After
+three minutes without input, the client closes the stream and abandons any
+pending retry (the 3-minute inactivity cutoff). Visibility changes do not count
+as activity or trigger connection changes: if the browser permits it, the stream
+remains open while the page is in the background until inactivity expires. The
+host environment may still suspend or cancel background network activity; the
+client cannot prevent that. On transport failure or normal server closure, it
+retries with capped exponential backoff and jitter (starting near one second,
+capped near one minute), up to five times per retry budget, and only while the
+activity window remains open. A connection that stays open for 10 seconds resets
+the retry count. After exhausting the budget, it waits for new user activity
+before trying again. Each retry rechecks recency; user activity refreshes the
+idle deadline and connects immediately only when no retry timer is already
+pending.
 
 The server caps each response at four minutes: longer than the client's
 three-minute inactivity window, but below Cloud Run's default five-minute
@@ -458,70 +459,39 @@ time. This is accepted for the current prototype, but a cursor, durable event
 sequence, or another server-side freshness mechanism would be needed to avoid
 that cost.
 
-New user input cancels a pending failure backoff and attempts a connection
-immediately. Ordinary input while retries are underway does not reset the retry
-budget; after the budget is exhausted, the next input grants a fresh budget.
+New user input refreshes the idle deadline. It does not cancel a pending retry
+timer or reset an active retry budget. After the budget is exhausted, the next
+input grants a fresh budget and attempts a connection immediately.
 
-#### Mobile foreground/resume recovery
+#### Background suspension and reconnect limits
 
-The stream is foreground-only. On iOS and other mobile platforms, switching to
-another app can suspend the page, JavaScript timers, and network activity. The
-backend task continues independently; SSE is not a background-delivery channel,
-and keep-alive comments cannot make a suspended page process events. On return,
-`visibilitychange` is the normal signal to reconnect, but a suspended/restored
-page may retain a stale `EventSource` reference if lifecycle cleanup did not run
-before suspension. Since the current `connect()` path refuses to connect while
-that reference is non-null, it can fail to establish a healthy stream until a
-later transport error or user interaction clears it.
-
-Reconnect alone is also insufficient for full UI recovery: the catch-up
-snapshot covers only `capture_ids` from the initial page load. Captures uploaded
-after that URL was created can miss terminal status notifications while the
-page is suspended and are not included in the reconnect snapshot. The event
-stream is a best-effort hint, not a replay log, so a missed transition must be
-reconciled from current persisted task status.
-
-**Implemented recovery behavior:**
-
-1. When the page becomes visible again, force a clean stream replacement:
-  close any existing `EventSource`, cancel any pending reconnect timer, and
-  reconnect once the document is visible. Handle `visibilitychange` and
-  `pageshow` through a shared, coalesced resume path; `pageshow` covers mobile
-  pages restored from a frozen state or the back-forward cache. Consider
-  `online` as an additional prompt to use that path, not as proof that the
-  stream is already healthy. Preserve exponential backoff for actual
-  connection failures and avoid duplicate simultaneous streams.
-2. On foreground resume, reconcile active upload/task UI against the server's
-  current status, including captures uploaded after the page's initial
-  `capture_ids` snapshot. Reuse the existing authenticated `/events` catch-up
-  snapshot: rebuild its `capture_ids` from the current DOM and locally tracked
-  progress states each time a replacement stream is opened. Do not add a
-  second status endpoint or try to replay every missed transition.
-3. Keep native `EventSource` for low-latency updates while foregrounded.
-  WebSockets do not avoid OS suspension, and a service worker is not a general
-  persistent background-SSE runtime. Any future requirement for notification
-  while the app is closed/backgrounded should be designed separately (for
-  example, web push), rather than relying on a live page connection.
-
-This resume repair is intended to improve recovery without changing the
-best-effort status contract or task execution. The browser can only process the
-catch-up once it resumes in the foreground; until then the card may remain
-stale.
+The client leaves the EventSource open when the page becomes hidden and lets
+its ordinary three-minute inactivity timer expire. This gives a recently
+active page a short opportunity to receive task updates while backgrounded.
+However, on iOS and other mobile platforms the browser or OS may suspend page
+JavaScript, timers, or network activity; SSE is not a guaranteed background
+delivery mechanism, and keep-alives cannot prevent host suspension. If the
+connection is interrupted, the bounded retry policy applies only while the
+last user activity remains recent. On return, a user interaction reconnects
+and recomputes catch-up IDs from the current DOM. Catch-up is current state,
+not a replay log, and intentionally omits captures already showing an
+illumination. This is best-effort: the browser can suspend networking or
+JavaScript despite the inactivity timeout, and missed updates are not replayed.
 
 Feed swaps update the DOM and the JS router's possible refresh targets; they do
-not change or reopen the EventSource subscription. The catch-up ID set is
-rebuilt when a stream is opened, including after foreground resume; ordinary
-feed swaps do not reconnect. Newly displayed entities still receive future
-live hints; statuses already current before they became visible are obtained
-through normal page rendering/refresh or the next resume catch-up.
+not change or reopen the EventSource subscription. Catch-up IDs are recomputed
+when a new stream opens; ordinary feed swaps do not reconnect. Newly displayed
+entities still receive future live hints; statuses already current before they
+became visible are obtained through normal page rendering or a later explicit
+reconnection.
 
 ### 4.5 Initial status catch-up
 
 The same `/events` response begins with the latest task status rows for
 capture cards currently on the page that do not yet show an illumination, then
 continues as a live user-wide stream. The browser recomputes this ID list from
-the current DOM for every new EventSource connection, including foreground
-resume. Page-load HTML does not need to join task status.
+the current DOM for every new EventSource connection. Page-load HTML does not
+need to join task status.
 
 **The flow:**
 
@@ -757,22 +727,25 @@ concurrent tasks update 5 distinct cards independently, in any completion order.
 
 Each open SSE response occupies a Cloud Run request/concurrency slot, so the
 client does not keep the stream open indefinitely. It closes the connection
-when the tab is hidden or after three minutes without user interaction (the
-inactivity cutoff). While that activity window remains open, transport failures and server lifetime
-expiry retry with capped exponential backoff and jitter; retries stop after
-inactivity. Pointer, keyboard, touch, or wheel activity reconnects a closed
-stream immediately, and showing the tab counts as fresh activity and reconnects
-it. Every connection recomputes catch-up IDs from current capture cards without
-an illumination.
+after three minutes without user interaction (the inactivity cutoff), regardless
+of tab visibility. Visibility changes do not close the stream, count as activity,
+or trigger reconnects. If the browser permits, a recently active page therefore
+keeps listening briefly while backgrounded; the host may still suspend or cancel
+its network activity. While the activity window remains open, transport failures
+and server lifetime expiry retry with capped exponential backoff and jitter,
+limited to five retries per budget; a ten-second stable connection resets that
+budget. Retries stop after inactivity or budget exhaustion. Pointer, keyboard,
+touch, or wheel activity refreshes the idle deadline; it reconnects immediately
+only if no retry is already pending, and resets an exhausted budget. Every
+connection recomputes catch-up IDs from current capture cards without an
+illumination.
 
 The server independently closes each response after four minutes: this exceeds
 the three-minute client activity window but stays below Cloud Run's default
 five-minute request timeout. This ordering is intentional: the client closes
 idle streams first, while server expiry periodically bounds streams for active
-clients. Normal server-side lifetime expiry is still handled by the retry path.
-fresh snapshot; transport errors are explicitly closed and retried with
-exponential backoff. Reopening also occurs on user activity or when the tab
-becomes visible. Do not recreate the stream on HTMX swaps or feed changes.
+clients. Normal server-side lifetime expiry is handled by the bounded retry
+path. Do not recreate the stream on HTMX swaps or feed changes.
 
 ---
 
@@ -819,9 +792,9 @@ three-minute client activity window.
 - **Robust for the intended scope:** `task_run_status` persists the best
   available current status across restarts. `LISTEN/NOTIFY` gives low-latency
   hints; normal page refresh can help the UI catch up; keep-alives + native
-  EventSource reconnect handle flaky connections. Foreground resume on mobile
-  should force a clean reconnect and reconcile active task UI from current
-  status; background delivery is not provided. This is not a durable change
+  EventSource reconnect handle flaky connections. Explicit user activity
+  reconnects after inactivity or transport exhaustion; background delivery is
+  best-effort because the host may suspend network activity. This is not a durable change
   log and does not guarantee every transition is delivered. Adaptive lifetime
   remains deferred.
 - **Flexible:** The `(task_type, envelope_id, entity_type, entity_id)` model is
@@ -920,8 +893,8 @@ be resolved as implementation work begins:
   fan-out are wired. Each new `/events` connection emits a current-status
   snapshot for its supplied capture IDs, then filters live updates by
   authenticated owner only. The browser keeps one EventSource through feed
-  swaps, rebuilds catch-up IDs on foreground resume, and routes by entity ID to
-  matching DOM targets.
+  swaps, rebuilds catch-up IDs on each explicit reconnect, and routes by entity
+  ID to matching DOM targets.
 11. **Integrated prototype:** `src/sse` defines `ServerEvent<E>`, the
   `TaskStatusEvent` and `AvailabilityEvent` aliases, typed payloads, and
   versioned JSON serialization. `ServerEventNotifier` publishes to
@@ -997,9 +970,10 @@ into this comparison.
   fragments for direct `sse-swap` remain an optional future use-case.
 - **Resolved — bounded SSE lifetime:** each server stream ends after four
   minutes, above the client's three-minute activity window and below the
-  default five-minute Cloud Run request timeout. The browser reconnects with a fresh snapshot.
-  The client also closes on hidden tabs or inactivity and reopens on
-  visibility/activity as documented in §5.5.
+  default five-minute Cloud Run request timeout. The browser reconnects with a
+  fresh snapshot. The client closes after inactivity regardless of visibility;
+  tab visibility changes do not themselves close, refresh, or reconnect SSE
+  (§5.5).
 - **Feed changes after connect:** the initial `capture_ids` list is not updated
   when HTMX changes the feed. Newly displayed entities receive future live
   events; a current status for an already-finished task appears on page refresh
