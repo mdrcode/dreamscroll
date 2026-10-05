@@ -131,8 +131,12 @@ function setupTaskStatusEvents() {
 
     const baseRetryMs = 1000;
     const maxRetryMs = 60000;
+    const maxRetries = 5; // Per outage, until activity/resume or a stable connection.
+    const stableConnectionMs = 10 * 1000;
     const activeWindowMs = 3 * 60 * 1000; // Close SSE and stop retries after 3 min without activity.
     let retryAttempt = 0;
+    let retriesExhausted = false;
+    let stableConnectionTimer = null;
     let retryTimer = null;
     let idleTimer = null;
     let resumeTimer = null;
@@ -158,24 +162,44 @@ function setupTaskStatusEvents() {
         }
     }
 
-    function closeSource() {
+    function clearStableConnectionTimer() {
+        if (stableConnectionTimer !== null) {
+            window.clearTimeout(stableConnectionTimer);
+            stableConnectionTimer = null;
+        }
+    }
+
+    function closeSource(reason) {
         if (!source) return;
         const oldSource = source;
         source = null;
+        clearStableConnectionTimer();
+        console.info('Closing task-status SSE.', reason);
         oldSource.close();
     }
 
-    function connectNow() {
+    function connectNow(reason) {
         clearRetry();
-        if (source || !shouldBeConnected()) return;
+        if (source || retriesExhausted || !shouldBeConnected()) return;
 
         const eventsUrl = eventsUrlForConnection();
-        console.info('Connecting task-status SSE.', eventsUrl);
+        const connectedAt = Date.now();
+        console.info('Connecting task-status SSE.', { reason, url: eventsUrl });
         source = new EventSource(eventsUrl, { withCredentials: true });
         const currentSource = source;
+        let wasOpened = false;
         currentSource.addEventListener('open', function () {
             if (source !== currentSource) return;
-            retryAttempt = 0;
+            wasOpened = true;
+            console.info('Task-status SSE opened.', { lifetimeMs: Date.now() - connectedAt });
+            clearStableConnectionTimer();
+            stableConnectionTimer = window.setTimeout(function () {
+                stableConnectionTimer = null;
+                if (source === currentSource) {
+                    retryAttempt = 0;
+                    retriesExhausted = false;
+                }
+            }, stableConnectionMs);
             armIdleClose();
         });
         currentSource.addEventListener('task-status', function (event) {
@@ -191,21 +215,31 @@ function setupTaskStatusEvents() {
         });
         currentSource.onerror = function () {
             if (source !== currentSource) return;
-            closeSource();
-            scheduleRetry();
+            console.warn('Task-status SSE connection ended (EventSource error event).', {
+                readyState: currentSource.readyState,
+                wasOpened,
+                lifetimeMs: Date.now() - connectedAt
+            });
+            closeSource('transport error');
+            scheduleRetry('transport error');
         };
     }
 
-    function scheduleRetry() {
+    function scheduleRetry(reason) {
         if (!shouldBeConnected() || retryTimer !== null) return;
+        if (retryAttempt >= maxRetries) {
+            retriesExhausted = true;
+            console.warn('Task-status SSE retries exhausted; waiting for user activity.', { reason });
+            return;
+        }
 
         const exponentialDelay = Math.min(maxRetryMs, baseRetryMs * (2 ** retryAttempt));
         const delay = Math.round(exponentialDelay * (0.8 + Math.random() * 0.4));
         retryAttempt += 1;
-        console.warn('Task-status SSE unavailable; retrying in', delay, 'ms.');
+        console.warn('Task-status SSE unavailable; retrying in', delay, 'ms.', { reason, retry: retryAttempt });
         retryTimer = window.setTimeout(function () {
             retryTimer = null;
-            if (shouldBeConnected()) connectNow();
+            if (shouldBeConnected()) connectNow('retry after ' + reason);
         }, delay);
     }
 
@@ -223,10 +257,10 @@ function setupTaskStatusEvents() {
                 armIdleClose();
                 return;
             }
-            closeSource();
+            closeSource('inactivity timeout');
             clearRetry();
             retryAttempt = 0;
-            console.info('Closed idle task-status SSE connection.');
+            console.info('Task-status SSE stopped: inactivity timeout.');
         }, idleRemainingMs);
     }
 
@@ -234,7 +268,11 @@ function setupTaskStatusEvents() {
         if (!isVisible()) return;
         lastActivityAt = Date.now();
         armIdleClose();
-        connectNow();
+        if (retriesExhausted) {
+            retriesExhausted = false;
+            retryAttempt = 0;
+        }
+        if (!source && retryTimer === null) connectNow('user activity');
     }
 
     function resumeInForeground() {
@@ -244,18 +282,19 @@ function setupTaskStatusEvents() {
             if (!isVisible()) return;
             lastActivityAt = Date.now();
             retryAttempt = 0;
-            closeSource();
+            retriesExhausted = false;
+            closeSource('foreground resume');
             clearRetry();
             armIdleClose();
-            connectNow();
+            connectNow('foreground resume');
         }, 0);
     }
 
     function onNetworkOnline() {
         if (!shouldBeConnected()) return;
         if (source && source.readyState === EventSource.OPEN) return;
-        closeSource();
-        connectNow();
+        closeSource('network online');
+        connectNow('network online');
     }
 
     window.dreamscrollTaskStatusEvents = {
@@ -271,7 +310,7 @@ function setupTaskStatusEvents() {
             resumeTimer = null;
             if (idleTimer !== null) window.clearTimeout(idleTimer);
             idleTimer = null;
-            closeSource();
+            closeSource('tab hidden');
             clearRetry();
             retryAttempt = 0;
         } else {
@@ -286,7 +325,7 @@ function setupTaskStatusEvents() {
 
     lastActivityAt = Date.now();
     armIdleClose();
-    connectNow();
+    connectNow('page load');
 }
 
 // Client-side estimated progress, scoped to each capture card. The percentage

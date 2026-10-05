@@ -430,15 +430,18 @@ show an illumination; cards with an illumination are omitted from catch-up.
 The client connects immediately on page load. While the page is visible, user
 input refreshes a three-minute activity window and ensures there is one open
 `EventSource`. After three minutes without input, the client closes the stream
-and abandons any pending retry (the 3-minute inactivity cutoff). On transport failure or normal server closure,
-it retries with capped exponential backoff and jitter (starting near one
-second, capped near one minute) only while the activity window remains open.
-Each retry rechecks recency; new input cancels the backoff and reconnects
-immediately. Returning to a visible tab or restoring from the back-forward cache
-counts as fresh activity: it closes any stale source, recomputes catch-up IDs,
-and connects immediately. Hiding the tab closes the source and cancels retries.
-The `online` event reconnects immediately only if the page is still within its
-activity window. A successful `open` resets the backoff.
+and abandons any pending retry (the 3-minute inactivity cutoff). On transport
+failure or normal server closure, it retries with capped exponential backoff and
+jitter (starting near one second, capped near one minute), up to five times per
+retry budget, and only while the activity window remains open. A connection that
+stays open for 10 seconds resets the retry count. After exhausting the budget,
+it waits for new user activity or foreground resume before trying again. Each
+retry rechecks recency; new input cancels the backoff and reconnects immediately.
+Returning to a visible tab or restoring from the back-forward cache counts as
+fresh activity: it closes any stale source, recomputes catch-up IDs, and connects
+immediately. Hiding the tab closes the source and cancels retries. The `online`
+event reconnects immediately only if the page is still within its activity
+window.
 
 The server caps each response at four minutes: longer than the client's
 three-minute inactivity window, but below Cloud Run's default five-minute
@@ -455,10 +458,9 @@ time. This is accepted for the current prototype, but a cursor, durable event
 sequence, or another server-side freshness mechanism would be needed to avoid
 that cost.
 
-Activity does not bypass a pending failure backoff: while the server is
-unavailable, scroll/pointer events only refresh the idle clock and do not start
-new connection attempts. A single reconnect timer gates attempts until the
-scheduled backoff expires.
+New user input cancels a pending failure backoff and attempts a connection
+immediately. Ordinary input while retries are underway does not reset the retry
+budget; after the budget is exhausted, the next input grants a fresh budget.
 
 #### Mobile foreground/resume recovery
 

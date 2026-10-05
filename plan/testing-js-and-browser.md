@@ -14,8 +14,10 @@ Prefer a real-browser test for behavior involving native `EventSource`, page vis
 - one `/events` connection immediately on page load;
 - the connection closes after three minutes without user interaction or when the page is hidden;
 - the server stream lifetime exceeds the three-minute client activity window but is shorter than the configured Cloud Run request timeout;
-- transport failures retry with capped exponential backoff only while the last interaction is recent;
+- transport failures retry with capped exponential backoff, at most five times per retry budget and only while the last interaction is recent;
 - a retry timer firing after the activity window expires does not reconnect;
+- exhausting retries waits for new activity or foreground resume; ordinary activity does not reset an active retry budget;
+- a connection open for 10 seconds resets the retry budget; a short-lived open does not;
 - user input cancels retry backoff and reconnects immediately;
 - returning to a visible tab or restoring from the back-forward cache counts as fresh activity and opens one connection;
 - an `online` event reconnects only while recent activity is within the window;
@@ -26,7 +28,7 @@ Prefer a real-browser test for behavior involving native `EventSource`, page vis
 	does not request a partial, while a newer event triggers exactly one refresh;
 - after the refreshed card installs its new watermark, replaying the same event
 	does not trigger another request;
-- transport failures use capped exponential backoff, while an ordinary server lifetime close reconnects normally.
+- server lifetime expiry reconnects through the same bounded retry budget as a transport failure.
 
 Keep tests focused on observable browser behavior rather than mirroring each implementation detail. Use controllable/fake timers or a short test-only duration seam instead of waiting several minutes.
 
