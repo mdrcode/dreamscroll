@@ -423,18 +423,28 @@ server whenever visible cards change.
 ### 4.4 Delivery and reconnect semantics
 
 SSE is **ephemeral** — a browser reconnect receives a fresh snapshot for the
-capture IDs in its URL, but not a replay of missed transitions. The browser
-client closes a failed native `EventSource` and creates a replacement using
-capped exponential backoff with jitter (starting near one second and capping
-near one minute). A successful `open` resets the backoff. This avoids native
-EventSource's short fixed retry loop generating repeated `/events` requests
-while the local server is stopped. Independently, the client closes the stream
-after five minutes without user interaction and while the tab is hidden; user
-activity or tab visibility reconnects it, and the initial snapshot catches up
-current rendered captures. The server caps each response at four minutes so
-streams periodically end even if a tab remains continuously active. The initial
-snapshot is current state, not a transition log; updates remain informational
-hints.
+capture IDs in its URL, but not a replay of missed transitions. The client
+recomputes those IDs from capture cards currently on the page that do not yet
+show an illumination; cards with an illumination are omitted from catch-up.
+
+The client connects immediately on page load. While the page is visible, user
+input refreshes a three-minute activity window and ensures there is one open
+`EventSource`. After three minutes without input, the client closes the stream
+and abandons any pending retry (the 3-minute inactivity cutoff). On transport failure or normal server closure,
+it retries with capped exponential backoff and jitter (starting near one
+second, capped near one minute) only while the activity window remains open.
+Each retry rechecks recency; new input cancels the backoff and reconnects
+immediately. Returning to a visible tab or restoring from the back-forward cache
+counts as fresh activity: it closes any stale source, recomputes catch-up IDs,
+and connects immediately. Hiding the tab closes the source and cancels retries.
+The `online` event reconnects immediately only if the page is still within its
+activity window. A successful `open` resets the backoff.
+
+The server caps each response at four minutes: longer than the client's
+three-minute inactivity window, but below Cloud Run's default five-minute
+request timeout. Idle clients therefore close first; continuously active
+clients periodically reconnect after the server cap. The initial snapshot is current state,
+not a transition log; updates remain informational hints.
 
 **Operational cost:** every `/events` connection executes the same initial
 catch-up query for its requested capture IDs, even when a reconnect is made by
@@ -505,11 +515,11 @@ through normal page rendering/refresh or the next resume catch-up.
 
 ### 4.5 Initial status catch-up
 
-The same `/events` response begins with the latest task status rows for the
-current capture IDs supplied by the browser, then continues as a live user-wide
-stream. On foreground resume, the browser rebuilds that ID list from rendered
-captures and locally tracked active progress states before replacing the
-stream. Page-load HTML does not need to join task status.
+The same `/events` response begins with the latest task status rows for
+capture cards currently on the page that do not yet show an illumination, then
+continues as a live user-wide stream. The browser recomputes this ID list from
+the current DOM for every new EventSource connection, including foreground
+resume. Page-load HTML does not need to join task status.
 
 **The flow:**
 
@@ -583,9 +593,9 @@ can keep graceful shutdown waiting indefinitely.
 
 Create one native `EventSource('/events')` per page and keep it open for that
 page's lifetime (subject to normal browser/network reconnects and process
-shutdown). The initial page capture IDs are included in the URL for the
-one-time catch-up snapshot. The client does not update this list or recreate the
-EventSource after feed swaps.
+shutdown). Each new EventSource connection recomputes catch-up IDs from the
+current DOM: include capture cards that do not show an illumination, and omit
+cards that do. Ordinary feed swaps do not reconnect the EventSource.
 
 The route authenticates the session and filters notifications by `user_id`.
 The URL carries no capture list. Each `task-status` payload contains
@@ -745,14 +755,19 @@ concurrent tasks update 5 distinct cards independently, in any completion order.
 
 Each open SSE response occupies a Cloud Run request/concurrency slot, so the
 client does not keep the stream open indefinitely. It closes the connection
-when the tab is hidden or after five minutes without user interaction; pointer,
-keyboard, touch, or wheel activity reconnects a closed stream, and showing the
-tab also reconnects it. Reconnection uses the same URL and receives the
-connect-time snapshot for the page's original capture IDs.
+when the tab is hidden or after three minutes without user interaction (the
+inactivity cutoff). While that activity window remains open, transport failures and server lifetime
+expiry retry with capped exponential backoff and jitter; retries stop after
+inactivity. Pointer, keyboard, touch, or wheel activity reconnects a closed
+stream immediately, and showing the tab counts as fresh activity and reconnects
+it. Every connection recomputes catch-up IDs from current capture cards without
+an illumination.
 
-The server independently closes each response after four minutes, below the
-client idle window and any Cloud Run request timeout configured for SSE. A
-normal server-side lifetime expiry uses native EventSource reconnect with a
+The server independently closes each response after four minutes: this exceeds
+the three-minute client activity window but stays below Cloud Run's default
+five-minute request timeout. This ordering is intentional: the client closes
+idle streams first, while server expiry periodically bounds streams for active
+clients. Normal server-side lifetime expiry is still handled by the retry path.
 fresh snapshot; transport errors are explicitly closed and retried with
 exponential backoff. Reopening also occurs on user activity or when the tab
 becomes visible. Do not recreate the stream on HTMX swaps or feed changes.
@@ -783,10 +798,11 @@ The local channel is only a delivery optimization for notifications received
 from Postgres; neither channel provides retained history.
 
 For Cloud Run specifically: SSE works through the ingress with periodic
-keep-alives. Each server response is intentionally capped at four minutes; keep
-that below the configured service request timeout so the application, rather
-than Cloud Run, normally ends the response. The browser independently closes
-idle/hidden streams as described in §5.5.
+keep-alives. Each server response is intentionally capped at four minutes;
+keep that below the configured service request timeout so the application,
+rather than Cloud Run, normally ends the response. The browser independently
+closes idle/hidden streams as described in §5.5; the server cap exceeds the
+three-minute client activity window.
 
 ---
 
@@ -978,10 +994,10 @@ into this comparison.
   status field should use the directly serialized `TaskRunStatus`; small HTML
   fragments for direct `sse-swap` remain an optional future use-case.
 - **Resolved — bounded SSE lifetime:** each server stream ends after four
-  minutes, below the default Cloud Run request timeout, and the browser
-  reconnects with a fresh snapshot. The client also closes on hidden tabs or
-  five minutes of inactivity and reopens on visibility/activity as documented
-  in §5.5.
+  minutes, above the client's three-minute activity window and below the
+  default five-minute Cloud Run request timeout. The browser reconnects with a fresh snapshot.
+  The client also closes on hidden tabs or inactivity and reopens on
+  visibility/activity as documented in §5.5.
 - **Feed changes after connect:** the initial `capture_ids` list is not updated
   when HTMX changes the feed. Newly displayed entities receive future live
   events; a current status for an already-finished task appears on page refresh

@@ -113,18 +113,11 @@ function setupTaskStatusEvents() {
 
     function captureIdsForCatchup() {
         const captureIds = new Set();
-        if (mode === 'feed') {
-            document.querySelectorAll('[data-capture-id]').forEach(function (node) {
-                if (node.dataset.captureId) captureIds.add(node.dataset.captureId);
-            });
-        } else if (document.body.dataset.captureId) {
-            captureIds.add(document.body.dataset.captureId);
-        }
-        if (window.dreamscrollTaskProgress) {
-            window.dreamscrollTaskProgress.captureIds().forEach(function (id) {
-                captureIds.add(id);
-            });
-        }
+        document.querySelectorAll('[data-capture-id]').forEach(function (card) {
+            if (card.dataset.captureId && !card.querySelector('.capture-card__illumination')) {
+                captureIds.add(card.dataset.captureId);
+            }
+        });
         return Array.from(captureIds);
     }
 
@@ -138,26 +131,43 @@ function setupTaskStatusEvents() {
 
     const baseRetryMs = 1000;
     const maxRetryMs = 60000;
-    const idleCloseMs = 5 * 60 * 1000;
+    const activeWindowMs = 3 * 60 * 1000; // Close SSE and stop retries after 3 min without activity.
     let retryAttempt = 0;
-    let reconnectTimer = null;
+    let retryTimer = null;
     let idleTimer = null;
     let resumeTimer = null;
     let source = null;
-    let lastUserActivityAt = Date.now();
-    let uploadRequiresEvents = false;
+    let lastActivityAt = Date.now();
 
-    // TODO: Revisit this lightweight retry policy if frontend tooling is added.
-    // The app intentionally has no Node-based build/test pipeline today; keep
-    // this browser-native implementation small until richer client behavior
-    // justifies adding one.
-    function connect(force) {
-        if (source || document.visibilityState === 'hidden') return;
-        if (force && reconnectTimer !== null) {
-            window.clearTimeout(reconnectTimer);
-            reconnectTimer = null;
+    function isVisible() {
+        return document.visibilityState !== 'hidden';
+    }
+
+    function isRecentlyActive() {
+        return Date.now() - lastActivityAt < activeWindowMs;
+    }
+
+    function shouldBeConnected() {
+        return isVisible() && isRecentlyActive();
+    }
+
+    function clearRetry() {
+        if (retryTimer !== null) {
+            window.clearTimeout(retryTimer);
+            retryTimer = null;
         }
-        if (reconnectTimer !== null) return;
+    }
+
+    function closeSource() {
+        if (!source) return;
+        const oldSource = source;
+        source = null;
+        oldSource.close();
+    }
+
+    function connectNow() {
+        clearRetry();
+        if (source || !shouldBeConnected()) return;
 
         const eventsUrl = eventsUrlForConnection();
         console.info('Connecting task-status SSE.', eventsUrl);
@@ -180,92 +190,90 @@ function setupTaskStatusEvents() {
             refreshSubscribedEntity(update);
         });
         currentSource.onerror = function () {
-            // Native EventSource retries on a short fixed interval. Close it
-            // and schedule a replacement so prolonged local/server outages use
-            // capped exponential backoff with jitter instead of request churn.
-            // User activity must not cancel/bypass this failure backoff.
             if (source !== currentSource) return;
-            currentSource.close();
-            source = null;
-
-            if (document.visibilityState === 'hidden') return;
-
-            const exponentialDelay = Math.min(maxRetryMs, baseRetryMs * (2 ** retryAttempt));
-            const delay = Math.round(exponentialDelay * (0.8 + Math.random() * 0.4));
-            retryAttempt += 1;
-            console.warn('Task-status SSE unavailable; retrying in', delay, 'ms.');
-            reconnectTimer = window.setTimeout(function () {
-                reconnectTimer = null;
-                connect(uploadRequiresEvents);
-            }, delay);
+            closeSource();
+            scheduleRetry();
         };
     }
 
-    function closeSource() {
-        if (source) {
-            const oldSource = source;
-            source = null;
-            oldSource.close();
-        }
-    }
+    function scheduleRetry() {
+        if (!shouldBeConnected() || retryTimer !== null) return;
 
-    function resumeInForeground() {
-        if (document.visibilityState === 'hidden' || resumeTimer !== null) return;
-        // visibilitychange, pageshow, and online can all fire during one
-        // foreground transition. Coalesce them into one reconnect/reconcile.
-        resumeTimer = window.setTimeout(function () {
-            resumeTimer = null;
-            if (document.visibilityState === 'hidden') return;
-            closeSource();
-            lastUserActivityAt = Date.now();
-            connect(reconnectTimer !== null);
-            armIdleClose();
-        }, 0);
+        const exponentialDelay = Math.min(maxRetryMs, baseRetryMs * (2 ** retryAttempt));
+        const delay = Math.round(exponentialDelay * (0.8 + Math.random() * 0.4));
+        retryAttempt += 1;
+        console.warn('Task-status SSE unavailable; retrying in', delay, 'ms.');
+        retryTimer = window.setTimeout(function () {
+            retryTimer = null;
+            if (shouldBeConnected()) connectNow();
+        }, delay);
     }
 
     function armIdleClose() {
         if (idleTimer !== null) window.clearTimeout(idleTimer);
-        const idleRemainingMs = Math.max(0, idleCloseMs - (Date.now() - lastUserActivityAt));
+        if (!isVisible()) {
+            idleTimer = null;
+            return;
+        }
+
+        const idleRemainingMs = Math.max(0, activeWindowMs - (Date.now() - lastActivityAt));
         idleTimer = window.setTimeout(function () {
             idleTimer = null;
+            if (isRecentlyActive()) {
+                armIdleClose();
+                return;
+            }
             closeSource();
+            clearRetry();
+            retryAttempt = 0;
             console.info('Closed idle task-status SSE connection.');
         }, idleRemainingMs);
     }
 
-    function onUserInteraction() {
-        if (document.visibilityState === 'hidden') return;
-        lastUserActivityAt = Date.now();
-        if (!source && reconnectTimer === null) connect();
-        else armIdleClose();
+    function recordActivity() {
+        if (!isVisible()) return;
+        lastActivityAt = Date.now();
+        armIdleClose();
+        connectNow();
+    }
+
+    function resumeInForeground() {
+        if (!isVisible() || resumeTimer !== null) return;
+        resumeTimer = window.setTimeout(function () {
+            resumeTimer = null;
+            if (!isVisible()) return;
+            lastActivityAt = Date.now();
+            retryAttempt = 0;
+            closeSource();
+            clearRetry();
+            armIdleClose();
+            connectNow();
+        }, 0);
+    }
+
+    function onNetworkOnline() {
+        if (!shouldBeConnected()) return;
+        if (source && source.readyState === EventSource.OPEN) return;
+        closeSource();
+        connectNow();
     }
 
     window.dreamscrollTaskStatusEvents = {
-        ensureConnected: function () {
-            uploadRequiresEvents = true;
-            lastUserActivityAt = Date.now();
-            if (source) {
-                armIdleClose();
-            } else {
-                connect(true);
-            }
-        }
+        ensureConnected: recordActivity
     };
 
     ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(function (eventName) {
-        window.addEventListener(eventName, onUserInteraction, { passive: true });
+        window.addEventListener(eventName, recordActivity, { passive: true });
     });
     document.addEventListener('visibilitychange', function () {
-        if (document.visibilityState === 'hidden') {
+        if (!isVisible()) {
             if (resumeTimer !== null) window.clearTimeout(resumeTimer);
             resumeTimer = null;
             if (idleTimer !== null) window.clearTimeout(idleTimer);
             idleTimer = null;
             closeSource();
-            if (reconnectTimer !== null) {
-                window.clearTimeout(reconnectTimer);
-                reconnectTimer = null;
-            }
+            clearRetry();
+            retryAttempt = 0;
         } else {
             resumeInForeground();
         }
@@ -274,10 +282,11 @@ function setupTaskStatusEvents() {
     window.addEventListener('pageshow', function (event) {
         if (event.persisted) resumeInForeground();
     });
-    window.addEventListener('online', resumeInForeground);
+    window.addEventListener('online', onNetworkOnline);
 
-    connect(false);
+    lastActivityAt = Date.now();
     armIdleClose();
+    connectNow();
 }
 
 // Client-side estimated progress, scoped to each capture card. The percentage

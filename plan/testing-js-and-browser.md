@@ -11,10 +11,16 @@
 
 Prefer a real-browser test for behavior involving native `EventSource`, page visibility, DOM events, and HTMX integration. A small Playwright test can load the local WebUI and verify the observable contract:
 
-- one `/events` connection while the page is active;
-- the connection closes after five minutes without user interaction and while the page is hidden;
-- interaction or returning to a visible tab opens a new connection;
+- one `/events` connection immediately on page load;
+- the connection closes after three minutes without user interaction or when the page is hidden;
+- the server stream lifetime exceeds the three-minute client activity window but is shorter than the configured Cloud Run request timeout;
+- transport failures retry with capped exponential backoff only while the last interaction is recent;
+- a retry timer firing after the activity window expires does not reconnect;
+- user input cancels retry backoff and reconnects immediately;
+- returning to a visible tab or restoring from the back-forward cache counts as fresh activity and opens one connection;
+- an `online` event reconnects only while recent activity is within the window;
 - feed swaps do not open extra connections;
+- each new connection computes catch-up IDs from currently rendered capture cards without illumination;
 - task-status events refresh only a matching rendered capture;
 - a settled catch-up event older than the card's DB-clock snapshot watermark
 	does not request a partial, while a newer event triggers exactly one refresh;

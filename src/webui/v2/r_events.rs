@@ -13,6 +13,7 @@ use crate::{api, auth, sse, task};
 
 use super::WebState;
 
+// Keep above the client activity window (3 min) and below Cloud Run's request timeout.
 const MAX_STREAM_LIFETIME: Duration = Duration::from_secs(4 * 60);
 
 #[derive(Debug, Deserialize)]
