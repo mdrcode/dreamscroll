@@ -459,9 +459,14 @@ time. This is accepted for the current prototype, but a cursor, durable event
 sequence, or another server-side freshness mechanism would be needed to avoid
 that cost.
 
-New user input refreshes the idle deadline. It does not cancel a pending retry
-timer or reset an active retry budget. After the budget is exhausted, the next
-input grants a fresh budget and attempts a connection immediately.
+Pointer down/over, keyboard, touch, and wheel input refreshes the idle deadline.
+`pointerover` intentionally counts hover/element entry but not continuous mouse
+movement; `pointermove` is excluded because it fires at a high rate. Input does
+not cancel a pending retry timer or reset an active retry budget. After the
+budget is exhausted, the next input grants a fresh budget and attempts a
+connection immediately. A
+`stream-ending` transport event announces normal server lifetime expiry so the
+client can replace that stream immediately without spending failure backoff.
 
 #### Background suspension and reconnect limits
 
@@ -734,18 +739,19 @@ keeps listening briefly while backgrounded; the host may still suspend or cancel
 its network activity. While the activity window remains open, transport failures
 and server lifetime expiry retry with capped exponential backoff and jitter,
 limited to five retries per budget; a ten-second stable connection resets that
-budget. Retries stop after inactivity or budget exhaustion. Pointer, keyboard,
-touch, or wheel activity refreshes the idle deadline; it reconnects immediately
+budget. Retries stop after inactivity or budget exhaustion. Pointer down/over,
+keyboard, touch, or wheel activity refreshes the idle deadline; `pointermove` is
+excluded to avoid high-frequency timer resets. Activity reconnects immediately
 only if no retry is already pending, and resets an exhausted budget. Every
 connection recomputes catch-up IDs from current capture cards without an
 illumination.
 
-The server independently closes each response after four minutes: this exceeds
-the three-minute client activity window but stays below Cloud Run's default
-five-minute request timeout. This ordering is intentional: the client closes
-idle streams first, while server expiry periodically bounds streams for active
-clients. Normal server-side lifetime expiry is handled by the bounded retry
-path. Do not recreate the stream on HTMX swaps or feed changes.
+The server sends a `stream-ending` event at its four-minute deadline: this
+exceeds the three-minute client activity window but stays below Cloud Run's
+default five-minute request timeout. Active clients replace the stream
+immediately on that signal; if the signal is lost, the bounded failure-retry
+path handles the eventual disconnect. Do not recreate the stream on HTMX swaps
+or feed changes.
 
 ---
 

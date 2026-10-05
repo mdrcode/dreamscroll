@@ -49,10 +49,14 @@ pub async fn get(
         state.shutdown.clone(),
         tokio::time::Instant::now() + MAX_STREAM_LIFETIME, // deadline
     )
-    .map(|task_status| {
-        Ok(Event::default()
-            .event("task-status")
-            .data(task_event_json(&task_status)))
+    .map(|item| {
+        let event = match item {
+            TaskStatusStreamItem::TaskStatus(task_status) => Event::default()
+                .event("task-status")
+                .data(task_event_json(&task_status)),
+            TaskStatusStreamItem::StreamEnding => Event::default().event("stream-ending"),
+        };
+        Ok(event)
     });
 
     Ok(Sse::new(task_status_stream).keep_alive(
@@ -62,23 +66,37 @@ pub async fn get(
     ))
 }
 
+#[derive(Debug, Eq, PartialEq)]
+enum TaskStatusStreamItem {
+    TaskStatus(sse::TaskStatusEvent),
+    StreamEnding,
+}
+
 fn make_task_status_stream(
     user_id: i32,
     catchup: Option<Vec<sse::TaskStatusEvent>>,
     events_rx: broadcast::Receiver<sse::ReceivedServerEvent>,
     shutdown: tokio::sync::watch::Receiver<bool>,
     deadline: tokio::time::Instant,
-) -> impl futures_util::Stream<Item = sse::TaskStatusEvent> {
+) -> impl futures_util::Stream<Item = TaskStatusStreamItem> {
     let live_events = stream::unfold(
-        (events_rx, user_id, shutdown, deadline),
-        |(mut events_rx, user_id, mut shutdown, deadline)| async move {
+        (events_rx, user_id, shutdown, deadline, false),
+        |(mut events_rx, user_id, mut shutdown, deadline, ending_sent)| async move {
+            if ending_sent {
+                return None;
+            }
             loop {
                 if *shutdown.borrow() {
                     return None;
                 }
 
                 tokio::select! {
-                    _ = tokio::time::sleep_until(deadline) => return None,
+                    _ = tokio::time::sleep_until(deadline) => {
+                        return Some((
+                            TaskStatusStreamItem::StreamEnding,
+                            (events_rx, user_id, shutdown, deadline, true),
+                        ));
+                    },
                     changed = shutdown.changed() => {
                         if changed.is_err() || *shutdown.borrow() {
                             return None;
@@ -89,8 +107,8 @@ fn make_task_status_stream(
                             Ok(received) => {
                                 if let Some(update) = filter_for_user(received, user_id) {
                                     return Some((
-                                        update,
-                                        (events_rx, user_id, shutdown, deadline),
+                                        TaskStatusStreamItem::TaskStatus(update),
+                                        (events_rx, user_id, shutdown, deadline, false),
                                     ));
                                 }
                             }
@@ -107,7 +125,12 @@ fn make_task_status_stream(
             }
         },
     );
-    let catchup_events = stream::iter(catchup.into_iter().flatten());
+    let catchup_events = stream::iter(
+        catchup
+            .into_iter()
+            .flatten()
+            .map(TaskStatusStreamItem::TaskStatus),
+    );
     catchup_events.chain(live_events)
 }
 
@@ -340,7 +363,7 @@ mod tests {
                 .await
                 .expect("catch-up should be immediate")
                 .unwrap(),
-            catchup,
+            TaskStatusStreamItem::TaskStatus(catchup),
             "catch-up must be the first event"
         );
 
@@ -356,6 +379,9 @@ mod tests {
             .await
             .expect("live event should follow the catch-up")
             .unwrap();
+        let TaskStatusStreamItem::TaskStatus(live) = live else {
+            panic!("expected live task-status event");
+        };
         assert_eq!(live.entity_id, 999);
         assert_eq!(
             live.payload.status,
@@ -385,7 +411,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn server_deadline_ends_a_live_stream() {
+    async fn server_deadline_emits_stream_ending_then_closes() {
         let (_sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
         let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
@@ -397,11 +423,15 @@ mod tests {
             deadline,
         ));
 
-        assert!(
+        assert_eq!(
             tokio::time::timeout(Duration::from_secs(1), events.next())
                 .await
-                .expect("bounded server stream should finish")
-                .is_none()
+                .expect("stream-ending should arrive by the deadline"),
+            Some(TaskStatusStreamItem::StreamEnding)
+        );
+        assert!(
+            events.next().await.is_none(),
+            "stream should close after signal"
         );
     }
 

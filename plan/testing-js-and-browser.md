@@ -15,11 +15,13 @@ Prefer a real-browser test for behavior involving native `EventSource`, user inp
 - the connection closes after three minutes without user interaction, regardless of visibility;
 - while hidden, the client keeps the stream and activity timer behavior unchanged, subject to host suspension/cancellation;
 - the server stream lifetime exceeds the three-minute client activity window but is shorter than the configured Cloud Run request timeout;
+- a `stream-ending` event immediately replaces the stream without consuming the failure retry budget;
 - transport failures retry with capped exponential backoff, at most five times per retry budget and only while the last interaction is recent;
 - a retry timer firing after the activity window expires does not reconnect;
 - exhausting retries waits for new activity; ordinary activity does not reset an active retry budget;
 - a connection open for 10 seconds resets the retry budget; a short-lived open does not;
-- user input refreshes the idle deadline but does not cancel a pending retry or reset an active retry budget;
+- pointer down/over, keyboard, touch, and wheel input refresh the idle deadline; `pointermove` does not;
+- user input does not cancel a pending retry or reset an active retry budget;
 - a page in the background keeps the same connection and inactivity timer, subject to browser/OS suspension;
 - feed swaps do not open extra connections;
 - each new connection computes catch-up IDs from currently rendered capture cards without illumination;

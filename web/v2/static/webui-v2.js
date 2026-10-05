@@ -197,6 +197,12 @@ function setupTaskStatusEvents() {
             }, stableConnectionMs);
             armIdleClose();
         });
+        currentSource.addEventListener('stream-ending', function () {
+            if (source !== currentSource) return;
+            console.info('Task-status SSE server lifetime ending; reconnecting immediately.');
+            closeSource('server stream lifetime');
+            connectNow('server stream lifetime');
+        });
         currentSource.addEventListener('task-status', function (event) {
             if (source !== currentSource) return;
             let update;
@@ -269,7 +275,8 @@ function setupTaskStatusEvents() {
         ensureConnected: recordActivity
     };
 
-    ['pointerdown', 'keydown', 'touchstart', 'wheel'].forEach(function (eventName) {
+    // pointerover counts meaningful hover/entry without the high event rate of pointermove.
+    ['pointerdown', 'pointerover', 'keydown', 'touchstart', 'wheel'].forEach(function (eventName) {
         window.addEventListener(eventName, recordActivity, { passive: true });
     });
     lastActivityAt = Date.now();
