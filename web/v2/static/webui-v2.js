@@ -150,6 +150,12 @@ function setupTaskStatusEvents() {
         return isRecentlyActive();
     }
 
+    const statusIndicator = document.getElementById('sse-status-indicator');
+
+    function setDisconnected(disconnected) {
+        if (statusIndicator) statusIndicator.hidden = !disconnected;
+    }
+
     function clearRetry() {
         if (retryTimer !== null) {
             window.clearTimeout(retryTimer);
@@ -169,6 +175,7 @@ function setupTaskStatusEvents() {
         const oldSource = source;
         source = null;
         clearStableConnectionTimer();
+        setDisconnected(true);
         console.info('Closing task-status SSE.', reason);
         oldSource.close();
     }
@@ -180,12 +187,14 @@ function setupTaskStatusEvents() {
         const eventsUrl = eventsUrlForConnection();
         const connectedAt = Date.now();
         console.info('Connecting task-status SSE.', { reason, url: eventsUrl });
+        setDisconnected(true);
         source = new EventSource(eventsUrl, { withCredentials: true });
         const currentSource = source;
         let wasOpened = false;
         currentSource.addEventListener('open', function () {
             if (source !== currentSource) return;
             wasOpened = true;
+            setDisconnected(false);
             console.info('Task-status SSE opened.', { lifetimeMs: Date.now() - connectedAt });
             clearStableConnectionTimer();
             stableConnectionTimer = window.setTimeout(function () {

@@ -16,7 +16,7 @@
 <body data-feed-content-mode="{{ feed_content_mode }}" data-sse-mode="feed">
     <div id="page-content-container">
         <div id="header-row">
-            <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll</a></h1>
+            <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll</a><sup id="sse-status-indicator" class="sse-status-indicator" role="status" hidden aria-label="Live updates disconnected" title="Live updates disconnected">≠</sup></h1>
 
             <form id="file-upload-form"
                 action="/upload"
