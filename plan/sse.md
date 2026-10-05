@@ -876,9 +876,10 @@ be resolved as implementation work begins:
   changed logical run (or be treated only as a wake-up hint); it cannot by
   itself represent every transition.
 5. **Resolved:** the old `query_incomplete_for_entity` and
-  `query_incomplete_for_user` names were misleading because those methods
-  return the latest row for every task, including successful rows. They are now
-  `query_latest_status_for_entity` and `query_latest_status_for_user`.
+  `query_incomplete_for_user` names were misleading because the queries return
+  latest rows for tasks, including successful rows. The current entity snapshot
+  API is `TaskMaster::query_latest_task_runs`, which selects the latest run per
+  entity and task type in PostgreSQL.
 6. **Resolved:** `TaskRunStatus` now serializes directly as a compound object
   containing its stable snake-case name and integer discriminant. Deserialization
   rejects mismatched representations. The event envelope still carries identity

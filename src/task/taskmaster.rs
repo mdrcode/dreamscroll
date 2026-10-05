@@ -274,14 +274,14 @@ impl TaskMaster {
     }
 
     // TODO should we return something better than the internal Model instances here??
-    pub async fn query_latest_runs_for_entities(
+    pub async fn query_latest_task_runs(
         &self,
         context: &auth::Context,
         entity_type: &str,
         entity_ids: &[i32],
     ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
         self.run_tracker
-            .query_latest_status_for_entities(context.user_id(), entity_type, entity_ids)
+            .query_latest_task_runs(context.user_id(), entity_type, entity_ids)
             .await
     }
 
@@ -652,7 +652,7 @@ mod tests {
             .expect("submit should succeed");
 
         let rows = service
-            .query_latest_runs_for_entities(&test_context(1), "capture", &[42])
+            .query_latest_task_runs(&test_context(1), "capture", &[42])
             .await
             .expect("query should succeed");
 
@@ -843,7 +843,7 @@ mod tests {
         assert_eq!(rerun, SubmitOutcome::Enqueued { run: 2 });
 
         let rows = service
-            .query_latest_runs_for_entities(&test_context(1), "capture", &[42])
+            .query_latest_task_runs(&test_context(1), "capture", &[42])
             .await
             .expect("query should succeed");
 
@@ -907,7 +907,7 @@ mod tests {
             .expect("finish_attempt should succeed");
 
         let rows = service
-            .query_latest_runs_for_entities(&test_context(1), "capture", &[42])
+            .query_latest_task_runs(&test_context(1), "capture", &[42])
             .await
             .expect("query should succeed");
 
@@ -1034,7 +1034,7 @@ mod tests {
         // The completed row is reported: a caller must be able to see that its
         // work finished.
         let rows = service
-            .query_latest_runs_for_entities(&test_context(1), "capture", &[7])
+            .query_latest_task_runs(&test_context(1), "capture", &[7])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1094,7 +1094,7 @@ mod tests {
 
         // The exhausted run is still reported (the user should see it).
         let rows = service
-            .query_latest_runs_for_entities(&test_context(1), "capture", &[9])
+            .query_latest_task_runs(&test_context(1), "capture", &[9])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1149,7 +1149,7 @@ mod tests {
 
     /// The user-scoped query returns work across entities.
     #[tokio::test]
-    async fn query_latest_status_for_entities_spans_requested_entities() {
+    async fn query_latest_task_runs_spans_requested_entities() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -1171,14 +1171,14 @@ mod tests {
         }
 
         let rows = service
-            .query_latest_runs_for_entities(&test_context(1), "capture", &[1, 2, 3])
+            .query_latest_task_runs(&test_context(1), "capture", &[1, 2, 3])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 3);
 
         // A different user cannot see these entities.
         let other = service
-            .query_latest_runs_for_entities(&test_context(2), "capture", &[1, 2, 3])
+            .query_latest_task_runs(&test_context(2), "capture", &[1, 2, 3])
             .await
             .expect("query should succeed");
         assert!(other.is_empty(), "queries must be scoped by user_id");
@@ -1234,7 +1234,7 @@ mod tests {
         assert!(result.is_err(), "the enqueue error must propagate");
 
         let rows = service
-            .query_latest_runs_for_entities(&test_context(1), "capture", &[9])
+            .query_latest_task_runs(&test_context(1), "capture", &[9])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1);
@@ -1249,7 +1249,7 @@ mod tests {
         assert!(retry.is_err(), "the test queue is still configured to fail");
 
         let rows = service
-            .query_latest_runs_for_entities(&test_context(1), "capture", &[9])
+            .query_latest_task_runs(&test_context(1), "capture", &[9])
             .await
             .expect("query should succeed");
         assert_eq!(rows.len(), 1, "only the latest run is returned");
@@ -1326,7 +1326,7 @@ mod tests {
             .expect("submit should succeed");
 
         let rows = service
-            .query_latest_runs_for_entities(&test_context(1), "capture", &[42])
+            .query_latest_task_runs(&test_context(1), "capture", &[42])
             .await
             .expect("query should succeed");
 

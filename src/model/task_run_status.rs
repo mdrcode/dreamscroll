@@ -9,14 +9,14 @@ use sea_orm::entity::prelude::*;
 /// prevents a duplicate submission of work that is still in flight.
 ///
 /// TODO(REVISIT): the primary read pattern is
-/// `query_latest_status_for_entities` — `WHERE user_id = ? AND entity_type = ?
-/// AND entity_id = ? AND status_code IN (...)` — which currently only has the
-/// single-column `entity_id` index to work with. Add a composite index on
-/// `(user_id, entity_type, entity_id, status_code)` once the table is large
-/// enough to matter. Note SeaORM's derive only supports single-column
-/// `#[sea_orm(indexed)]` and composite `unique_key`, so a non-unique composite
-/// index needs raw SQL (e.g. `CREATE INDEX ... IF NOT EXISTS` alongside the
-/// schema sync in `database/postgres.rs`). Deferred deliberately: this is a
+/// `query_latest_task_runs` — `WHERE user_id = ? AND entity_type = ?
+/// AND entity_id IN (...) ORDER BY entity_id, task_type, run DESC` — which
+/// currently only has the single-column `entity_id` index to work with. Add a
+/// composite index on `(user_id, entity_type, entity_id, task_type, run DESC)`
+/// once the table is large enough to matter. Note SeaORM's derive only supports
+/// single-column `#[sea_orm(indexed)]` and composite `unique_key`, so a non-unique
+/// composite index needs raw SQL (e.g. `CREATE INDEX ... IF NOT EXISTS` alongside
+/// the schema sync in `database/postgres.rs`). Deferred deliberately: this is a
 /// single-user app and the table is tiny.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]

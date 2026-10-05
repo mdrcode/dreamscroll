@@ -9,14 +9,14 @@ use futures_util::{StreamExt, stream};
 use serde::Deserialize;
 use tokio::sync::broadcast;
 
-use crate::{api, auth, sse};
+use crate::{api, auth, sse, task};
 
 use super::WebState;
 
 const MAX_STREAM_LIFETIME: Duration = Duration::from_secs(4 * 60);
 
 #[derive(Debug, Deserialize)]
-pub struct EventParams {
+pub struct CatchupParams {
     // Catch-up currently supports capture IDs only. Ideally this becomes a
     // generic entity selector (for example, URL-encoded JSON like
     // `catchup=[{"entity_type":"capture","ids":[5,6,7]}]`), but that
@@ -27,51 +27,50 @@ pub struct EventParams {
 pub async fn get(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
-    Query(params): Query<EventParams>,
+    Query(params): Query<CatchupParams>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, api::ApiError> {
     let context = auth::Context::from(
         auth.user
             .expect("protected route requires an authenticated user"),
     );
-    let user_id = context.user_id();
-    let live_events = state.server_events.subscribe();
-    let capture_ids = parse_capture_ids(params.capture_ids.as_deref())?;
-    let catchup_events = dedupe_catchup(
-        state
-            .task_master
-            .query_latest_runs_for_entities(&context, "capture", &capture_ids)
-            .await?
-            .into_iter()
-            .filter_map(|row| sse::TaskStatusEvent::from_row(&row, None)),
-    );
+    let server_events_rx = state.server_events.subscribe();
+    let catchup_capture_ids = parse_capture_ids(params.capture_ids.as_deref())?;
+    let catchup_events = if catchup_capture_ids.is_empty() {
+        None
+    } else {
+        Some(make_catchup(&context, &state, &catchup_capture_ids).await?)
+    };
 
-    let deadline = tokio::time::Instant::now() + MAX_STREAM_LIFETIME;
-    let event_stream = stream_task_status(
+    let task_status_stream = make_task_status_stream(
+        context.user_id(),
         catchup_events,
-        live_events,
-        user_id,
+        server_events_rx,
         state.shutdown.clone(),
-        deadline,
+        tokio::time::Instant::now() + MAX_STREAM_LIFETIME, // deadline
     )
-    .map(serialize_task_event);
+    .map(|task_status| {
+        Ok(Event::default()
+            .event("task-status")
+            .data(task_event_json(&task_status)))
+    });
 
-    Ok(Sse::new(event_stream).keep_alive(
+    Ok(Sse::new(task_status_stream).keep_alive(
         KeepAlive::new()
             .interval(Duration::from_secs(20))
             .text("keep-alive"),
     ))
 }
 
-fn stream_task_status(
-    catchup: Vec<sse::TaskStatusEvent>,
-    receiver: broadcast::Receiver<sse::ReceivedServerEvent>,
+fn make_task_status_stream(
     user_id: i32,
+    catchup: Option<Vec<sse::TaskStatusEvent>>,
+    events_rx: broadcast::Receiver<sse::ReceivedServerEvent>,
     shutdown: tokio::sync::watch::Receiver<bool>,
     deadline: tokio::time::Instant,
 ) -> impl futures_util::Stream<Item = sse::TaskStatusEvent> {
     let live_events = stream::unfold(
-        (receiver, user_id, shutdown, deadline),
-        |(mut receiver, user_id, mut shutdown, deadline)| async move {
+        (events_rx, user_id, shutdown, deadline),
+        |(mut events_rx, user_id, mut shutdown, deadline)| async move {
             loop {
                 if *shutdown.borrow() {
                     return None;
@@ -84,13 +83,13 @@ fn stream_task_status(
                             return None;
                         }
                     }
-                    received = receiver.recv() => {
+                    received = events_rx.recv() => {
                         match received {
                             Ok(received) => {
                                 if let Some(update) = filter_for_user(received, user_id) {
                                     return Some((
                                         update,
-                                        (receiver, user_id, shutdown, deadline),
+                                        (events_rx, user_id, shutdown, deadline),
                                     ));
                                 }
                             }
@@ -107,29 +106,47 @@ fn stream_task_status(
             }
         },
     );
-    stream::iter(catchup).chain(live_events)
+    let catchup_events = stream::iter(catchup.into_iter().flatten());
+    catchup_events.chain(live_events)
 }
 
-/// Keep the newest catch-up status per entity and task type.
-fn dedupe_catchup(
-    events: impl IntoIterator<Item = sse::TaskStatusEvent>,
-) -> Vec<sse::TaskStatusEvent> {
-    let mut latest_by_task: std::collections::HashMap<(String, i32, String), sse::TaskStatusEvent> =
-        std::collections::HashMap::new();
-    for event in events {
-        let key = (
-            event.entity_type.clone(),
-            event.entity_id,
-            event.payload.task_type.clone(),
-        );
-        match latest_by_task.get(&key) {
-            Some(existing) if existing.timestamp >= event.timestamp => {}
-            _ => {
-                latest_by_task.insert(key, event);
-            }
-        }
+async fn make_catchup(
+    context: &auth::Context,
+    state: &WebState,
+    capture_ids: &[i32],
+) -> Result<Vec<sse::TaskStatusEvent>, api::ApiError> {
+    let mut latest_runs = state
+        .task_master
+        .query_latest_task_runs(context, "capture", capture_ids)
+        .await?
+        .into_iter()
+        .filter_map(|row| sse::TaskStatusEvent::from_row(&row, None))
+        .collect::<Vec<_>>();
+
+    let illuminate_in_progress: Vec<_> = latest_runs
+        .iter()
+        .enumerate()
+        .filter_map(|(index, event)| {
+            (event.payload.task_type == "illuminate"
+                && event.payload.status == task::TaskRunStatus::InProgress)
+                .then_some(index)
+        })
+        .collect();
+    if illuminate_in_progress.is_empty() {
+        return Ok(latest_runs);
     }
-    latest_by_task.into_values().collect()
+
+    let estimate = task::timing::get_timing_estimate(
+        &state.user_api.db, // TODO shouldn't be handling a raw DB handle here, whoops
+        "illuminate",
+        task::timing::Measure::ProcessingSuccessful,
+    )
+    .await
+    .and_then(|estimate| estimate.client_processing_duration_ms());
+    for index in illuminate_in_progress {
+        latest_runs[index].payload.estimated_duration_ms_p50 = estimate;
+    }
+    Ok(latest_runs)
 }
 
 fn filter_for_user(
@@ -167,12 +184,6 @@ fn parse_capture_ids(raw: Option<&str>) -> Result<Vec<i32>, api::ApiError> {
     }
 
     Ok(ids)
-}
-
-fn serialize_task_event(update: sse::TaskStatusEvent) -> Result<Event, Infallible> {
-    Ok(Event::default()
-        .event("task-status")
-        .data(task_event_json(&update)))
 }
 
 fn task_event_json(update: &sse::TaskStatusEvent) -> String {
@@ -247,11 +258,21 @@ mod tests {
             updated_at: Utc::now(),
         };
 
-        let event = sse::TaskStatusEvent::from_row(&row, None).unwrap();
+        let estimate = crate::task::timing::TaskTimingEstimate {
+            task_type: "illuminate".to_string(),
+            measure: crate::task::timing::Measure::ProcessingSuccessful,
+            sample_count: crate::task::timing::MINIMUM_CLIENT_ESTIMATE_SAMPLES,
+            duration_ms_avg: 10_000,
+            duration_ms_p50: 10_000,
+            duration_ms_p75: 12_000,
+            duration_ms_p90: 15_000,
+        };
+        let event = sse::TaskStatusEvent::from_row(&row, Some(&estimate)).unwrap();
         assert_eq!(event.entity_id, 42);
         assert_eq!(event.payload.status, crate::task::TaskRunStatus::InProgress);
         assert_eq!(event.payload.run, 3);
         assert_eq!(event.user_id, Some(7));
+        assert_eq!(event.payload.estimated_duration_ms_p50, Some(10_000));
     }
 
     #[test]
@@ -305,10 +326,10 @@ mod tests {
         let catchup = task_status_event(7, 42, crate::task::TaskRunStatus::InProgress);
         let (sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(stream_task_status(
-            vec![catchup.clone()],
-            receiver,
+        let mut events = Box::pin(make_task_status_stream(
             7,
+            Some(vec![catchup.clone()]),
+            receiver,
             shutdown_receiver,
             tokio::time::Instant::now() + Duration::from_secs(10),
         ));
@@ -341,36 +362,14 @@ mod tests {
         );
     }
 
-    #[test]
-    fn catchup_keeps_latest_event_per_entity_and_task_type() {
-        let mut earlier = task_status_event(7, 42, crate::task::TaskRunStatus::Queued);
-        earlier.timestamp = Utc::now() - chrono::Duration::seconds(1);
-        let later = task_status_event(7, 42, crate::task::TaskRunStatus::CompleteSuccess);
-        let other_entity = task_status_event(7, 43, crate::task::TaskRunStatus::InProgress);
-        let mut search_index = task_status_event(7, 42, crate::task::TaskRunStatus::InProgress);
-        search_index.payload.task_type = "search_index".to_string();
-
-        let deduplicated = dedupe_catchup(vec![
-            earlier,
-            later.clone(),
-            other_entity,
-            search_index.clone(),
-        ]);
-
-        assert_eq!(deduplicated.len(), 3);
-        assert!(deduplicated.iter().any(|event| event == &later));
-        assert!(deduplicated.iter().any(|event| event.entity_id == 43));
-        assert!(deduplicated.iter().any(|event| event == &search_index));
-    }
-
     #[tokio::test]
     async fn shutdown_ends_a_stream_even_before_first_event() {
         let (_sender, receiver) = broadcast::channel(8);
         let (shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(stream_task_status(
-            Vec::new(),
-            receiver,
+        let mut events = Box::pin(make_task_status_stream(
             7,
+            None,
+            receiver,
             shutdown_receiver,
             tokio::time::Instant::now() + Duration::from_secs(10),
         ));
@@ -389,10 +388,10 @@ mod tests {
         let (_sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
         let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
-        let mut events = Box::pin(stream_task_status(
-            Vec::new(),
-            receiver,
+        let mut events = Box::pin(make_task_status_stream(
             7,
+            None,
+            receiver,
             shutdown_receiver,
             deadline,
         ));

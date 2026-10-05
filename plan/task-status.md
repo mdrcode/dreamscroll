@@ -253,48 +253,24 @@ HTTP mapping (`webhook::http_status_for_task_run`) follows from that:
 
 ## 5. The query API
 
-The query API is deliberately **"incomplete", not "non-terminal"**. Two
-entity-scoped entry points, both returning every row whose status is **not
-`CompleteSuccess`**:
+`TaskMaster::query_latest_task_runs(context, entity_type, entity_ids)` returns
+one row per requested entity and task type, scoped to the authenticated user.
+It includes every status, including terminal statuses, and returns the highest
+run number for each `(entity_type, entity_id, task_type)` group. This gives
+clients a current snapshot: a newer successful run supersedes an older failure.
 
-- `TaskRunTracker::query_incomplete_for_entity(user_id, entity_type, entity_id)`
-  — the tasks for one entity (e.g. one capture).
-- `TaskRunTracker::query_incomplete_for_user(user_id)` — every outstanding
-  task for a user, across all entities.
+The reduction is performed by PostgreSQL `DISTINCT ON`, ordered by entity ID,
+task type, and descending run number. Exact-run status lookups are separate and
+continue to use `query_run_status`.
 
-Rationale:
-
-- **`CompleteFailure` is included on purpose.** The work never succeeded, so the
-  user still wants to see it (and may want to retry it). It is *not* "done".
-- **`CompleteSuccess` is excluded on purpose.** Successful rows are subject to vacuuming
-  over time, so an API that returned them would silently present an incomplete
-  history. The API therefore cannot express "give me everything" — the usage
-  pattern is enforced by what's available.
-- The predicate is derived from `TaskRunStatus::is_incomplete()` via
-  `TaskRunStatus::incomplete_codes()`, so the status set and the SQL predicate can
-  never drift apart.
-
-### 5.1 Only the latest run is returned
-
-Both queries collapse to the **latest run per logical task** — a rerun supersedes
-the run before it, and callers want current state, not a run history.
-
-**The order matters:** rows are collapsed to the latest run **before** the
-incomplete predicate is applied. Filtering first would let an older incomplete
-run shadow a newer `CompleteSuccess` one, reporting finished work as outstanding. This is
-locked by the `completed_latest_run_hides_an_older_failed_run` test.
-
-Implemented by `incomplete_latest_runs()` in Rust rather than SQL: the result set
-is per-user (or per-entity), which is small, and this avoids a correlated
-subquery or window function.
-
-> **TODO(REVISIT) — index.** The primary read patterns are `WHERE user_id = ? AND
-> entity_type = ? AND entity_id = ?` and `WHERE user_id = ?`, which currently
-> only have the single-column `entity_id` index. A composite index on
-> `(user_id, entity_type, entity_id, status_code)` is the right long-term shape.
-> **Deferred deliberately** — single-user app, tiny table. Note SeaORM's derive
-> only supports single-column `#[sea_orm(indexed)]` and composite `unique_key`,
-> so a non-unique composite index needs raw SQL.
+> **TODO(REVISIT) — index.** The entity snapshot query filters by `user_id`,
+> `entity_type`, and `entity_id`, then selects the highest run per task type. It
+> currently relies on the single-column `entity_id` index. If query latency
+> degrades as the table grows, consider a composite index on
+> `(user_id, entity_type, entity_id, task_type, run DESC)`. Deferred deliberately:
+> this is a single-user app and the table is tiny. SeaORM's derive only supports
+> single-column `#[sea_orm(indexed)]` and composite `unique_key`, so a non-unique
+> composite index needs raw SQL.
 
 ---
 
@@ -411,18 +387,18 @@ must always see the **most recent** illumination, so:
 
 - **`task_run_status` retention (REVISIT):** add a cleanup/eviction policy to avoid
   unbounded table growth. Note the run dimension means a rerun task keeps *all*
-  its rows, so growth is per-run rather than per-task. This is the reason the
-  incomplete queries deliberately exclude `CompleteSuccess` (§5). *Tolerated — see
-  `pragmatism.md`.*
+  its rows, so growth is per-run rather than per-task. The latest-task-run
+  snapshot returns the current row, including terminal statuses (§5). *Tolerated —
+  see `pragmatism.md`.*
 - **Stuck tasks (REVISIT):** there is no heartbeat or timeout, so a task that is
   enqueued but never picked up (queue dropped, worker crash) stays `Queued`
   forever and looks active. Consider treating `Queued`/`InProgress` rows older
   than N minutes as dead, or a periodic sweep that stamps `CompleteFailure`.
   *Tolerated — see `pragmatism.md`.*
-- **Incomplete queries have no `ORDER BY` (REVISIT):** they collapse to the
-  latest run per logical task but return rows in non-deterministic order. Add an
-  explicit order if the UI iterates the results. *Tolerated — see
-  `pragmatism.md`.*
+- **Entity snapshot ordering is implementation-defined (REVISIT):** the SQL
+  query orders by entity ID, task type, then descending run to support
+  `DISTINCT ON`; consumers should not rely on any additional presentation order.
+  Add a final ordering contract if the UI needs one.
 - **`create_run` is check-then-act (REVISIT):** `submit_inner` reads the latest
   run, then inserts. Two concurrent submitters can both pick the same run number.
   The `(envelope_id, run)` unique index arbitrates, so correctness does not

@@ -11,7 +11,7 @@ const TIMING_SAMPLE_LIMIT: i64 = 30;
 
 #[derive(Clone, Copy, Debug, Display, Eq, PartialEq, AsRefStr)]
 #[strum(serialize_all = "snake_case")]
-pub enum TaskTimingMeasure {
+pub enum Measure {
     QueueWait,
     ProcessingSuccessful,
 }
@@ -20,7 +20,7 @@ pub enum TaskTimingMeasure {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TaskTimingEstimate {
     pub(crate) task_type: String,
-    pub(crate) measure: TaskTimingMeasure,
+    pub(crate) measure: Measure,
     pub(crate) sample_count: i64,
     pub(crate) duration_ms_avg: i64,
     pub(crate) duration_ms_p50: i64,
@@ -38,7 +38,7 @@ impl TaskTimingEstimate {
 pub async fn get_timing_estimate(
     db: &database::DbHandle,
     task_type: &str,
-    operation_type: TaskTimingMeasure,
+    operation_type: Measure,
 ) -> Option<TaskTimingEstimate> {
     model::task_run_timing::Entity::find()
         .filter(model::task_run_timing::Column::TaskType.eq(task_type))
@@ -66,12 +66,12 @@ pub async fn refresh_timing_measures<T: Task>(
 ) -> anyhow::Result<()> {
     let Some((operation_type, filter, duration)) = (match status {
         TaskRunStatus::InProgress => Some((
-            TaskTimingMeasure::QueueWait,
+            Measure::QueueWait,
             "processing_started_at IS NOT NULL",
             "EXTRACT(EPOCH FROM (processing_started_at - created_at)) * 1000",
         )),
         TaskRunStatus::CompleteSuccess => Some((
-            TaskTimingMeasure::ProcessingSuccessful,
+            Measure::ProcessingSuccessful,
             "status_code = 4 AND success_duration_ms IS NOT NULL",
             "success_duration_ms",
         )),
@@ -129,11 +129,11 @@ mod tests {
 
     #[test]
     fn timing_measure_names_are_stable() {
-        assert_eq!(TaskTimingMeasure::QueueWait.as_ref(), "queue_wait");
+        assert_eq!(Measure::QueueWait.as_ref(), "queue_wait");
         assert_eq!(
-            TaskTimingMeasure::ProcessingSuccessful.as_ref(),
+            Measure::ProcessingSuccessful.as_ref(),
             "processing_successful"
         );
-        assert_eq!(TaskTimingMeasure::QueueWait.to_string(), "queue_wait");
+        assert_eq!(Measure::QueueWait.to_string(), "queue_wait");
     }
 }

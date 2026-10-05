@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, sea_query::Expr};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr};
 
 use crate::{database, model, sse};
 
@@ -200,7 +200,7 @@ impl TaskRunTracker {
         let estimate = timing::get_timing_estimate(
             &self.db,
             T::task_type(),
-            timing::TaskTimingMeasure::ProcessingSuccessful,
+            timing::Measure::ProcessingSuccessful,
         )
         .await;
         let event = sse::TaskStatusEvent::from_envelope(envelope, row, estimate.as_ref());
@@ -238,8 +238,8 @@ impl TaskRunTracker {
             .await?)
     }
 
-    /// Latest task statuses for several entities of the same type and user.
-    pub async fn query_latest_status_for_entities(
+    /// Latest task statuses per entity and task type for one user.
+    pub async fn query_latest_task_runs(
         &self,
         user_id: i32,
         entity_type: &str,
@@ -249,14 +249,25 @@ impl TaskRunTracker {
             return Ok(Vec::new());
         }
 
-        let rows = model::task_run_status::Entity::find()
+        Ok(model::task_run_status::Entity::find()
             .filter(model::task_run_status::Column::UserId.eq(user_id))
             .filter(model::task_run_status::Column::EntityType.eq(entity_type))
             .filter(model::task_run_status::Column::EntityId.is_in(entity_ids.iter().copied()))
+            .distinct_on([
+                (
+                    model::task_run_status::Entity,
+                    model::task_run_status::Column::EntityId,
+                ),
+                (
+                    model::task_run_status::Entity,
+                    model::task_run_status::Column::TaskType,
+                ),
+            ])
+            .order_by_asc(model::task_run_status::Column::EntityId)
+            .order_by_asc(model::task_run_status::Column::TaskType)
+            .order_by_desc(model::task_run_status::Column::Run)
             .all(&self.db.conn)
-            .await?;
-
-        Ok(latest_runs_per_task(rows))
+            .await?)
     }
 }
 
@@ -268,26 +279,6 @@ fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
         err.sql_err(),
         Some(sea_orm::SqlErr::UniqueConstraintViolation(_))
     )
-}
-
-/// Reduce rows to the latest run per logical task. No status is filtered out:
-/// completed work is reported alongside in-flight and failed work.
-fn latest_runs_per_task(
-    rows: Vec<model::task_run_status::Model>,
-) -> Vec<model::task_run_status::Model> {
-    let mut latest: std::collections::HashMap<String, model::task_run_status::Model> =
-        std::collections::HashMap::new();
-
-    for row in rows {
-        match latest.get(&row.envelope_id) {
-            Some(existing) if existing.run >= row.run => {}
-            _ => {
-                latest.insert(row.envelope_id.clone(), row);
-            }
-        }
-    }
-
-    latest.into_values().collect()
 }
 
 #[cfg(test)]
@@ -349,102 +340,6 @@ mod tests {
             tracker.update_run(envelope, status, attempts).await?;
         }
         Ok(created)
-    }
-
-    fn row(envelope_id: &str, run: i32, status: TaskRunStatus) -> model::task_run_status::Model {
-        model::task_run_status::Model {
-            id: 0,
-            user_id: 1,
-            envelope_id: envelope_id.to_string(),
-            run,
-            task_type: "test".to_string(),
-            entity_type: "capture".to_string(),
-            entity_id: 1,
-            status_code: status.as_i32(),
-            attempts: 0,
-            created_at: chrono::Utc::now(),
-            processing_started_at: None,
-            last_error_duration_ms: None,
-            success_duration_ms: None,
-            updated_at: chrono::Utc::now(),
-        }
-    }
-
-    // --- `latest_runs_per_task` (pure) ---
-
-    #[test]
-    fn collapse_keeps_the_latest_run() {
-        let kept = latest_runs_per_task(vec![
-            row("a", 1, TaskRunStatus::CompleteFailure),
-            row("a", 2, TaskRunStatus::Queued),
-        ]);
-
-        assert_eq!(kept.len(), 1);
-        assert_eq!(kept[0].run, 2, "the rerun supersedes the run before it");
-    }
-
-    #[test]
-    fn collapse_returns_one_row_per_envelope() {
-        let kept = latest_runs_per_task(vec![
-            row("a", 1, TaskRunStatus::Queued),
-            row("b", 1, TaskRunStatus::InProgress),
-            row("a", 2, TaskRunStatus::Queued),
-        ]);
-
-        assert_eq!(kept.len(), 2, "one row per logical task");
-    }
-
-    #[test]
-    fn collapse_is_independent_of_input_order() {
-        let rows = vec![
-            row("a", 3, TaskRunStatus::CompleteSuccess),
-            row("b", 1, TaskRunStatus::Queued),
-            row("a", 1, TaskRunStatus::CompleteFailure),
-            row("a", 2, TaskRunStatus::InProgress),
-        ];
-
-        let kept = latest_runs_per_task(rows);
-
-        assert_eq!(kept.len(), 2);
-        assert_eq!(
-            kept.iter()
-                .find(|item| item.envelope_id == "a")
-                .unwrap()
-                .run,
-            3
-        );
-    }
-
-    #[test]
-    fn collapse_preserves_latest_row_status_and_attempts() {
-        let mut latest = row("a", 2, TaskRunStatus::InProgress);
-        latest.attempts = 7;
-
-        let kept = latest_runs_per_task(vec![row("a", 1, TaskRunStatus::CompleteFailure), latest]);
-
-        assert_eq!(kept[0].status_code, TaskRunStatus::InProgress.as_i32());
-        assert_eq!(kept[0].attempts, 7);
-    }
-
-    /// The whole point of dropping the incomplete filter: a caller must be able
-    /// to observe that its work finished.
-    #[test]
-    fn collapse_keeps_a_completed_latest_run() {
-        let kept = latest_runs_per_task(vec![row("a", 1, TaskRunStatus::CompleteSuccess)]);
-
-        assert_eq!(kept.len(), 1);
-        assert_eq!(kept[0].status_code, TaskRunStatus::CompleteSuccess.as_i32());
-    }
-
-    #[test]
-    fn collapse_keeps_every_task_regardless_of_status() {
-        let kept = latest_runs_per_task(vec![
-            row("a", 1, TaskRunStatus::CompleteSuccess),
-            row("b", 1, TaskRunStatus::CompleteFailure),
-            row("c", 1, TaskRunStatus::Queued),
-        ]);
-
-        assert_eq!(kept.len(), 3, "no status is filtered out");
     }
 
     // --- DB-backed ---
@@ -591,13 +486,10 @@ mod tests {
             .await
             .unwrap();
 
-        let measure = timing::get_timing_estimate(
-            &tracker.db,
-            "test",
-            timing::TaskTimingMeasure::ProcessingSuccessful,
-        )
-        .await
-        .expect("successful attempt should create a processing measure");
+        let measure =
+            timing::get_timing_estimate(&tracker.db, "test", timing::Measure::ProcessingSuccessful)
+                .await
+                .expect("successful attempt should create a processing measure");
         assert_eq!(measure.sample_count, 1);
         assert!(measure.duration_ms_avg >= 0);
         assert!(measure.duration_ms_p50 >= 0);
@@ -628,20 +520,17 @@ mod tests {
             .await
             .unwrap();
 
-        let measure = timing::get_timing_estimate(
-            &tracker.db,
-            "test",
-            timing::TaskTimingMeasure::ProcessingSuccessful,
-        )
-        .await
-        .expect("successful processing measure should exist");
+        let measure =
+            timing::get_timing_estimate(&tracker.db, "test", timing::Measure::ProcessingSuccessful)
+                .await
+                .expect("successful processing measure should exist");
         assert_eq!(measure.sample_count, 1, "failures are excluded");
 
         let timing_row = model::task_run_timing::Entity::find()
             .filter(model::task_run_timing::Column::TaskType.eq("test"))
             .filter(
                 model::task_run_timing::Column::OperationType
-                    .eq(timing::TaskTimingMeasure::ProcessingSuccessful.as_ref()),
+                    .eq(timing::Measure::ProcessingSuccessful.as_ref()),
             )
             .one(&tracker.db.conn)
             .await
@@ -659,7 +548,7 @@ mod tests {
             .filter(model::task_run_timing::Column::TaskType.eq("test"))
             .filter(
                 model::task_run_timing::Column::OperationType
-                    .eq(timing::TaskTimingMeasure::ProcessingSuccessful.as_ref()),
+                    .eq(timing::Measure::ProcessingSuccessful.as_ref()),
             )
             .one(&tracker.db.conn)
             .await
@@ -861,7 +750,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_latest_status_for_entities_is_user_scoped() {
+    async fn query_latest_task_runs_is_user_scoped() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -873,11 +762,11 @@ mod tests {
             .expect("create_run should succeed");
 
         let mine = tracker
-            .query_latest_status_for_entities(1, "capture", &[42])
+            .query_latest_task_runs(1, "capture", &[42])
             .await
             .expect("query should succeed");
         let theirs = tracker
-            .query_latest_status_for_entities(2, "capture", &[42])
+            .query_latest_task_runs(2, "capture", &[42])
             .await
             .expect("query should succeed");
         let my_run = tracker
@@ -899,7 +788,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_latest_status_for_entities_filters_and_collapses_runs() {
+    async fn query_latest_task_runs_filters_and_collapses_runs() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -930,7 +819,7 @@ mod tests {
             .expect("other user's entity should be created");
 
         let rows = tracker
-            .query_latest_status_for_entities(1, "capture", &[42, 43, 999])
+            .query_latest_task_runs(1, "capture", &[42, 43, 999])
             .await
             .expect("multi-entity query should succeed");
 
@@ -950,14 +839,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_latest_status_for_entities_empty_input_returns_empty() {
+    async fn query_latest_task_runs_empty_input_returns_empty() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
 
         let rows = tracker
-            .query_latest_status_for_entities(1, "capture", &[])
+            .query_latest_task_runs(1, "capture", &[])
             .await
             .expect("empty query should succeed");
 
@@ -965,7 +854,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_latest_status_for_entities_keeps_distinct_tasks_and_filters_entity_type() {
+    async fn query_latest_task_runs_keeps_distinct_tasks_and_filters_entity_type() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -998,7 +887,7 @@ mod tests {
             .unwrap();
 
         let capture_rows = tracker
-            .query_latest_status_for_entities(1, "capture", &[42])
+            .query_latest_task_runs(1, "capture", &[42])
             .await
             .unwrap();
         assert_eq!(
@@ -1015,7 +904,7 @@ mod tests {
         );
 
         let spark_rows = tracker
-            .query_latest_status_for_entities(1, "spark", &[42])
+            .query_latest_task_runs(1, "spark", &[42])
             .await
             .unwrap();
         assert_eq!(spark_rows.len(), 1);
