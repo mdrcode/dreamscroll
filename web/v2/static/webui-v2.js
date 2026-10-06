@@ -315,8 +315,8 @@ function setupTaskStatusEvents() {
     function recordActivity(reason = 'user activity') {
         lastActivityAt = Date.now();
         armIdleClose();
-        if (!source) {
-            console.info('Reconnecting Dreamscroll SSE due to user activity.', { reason });
+        if (!source && retryTimer === null) {
+            console.info('Dreamscroll SSE reconnect requested by activity.', { reason });
             scheduleReconnect(reason, false);
         }
     }
@@ -327,7 +327,9 @@ function setupTaskStatusEvents() {
 
     // pointerover counts meaningful hover/entry without the high event rate of pointermove.
     ['pointerdown', 'pointerover', 'keydown', 'touchstart', 'wheel'].forEach(function (eventName) {
-        window.addEventListener(eventName, recordActivity, { passive: true });
+        window.addEventListener(eventName, function () {
+            recordActivity(eventName);
+        }, { passive: true });
     });
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') handleForeground();
