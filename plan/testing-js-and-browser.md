@@ -14,6 +14,7 @@ Prefer a real-browser test for behavior involving native `EventSource`, user inp
 - one `/events` connection immediately on page load;
 - the connection closes after two minutes without user interaction, regardless of visibility;
 - while hidden, the client keeps the stream and activity timer behavior unchanged, subject to host suspension/cancellation;
+- returning to visible state via `visibilitychange`, or BFCache restoration via `pageshow`, counts as activity and forces a fresh connection;
 - the server stream lifetime exceeds the two-minute client activity window but is shorter than the configured Cloud Run request timeout;
 - a `stream-ending` event immediately replaces the stream without consuming the rolling reconnect budget or failure backoff;
 - transport failures retry with capped exponential backoff, at most three times in any rolling one-minute window, with exponential backoff and jitter;

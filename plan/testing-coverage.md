@@ -50,7 +50,7 @@ The task/SSE testing review identified these priority gaps:
 1. Authenticated partial routes: capture-card and detail rendering, missing/inaccessible captures, and ownership isolation.
 2. TaskMaster notification lifecycle: queued, in-progress, retry/final outcome, and enqueue-failure events with complete identity and attempt fields.
 3. DB-backed SSE catch-up: selected captures, owner scope, all latest task types/statuses, and subscribe-before-snapshot handoff.
-4. Browser SSE lifecycle: two-minute inactivity close independent of visibility, no visibility/network-only reconnects, three reconnect attempts per rolling one-minute window, backoff, stable-open reset, and at most one EventSource/timer.
+4. Browser SSE lifecycle: two-minute inactivity close independent of visibility, foreground/BFCache reconnects, three reconnect attempts per rolling one-minute window, backoff, stable-open reset, and at most one EventSource/timer.
 5. Listener/process lifecycle: listener failure visibility and WebUI startup/shutdown propagation.
 6. Task edge cases: missing-run semantics, successful submissions for each task type, and enqueue failure followed by a later run.
 7. SSE catch-up fan-out: one initial refresh hint per latest entity while live task updates remain individually delivered.

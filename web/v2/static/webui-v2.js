@@ -38,13 +38,13 @@ document.addEventListener('DOMContentLoaded', function () {
 
 function setupTaskStatusEvents() {
     if (!window.EventSource) {
-        console.warn('Task-status SSE unavailable: this browser has no EventSource support.');
+        console.info('Dreamscroll SSE unavailable: this browser has no EventSource support.');
         return;
     }
 
     const mode = document.body ? document.body.dataset.sseMode : '';
     if (mode !== 'feed' && mode !== 'detail') {
-        console.warn('Task-status SSE not started: missing or invalid data-sse-mode.', mode);
+        console.error('Dreamscroll SSE not started: missing or invalid data-sse-mode.', mode);
         return;
     }
     function refreshSubscribedEntity(update) {
@@ -140,6 +140,7 @@ function setupTaskStatusEvents() {
     let stableConnectionTimer = null;
     let retryTimer = null;
     let idleTimer = null;
+    let foregroundTimer = null;
     let source = null;
     let lastActivityAt = Date.now();
 
@@ -208,7 +209,7 @@ function setupTaskStatusEvents() {
             try {
                 update = JSON.parse(event.data);
             } catch (_error) {
-                console.warn('Ignoring malformed task-status SSE payload.');
+                console.error('Ignoring malformed Dreamscroll SSE payload.');
                 return;
             }
             refreshSubscribedEntity(update);
@@ -246,7 +247,7 @@ function setupTaskStatusEvents() {
             reconnectAttempts = reconnectAttempts.filter(time => attemptAt - time < reconnectWindowMs);
             if (reconnectAttempts.length >= maxReconnectsPerWindow) {
                 const remainingWindowDelay = reconnectWindowMs - (attemptAt - reconnectAttempts[0]);
-                console.warn('Task-status SSE reconnect rescheduled for window budget.', {
+                console.info('Dreamscroll SSE reconnect delayed by window budget.', {
                     reason,
                     attempts: reconnectAttempts.length,
                     windowDelay: remainingWindowDelay
@@ -261,7 +262,7 @@ function setupTaskStatusEvents() {
         };
 
         if (delay > 0) {
-            console.warn('Task-status SSE reconnect scheduled.', {
+            console.info('Dreamscroll SSE reconnect scheduled.', {
                 reason,
                 backoffDelay,
                 windowDelay,
@@ -281,6 +282,15 @@ function setupTaskStatusEvents() {
         }
     }
 
+    function handleForeground() {
+        if (foregroundTimer !== null) return;
+        foregroundTimer = window.setTimeout(function () {
+            foregroundTimer = null;
+            if (document.visibilityState === 'hidden') return;
+            recordActivity('foregrounded');
+        }, 0);
+    }
+
     function armIdleClose() {
         clearIdleTimer();
 
@@ -296,16 +306,19 @@ function setupTaskStatusEvents() {
             clearRetry();
             backoffAttempt = 0;
             reconnectAttempts = [];
-            console.warn('Task-status SSE abandoning reconnects after inactivity timeout.', {
+            console.info('Dreamscroll SSE stopped after user inactivity.', {
                 abandonedRetryTimer
             });
         }, idleRemainingMs);
     }
 
-    function recordActivity() {
+    function recordActivity(reason = 'user activity') {
         lastActivityAt = Date.now();
         armIdleClose();
-        if (!source) scheduleReconnect('user activity', false);
+        if (!source) {
+            console.info('Reconnecting Dreamscroll SSE due to user activity.', { reason });
+            scheduleReconnect(reason, false);
+        }
     }
 
     window.dreamscrollTaskStatusEvents = {
@@ -315,6 +328,12 @@ function setupTaskStatusEvents() {
     // pointerover counts meaningful hover/entry without the high event rate of pointermove.
     ['pointerdown', 'pointerover', 'keydown', 'touchstart', 'wheel'].forEach(function (eventName) {
         window.addEventListener(eventName, recordActivity, { passive: true });
+    });
+    document.addEventListener('visibilitychange', function () {
+        if (document.visibilityState === 'visible') handleForeground();
+    });
+    window.addEventListener('pageshow', function (event) {
+        if (event.persisted) handleForeground();
     });
     lastActivityAt = Date.now();
     armIdleClose();

@@ -17,7 +17,11 @@ pub fn add_axum_trace_propagation(router: axum::Router) -> axum::Router {
             let parent_cx = opentelemetry::global::get_text_map_propagator(|prop| {
                 prop.extract(&AxumHeaderExtractor(request.headers()))
             });
-            let span = tracing::info_span!("http_request");
+            let span = tracing::info_span!(
+                "http_request",
+                method = %request.method(),
+                path = %request.uri().path()
+            );
 
             let _ = span.set_parent(parent_cx);
             span

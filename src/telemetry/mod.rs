@@ -10,12 +10,12 @@
 //!
 //! None of these crates depends on the others, so the glue lives here:
 //!   - `gcloud_logging_format` — turns `tracing::Event` into Cloud Logging JSON
-//!   - `axum_propagation`      — seeds spans from Cloud Run's `traceparent` header
+//!   - `axum`                  — seeds spans from Cloud Run's `traceparent` header
 //!   - `init`                  — assembles the subscriber (layers = traces + logs)
 //!   - `util`                  — small helpers
 
-mod axum_propagation;
-pub use axum_propagation::*;
+mod axum;
+pub use axum::*;
 
 mod gcloud_logging_format;
 

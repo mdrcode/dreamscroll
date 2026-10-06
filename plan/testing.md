@@ -151,7 +151,8 @@ order; keep each as a focused unit or isolated-schema DB test:
 4. **Browser SSE lifecycle:** exercise the two-minute inactivity close
   regardless of visibility, ensure visibility/network-only events do not
   reconnect, and cover three reconnect attempts per rolling one-minute window,
-  jitter, the stable-open reset, and the single EventSource/timer invariant.
+  jitter, the stable-open reset, foreground/BFCache reconnects, and the single
+  EventSource/timer invariant.
   This will need a browser test harness or
   lightweight frontend tooling; avoid adding Node solely for this until the
   behavior is worth the dependency.

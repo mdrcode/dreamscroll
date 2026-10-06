@@ -430,12 +430,13 @@ show an illumination; cards with an illumination are omitted from catch-up.
 
 The client connects immediately on page load. User input refreshes a
 two-minute activity window and ensures there is one open `EventSource`. After
-two minutes without input, the client closes the stream and abandons any
-pending retry (the 2-minute inactivity cutoff). Visibility changes do not count
-as activity or trigger connection changes: if the browser permits it, the stream
-remains open while the page is in the background until inactivity expires. The
-host environment may still suspend or cancel background network activity; the
-client cannot prevent that. On transport failure or normal server closure, it
+two minutes without input, the client closes the stream and abandons any pending
+retry (the 2-minute inactivity cutoff). Returning to visible state via
+`visibilitychange`, or restoring from BFCache via `pageshow` with
+`event.persisted`, counts as activity and forces a fresh connection. While the
+page remains hidden, the stream stays open until inactivity expires, if the
+browser permits it. The host environment may still suspend or cancel background
+network activity; the client cannot prevent that. On transport failure or normal server closure, it
 retries with capped exponential backoff and jitter (starting near one second,
 capped near one minute). All reconnect attempts except initial page load and the
 healthy `stream-ending` handoff share a rolling budget: at most three attempts in
@@ -733,10 +734,11 @@ concurrent tasks update 5 distinct cards independently, in any completion order.
 Each open SSE response occupies a Cloud Run request/concurrency slot, so the
 client does not keep the stream open indefinitely. It closes the connection
 after two minutes without user interaction (the inactivity cutoff), regardless
-of tab visibility. Visibility changes do not close the stream, count as activity,
-or trigger reconnects. If the browser permits, a recently active page therefore
-keeps listening briefly while backgrounded; the host may still suspend or cancel
-its network activity. While the activity window remains open, transport failures
+of tab visibility. While hidden, the stream stays open until inactivity expires
+if the browser permits it. Returning to visible state via `visibilitychange`, or
+restoring from BFCache via `pageshow` with `event.persisted`, counts as activity
+and reconnects if necessary. The host may still suspend or cancel background
+network activity. While the activity window remains open, transport failures
 and server lifetime expiry retry with capped exponential backoff and jitter,
 limited to three reconnect attempts in any rolling one-minute window; a 30-second stable connection clears the window and resets backoff. When the window is full, attempts wait for its oldest timestamp to expire. Pointer down/over,
 keyboard, touch, or wheel activity refreshes the idle deadline; `pointermove` is
