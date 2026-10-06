@@ -129,13 +129,14 @@ function setupTaskStatusEvents() {
         return '/events?' + params.toString();
     }
 
+    const activeWindowMs = 2 * 60 * 1000; // Close SSE after 2 min without input
+    const stableConnectionMs = 30 * 1000; // After this, reset reconnect budget
+    const maxReconnectsPerWindow = 3;
+    const reconnectWindowMs = 60 * 1000;
     const baseRetryMs = 1000;
     const maxRetryMs = 60000;
-    const maxRetries = 5; // Per outage, until new activity or a stable connection.
-    const stableConnectionMs = 10 * 1000;
-    const activeWindowMs = 3 * 60 * 1000; // Close SSE after 3 min without input, even in a background tab.
-    let retryAttempt = 0;
-    let retriesExhausted = false;
+    let backoffAttempt = 0;
+    let reconnectAttempts = [];
     let stableConnectionTimer = null;
     let retryTimer = null;
     let idleTimer = null;
@@ -144,10 +145,6 @@ function setupTaskStatusEvents() {
 
     function isRecentlyActive() {
         return Date.now() - lastActivityAt < activeWindowMs;
-    }
-
-    function shouldBeConnected() {
-        return isRecentlyActive();
     }
 
     const statusIndicator = document.getElementById('sse-status-indicator');
@@ -176,39 +173,32 @@ function setupTaskStatusEvents() {
         source = null;
         clearStableConnectionTimer();
         setDisconnected(true);
-        console.info('Closing task-status SSE.', reason);
         oldSource.close();
     }
 
     function connectNow(reason) {
         clearRetry();
-        if (source || retriesExhausted || !shouldBeConnected()) return;
+        if (source || !isRecentlyActive()) return;
 
         const eventsUrl = eventsUrlForConnection();
-        const connectedAt = Date.now();
-        console.info('Connecting task-status SSE.', { reason, url: eventsUrl });
         setDisconnected(true);
         source = new EventSource(eventsUrl, { withCredentials: true });
         const currentSource = source;
-        let wasOpened = false;
         currentSource.addEventListener('open', function () {
             if (source !== currentSource) return;
-            wasOpened = true;
             setDisconnected(false);
-            console.info('Task-status SSE opened.', { lifetimeMs: Date.now() - connectedAt });
             clearStableConnectionTimer();
             stableConnectionTimer = window.setTimeout(function () {
                 stableConnectionTimer = null;
                 if (source === currentSource) {
-                    retryAttempt = 0;
-                    retriesExhausted = false;
+                    backoffAttempt = 0;
+                    reconnectAttempts = [];
                 }
             }, stableConnectionMs);
             armIdleClose();
         });
         currentSource.addEventListener('stream-ending', function () {
             if (source !== currentSource) return;
-            console.info('Task-status SSE server lifetime ending; reconnecting immediately.');
             closeSource('server stream lifetime');
             connectNow('server stream lifetime');
         });
@@ -225,36 +215,74 @@ function setupTaskStatusEvents() {
         });
         currentSource.onerror = function () {
             if (source !== currentSource) return;
-            console.warn('Task-status SSE connection ended (EventSource error event).', {
-                readyState: currentSource.readyState,
-                wasOpened,
-                lifetimeMs: Date.now() - connectedAt
-            });
             closeSource('transport error');
-            scheduleRetry('transport error');
+            scheduleReconnect('transport error', true);
         };
     }
 
-    function scheduleRetry(reason) {
-        if (!shouldBeConnected() || retryTimer !== null) return;
-        if (retryAttempt >= maxRetries) {
-            retriesExhausted = true;
-            console.warn('Task-status SSE retries exhausted; waiting for user activity.', { reason });
-            return;
-        }
+    function scheduleReconnect(reason, useBackoff) {
+        if (!isRecentlyActive() || retryTimer !== null) return;
 
-        const exponentialDelay = Math.min(maxRetryMs, baseRetryMs * (2 ** retryAttempt));
-        const delay = Math.round(exponentialDelay * (0.8 + Math.random() * 0.4));
-        retryAttempt += 1;
-        console.warn('Task-status SSE unavailable; retrying in', delay, 'ms.', { reason, retry: retryAttempt });
-        retryTimer = window.setTimeout(function () {
+        const now = Date.now();
+        reconnectAttempts = reconnectAttempts.filter(time => now - time < reconnectWindowMs);
+        const windowDelay = reconnectAttempts.length >= maxReconnectsPerWindow
+            ? reconnectWindowMs - (now - reconnectAttempts[0])
+            : 0;
+        let backoffDelay = 0;
+        if (useBackoff) {
+            const exponentialDelay = Math.min(maxRetryMs, baseRetryMs * (2 ** backoffAttempt));
+            backoffDelay = Math.round(exponentialDelay * (0.8 + Math.random() * 0.4));
+            backoffAttempt += 1;
+        }
+        const delay = Math.max(backoffDelay, windowDelay);
+
+        const reconnect = () => {
+            if (!isRecentlyActive()) {
+                retryTimer = null;
+                return;
+            }
+
+            const attemptAt = Date.now();
+            reconnectAttempts = reconnectAttempts.filter(time => attemptAt - time < reconnectWindowMs);
+            if (reconnectAttempts.length >= maxReconnectsPerWindow) {
+                const remainingWindowDelay = reconnectWindowMs - (attemptAt - reconnectAttempts[0]);
+                console.warn('Task-status SSE reconnect rescheduled for window budget.', {
+                    reason,
+                    attempts: reconnectAttempts.length,
+                    windowDelay: remainingWindowDelay
+                });
+                retryTimer = window.setTimeout(reconnect, remainingWindowDelay);
+                return;
+            }
+
             retryTimer = null;
-            if (shouldBeConnected()) connectNow('retry after ' + reason);
-        }, delay);
+            reconnectAttempts.push(attemptAt);
+            connectNow(reason);
+        };
+
+        if (delay > 0) {
+            console.warn('Task-status SSE reconnect scheduled.', {
+                reason,
+                backoffDelay,
+                windowDelay,
+                delay,
+                backoffAttempt
+            });
+            retryTimer = window.setTimeout(reconnect, delay);
+        } else {
+            reconnect();
+        }
+    }
+
+    function clearIdleTimer() {
+        if (idleTimer !== null) {
+            window.clearTimeout(idleTimer);
+            idleTimer = null;
+        }
     }
 
     function armIdleClose() {
-        if (idleTimer !== null) window.clearTimeout(idleTimer);
+        clearIdleTimer();
 
         const idleRemainingMs = Math.max(0, activeWindowMs - (Date.now() - lastActivityAt));
         idleTimer = window.setTimeout(function () {
@@ -264,20 +292,20 @@ function setupTaskStatusEvents() {
                 return;
             }
             closeSource('inactivity timeout');
+            const abandonedRetryTimer = retryTimer !== null;
             clearRetry();
-            retryAttempt = 0;
-            console.info('Task-status SSE stopped: inactivity timeout (background pages may be suspended by the browser).');
+            backoffAttempt = 0;
+            reconnectAttempts = [];
+            console.warn('Task-status SSE abandoning reconnects after inactivity timeout.', {
+                abandonedRetryTimer
+            });
         }, idleRemainingMs);
     }
 
     function recordActivity() {
         lastActivityAt = Date.now();
         armIdleClose();
-        if (retriesExhausted) {
-            retriesExhausted = false;
-            retryAttempt = 0;
-        }
-        if (!source && retryTimer === null) connectNow('user activity');
+        if (!source) scheduleReconnect('user activity', false);
     }
 
     window.dreamscrollTaskStatusEvents = {

@@ -429,23 +429,24 @@ recomputes those IDs from capture cards currently on the page that do not yet
 show an illumination; cards with an illumination are omitted from catch-up.
 
 The client connects immediately on page load. User input refreshes a
-three-minute activity window and ensures there is one open `EventSource`. After
-three minutes without input, the client closes the stream and abandons any
-pending retry (the 3-minute inactivity cutoff). Visibility changes do not count
+two-minute activity window and ensures there is one open `EventSource`. After
+two minutes without input, the client closes the stream and abandons any
+pending retry (the 2-minute inactivity cutoff). Visibility changes do not count
 as activity or trigger connection changes: if the browser permits it, the stream
 remains open while the page is in the background until inactivity expires. The
 host environment may still suspend or cancel background network activity; the
 client cannot prevent that. On transport failure or normal server closure, it
 retries with capped exponential backoff and jitter (starting near one second,
-capped near one minute), up to five times per retry budget, and only while the
-activity window remains open. A connection that stays open for 10 seconds resets
-the retry count. After exhausting the budget, it waits for new user activity
-before trying again. Each retry rechecks recency; user activity refreshes the
-idle deadline and connects immediately only when no retry timer is already
-pending.
+capped near one minute). All reconnect attempts except initial page load and the
+healthy `stream-ending` handoff share a rolling budget: at most three attempts in
+the previous minute. A connection that stays open for 30 seconds clears
+the rolling window and resets backoff. When the budget is full, retries wait
+until the oldest attempt leaves the window. Each retry rechecks recency; user
+activity refreshes the idle deadline and attempts an immediate reconnect, subject
+to the same rolling budget.
 
-The server caps each response at four minutes: longer than the client's
-three-minute inactivity window, but below Cloud Run's default five-minute
+The server caps each response at three minutes: longer than the client's
+two-minute inactivity window, but below Cloud Run's default five-minute
 request timeout. Idle clients therefore close first; continuously active
 clients periodically reconnect after the server cap. The initial snapshot is current state,
 not a transition log; updates remain informational hints.
@@ -461,17 +462,16 @@ that cost.
 
 Pointer down/over, keyboard, touch, and wheel input refreshes the idle deadline.
 `pointerover` intentionally counts hover/element entry but not continuous mouse
-movement; `pointermove` is excluded because it fires at a high rate. Input does
-not cancel a pending retry timer or reset an active retry budget. After the
-budget is exhausted, the next input grants a fresh budget and attempts a
-connection immediately. A
-`stream-ending` transport event announces normal server lifetime expiry so the
-client can replace that stream immediately without spending failure backoff.
+movement; `pointermove` is excluded because it fires at a high rate. Input
+requests an immediate reconnect when disconnected, subject to the same rolling
+window budget, and does not erase prior attempt timestamps. A `stream-ending`
+transport event announces normal server lifetime expiry so the client can
+replace that stream immediately without consuming budget or failure backoff.
 
 #### Background suspension and reconnect limits
 
 The client leaves the EventSource open when the page becomes hidden and lets
-its ordinary three-minute inactivity timer expire. This gives a recently
+its ordinary two-minute inactivity timer expire. This gives a recently
 active page a short opportunity to receive task updates while backgrounded.
 However, on iOS and other mobile platforms the browser or OS may suspend page
 JavaScript, timers, or network activity; SSE is not a guaranteed background
@@ -732,22 +732,22 @@ concurrent tasks update 5 distinct cards independently, in any completion order.
 
 Each open SSE response occupies a Cloud Run request/concurrency slot, so the
 client does not keep the stream open indefinitely. It closes the connection
-after three minutes without user interaction (the inactivity cutoff), regardless
+after two minutes without user interaction (the inactivity cutoff), regardless
 of tab visibility. Visibility changes do not close the stream, count as activity,
 or trigger reconnects. If the browser permits, a recently active page therefore
 keeps listening briefly while backgrounded; the host may still suspend or cancel
 its network activity. While the activity window remains open, transport failures
 and server lifetime expiry retry with capped exponential backoff and jitter,
-limited to five retries per budget; a ten-second stable connection resets that
-budget. Retries stop after inactivity or budget exhaustion. Pointer down/over,
+limited to three reconnect attempts in any rolling one-minute window; a 30-second stable connection clears the window and resets backoff. When the window is full, attempts wait for its oldest timestamp to expire. Pointer down/over,
 keyboard, touch, or wheel activity refreshes the idle deadline; `pointermove` is
-excluded to avoid high-frequency timer resets. Activity reconnects immediately
-only if no retry is already pending, and resets an exhausted budget. Every
+excluded to avoid high-frequency timer resets. Activity reconnects when
+disconnected, subject to the same rolling window. A normal `stream-ending`
+handoff reconnects immediately without using the window budget. Every
 connection recomputes catch-up IDs from current capture cards without an
 illumination.
 
-The server sends a `stream-ending` event at its four-minute deadline: this
-exceeds the three-minute client activity window but stays below Cloud Run's
+The server sends a `stream-ending` event at its three-minute deadline: this
+exceeds the two-minute client activity window but stays below Cloud Run's
 default five-minute request timeout. Active clients replace the stream
 immediately on that signal; if the signal is lost, the bounded failure-retry
 path handles the eventual disconnect. Do not recreate the stream on HTMX swaps
@@ -779,11 +779,11 @@ The local channel is only a delivery optimization for notifications received
 from Postgres; neither channel provides retained history.
 
 For Cloud Run specifically: SSE works through the ingress with periodic
-keep-alives. Each server response is intentionally capped at four minutes;
+keep-alives. Each server response is intentionally capped at three minutes;
 keep that below the configured service request timeout so the application,
 rather than Cloud Run, normally ends the response. The browser independently
 closes idle/hidden streams as described in §5.5; the server cap exceeds the
-three-minute client activity window.
+two-minute client activity window.
 
 ---
 
@@ -975,7 +975,7 @@ into this comparison.
   status field should use the directly serialized `TaskRunStatus`; small HTML
   fragments for direct `sse-swap` remain an optional future use-case.
 - **Resolved — bounded SSE lifetime:** each server stream ends after four
-  minutes, above the client's three-minute activity window and below the
+  minutes, above the client's two-minute activity window and below the
   default five-minute Cloud Run request timeout. The browser reconnects with a
   fresh snapshot. The client closes after inactivity regardless of visibility;
   tab visibility changes do not themselves close, refresh, or reconnect SSE

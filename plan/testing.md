@@ -148,10 +148,11 @@ order; keep each as a focused unit or isolated-schema DB test:
 3. **SSE catch-up endpoint:** DB-backed coverage for selected captures, owner
   scope, all latest task types/statuses, and subscribe-before-snapshot handoff;
   retain the unit tests for the pure stream ordering/filter/shutdown helpers.
-4. **Browser SSE lifecycle:** exercise the three-minute inactivity close
+4. **Browser SSE lifecycle:** exercise the two-minute inactivity close
   regardless of visibility, ensure visibility/network-only events do not
-  reconnect, and cover the bounded retry budget, jitter, stable-open reset, and
-  single EventSource/timer invariant. This will need a browser test harness or
+  reconnect, and cover three reconnect attempts per rolling one-minute window,
+  jitter, the stable-open reset, and the single EventSource/timer invariant.
+  This will need a browser test harness or
   lightweight frontend tooling; avoid adding Node solely for this until the
   behavior is worth the dependency.
 5. **Listener/process lifecycle:** ensure a Postgres listener failure becomes
