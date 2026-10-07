@@ -48,7 +48,7 @@ impl From<GeminiStructuredResponse> for illumination::Illumination {
 }
 
 // Build the JSON Schema sent to the Interactions API.
-pub fn make_response_schema() -> serde_json::Value {
+pub fn make_schema() -> serde_json::Value {
     let entity_types: Vec<String> = illumination::EntityType::iter()
         .map(|entity_type| entity_type.as_ref().to_string())
         .collect();
@@ -129,7 +129,7 @@ mod tests {
 
     #[test]
     fn response_schema_uses_json_schema_type_names() {
-        let schema = make_response_schema();
+        let schema = make_schema();
 
         assert_eq!(schema["type"], json!("object"));
         assert_eq!(schema["properties"]["summary"]["type"], json!("string"));

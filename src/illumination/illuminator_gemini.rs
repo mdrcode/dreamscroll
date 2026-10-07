@@ -3,12 +3,9 @@ use serde_json::json;
 
 use crate::{api, config, illumination, llms, storage};
 
-use crate::illumination::v1::response_gemini as response;
-
 #[derive(Clone)]
 pub struct GeminiIlluminator {
     client: llms::gemini::GeminiInferenceClient,
-    model_id: String,
     storage: Box<dyn storage::StorageProvider>,
 }
 
@@ -17,15 +14,8 @@ impl GeminiIlluminator {
         cfg: &config::Config,
         storage: Box<dyn storage::StorageProvider>,
     ) -> anyhow::Result<Self> {
-        let model_id = cfg
-            .gemini_model_id
-            .as_deref()
-            .context("GEMINI_MODEL_ID required for Gemini illumination")?
-            .to_string();
-
         Ok(Self {
             client: llms::gemini::GeminiInferenceClient::from_config(cfg)?,
-            model_id,
             storage,
         })
     }
@@ -56,7 +46,7 @@ impl illumination::Illuminator for GeminiIlluminator {
                 mime_type,
             },
         ];
-        let schema = response::make_response_schema();
+        let schema = illumination::v1::response_gemini::make_schema();
         let tools = [json!({ "type": "google_search" })];
 
         tracing::info!(
@@ -70,7 +60,6 @@ impl illumination::Illuminator for GeminiIlluminator {
         let interaction = self
             .client
             .interact(llms::gemini::GeminiInteractionRequest {
-                model_id: &self.model_id,
                 input: &input,
                 response_schema: Some(&schema),
                 tools: &tools,
@@ -80,8 +69,8 @@ impl illumination::Illuminator for GeminiIlluminator {
             })
             .await?;
         let structured_json = interaction.output_text()?;
-        let structured: response::GeminiStructuredResponse = serde_json::from_str(&structured_json)
-            .with_context(|| {
+        let structured: illumination::v1::response_gemini::GeminiStructuredResponse =
+            serde_json::from_str(&structured_json).with_context(|| {
                 format!(
                     "Failed to parse Gemini illumination JSON for capture {}",
                     capture.id
