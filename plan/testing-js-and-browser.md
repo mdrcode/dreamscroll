@@ -1,7 +1,7 @@
 # Browser-Side JavaScript Testing — Follow-up Plan
 
 **Status:** Planned follow-up; no browser test framework is currently configured.
-**Scope:** Add focused coverage for the small amount of browser behavior that now controls SSE connection lifetime and event-driven partial refreshes.
+**Scope:** Add focused coverage for browser behavior controlling SSE connection lifetime, event-driven partial refreshes, and upload feedback.
 
 ## Why consider this
 
@@ -29,6 +29,8 @@ Prefer a real-browser test for behavior involving native `EventSource`, user inp
 	does not request a partial, while a newer event triggers exactly one refresh;
 - after the refreshed card installs its new watermark, replaying the same event
 	does not trigger another request;
+
+- non-2xx and network upload failures leave an accessible failure notice visible after progress UI resets;
 
 Keep tests focused on observable browser behavior rather than mirroring each implementation detail. Use controllable/fake timers or a short test-only duration seam instead of waiting several minutes.
 

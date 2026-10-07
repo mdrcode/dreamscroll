@@ -461,9 +461,6 @@ function setupTaskProgress() {
             states.forEach(function (state, captureId) {
                 renderState(captureId, state);
             });
-        },
-        captureIds: function () {
-            return Array.from(states.keys());
         }
     };
 }
@@ -926,7 +923,6 @@ function setupUploadInteractions() {
     }
 
     let isUploading = false;
-    let hideProgressTimer = null;
     let hideNoticeTimer = null;
     let hideNoticeAnimationTimer = null;
 
@@ -943,7 +939,7 @@ function setupUploadInteractions() {
         return mode === 'search' || mode === 'detail';
     }
 
-    function showUploadNotice(captureId, detailUrl) {
+    function showUploadNotice(uploadResult) {
         if (!noticeWrap || !noticeMessage) {
             return;
         }
@@ -959,11 +955,15 @@ function setupUploadInteractions() {
         }
 
         noticeMessage.textContent = '';
-        const link = document.createElement('a');
-        link.href = detailUrl;
-        link.textContent = 'Capture ' + String(captureId);
-        noticeMessage.appendChild(link);
-        noticeMessage.appendChild(document.createTextNode(' successfully uploaded.'));
+        if (uploadResult) {
+            const link = document.createElement('a');
+            link.href = uploadResult.detail_url;
+            link.textContent = 'Capture ' + String(uploadResult.capture_id);
+            noticeMessage.appendChild(link);
+            noticeMessage.appendChild(document.createTextNode(' successfully uploaded.'));
+        } else {
+            noticeMessage.textContent = 'Upload failed. Please try again.';
+        }
 
         noticeWrap.hidden = false;
         noticeWrap.classList.remove('is-hiding');
@@ -1007,10 +1007,6 @@ function setupUploadInteractions() {
 
     function setUploadInFlight(inFlight) {
         isUploading = inFlight;
-        if (hideProgressTimer) {
-            window.clearTimeout(hideProgressTimer);
-            hideProgressTimer = null;
-        }
 
         if (inFlight) {
             uploadForm.classList.add('is-uploading');
@@ -1062,7 +1058,7 @@ function setupUploadInteractions() {
                 }
 
                 if (shouldShowUploadNotice() && uploadResult) {
-                    showUploadNotice(uploadResult.capture_id, uploadResult.detail_url);
+                    showUploadNotice(uploadResult);
                 } else if (noticeWrap) {
                     noticeWrap.hidden = true;
                 }
@@ -1075,13 +1071,13 @@ function setupUploadInteractions() {
                 return;
             }
 
-            setUploadProgress(0, 'Upload failed');
             setUploadInFlight(false);
+            showUploadNotice(null);
         });
 
         xhr.addEventListener('error', function () {
-            setUploadProgress(0, 'Upload failed');
             setUploadInFlight(false);
+            showUploadNotice(null);
         });
 
         xhr.send(formData);
