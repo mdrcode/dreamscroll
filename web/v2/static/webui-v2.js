@@ -144,8 +144,15 @@ function setupTaskStatusEvents() {
 
     const statusIndicator = document.getElementById('sse-status-indicator');
 
-    function setDisconnected(disconnected) {
-        if (statusIndicator) statusIndicator.hidden = !disconnected;
+    function setDisconnected(disconnected, reason) {
+        if (!statusIndicator) return;
+        const wasDisconnected = !statusIndicator.hidden;
+        if (wasDisconnected === disconnected) return;
+        statusIndicator.hidden = !disconnected;
+        console.info('Dreamscroll SSE state changed.', {
+            state: disconnected ? 'disconnected' : 'connected',
+            reason
+        });
     }
 
     function clearHeartbeatTimer() {
@@ -159,25 +166,25 @@ function setupTaskStatusEvents() {
         return lastHeartbeatAt !== null && Date.now() - lastHeartbeatAt >= heartbeatTimeoutMs;
     }
 
-    function closeSource() {
+    function closeSource(reason) {
         if (!source) return;
         const oldSource = source;
         source = null;
         clearHeartbeatTimer();
         lastHeartbeatAt = null;
-        setDisconnected(true);
+        setDisconnected(true, reason);
         oldSource.close();
     }
 
     function connectNow() {
         if (source || !isRecentlyActive()) return;
 
-        setDisconnected(true);
+        setDisconnected(true, 'connecting');
         source = new EventSource(eventsUrlForConnection(), { withCredentials: true });
         const currentSource = source;
         currentSource.addEventListener('open', function () {
             if (source !== currentSource) return;
-            setDisconnected(false);
+            setDisconnected(false, 'open');
             lastHeartbeatAt = Date.now();
             armHeartbeatTimeout(currentSource);
             armIdleClose();
@@ -200,9 +207,11 @@ function setupTaskStatusEvents() {
         });
         currentSource.onerror = function () {
             if (source !== currentSource) return;
-            setDisconnected(true);
-            // Let EventSource retry transport failures; CLOSED means the server disabled retries.
-            if (currentSource.readyState === EventSource.CLOSED) closeSource();
+            if (currentSource.readyState === EventSource.CLOSED) {
+                closeSource('EventSource closed');
+                return;
+            }
+            setDisconnected(true, 'transport error');
         };
     }
 
@@ -216,7 +225,7 @@ function setupTaskStatusEvents() {
                 armHeartbeatTimeout(currentSource);
                 return;
             }
-            closeSource();
+            closeSource('heartbeat timeout');
             connectNow();
         }, remainingMs);
     }
@@ -226,7 +235,9 @@ function setupTaskStatusEvents() {
         foregroundTimer = window.setTimeout(function () {
             foregroundTimer = null;
             if (document.visibilityState === 'hidden') return;
-            if (source && source.readyState === EventSource.OPEN && heartbeatIsStale()) closeSource();
+            if (source && source.readyState === EventSource.OPEN && heartbeatIsStale()) {
+                closeSource('stale heartbeat after foreground');
+            }
             recordActivity('foregrounded');
         }, 0);
     }
@@ -247,8 +258,7 @@ function setupTaskStatusEvents() {
                 armIdleClose();
                 return;
             }
-            closeSource();
-            console.info('Dreamscroll SSE stopped after user inactivity.');
+            closeSource('inactivity timeout');
         }, idleRemainingMs);
     }
 
@@ -256,7 +266,7 @@ function setupTaskStatusEvents() {
         lastActivityAt = Date.now();
         armIdleClose();
         if (!source) {
-            console.info('Dreamscroll SSE reconnect requested by activity.', { reason });
+            console.debug('Dreamscroll SSE reconnect requested by activity.', { reason });
             connectNow();
         }
     }

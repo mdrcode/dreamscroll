@@ -750,6 +750,9 @@ performs its normal reconnect using the same URL. Do not recreate the source on
 feed swaps. Pointer down/over, keyboard, touch, and wheel refresh the idle
 deadline; `pointermove` is excluded because it fires at a high rate.
 
+Lifecycle console messages report indicator-state transitions and reasons;
+repeated native error callbacks and heartbeat arrivals do not add log spam.
+
 ---
 
 ## 6. Deployment / multi-instance correctness
