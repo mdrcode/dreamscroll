@@ -1,10 +1,10 @@
+mod client;
+pub use client::{
+    GeminiInferenceClient, GeminiInputPart, GeminiInteractionRequest, GeminiInteractionResponse,
+};
+
+mod illuminator;
+pub use illuminator::GeminiIlluminator;
+
 mod prompts;
 mod response;
-
-pub mod legacy;
-
-mod publicapi;
-pub use publicapi::*;
-
-mod vertexapi;
-pub use vertexapi::*;

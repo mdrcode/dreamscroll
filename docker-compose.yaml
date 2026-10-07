@@ -20,9 +20,9 @@ services:
       SESSION_ALWAYS_SAVE: true
       COOKIE_SECURE: false # false for local dev to allow non-HTTPS (localhost)
 
-      ILLUMINATOR: geminipublicapi
+      ILLUMINATOR: gemini
+      GEMINI_BACKEND: developer_api
       GEMINI_MODEL_ID: gemini-3.8-flash
-      GEMINI_PAYLOAD_METHOD: inline
       FIRESTARTER: grok
 
       # note that these must be redundantly defined below for db as well

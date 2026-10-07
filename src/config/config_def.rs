@@ -27,10 +27,10 @@ pub enum TaskQueueBackend {
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum GeminiPayloadMethod {
-    FileUri,
-    Inline,
+#[serde(rename_all = "snake_case")]
+pub enum GeminiBackend {
+    DeveloperApi,
+    Vertex,
 }
 
 fn default_cookie_secure() -> bool {
@@ -39,10 +39,6 @@ fn default_cookie_secure() -> bool {
 
 fn default_session_always_save() -> bool {
     true
-}
-
-fn default_gemini_payload_method() -> GeminiPayloadMethod {
-    GeminiPayloadMethod::Inline
 }
 
 fn default_task_max_attempts() -> i32 {
@@ -80,10 +76,9 @@ pub struct Config {
     pub jwt_secret: Option<String>, // must be 32+ bytes for HS256 signing
 
     pub illuminator: String,
+    pub gemini_backend: Option<GeminiBackend>,
     pub gemini_api_key: Option<String>,
     pub gemini_model_id: Option<String>,
-    #[serde(default = "default_gemini_payload_method")]
-    pub gemini_payload_method: GeminiPayloadMethod,
 
     pub firestarter: String,
     pub xai_api_key: Option<String>,
@@ -137,6 +132,22 @@ where
 {
     let cfg = envy::from_iter::<_, Config>(vars)
         .context("Failed to load config (missing required env vars or invalid values)")?;
+
+    if cfg.illuminator == "gemini" {
+        let backend = cfg
+            .gemini_backend
+            .context("GEMINI_BACKEND required when ILLUMINATOR=gemini")?;
+        require_some(
+            &cfg.gemini_model_id,
+            "GEMINI_MODEL_ID required when ILLUMINATOR=gemini",
+        )?;
+        if backend == GeminiBackend::DeveloperApi {
+            require_some(
+                &cfg.gemini_api_key,
+                "GEMINI_API_KEY required for the Gemini Developer API",
+            )?;
+        }
+    }
 
     match cfg.storage_backend {
         StorageBackend::Local => {
@@ -221,7 +232,6 @@ mod tests {
     fn config_defaults_are_stable() {
         assert!(default_cookie_secure());
         assert!(default_session_always_save());
-        assert_eq!(default_gemini_payload_method(), GeminiPayloadMethod::Inline);
         assert_eq!(default_task_max_attempts(), 3);
         assert_eq!(default_jwt_user_expiration_secs(), 86400);
         assert_eq!(default_jwt_validation_leeway_secs(), 0);
@@ -276,9 +286,39 @@ mod tests {
         assert_eq!(config.jwt_user_expiration_secs, 86400);
         assert_eq!(config.jwt_validation_leeway_secs, 0);
         assert_eq!(config.max_upload_bytes, 5 * 1024 * 1024);
-        assert_eq!(config.gemini_payload_method, GeminiPayloadMethod::Inline);
         assert!(config.cookie_secure);
         assert!(config.session_always_save);
+    }
+
+    #[test]
+    fn developer_api_gemini_requires_an_api_key() {
+        let mut vars = required_vars("gcloud");
+        vars.push(("STORAGE_GCLOUD_BUCKET_NAME".into(), "bucket".into()));
+        vars.iter_mut()
+            .find(|(key, _)| key == "ILLUMINATOR")
+            .unwrap()
+            .1 = "gemini".into();
+        vars.push(("GEMINI_BACKEND".into(), "developer_api".into()));
+        vars.push(("GEMINI_MODEL_ID".into(), "gemini-3.8-flash".into()));
+
+        let error = make_from_envy_iter(vars).expect_err("API key should be required");
+        assert!(error.to_string().contains("GEMINI_API_KEY required"));
+    }
+
+    #[test]
+    fn vertex_gemini_does_not_require_a_developer_api_key() {
+        let mut vars = required_vars("gcloud");
+        vars.push(("STORAGE_GCLOUD_BUCKET_NAME".into(), "bucket".into()));
+        vars.iter_mut()
+            .find(|(key, _)| key == "ILLUMINATOR")
+            .unwrap()
+            .1 = "gemini".into();
+        vars.push(("GEMINI_BACKEND".into(), "vertex".into()));
+        vars.push(("GEMINI_MODEL_ID".into(), "gemini-3.8-flash".into()));
+
+        let config = make_from_envy_iter(vars).expect("Vertex config should be valid");
+        assert_eq!(config.gemini_backend, Some(GeminiBackend::Vertex));
+        assert!(config.gemini_api_key.is_none());
     }
 
     #[test]

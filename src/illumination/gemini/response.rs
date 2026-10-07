@@ -41,7 +41,7 @@ impl From<GeminiStructuredResponse> for illumination::Illumination {
     fn from(resp: GeminiStructuredResponse) -> Self {
         illumination::Illumination {
             meta: illumination::IlluminationMeta {
-                provider_name: "geministructured".to_string(),
+                provider_name: "gemini".to_string(),
             },
             summary: resp.summary,
             details: resp.details,
@@ -52,75 +52,72 @@ impl From<GeminiStructuredResponse> for illumination::Illumination {
     }
 }
 
-// Build the JSON schema for the structured response
-// Following the OpenAPI 3.0 schema format that Gemini expects
+// Build the JSON Schema sent to the Interactions API.
 pub fn make_response_schema() -> serde_json::Value {
-    let knode_types: Vec<String> = illumination::EntityType::iter()
-        .map(|e| e.as_ref().to_string())
+    let entity_types: Vec<String> = illumination::EntityType::iter()
+        .map(|entity_type| entity_type.as_ref().to_string())
         .collect();
-    let social_platform_types: Vec<String> = illumination::SocialMediaPlatform::iter()
-        .map(|e| e.as_ref().to_string())
+    let platform_types: Vec<String> = illumination::SocialMediaPlatform::iter()
+        .map(|platform| platform.as_ref().to_string())
         .collect();
 
     json!({
-        "type": "OBJECT",
+        "type": "object",
         "properties": {
             "summary": {
-                "type": "STRING",
+                "type": "string",
                 "description": "A concise 1-2 sentence summary of the image content, max 240 characters. Focus on substance, not format."
             },
             "details": {
-                "type": "STRING",
+                "type": "string",
                 "description": "A detailed multi-paragraph description exploring the content, context, and significance of the image."
             },
             "suggested_searches": {
-                "type": "ARRAY",
+                "type": "array",
                 "description": "A list of concise search queries for notable objects, people, or locations visible in the image.",
-                "items": {
-                    "type": "STRING"
-                }
+                "items": { "type": "string" }
             },
             "entities": {
-                "type": "ARRAY",
+                "type": "array",
                 "description": "A list of notable entities (objects, people, locations, references) with descriptions and types. Do NOT include social media accounts here.",
                 "items": {
-                    "type": "OBJECT",
+                    "type": "object",
                     "properties": {
                         "name": {
-                            "type": "STRING",
+                            "type": "string",
                             "description": "The name of the entity"
                         },
                         "description": {
-                            "type": "STRING",
+                            "type": "string",
                             "description": "A brief description of the entity"
                         },
                         "type": {
-                            "type": "STRING",
-                            "description": "The type of entity: real_person, place, book, movie, television_show, art_work, fictional_character, music, meme, software, financial, brand, or unknown",
-                            "enum": knode_types
+                            "type": "string",
+                            "description": "The type of entity",
+                            "enum": entity_types
                         }
                     },
                     "required": ["name", "description", "type"]
                 }
             },
             "social_media_accounts": {
-                "type": "ARRAY",
+                "type": "array",
                 "description": "A list of social media accounts visible in the image.",
                 "items": {
-                    "type": "OBJECT",
+                    "type": "object",
                     "properties": {
                         "display_name": {
-                            "type": "STRING",
+                            "type": "string",
                             "description": "The display name or real name shown on the profile"
                         },
                         "handle": {
-                            "type": "STRING",
+                            "type": "string",
                             "description": "The username/handle of the account (e.g., @username)"
                         },
                         "platform": {
-                            "type": "STRING",
-                            "description": "The platform: x_twitter, youtube, instagram, tiktok, facebook, linkedin, threads, bluesky, mastodon, other",
-                            "enum": social_platform_types
+                            "type": "string",
+                            "description": "The social-media platform",
+                            "enum": platform_types
                         }
                     },
                     "required": ["display_name", "handle", "platform"]
@@ -131,22 +128,25 @@ pub fn make_response_schema() -> serde_json::Value {
     })
 }
 
-#[derive(Deserialize, Debug)]
-pub struct GeminiRawContent {
-    pub candidates: Vec<RawContentCandidate>,
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-#[derive(Deserialize, Debug)]
-pub struct RawContentCandidate {
-    pub content: RawContentParts,
-}
+    #[test]
+    fn response_schema_uses_json_schema_type_names() {
+        let schema = make_response_schema();
 
-#[derive(Deserialize, Debug)]
-pub struct RawContentParts {
-    pub parts: Vec<RawPart>,
-}
-
-#[derive(Deserialize, Debug)]
-pub struct RawPart {
-    pub text: String,
+        assert_eq!(schema["type"], json!("object"));
+        assert_eq!(schema["properties"]["summary"]["type"], json!("string"));
+        assert_eq!(
+            schema["properties"]["entities"]["items"]["type"],
+            json!("object")
+        );
+        assert!(
+            schema["properties"]["entities"]["items"]["properties"]["type"]["enum"]
+                .as_array()
+                .unwrap()
+                .contains(&json!("real_person"))
+        );
+    }
 }
