@@ -4,10 +4,13 @@
 `capture_ids` selects a current-status snapshot whenever an `EventSource` is
 created; the stream then delivers live task-status events and a named heartbeat
 every 20 seconds. The browser owns transport-error and normal-stream-end
-reconnects. The client replaces an `OPEN` source after 50 seconds without a
-heartbeat, or on foreground when that deadline has elapsed. User activity
-creates a source when none exists, including after the idle close. Entity
-availability has a wire type but no producer or client behavior yet.
+reconnects. The disconnected glyph stays hidden during initial connection and
+appears on transport errors or explicit source closure; `open` or a heartbeat
+received while `OPEN` clears it. The client replaces an `OPEN` source after 50
+seconds without a heartbeat, or on foreground when that deadline has elapsed.
+User activity creates a source when none exists, including after the idle
+close. Entity availability has a wire type but no producer or client behavior
+yet.
 **Scope:** Relay best-effort, low-latency **background-task status hints** to
 HTMX clients over Server-Sent Events. This is informational UI feedback, not a
 workflow engine, durable change log, or source of truth for task orchestration.

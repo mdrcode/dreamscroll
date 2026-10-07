@@ -179,7 +179,6 @@ function setupTaskStatusEvents() {
     function connectNow() {
         if (source || !isRecentlyActive()) return;
 
-        setDisconnected(true, 'connecting');
         source = new EventSource(eventsUrlForConnection(), { withCredentials: true });
         const currentSource = source;
         currentSource.addEventListener('open', function () {
@@ -192,6 +191,9 @@ function setupTaskStatusEvents() {
         currentSource.addEventListener('heartbeat', function () {
             if (source !== currentSource) return;
             lastHeartbeatAt = Date.now();
+            if (currentSource.readyState === EventSource.OPEN) {
+                setDisconnected(false, 'heartbeat');
+            }
             armHeartbeatTimeout(currentSource);
         });
         currentSource.addEventListener('task-status', function (event) {
