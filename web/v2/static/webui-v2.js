@@ -237,8 +237,12 @@ function setupTaskStatusEvents() {
         foregroundTimer = window.setTimeout(function () {
             foregroundTimer = null;
             if (document.visibilityState === 'hidden') return;
-            if (source && source.readyState === EventSource.OPEN && heartbeatIsStale()) {
-                closeSource('stale heartbeat after foreground');
+            if (source && source.readyState === EventSource.OPEN) {
+                if (heartbeatIsStale()) {
+                    closeSource('stale heartbeat after foreground');
+                } else {
+                    setDisconnected(false, 'foreground');
+                }
             }
             recordActivity('foregrounded');
         }, 0);
@@ -286,6 +290,7 @@ function setupTaskStatusEvents() {
     document.addEventListener('visibilitychange', function () {
         if (document.visibilityState === 'visible') handleForeground();
     });
+    window.addEventListener('focus', handleForeground);
     window.addEventListener('pageshow', function (event) {
         if (event.persisted) handleForeground();
     });
