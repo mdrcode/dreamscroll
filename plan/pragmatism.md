@@ -1,10 +1,10 @@
 # Pragmatism — tolerated trade-offs
 
-**Status:** living document. Last updated 2026-09-30.
+**Status:** living document. Last updated 2026-10-06.
 
 > **See also:**
 > - `task-status.md` — the task framework (implemented).
-> - `sse.md` — the future SSE delivery layer (not implemented).
+> - `sse.md` — the implemented SSE delivery layer.
 > - `testing.md` — the two-tier test model.
 > - `topology_and_throughput.md` — connection/concurrency budgets.
 
@@ -97,6 +97,7 @@ largest category, and the least urgent, because the app is single-user today.
 | **No retention / vacuum policy on `task_run_status`** | The table grows forever. Note the run dimension means a reran task keeps *all* its rows, so growth is per-run rather than per-task.       | Tiny table, single user.                                                                                 | Row count becomes non-trivial, or query latency degrades.                               |
 | **No heartbeat / timeout for stuck tasks**            | A task enqueued but never picked up (queue dropped, worker crash) stays `Queued` forever and looks active.                                | Requires an actual lost task, which hasn't happened.                                                     | First observed stuck task, or when the SSE UI makes it visible to the user.             |
 | **No queue-level reconciliation**                     | The database cannot independently verify that a `Queued` row has a corresponding Cloud Task, or recover from an ambiguous enqueue result. | The app is small and the status row plus logs are sufficient operational visibility for the MVP.         | A task is observed stuck or missing, or Cloud Tasks/DB state needs auditing.            |
+| **SSE heartbeat timeout is heuristic** | A delayed or suspended client can restart a healthy stream after three missed 20-second heartbeats, adding a request and catch-up query. | A named heartbeat gives JavaScript a liveness signal that transport keep-alive comments do not expose; background delivery remains best-effort. | Reconnects are observed on healthy delayed clients, or the 60-second detection window proves too long. |
 | **Composite index on `task_run_status` deferred**     | The entity snapshot query filters by user, entity type, and IDs, then selects the latest run per task type; only a single-column `entity_id` index exists. | Single-user app, tiny table. | Query latency degrades, or the table grows past a few thousand rows. |
 | **Local queue shutdown is abrupt**                    | Dropping the final `LocalTaskQueue` handle aborts its dispatcher and drops pending in-memory tasks.                                       | The local backend is only for development and tests; production durability comes from Cloud Tasks.       | Local development needs restart-safe work or graceful shutdown testing.                 |
 | **`submit_inner` records status before enqueueing**   | A process crash or ambiguous backend failure can leave a row at `Queued`; definite enqueue failures are changed to `SubmissionFailed`.    | DB-first submission avoids untracked tasks and duplicate execution; reconciliation can wait for the MVP. | A task is observed stuck or missing, or enqueue ambiguity becomes operationally costly. |

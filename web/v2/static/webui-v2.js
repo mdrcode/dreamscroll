@@ -130,6 +130,7 @@ function setupTaskStatusEvents() {
     }
 
     const activeWindowMs = 2 * 60 * 1000; // Close SSE after 2 min without input
+    const heartbeatTimeoutMs = 60 * 1000; // Three 20-second server heartbeats
     const stableConnectionMs = 30 * 1000; // After this, reset reconnect budget
     const maxReconnectsPerWindow = 3;
     const reconnectWindowMs = 60 * 1000;
@@ -141,6 +142,8 @@ function setupTaskStatusEvents() {
     let retryTimer = null;
     let idleTimer = null;
     let foregroundTimer = null;
+    let heartbeatTimer = null;
+    let lastHeartbeatAt = null;
     let source = null;
     let lastActivityAt = Date.now();
 
@@ -168,11 +171,39 @@ function setupTaskStatusEvents() {
         }
     }
 
+    function clearHeartbeatTimer() {
+        if (heartbeatTimer !== null) {
+            window.clearTimeout(heartbeatTimer);
+            heartbeatTimer = null;
+        }
+    }
+
+    function heartbeatIsStale() {
+        return lastHeartbeatAt !== null && Date.now() - lastHeartbeatAt >= heartbeatTimeoutMs;
+    }
+
+    function armHeartbeatTimeout(currentSource) {
+        clearHeartbeatTimer();
+        const remainingMs = Math.max(0, heartbeatTimeoutMs - (Date.now() - lastHeartbeatAt));
+        heartbeatTimer = window.setTimeout(function () {
+            heartbeatTimer = null;
+            if (source !== currentSource) return;
+            if (!heartbeatIsStale()) {
+                armHeartbeatTimeout(currentSource);
+                return;
+            }
+            closeSource('heartbeat timeout');
+            scheduleReconnect('heartbeat timeout', true);
+        }, remainingMs);
+    }
+
     function closeSource(reason) {
         if (!source) return;
         const oldSource = source;
         source = null;
         clearStableConnectionTimer();
+        clearHeartbeatTimer();
+        lastHeartbeatAt = null;
         setDisconnected(true);
         oldSource.close();
     }
@@ -187,6 +218,8 @@ function setupTaskStatusEvents() {
         const currentSource = source;
         currentSource.addEventListener('open', function () {
             if (source !== currentSource) return;
+            lastHeartbeatAt = Date.now();
+            armHeartbeatTimeout(currentSource);
             setDisconnected(false);
             clearStableConnectionTimer();
             stableConnectionTimer = window.setTimeout(function () {
@@ -197,6 +230,11 @@ function setupTaskStatusEvents() {
                 }
             }, stableConnectionMs);
             armIdleClose();
+        });
+        currentSource.addEventListener('heartbeat', function () {
+            if (source !== currentSource) return;
+            lastHeartbeatAt = Date.now();
+            armHeartbeatTimeout(currentSource);
         });
         currentSource.addEventListener('stream-ending', function () {
             if (source !== currentSource) return;
@@ -287,6 +325,9 @@ function setupTaskStatusEvents() {
         foregroundTimer = window.setTimeout(function () {
             foregroundTimer = null;
             if (document.visibilityState === 'hidden') return;
+            if (source && heartbeatIsStale()) {
+                closeSource('stale heartbeat after foreground');
+            }
             recordActivity('foregrounded');
         }, 0);
     }

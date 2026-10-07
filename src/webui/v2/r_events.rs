@@ -13,7 +13,8 @@ use crate::{api, auth, sse, task};
 
 use super::WebState;
 
-// Keep above the client activity window (2 min) and below Cloud Run's request timeout.
+// Clients cannot observe SSE keep-alive comments, so send a named liveness event.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
 const MAX_STREAM_LIFETIME: Duration = Duration::from_secs(3 * 60);
 
 #[derive(Debug, Deserialize)]
@@ -48,20 +49,13 @@ pub async fn get(
         server_events_rx,
         state.shutdown.clone(),
         tokio::time::Instant::now() + MAX_STREAM_LIFETIME, // deadline
+        HEARTBEAT_INTERVAL,
     )
-    .map(|item| {
-        let event = match item {
-            TaskStatusStreamItem::TaskStatus(task_status) => Event::default()
-                .event("task-status")
-                .data(task_event_json(&task_status)),
-            TaskStatusStreamItem::StreamEnding => Event::default().event("stream-ending"),
-        };
-        Ok(event)
-    });
+    .map(|item| Ok(task_status_sse_event(item)));
 
     Ok(Sse::new(task_status_stream).keep_alive(
         KeepAlive::new()
-            .interval(Duration::from_secs(20))
+            .interval(HEARTBEAT_INTERVAL)
             .text("keep-alive"),
     ))
 }
@@ -69,7 +63,19 @@ pub async fn get(
 #[derive(Debug, Eq, PartialEq)]
 enum TaskStatusStreamItem {
     TaskStatus(sse::TaskStatusEvent),
+    Heartbeat,
     StreamEnding,
+}
+
+fn task_status_sse_event(item: TaskStatusStreamItem) -> Event {
+    match item {
+        TaskStatusStreamItem::TaskStatus(task_status) => Event::default()
+            .event("task-status")
+            .data(task_event_json(&task_status)),
+        // Axum omits empty data fields, and EventSource does not dispatch data-less events.
+        TaskStatusStreamItem::Heartbeat => Event::default().event("heartbeat").data("1"),
+        TaskStatusStreamItem::StreamEnding => Event::default().event("stream-ending"),
+    }
 }
 
 fn make_task_status_stream(
@@ -78,10 +84,19 @@ fn make_task_status_stream(
     events_rx: broadcast::Receiver<sse::ReceivedServerEvent>,
     shutdown: tokio::sync::watch::Receiver<bool>,
     deadline: tokio::time::Instant,
+    heartbeat_interval: Duration,
 ) -> impl futures_util::Stream<Item = TaskStatusStreamItem> {
+    let next_heartbeat = tokio::time::Instant::now() + heartbeat_interval;
     let live_events = stream::unfold(
-        (events_rx, user_id, shutdown, deadline, false),
-        |(mut events_rx, user_id, mut shutdown, deadline, ending_sent)| async move {
+        (
+            events_rx,
+            user_id,
+            shutdown,
+            deadline,
+            false,
+            next_heartbeat,
+        ),
+        move |(mut events_rx, user_id, mut shutdown, deadline, ending_sent, mut next_heartbeat)| async move {
             if ending_sent {
                 return None;
             }
@@ -94,7 +109,14 @@ fn make_task_status_stream(
                     _ = tokio::time::sleep_until(deadline) => {
                         return Some((
                             TaskStatusStreamItem::StreamEnding,
-                            (events_rx, user_id, shutdown, deadline, true),
+                            (events_rx, user_id, shutdown, deadline, true, next_heartbeat),
+                        ));
+                    },
+                    _ = tokio::time::sleep_until(next_heartbeat) => {
+                        next_heartbeat = tokio::time::Instant::now() + heartbeat_interval;
+                        return Some((
+                            TaskStatusStreamItem::Heartbeat,
+                            (events_rx, user_id, shutdown, deadline, false, next_heartbeat),
                         ));
                     },
                     changed = shutdown.changed() => {
@@ -108,7 +130,7 @@ fn make_task_status_stream(
                                 if let Some(update) = filter_for_user(received, user_id) {
                                     return Some((
                                         TaskStatusStreamItem::TaskStatus(update),
-                                        (events_rx, user_id, shutdown, deadline, false),
+                                        (events_rx, user_id, shutdown, deadline, false, next_heartbeat),
                                     ));
                                 }
                             }
@@ -356,6 +378,7 @@ mod tests {
             receiver,
             shutdown_receiver,
             tokio::time::Instant::now() + Duration::from_secs(10),
+            Duration::from_secs(20),
         ));
 
         assert_eq!(
@@ -399,6 +422,7 @@ mod tests {
             receiver,
             shutdown_receiver,
             tokio::time::Instant::now() + Duration::from_secs(10),
+            Duration::from_secs(20),
         ));
 
         shutdown_sender.send(true).unwrap();
@@ -408,6 +432,43 @@ mod tests {
                 .expect("shutdown should end stream promptly")
                 .is_none()
         );
+    }
+    #[tokio::test]
+    async fn live_stream_emits_heartbeat_without_task_events() {
+        let (_sender, receiver) = broadcast::channel(8);
+        let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
+        let mut events = Box::pin(make_task_status_stream(
+            7,
+            None,
+            receiver,
+            shutdown_receiver,
+            tokio::time::Instant::now() + Duration::from_secs(10),
+            Duration::from_millis(10),
+        ));
+
+        assert_eq!(
+            tokio::time::timeout(Duration::from_secs(1), events.next())
+                .await
+                .expect("heartbeat should arrive on an otherwise idle stream"),
+            Some(TaskStatusStreamItem::Heartbeat)
+        );
+    }
+
+    #[tokio::test]
+    async fn heartbeat_sse_frame_includes_a_data_field_for_dispatch() {
+        use axum::response::IntoResponse;
+
+        let response = Sse::new(stream::iter([Ok::<_, Infallible>(task_status_sse_event(
+            TaskStatusStreamItem::Heartbeat,
+        ))]))
+        .into_response();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let frame = String::from_utf8(body.to_vec()).unwrap();
+
+        assert!(frame.lines().any(|line| line == "event: heartbeat"));
+        assert!(frame.lines().any(|line| line == "data: 1"));
     }
 
     #[tokio::test]
@@ -421,6 +482,7 @@ mod tests {
             receiver,
             shutdown_receiver,
             deadline,
+            Duration::from_secs(20),
         ));
 
         assert_eq!(

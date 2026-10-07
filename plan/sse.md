@@ -2,11 +2,13 @@
 
 **Status:** Task-status SSE is wired as one authenticated stream per page.
 `capture_ids` selects a current-status snapshot each time a stream connects;
-after that snapshot, the same connection receives all live task-status events
-for the authenticated user. The client keeps the stream open while hidden until
-its inactivity timeout; reconnects are driven by explicit activity and bounded
-transport retries. Entity availability has a wire type but no producer or client
-behavior yet.
+after that snapshot, the same connection receives live task-status events for
+the authenticated user and a named liveness heartbeat every 20 seconds. The
+client reconnects after transport failure, server stream expiry, or 60 seconds
+without a heartbeat; foregrounding checks heartbeat freshness immediately.
+The client normally retains the stream while hidden, subject to inactivity and
+heartbeat recovery. Entity availability has a wire type but no producer or
+client behavior yet.
 **Scope:** Relay best-effort, low-latency **background-task status hints** to
 HTMX clients over Server-Sent Events. This is informational UI feedback, not a
 workflow engine, durable change log, or source of truth for task orchestration.
@@ -472,17 +474,17 @@ replace that stream immediately without consuming budget or failure backoff.
 #### Background suspension and reconnect limits
 
 The client leaves the EventSource open when the page becomes hidden and lets
-its ordinary two-minute inactivity timer expire. This gives a recently
-active page a short opportunity to receive task updates while backgrounded.
-However, on iOS and other mobile platforms the browser or OS may suspend page
-JavaScript, timers, or network activity; SSE is not a guaranteed background
-delivery mechanism, and keep-alives cannot prevent host suspension. If the
-connection is interrupted, the bounded retry policy applies only while the
-last user activity remains recent. On return, a user interaction reconnects
-and recomputes catch-up IDs from the current DOM. Catch-up is current state,
-not a replay log, and intentionally omits captures already showing an
-illumination. This is best-effort: the browser can suspend networking or
-JavaScript despite the inactivity timeout, and missed updates are not replayed.
+its ordinary two-minute inactivity timer expire. This gives a recently active
+page a short opportunity to receive task updates while backgrounded. However,
+on iOS and other mobile platforms the browser or OS may suspend page JavaScript,
+timers, or network activity; SSE is not a guaranteed background delivery
+mechanism, and keep-alives cannot prevent host suspension. The server sends a
+named heartbeat event every 20 seconds; the client treats 60 seconds without
+one as stale and reconnects with its bounded retry policy. On return to the
+foreground, it checks elapsed heartbeat time immediately, even if the browser
+paused the timeout. Catch-up is current state, not a transition log, and
+intentionally omits captures already showing an illumination. Missed updates
+remain best-effort and are not replayed.
 
 Feed swaps update the DOM and the JS router's possible refresh targets; they do
 not change or reopen the EventSource subscription. Catch-up IDs are recomputed
@@ -567,19 +569,19 @@ can keep graceful shutdown waiting indefinitely.
 
 ## 5. Client-side design (minimal cruft)
 
-### 5.1 One stable SSE connection per page
+### 5.1 One SSE connection at a time per page
 
-Create one native `EventSource('/events')` per page and keep it open for that
-page's lifetime (subject to normal browser/network reconnects and process
-shutdown). Each new EventSource connection recomputes catch-up IDs from the
-current DOM: include capture cards that do not show an illumination, and omit
-cards that do. Ordinary feed swaps do not reconnect the EventSource.
+The client maintains at most one native `EventSource('/events')` per page.
+It replaces that source after transport errors, 60 seconds without a named
+heartbeat, or the server's `stream-ending` signal; it closes the source after
+two minutes without activity. Each new connection recomputes catch-up IDs from
+the current DOM: include capture cards that do not show an illumination, and
+omit cards that do. Ordinary feed swaps do not reconnect the EventSource.
 
 The route authenticates the session and filters notifications by `user_id`.
-The URL carries no capture list. Each `task-status` payload contains
-`entity_type`/`entity_id`; `webui-v2.js` checks whether the matching card is
-currently in the DOM, then asks HTMX to fetch and replace just that partial.
-This keeps one stream while retaining precise per-card refreshes.
+Each `task-status` payload contains `entity_type`/`entity_id`; `webui-v2.js`
+checks whether the matching card is currently in the DOM, then asks HTMX to
+fetch and replace just that partial.
 
 **Why not resubscribe on DOM changes?** Native EventSource is GET-only and has
 no way to update server-side interests in place. Recreating it for each new
@@ -594,11 +596,11 @@ partials. We do not load `htmx-ext-sse`; the SSE transport is native
 `EventSource`, and the server continues to render all refreshed HTML through
 Tera.
 
-**Transport:** the contract is one stable `EventSource('/events')` connection
-per page. The browser uses native `EventSource` in `webui-v2.js`, not
-htmx-ext-sse. It parses event JSON, checks
-`entity_type`/`entity_id`, and uses `htmx.ajax()` to refresh the matching
-ordinary Tera-rendered partial.
+**Transport:** `webui-v2.js` owns one native `EventSource` at a time, not
+`htmx-ext-sse`. It parses task-status JSON, routes by `entity_type`/`entity_id`,
+and uses `htmx.ajax()` to refresh the matching ordinary Tera-rendered partial.
+Each named heartbeat carries the fixed `1` sentinel so EventSource dispatches it;
+JavaScript ignores the payload and uses arrival time to detect stale streams.
 
 The `capture_ids` query parameter only selects the initial snapshot. It is not
 a live subscription filter; the server continues to send all events for the
@@ -729,23 +731,29 @@ concurrent tasks update 5 distinct cards independently, in any completion order.
 > the payload's `entity_type` tells the client which routing key is appropriate —
 > the mechanism is identical.
 
-### 5.5 Idle close and bounded server lifetime
+### 5.5 Idle close, heartbeat recovery, and bounded server lifetime
 
 Each open SSE response occupies a Cloud Run request/concurrency slot, so the
 client does not keep the stream open indefinitely. It closes the connection
-after two minutes without user interaction (the inactivity cutoff), regardless
-of tab visibility. While hidden, the stream stays open until inactivity expires
-if the browser permits it. Returning to visible state via `visibilitychange`, or
-restoring from BFCache via `pageshow` with `event.persisted`, counts as activity
-and reconnects if necessary. The host may still suspend or cancel background
-network activity. While the activity window remains open, transport failures
+after two minutes without user interaction, regardless of tab visibility.
+While hidden, the stream stays open until inactivity expires if the browser
+permits it. Returning to visible state via `visibilitychange`, or restoring
+from BFCache via `pageshow` with `event.persisted`, counts as activity. It also
+checks whether the last named server heartbeat is at least 60 seconds old and
+replaces a stale stream immediately. The server emits the heartbeat every 20
+seconds; the existing SSE keep-alive comments remain transport-level only and
+are not visible to JavaScript.
+
+While the activity window remains open, heartbeat timeouts, transport failures,
 and server lifetime expiry retry with capped exponential backoff and jitter,
-limited to three reconnect attempts in any rolling one-minute window; a 30-second stable connection clears the window and resets backoff. When the window is full, attempts wait for its oldest timestamp to expire. Pointer down/over,
-keyboard, touch, or wheel activity refreshes the idle deadline; `pointermove` is
-excluded to avoid high-frequency timer resets. Activity reconnects when
-disconnected, subject to the same rolling window. A normal `stream-ending`
-handoff reconnects immediately without using the window budget. Every
-connection recomputes catch-up IDs from current capture cards without an
+limited to three reconnect attempts in any rolling one-minute window; a
+30-second stable connection clears the window and resets backoff. When the
+window is full, attempts wait for its oldest timestamp to expire. Pointer
+down/over, keyboard, touch, or wheel activity refreshes the idle deadline;
+`pointermove` is excluded to avoid high-frequency timer resets. Activity
+reconnects when disconnected, subject to the same rolling window. A normal
+`stream-ending` handoff reconnects immediately without using the window budget.
+Every connection recomputes catch-up IDs from current capture cards without an
 illumination.
 
 The server sends a `stream-ending` event at its three-minute deadline: this
@@ -781,11 +789,11 @@ The local channel is only a delivery optimization for notifications received
 from Postgres; neither channel provides retained history.
 
 For Cloud Run specifically: SSE works through the ingress with periodic
-keep-alives. Each server response is intentionally capped at three minutes;
-keep that below the configured service request timeout so the application,
-rather than Cloud Run, normally ends the response. The browser independently
-closes idle/hidden streams as described in §5.5; the server cap exceeds the
-two-minute client activity window.
+transport keep-alives and named application heartbeats. Each server response is
+intentionally capped at three minutes, below the configured service request
+timeout so the application, rather than Cloud Run, normally ends the response.
+The browser independently closes idle streams as described in §5.5; the server
+cap exceeds the two-minute client activity window.
 
 ---
 
@@ -799,12 +807,11 @@ two-minute client activity window.
   idiomatic Postgres pub/sub.
 - **Robust for the intended scope:** `task_run_status` persists the best
   available current status across restarts. `LISTEN/NOTIFY` gives low-latency
-  hints; normal page refresh can help the UI catch up; keep-alives + native
-  EventSource reconnect handle flaky connections. Explicit user activity
-  reconnects after inactivity or transport exhaustion; background delivery is
-  best-effort because the host may suspend network activity. This is not a durable change
-  log and does not guarantee every transition is delivered. Adaptive lifetime
-  remains deferred.
+  hints; named heartbeats let an active client recover a silent stale stream;
+  bounded application retries and normal page refresh help the UI catch up.
+  Background delivery remains best-effort because the host may suspend network
+  activity. This is not a durable change log and does not guarantee every
+  transition is delivered. Adaptive lifetime remains deferred.
 - **Flexible:** The `(task_type, envelope_id, entity_type, entity_id)` model is
   generic — illumination, spark, search-index all flow through the same
   table/channel. Adding a new task type = implement `Task` (with its
@@ -976,12 +983,11 @@ into this comparison.
 - **SSE payload format:** thin JSON signals remain the recommendation. The
   status field should use the directly serialized `TaskRunStatus`; small HTML
   fragments for direct `sse-swap` remain an optional future use-case.
-- **Resolved — bounded SSE lifetime:** each server stream ends after four
+- **Resolved — bounded SSE lifetime:** each server stream ends after three
   minutes, above the client's two-minute activity window and below the
   default five-minute Cloud Run request timeout. The browser reconnects with a
-  fresh snapshot. The client closes after inactivity regardless of visibility;
-  tab visibility changes do not themselves close, refresh, or reconnect SSE
-  (§5.5).
+  fresh snapshot. It closes after inactivity regardless of visibility and
+  checks heartbeat freshness on foreground; see §5.5 for the current lifecycle.
 - **Feed changes after connect:** the initial `capture_ids` list is not updated
   when HTMX changes the feed. Newly displayed entities receive future live
   events; a current status for an already-finished task appears on page refresh
