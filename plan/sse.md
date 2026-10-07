@@ -6,12 +6,12 @@ created; the stream then delivers live task-status events and a named heartbeat
 every 20 seconds. The browser owns transport-error and normal-stream-end
 reconnects. The disconnected glyph stays hidden during initial connection and
 appears on transport errors or explicit source closure; `open`, a heartbeat
-received while `OPEN`, or foregrounding with a fresh heartbeat clears it. The
-client replaces an `OPEN` source after 50 seconds without a heartbeat, or on
-foreground when that deadline has elapsed. It rechecks on visible-state,
-window-focus, and persisted `pageshow` events. User activity creates a source
-when none exists, including after the idle close. Entity availability has a
-wire type but no producer or client behavior yet.
+received while `OPEN`, or activity with a fresh `OPEN` source clears it. The
+client replaces an `OPEN` source after 50 seconds without a heartbeat, whether
+detected by a timer, foreground event, or user activity. It rechecks on
+visible-state, window-focus, and persisted `pageshow` events. User activity
+creates a source when none exists, including after the idle close. Entity
+availability has a wire type but no producer or client behavior yet.
 **Scope:** Relay best-effort, low-latency **background-task status hints** to
 HTMX clients over Server-Sent Events. This is informational UI feedback, not a
 workflow engine, durable change log, or source of truth for task orchestration.
@@ -436,10 +436,11 @@ The client connects immediately on page load. User input refreshes a two-minute
 activity window and ensures there is one open `EventSource`. After two minutes
 without input, the client closes it. Returning to visible state via
 `visibilitychange`, focusing the window, or restoring from BFCache via
-`pageshow` with `event.persisted` counts as activity and rechecks the heartbeat.
-It replaces an existing `OPEN` source only if the last heartbeat is stale; an
-`OPEN` source with a fresh heartbeat clears the disconnected glyph. A
-`CONNECTING` source stays with native EventSource retry.
+`pageshow` with `event.persisted` counts as activity. Any user input also
+rechecks an `OPEN` source: stale heartbeat causes replacement, while a fresh
+heartbeat clears the disconnected glyph. This recovers Safari connections that
+remain `OPEN` while backgrounded even if focus/visibility events were missed.
+A `CONNECTING` source stays with native EventSource retry.
 
 For transport errors and normal server stream closure, the client leaves
 `EventSource` open and lets the browser reconnect using its native policy. Those

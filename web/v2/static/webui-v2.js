@@ -237,13 +237,6 @@ function setupTaskStatusEvents() {
         foregroundTimer = window.setTimeout(function () {
             foregroundTimer = null;
             if (document.visibilityState === 'hidden') return;
-            if (source && source.readyState === EventSource.OPEN) {
-                if (heartbeatIsStale()) {
-                    closeSource('stale heartbeat after foreground');
-                } else {
-                    setDisconnected(false, 'foreground');
-                }
-            }
             recordActivity('foregrounded');
         }, 0);
     }
@@ -271,6 +264,13 @@ function setupTaskStatusEvents() {
     function recordActivity(reason = 'user activity') {
         lastActivityAt = Date.now();
         armIdleClose();
+        if (source && source.readyState === EventSource.OPEN) {
+            if (heartbeatIsStale()) {
+                closeSource('stale heartbeat after ' + reason);
+            } else {
+                setDisconnected(false, reason);
+            }
+        }
         if (!source) {
             console.debug('Dreamscroll SSE reconnect requested by activity.', { reason });
             connectNow();
