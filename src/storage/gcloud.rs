@@ -86,9 +86,10 @@ impl provider::StorageProvider for GCloudStorageProvider {
         } else {
             upload
         };
+        // `Bytes` is not seekable; the GCS client uses buffered uploads for non-seekable sources.
         upload
             //.with_resumable_upload_threshold(5 * 1024 * 1024_usize) // TODO investigate this?
-            .send_unbuffered()
+            .send_buffered()
             .await
             .map_err(|e| {
                 tracing::error!("Failed to store object in GCS: {:?}", e);
