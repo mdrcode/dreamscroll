@@ -12,8 +12,8 @@ The user approved removing the generated `google-cloud-aiplatform-v1` dependency
 
 - The reusable `GeminiInferenceClient` and typed input/request/response types live under the top-level `src/llms/gemini/` module, available to future inference flows.
 - Backend-specific mapping targets the Developer API `v1beta/interactions` endpoint with an API key, or the Vertex `v1beta1/projects/{project}/locations/global/interactions` endpoint with ADC. Input and schema wire shapes differ, but both use the same client, inline image representation, output-step parser, and caller contract.
-- `src/illumination/gemini/illuminator.rs` uses the client for image analysis, Google Search grounding, JSON-schema output, and `store: false`.
-- Local and Docker config now use `ILLUMINATOR=gemini` plus `GEMINI_BACKEND=developer_api`; production uses `ILLUMINATOR=gemini` plus `GEMINI_BACKEND=vertex`.
+- `src/illumination/illuminator_gemini.rs` uses the client for image analysis, Google Search grounding, JSON-schema output, and `store: false`.
+- Local and Docker use `GEMINI_BACKEND=developer_api`; production uses `GEMINI_BACKEND=vertex`. Webhook initialization constructs `GeminiIlluminator` directly; there is no `ILLUMINATOR` provider selector.
 - The old `publicapi.rs`, `vertexapi.rs`, and legacy `legacy.rs` path are removed. `GeminiPayloadMethod` / `GEMINI_PAYLOAD_METHOD` are removed; inputs are inline base64 on both backends.
 - `google-cloud-aiplatform-v1` is removed from `Cargo.toml` and `Cargo.lock`. Embedding and vector search remain unchanged: they use `reqwest` + `google-cloud-auth` and `google-cloud-vectorsearch-v1`, respectively.
 
@@ -50,11 +50,17 @@ The client builds one logical request but maps to backend-specific REST fields: 
 
 Both backends use inline base64 images. The smoke used a 1x1 PNG; production-sized payload latency was not benchmarked. Inline input matches the current 5 MiB upload cap and existing deployment config, but adds roughly one-third payload size over Vertex protobuf and drops the GCS URI optimization.
 
+## Extending input parts
+
+`GeminiInteractionRequest.input` is already an ordered slice: text-only requests work, and repeating `InlineImage` supports multiple images. Only an entirely empty input is rejected. The illumination task currently supplies one image, but the shared client does not require one.
+
+When a real flow needs additional binary modalities, generalize `InlineImage` to a typed media part, e.g. `Media { modality, mime_type, source }`, with borrowed inline bytes. Keep modality and source typed rather than accepting raw provider JSON; the Developer and Vertex serializers should map the same logical parts into their different wire envelopes. Add URI/file-source variants only when a caller needs them, since access and URI semantics differ between backends.
+
 ## Verification and remaining scope
 
 - `cargo test --lib` passes (199 tests); `cargo check --bin dreamscroll_web` passes; `google-cloud-aiplatform-v1` is absent from `Cargo.toml` and `Cargo.lock`.
 - Live smoke passed on both endpoints using the actual illumination prompt, response schema, and deserializer with a synthetic inline PNG, Google Search, and `store: false`. Developer API used the configured key; Vertex used local ADC.
 - The Cloud Run service-account credential path has not been exercised in a deployed instance. Production-sized inline payload latency is also unmeasured; the live smoke used a 1x1 image.
-- `config_prod.env` selects `ILLUMINATOR=gemini` and `GEMINI_BACKEND=vertex`, but deployed Cloud Run environment values are maintained outside the checked-in repository; apply the same settings there before rollout.
+- `config_prod.env` sets `GEMINI_BACKEND=vertex`, but deployed Cloud Run environment values are maintained outside the checked-in repository; set that backend before rollout.
 - The client returns raw interaction steps for future tool/agent flows; stateful storage, multi-turn continuation, and background execution remain future work.
 

@@ -57,7 +57,7 @@ impl GeminiInferenceClient {
     pub fn from_config(cfg: &config::Config) -> anyhow::Result<Self> {
         let backend = match cfg
             .gemini_backend
-            .context("GEMINI_BACKEND required when ILLUMINATOR=gemini")?
+            .context("GEMINI_BACKEND required for Gemini inference")?
         {
             config::GeminiBackend::DeveloperApi => Backend::DeveloperApi {
                 api_key: cfg

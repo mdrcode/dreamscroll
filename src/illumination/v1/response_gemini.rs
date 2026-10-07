@@ -1,13 +1,8 @@
-//! This module provides a well-defined JSON response schema when using
-//! the Gemini API's structured output feature for Illumination tasks.
+//! Versioned capture-analysis response contract for Gemini Interactions.
 //!
-//! ## Structured Output
-//!
-//! The Gemini API supports structured outputs via JSON Schema. By setting:
-//! - `generationConfig.responseMimeType` to `"application/json"`
-//! - `generationConfig.responseSchema` to a valid OpenAPI 3.0-style schema
-//!
-//! The model will return a response that strictly conforms to the schema.
+//! This module owns the typed result and JSON Schema for the v1 illumination
+//! prompt. The shared Gemini client applies the backend-specific response
+//! format wrapper for the Developer API and Vertex.
 //!
 //! ## Response Structure
 //!

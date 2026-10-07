@@ -2,10 +2,8 @@
 mod illuminator;
 pub use illuminator::*;
 
-mod maker;
-pub use maker::*;
+pub mod v1;
 
 // illuminator implementations
-pub mod gemini;
-pub mod grok;
-pub mod loremipsum;
+mod illuminator_gemini;
+pub use illuminator_gemini::GeminiIlluminator;

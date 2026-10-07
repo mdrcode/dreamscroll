@@ -1,6 +1,6 @@
 # Illumination v2 — unified entity capture
 
-**Status:** Design plan. No implementation changes have been made yet.
+**Status:** The entity-schema redesign remains design-only. The shared Gemini inference client and Interactions API backend cutover are implemented.
 
 ## Problem
 
@@ -60,8 +60,8 @@ The current prompt explicitly excludes social accounts from `entities`, and Gemi
 
 A full cutover will need to align the end-to-end contract:
 
-- `src/illumination/illuminator.rs`: replace parallel entity/account collections with the unified entity and platform-link types.
-- `src/illumination/gemini/prompts.rs` and `src/illumination/gemini/response.rs`: update instructions and structured output schema together.
+- `src/illumination/` owns capture-analysis prompts, response DTO/schema, and orchestration; split these into cohesive files as needed, but do not add a redundant nested `capture_analysis/` module.
+- `src/llms/gemini/` owns only reusable Gemini transport, auth, content serialization, and interaction-step parsing.
 - `src/api/service/insert_illumination.rs` and `src/model/`: persist entities through a unified path rather than separate KNode/social-media paths.
 - `src/api/schema/illuminationinfo.rs`, `entityinfo.rs`, `infomaker.rs`, and capture loaders: expose the unified records consistently.
 - `web/v2/templates/partials/cards/capture.html.tera` and `capture_detail.html.tera`: render unified entities and their links without treating platform links as a competing entity category.
@@ -84,6 +84,16 @@ The illumination provider now uses one reusable Rust `GeminiInferenceClient` ove
 The large `google-cloud-aiplatform-v1` dependency is removed from the inference path. Vertex embeddings still call `embedContent` via REST, and vector storage/search still use `google-cloud-vectorsearch-v1`.
 
 See [the Interactions API sidebar](google-ai-interactions-api.md) for the API-specific request mapping, verification, and remaining trade-offs.
+
+## Illumination module organization
+
+`illumination` already means capture analysis in this application. Keep that task at `src/illumination/`; do not add `src/illumination/capture_analysis/`. The v1 prompt and Gemini response/schema live under `src/illumination/v1/` as `prompts.rs` and `response_gemini.rs`; the current task orchestration lives at `src/illumination/illuminator_gemini.rs`. The provider-named `src/illumination/gemini/` module has been removed.
+
+`src/llms/gemini/` remains provider plumbing only: authentication, endpoint mapping, input serialization, structured output options, and interaction response parsing. The illumination task supplies its prompt and schema to that client. Each future inference flow belongs in its own top-level module and owns its own prompt/schema/result contract.
+
+Keep the current `Illuminator`/`Illumination` boundary for this flow while existing consumers require it. A different flow with a different result shape should expose its own typed result and persistence/caller path; do not force all tasks into `Illumination` or add a generic task registry prematurely. `GEMINI_BACKEND` selects the Gemini service backend; task choice is independent.
+
+The unused `GrokIlluminator` was removed: it read from a hard-coded `localdev/media` path instead of the configured storage provider, hard-coded JPEG MIME, returned empty entity/search fields, and no local/Docker/production config selected it. The separate `GrokFirestarter` used by `FIRESTARTER=grok` remains untouched.
 
 ## Decisions still to make
 

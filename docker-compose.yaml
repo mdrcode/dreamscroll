@@ -20,7 +20,6 @@ services:
       SESSION_ALWAYS_SAVE: true
       COOKIE_SECURE: false # false for local dev to allow non-HTTPS (localhost)
 
-      ILLUMINATOR: gemini
       GEMINI_BACKEND: developer_api
       GEMINI_MODEL_ID: gemini-3.8-flash
       FIRESTARTER: grok

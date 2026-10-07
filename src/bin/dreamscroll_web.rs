@@ -163,7 +163,8 @@ async fn initialize()
 
     // Webhook routes (unauthenticated locally but require OIDC in prod)
     if cfg.services.contains(&config::Service::Webhook) {
-        let illuminator = illumination::make_illuminator(&cfg, stg.clone())?;
+        let illuminator: Box<dyn illumination::Illuminator> =
+            Box::new(illumination::GeminiIlluminator::new(&cfg, stg.clone())?);
         let firestarter = ignition::make_firestarter(&cfg)?;
         let embedder = search::gcloud::GeminiEmbedder::from_config(&cfg)?;
         let vector_store = search::gcloud::VertexVectorStore::from_config(&cfg).await?;

@@ -3,7 +3,7 @@ use serde_json::json;
 
 use crate::{api, config, illumination, llms, storage};
 
-use super::{prompts, response};
+use crate::illumination::v1::response_gemini as response;
 
 #[derive(Clone)]
 pub struct GeminiIlluminator {
@@ -20,7 +20,7 @@ impl GeminiIlluminator {
         let model_id = cfg
             .gemini_model_id
             .as_deref()
-            .context("GEMINI_MODEL_ID required when ILLUMINATOR=gemini")?
+            .context("GEMINI_MODEL_ID required for Gemini illumination")?
             .to_string();
 
         Ok(Self {
@@ -50,7 +50,7 @@ impl illumination::Illuminator for GeminiIlluminator {
         let image = self.storage.retrieve_bytes(&storage_handle).await?;
         let mime_type = media.mime_type.as_deref().unwrap_or("image/jpeg");
         let input = [
-            llms::gemini::GeminiInputPart::Text(prompts::PROMPT),
+            llms::gemini::GeminiInputPart::Text(illumination::v1::prompts::PROMPT),
             llms::gemini::GeminiInputPart::InlineImage {
                 bytes: image.as_ref(),
                 mime_type,

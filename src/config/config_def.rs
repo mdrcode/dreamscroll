@@ -75,7 +75,6 @@ pub struct Config {
 
     pub jwt_secret: Option<String>, // must be 32+ bytes for HS256 signing
 
-    pub illuminator: String,
     pub gemini_backend: Option<GeminiBackend>,
     pub gemini_api_key: Option<String>,
     pub gemini_model_id: Option<String>,
@@ -133,13 +132,13 @@ where
     let cfg = envy::from_iter::<_, Config>(vars)
         .context("Failed to load config (missing required env vars or invalid values)")?;
 
-    if cfg.illuminator == "gemini" {
+    if cfg.services.contains(&Service::Webhook) {
         let backend = cfg
             .gemini_backend
-            .context("GEMINI_BACKEND required when ILLUMINATOR=gemini")?;
+            .context("GEMINI_BACKEND required when the Webhook service is enabled")?;
         require_some(
             &cfg.gemini_model_id,
-            "GEMINI_MODEL_ID required when ILLUMINATOR=gemini",
+            "GEMINI_MODEL_ID required when the Webhook service is enabled",
         )?;
         if backend == GeminiBackend::DeveloperApi {
             require_some(
@@ -148,7 +147,6 @@ where
             )?;
         }
     }
-
     match cfg.storage_backend {
         StorageBackend::Local => {
             require_some(
@@ -244,7 +242,6 @@ mod tests {
             ("GCLOUD_REGION".into(), "region".into()),
             ("PORT".into(), "8080".into()),
             ("SERVICES".into(), "webui,api".into()),
-            ("ILLUMINATOR".into(), "loremipsum".into()),
             ("FIRESTARTER".into(), "grok".into()),
             ("POSTGRES_HOST_PORT".into(), "localhost:5432".into()),
             ("POSTGRES_USER".into(), "user".into()),
@@ -291,13 +288,13 @@ mod tests {
     }
 
     #[test]
-    fn developer_api_gemini_requires_an_api_key() {
+    fn webhook_developer_api_requires_an_api_key() {
         let mut vars = required_vars("gcloud");
         vars.push(("STORAGE_GCLOUD_BUCKET_NAME".into(), "bucket".into()));
         vars.iter_mut()
-            .find(|(key, _)| key == "ILLUMINATOR")
-            .unwrap()
-            .1 = "gemini".into();
+            .find(|(key, _)| key == "SERVICES")
+            .expect("required vars include services")
+            .1 = "webui,api,webhook".into();
         vars.push(("GEMINI_BACKEND".into(), "developer_api".into()));
         vars.push(("GEMINI_MODEL_ID".into(), "gemini-3.8-flash".into()));
 
@@ -306,13 +303,13 @@ mod tests {
     }
 
     #[test]
-    fn vertex_gemini_does_not_require_a_developer_api_key() {
+    fn vertex_webhook_does_not_require_a_developer_api_key() {
         let mut vars = required_vars("gcloud");
         vars.push(("STORAGE_GCLOUD_BUCKET_NAME".into(), "bucket".into()));
         vars.iter_mut()
-            .find(|(key, _)| key == "ILLUMINATOR")
-            .unwrap()
-            .1 = "gemini".into();
+            .find(|(key, _)| key == "SERVICES")
+            .expect("required vars include services")
+            .1 = "webui,api,webhook".into();
         vars.push(("GEMINI_BACKEND".into(), "vertex".into()));
         vars.push(("GEMINI_MODEL_ID".into(), "gemini-3.8-flash".into()));
 
