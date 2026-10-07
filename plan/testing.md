@@ -1,9 +1,9 @@
 # Testing philosophy
 
-**Status:** living document. Last updated 2026-09-16.
+**Status:** living document. Last updated 2026-10-06.
 
 > **See also:** `task-status.md` (the framework these tests cover),
-> `pragmatism.md` (tolerated trade-offs), `sse.md` (future work).
+> `pragmatism.md` (tolerated trade-offs), `sse.md` (implemented SSE delivery).
 
 ## The two tiers
 
@@ -148,13 +148,12 @@ order; keep each as a focused unit or isolated-schema DB test:
 3. **SSE catch-up endpoint:** DB-backed coverage for selected captures, owner
   scope, all latest task types/statuses, and subscribe-before-snapshot handoff;
   retain the unit tests for the pure stream ordering/filter/shutdown helpers.
-4. **Browser SSE lifecycle:** exercise the two-minute inactivity close
-  regardless of visibility, heartbeat receipt and stale-connection recovery
-  (including the foreground check), and cover three reconnect attempts per
-  rolling one-minute window, jitter, the stable-open reset, and the single
-  EventSource/timer invariant. This will need a browser test harness or
-  lightweight frontend tooling; avoid adding Node solely for this until the
-  behavior is worth the dependency.
+4. **Browser SSE lifecycle:** exercise the two-minute inactivity close,
+  native EventSource reconnection after transport failure and normal response
+  closure, heartbeat receipt and stale recovery (including the foreground
+  check), and the single EventSource/timer invariant. This will need a browser
+  test harness or lightweight frontend tooling; avoid adding Node solely for
+  this until the behavior is worth the dependency.
 5. **Listener/process lifecycle:** ensure a Postgres listener failure becomes
   observable to SSE clients instead of leaving streams apparently open, and
   cover WebUI-enabled startup plus graceful shutdown propagation.

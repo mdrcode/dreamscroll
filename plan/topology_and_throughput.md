@@ -1,6 +1,6 @@
 # Topology & Throughput — Cloud Run / Cloud SQL budget reference
 
-**Date:** 2026-09-09
+**Date:** 2026-10-06
 **Status:** Reference / overview
 **Purpose:** A single place to look up the per-instance connection and concurrency budgets that shape how Dreamscroll scales on Cloud Run + Cloud SQL. Written to inform the SSE design (`sse.md`) and future scaling decisions.
 
@@ -14,7 +14,7 @@
 | ------------------------------------------------ | --------------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | **Cloud SQL connections per Cloud Run instance** | **100** (built-in connection)                                               | Per instance, per DB. Grows as instances scale.                      |
 | **Cloud Run HTTP concurrency per instance**      | **default 80** (console) or **80 × vCPUs** (gcloud/Terraform); **max 1000** | Each concurrent request = one HTTP connection.                       |
-| **Cloud Run request timeout**                    | **default 5 min**, **max 60 min**                                           | SSE is a long-lived request; must raise this + keep-alives.          |
+| **Cloud Run request timeout**                    | **default 5 min**, **max 60 min**                                           | `/events` is capped at three minutes, below the default.                             |
 | **Cloud Run instances**                          | autoscales; idle instances scale to zero after ~15 min                      | An open SSE connection keeps an instance alive (cost consideration). |
 
 ---
@@ -103,7 +103,8 @@ From the Cloud Run container contract — long-lived connections are **treated a
 - **Infrastructure restarts** can terminate/replace long-lived connections → the `LISTEN` connection **must auto-reconnect and re-issue `LISTEN`**.
 - **Outbound VPC idle timeout is 10 minutes** → keep the connection active or reconnect on failure.
 - **Idle instances scale to zero** after ~15 min → a `LISTEN` connection only lives while its instance is alive. Fine because the DB is the source of truth (fresh instance replays from DB).
-- **Request timeout default 5 min (max 60 min)** → SSE needs a high timeout + keep-alives.
+- **Request timeout default 5 min (max 60 min)** → `/events` is capped at three
+  minutes; named heartbeat events keep the response active through the ingress.
 
 ---
 

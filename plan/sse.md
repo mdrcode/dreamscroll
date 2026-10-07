@@ -1,14 +1,13 @@
 # Real-time Task Status via SSE — Design
 
 **Status:** Task-status SSE is wired as one authenticated stream per page.
-`capture_ids` selects a current-status snapshot each time a stream connects;
-after that snapshot, the same connection receives live task-status events for
-the authenticated user and a named liveness heartbeat every 20 seconds. The
-client reconnects after transport failure, server stream expiry, or 60 seconds
-without a heartbeat; foregrounding checks heartbeat freshness immediately.
-The client normally retains the stream while hidden, subject to inactivity and
-heartbeat recovery. Entity availability has a wire type but no producer or
-client behavior yet.
+`capture_ids` selects a current-status snapshot whenever an `EventSource` is
+created; the stream then delivers live task-status events and a named heartbeat
+every 20 seconds. The browser owns transport-error and normal-stream-end
+reconnects. The client replaces an `OPEN` source after 50 seconds without a
+heartbeat, or on foreground when that deadline has elapsed. User activity
+creates a source when none exists, including after the idle close. Entity
+availability has a wire type but no producer or client behavior yet.
 **Scope:** Relay best-effort, low-latency **background-task status hints** to
 HTMX clients over Server-Sent Events. This is informational UI feedback, not a
 workflow engine, durable change log, or source of truth for task orchestration.
@@ -58,9 +57,6 @@ needed for this feature.
 > not implemented. These events do not turn `task_run_status` into a catch-all
 > event table.
 
-  restarts. `LISTEN/NOTIFY` gives low-latency hints; normal page refresh can
-  help the UI catch up; keep-alives + native EventSource reconnect handle
-  flaky connections. This is not a durable change
 ---
 
 ## 2. Why SSE (and not WebSockets or polling)
@@ -189,10 +185,10 @@ present in the DOM. This avoids a registration flow and connection churn as
 cards enter or leave the feed.
 
 This means the browser does **not** subscribe/unsubscribe as elements enter or
-leave the page. It opens one stream when the page loads and keeps that URL for
-the page lifetime. Native EventSource may reconnect after network/server
-failure; application code should not close/recreate it on HTMX swaps or ordinary
-user interaction.
+leave the page. Native EventSource reconnects after transport errors or normal
+server closure; application code closes it only after inactivity or stale
+heartbeat detection. User activity creates a source only if one is absent.
+HTMX swaps never close/recreate the source.
 
 The stream lifecycle is simple: subscribe to the local event receiver first,
 query latest status for the requested capture IDs, emit those rows as ordinary
@@ -402,8 +398,9 @@ pub async fn get(
     let user = auth.user.unwrap();
     let user_id = user.id;
 
+    // This stream also emits a named heartbeat periodically.
     let stream = /* await authenticated user's task-status hints */;
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()).into_response())
+    Ok(Sse::new(stream).into_response())
 }
 ```
 
@@ -426,33 +423,31 @@ server whenever visible cards change.
 ### 4.4 Delivery and reconnect semantics
 
 SSE is **ephemeral** — a browser reconnect receives a fresh snapshot for the
-capture IDs in its URL, but not a replay of missed transitions. The client
-recomputes those IDs from capture cards currently on the page that do not yet
-show an illumination; cards with an illumination are omitted from catch-up.
+capture IDs in its URL, but not a replay of missed transitions. When the client
+creates an EventSource, it computes those IDs from capture cards currently on
+the page that do not yet show an illumination; cards with an illumination are
+omitted from catch-up.
 
-The client connects immediately on page load. User input refreshes a
-two-minute activity window and ensures there is one open `EventSource`. After
-two minutes without input, the client closes the stream and abandons any pending
-retry (the 2-minute inactivity cutoff). Returning to visible state via
+The client connects immediately on page load. User input refreshes a two-minute
+activity window and ensures there is one open `EventSource`. After two minutes
+without input, the client closes it. Returning to visible state via
 `visibilitychange`, or restoring from BFCache via `pageshow` with
-`event.persisted`, counts as activity and forces a fresh connection. While the
-page remains hidden, the stream stays open until inactivity expires, if the
-browser permits it. The host environment may still suspend or cancel background
-network activity; the client cannot prevent that. On transport failure or normal server closure, it
-retries with capped exponential backoff and jitter (starting near one second,
-capped near one minute). All reconnect attempts except initial page load and the
-healthy `stream-ending` handoff share a rolling budget: at most three attempts in
-the previous minute. A connection that stays open for 30 seconds clears
-the rolling window and resets backoff. When the budget is full, retries wait
-until the oldest attempt leaves the window. Each retry rechecks recency; user
-activity refreshes the idle deadline and attempts an immediate reconnect, subject
-to the same rolling budget.
+`event.persisted`, counts as activity. It replaces an existing `OPEN` source
+only if the last heartbeat is stale; a `CONNECTING` source stays with native
+EventSource retry.
+
+For transport errors and normal server stream closure, the client leaves
+`EventSource` open and lets the browser reconnect using its native policy. Those
+internal retries reuse the URL and catch-up IDs from the original constructor.
+A new `EventSource` (initial load, stale-heartbeat recovery, or activity after
+idle close) recomputes catch-up IDs from the current DOM. There is no
+application-level retry budget or backoff.
 
 The server caps each response at three minutes: longer than the client's
 two-minute inactivity window, but below Cloud Run's default five-minute
-request timeout. Idle clients therefore close first; continuously active
-clients periodically reconnect after the server cap. The initial snapshot is current state,
-not a transition log; updates remain informational hints.
+request timeout. The server simply closes the response at that deadline; the
+browser reconnects. The initial snapshot is current state, not a transition
+log; updates remain informational hints.
 
 **Operational cost:** every `/events` connection executes the same initial
 catch-up query for its requested capture IDs, even when a reconnect is made by
@@ -463,43 +458,44 @@ time. This is accepted for the current prototype, but a cursor, durable event
 sequence, or another server-side freshness mechanism would be needed to avoid
 that cost.
 
-Pointer down/over, keyboard, touch, and wheel input refreshes the idle deadline.
-`pointerover` intentionally counts hover/element entry but not continuous mouse
-movement; `pointermove` is excluded because it fires at a high rate. Input
-requests an immediate reconnect when disconnected, subject to the same rolling
-window budget, and does not erase prior attempt timestamps. A `stream-ending`
-transport event announces normal server lifetime expiry so the client can
-replace that stream immediately without consuming budget or failure backoff.
+#### Background suspension and heartbeat recovery
 
-#### Background suspension and reconnect limits
+The client leaves a healthy EventSource open when the page becomes hidden and
+lets its ordinary two-minute inactivity timer expire. On iOS and other mobile
+platforms, the browser or OS may suspend JavaScript, timers, or network
+activity; SSE is not a guaranteed background delivery mechanism. The server
+sends a named heartbeat event every 20 seconds. If an `OPEN` source receives no
+heartbeat for 50 seconds, the client closes and replaces it while the activity
+window remains open; a `CONNECTING` source is left to native retry. On return to
+the foreground, it checks elapsed heartbeat time immediately, even if the
+browser paused the timeout.
+Catch-up is current state, not a transition log, and intentionally omits captures
+already showing an illumination. Missed updates remain best-effort and are not
+replayed.
 
-The client leaves the EventSource open when the page becomes hidden and lets
-its ordinary two-minute inactivity timer expire. This gives a recently active
-page a short opportunity to receive task updates while backgrounded. However,
-on iOS and other mobile platforms the browser or OS may suspend page JavaScript,
-timers, or network activity; SSE is not a guaranteed background delivery
-mechanism, and keep-alives cannot prevent host suspension. The server sends a
-named heartbeat event every 20 seconds; the client treats 60 seconds without
-one as stale and reconnects with its bounded retry policy. On return to the
-foreground, it checks elapsed heartbeat time immediately, even if the browser
-paused the timeout. Catch-up is current state, not a transition log, and
-intentionally omits captures already showing an illumination. Missed updates
-remain best-effort and are not replayed.
+**Example — 2.5 minutes backgrounded:** if the idle timer ran, the client
+already closed the source at two minutes. If Safari suspended it, foregrounding
+counts as activity: a stale `OPEN` source is replaced, a `CONNECTING` source is
+left to native retry, and a source with a recent heartbeat stays open. The
+server's three-minute deadline may also have closed the response, depending on
+when that source was created.
 
 Feed swaps update the DOM and the JS router's possible refresh targets; they do
-not change or reopen the EventSource subscription. Catch-up IDs are recomputed
-when a new stream opens; ordinary feed swaps do not reconnect. Newly displayed
-entities still receive future live hints; statuses already current before they
-became visible are obtained through normal page rendering or a later explicit
-reconnection.
+not change the EventSource URL. Native retries reuse the catch-up IDs from the
+original construction. A source explicitly created after stale-heartbeat
+recovery or the idle close computes IDs from the current DOM. Newly displayed
+entities receive future live hints; statuses already current before they became
+visible are obtained through normal page rendering or a later explicit source
+recreation.
 
 ### 4.5 Initial status catch-up
 
-The same `/events` response begins with the latest task status rows for
-capture cards currently on the page that do not yet show an illumination, then
-continues as a live user-wide stream. The browser recomputes this ID list from
-the current DOM for every new EventSource connection. Page-load HTML does not
-need to join task status.
+The same `/events` response begins with the latest task status rows for capture
+cards currently on the page that do not yet show an illumination, then
+continues as a live user-wide stream. The client computes this ID list from the
+current DOM whenever it constructs a new `EventSource`. Native retries reuse
+that EventSource's original URL and ID list. Page-load HTML does not need to
+join task status.
 
 **The flow:**
 
@@ -572,11 +568,10 @@ can keep graceful shutdown waiting indefinitely.
 ### 5.1 One SSE connection at a time per page
 
 The client maintains at most one native `EventSource('/events')` per page.
-It replaces that source after transport errors, 60 seconds without a named
-heartbeat, or the server's `stream-ending` signal; it closes the source after
-two minutes without activity. Each new connection recomputes catch-up IDs from
-the current DOM: include capture cards that do not show an illumination, and
-omit cards that do. Ordinary feed swaps do not reconnect the EventSource.
+Native EventSource owns retries after transport errors and normal server-side
+closure. The client explicitly replaces the source only when its heartbeat
+watchdog detects staleness or when activity resumes after the idle close.
+Ordinary feed swaps do not reconnect the EventSource.
 
 The route authenticates the session and filters notifications by `user_id`.
 Each `task-status` payload contains `entity_type`/`entity_id`; `webui-v2.js`
@@ -734,34 +729,26 @@ concurrent tasks update 5 distinct cards independently, in any completion order.
 ### 5.5 Idle close, heartbeat recovery, and bounded server lifetime
 
 Each open SSE response occupies a Cloud Run request/concurrency slot, so the
-client does not keep the stream open indefinitely. It closes the connection
-after two minutes without user interaction, regardless of tab visibility.
-While hidden, the stream stays open until inactivity expires if the browser
+client closes it after two minutes without user interaction, regardless of tab
+visibility. A healthy stream normally stays open while hidden if the browser
 permits it. Returning to visible state via `visibilitychange`, or restoring
-from BFCache via `pageshow` with `event.persisted`, counts as activity. It also
-checks whether the last named server heartbeat is at least 60 seconds old and
-replaces a stale stream immediately. The server emits the heartbeat every 20
-seconds; the existing SSE keep-alive comments remain transport-level only and
-are not visible to JavaScript.
+from BFCache via `pageshow` with `event.persisted`, counts as activity and
+checks heartbeat freshness.
 
-While the activity window remains open, heartbeat timeouts, transport failures,
-and server lifetime expiry retry with capped exponential backoff and jitter,
-limited to three reconnect attempts in any rolling one-minute window; a
-30-second stable connection clears the window and resets backoff. When the
-window is full, attempts wait for its oldest timestamp to expire. Pointer
-down/over, keyboard, touch, or wheel activity refreshes the idle deadline;
-`pointermove` is excluded to avoid high-frequency timer resets. Activity
-reconnects when disconnected, subject to the same rolling window. A normal
-`stream-ending` handoff reconnects immediately without using the window budget.
-Every connection recomputes catch-up IDs from current capture cards without an
-illumination.
+The server emits one named heartbeat every 20 seconds. If an `OPEN` source goes
+50 seconds without one, the client closes it and creates a replacement while
+the activity window remains open. A source already in `CONNECTING` is left to
+native retry. The same freshness check runs on foreground in case the browser
+suspended the timeout. The heartbeat itself keeps the connection active; there
+is no separate SSE comment keep-alive.
 
-The server sends a `stream-ending` event at its three-minute deadline: this
-exceeds the two-minute client activity window but stays below Cloud Run's
-default five-minute request timeout. Active clients replace the stream
-immediately on that signal; if the signal is lost, the bounded failure-retry
-path handles the eventual disconnect. Do not recreate the stream on HTMX swaps
-or feed changes.
+For ordinary transport errors and normal server response closure, the client
+leaves `EventSource` open and lets the browser reconnect. There is no custom
+transport backoff, rolling retry budget, or stable-open timer. A normal
+three-minute response deadline simply closes the server stream; EventSource
+performs its normal reconnect using the same URL. Do not recreate the source on
+feed swaps. Pointer down/over, keyboard, touch, and wheel refresh the idle
+deadline; `pointermove` is excluded because it fires at a high rate.
 
 ---
 
@@ -788,12 +775,11 @@ Because the worker can be a different instance than the browser's connection,
 The local channel is only a delivery optimization for notifications received
 from Postgres; neither channel provides retained history.
 
-For Cloud Run specifically: SSE works through the ingress with periodic
-transport keep-alives and named application heartbeats. Each server response is
-intentionally capped at three minutes, below the configured service request
-timeout so the application, rather than Cloud Run, normally ends the response.
-The browser independently closes idle streams as described in §5.5; the server
-cap exceeds the two-minute client activity window.
+For Cloud Run specifically: named application heartbeat events keep the SSE
+response active through the ingress. Each response is intentionally capped at
+three minutes, below the configured service request timeout so the application,
+rather than Cloud Run, normally ends it. The browser closes idle streams as
+described in §5.5; the server cap exceeds the two-minute client activity window.
 
 ---
 
@@ -807,11 +793,10 @@ cap exceeds the two-minute client activity window.
   idiomatic Postgres pub/sub.
 - **Robust for the intended scope:** `task_run_status` persists the best
   available current status across restarts. `LISTEN/NOTIFY` gives low-latency
-  hints; named heartbeats let an active client recover a silent stale stream;
-  bounded application retries and normal page refresh help the UI catch up.
-  Background delivery remains best-effort because the host may suspend network
-  activity. This is not a durable change log and does not guarantee every
-  transition is delivered. Adaptive lifetime remains deferred.
+  hints; native EventSource retries ordinary transport failures, while named
+  heartbeats let the client replace a silent stale stream. Background delivery
+  remains best-effort because the host may suspend network activity. This is
+  not a durable change log and does not guarantee every transition is delivered.
 - **Flexible:** The `(task_type, envelope_id, entity_type, entity_id)` model is
   generic — illumination, spark, search-index all flow through the same
   table/channel. Adding a new task type = implement `Task` (with its
@@ -969,13 +954,10 @@ into this comparison.
   paths provide the watermark. See `plan/testing-js-and-browser.md`.
 - **Coverage gaps from the 2026-09-23 review:** add authenticated route tests for
   capture-card/detail partial access and rendering; assert TaskMaster lifecycle
-  status notifications (Queued → InProgress → outcomes, including retry and
-  submission failure) through the real publisher; test the SSE snapshot query
-  against mixed users/entities/statuses and snapshot/live handoff; and test
-  client EventSource reconnect/backoff behavior. Also cover listener failure
-  visibility and WebUI startup/shutdown wiring. See `plan/testing.md` for the
-  prioritized list. These are follow-up coverage tasks, not blockers for the
-  current informational SSE behavior.
+  status notifications through the real publisher; test the SSE snapshot query
+  and snapshot/live handoff; and cover native EventSource reconnects plus
+  heartbeat timeout recovery. Also cover listener failure visibility and
+  WebUI startup/shutdown wiring. See `plan/testing.md` for the prioritized list.
 - **Spark catch-up:** the initial snapshot currently covers captures only.
   Although feed pages may also show sparks, catch-up for spark entities is
   explicitly deferred; live user-wide status updates continue to be delivered.

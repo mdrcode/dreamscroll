@@ -1,6 +1,6 @@
 # Event-streaming optimization
 
-**Status:** exploratory. **Date:** 2026-09-28.
+**Status:** exploratory. **Last updated:** 2026-10-06.
 
 ## Problem
 
@@ -9,15 +9,15 @@ its requested capture IDs. This happens on the first page load and on every
 reconnect, even when the same page has already received the relevant statuses
 and nothing changed.
 
-The current browser uses a native `EventSource`. Connections can be recreated
-because of network errors, server lifetime limits, inactivity followed by user
-activity, or upload activity. Visibility changes alone do not close or reopen
-the stream; the browser may still suspend background networking. Each recreated
-connection receives a fresh catch-up response. Consequently, repeated
-connections produce duplicate database reads and duplicate current-state
-payloads. Over time, catch-up query volume is approximately linear in the
-number of `/events` connections, rather than the number of actual task-status
-changes.
+The browser keeps one native `EventSource` object. Transport errors and normal
+server stream closure use EventSource's native retry, which reuses the original
+URL and catch-up IDs. The client constructs a new source only after its
+heartbeat watchdog replaces a stale `OPEN` source, or after an idle close when
+activity resumes (including upload's `ensureConnected` call when no source is
+present). Visibility alone does not replace a healthy source; Safari may still
+suspend background networking. Every resulting HTTP connection executes a
+fresh catch-up query, so repeated requests still produce query volume roughly
+linear in connections rather than actual task-status changes.
 
 This is currently accepted as prototype behavior, but it creates avoidable
 PostgreSQL churn and can become significant as connection frequency or the

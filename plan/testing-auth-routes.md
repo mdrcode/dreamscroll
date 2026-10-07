@@ -1,6 +1,6 @@
 # Testing Authenticated Routes — Follow-up Plan
 
-**Status:** Planned follow-up to the `sse` branch; not implemented yet.
+**Status:** Planned follow-up; DB-backed authenticated route tests are not implemented yet. The `/events` route itself is implemented.
 **Goal:** Exercise protected WebUI routes through the real Axum authentication/session middleware using a real, isolated Postgres test database.
 
 ## Approach

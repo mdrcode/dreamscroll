@@ -1,7 +1,7 @@
 # Test Coverage Strategy
 
 **Status:** Initial plan.
-**Last updated:** 2026-09-26.
+**Last updated:** 2026-10-06.
 
 ## Current baseline
 
@@ -10,12 +10,7 @@ The repository uses two test tiers:
 - **Unit tests:** pure logic, serialization, parsing, state machines, and in-memory behavior. These run without external services.
 - **Database tests:** `#[tokio::test]` tests using the isolated-schema Postgres harness in `src/test_support/test_db.rs`. They are skipped when Postgres is unavailable, so a green local run does not necessarily prove that DB tests executed.
 
-The current full suite passes with:
-
-- 191 library tests
-- 0 failures
-- 0 ignored tests
-- Binary targets compile, but currently contain no tests
+Test counts change as coverage is added; this plan does not pin historical totals.
 
 Run the baseline with:
 
@@ -50,7 +45,7 @@ The task/SSE testing review identified these priority gaps:
 1. Authenticated partial routes: capture-card and detail rendering, missing/inaccessible captures, and ownership isolation.
 2. TaskMaster notification lifecycle: queued, in-progress, retry/final outcome, and enqueue-failure events with complete identity and attempt fields.
 3. DB-backed SSE catch-up: selected captures, owner scope, all latest task types/statuses, and subscribe-before-snapshot handoff.
-4. Browser SSE lifecycle: two-minute inactivity close independent of visibility, foreground/BFCache reconnects, three reconnect attempts per rolling one-minute window, backoff, stable-open reset, and at most one EventSource/timer.
+4. Browser SSE lifecycle: two-minute inactivity close, native EventSource retries after transport/server closure, heartbeat timeout and foreground recovery, and at most one active EventSource.
 5. Listener/process lifecycle: listener failure visibility and WebUI startup/shutdown propagation.
 6. Task edge cases: missing-run semantics, successful submissions for each task type, and enqueue failure followed by a later run.
 7. SSE catch-up fan-out: one initial refresh hint per latest entity while live task updates remain individually delivered.

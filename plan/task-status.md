@@ -6,7 +6,7 @@ exists on this branch.
 policy, the run dimension, and the query API.
 
 > **See also:**
-> - `sse.md` — the future SSE delivery layer that consumes this (not implemented).
+> - `sse.md` — the implemented authenticated SSE delivery layer for task status.
 > - `rest-task-submission.md` — authenticated REST submission and CLI polling.
 > - `pragmatism.md` — the ledger of deliberately tolerated trade-offs.
 > - `testing.md` — the two-tier test model (unit vs. DB).
@@ -23,10 +23,10 @@ This document covers the framework that fixes that: a first-class `task_run_stat
 table, a typed task identity, a retry/exhaustion policy, and a run dimension that
 makes reruns expressible.
 
-> **Scope boundary:** this is about **task state only**. Relaying that state to
-> the browser (SSE) is a separate, future project — see `sse.md`. Capture
-> lifecycle events (a capture uploaded/deleted on another device) are a separate,
-> TBD concern.
+> **Scope boundary:** this document covers **task state only**. Browser delivery
+> is implemented separately via authenticated SSE; see `sse.md`. Capture
+> lifecycle events (a capture uploaded/deleted on another device) remain a
+> separate, deferred concern.
 
 ---
 
@@ -466,7 +466,7 @@ must always see the **most recent** illumination, so:
 | `src/task/taskmaster.rs`                  | `TaskMaster` — public lifecycle/API boundary; owns queues and coordinates status persistence + notifications; `submit_*` / `begin_attempt` / `finish_attempt` / status query; shared via `Arc` | ✅      |
 | `src/task/taskruntracker.rs`              | `TaskRunTracker` — private-to-task-module persistence component; creates/updates keyed by `(envelope_id, run)` and reads status rows                                                           | ✅      |
 | `src/task/taskrunstatus.rs`               | `TaskRunStatus` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                      | ✅      |
-| `src/task/status_listener.rs`             | `StatusListener` — the `LISTEN`/`NOTIFY` thread (**stub**; see `sse.md`)                                                                                                                       | ⬜      |
+| `src/sse/listener.rs`                    | `ServerEventListener` — per-instance Postgres `LISTEN/NOTIFY` listener and fan-out for authenticated SSE streams (see `sse.md`) | ✅      |
 | `src/task/beacon.rs`                      | **removed** — replaced by `TaskMaster`                                                                                                                                                         | ✅      |
 | `src/model/task_run_status.rs`            | `task_run_status` SeaORM model (`(envelope_id, run)` unique, `entity_type`/`entity_id`, `status_code`, `attempts`) — auto-synced at startup                                                    | ✅      |
 | `src/api/apierror.rs`                     | `ApiError::is_retryable()` — 5xx retryable, 4xx permanent                                                                                                                                      | ✅      |

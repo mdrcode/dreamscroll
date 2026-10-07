@@ -5,7 +5,7 @@
 
 ## Why consider this
 
-`web/v2/static/webui-v2.js` is plain browser JavaScript with no build step. The SSE client controls connection lifetime: a two-minute inactivity close, named-heartbeat stale detection, foreground freshness checks, and bounded retry after transport errors. These rules affect Cloud Run request/concurrency usage and UI freshness.
+`web/v2/static/webui-v2.js` is plain browser JavaScript with no build step. The SSE client combines a two-minute inactivity close with a heartbeat stale check; native EventSource owns transport retries. These rules affect Cloud Run request/concurrency usage and UI freshness.
 
 ## Recommended starting point
 
@@ -15,18 +15,15 @@ Prefer a real-browser test for behavior involving native `EventSource`, user inp
 - the connection closes after two minutes without user interaction, regardless of visibility;
 - while hidden, the client retains a live heartbeat connection and its inactivity timer, subject to host suspension/cancellation;
 - returning to visible state via `visibilitychange`, or BFCache restoration via `pageshow`, checks heartbeat freshness and reconnects immediately only when stale;
-- an idle connection emits a named heartbeat every 20 seconds, and three missed heartbeats trigger recovery after 60 seconds;
+- no heartbeat for 50 seconds (two expected 20-second beats plus 10 seconds of grace) triggers stale recovery;
 - a delayed heartbeat resets the stale-connection deadline without opening a second EventSource;
-- a `stream-ending` event immediately replaces the stream without consuming the rolling reconnect budget or failure backoff;
-- transport failures retry with capped exponential backoff, at most three times in any rolling one-minute window, with exponential backoff and jitter;
-- a retry timer firing after the activity window expires does not reconnect;
-- a full reconnect window defers attempts until the oldest timestamp expires; activity does not erase attempt history;
-- a connection open for 30 seconds clears the rolling reconnect window and resets backoff; a short-lived open does not;
+- normal server stream closure and transport interruption reconnect through the browser's native EventSource policy, without constructing another source;
+- `error` marks the connection indicator disconnected and the next `open` clears it;
 - pointer down/over, keyboard, touch, and wheel input refresh the idle deadline; `pointermove` does not;
-- user input requests an immediate reconnect when disconnected, subject to the same rolling-window budget;
+- user activity creates one source after an idle close; activity while connected does not replace it;
 - changing visibility alone does not recycle a healthy stream; a stale stream reconnects on foreground;
 - feed swaps do not open extra connections;
-- each new connection computes catch-up IDs from currently rendered capture cards without illumination;
+- each new source computes catch-up IDs from currently rendered capture cards without illumination;
 - task-status events refresh only a matching rendered capture;
 - a settled catch-up event older than the card's DB-clock snapshot watermark
 	does not request a partial, while a newer event triggers exactly one refresh;
@@ -37,7 +34,7 @@ Keep tests focused on observable browser behavior rather than mirroring each imp
 
 ## Lightweight alternative
 
-If installing/running a browser toolchain is too heavy for the current validation phase, extract the retry/idle policy into a small dependency-free module and test that logic under Node's built-in test runner with mocked `EventSource`, timers, user input, and document events. This is less representative of browser integration and should not turn into a frontend build system by default.
+If installing/running a browser toolchain is too heavy, extract the idle/heartbeat policy into a small dependency-free module and test it with mocked `EventSource`, timers, visibility, and user input under Node's built-in test runner. Native EventSource retries still require a browser test. Avoid turning this into a frontend build system by default.
 
 Do not add both approaches initially. Pick the smallest approach that gives useful confidence when the client behavior is next changed.
 

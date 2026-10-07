@@ -130,16 +130,7 @@ function setupTaskStatusEvents() {
     }
 
     const activeWindowMs = 2 * 60 * 1000; // Close SSE after 2 min without input
-    const heartbeatTimeoutMs = 60 * 1000; // Three 20-second server heartbeats
-    const stableConnectionMs = 30 * 1000; // After this, reset reconnect budget
-    const maxReconnectsPerWindow = 3;
-    const reconnectWindowMs = 60 * 1000;
-    const baseRetryMs = 1000;
-    const maxRetryMs = 60000;
-    let backoffAttempt = 0;
-    let reconnectAttempts = [];
-    let stableConnectionTimer = null;
-    let retryTimer = null;
+    const heartbeatTimeoutMs = 50 * 1000; // 2.5 x 20-second heartbeat intervals
     let idleTimer = null;
     let foregroundTimer = null;
     let heartbeatTimer = null;
@@ -157,20 +148,6 @@ function setupTaskStatusEvents() {
         if (statusIndicator) statusIndicator.hidden = !disconnected;
     }
 
-    function clearRetry() {
-        if (retryTimer !== null) {
-            window.clearTimeout(retryTimer);
-            retryTimer = null;
-        }
-    }
-
-    function clearStableConnectionTimer() {
-        if (stableConnectionTimer !== null) {
-            window.clearTimeout(stableConnectionTimer);
-            stableConnectionTimer = null;
-        }
-    }
-
     function clearHeartbeatTimer() {
         if (heartbeatTimer !== null) {
             window.clearTimeout(heartbeatTimer);
@@ -182,64 +159,33 @@ function setupTaskStatusEvents() {
         return lastHeartbeatAt !== null && Date.now() - lastHeartbeatAt >= heartbeatTimeoutMs;
     }
 
-    function armHeartbeatTimeout(currentSource) {
-        clearHeartbeatTimer();
-        const remainingMs = Math.max(0, heartbeatTimeoutMs - (Date.now() - lastHeartbeatAt));
-        heartbeatTimer = window.setTimeout(function () {
-            heartbeatTimer = null;
-            if (source !== currentSource) return;
-            if (!heartbeatIsStale()) {
-                armHeartbeatTimeout(currentSource);
-                return;
-            }
-            closeSource('heartbeat timeout');
-            scheduleReconnect('heartbeat timeout', true);
-        }, remainingMs);
-    }
-
-    function closeSource(reason) {
+    function closeSource() {
         if (!source) return;
         const oldSource = source;
         source = null;
-        clearStableConnectionTimer();
         clearHeartbeatTimer();
         lastHeartbeatAt = null;
         setDisconnected(true);
         oldSource.close();
     }
 
-    function connectNow(reason) {
-        clearRetry();
+    function connectNow() {
         if (source || !isRecentlyActive()) return;
 
-        const eventsUrl = eventsUrlForConnection();
         setDisconnected(true);
-        source = new EventSource(eventsUrl, { withCredentials: true });
+        source = new EventSource(eventsUrlForConnection(), { withCredentials: true });
         const currentSource = source;
         currentSource.addEventListener('open', function () {
             if (source !== currentSource) return;
+            setDisconnected(false);
             lastHeartbeatAt = Date.now();
             armHeartbeatTimeout(currentSource);
-            setDisconnected(false);
-            clearStableConnectionTimer();
-            stableConnectionTimer = window.setTimeout(function () {
-                stableConnectionTimer = null;
-                if (source === currentSource) {
-                    backoffAttempt = 0;
-                    reconnectAttempts = [];
-                }
-            }, stableConnectionMs);
             armIdleClose();
         });
         currentSource.addEventListener('heartbeat', function () {
             if (source !== currentSource) return;
             lastHeartbeatAt = Date.now();
             armHeartbeatTimeout(currentSource);
-        });
-        currentSource.addEventListener('stream-ending', function () {
-            if (source !== currentSource) return;
-            closeSource('server stream lifetime');
-            connectNow('server stream lifetime');
         });
         currentSource.addEventListener('task-status', function (event) {
             if (source !== currentSource) return;
@@ -254,63 +200,35 @@ function setupTaskStatusEvents() {
         });
         currentSource.onerror = function () {
             if (source !== currentSource) return;
-            closeSource('transport error');
-            scheduleReconnect('transport error', true);
+            setDisconnected(true);
+            // Let EventSource retry transport failures; CLOSED means the server disabled retries.
+            if (currentSource.readyState === EventSource.CLOSED) closeSource();
         };
     }
 
-    function scheduleReconnect(reason, useBackoff) {
-        if (!isRecentlyActive() || retryTimer !== null) return;
-
-        const now = Date.now();
-        reconnectAttempts = reconnectAttempts.filter(time => now - time < reconnectWindowMs);
-        const windowDelay = reconnectAttempts.length >= maxReconnectsPerWindow
-            ? reconnectWindowMs - (now - reconnectAttempts[0])
-            : 0;
-        let backoffDelay = 0;
-        if (useBackoff) {
-            const exponentialDelay = Math.min(maxRetryMs, baseRetryMs * (2 ** backoffAttempt));
-            backoffDelay = Math.round(exponentialDelay * (0.8 + Math.random() * 0.4));
-            backoffAttempt += 1;
-        }
-        const delay = Math.max(backoffDelay, windowDelay);
-
-        const reconnect = () => {
-            if (!isRecentlyActive()) {
-                retryTimer = null;
+    function armHeartbeatTimeout(currentSource) {
+        clearHeartbeatTimer();
+        const remainingMs = Math.max(0, heartbeatTimeoutMs - (Date.now() - lastHeartbeatAt));
+        heartbeatTimer = window.setTimeout(function () {
+            heartbeatTimer = null;
+            if (source !== currentSource || currentSource.readyState !== EventSource.OPEN) return;
+            if (!heartbeatIsStale()) {
+                armHeartbeatTimeout(currentSource);
                 return;
             }
+            closeSource();
+            connectNow();
+        }, remainingMs);
+    }
 
-            const attemptAt = Date.now();
-            reconnectAttempts = reconnectAttempts.filter(time => attemptAt - time < reconnectWindowMs);
-            if (reconnectAttempts.length >= maxReconnectsPerWindow) {
-                const remainingWindowDelay = reconnectWindowMs - (attemptAt - reconnectAttempts[0]);
-                console.info('Dreamscroll SSE reconnect delayed by window budget.', {
-                    reason,
-                    attempts: reconnectAttempts.length,
-                    windowDelay: remainingWindowDelay
-                });
-                retryTimer = window.setTimeout(reconnect, remainingWindowDelay);
-                return;
-            }
-
-            retryTimer = null;
-            reconnectAttempts.push(attemptAt);
-            connectNow(reason);
-        };
-
-        if (delay > 0) {
-            console.info('Dreamscroll SSE reconnect scheduled.', {
-                reason,
-                backoffDelay,
-                windowDelay,
-                delay,
-                backoffAttempt
-            });
-            retryTimer = window.setTimeout(reconnect, delay);
-        } else {
-            reconnect();
-        }
+    function handleForeground() {
+        if (foregroundTimer !== null) return;
+        foregroundTimer = window.setTimeout(function () {
+            foregroundTimer = null;
+            if (document.visibilityState === 'hidden') return;
+            if (source && source.readyState === EventSource.OPEN && heartbeatIsStale()) closeSource();
+            recordActivity('foregrounded');
+        }, 0);
     }
 
     function clearIdleTimer() {
@@ -320,21 +238,8 @@ function setupTaskStatusEvents() {
         }
     }
 
-    function handleForeground() {
-        if (foregroundTimer !== null) return;
-        foregroundTimer = window.setTimeout(function () {
-            foregroundTimer = null;
-            if (document.visibilityState === 'hidden') return;
-            if (source && heartbeatIsStale()) {
-                closeSource('stale heartbeat after foreground');
-            }
-            recordActivity('foregrounded');
-        }, 0);
-    }
-
     function armIdleClose() {
         clearIdleTimer();
-
         const idleRemainingMs = Math.max(0, activeWindowMs - (Date.now() - lastActivityAt));
         idleTimer = window.setTimeout(function () {
             idleTimer = null;
@@ -342,23 +247,17 @@ function setupTaskStatusEvents() {
                 armIdleClose();
                 return;
             }
-            closeSource('inactivity timeout');
-            const abandonedRetryTimer = retryTimer !== null;
-            clearRetry();
-            backoffAttempt = 0;
-            reconnectAttempts = [];
-            console.info('Dreamscroll SSE stopped after user inactivity.', {
-                abandonedRetryTimer
-            });
+            closeSource();
+            console.info('Dreamscroll SSE stopped after user inactivity.');
         }, idleRemainingMs);
     }
 
     function recordActivity(reason = 'user activity') {
         lastActivityAt = Date.now();
         armIdleClose();
-        if (!source && retryTimer === null) {
+        if (!source) {
             console.info('Dreamscroll SSE reconnect requested by activity.', { reason });
-            scheduleReconnect(reason, false);
+            connectNow();
         }
     }
 
@@ -380,7 +279,8 @@ function setupTaskStatusEvents() {
     });
     lastActivityAt = Date.now();
     armIdleClose();
-    connectNow('page load');
+    connectNow();
+
 }
 
 // Client-side estimated progress, scoped to each capture card. The percentage

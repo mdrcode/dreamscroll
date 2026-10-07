@@ -2,7 +2,7 @@ use std::{convert::Infallible, sync::Arc, time::Duration};
 
 use axum::{
     extract::{Query, State},
-    response::sse::{Event, KeepAlive, Sse},
+    response::sse::{Event, Sse},
 };
 use axum_login::AuthSession;
 use futures_util::{StreamExt, stream};
@@ -53,18 +53,13 @@ pub async fn get(
     )
     .map(|item| Ok(task_status_sse_event(item)));
 
-    Ok(Sse::new(task_status_stream).keep_alive(
-        KeepAlive::new()
-            .interval(HEARTBEAT_INTERVAL)
-            .text("keep-alive"),
-    ))
+    Ok(Sse::new(task_status_stream))
 }
 
 #[derive(Debug, Eq, PartialEq)]
 enum TaskStatusStreamItem {
     TaskStatus(sse::TaskStatusEvent),
     Heartbeat,
-    StreamEnding,
 }
 
 fn task_status_sse_event(item: TaskStatusStreamItem) -> Event {
@@ -74,7 +69,6 @@ fn task_status_sse_event(item: TaskStatusStreamItem) -> Event {
             .data(task_event_json(&task_status)),
         // Axum omits empty data fields, and EventSource does not dispatch data-less events.
         TaskStatusStreamItem::Heartbeat => Event::default().event("heartbeat").data("1"),
-        TaskStatusStreamItem::StreamEnding => Event::default().event("stream-ending"),
     }
 }
 
@@ -88,37 +82,22 @@ fn make_task_status_stream(
 ) -> impl futures_util::Stream<Item = TaskStatusStreamItem> {
     let next_heartbeat = tokio::time::Instant::now() + heartbeat_interval;
     let live_events = stream::unfold(
-        (
-            events_rx,
-            user_id,
-            shutdown,
-            deadline,
-            false,
-            next_heartbeat,
-        ),
-        move |(mut events_rx, user_id, mut shutdown, deadline, ending_sent, mut next_heartbeat)| async move {
-            if ending_sent {
-                return None;
-            }
+        (events_rx, user_id, shutdown, deadline, next_heartbeat),
+        move |(mut events_rx, user_id, mut shutdown, deadline, mut next_heartbeat)| async move {
             loop {
                 if *shutdown.borrow() {
                     return None;
                 }
 
                 tokio::select! {
-                    _ = tokio::time::sleep_until(deadline) => {
-                        return Some((
-                            TaskStatusStreamItem::StreamEnding,
-                            (events_rx, user_id, shutdown, deadline, true, next_heartbeat),
-                        ));
-                    },
+                    _ = tokio::time::sleep_until(deadline) => return None,
                     _ = tokio::time::sleep_until(next_heartbeat) => {
                         next_heartbeat = tokio::time::Instant::now() + heartbeat_interval;
                         return Some((
                             TaskStatusStreamItem::Heartbeat,
-                            (events_rx, user_id, shutdown, deadline, false, next_heartbeat),
+                            (events_rx, user_id, shutdown, deadline, next_heartbeat),
                         ));
-                    },
+                    }
                     changed = shutdown.changed() => {
                         if changed.is_err() || *shutdown.borrow() {
                             return None;
@@ -130,7 +109,7 @@ fn make_task_status_stream(
                                 if let Some(update) = filter_for_user(received, user_id) {
                                     return Some((
                                         TaskStatusStreamItem::TaskStatus(update),
-                                        (events_rx, user_id, shutdown, deadline, false, next_heartbeat),
+                                        (events_rx, user_id, shutdown, deadline, next_heartbeat),
                                     ));
                                 }
                             }
@@ -472,7 +451,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn server_deadline_emits_stream_ending_then_closes() {
+    async fn server_deadline_closes_the_stream_normally() {
         let (_sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
         let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
@@ -485,15 +464,11 @@ mod tests {
             Duration::from_secs(20),
         ));
 
-        assert_eq!(
+        assert!(
             tokio::time::timeout(Duration::from_secs(1), events.next())
                 .await
-                .expect("stream-ending should arrive by the deadline"),
-            Some(TaskStatusStreamItem::StreamEnding)
-        );
-        assert!(
-            events.next().await.is_none(),
-            "stream should close after signal"
+                .expect("stream should close at its deadline")
+                .is_none()
         );
     }
 
