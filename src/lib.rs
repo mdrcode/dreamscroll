@@ -5,6 +5,7 @@ pub mod config;
 pub mod database;
 pub mod ignition;
 pub mod illumination;
+pub mod llms;
 pub mod logic;
 pub mod model;
 pub mod rest;

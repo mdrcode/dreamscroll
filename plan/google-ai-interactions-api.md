@@ -10,7 +10,7 @@ The user approved removing the generated `google-cloud-aiplatform-v1` dependency
 
 ## Implementation
 
-- `src/illumination/gemini/client.rs` defines the reusable `GeminiInferenceClient`, typed text/inline-image input parts, per-call model/schema/tools/store options, and raw interaction steps for future agentic flows.
+- The reusable `GeminiInferenceClient` and typed input/request/response types live under the top-level `src/llms/gemini/` module, available to future inference flows.
 - Backend-specific mapping targets the Developer API `v1beta/interactions` endpoint with an API key, or the Vertex `v1beta1/projects/{project}/locations/global/interactions` endpoint with ADC. Input and schema wire shapes differ, but both use the same client, inline image representation, output-step parser, and caller contract.
 - `src/illumination/gemini/illuminator.rs` uses the client for image analysis, Google Search grounding, JSON-schema output, and `store: false`.
 - Local and Docker config now use `ILLUMINATOR=gemini` plus `GEMINI_BACKEND=developer_api`; production uses `ILLUMINATOR=gemini` plus `GEMINI_BACKEND=vertex`.

@@ -1,16 +1,13 @@
 use anyhow::Context;
 use serde_json::json;
 
-use crate::{api, config, illumination, storage};
+use crate::{api, config, illumination, llms, storage};
 
-use super::{
-    client::{GeminiInferenceClient, GeminiInputPart, GeminiInteractionRequest},
-    prompts, response,
-};
+use super::{prompts, response};
 
 #[derive(Clone)]
 pub struct GeminiIlluminator {
-    client: GeminiInferenceClient,
+    client: llms::gemini::GeminiInferenceClient,
     model_id: String,
     storage: Box<dyn storage::StorageProvider>,
 }
@@ -27,7 +24,7 @@ impl GeminiIlluminator {
             .to_string();
 
         Ok(Self {
-            client: GeminiInferenceClient::from_config(cfg)?,
+            client: llms::gemini::GeminiInferenceClient::from_config(cfg)?,
             model_id,
             storage,
         })
@@ -53,8 +50,8 @@ impl illumination::Illuminator for GeminiIlluminator {
         let image = self.storage.retrieve_bytes(&storage_handle).await?;
         let mime_type = media.mime_type.as_deref().unwrap_or("image/jpeg");
         let input = [
-            GeminiInputPart::Text(prompts::PROMPT),
-            GeminiInputPart::InlineImage {
+            llms::gemini::GeminiInputPart::Text(prompts::PROMPT),
+            llms::gemini::GeminiInputPart::InlineImage {
                 bytes: image.as_ref(),
                 mime_type,
             },
@@ -72,7 +69,7 @@ impl illumination::Illuminator for GeminiIlluminator {
         let inference_start = std::time::Instant::now();
         let interaction = self
             .client
-            .interact(GeminiInteractionRequest {
+            .interact(llms::gemini::GeminiInteractionRequest {
                 model_id: &self.model_id,
                 input: &input,
                 response_schema: Some(&schema),
