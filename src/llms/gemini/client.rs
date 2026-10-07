@@ -25,7 +25,6 @@ enum Backend {
 #[derive(Clone)]
 pub struct GeminiInferenceClient {
     backend: Backend,
-    model_id: String,
     http: Client,
 }
 
@@ -35,8 +34,9 @@ pub enum GeminiInputPart<'a> {
     InlineImage { bytes: &'a [u8], mime_type: &'a str },
 }
 
-/// Per-call options. Inputs, schemas, tools, and retention are selected by the caller.
+/// Per-call options, including the selected model and generation inputs.
 pub struct GeminiInteractionRequest<'a> {
+    pub model_id: &'a str,
     pub input: &'a [GeminiInputPart<'a>],
     pub response_schema: Option<&'a Value>,
     pub tools: &'a [Value],
@@ -55,12 +55,6 @@ pub struct GeminiInteractionResponse {
 
 impl GeminiInferenceClient {
     pub fn from_config(cfg: &config::Config) -> anyhow::Result<Self> {
-        let model_id = cfg
-            .gemini_model_id
-            .as_deref()
-            .context("GEMINI_MODEL_ID required for Gemini inference")?
-            .to_string();
-
         let backend = match cfg
             .gemini_backend
             .context("GEMINI_BACKEND required for Gemini inference")?
@@ -88,7 +82,6 @@ impl GeminiInferenceClient {
 
         Ok(Self {
             backend,
-            model_id,
             http: Client::new(),
         })
     }
@@ -102,10 +95,6 @@ impl GeminiInferenceClient {
             Backend::DeveloperApi { .. } => "developer_api",
             Backend::Vertex { .. } => "vertex",
         }
-    }
-
-    pub(crate) fn model_id(&self) -> &str {
-        &self.model_id
     }
 
     fn interaction_body(&self, request: &GeminiInteractionRequest<'_>) -> anyhow::Result<Value> {
@@ -137,7 +126,7 @@ impl GeminiInferenceClient {
             }]),
         };
         let mut body = json!({
-            "model": self.model_id,
+            "model": request.model_id,
             "input": input,
             "store": request.store,
         });
@@ -228,28 +217,36 @@ impl GeminiInteractionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::logic::illuminate::IlluminationTask;
 
     #[test]
-    fn interaction_body_uses_client_model_id() {
+    fn serialized_task_model_selects_interaction_model() {
         let client = GeminiInferenceClient {
             backend: Backend::DeveloperApi {
                 api_key: "test-key".to_string(),
             },
-            model_id: "configured-model".to_string(),
             http: Client::new(),
         };
         let input = [GeminiInputPart::Text("hello")];
-        let request = GeminiInteractionRequest {
-            input: &input,
-            response_schema: None,
-            tools: &[],
-            store: false,
-        };
 
-        assert_eq!(
-            client.interaction_body(&request).unwrap()["model"],
-            "configured-model"
-        );
+        for model_id in ["model-a", "model-b"] {
+            let payload = serde_json::to_vec(&IlluminationTask::new(123, model_id))
+                .expect("task payload should serialize");
+            let task: IlluminationTask =
+                serde_json::from_slice(&payload).expect("task payload should deserialize");
+            let request = GeminiInteractionRequest {
+                model_id: &task.model_id,
+                input: &input,
+                response_schema: None,
+                tools: &[],
+                store: false,
+            };
+
+            assert_eq!(
+                client.interaction_body(&request).unwrap()["model"],
+                model_id
+            );
+        }
     }
 
     #[test]

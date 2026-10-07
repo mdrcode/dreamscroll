@@ -132,14 +132,21 @@ where
     let cfg = envy::from_iter::<_, Config>(vars)
         .context("Failed to load config (missing required env vars or invalid values)")?;
 
+    let produces_illumination_tasks = cfg
+        .services
+        .iter()
+        .any(|service| matches!(service, Service::WebUI | Service::API));
+    if produces_illumination_tasks {
+        require_some(
+            &cfg.gemini_model_id,
+            "GEMINI_MODEL_ID required when WebUI or API can enqueue illumination tasks",
+        )?;
+    }
+
     if cfg.services.contains(&Service::Webhook) {
         let backend = cfg
             .gemini_backend
             .context("GEMINI_BACKEND required when the Webhook service is enabled")?;
-        require_some(
-            &cfg.gemini_model_id,
-            "GEMINI_MODEL_ID required when the Webhook service is enabled",
-        )?;
         if backend == GeminiBackend::DeveloperApi {
             require_some(
                 &cfg.gemini_api_key,
@@ -242,6 +249,7 @@ mod tests {
             ("GCLOUD_REGION".into(), "region".into()),
             ("PORT".into(), "8080".into()),
             ("SERVICES".into(), "webui,api".into()),
+            ("GEMINI_MODEL_ID".into(), "gemini-3.8-flash".into()),
             ("FIRESTARTER".into(), "grok".into()),
             ("POSTGRES_HOST_PORT".into(), "localhost:5432".into()),
             ("POSTGRES_USER".into(), "user".into()),
@@ -257,6 +265,33 @@ mod tests {
             ("TASK_QUEUE_NAME_SEARCH_INDEX".into(), "search_index".into()),
             ("TASK_QUEUE_NAME_SPARK".into(), "spark".into()),
         ]
+    }
+
+    #[test]
+    fn api_requires_default_model_for_illumination_tasks() {
+        let mut vars = required_vars("gcloud");
+        vars.retain(|(key, _)| key != "GEMINI_MODEL_ID");
+
+        let error = make_from_envy_iter(vars).expect_err("API config should require a model");
+        assert_eq!(
+            error.to_string(),
+            "GEMINI_MODEL_ID required when WebUI or API can enqueue illumination tasks"
+        );
+    }
+
+    #[test]
+    fn webhook_worker_does_not_require_default_model() {
+        let mut vars = required_vars("gcloud");
+        vars.push(("STORAGE_GCLOUD_BUCKET_NAME".into(), "bucket".into()));
+        vars.retain(|(key, _)| key != "GEMINI_MODEL_ID");
+        vars.iter_mut()
+            .find(|(key, _)| key == "SERVICES")
+            .expect("required vars include services")
+            .1 = "webhook".into();
+        vars.push(("GEMINI_BACKEND".into(), "vertex".into()));
+
+        let config = make_from_envy_iter(vars).expect("worker task payload selects its model");
+        assert!(config.gemini_model_id.is_none());
     }
 
     #[test]
@@ -296,7 +331,6 @@ mod tests {
             .expect("required vars include services")
             .1 = "webui,api,webhook".into();
         vars.push(("GEMINI_BACKEND".into(), "developer_api".into()));
-        vars.push(("GEMINI_MODEL_ID".into(), "gemini-3.8-flash".into()));
 
         let error = make_from_envy_iter(vars).expect_err("API key should be required");
         assert!(error.to_string().contains("GEMINI_API_KEY required"));
@@ -311,7 +345,6 @@ mod tests {
             .expect("required vars include services")
             .1 = "webui,api,webhook".into();
         vars.push(("GEMINI_BACKEND".into(), "vertex".into()));
-        vars.push(("GEMINI_MODEL_ID".into(), "gemini-3.8-flash".into()));
 
         let config = make_from_envy_iter(vars).expect("Vertex config should be valid");
         assert_eq!(config.gemini_backend, Some(GeminiBackend::Vertex));

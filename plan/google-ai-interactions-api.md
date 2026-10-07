@@ -10,7 +10,7 @@ The user approved removing the generated `google-cloud-aiplatform-v1` dependency
 
 ## Implementation
 
-- The reusable `GeminiInferenceClient` owns the configured backend and `GEMINI_MODEL_ID`; per-call requests supply inputs, schemas, tools, and retention. The typed client and request/response types live under `src/llms/gemini/` for future inference flows.
+- `GeminiInferenceClient` owns only the configured backend; each interaction request supplies its model ID along with inputs, schemas, tools, and retention. Illumination tasks carry the selected model ID, and `GEMINI_MODEL_ID` is copied into new tasks as the default by API/WebUI producers.
 - Backend-specific mapping targets the Developer API `v1beta/interactions` endpoint with an API key, or the Vertex `v1beta1/projects/{project}/locations/global/interactions` endpoint with ADC. Input and schema wire shapes differ, but both use the same client, inline image representation, output-step parser, and caller contract.
 - `src/illumination/v1/illuminate.rs` uses the client for image analysis, Google Search grounding, JSON-schema output, and `store: false`.
 - Local and Docker use `GEMINI_BACKEND=developer_api`; production uses `GEMINI_BACKEND=vertex`. Webhook initialization constructs `GeminiInferenceClient` directly; there is no illumination provider selector.

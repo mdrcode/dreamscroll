@@ -527,6 +527,10 @@ mod tests {
         status_row_of_run(status, attempts, 1)
     }
 
+    fn illumination_task(capture_id: i32) -> IlluminationTask {
+        IlluminationTask::new(capture_id, "test-model")
+    }
+
     fn status_row_of_run(
         status: TaskRunStatus,
         attempts: i32,
@@ -591,7 +595,7 @@ mod tests {
             .expect("build should succeed with a db");
 
         service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("submit should succeed");
 
@@ -619,7 +623,7 @@ mod tests {
             .expect("build should succeed with a db");
 
         let result = service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 9 })
+            .submit_illuminate(&test_context(1), illumination_task(9))
             .await;
         assert!(result.is_err());
     }
@@ -647,7 +651,7 @@ mod tests {
             .expect("build should succeed with a db");
 
         service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("submit should succeed");
 
@@ -681,11 +685,11 @@ mod tests {
             .expect("build should succeed with a db");
 
         let first = service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("first submit should succeed");
         let second = service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("second submit should be answered, not error");
 
@@ -717,8 +721,8 @@ mod tests {
         );
         let context = test_context(1);
         let (first, second) = tokio::join!(
-            service.submit_illuminate(&context, IlluminationTask { capture_id: 42 }),
-            service.submit_illuminate(&context, IlluminationTask { capture_id: 42 }),
+            service.submit_illuminate(&context, illumination_task(42)),
+            service.submit_illuminate(&context, illumination_task(42)),
         );
         let outcomes = [first.unwrap(), second.unwrap()];
 
@@ -758,12 +762,12 @@ mod tests {
             .expect("build should succeed with a db");
 
         service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("first submit should succeed");
 
         // Complete run 1.
-        let envelope = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 1);
+        let envelope = TaskEnvelope::new(1, illumination_task(42), 1);
         let attempt = service
             .begin_attempt(&envelope)
             .await
@@ -785,7 +789,7 @@ mod tests {
         assert!(row.last_error_duration_ms.is_none());
 
         let rerun = service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("rerun submit should succeed");
 
@@ -812,10 +816,10 @@ mod tests {
 
         // Run 1 exhausts (incomplete, settled).
         service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("first submit should succeed");
-        let envelope = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 1);
+        let envelope = TaskEnvelope::new(1, illumination_task(42), 1);
         let attempt = service
             .begin_attempt(&envelope)
             .await
@@ -837,7 +841,7 @@ mod tests {
 
         // Run 2 is queued (in flight).
         let rerun = service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("rerun submit should succeed");
         assert_eq!(rerun, SubmitOutcome::Enqueued { run: 2 });
@@ -872,10 +876,10 @@ mod tests {
 
         // Run 1 exhausts and stays incomplete.
         service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("first submit should succeed");
-        let first = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 1);
+        let first = TaskEnvelope::new(1, illumination_task(42), 1);
         let attempt = service
             .begin_attempt(&first)
             .await
@@ -892,10 +896,10 @@ mod tests {
 
         // Run 2 completes.
         service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("rerun submit should succeed");
-        let second = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 2);
+        let second = TaskEnvelope::new(1, illumination_task(42), 2);
         let attempt = service
             .begin_attempt(&second)
             .await
@@ -935,10 +939,10 @@ mod tests {
 
         // Run 1: two attempts, then exhaust.
         service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("first submit should succeed");
-        let first = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 1);
+        let first = TaskEnvelope::new(1, illumination_task(42), 1);
         let failure = Err(api::ApiError::internal(anyhow::anyhow!("boom")));
 
         let attempt = service
@@ -981,10 +985,10 @@ mod tests {
 
         // Run 2 begins at attempt 1 again, even though run 1 used attempts.
         service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("rerun submit should succeed");
-        let second = TaskEnvelope::new(1, IlluminationTask { capture_id: 42 }, 2);
+        let second = TaskEnvelope::new(1, illumination_task(42), 2);
         let attempt = service
             .begin_attempt(&second)
             .await
@@ -1010,7 +1014,7 @@ mod tests {
             .build()
             .expect("build should succeed with a db");
 
-        let task = IlluminationTask { capture_id: 7 };
+        let task = illumination_task(7);
         service
             .submit_illuminate(&test_context(1), task.clone())
             .await
@@ -1058,7 +1062,7 @@ mod tests {
             .build()
             .expect("build should succeed with a db");
 
-        let task = IlluminationTask { capture_id: 9 };
+        let task = illumination_task(9);
         service
             .submit_illuminate(&test_context(1), task.clone())
             .await
@@ -1118,7 +1122,7 @@ mod tests {
             .build()
             .expect("build should succeed with a db");
 
-        let task = IlluminationTask { capture_id: 11 };
+        let task = illumination_task(11);
         service
             .submit_illuminate(&test_context(1), task.clone())
             .await
@@ -1165,7 +1169,7 @@ mod tests {
 
         for capture_id in [1, 2, 3] {
             service
-                .submit_illuminate(&test_context(1), IlluminationTask { capture_id })
+                .submit_illuminate(&test_context(1), illumination_task(capture_id))
                 .await
                 .expect("submit should succeed");
         }
@@ -1229,7 +1233,7 @@ mod tests {
         let service = service(&db, true);
 
         let result = service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 9 })
+            .submit_illuminate(&test_context(1), illumination_task(9))
             .await;
         assert!(result.is_err(), "the enqueue error must propagate");
 
@@ -1244,7 +1248,7 @@ mod tests {
         );
 
         let retry = service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 9 })
+            .submit_illuminate(&test_context(1), illumination_task(9))
             .await;
         assert!(retry.is_err(), "the test queue is still configured to fail");
 
@@ -1278,11 +1282,11 @@ mod tests {
             .expect("build should succeed with a db");
 
         service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 5 })
+            .submit_illuminate(&test_context(1), illumination_task(5))
             .await
             .expect("submit should succeed");
 
-        let envelope = TaskEnvelope::new(1, IlluminationTask { capture_id: 5 }, 1);
+        let envelope = TaskEnvelope::new(1, illumination_task(5), 1);
         let attempt = service
             .begin_attempt(&envelope)
             .await
@@ -1321,7 +1325,7 @@ mod tests {
         let service = service(&db, false);
 
         service
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 42 })
+            .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("submit should succeed");
 
@@ -1348,10 +1352,10 @@ mod tests {
         // First "process": one attempt that will retry.
         let first_process = service(&db, false);
         first_process
-            .submit_illuminate(&test_context(1), IlluminationTask { capture_id: 3 })
+            .submit_illuminate(&test_context(1), illumination_task(3))
             .await
             .expect("submit should succeed");
-        let envelope = TaskEnvelope::new(1, IlluminationTask { capture_id: 3 }, 1);
+        let envelope = TaskEnvelope::new(1, illumination_task(3), 1);
         let attempt = first_process
             .begin_attempt(&envelope)
             .await

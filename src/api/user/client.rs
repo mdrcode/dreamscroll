@@ -14,6 +14,7 @@ pub struct UserApiClient {
     info_maker: InfoMaker,
     task_master: Arc<task::TaskMaster>,
     beacon: logic::Beacon,
+    default_illumination_model_id: Option<String>,
     capture_searcher: search::CaptureSearcher,
 }
 
@@ -24,6 +25,7 @@ impl UserApiClient {
         url_maker: storage::UrlMaker,
         task_master: Arc<task::TaskMaster>,
         beacon: logic::Beacon,
+        default_illumination_model_id: Option<String>,
         capture_searcher: search::CaptureSearcher,
     ) -> Self {
         Self {
@@ -32,6 +34,7 @@ impl UserApiClient {
             info_maker: schema::InfoMaker::new(url_maker),
             task_master,
             beacon,
+            default_illumination_model_id,
             capture_searcher,
         }
     }
@@ -242,11 +245,8 @@ impl UserApiClient {
         )
         .await?;
 
-        if let Err(e) = self
-            .beacon
-            .new_capture(user_context, capture_model.id)
-            .await
-        {
+        let task = self.illumination_task(capture_model.id)?;
+        if let Err(e) = self.beacon.new_capture(user_context, task).await {
             tracing::warn!(
                 capture_id = capture_model.id,
                 error = ?e,
@@ -274,11 +274,8 @@ impl UserApiClient {
         )
         .await?;
 
-        if let Err(e) = self
-            .beacon
-            .new_capture(user_context, capture_model.id)
-            .await
-        {
+        let task = self.illumination_task(capture_model.id)?;
+        if let Err(e) = self.beacon.new_capture(user_context, task).await {
             tracing::warn!(
                 capture_id = capture_model.id,
                 error = ?e,
@@ -316,6 +313,23 @@ impl UserApiClient {
         super::unarchive_capture(&self.db, context, capture_id).await
     }
 
+    fn illumination_task(
+        &self,
+        capture_id: i32,
+    ) -> Result<logic::illuminate::IlluminationTask, ApiError> {
+        let model_id = self
+            .default_illumination_model_id
+            .as_deref()
+            .ok_or_else(|| {
+                ApiError::internal(anyhow!(
+                    "GEMINI_MODEL_ID required to enqueue illumination tasks"
+                ))
+            })?;
+        Ok(logic::illuminate::IlluminationTask::new(
+            capture_id, model_id,
+        ))
+    }
+
     #[tracing::instrument(skip(self, context))]
     pub async fn enqueue_illumination(
         &self,
@@ -332,7 +346,7 @@ impl UserApiClient {
             )));
         }
 
-        let task = logic::illuminate::IlluminationTask { capture_id };
+        let task = self.illumination_task(capture_id)?;
         let envelope_id = task::TaskEnvelope::make_envelope_id(context.user_id(), &task);
         match self.task_master.submit_illuminate(context, task).await? {
             task::SubmitOutcome::Enqueued { run } => Ok(TaskRunIdentity { envelope_id, run }),

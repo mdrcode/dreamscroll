@@ -17,6 +17,7 @@ pub async fn illuminate(
     client: &llms::gemini::GeminiInferenceClient,
     storage_provider: &dyn storage::StorageProvider,
     capture: &api::CaptureInfo,
+    model_id: &str,
     inference_run_id: String,
 ) -> anyhow::Result<Illumination> {
     let media = capture
@@ -46,6 +47,7 @@ pub async fn illuminate(
     let inference_start = std::time::Instant::now();
     let interaction = client
         .interact(llms::gemini::GeminiInteractionRequest {
+            model_id,
             input: &input,
             response_schema: Some(&schema),
             tools: &tools,
@@ -75,7 +77,7 @@ pub async fn illuminate(
         prompt_version: PROMPT_VERSION.to_string(),
         provider_name: client.provider_name().to_string(),
         backend_name: client.backend_name().to_string(),
-        model_id: client.model_id().to_string(),
+        model_id: model_id.to_string(),
         duration_ms,
         provider_request_id: interaction.id,
         provider_usage_json: interaction.usage,

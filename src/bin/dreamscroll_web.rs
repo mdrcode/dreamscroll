@@ -83,6 +83,7 @@ async fn initialize()
         url_maker.clone(),
         task_master.clone(),
         beacon.clone(),
+        cfg.gemini_model_id.clone(),
         searcher,
     );
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());

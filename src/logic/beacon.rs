@@ -21,12 +21,10 @@ impl Beacon {
     pub async fn new_capture(
         &self,
         context: &auth::Context,
-        capture_id: i32,
+        task: illuminate::IlluminationTask,
     ) -> anyhow::Result<()> {
-        let outcome = self
-            .task_master
-            .submit_illuminate(context, illuminate::IlluminationTask { capture_id })
-            .await?;
+        let capture_id = task.capture_id;
+        let outcome = self.task_master.submit_illuminate(context, task).await?;
 
         Self::log_outcome("illuminate", capture_id, outcome);
         Ok(())

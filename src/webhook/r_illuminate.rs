@@ -7,7 +7,7 @@ use crate::{api, logic, task, webhook};
 /// Webhook POST route for Cloud Tasks illumination payloads.
 ///
 /// Expected body is a serialized `TaskEnvelope<IlluminationTask>`, e.g.:
-/// `{ "user_id": 1, "envelope_id": "u1-illuminate-capture123", "task": { "capture_id": 123 } }`
+/// `{ "user_id": 1, "envelope_id": "u1-illuminate-capture123", "task": { "capture_id": 123, "model_id": "gemini-3.8-flash" } }`
 ///
 /// This is the live worker route for capture-created illumination tasks. It is
 /// also the entry point for future backfill and rerun flows.

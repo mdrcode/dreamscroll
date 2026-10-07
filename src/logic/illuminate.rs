@@ -6,6 +6,17 @@ use crate::{api, illumination, task};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IlluminationTask {
     pub capture_id: i32,
+    /// Gemini model selected for this illumination run.
+    pub model_id: String,
+}
+
+impl IlluminationTask {
+    pub fn new(capture_id: i32, model_id: impl Into<String>) -> Self {
+        Self {
+            capture_id,
+            model_id: model_id.into(),
+        }
+    }
 }
 
 impl task::Task for IlluminationTask {
@@ -52,6 +63,7 @@ pub async fn exec(
         &state.gemini_client,
         state.storage.as_ref(),
         &capture,
+        &task.model_id,
         inference_run_id,
     )
     .await
@@ -70,4 +82,18 @@ pub async fn exec(
     tracing::info!(capture_id, "Illumination completed and inserted");
 
     Ok(capture.user_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_payload_serializes_selected_model() {
+        let task = IlluminationTask::new(123, "model-a");
+        let payload = serde_json::to_value(task).expect("task should serialize");
+
+        assert_eq!(payload["capture_id"], 123);
+        assert_eq!(payload["model_id"], "model-a");
+    }
 }
