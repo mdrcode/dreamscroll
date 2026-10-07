@@ -1,6 +1,6 @@
 # Illumination v2 — unified entity capture
 
-**Status:** The entity-schema redesign remains design-only. The shared Gemini inference client and Interactions API backend cutover are implemented.
+**Status:** The entity-schema redesign remains design-only. The shared Gemini inference client and Interactions API backend cutover are implemented. `llms::InferenceResult` exposes raw JSON and `InferenceMetadata`; v1 inference returns typed `v1::Illumination`, which implements the trait. Logic explicitly persists raw inference output before the current relational projection. Raw rows record source media and an `inference_run_id` shared by all outputs from one task attempt, allowing future v1/v2 results to be paired.
 
 ## Problem
 

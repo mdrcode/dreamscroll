@@ -27,7 +27,12 @@ pub async fn post(
         return Ok(axum::http::StatusCode::NO_CONTENT);
     };
 
-    let result = match logic::illuminate::exec(&state.logic, task.clone()).await {
+    // Use task identity plus attempt so parallel inference versions can be paired.
+    let inference_run_id = format!(
+        "{}-run{}-attempt{}",
+        envelope.envelope_id, envelope.run, attempt
+    );
+    let result = match logic::illuminate::exec(&state.logic, task.clone(), inference_run_id).await {
         Ok(user_id) => logic::Beacon::new(state.task_master.clone())
             .new_illumination(user_id, task.capture_id)
             .await

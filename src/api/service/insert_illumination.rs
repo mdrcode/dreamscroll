@@ -1,4 +1,6 @@
-use crate::{api::*, database::DbHandle, illumination::v1::Illumination, model};
+use crate::{
+    api::*, database::DbHandle, illumination::v1::Illumination, llms::InferenceResult, model,
+};
 
 pub async fn insert_illumination(
     db: &DbHandle,
@@ -53,6 +55,42 @@ pub async fn insert_illumination(
     Ok(())
 }
 
+pub async fn insert_illumination_raw<R: InferenceResult + ?Sized>(
+    db: &DbHandle,
+    capture: &CaptureInfo,
+    raw: &R,
+) -> Result<(), ApiError> {
+    let metadata = raw.metadata();
+    // Must match v1::illuminate, which analyzes the first media on the capture.
+    let media_id = capture
+        .medias
+        .first()
+        .map(|media| media.id)
+        .ok_or_else(|| {
+            ApiError::internal(anyhow::anyhow!(
+                "Capture {} has no media for illumination inference",
+                capture.id
+            ))
+        })?;
+    model::illumination_raw::ActiveModel::builder()
+        .set_user_id(capture.user_id)
+        .set_capture_id(capture.id)
+        .set_media_id(media_id)
+        .set_inference_run_id(&metadata.inference_run_id)
+        .set_prompt_version(&metadata.prompt_version)
+        .set_provider_name(&metadata.provider_name)
+        .set_backend_name(&metadata.backend_name)
+        .set_model_id(&metadata.model_id)
+        .set_duration_ms(metadata.duration_ms)
+        .set_provider_request_id(metadata.provider_request_id.clone())
+        .set_provider_usage_json(metadata.provider_usage_json.clone())
+        .set_content(raw.raw_json().clone())
+        .insert(&db.conn)
+        .await?;
+
+    Ok(())
+}
+
 pub fn format_for_search(illumination: &Illumination) -> String {
     // lol, a naive approach for now
     format!(
@@ -73,4 +111,173 @@ pub fn format_for_search(illumination: &Illumination) -> String {
             .collect::<Vec<String>>()
             .join(" ")
     )
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llms::{InferenceMetadata, InferenceResult};
+    use chrono::Utc;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    use serde_json::json;
+
+    struct TestRawResult {
+        raw_json: serde_json::Value,
+        metadata: InferenceMetadata,
+    }
+
+    impl InferenceResult for TestRawResult {
+        fn raw_json(&self) -> &serde_json::Value {
+            &self.raw_json
+        }
+
+        fn metadata(&self) -> &InferenceMetadata {
+            &self.metadata
+        }
+    }
+
+    #[tokio::test]
+    async fn insert_persists_raw_json_and_v1_projection() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+
+        let user = model::user::ActiveModel::builder()
+            .set_username(format!("raw_{}", uuid::Uuid::new_v4().simple()))
+            .set_password_hash("test-password-hash")
+            .set_storage_shard(model::user::generate_storage_shard(8))
+            .insert(&db.conn)
+            .await
+            .unwrap();
+        let capture = model::capture::ActiveModel::builder()
+            .set_user_id(user.id)
+            .set_created_at(Utc::now())
+            .insert(&db.conn)
+            .await
+            .unwrap();
+
+        let media = model::media::ActiveModel::builder()
+            .set_user_id(user.id)
+            .set_capture_id(capture.id)
+            .set_bytes(4)
+            .set_mime_type(Some("image/jpeg".to_string()))
+            .set_hash_blake3(Some("test-hash".to_string()))
+            .set_storage_provider("test")
+            .set_storage_user_shard(user.storage_shard.clone())
+            .set_storage_uuid(uuid::Uuid::new_v4())
+            .insert(&db.conn)
+            .await
+            .unwrap();
+        let capture_info = CaptureInfo {
+            id: capture.id,
+            user_id: user.id,
+            created_at: Utc::now(),
+            created_at_human: String::new(),
+            medias: vec![crate::api::MediaInfo {
+                id: media.id,
+                storage_uuid: media.storage_uuid,
+                url: String::new(),
+                mime_type: media.mime_type.clone(),
+                hash_blake3: media.hash_blake3.clone(),
+                storage_provider: media.storage_provider.clone(),
+                storage_bucket: media.storage_bucket.clone(),
+                storage_shard: media.storage_user_shard.clone(),
+                storage_extension: media.storage_extension.clone(),
+            }],
+            illuminations: vec![],
+            annotation: None,
+        };
+        let inference_run_id = format!(
+            "u{}-illuminate-capture{}-run1-attempt1",
+            user.id, capture.id
+        );
+        let content = json!({
+            "summary": "A short summary",
+            "details": "Detailed content",
+            "suggested_searches": [],
+            "entities": [],
+            "social_media_accounts": [],
+            "future_schema_field": {"retained": true}
+        });
+
+        let illumination = Illumination::from_raw_json(
+            content.clone(),
+            InferenceMetadata {
+                inference_run_id: inference_run_id.clone(),
+                prompt_version: "capture_illumination_v1".to_string(),
+                provider_name: "gemini".to_string(),
+                backend_name: "vertex".to_string(),
+                model_id: "test-model".to_string(),
+                duration_ms: 123,
+                provider_request_id: Some("interaction-test".to_string()),
+                provider_usage_json: Some(json!({"input_tokens": 12})),
+            },
+        )
+        .unwrap();
+        assert_eq!(illumination.raw_json(), &content);
+
+        insert_illumination_raw(&db, &capture_info, &illumination)
+            .await
+            .unwrap();
+        insert_illumination(&db, &capture_info, illumination)
+            .await
+            .unwrap();
+
+        let stored_raw = model::illumination_raw::Entity::find()
+            .filter(model::illumination_raw::Column::CaptureId.eq(capture.id))
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored_raw.prompt_version, "capture_illumination_v1");
+        assert_eq!(stored_raw.media_id, media.id);
+        assert_eq!(stored_raw.inference_run_id, inference_run_id);
+        assert_eq!(
+            stored_raw.provider_request_id.as_deref(),
+            Some("interaction-test")
+        );
+        assert_eq!(stored_raw.model_id, "test-model");
+        assert_eq!(stored_raw.content, content);
+        assert_eq!(
+            stored_raw.provider_usage_json,
+            Some(json!({"input_tokens": 12}))
+        );
+
+        let stored_illumination = model::illumination::Entity::find()
+            .filter(model::illumination::Column::CaptureId.eq(capture.id))
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored_illumination.summary, "A short summary");
+
+        let v2_content = json!({"entities": [{"name": "Example", "platform_link": null}]});
+        let v2_result = TestRawResult {
+            raw_json: v2_content.clone(),
+            metadata: InferenceMetadata {
+                inference_run_id: inference_run_id.clone(),
+                prompt_version: "capture_illumination_v2".to_string(),
+                provider_name: "gemini".to_string(),
+                backend_name: "vertex".to_string(),
+                model_id: "test-model".to_string(),
+                duration_ms: 100,
+                provider_request_id: None,
+                provider_usage_json: None,
+            },
+        };
+        insert_illumination_raw(&db, &capture_info, &v2_result)
+            .await
+            .unwrap();
+
+        let stored_v2 = model::illumination_raw::Entity::find()
+            .filter(model::illumination_raw::Column::CaptureId.eq(capture.id))
+            .filter(model::illumination_raw::Column::PromptVersion.eq("capture_illumination_v2"))
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored_v2.content, v2_content);
+        assert_eq!(stored_v2.inference_run_id, inference_run_id);
+        assert_eq!(stored_v2.media_id, media.id);
+    }
 }

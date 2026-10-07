@@ -29,7 +29,11 @@ impl task::Task for IlluminationTask {
 /// also have to be made rerun-aware (a "skip if already illuminated" check
 /// silently no-ops every rerun). Reruns append an illumination per run, and
 /// `InfoMaker` collapses them to the most recent for display.
-pub async fn exec(state: &super::LogicState, task: IlluminationTask) -> Result<i32, api::ApiError> {
+pub async fn exec(
+    state: &super::LogicState,
+    task: IlluminationTask,
+    inference_run_id: String,
+) -> Result<i32, api::ApiError> {
     let capture_id = task.capture_id;
     tracing::Span::current().record("capture_id", capture_id);
 
@@ -44,10 +48,19 @@ pub async fn exec(state: &super::LogicState, task: IlluminationTask) -> Result<i
         )));
     };
 
-    let illumination =
-        illumination::v1::illuminate(&state.gemini_client, state.storage.as_ref(), &capture)
-            .await
-            .map_err(api::ApiError::internal)?;
+    let illumination = illumination::v1::illuminate(
+        &state.gemini_client,
+        state.storage.as_ref(),
+        &capture,
+        inference_run_id,
+    )
+    .await
+    .map_err(api::ApiError::internal)?;
+
+    state
+        .service_api
+        .insert_illumination_raw(&capture, &illumination)
+        .await?;
 
     state
         .service_api

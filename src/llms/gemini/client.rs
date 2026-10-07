@@ -93,6 +93,21 @@ impl GeminiInferenceClient {
         })
     }
 
+    pub(crate) fn provider_name(&self) -> &'static str {
+        "gemini"
+    }
+
+    pub(crate) fn backend_name(&self) -> &'static str {
+        match &self.backend {
+            Backend::DeveloperApi { .. } => "developer_api",
+            Backend::Vertex { .. } => "vertex",
+        }
+    }
+
+    pub(crate) fn model_id(&self) -> &str {
+        &self.model_id
+    }
+
     fn interaction_body(&self, request: &GeminiInteractionRequest<'_>) -> anyhow::Result<Value> {
         if request.input.is_empty() {
             bail!("Gemini Interactions request must include input");

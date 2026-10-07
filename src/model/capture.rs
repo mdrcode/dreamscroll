@@ -25,6 +25,9 @@ pub struct Model {
     pub illuminations: HasMany<illumination::Entity>,
 
     #[sea_orm(has_many)]
+    pub illumination_raws: HasMany<illumination_raw::Entity>,
+
+    #[sea_orm(has_many)]
     pub annotations: HasMany<annotation::Entity>,
 }
 

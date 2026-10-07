@@ -2,6 +2,7 @@ pub mod annotation;
 pub mod capture;
 pub mod illumination;
 pub mod illumination_meta;
+pub mod illumination_raw;
 pub mod knode;
 pub mod media;
 pub mod search_index;

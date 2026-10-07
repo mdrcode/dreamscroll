@@ -69,6 +69,12 @@ pub async fn delete_capture(
         .exec(&db.conn)
         .await?;
 
+    model::illumination_raw::Entity::delete_many()
+        .filter(model::illumination_raw::Column::UserId.eq(context.user_id()))
+        .filter(model::illumination_raw::Column::CaptureId.eq(capture_id))
+        .exec(&db.conn)
+        .await?;
+
     model::illumination::Entity::delete_many()
         .filter(model::illumination::Column::UserId.eq(context.user_id()))
         .filter(model::illumination::Column::CaptureId.eq(capture_id))

@@ -1,7 +1,10 @@
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value;
 
-/// Structured result produced by the v1 capture-analysis prompt.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+use crate::llms::{InferenceMetadata, InferenceResult};
+
+/// Structured v1 interpretation of a capture, with the original result retained for persistence.
+#[derive(Debug, Clone, Serialize)]
 pub struct Illumination {
     /// A concise 1-2 sentence summary of the capture content (max 280 chars).
     /// Suitable for display in a list view alongside other summaries.
@@ -23,6 +26,60 @@ pub struct Illumination {
     /// A list of social media accounts visible in the capture.
     /// Each entry contains the display name, handle, and platform.
     pub social_media_accounts: Vec<SocialMediaAccount>,
+
+    #[serde(skip)]
+    raw_json: Value,
+    #[serde(skip)]
+    inference_metadata: InferenceMetadata,
+}
+
+// Parses known v1 fields while Illumination retains the full raw JSON.
+#[derive(Deserialize)]
+struct IlluminationFields {
+    summary: String,
+    details: String,
+    suggested_searches: Vec<String>,
+    entities: Vec<Entity>,
+    social_media_accounts: Vec<SocialMediaAccount>,
+}
+
+impl Illumination {
+    pub fn from_raw_json(
+        content: Value,
+        inference_metadata: InferenceMetadata,
+    ) -> Result<Self, serde_json::Error> {
+        let fields: IlluminationFields = serde_json::from_value(content.clone())?;
+
+        Ok(Self {
+            summary: fields.summary,
+            details: fields.details,
+            suggested_searches: fields.suggested_searches,
+            entities: fields.entities,
+            social_media_accounts: fields.social_media_accounts,
+            raw_json: content,
+            inference_metadata,
+        })
+    }
+}
+
+impl<'de> Deserialize<'de> for Illumination {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let content = Value::deserialize(deserializer)?;
+        Self::from_raw_json(content, InferenceMetadata::default()).map_err(serde::de::Error::custom)
+    }
+}
+
+impl InferenceResult for Illumination {
+    fn raw_json(&self) -> &Value {
+        &self.raw_json
+    }
+
+    fn metadata(&self) -> &InferenceMetadata {
+        &self.inference_metadata
+    }
 }
 
 /// The type/category of an entity.
@@ -128,7 +185,8 @@ mod tests {
                 "display_name": "Ada",
                 "handle": "@ada",
                 "platform": "x_twitter"
-            }]
+            }],
+            "future_schema_field": {"nested": {"preserved": true}}
         }))
         .unwrap();
 
@@ -138,5 +196,9 @@ mod tests {
             SocialMediaPlatform::XTwitter
         );
         assert_eq!(illumination.social_media_accounts[0].handle, "@ada");
+        assert_eq!(
+            illumination.raw_json()["future_schema_field"]["nested"]["preserved"],
+            serde_json::json!(true)
+        );
     }
 }

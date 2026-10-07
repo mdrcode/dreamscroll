@@ -1,16 +1,23 @@
 use anyhow::Context;
-use serde_json::json;
+use serde_json::{Value, json};
 use strum::IntoEnumIterator;
 
-use crate::{api, llms, storage};
+use crate::{
+    api,
+    llms::{self, InferenceMetadata},
+    storage,
+};
 
 use super::*;
+
+const PROMPT_VERSION: &str = "capture_illumination_v1";
 
 #[tracing::instrument(skip(client, storage_provider, capture), fields(capture_id = %capture.id))]
 pub async fn illuminate(
     client: &llms::gemini::GeminiInferenceClient,
     storage_provider: &dyn storage::StorageProvider,
     capture: &api::CaptureInfo,
+    inference_run_id: String,
 ) -> anyhow::Result<Illumination> {
     let media = capture
         .medias
@@ -48,24 +55,33 @@ pub async fn illuminate(
         })
         .await?;
     let structured_json = interaction.output_text()?;
-    let illumination: Illumination = serde_json::from_str(&structured_json).with_context(|| {
+    let content: Value = serde_json::from_str(&structured_json).with_context(|| {
         format!(
             "Failed to parse Gemini illumination JSON for capture {}",
             capture.id
         )
     })?;
+    let duration_ms = inference_start.elapsed().as_millis() as i64;
 
     tracing::info!(
         capture.id,
-        interaction_id = ?interaction.id,
-        num_entities = illumination.entities.len(),
-        num_social_media_accounts = illumination.social_media_accounts.len(),
-        num_suggested_searches = illumination.suggested_searches.len(),
-        gemini_interactions_ms = inference_start.elapsed().as_millis(),
-        "Gemini Interactions illumination succeeded"
+        provider_request_id = ?interaction.id,
+        gemini_interactions_ms = duration_ms,
+        "Gemini Interactions illumination output received"
     );
 
-    Ok(illumination)
+    let inference_metadata = InferenceMetadata {
+        inference_run_id,
+        prompt_version: PROMPT_VERSION.to_string(),
+        provider_name: client.provider_name().to_string(),
+        backend_name: client.backend_name().to_string(),
+        model_id: client.model_id().to_string(),
+        duration_ms,
+        provider_request_id: interaction.id,
+        provider_usage_json: interaction.usage,
+    };
+    Illumination::from_raw_json(content, inference_metadata)
+        .with_context(|| format!("Failed to parse v1 illumination for capture {}", capture.id))
 }
 
 fn make_schema() -> serde_json::Value {

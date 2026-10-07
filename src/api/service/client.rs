@@ -1,4 +1,4 @@
-use crate::{api::*, database, ignition, illumination, storage};
+use crate::{api::*, database, ignition, illumination, llms, storage};
 
 #[derive(Clone)]
 pub struct ServiceApiClient {
@@ -36,6 +36,14 @@ impl ServiceApiClient {
         illumination: illumination::v1::Illumination,
     ) -> Result<(), ApiError> {
         super::insert_illumination(&self.db, capture_info, illumination).await
+    }
+
+    pub async fn insert_illumination_raw<R: llms::InferenceResult + ?Sized>(
+        &self,
+        capture_info: &schema::CaptureInfo,
+        raw: &R,
+    ) -> Result<(), ApiError> {
+        super::insert_illumination_raw(&self.db, capture_info, raw).await
     }
 
     pub async fn insert_spark(
