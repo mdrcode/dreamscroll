@@ -1,6 +1,6 @@
 # Pragmatism — tolerated trade-offs
 
-**Status:** living document. Last updated 2026-10-06.
+**Status:** living document. Last updated 2026-10-07.
 
 > **See also:**
 > - `task-status.md` — the task framework (implemented).
@@ -101,6 +101,7 @@ largest category, and the least urgent, because the app is single-user today.
 | **Composite index on `task_run_status` deferred**     | The entity snapshot query filters by user, entity type, and IDs, then selects the latest run per task type; only a single-column `entity_id` index exists. | Single-user app, tiny table. | Query latency degrades, or the table grows past a few thousand rows. |
 | **Local queue shutdown is abrupt**                    | Dropping the final `LocalTaskQueue` handle aborts its dispatcher and drops pending in-memory tasks.                                       | The local backend is only for development and tests; production durability comes from Cloud Tasks.       | Local development needs restart-safe work or graceful shutdown testing.                 |
 | **`submit_inner` records status before enqueueing**   | A process crash or ambiguous backend failure can leave a row at `Queued`; definite enqueue failures are changed to `SubmissionFailed`.    | DB-first submission avoids untracked tasks and duplicate execution; reconciliation can wait for the MVP. | A task is observed stuck or missing, or enqueue ambiguity becomes operationally costly. |
+| **No explicit Gemini inference request timeout** | A stalled Developer API or Vertex call can keep an illumination worker occupied until the outer request/task deadline. | Defer client timeout behavior while validating the product; rely on existing outer deadlines for now. | A hung Gemini request causes task retries, duplicate spend, or delayed illumination; then set and test a client timeout shorter than the worker deadline. |
 
 ### Code cleanliness
 

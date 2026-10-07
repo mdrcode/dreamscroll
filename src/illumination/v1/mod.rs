@@ -1,5 +1,7 @@
-pub(crate) mod illuminate;
+mod illuminate;
+pub use illuminate::illuminate;
+
 mod prompt;
 mod types;
 
-pub use types::{Entity, EntityType, Illumination, SocialMediaAccount, SocialMediaPlatform};
+pub use types::*;

@@ -7,7 +7,7 @@ use crate::{api, llms, storage};
 use super::*;
 
 #[tracing::instrument(skip(client, storage_provider, capture), fields(capture_id = %capture.id))]
-pub(crate) async fn illuminate(
+pub async fn illuminate(
     client: &llms::gemini::GeminiInferenceClient,
     storage_provider: &dyn storage::StorageProvider,
     capture: &api::CaptureInfo,
@@ -81,7 +81,7 @@ fn make_schema() -> serde_json::Value {
         "properties": {
             "summary": {
                 "type": "string",
-                "description": "A concise 1-2 sentence summary of the image content, max 240 characters. Focus on substance, not format."
+                "description": "A concise 1-2 sentence summary of the image content, max 280 characters. Focus on substance, not format."
             },
             "details": {
                 "type": "string",

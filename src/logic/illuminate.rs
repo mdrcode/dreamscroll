@@ -44,13 +44,10 @@ pub async fn exec(state: &super::LogicState, task: IlluminationTask) -> Result<i
         )));
     };
 
-    let illumination = illumination::v1::illuminate::illuminate(
-        &state.gemini_client,
-        state.storage.as_ref(),
-        &capture,
-    )
-    .await
-    .map_err(api::ApiError::internal)?;
+    let illumination =
+        illumination::v1::illuminate(&state.gemini_client, state.storage.as_ref(), &capture)
+            .await
+            .map_err(api::ApiError::internal)?;
 
     state
         .service_api

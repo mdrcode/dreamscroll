@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// Structured result produced by the v1 capture-analysis prompt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Illumination {
-    /// A concise 1-2 sentence summary of the capture content (max ~240 chars).
+    /// A concise 1-2 sentence summary of the capture content (max 280 chars).
     /// Suitable for display in a list view alongside other summaries.
     pub summary: String,
 
