@@ -1,58 +1,78 @@
-//! Versioned capture-analysis response contract for Gemini Interactions.
-//!
-//! This module owns the typed result and JSON Schema for the v1 illumination
-//! prompt. The shared Gemini client applies the backend-specific response
-//! format wrapper for the Developer API and Vertex.
-//!
-//! ## Response Structure
-//!
-//! The structured response for Illumination tasks contains:
-//! - `summary`: A concise 1-2 sentence summary (max ~240 chars)
-//! - `details`: A more detailed multi-paragraph description
-//! - `suggested_searches`: A list of search queries to learn more
-//! - `entities`: A list of notable entities with descriptions and types
-//!   (person, place, book, movie, television_show, etc). See `EntityType`
-//!   enum for full list)
-//! - `social_media_accounts`: A list of social media accounts with
-//!   display_name, handle, and platform
-//!
-
-use serde::Deserialize;
+use anyhow::Context;
 use serde_json::json;
 use strum::IntoEnumIterator;
 
-use crate::illumination;
+use crate::{api, llms, storage};
 
-#[derive(Deserialize, Debug)]
-pub struct GeminiStructuredResponse {
-    pub summary: String,
-    pub details: String,
-    pub suggested_searches: Vec<String>,
-    pub entities: Vec<illumination::Entity>,
-    pub social_media_accounts: Vec<illumination::SocialMediaAccount>,
+use super::*;
+
+#[tracing::instrument(skip(client, storage_provider, capture), fields(capture_id = %capture.id))]
+pub(crate) async fn illuminate(
+    client: &llms::gemini::GeminiInferenceClient,
+    storage_provider: &dyn storage::StorageProvider,
+    capture: &api::CaptureInfo,
+) -> anyhow::Result<Illumination> {
+    let media = capture
+        .medias
+        .first()
+        .ok_or_else(|| anyhow::anyhow!("Capture has no media"))?;
+    let storage_handle = storage::StorageHandle::from(media);
+    let image = storage_provider.retrieve_bytes(&storage_handle).await?;
+    let mime_type = media.mime_type.as_deref().unwrap_or("image/jpeg");
+    let input = [
+        llms::gemini::GeminiInputPart::Text(prompt::PROMPT),
+        llms::gemini::GeminiInputPart::InlineImage {
+            bytes: image.as_ref(),
+            mime_type,
+        },
+    ];
+    let schema = make_schema();
+    let tools = [json!({ "type": "google_search" })];
+
+    tracing::info!(
+        capture.id,
+        media.id,
+        image_bytes = image.len(),
+        mime_type,
+        "Starting Gemini Interactions illumination"
+    );
+    let inference_start = std::time::Instant::now();
+    let interaction = client
+        .interact(llms::gemini::GeminiInteractionRequest {
+            input: &input,
+            response_schema: Some(&schema),
+            tools: &tools,
+            // Do not retain screenshot interactions server-side; Dreamscroll persists the
+            // resulting illumination separately.
+            store: false,
+        })
+        .await?;
+    let structured_json = interaction.output_text()?;
+    let illumination: Illumination = serde_json::from_str(&structured_json).with_context(|| {
+        format!(
+            "Failed to parse Gemini illumination JSON for capture {}",
+            capture.id
+        )
+    })?;
+
+    tracing::info!(
+        capture.id,
+        interaction_id = ?interaction.id,
+        num_entities = illumination.entities.len(),
+        num_social_media_accounts = illumination.social_media_accounts.len(),
+        num_suggested_searches = illumination.suggested_searches.len(),
+        gemini_interactions_ms = inference_start.elapsed().as_millis(),
+        "Gemini Interactions illumination succeeded"
+    );
+
+    Ok(illumination)
 }
 
-impl From<GeminiStructuredResponse> for illumination::Illumination {
-    fn from(resp: GeminiStructuredResponse) -> Self {
-        illumination::Illumination {
-            meta: illumination::IlluminationMeta {
-                provider_name: "gemini".to_string(),
-            },
-            summary: resp.summary,
-            details: resp.details,
-            suggested_searches: resp.suggested_searches,
-            entities: resp.entities,
-            social_media_accounts: resp.social_media_accounts,
-        }
-    }
-}
-
-// Build the JSON Schema sent to the Interactions API.
-pub fn make_schema() -> serde_json::Value {
-    let entity_types: Vec<String> = illumination::EntityType::iter()
+fn make_schema() -> serde_json::Value {
+    let entity_types: Vec<String> = EntityType::iter()
         .map(|entity_type| entity_type.as_ref().to_string())
         .collect();
-    let platform_types: Vec<String> = illumination::SocialMediaPlatform::iter()
+    let platform_types: Vec<String> = SocialMediaPlatform::iter()
         .map(|platform| platform.as_ref().to_string())
         .collect();
 

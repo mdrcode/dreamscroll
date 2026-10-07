@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{api, task};
+use crate::{api, illumination, task};
 
 /// The concrete task for illuminating a single capture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,11 +44,13 @@ pub async fn exec(state: &super::LogicState, task: IlluminationTask) -> Result<i
         )));
     };
 
-    let illumination = state
-        .illuminator
-        .illuminate(&capture)
-        .await
-        .map_err(api::ApiError::internal)?;
+    let illumination = illumination::v1::illuminate::illuminate(
+        &state.gemini_client,
+        state.storage.as_ref(),
+        &capture,
+    )
+    .await
+    .map_err(api::ApiError::internal)?;
 
     state
         .service_api

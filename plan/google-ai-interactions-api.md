@@ -12,8 +12,8 @@ The user approved removing the generated `google-cloud-aiplatform-v1` dependency
 
 - The reusable `GeminiInferenceClient` owns the configured backend and `GEMINI_MODEL_ID`; per-call requests supply inputs, schemas, tools, and retention. The typed client and request/response types live under `src/llms/gemini/` for future inference flows.
 - Backend-specific mapping targets the Developer API `v1beta/interactions` endpoint with an API key, or the Vertex `v1beta1/projects/{project}/locations/global/interactions` endpoint with ADC. Input and schema wire shapes differ, but both use the same client, inline image representation, output-step parser, and caller contract.
-- `src/illumination/illuminator_gemini.rs` uses the client for image analysis, Google Search grounding, JSON-schema output, and `store: false`.
-- Local and Docker use `GEMINI_BACKEND=developer_api`; production uses `GEMINI_BACKEND=vertex`. Webhook initialization constructs `GeminiIlluminator` directly; there is no `ILLUMINATOR` provider selector.
+- `src/illumination/v1/illuminate.rs` uses the client for image analysis, Google Search grounding, JSON-schema output, and `store: false`.
+- Local and Docker use `GEMINI_BACKEND=developer_api`; production uses `GEMINI_BACKEND=vertex`. Webhook initialization constructs `GeminiInferenceClient` directly; there is no illumination provider selector.
 - The old `publicapi.rs`, `vertexapi.rs`, and legacy `legacy.rs` path are removed. `GeminiPayloadMethod` / `GEMINI_PAYLOAD_METHOD` are removed; inputs are inline base64 on both backends.
 - `google-cloud-aiplatform-v1` is removed from `Cargo.toml` and `Cargo.lock`. Embedding and vector search remain unchanged: they use `reqwest` + `google-cloud-auth` and `google-cloud-vectorsearch-v1`, respectively.
 

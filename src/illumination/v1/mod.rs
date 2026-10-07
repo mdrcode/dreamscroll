@@ -1,2 +1,5 @@
-pub mod prompts;
-pub(crate) mod response_gemini;
+pub(crate) mod illuminate;
+mod prompt;
+mod types;
+
+pub use types::{Entity, EntityType, Illumination, SocialMediaAccount, SocialMediaPlatform};

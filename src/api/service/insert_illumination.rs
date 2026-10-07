@@ -1,4 +1,4 @@
-use crate::{api::*, database::DbHandle, illumination::*, model};
+use crate::{api::*, database::DbHandle, illumination::v1::Illumination, model};
 
 pub async fn insert_illumination(
     db: &DbHandle,

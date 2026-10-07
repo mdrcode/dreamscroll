@@ -87,11 +87,11 @@ See [the Interactions API sidebar](google-ai-interactions-api.md) for the API-sp
 
 ## Illumination module organization
 
-`illumination` already means capture analysis in this application. Keep that task at `src/illumination/`; do not add `src/illumination/capture_analysis/`. The v1 prompt and Gemini response/schema live under `src/illumination/v1/` as `prompts.rs` and `response_gemini.rs`; the current task orchestration lives at `src/illumination/illuminator_gemini.rs`. The provider-named `src/illumination/gemini/` module has been removed.
+- `src/illumination/v1/` owns the v1 prompt, Gemini response/schema, typed result, and async illumination function. The function uses the already-configured Gemini client and shared storage provider; the provider trait and wrapper are removed.
 
 `src/llms/gemini/` remains provider plumbing only: authentication, endpoint mapping, input serialization, structured output options, and interaction response parsing. The illumination task supplies its prompt and schema to that client. Each future inference flow belongs in its own top-level module and owns its own prompt/schema/result contract.
 
-Keep the current `Illuminator`/`Illumination` boundary for this flow while existing consumers require it. A different flow with a different result shape should expose its own typed result and persistence/caller path; do not force all tasks into `Illumination` or add a generic task registry prematurely. `GEMINI_BACKEND` selects the Gemini service backend; task choice is independent.
+- The current consumer persists `v1::Illumination`. A different flow with a different result shape should expose its own versioned result and persistence/caller path; do not force all tasks into one result type or add a generic task registry prematurely. `GEMINI_BACKEND` selects the Gemini service backend; task choice is independent.
 
 The unused `GrokIlluminator` was removed: it read from a hard-coded `localdev/media` path instead of the configured storage provider, hard-coded JPEG MIME, returned empty entity/search fields, and no local/Docker/production config selected it. The separate `GrokFirestarter` used by `FIRESTARTER=grok` remains untouched.
 

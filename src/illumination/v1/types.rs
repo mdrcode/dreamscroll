@@ -1,25 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::api;
-
-#[async_trait::async_trait]
-pub trait Illuminator: dyn_clone::DynClone + Send + Sync {
-    fn name(&self) -> &'static str;
-    async fn illuminate(&self, capture: &api::CaptureInfo) -> anyhow::Result<Illumination>;
-}
-
-dyn_clone::clone_trait_object!(Illuminator);
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IlluminationMeta {
-    pub provider_name: String,
-}
-
-/// Structured response which describes the content of an image.
+/// Structured result produced by the v1 capture-analysis prompt.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Illumination {
-    pub meta: IlluminationMeta,
-
     /// A concise 1-2 sentence summary of the capture content (max ~240 chars).
     /// Suitable for display in a list view alongside other summaries.
     pub summary: String,
@@ -126,65 +109,34 @@ pub struct SocialMediaAccount {
     #[serde(rename = "platform")]
     pub platform: SocialMediaPlatform,
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-impl Illumination {
-    /// Converts the structured illumination back to a legacy freeform text format.
-    ///
-    /// Useful for backwards compatibility with the legacy Illumination
-    /// implementations and simple debugging / evaluation.
-    ///
-    ///
-    /// Format:
-    /// ```text
-    /// <summary>
-    ///
-    /// <details>
-    ///
-    /// Suggested searches:
-    /// - <search 1>
-    /// - <search 2>
-    /// ...
-    ///
-    /// Entities:
-    /// - <entity name> [<type>]: <description>
-    /// - <entity name> [<type>]: <description>
-    /// ...
-    ///
-    /// Social Media Accounts:
-    /// - <display name> (<handle>) [<platform>]
-    /// - <display name> (<handle>) [<platform>]
-    /// ...
-    /// ```
-    pub fn to_legacy_text(&self) -> String {
-        let mut result = format!("{}\n\n{}", self.summary, self.details);
+    #[test]
+    fn illumination_deserializes_v1_output_shape() {
+        let illumination: Illumination = serde_json::from_value(serde_json::json!({
+            "summary": "A profile for Ada Lovelace",
+            "details": "A mathematician and writer.",
+            "suggested_searches": [],
+            "entities": [{
+                "name": "Ada Lovelace",
+                "description": "A mathematician and writer.",
+                "type": "real_person"
+            }],
+            "social_media_accounts": [{
+                "display_name": "Ada",
+                "handle": "@ada",
+                "platform": "x_twitter"
+            }]
+        }))
+        .unwrap();
 
-        if !self.suggested_searches.is_empty() {
-            result.push_str("\n\nSuggested searches:");
-            for search in &self.suggested_searches {
-                result.push_str(&format!("\n- {}", search));
-            }
-        }
-
-        if !self.entities.is_empty() {
-            result.push_str("\n\nEntities:");
-            for entity in &self.entities {
-                result.push_str(&format!(
-                    "\n- {} [{}]: {}",
-                    entity.name, entity.entity_type, entity.description
-                ));
-            }
-        }
-
-        if !self.social_media_accounts.is_empty() {
-            result.push_str("\n\nSocial Media Accounts:");
-            for account in &self.social_media_accounts {
-                result.push_str(&format!(
-                    "\n- {} ({}) [{}]",
-                    account.display_name, account.handle, account.platform
-                ));
-            }
-        }
-
-        result
+        assert_eq!(illumination.entities[0].entity_type, EntityType::RealPerson);
+        assert_eq!(
+            illumination.social_media_accounts[0].platform,
+            SocialMediaPlatform::XTwitter
+        );
+        assert_eq!(illumination.social_media_accounts[0].handle, "@ada");
     }
 }

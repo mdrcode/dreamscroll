@@ -163,8 +163,7 @@ async fn initialize()
 
     // Webhook routes (unauthenticated locally but require OIDC in prod)
     if cfg.services.contains(&config::Service::Webhook) {
-        let illuminator: Box<dyn illumination::Illuminator> =
-            Box::new(illumination::GeminiIlluminator::new(&cfg, stg.clone())?);
+        let gemini_client = llms::gemini::GeminiInferenceClient::from_config(&cfg)?;
         let firestarter = ignition::make_firestarter(&cfg)?;
         let embedder = search::gcloud::GeminiEmbedder::from_config(&cfg)?;
         let vector_store = search::gcloud::VertexVectorStore::from_config(&cfg).await?;
@@ -175,7 +174,7 @@ async fn initialize()
                 logic: logic::LogicState {
                     service_api,
                     storage: stg,
-                    illuminator,
+                    gemini_client,
                     firestarter,
                     embedder,
                     vector_store,

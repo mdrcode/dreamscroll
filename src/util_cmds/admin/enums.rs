@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use crate::illumination::EntityType;
+use crate::illumination::v1::{EntityType, SocialMediaPlatform};
 
 use super::*;
 
@@ -20,7 +20,7 @@ pub async fn run(_state: AdminCmdState, _args: EnumsArgs) -> anyhow::Result<()> 
 
     let social_media_platforms: Vec<String> = {
         use strum::IntoEnumIterator;
-        crate::illumination::SocialMediaPlatform::iter()
+        SocialMediaPlatform::iter()
             .map(|e| e.as_ref().to_string())
             .collect()
     };

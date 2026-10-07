@@ -33,7 +33,7 @@ impl ServiceApiClient {
     pub async fn insert_illumination(
         &self,
         capture_info: &schema::CaptureInfo, // TODO could this just take capture id?
-        illumination: illumination::Illumination,
+        illumination: illumination::v1::Illumination,
     ) -> Result<(), ApiError> {
         super::insert_illumination(&self.db, capture_info, illumination).await
     }
