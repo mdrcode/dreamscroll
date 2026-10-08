@@ -45,6 +45,10 @@ pub struct Model {
     // reissuing redundant CREATE INDEX statements on every startup.
     pub entity_id: i32,
 
+    /// Full serialized Task parameters for this run; null for rows created before this field.
+    #[sea_orm(nullable, column_type = "JsonBinary")]
+    pub task_payload: Option<Json>,
+
     /// Integer discriminant of `task::TaskRunStatus`.
     pub status_code: i32,
 

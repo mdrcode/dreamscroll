@@ -1,6 +1,6 @@
 # Illumination v2 — unified entity capture
 
-**Status:** The entity-schema redesign remains design-only. The shared Gemini inference client and Interactions API backend cutover are implemented. `llms::InferenceResult` exposes raw JSON and `InferenceMetadata`; v1 inference returns typed `v1::Illumination`, which implements the trait. Logic explicitly persists raw inference output before the current relational projection. Raw rows record source media and an `inference_run_id` shared by all outputs from one task attempt, allowing future v1/v2 results to be paired.
+**Status:** The Gemini Interactions client and per-task model selection are implemented. v2 now has an independent prompt/schema/result and task-version dispatch. Both versions persist raw output; application producers remain on v1, which alone writes the current relational projection. Unified entity persistence, API, search, and UI remain design-only.
 
 ## Problem
 
@@ -87,17 +87,17 @@ See [the Interactions API sidebar](google-ai-interactions-api.md) for the API-sp
 
 ## Illumination module organization
 
-- `src/illumination/v1/` owns the v1 prompt, Gemini response/schema, typed result, and async illumination function. The function uses the already-configured Gemini client and shared storage provider; the provider trait and wrapper are removed.
+- `src/illumination/v1/` owns the v1 prompt, schema, typed result, and async inference function.
+- `src/illumination/v2/` independently owns the unified-entity prompt, schema, typed result, and async inference function; it shares no v1 DTOs or prompt/schema code.
 
-`src/llms/gemini/` remains provider plumbing only: authentication, endpoint mapping, input serialization, structured output options, and interaction response parsing. The illumination task supplies its prompt and schema to that client. Each future inference flow belongs in its own top-level module and owns its own prompt/schema/result contract.
+`src/llms/gemini/` remains provider plumbing only: authentication, endpoint mapping, input serialization, structured output options, and interaction response parsing. Both version modules use the generic client, storage provider, and inference metadata/result contracts.
 
-- The current consumer persists `v1::Illumination`. A different flow with a different result shape should expose its own versioned result and persistence/caller path; do not force all tasks into one result type or add a generic task registry prematurely. `GEMINI_BACKEND` selects the Gemini service backend; task choice is independent.
+- The task payload's `prompt_version` selects `v1` or `v2`; API/WebUI producers continue to enqueue v1. Both versions are persisted to `illumination_raw`, but only `insert_illumination_v1` writes the current relational projection and triggers search indexing. V2 is currently an evaluation path; task identity remains capture-scoped, so versions run sequentially per capture.
 
 The unused `GrokIlluminator` was removed: it read from a hard-coded `localdev/media` path instead of the configured storage provider, hard-coded JPEG MIME, returned empty entity/search fields, and no local/Docker/production config selected it. The separate `GrokFirestarter` used by `FIRESTARTER=grok` remains untouched.
 
 ## Decisions still to make
 
-- Whether an entity can have one `platform_link` or multiple platform links.
-- Whether descriptions may be absent when no useful, supportable description exists, rather than requiring filler text.
+- Whether one entity can have multiple platform links; v2 currently supports one optional `platform_link` with optional handle and URL.
 - Whether social-account entities use the same platform-link shape as other entities or whether the link is their defining locator.
 - Whether and when to add canonical cross-capture identity and explicit relationships. These are distinct from unifying the current capture-level extraction schema.

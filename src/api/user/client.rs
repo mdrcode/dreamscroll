@@ -326,7 +326,9 @@ impl UserApiClient {
                 ))
             })?;
         Ok(logic::illuminate::IlluminationTask::new(
-            capture_id, model_id,
+            capture_id,
+            model_id,
+            logic::illuminate::IlluminationVersion::V1,
         ))
     }
 

@@ -217,7 +217,7 @@ impl GeminiInteractionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logic::illuminate::IlluminationTask;
+    use crate::logic::illuminate::{IlluminationTask, IlluminationVersion};
 
     #[test]
     fn serialized_task_model_selects_interaction_model() {
@@ -230,8 +230,12 @@ mod tests {
         let input = [GeminiInputPart::Text("hello")];
 
         for model_id in ["model-a", "model-b"] {
-            let payload = serde_json::to_vec(&IlluminationTask::new(123, model_id))
-                .expect("task payload should serialize");
+            let payload = serde_json::to_vec(&IlluminationTask::new(
+                123,
+                model_id,
+                IlluminationVersion::V1,
+            ))
+            .expect("task payload should serialize");
             let task: IlluminationTask =
                 serde_json::from_slice(&payload).expect("task payload should deserialize");
             let request = GeminiInteractionRequest {

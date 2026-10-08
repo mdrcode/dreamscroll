@@ -528,7 +528,11 @@ mod tests {
     }
 
     fn illumination_task(capture_id: i32) -> IlluminationTask {
-        IlluminationTask::new(capture_id, "test-model")
+        IlluminationTask::new(
+            capture_id,
+            "test-model",
+            crate::logic::illuminate::IlluminationVersion::V1,
+        )
     }
 
     fn status_row_of_run(
@@ -544,6 +548,7 @@ mod tests {
             task_type: "illuminate".to_string(),
             entity_type: "capture".to_string(),
             entity_id: 1,
+            task_payload: None,
             status_code: status.as_i32(),
             attempts,
             created_at: chrono::Utc::now(),

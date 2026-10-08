@@ -30,12 +30,12 @@ impl ServiceApiClient {
         super::get_captures_need_search_index(&self.db, limit).await
     }
 
-    pub async fn insert_illumination(
+    pub async fn insert_illumination_v1(
         &self,
         capture_info: &schema::CaptureInfo, // TODO could this just take capture id?
         illumination: illumination::v1::Illumination,
     ) -> Result<(), ApiError> {
-        super::insert_illumination(&self.db, capture_info, illumination).await
+        super::insert_illumination_v1(&self.db, capture_info, illumination).await
     }
 
     pub async fn insert_illumination_raw<R: llms::InferenceResult + ?Sized>(

@@ -2,7 +2,7 @@ use crate::{
     api::*, database::DbHandle, illumination::v1::Illumination, llms::InferenceResult, model,
 };
 
-pub async fn insert_illumination(
+pub async fn insert_illumination_v1(
     db: &DbHandle,
     capture: &CaptureInfo,
     illumination: Illumination,
@@ -61,7 +61,7 @@ pub async fn insert_illumination_raw<R: InferenceResult + ?Sized>(
     raw: &R,
 ) -> Result<(), ApiError> {
     let metadata = raw.metadata();
-    // Must match v1::illuminate, which analyzes the first media on the capture.
+    // Must match the versioned illuminate functions, which analyze the first media on the capture.
     let media_id = capture
         .medias
         .first()
@@ -115,28 +115,13 @@ pub fn format_for_search(illumination: &Illumination) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llms::{InferenceMetadata, InferenceResult};
+    use crate::llms::InferenceMetadata;
     use chrono::Utc;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
     use serde_json::json;
 
-    struct TestRawResult {
-        raw_json: serde_json::Value,
-        metadata: InferenceMetadata,
-    }
-
-    impl InferenceResult for TestRawResult {
-        fn raw_json(&self) -> &serde_json::Value {
-            &self.raw_json
-        }
-
-        fn metadata(&self) -> &InferenceMetadata {
-            &self.metadata
-        }
-    }
-
     #[tokio::test]
-    async fn insert_persists_raw_json_and_v1_projection() {
+    async fn insert_persists_raw_results_and_v1_projection() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -219,7 +204,7 @@ mod tests {
         insert_illumination_raw(&db, &capture_info, &illumination)
             .await
             .unwrap();
-        insert_illumination(&db, &capture_info, illumination)
+        insert_illumination_v1(&db, &capture_info, illumination)
             .await
             .unwrap();
 
@@ -251,10 +236,24 @@ mod tests {
             .unwrap();
         assert_eq!(stored_illumination.summary, "A short summary");
 
-        let v2_content = json!({"entities": [{"name": "Example", "platform_link": null}]});
-        let v2_result = TestRawResult {
-            raw_json: v2_content.clone(),
-            metadata: InferenceMetadata {
+        let v2_content = json!({
+            "summary": "A Reddit community for NFC West memes",
+            "details": "A community focused on memes about the NFL's NFC West division.",
+            "suggested_searches": [],
+            "entities": [{
+                "name": "NFCWestMemeWar",
+                "description": "A community for memes about the NFL's NFC West division.",
+                "type": "online_community",
+                "platform_link": {
+                    "platform": "reddit",
+                    "handle": "r/NFCWestMemeWar",
+                    "url": "https://www.reddit.com/r/NFCWestMemeWar/"
+                }
+            }]
+        });
+        let v2_result = crate::illumination::v2::Illumination::from_raw_json(
+            v2_content.clone(),
+            InferenceMetadata {
                 inference_run_id: inference_run_id.clone(),
                 prompt_version: "capture_illumination_v2".to_string(),
                 provider_name: "gemini".to_string(),
@@ -264,7 +263,8 @@ mod tests {
                 provider_request_id: None,
                 provider_usage_json: None,
             },
-        };
+        )
+        .expect("v2 output should deserialize");
         insert_illumination_raw(&db, &capture_info, &v2_result)
             .await
             .unwrap();
@@ -276,6 +276,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        assert_eq!(stored_v2.prompt_version, "capture_illumination_v2");
         assert_eq!(stored_v2.content, v2_content);
         assert_eq!(stored_v2.inference_run_id, inference_run_id);
         assert_eq!(stored_v2.media_id, media.id);

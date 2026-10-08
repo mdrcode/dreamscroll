@@ -31,6 +31,7 @@ impl TaskRunTracker {
     /// the *lost-a-race* scenario, where a concurrent submit claimed the run
     /// first. The unique index, not the read, is what makes correctness here.
     pub async fn create_run<T: Task>(&self, envelope: &TaskEnvelope<T>) -> anyhow::Result<bool> {
+        let task_payload = serde_json::to_value(&envelope.task)?;
         let result = model::task_run_status::ActiveModel::builder()
             .set_task_type(T::task_type())
             .set_envelope_id(envelope.envelope_id.as_str())
@@ -38,6 +39,7 @@ impl TaskRunTracker {
             .set_entity_type(T::entity_type())
             .set_entity_id(envelope.task.entity_id())
             .set_user_id(envelope.user_id)
+            .set_task_payload(Some(task_payload))
             .set_status_code(TaskRunStatus::Queued.as_i32())
             .set_attempts(0)
             .insert(&self.db.conn)
@@ -345,12 +347,20 @@ mod tests {
     // --- DB-backed ---
 
     #[tokio::test]
-    async fn create_run_persists_the_full_identity() {
+    async fn create_run_persists_identity_and_task_payload() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
-        let env = envelope(1, 42, 1);
+        let env = TaskEnvelope::new(
+            1,
+            crate::logic::illuminate::IlluminationTask::new(
+                42,
+                "test-model",
+                crate::logic::illuminate::IlluminationVersion::V2,
+            ),
+            1,
+        );
 
         assert!(
             tracker
@@ -369,8 +379,16 @@ mod tests {
         assert_eq!(stored.user_id, 1);
         assert_eq!(stored.entity_id, 42);
         assert_eq!(stored.entity_type, "capture");
-        assert_eq!(stored.task_type, "test");
+        assert_eq!(stored.task_type, "illuminate");
         assert_eq!(stored.status_code, TaskRunStatus::Queued.as_i32());
+        assert_eq!(
+            stored.task_payload,
+            Some(serde_json::json!({
+                "capture_id": 42,
+                "model_id": "test-model",
+                "prompt_version": "v2"
+            }))
+        );
         assert_eq!(stored.attempts, 0);
         assert!(stored.processing_started_at.is_none());
         assert!(stored.last_error_duration_ms.is_none());

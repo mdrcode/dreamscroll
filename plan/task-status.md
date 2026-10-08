@@ -90,12 +90,9 @@ Upload (webui/v2/r_upload.rs)
 - **`TaskRunTracker`** (`task/taskruntracker.rs`) is a private persistence
   component owned by `TaskMaster`; Rust visibility prevents production callers
   outside the `task` module from bypassing TaskMaster's lifecycle API. It owns
-  direct `task_run_status` queries/writes and emits an optional best-effort
-  status event after successful inserts and updates. Its notifier is injected
-  through the `ServerEventNotifier` trait; notification failures are logged and
-  do not fail persistence. The task composition factory selects the PostgreSQL
-  implementation and injects it through `TaskMasterBuilder`; tests may inject a
-  recorder or omit notifications.
+  direct `task_run_status` queries/writes, snapshots `TaskEnvelope.task` as JSONB
+  when creating a run, and emits optional best-effort status events after
+  successful inserts and updates. Notifications do not fail persistence.
   `TaskRunStatus`
   (`task/taskrunstatus.rs`) is the strongly-typed status enum; the DB stores
   only its integer discriminant (`status_code INT`).
@@ -119,8 +116,9 @@ CREATE TABLE task_run_status (
     task_type     TEXT NOT NULL,          -- 'illumination' | 'spark' | 'search_index'
     entity_type   TEXT NOT NULL,          -- 'capture' | 'spark'
     entity_id     INT NOT NULL,           -- the entity this task operates on
-    status_code   INT NOT NULL,           -- integer discriminant of task::TaskRunStatus
-    attempts      INT NOT NULL DEFAULT 0, -- 1-based attempt number within this run
+    task_payload  JSONB NULL,              -- submitted Task payload; null for historical rows
+    status_code   INT NOT NULL,            -- integer discriminant of task::TaskRunStatus
+    attempts      INT NOT NULL DEFAULT 0,  -- 1-based attempt number within this run
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     processing_started_at TIMESTAMPTZ NULL, -- most recent attempt start
     last_error_duration_ms BIGINT NULL,
@@ -152,12 +150,15 @@ CREATE TABLE task_run_status (
   milliseconds; `processing_started_at` is reset for each retry, while the
   duration fields retain the most recent failed attempt and the successful
   attempt respectively.
+- **`task_payload`** is the immutable JSONB snapshot of `TaskEnvelope.task` for
+  this run. New runs always write it; older rows remain `NULL`. It is internal
+  persistence data and is not included in `TaskRunInfo` or SSE status events.
 
 > **Why a focused `task_run_status` table (not a generic `events` table):** task state
 > is a first-class, non-trivial problem of its own — it has a lifecycle, retries,
-> and reruns. A dedicated table with typed columns models that cleanly and is
-> queryable. A generic `kind`+`payload` JSONB table would dilute this and make
-> task-state queries awkward.
+> and reruns. A dedicated table with typed identity/status columns keeps task
+> queries clean. `task_payload` supplements those columns as a parameter snapshot;
+> a generic `kind`+`payload` JSONB table would make task-state queries awkward.
 
 This also fixes a latent bug from the audit notes: *"No task retry/dead-letter in
 LocalTaskQueue — failed tasks silently dropped."* With a `task_run_status` table,
@@ -316,11 +317,11 @@ starts at attempt 1.
 
 The run *dimension* is complete. What remains is the UX to trigger a rerun:
 
-- A `model`/`force` field on `IlluminationTask` so a rerun can differ from the
-  original (new model, new prompt).
-- A rerun endpoint + button. The handler calls
-  `task_master.submit_illumination(user_id, IlluminationTask { .. })`; the run
-  logic starts the next run automatically once the prior one has settled.
+- The `IlluminationTask` payload carries `model_id` and `prompt_version`; API/WebUI
+  submissions still select v1 by default. Task identity remains capture-scoped, so v1/v2 runs
+  for one capture must be submitted sequentially after each run settles.
+- A rerun endpoint + button remains deferred. It can submit a new versioned task
+  after the prior run settles.
 
 ```html
 <button hx-post="/detail/{{ capture.id }}/rerun"
@@ -468,7 +469,7 @@ must always see the **most recent** illumination, so:
 | `src/task/taskrunstatus.rs`               | `TaskRunStatus` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                      | ✅      |
 | `src/sse/listener.rs`                    | `ServerEventListener` — per-instance Postgres `LISTEN/NOTIFY` listener and fan-out for authenticated SSE streams (see `sse.md`) | ✅      |
 | `src/task/beacon.rs`                      | **removed** — replaced by `TaskMaster`                                                                                                                                                         | ✅      |
-| `src/model/task_run_status.rs`            | `task_run_status` SeaORM model (`(envelope_id, run)` unique, `entity_type`/`entity_id`, `status_code`, `attempts`) — auto-synced at startup                                                    | ✅      |
+| `src/model/task_run_status.rs`            | `task_run_status` SeaORM model (`(envelope_id, run)` unique, typed status/identity, nullable JSONB task payload) — auto-synced at startup                                                    | ✅      |
 | `src/api/apierror.rs`                     | `ApiError::is_retryable()` — 5xx retryable, 4xx permanent                                                                                                                                      | ✅      |
 | `src/config/schema.rs`                    | `Config.task_max_attempts` (env `TASK_MAX_ATTEMPTS`, default 3)                                                                                                                                | ✅      |
 | `src/webhook/http_status_for_task_run.rs` | `http_status_for_task_run` — maps `AttemptOutcome` to the HTTP status Cloud Tasks sees                                                                                                         | ✅      |

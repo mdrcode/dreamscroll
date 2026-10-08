@@ -2,19 +2,35 @@ use serde::{Deserialize, Serialize};
 
 use crate::{api, illumination, task};
 
+/// Version selected for one illumination task.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IlluminationVersion {
+    #[serde(rename = "v1")]
+    V1,
+    #[serde(rename = "v2")]
+    V2,
+}
+
 /// The concrete task for illuminating a single capture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IlluminationTask {
     pub capture_id: i32,
     /// Gemini model selected for this illumination run.
     pub model_id: String,
+    /// Result schema and persistence path selected for this task.
+    pub prompt_version: IlluminationVersion,
 }
 
 impl IlluminationTask {
-    pub fn new(capture_id: i32, model_id: impl Into<String>) -> Self {
+    pub fn new(
+        capture_id: i32,
+        model_id: impl Into<String>,
+        prompt_version: IlluminationVersion,
+    ) -> Self {
         Self {
             capture_id,
             model_id: model_id.into(),
+            prompt_version,
         }
     }
 }
@@ -33,13 +49,11 @@ impl task::Task for IlluminationTask {
     }
 }
 
-/// Illuminate a capture and persist the result.
+/// Executes the requested version. Both results are persisted raw; v1 also writes
+/// the current relational projection, while v2 remains an evaluation-only path.
 ///
-/// Deliberately **not** idempotent. A retry re-illuminates; we
-/// tolerate the duplicate API calls rather than carry guard logic that would
-/// also have to be made rerun-aware (a "skip if already illuminated" check
-/// silently no-ops every rerun). Reruns append an illumination per run, and
-/// `InfoMaker` collapses them to the most recent for display.
+/// V1 is deliberately not idempotent: retries re-illuminate, and settled reruns
+/// append a projection. V2 stores raw results without changing application data.
 pub async fn exec(
     state: &super::LogicState,
     task: IlluminationTask,
@@ -59,27 +73,50 @@ pub async fn exec(
         )));
     };
 
-    let illumination = illumination::v1::illuminate(
-        &state.gemini_client,
-        state.storage.as_ref(),
-        &capture,
-        &task.model_id,
-        inference_run_id,
-    )
-    .await
-    .map_err(api::ApiError::internal)?;
+    match task.prompt_version {
+        IlluminationVersion::V1 => {
+            let illumination = illumination::v1::illuminate(
+                &state.gemini_client,
+                state.storage.as_ref(),
+                &capture,
+                &task.model_id,
+                inference_run_id,
+            )
+            .await
+            .map_err(api::ApiError::internal)?;
 
-    state
-        .service_api
-        .insert_illumination_raw(&capture, &illumination)
-        .await?;
+            state
+                .service_api
+                .insert_illumination_raw(&capture, &illumination)
+                .await?;
+            state
+                .service_api
+                .insert_illumination_v1(&capture, illumination)
+                .await?;
+        }
+        IlluminationVersion::V2 => {
+            let illumination = illumination::v2::illuminate(
+                &state.gemini_client,
+                state.storage.as_ref(),
+                &capture,
+                &task.model_id,
+                inference_run_id,
+            )
+            .await
+            .map_err(api::ApiError::internal)?;
 
-    state
-        .service_api
-        .insert_illumination(&capture, illumination)
-        .await?;
+            state
+                .service_api
+                .insert_illumination_raw(&capture, &illumination)
+                .await?;
+            tracing::warn!(
+                capture_id,
+                "Only persisting v2::Illumination result in illumination_raw at this time"
+            );
+        }
+    }
 
-    tracing::info!(capture_id, "Illumination completed and inserted");
+    tracing::info!(capture_id, prompt_version = ?task.prompt_version, "Illumination completed and persisted");
 
     Ok(capture.user_id)
 }
@@ -89,11 +126,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn task_payload_serializes_selected_model() {
-        let task = IlluminationTask::new(123, "model-a");
+    fn task_payload_serializes_prompt_version_and_model() {
+        let task = IlluminationTask::new(123, "model-a", IlluminationVersion::V1);
         let payload = serde_json::to_value(task).expect("task should serialize");
 
         assert_eq!(payload["capture_id"], 123);
         assert_eq!(payload["model_id"], "model-a");
+        assert_eq!(payload["prompt_version"], "v1");
     }
 }

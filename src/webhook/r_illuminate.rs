@@ -7,7 +7,7 @@ use crate::{api, logic, task, webhook};
 /// Webhook POST route for Cloud Tasks illumination payloads.
 ///
 /// Expected body is a serialized `TaskEnvelope<IlluminationTask>`, e.g.:
-/// `{ "user_id": 1, "envelope_id": "u1-illuminate-capture123", "task": { "capture_id": 123, "model_id": "gemini-3.8-flash" } }`
+/// `{ "user_id": 1, "envelope_id": "u1-illuminate-capture123", "task": { "capture_id": 123, "model_id": "gemini-3.8-flash", "prompt_version": "v1" } }`
 ///
 /// This is the live worker route for capture-created illumination tasks. It is
 /// also the entry point for future backfill and rerun flows.
@@ -27,16 +27,19 @@ pub async fn post(
         return Ok(axum::http::StatusCode::NO_CONTENT);
     };
 
-    // Use task identity plus attempt so parallel inference versions can be paired.
+    // Use task identity plus attempt to trace each versioned inference result.
     let inference_run_id = format!(
         "{}-run{}-attempt{}",
         envelope.envelope_id, envelope.run, attempt
     );
     let result = match logic::illuminate::exec(&state.logic, task.clone(), inference_run_id).await {
-        Ok(user_id) => logic::Beacon::new(state.task_master.clone())
-            .new_illumination(user_id, task.capture_id)
-            .await
-            .map_err(api::ApiError::internal),
+        Ok(user_id) if task.prompt_version == logic::illuminate::IlluminationVersion::V1 => {
+            logic::Beacon::new(state.task_master.clone())
+                .new_illumination(user_id, task.capture_id)
+                .await
+                .map_err(api::ApiError::internal)
+        }
+        Ok(_) => Ok(()),
         Err(error) => Err(error),
     };
 

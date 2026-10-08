@@ -2,7 +2,7 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, Default)]
 pub struct InferenceMetadata {
-    /// Correlates all inference outputs from one task attempt, including v1/v2 comparisons.
+    /// Correlates all inference outputs from one task attempt.
     pub inference_run_id: String,
     pub prompt_version: String,
     pub provider_name: String,
