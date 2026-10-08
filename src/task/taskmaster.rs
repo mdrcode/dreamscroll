@@ -209,6 +209,8 @@ impl TaskMaster {
     /// header isn't available on the local queue). `None` if the run already
     /// `CompleteSuccess` — that redelivery must be ignored, not resurrected.
     /// A `SubmissionFailed` run never reached a worker and is also ignored.
+    /// An `InProgress` redelivery is counted as another attempt, not deduplicated;
+    /// overlapping deliveries can therefore execute concurrently.
     pub async fn begin_attempt<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
@@ -232,18 +234,25 @@ impl TaskMaster {
         Ok(Some(attempt))
     }
 
-    /// Record the outcome of an attempt and decide whether Cloud Tasks should
-    /// retry (transient error *and* budget remaining; otherwise exhausted).
+    /// Record an attempt outcome, preserve its duration, and decide whether
+    /// Cloud Tasks should retry. A result reference is optional and is only
+    /// persisted when the attempt succeeds.
     pub async fn finish_attempt<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
         attempt: i32,
         run_result: &Result<(), api::ApiError>,
+        result_ref: Option<TaskRunResultRef>,
     ) -> anyhow::Result<TaskRunStatus> {
         match run_result {
             Ok(()) => {
                 self.run_tracker
-                    .finish_attempt(envelope, TaskRunStatus::CompleteSuccess, attempt)
+                    .finish_attempt(
+                        envelope,
+                        TaskRunStatus::CompleteSuccess,
+                        attempt,
+                        result_ref,
+                    )
                     .await?;
                 Ok(TaskRunStatus::CompleteSuccess)
             }
@@ -255,7 +264,7 @@ impl TaskMaster {
                 };
 
                 self.run_tracker
-                    .finish_attempt(envelope, status_code, attempt)
+                    .finish_attempt(envelope, status_code, attempt, None)
                     .await?;
 
                 tracing::warn!(
@@ -531,7 +540,7 @@ mod tests {
         IlluminationTask::new(
             capture_id,
             "test-model",
-            crate::logic::illuminate::IlluminationVersion::V1,
+            crate::illumination::IlluminationVersion::V1,
         )
     }
 
@@ -549,6 +558,8 @@ mod tests {
             entity_type: "capture".to_string(),
             entity_id: 1,
             task_payload: None,
+            result_entity_type: None,
+            result_entity_id: None,
             status_code: status.as_i32(),
             attempts,
             created_at: chrono::Utc::now(),
@@ -779,7 +790,7 @@ mod tests {
             .expect("begin_attempt should succeed")
             .expect("first attempt should not be skipped");
         service
-            .finish_attempt(&envelope, attempt, &Ok(()))
+            .finish_attempt(&envelope, attempt, &Ok(()), None)
             .await
             .expect("finish_attempt should succeed");
 
@@ -835,6 +846,7 @@ mod tests {
                 &envelope,
                 attempt,
                 &Err(api::ApiError::internal(anyhow::anyhow!("boom"))),
+                None,
             )
             .await
             .expect("finish_attempt should succeed");
@@ -895,6 +907,7 @@ mod tests {
                 &first,
                 attempt,
                 &Err(api::ApiError::internal(anyhow::anyhow!("boom"))),
+                None,
             )
             .await
             .expect("finish_attempt should succeed");
@@ -911,7 +924,7 @@ mod tests {
             .expect("begin_attempt should succeed")
             .expect("second run attempt should not be skipped");
         service
-            .finish_attempt(&second, attempt, &Ok(()))
+            .finish_attempt(&second, attempt, &Ok(()), None)
             .await
             .expect("finish_attempt should succeed");
 
@@ -957,7 +970,7 @@ mod tests {
             .expect("first attempt should not be skipped");
         assert_eq!(attempt, 1);
         let outcome = service
-            .finish_attempt(&first, attempt, &failure)
+            .finish_attempt(&first, attempt, &failure, None)
             .await
             .expect("finish_attempt should succeed");
         assert_eq!(outcome, TaskRunStatus::ErrorWillRetry);
@@ -969,7 +982,7 @@ mod tests {
             .expect("second attempt should not be skipped");
         assert_eq!(attempt, 2);
         let outcome = service
-            .finish_attempt(&first, attempt, &failure)
+            .finish_attempt(&first, attempt, &failure, None)
             .await
             .expect("finish_attempt should succeed");
         assert_eq!(
@@ -1035,7 +1048,7 @@ mod tests {
         assert_eq!(attempt, 1);
 
         let outcome = service
-            .finish_attempt(&envelope, attempt, &Ok(()))
+            .finish_attempt(&envelope, attempt, &Ok(()), None)
             .await
             .expect("finish_attempt should succeed");
         assert_eq!(outcome, TaskRunStatus::CompleteSuccess);
@@ -1083,7 +1096,7 @@ mod tests {
             .expect("begin_attempt should succeed")
             .expect("attempt should not be skipped");
         let outcome = service
-            .finish_attempt(&envelope, attempt, &failure)
+            .finish_attempt(&envelope, attempt, &failure, None)
             .await
             .expect("finish_attempt should succeed");
         assert_eq!(outcome, TaskRunStatus::ErrorWillRetry);
@@ -1096,7 +1109,7 @@ mod tests {
             .expect("attempt should not be skipped");
         assert_eq!(attempt, 2);
         let outcome = service
-            .finish_attempt(&envelope, attempt, &failure)
+            .finish_attempt(&envelope, attempt, &failure, None)
             .await
             .expect("finish_attempt should succeed");
         assert_eq!(outcome, TaskRunStatus::CompleteFailure);
@@ -1141,7 +1154,7 @@ mod tests {
             .expect("begin_attempt should succeed")
             .expect("attempt should not be skipped");
         service
-            .finish_attempt(&envelope, attempt, &Ok(()))
+            .finish_attempt(&envelope, attempt, &Ok(()), None)
             .await
             .expect("finish_attempt should succeed");
 
@@ -1302,6 +1315,7 @@ mod tests {
                 &envelope,
                 attempt,
                 &Err(api::ApiError::internal(anyhow::anyhow!("boom"))),
+                None,
             )
             .await
             .expect("finish_attempt should succeed");
@@ -1371,6 +1385,7 @@ mod tests {
                 &envelope,
                 attempt,
                 &Err(api::ApiError::internal(anyhow::anyhow!("transient"))),
+                None,
             )
             .await
             .expect("finish_attempt should succeed");

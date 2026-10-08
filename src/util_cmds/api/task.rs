@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use argh::FromArgs;
 
-use crate::{api, rest};
+use crate::{api, illumination, rest, task};
 
 use super::ApiCmdState;
 
@@ -58,7 +58,10 @@ struct SearchIndexArgs {
 pub async fn run(state: ApiCmdState, args: TaskArgs) -> anyhow::Result<()> {
     let (identity, wait, wait_seconds) = match args.command {
         TaskCommand::Illuminate(args) => {
-            let identity = state.client.enqueue_illuminate(args.capture_id).await?;
+            let identity = state
+                .client
+                .enqueue_illuminate(args.capture_id, illumination::IlluminationVersion::V1)
+                .await?;
             (identity, args.wait, args.wait_seconds)
         }
         TaskCommand::SearchIndex(args) => {
@@ -86,7 +89,7 @@ pub async fn run(state: ApiCmdState, args: TaskArgs) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn wait_for_task_run(
+pub(super) async fn wait_for_task_run(
     client: &rest::client::Client,
     identity: &api::TaskRunIdentity,
     timeout: Duration,
@@ -135,12 +138,12 @@ where
     }
 }
 
-fn is_settled(status: crate::task::TaskRunStatus) -> bool {
+fn is_settled(status: task::TaskRunStatus) -> bool {
     matches!(
         status,
-        crate::task::TaskRunStatus::SubmissionFailed
-            | crate::task::TaskRunStatus::CompleteSuccess
-            | crate::task::TaskRunStatus::CompleteFailure
+        task::TaskRunStatus::SubmissionFailed
+            | task::TaskRunStatus::CompleteSuccess
+            | task::TaskRunStatus::CompleteFailure
     )
 }
 
@@ -180,6 +183,8 @@ mod tests {
             task_type: "illuminate".to_string(),
             entity_type: "capture".to_string(),
             entity_id: 42,
+            result_entity_type: None,
+            result_entity_id: None,
             status,
             attempts: 1,
             created_at: Utc::now(),

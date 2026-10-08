@@ -226,6 +226,8 @@ mod tests {
                 task_type: "illuminate".to_string(),
                 status: crate::task::TaskRunStatus::InProgress,
                 attempts: 2,
+                result_entity_type: None,
+                result_entity_id: None,
                 run: 3,
                 processing_started_at: None,
                 estimated_duration_ms_p50: None,

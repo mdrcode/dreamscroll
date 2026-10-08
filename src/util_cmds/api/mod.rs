@@ -9,6 +9,7 @@ pub mod clear_token;
 pub mod export_digest;
 pub mod illumination_text;
 pub mod import_digest;
+pub mod inference;
 pub mod search;
 pub mod search_similar;
 pub mod spark;

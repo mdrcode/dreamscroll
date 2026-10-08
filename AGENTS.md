@@ -17,7 +17,7 @@ Be simple, idiomatic, robust, and flexible (in that order).
   adding it.
 - **No Schema Or Migration Overhead:** Do not worry about data migrations or backward compatibility. Nuke the database or use crude hacks if needed for prototype speed.
 - **Document Along The Way:** Update the various plan files as you go. If you
-  are informed by useful third-party docs/websites, links to them.
+  are informed by useful third-party docs/websites, link to them.
 - **Validate Intelligently:** Do not run unit tests for small naming or plumbing
   changes. We will always do a full test pass before merging to main.
 
@@ -27,7 +27,8 @@ Be simple, idiomatic, robust, and flexible (in that order).
 - **Imports and Use Statements:** Prefer high level `use crate::foo` (and then
   reference foo::bar in the code) instead of long, unwieldy import statements.
   Within a module, it's perfectly acceptable to just `use super::*` to import
-  sibling types. Don't burn time on frivolous import specificity.
+  sibling types. Don't burn time on frivolous import specificity. Always
+  organize use directives in the order: (1) system/core first, (2) external crates, (3) local modules.
 - **Comments:** Keep comments concise and high-value. Avoid superfluous prose;
   architecture and naming should explain themselves. Important decisions and
   logic should be documented so that they are salient and discoverable.

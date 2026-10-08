@@ -25,7 +25,7 @@ pub struct Model {
     #[sea_orm(belongs_to, from = "media_id", to = "id")]
     pub media: HasOne<media::Entity>,
 
-    pub inference_run_id: String,
+    pub inference_id: String,
     pub prompt_version: String,
     pub provider_name: String,
     pub backend_name: String,

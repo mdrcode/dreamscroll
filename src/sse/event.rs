@@ -49,6 +49,10 @@ pub struct TaskStatusPayload {
     pub run: i32,
     pub attempts: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_entity_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_entity_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub processing_started_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub estimated_duration_ms_p50: Option<i64>,
@@ -105,6 +109,8 @@ impl ServerEvent<TaskStatusPayload> {
                 task_type: row.task_type.clone(),
                 status,
                 attempts: row.attempts,
+                result_entity_type: row.result_entity_type.clone(),
+                result_entity_id: row.result_entity_id.clone(),
                 run: row.run,
                 processing_started_at: row.processing_started_at,
                 estimated_duration_ms_p50: estimate
@@ -138,6 +144,8 @@ mod tests {
                 run: 3,
                 status: TaskRunStatus::CompleteSuccess,
                 attempts: 1,
+                result_entity_type: None,
+                result_entity_id: None,
                 processing_started_at: None,
                 estimated_duration_ms_p50: None,
             },
@@ -161,7 +169,9 @@ mod tests {
                 entity_type: "capture".to_string(),
                 entity_id: 91,
                 task_payload: None,
-                status_code: TaskRunStatus::ErrorWillRetry.as_i32(),
+                result_entity_type: Some("inference".to_string()),
+                result_entity_id: Some("8a0d329d-72ca-4fd5-bd8d-2302f762f37d".to_string()),
+                status_code: TaskRunStatus::CompleteSuccess.as_i32(),
                 attempts: 2,
                 created_at: timestamp(),
                 processing_started_at: None,
@@ -178,8 +188,16 @@ mod tests {
         assert_eq!(update.entity_type, "capture");
         assert_eq!(update.entity_id, 91);
         assert_eq!(update.payload.task_type, "illuminate");
-        assert_eq!(update.payload.status, TaskRunStatus::ErrorWillRetry);
+        assert_eq!(update.payload.status, TaskRunStatus::CompleteSuccess);
         assert_eq!(update.payload.attempts, 2);
+        assert_eq!(
+            update.payload.result_entity_type.as_deref(),
+            Some("inference")
+        );
+        assert_eq!(
+            update.payload.result_entity_id.as_deref(),
+            Some("8a0d329d-72ca-4fd5-bd8d-2302f762f37d")
+        );
         assert_eq!(update.payload.run, 4);
         assert_eq!(update.user_id, Some(8));
     }
@@ -215,6 +233,8 @@ mod tests {
             entity_type: "capture".to_string(),
             entity_id: 91,
             task_payload: None,
+            result_entity_type: None,
+            result_entity_id: None,
             status_code: TaskRunStatus::InProgress.as_i32(),
             attempts: 2,
             created_at: timestamp(),

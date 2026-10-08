@@ -133,7 +133,7 @@ thing to check.
 - **Don't assert on row counts across the whole table.** Assert on the specific
   rows you created. (Isolation makes this safe, but it keeps tests readable.)
 
-## Deferred coverage gaps — SSE/task ecosystem (2026-09-23)
+## Deferred coverage gaps — SSE/task ecosystem (updated 2026-10-08)
 
 The current SSE/task tests cover core serialization, DB lifecycle, and stream
 helpers, but these end-to-end seams still need coverage. Prioritize in this
@@ -165,7 +165,18 @@ order; keep each as a focused unit or isolated-schema DB test:
   event. Add/retain a contract test that distinct task types or runs sharing an
   entity cause only one initial refresh hint, while live task updates remain
   individually delivered.
+8. **Duplicate worker deliveries:** add isolated-DB coverage for redelivery of the
+  same run while `InProgress`. First settle the intended claim/overlap policy;
+  then verify attempt accounting and that a late attempt cannot overwrite a
+  newer terminal status or result reference.
+9. **Illumination result flow:** exercise the worker webhook and raw illumination
+  retrieval with a fake inference backend. Assert that retries produce distinct
+  inference IDs, the successful attempt's ID is published as the task result
+  reference and fetches that exact raw record via the authenticated
+  `GET /api/illuminations/raw/{inference_id}` endpoint, and failures publish no
+  result reference. Existing tracker, SSE, and lookup tests cover these pieces
+  separately, not the complete flow.
 
-These items were identified during the 2026-09-23 holistic review. They are
-deferred coverage work; existing passing tests do not imply these seams are
-fully exercised.
+These items are deferred coverage work; existing passing tests do not imply these
+seams are fully exercised. Items 8–9 were added during the 2026-10-08 task/result
+review.

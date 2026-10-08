@@ -2,8 +2,8 @@ use serde_json::Value;
 
 #[derive(Debug, Clone, Default)]
 pub struct InferenceMetadata {
-    /// Correlates all inference outputs from one task attempt.
-    pub inference_run_id: String,
+    /// Identifies this concrete inference result.
+    pub inference_id: String,
     pub prompt_version: String,
     pub provider_name: String,
     pub backend_name: String,

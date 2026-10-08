@@ -40,6 +40,8 @@ impl TaskRunTracker {
             .set_entity_id(envelope.task.entity_id())
             .set_user_id(envelope.user_id)
             .set_task_payload(Some(task_payload))
+            .set_result_entity_type(None)
+            .set_result_entity_id(None)
             .set_status_code(TaskRunStatus::Queued.as_i32())
             .set_attempts(0)
             .insert(&self.db.conn)
@@ -133,13 +135,21 @@ impl TaskRunTracker {
         Ok(())
     }
 
-    /// Record an attempt outcome and preserve the duration of the attempt.
+    /// Record an attempt outcome, preserve its duration, and attach an
+    /// optional result reference on success.
     pub async fn finish_attempt<T: Task>(
         &self,
         envelope: &TaskEnvelope<T>,
         status: TaskRunStatus,
         attempts: i32,
+        result_ref: Option<TaskRunResultRef>,
     ) -> anyhow::Result<()> {
+        let result_ref = (status == TaskRunStatus::CompleteSuccess)
+            .then_some(result_ref)
+            .flatten();
+        let (result_entity_type, result_entity_id) = result_ref
+            .map(|result| (Some(result.entity_type), Some(result.entity_id)))
+            .unwrap_or_default();
         let mut update = model::task_run_status::Entity::update_many();
         update = update
             .col_expr(
@@ -149,6 +159,14 @@ impl TaskRunTracker {
             .col_expr(
                 model::task_run_status::Column::Attempts,
                 Expr::value(attempts),
+            )
+            .col_expr(
+                model::task_run_status::Column::ResultEntityType,
+                Expr::value(result_entity_type),
+            )
+            .col_expr(
+                model::task_run_status::Column::ResultEntityId,
+                Expr::value(result_entity_id),
             )
             .col_expr(
                 model::task_run_status::Column::UpdatedAt,
@@ -357,7 +375,7 @@ mod tests {
             crate::logic::illuminate::IlluminationTask::new(
                 42,
                 "test-model",
-                crate::logic::illuminate::IlluminationVersion::V2,
+                crate::illumination::IlluminationVersion::V2,
             ),
             1,
         );
@@ -438,7 +456,7 @@ mod tests {
             .processing_started_at
             .unwrap();
         tracker
-            .finish_attempt(&env, TaskRunStatus::ErrorWillRetry, 1)
+            .finish_attempt(&env, TaskRunStatus::ErrorWillRetry, 1, None)
             .await
             .unwrap();
         let after_first_failure = tracker
@@ -449,10 +467,20 @@ mod tests {
         assert!(after_first_failure.processing_started_at.unwrap() >= started);
         assert!(after_first_failure.last_error_duration_ms.unwrap() >= 0);
         assert!(after_first_failure.success_duration_ms.is_none());
+        assert!(after_first_failure.result_entity_type.is_none());
+        assert!(after_first_failure.result_entity_id.is_none());
 
         tracker.begin_attempt(&env, 2).await.unwrap();
         tracker
-            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 2)
+            .finish_attempt(
+                &env,
+                TaskRunStatus::CompleteSuccess,
+                2,
+                Some(TaskRunResultRef::new(
+                    "inference",
+                    "cfa193f2-bdea-4ef0-9691-e94148f643ad",
+                )),
+            )
             .await
             .unwrap();
         let completed = tracker
@@ -463,6 +491,17 @@ mod tests {
         assert!(completed.processing_started_at.unwrap() >= started);
         assert!(completed.last_error_duration_ms.unwrap() >= 0);
         assert!(completed.success_duration_ms.unwrap() >= 0);
+        assert_eq!(completed.result_entity_type.as_deref(), Some("inference"));
+        assert_eq!(
+            completed.result_entity_id.as_deref(),
+            Some("cfa193f2-bdea-4ef0-9691-e94148f643ad")
+        );
+        let info = crate::api::TaskRunInfo::try_from(completed).unwrap();
+        assert_eq!(info.result_entity_type.as_deref(), Some("inference"));
+        assert_eq!(
+            info.result_entity_id.as_deref(),
+            Some("cfa193f2-bdea-4ef0-9691-e94148f643ad")
+        );
     }
 
     #[tokio::test]
@@ -475,7 +514,7 @@ mod tests {
         assert!(tracker.create_run(&env).await.unwrap());
 
         tracker
-            .finish_attempt(&env, TaskRunStatus::CompleteFailure, 1)
+            .finish_attempt(&env, TaskRunStatus::CompleteFailure, 1, None)
             .await
             .unwrap();
 
@@ -500,7 +539,7 @@ mod tests {
         assert!(tracker.create_run(&env).await.unwrap());
         tracker.begin_attempt(&env, 1).await.unwrap();
         tracker
-            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 1)
+            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
@@ -526,7 +565,7 @@ mod tests {
         assert!(tracker.create_run(&first).await.unwrap());
         tracker.begin_attempt(&first, 1).await.unwrap();
         tracker
-            .finish_attempt(&first, TaskRunStatus::CompleteSuccess, 1)
+            .finish_attempt(&first, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
@@ -534,7 +573,7 @@ mod tests {
         assert!(tracker.create_run(&failed).await.unwrap());
         tracker.begin_attempt(&failed, 1).await.unwrap();
         tracker
-            .finish_attempt(&failed, TaskRunStatus::CompleteFailure, 1)
+            .finish_attempt(&failed, TaskRunStatus::CompleteFailure, 1, None)
             .await
             .unwrap();
 
@@ -559,7 +598,7 @@ mod tests {
         assert!(tracker.create_run(&second).await.unwrap());
         tracker.begin_attempt(&second, 1).await.unwrap();
         tracker
-            .finish_attempt(&second, TaskRunStatus::CompleteSuccess, 1)
+            .finish_attempt(&second, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
         let updated_row = model::task_run_timing::Entity::find()

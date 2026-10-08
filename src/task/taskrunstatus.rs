@@ -1,5 +1,22 @@
 use anyhow::anyhow;
 
+/// Reference to an entity produced by a successful task run.
+/// TODO consider replacing this with a more generic TaskEntityRef concept
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct TaskRunResultRef {
+    pub entity_type: String,
+    pub entity_id: String,
+}
+
+impl TaskRunResultRef {
+    pub fn new(entity_type: impl Into<String>, entity_id: impl Into<String>) -> Self {
+        Self {
+            entity_type: entity_type.into(),
+            entity_id: entity_id.into(),
+        }
+    }
+}
+
 /// Typed status values which track a Run of a background Task.
 ///
 /// Submission initially creates `Queued`. If the queue rejects the task before
@@ -10,6 +27,7 @@ use anyhow::anyhow;
 ///
 /// The DB stores only the integer discriminant (`as_i32`); mapping between the
 /// integer and this strongly-typed enum is owned here.
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TaskRunStatus {
     SubmissionFailed = 0,

@@ -10,8 +10,8 @@
 
 - `task_run_status.created_at` is set when `create_run` inserts the initial `Queued` row. For the current implementation, this is the timestamp when the run first entered the queue, although its name does not communicate that intent.
 - `updated_at` is changed on every status update, but it is not a lifecycle timestamp: it can represent a retry transition, a late update, or any future metadata update.
-- `begin_attempt` changes `Queued`/`ErrorWillRetry` to `InProgress` and increments `attempts`.
-- `finish_attempt` changes `InProgress` to `CompleteSuccess`, `ErrorWillRetry`, or `CompleteFailure`.
+- `begin_attempt` marks a run `InProgress` and increments `attempts`; a redelivery while already `InProgress` is also accepted as another attempt, not rejected as a duplicate.
+- `finish_attempt` changes the run to `CompleteSuccess`, `ErrorWillRetry`, or `CompleteFailure`.
 - Status events carry status, attempts, run, routing identity, processing start,
   and optional aggregate timing estimates.
 
@@ -78,7 +78,7 @@ event module while database access remains in `task_timing.rs`.
 Prefer lifecycle-specific tracker operations over a generic status setter:
 
 - `create_run`: unchanged status behavior; confirms the queued timestamp is captured.
-- `begin_attempt`: a tracker method that atomically sets `InProgress`, increments attempts, and sets `processing_started_at = CURRENT_TIMESTAMP`.
+- `begin_attempt`: `TaskMaster` chooses the attempt number from persisted state; the tracker writes `InProgress`, `attempts`, and `processing_started_at` in one SQL update. This is not an atomic claim or fence: a duplicate `InProgress` delivery may also start (see `pragmatism.md`).
 - `finish_attempt`: a tracker method that atomically sets the outcome and computes the duration from the stored processing start. It should update the error duration for every error and the success duration for success.
 
 This keeps timing invariants next to the existing attempts/status invariants and avoids relying on Rust `Instant` across workers. `TaskMaster` remains the lifecycle policy boundary. The implementation uses PostgreSQL `CURRENT_TIMESTAMP` for both the start timestamp and the finish calculation, with `EXTRACT(EPOCH ...) * 1000` cast to `BIGINT`.

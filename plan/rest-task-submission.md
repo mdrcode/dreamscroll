@@ -87,6 +87,12 @@ a run owned by another user returns `404`. The successful response contains:
   "updated_at": "2026-10-01T12:00:03Z"
 }
 ```
+On successful completion, the response also includes the optional
+`result_entity_type` and `result_entity_id` fields. For an illumination task,
+these identify its inference; the caller knows the task kind and fetches the raw
+result from `GET /api/illuminations/raw/{inference_id}`. This endpoint is
+illumination-specific, not a generic inference-result resolver. The fields are
+omitted while no result reference is available.
 
 `SubmissionFailed`, `CompleteSuccess`, and `CompleteFailure` are settled states.
 `Queued`, `InProgress`, and `ErrorWillRetry` may still progress.

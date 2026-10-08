@@ -28,7 +28,7 @@ pub async fn post(
 
     let outcome = state
         .task_master
-        .finish_attempt(&envelope, attempt, &result)
+        .finish_attempt(&envelope, attempt, &result, None)
         .await
         .map_err(api::ApiError::internal)?;
 

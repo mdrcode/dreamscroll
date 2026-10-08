@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 
-use crate::{api::*, auth, database, logic, search, storage, task};
+use crate::{api::*, auth, database, illumination, logic, search, storage, task};
 
 #[derive(Clone)]
 pub struct UserApiClient {
@@ -245,7 +245,8 @@ impl UserApiClient {
         )
         .await?;
 
-        let task = self.illumination_task(capture_model.id)?;
+        let task =
+            self.illumination_task(capture_model.id, illumination::IlluminationVersion::V1)?;
         if let Err(e) = self.beacon.new_capture(user_context, task).await {
             tracing::warn!(
                 capture_id = capture_model.id,
@@ -274,7 +275,8 @@ impl UserApiClient {
         )
         .await?;
 
-        let task = self.illumination_task(capture_model.id)?;
+        let task =
+            self.illumination_task(capture_model.id, illumination::IlluminationVersion::V1)?;
         if let Err(e) = self.beacon.new_capture(user_context, task).await {
             tracing::warn!(
                 capture_id = capture_model.id,
@@ -316,6 +318,7 @@ impl UserApiClient {
     fn illumination_task(
         &self,
         capture_id: i32,
+        prompt_version: illumination::IlluminationVersion,
     ) -> Result<logic::illuminate::IlluminationTask, ApiError> {
         let model_id = self
             .default_illumination_model_id
@@ -328,7 +331,7 @@ impl UserApiClient {
         Ok(logic::illuminate::IlluminationTask::new(
             capture_id,
             model_id,
-            logic::illuminate::IlluminationVersion::V1,
+            prompt_version,
         ))
     }
 
@@ -337,6 +340,7 @@ impl UserApiClient {
         &self,
         context: &auth::Context,
         capture_id: i32,
+        prompt_version: illumination::IlluminationVersion,
     ) -> Result<TaskRunIdentity, ApiError> {
         if super::get_captures(&self.db, context, vec![capture_id])
             .await?
@@ -348,7 +352,7 @@ impl UserApiClient {
             )));
         }
 
-        let task = self.illumination_task(capture_id)?;
+        let task = self.illumination_task(capture_id, prompt_version)?;
         let envelope_id = task::TaskEnvelope::make_envelope_id(context.user_id(), &task);
         match self.task_master.submit_illuminate(context, task).await? {
             task::SubmitOutcome::Enqueued { run } => Ok(TaskRunIdentity { envelope_id, run }),
@@ -399,6 +403,15 @@ impl UserApiClient {
             .ok_or_else(|| ApiError::not_found(anyhow!("Task run not found")))?;
 
         TaskRunInfo::try_from(row).map_err(ApiError::internal)
+    }
+
+    #[tracing::instrument(skip(self, context))]
+    pub async fn get_illumination_raw(
+        &self,
+        context: &auth::Context,
+        inference_id: &str,
+    ) -> Result<serde_json::Value, ApiError> {
+        super::get_illumination_raw(&self.db, context, inference_id).await
     }
 
     #[tracing::instrument(skip(self, context, current_password, new_password))]

@@ -49,6 +49,11 @@ pub struct Model {
     #[sea_orm(nullable, column_type = "JsonBinary")]
     pub task_payload: Option<Json>,
 
+    #[sea_orm(nullable)]
+    pub result_entity_type: Option<String>,
+    #[sea_orm(nullable)]
+    pub result_entity_id: Option<String>,
+
     /// Integer discriminant of `task::TaskRunStatus`.
     pub status_code: i32,
 

@@ -18,6 +18,10 @@ pub struct TaskRunInfo {
     pub task_type: String,
     pub entity_type: String,
     pub entity_id: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_entity_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub result_entity_id: Option<String>,
     pub status: TaskRunStatus,
     pub attempts: i32,
     pub created_at: DateTime<Utc>,
@@ -34,6 +38,8 @@ impl TryFrom<crate::model::task_run_status::Model> for TaskRunInfo {
             task_type: row.task_type,
             entity_type: row.entity_type,
             entity_id: row.entity_id,
+            result_entity_type: row.result_entity_type,
+            result_entity_id: row.result_entity_id,
             status: TaskRunStatus::from_i32(row.status_code)?,
             attempts: row.attempts,
             created_at: row.created_at,

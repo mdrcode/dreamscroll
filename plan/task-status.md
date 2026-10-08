@@ -81,12 +81,12 @@ Upload (webui/v2/r_upload.rs)
   capture ownership from the loaded capture.
 - Authenticated REST task submission and exact-run status lookup are documented
   in `rest-task-submission.md`.
-- **Status transitions are not a raw setter.** `TaskMaster::update_status` is
-  **private**; workers must go through `begin_attempt` (reads the persisted
-  attempt count, increments, writes `InProgress`, returns the 1-based attempt
-  number) and `finish_attempt` (writes the outcome and returns a status that
-  drives the HTTP response). This keeps `attempts` and the
-  retry decision consistent with the recorded status.
+- **Workers do not get a raw status setter.** They go through `begin_attempt`
+  (reads the persisted attempt count, increments, writes `InProgress`, returns
+  the 1-based attempt number) and `finish_attempt` (writes the outcome and returns
+  a status that drives the HTTP response). The attempt selection and status update
+  are not an atomic claim; an `InProgress` redelivery can start another worker
+  attempt (§4.2).
 - **`TaskRunTracker`** (`task/taskruntracker.rs`) is a private persistence
   component owned by `TaskMaster`; Rust visibility prevents production callers
   outside the `task` module from bypassing TaskMaster's lifecycle API. It owns
@@ -213,12 +213,12 @@ there is deliberately no separate `is_settled()` predicate.
 - **`TaskMaster::begin_attempt(envelope)`** reads the persisted attempt count,
   increments it, writes `InProgress`, and returns the 1-based attempt number.
   Deriving the count from the DB (rather than Cloud Tasks' retry-count header)
-  means it works identically for **every** backend, including `LocalTaskQueue`,
-  which has no headers. It returns `None` when the run is already `CompleteSuccess`, so
-  an at-least-once redelivery of successful work is acked without resurrecting the
-  row to `InProgress`.
+  means it works identically for every backend, including `LocalTaskQueue`,
+  which has no headers. It ignores `CompleteSuccess` and `SubmissionFailed`
+  redeliveries, but an `InProgress` redelivery is counted as another attempt;
+  this is not an atomic claim, so deliveries can overlap.
 - **`TaskMaster::finish_attempt(envelope, attempt, &result)`** writes the outcome
-  and returns an `AttemptOutcome`.
+  and returns the resulting `TaskRunStatus`.
 
 **The key convention: the Cloud Tasks queue is always configured with MORE max
 retries than the app.** This means the app always exhausts its budget *first*, so
@@ -278,9 +278,10 @@ continue to use `query_run_status`.
 ## 6. Runs and reruns
 
 `TaskEnvelope.envelope_id` names the **logical task**
-(`u1-illuminate-capture123`) and `TaskEnvelope.run` names **one attempt to carry
-it out**, counting from 1. `(envelope_id, run)` is unique and keys a `task_run_status`
-row, so a rerun appends a row rather than overwriting the previous outcome.
+(`u1-illuminate-capture123`) and `TaskEnvelope.run` names a numbered **task run**.
+Each run can contain multiple worker attempts, counted from 1 in `attempts`.
+`(envelope_id, run)` is unique and keys a `task_run_status` row, so a rerun appends
+  a row rather than overwriting the previous outcome.
 
 A submission is planned by reading the latest run of the logical task
 (`plan_submission`):
@@ -313,13 +314,20 @@ them as failures. `SubmitOutcome::Enqueued { run }` reports the run that started
 Attempt counting is **per run**: each row carries its own `attempts`, so a rerun
 starts at attempt 1.
 
-### 6.1 What's still deferred (the rerun UX)
+### 6.1 Result references and deferred rerun UX
 
-The run *dimension* is complete. What remains is the UX to trigger a rerun:
+The run dimension and result references are implemented. Current behavior:
 
 - The `IlluminationTask` payload carries `model_id` and `prompt_version`; API/WebUI
-  submissions still select v1 by default. Task identity remains capture-scoped, so v1/v2 runs
-  for one capture must be submitted sequentially after each run settles.
+  producers still select v1 by default, while `dreamscroll_api inference` can select
+  v1 or v2. Task identity remains capture-scoped, so v1/v2 runs for one capture
+  must be submitted sequentially after each run settles.
+
+- Successful runs expose optional `result_entity_type` and `result_entity_id` in
+  `TaskRunInfo` and SSE task-status events. Inference runs use the `inference`
+  type and a UUID `inference_id` for the successful concrete inference; retries
+  use distinct IDs.
+  The CLI fetches illumination output from `/api/illuminations/raw/{inference_id}`.
 - A rerun endpoint + button remains deferred. It can submit a new versioned task
   after the prior run settles.
 

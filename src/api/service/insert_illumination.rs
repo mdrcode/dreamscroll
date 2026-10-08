@@ -7,9 +7,11 @@ pub async fn insert_illumination_v1(
     capture: &CaptureInfo,
     illumination: Illumination,
 ) -> Result<(), ApiError> {
+    let inference_id = illumination.metadata().inference_id.clone();
     let mut builder = model::illumination::ActiveModel::builder()
         .set_user_id(capture.user_id)
         .set_capture_id(capture.id)
+        .set_inference_id(Some(inference_id))
         .set_summary(&illumination.summary)
         .set_details(&illumination.details)
         .set_search_index(
@@ -76,7 +78,7 @@ pub async fn insert_illumination_raw<R: InferenceResult + ?Sized>(
         .set_user_id(capture.user_id)
         .set_capture_id(capture.id)
         .set_media_id(media_id)
-        .set_inference_run_id(&metadata.inference_run_id)
+        .set_inference_id(&metadata.inference_id)
         .set_prompt_version(&metadata.prompt_version)
         .set_provider_name(&metadata.provider_name)
         .set_backend_name(&metadata.backend_name)
@@ -172,10 +174,7 @@ mod tests {
             illuminations: vec![],
             annotation: None,
         };
-        let inference_run_id = format!(
-            "u{}-illuminate-capture{}-run1-attempt1",
-            user.id, capture.id
-        );
+        let inference_id = uuid::Uuid::new_v4().to_string();
         let content = json!({
             "summary": "A short summary",
             "details": "Detailed content",
@@ -188,7 +187,7 @@ mod tests {
         let illumination = Illumination::from_raw_json(
             content.clone(),
             InferenceMetadata {
-                inference_run_id: inference_run_id.clone(),
+                inference_id: inference_id.clone(),
                 prompt_version: "capture_illumination_v1".to_string(),
                 provider_name: "gemini".to_string(),
                 backend_name: "vertex".to_string(),
@@ -216,7 +215,7 @@ mod tests {
             .unwrap();
         assert_eq!(stored_raw.prompt_version, "capture_illumination_v1");
         assert_eq!(stored_raw.media_id, media.id);
-        assert_eq!(stored_raw.inference_run_id, inference_run_id);
+        assert_eq!(stored_raw.inference_id, inference_id);
         assert_eq!(
             stored_raw.provider_request_id.as_deref(),
             Some("interaction-test")
@@ -235,6 +234,10 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(stored_illumination.summary, "A short summary");
+        assert_eq!(
+            stored_illumination.inference_id.as_deref(),
+            Some(inference_id.as_str())
+        );
 
         let v2_content = json!({
             "summary": "A Reddit community for NFC West memes",
@@ -251,10 +254,11 @@ mod tests {
                 }
             }]
         });
+        let v2_inference_id = uuid::Uuid::new_v4().to_string();
         let v2_result = crate::illumination::v2::Illumination::from_raw_json(
             v2_content.clone(),
             InferenceMetadata {
-                inference_run_id: inference_run_id.clone(),
+                inference_id: v2_inference_id.clone(),
                 prompt_version: "capture_illumination_v2".to_string(),
                 provider_name: "gemini".to_string(),
                 backend_name: "vertex".to_string(),
@@ -278,7 +282,7 @@ mod tests {
             .unwrap();
         assert_eq!(stored_v2.prompt_version, "capture_illumination_v2");
         assert_eq!(stored_v2.content, v2_content);
-        assert_eq!(stored_v2.inference_run_id, inference_run_id);
+        assert_eq!(stored_v2.inference_id, v2_inference_id);
         assert_eq!(stored_v2.media_id, media.id);
     }
 }

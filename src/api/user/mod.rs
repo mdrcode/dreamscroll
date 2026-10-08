@@ -9,6 +9,9 @@ pub use get_entity::*;
 mod get_illumination;
 pub use get_illumination::*;
 
+mod get_illumination_raw;
+pub use get_illumination_raw::*;
+
 mod get_spark;
 pub use get_spark::*;
 

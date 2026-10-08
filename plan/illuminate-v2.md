@@ -92,7 +92,11 @@ See [the Interactions API sidebar](google-ai-interactions-api.md) for the API-sp
 
 `src/llms/gemini/` remains provider plumbing only: authentication, endpoint mapping, input serialization, structured output options, and interaction response parsing. Both version modules use the generic client, storage provider, and inference metadata/result contracts.
 
+Each typed result's `to_markdown()` is a lossy, whole-document rendering for side-by-side evaluation and console display. V1 and v2 preserve their schema-specific differences rather than forcing a shared entity layout.
+
 - The task payload's `prompt_version` selects `v1` or `v2`; API/WebUI producers continue to enqueue v1. Both versions are persisted to `illumination_raw`, but only `insert_illumination_v1` writes the current relational projection and triggers search indexing. V2 is currently an evaluation path; task identity remains capture-scoped, so versions run sequentially per capture.
+
+`dreamscroll_api --host <host> inference illuminate <capture_id>` defaults to `v1`; `--prompt-version v2` selects v2. Each accepted worker attempt creates a fresh UUID for its concrete inference. On success, `TaskRunInfo` and SSE expose the successful inference's ID as an `inference` result reference; retries use distinct IDs. The CLI fetches `/illuminations/raw/{inference_id}` and prints schema-specific Markdown to stdout.
 
 The unused `GrokIlluminator` was removed: it read from a hard-coded `localdev/media` path instead of the configured storage provider, hard-coded JPEG MIME, returned empty entity/search fields, and no local/Docker/production config selected it. The separate `GrokFirestarter` used by `FIRESTARTER=grok` remains untouched.
 

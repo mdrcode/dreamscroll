@@ -1,8 +1,10 @@
-use crate::api;
+use crate::{api, illumination, logic};
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, Utc};
 use reqwest;
 use serde::{Deserialize, Serialize};
+
+// TODO move this client impl into its own file so it's not hiding in mod.rs
 
 #[derive(Clone)]
 pub struct Client {
@@ -31,6 +33,12 @@ struct ChangePasswordRequest<'a> {
 #[derive(Debug, Serialize)]
 struct CaptureTaskRequest {
     capture_id: i32,
+}
+
+#[derive(Debug, Serialize)]
+struct IlluminateTaskRequest {
+    capture_id: i32,
+    prompt_version: illumination::IlluminationVersion,
 }
 
 impl Client {
@@ -284,12 +292,16 @@ impl Client {
     pub async fn enqueue_illuminate(
         &self,
         capture_id: i32,
+        prompt_version: illumination::IlluminationVersion,
     ) -> anyhow::Result<api::TaskRunIdentity> {
         let response = self
             .reqwest_client
             .post(format!("{}/queues/illuminate", self.base_url))
             .bearer_auth(&self.access_token)
-            .json(&CaptureTaskRequest { capture_id })
+            .json(&IlluminateTaskRequest {
+                capture_id,
+                prompt_version,
+            })
             .send()
             .await
             .context("failed to submit illumination task")?;
@@ -325,6 +337,24 @@ impl Client {
             .send()
             .await
             .context("failed to query task-run status")?;
+
+        Self::parse_json_response(response).await
+    }
+
+    pub async fn get_illumination_raw(
+        &self,
+        inference_id: &str,
+    ) -> anyhow::Result<serde_json::Value> {
+        let response = self
+            .reqwest_client
+            .get(format!(
+                "{}/illuminations/raw/{inference_id}",
+                self.base_url
+            ))
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .context("failed to fetch raw illumination result")?;
 
         Self::parse_json_response(response).await
     }

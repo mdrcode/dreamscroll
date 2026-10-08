@@ -217,7 +217,7 @@ impl GeminiInteractionResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::logic::illuminate::{IlluminationTask, IlluminationVersion};
+    use crate::{illumination::IlluminationVersion, logic::illuminate::IlluminationTask};
 
     #[test]
     fn serialized_task_model_selects_interaction_model() {
