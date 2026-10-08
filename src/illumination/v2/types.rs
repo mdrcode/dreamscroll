@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -60,6 +62,50 @@ impl InferenceResult for Illumination {
 
     fn metadata(&self) -> &InferenceMetadata {
         &self.inference_metadata
+    }
+
+    fn to_markdown(&self) -> String {
+        let mut markdown = String::new();
+        writeln!(
+            markdown,
+            "## Summary\n\n{}\n\n## Details\n\n{}",
+            self.summary, self.details
+        )
+        .expect("writing to a String cannot fail");
+
+        if !self.suggested_searches.is_empty() {
+            markdown.push_str("\n## Suggested searches\n");
+            for search in &self.suggested_searches {
+                writeln!(markdown, "- {search}").expect("writing to a String cannot fail");
+            }
+        }
+
+        if !self.entities.is_empty() {
+            markdown.push_str("\n## Entities\n");
+            for entity in &self.entities {
+                write!(markdown, "- **{}** (`{}`)", entity.name, entity.entity_type)
+                    .expect("writing to a String cannot fail");
+                if let Some(description) = &entity.description {
+                    write!(markdown, " — {description}").expect("writing to a String cannot fail");
+                }
+                markdown.push('\n');
+
+                if let Some(link) = &entity.platform_link {
+                    write!(markdown, "  - Platform: {}", link.platform)
+                        .expect("writing to a String cannot fail");
+                    if let Some(handle) = &link.handle {
+                        write!(markdown, "; handle: {handle}")
+                            .expect("writing to a String cannot fail");
+                    }
+                    if let Some(url) = &link.url {
+                        write!(markdown, "; URL: {url}").expect("writing to a String cannot fail");
+                    }
+                    markdown.push('\n');
+                }
+            }
+        }
+
+        markdown
     }
 }
 
@@ -195,5 +241,45 @@ mod tests {
             illumination.raw_json()["future_schema_field"]["preserved"],
             json!(true)
         );
+    }
+
+    #[test]
+    fn to_markdown_includes_platform_link_and_optional_entity_fields() {
+        let illumination = Illumination::from_raw_json(
+            json!({
+                "summary": "A subreddit for NFC West memes",
+                "details": "A community about the NFL's NFC West division.",
+                "suggested_searches": ["NFC West memes"],
+                "entities": [
+                    {
+                        "name": "NFCWestMemeWar",
+                        "description": "A community for NFC West memes.",
+                        "type": "online_community",
+                        "platform_link": {
+                            "platform": "reddit",
+                            "handle": "r/NFCWestMemeWar",
+                            "url": "https://www.reddit.com/r/NFCWestMemeWar/"
+                        }
+                    },
+                    {
+                        "name": "Anonymous account",
+                        "type": "social_media_account"
+                    }
+                ]
+            }),
+            InferenceMetadata::default(),
+        )
+        .unwrap();
+
+        let markdown = illumination.to_markdown();
+
+        assert!(markdown.contains("## Summary\n\nA subreddit for NFC West memes"));
+        assert!(markdown.contains("## Details\n\nA community about the NFL's NFC West division."));
+        assert!(markdown.contains(
+            "- **NFCWestMemeWar** (`online_community`) — A community for NFC West memes."
+        ));
+        assert!(markdown.contains("Platform: reddit; handle: r/NFCWestMemeWar; URL: https://www.reddit.com/r/NFCWestMemeWar/"));
+        assert!(markdown.contains("- **Anonymous account** (`social_media_account`)"));
+        assert!(markdown.contains("- NFC West memes"));
     }
 }

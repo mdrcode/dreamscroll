@@ -1,3 +1,5 @@
+use std::fmt::Write as _;
+
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -79,6 +81,49 @@ impl InferenceResult for Illumination {
 
     fn metadata(&self) -> &InferenceMetadata {
         &self.inference_metadata
+    }
+
+    fn to_markdown(&self) -> String {
+        let mut markdown = String::new();
+        writeln!(
+            markdown,
+            "## Summary\n\n{}\n\n## Details\n\n{}",
+            self.summary, self.details
+        )
+        .expect("writing to a String cannot fail");
+
+        if !self.suggested_searches.is_empty() {
+            markdown.push_str("\n## Suggested searches\n");
+            for search in &self.suggested_searches {
+                writeln!(markdown, "- {search}").expect("writing to a String cannot fail");
+            }
+        }
+
+        if !self.entities.is_empty() {
+            markdown.push_str("\n## Entities\n");
+            for entity in &self.entities {
+                writeln!(
+                    markdown,
+                    "- **{}** (`{}`) — {}",
+                    entity.name, entity.entity_type, entity.description
+                )
+                .expect("writing to a String cannot fail");
+            }
+        }
+
+        if !self.social_media_accounts.is_empty() {
+            markdown.push_str("\n## Social media accounts\n");
+            for account in &self.social_media_accounts {
+                writeln!(
+                    markdown,
+                    "- **{}** (`{}`; {})",
+                    account.display_name, account.handle, account.platform
+                )
+                .expect("writing to a String cannot fail");
+            }
+        }
+
+        markdown
     }
 }
 
@@ -200,5 +245,38 @@ mod tests {
             illumination.raw_json()["future_schema_field"]["nested"]["preserved"],
             serde_json::json!(true)
         );
+    }
+
+    #[test]
+    fn to_markdown_includes_searches_entities_and_social_accounts() {
+        let illumination = Illumination::from_raw_json(
+            serde_json::json!({
+                "summary": "Ada Lovelace, mathematician and writer",
+                "details": "A mathematician and writer.",
+                "suggested_searches": ["Ada Lovelace biography"],
+                "entities": [{
+                    "name": "Ada Lovelace",
+                    "description": "A mathematician and writer.",
+                    "type": "real_person"
+                }],
+                "social_media_accounts": [{
+                    "display_name": "Ada",
+                    "handle": "@ada",
+                    "platform": "x_twitter"
+                }]
+            }),
+            InferenceMetadata::default(),
+        )
+        .unwrap();
+
+        let markdown = illumination.to_markdown();
+
+        assert!(markdown.contains("## Summary\n\nAda Lovelace, mathematician and writer"));
+        assert!(markdown.contains("## Details\n\nA mathematician and writer."));
+        assert!(markdown.contains("- Ada Lovelace biography"));
+        assert!(
+            markdown.contains("- **Ada Lovelace** (`real_person`) — A mathematician and writer.")
+        );
+        assert!(markdown.contains("- **Ada** (`@ada`; x_twitter)"));
     }
 }
