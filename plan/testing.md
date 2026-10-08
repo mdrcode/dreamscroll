@@ -169,14 +169,12 @@ order; keep each as a focused unit or isolated-schema DB test:
   same run while `InProgress`. First settle the intended claim/overlap policy;
   then verify attempt accounting and that a late attempt cannot overwrite a
   newer terminal status or result reference.
-9. **Illumination result flow:** exercise the worker webhook and raw illumination
-  retrieval with a fake inference backend. Assert that retries produce distinct
-  inference IDs, the successful attempt's ID is published as the task result
-  reference and fetches that exact raw record via the authenticated
-  `GET /api/illuminations/raw/{inference_id}` endpoint, and failures publish no
-  result reference. Existing tracker, SSE, and lookup tests cover these pieces
-  separately, not the complete flow.
+9. **Illumination HTTP boundary:** a DB-backed test with a fake inference client
+  exercises a failed attempt, successful retry, task result reference, exact
+  owner-scoped raw lookup, and a later run with a distinct inference ID. It calls
+  the authenticated lookup function with an auth context, not through the REST
+  router/JWT middleware; add router-level coverage if that boundary changes.
 
 These items are deferred coverage work; existing passing tests do not imply these
 seams are fully exercised. Items 8–9 were added during the 2026-10-08 task/result
-review.
+review; item 9 now records the remaining HTTP-boundary gap.

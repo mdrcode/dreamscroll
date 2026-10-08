@@ -79,7 +79,7 @@ Today, extracted KNodes and social-media rows are capture-scoped; the code does 
 
 ## Gemini client and API direction
 
-The illumination provider now uses one reusable Rust `GeminiInferenceClient` over `reqwest` and the Interactions API. `GEMINI_BACKEND` selects the Developer API for local/Docker and Vertex with ADC for production; prompt, input, schema, tools, and `store` are per-call options.
+The illumination path uses the provider-neutral `llms::InferenceClient` contract for model selection, text/image inputs, structured response schemas, and capabilities such as web search. `GeminiInferenceClient` maps that request to the Gemini Interactions API over `reqwest`; `GEMINI_BACKEND` selects Developer API for local/Docker and Vertex with ADC for production. The adapter sets `store: false`, keeping screenshot interactions provider-side ephemeral.
 
 The large `google-cloud-aiplatform-v1` dependency is removed from the inference path. Vertex embeddings still call `embedContent` via REST, and vector storage/search still use `google-cloud-vectorsearch-v1`.
 
@@ -90,7 +90,7 @@ See [the Interactions API sidebar](google-ai-interactions-api.md) for the API-sp
 - `src/illumination/v1/` owns the v1 prompt, schema, typed result, and async inference function.
 - `src/illumination/v2/` independently owns the unified-entity prompt, schema, typed result, and async inference function; it shares no v1 DTOs or prompt/schema code.
 
-`src/llms/gemini/` remains provider plumbing only: authentication, endpoint mapping, input serialization, structured output options, and interaction response parsing. Both version modules use the generic client, storage provider, and inference metadata/result contracts.
+`src/llms/gemini/` remains provider plumbing only: authentication, endpoint mapping, generic request serialization, structured output options, and Gemini interaction response parsing. Both version modules depend on `llms::InferenceClient`, not Gemini interaction DTOs, alongside storage and inference metadata/result contracts.
 
 Each typed result's `to_markdown()` is a lossy, whole-document rendering for side-by-side evaluation and console display. V1 and v2 preserve their schema-specific differences rather than forcing a shared entity layout.
 

@@ -12,3 +12,6 @@ pub use provider::*;
 
 mod url_maker;
 pub use url_maker::*;
+
+#[cfg(test)]
+pub(crate) mod test_support;

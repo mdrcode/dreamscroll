@@ -5,7 +5,12 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::config;
+use crate::{
+    config,
+    llms::{
+        InferenceCapability, InferenceClient, InferenceInput, InferenceRequest, InferenceResponse,
+    },
+};
 
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const DEVELOPER_API_URL: &str = "https://generativelanguage.googleapis.com/v1beta/interactions";
@@ -28,29 +33,14 @@ pub struct GeminiInferenceClient {
     http: Client,
 }
 
-/// User-input content accepted by an inference request.
-pub enum GeminiInputPart<'a> {
-    Text(&'a str),
-    InlineImage { bytes: &'a [u8], mime_type: &'a str },
-}
-
-/// Per-call options, including the selected model and generation inputs.
-pub struct GeminiInteractionRequest<'a> {
-    pub model_id: &'a str,
-    pub input: &'a [GeminiInputPart<'a>],
-    pub response_schema: Option<&'a Value>,
-    pub tools: &'a [Value],
-    pub store: bool,
-}
-
-/// Raw interaction steps remain available for future tool/agent flows.
+/// Provider-specific response shape returned by the Gemini Interactions API.
 #[derive(Debug, Deserialize)]
-pub struct GeminiInteractionResponse {
-    pub id: Option<String>,
-    pub status: Option<String>,
+struct GeminiInteractionResponse {
+    id: Option<String>,
+    status: Option<String>,
     #[serde(default)]
-    pub steps: Vec<Value>,
-    pub usage: Option<Value>,
+    steps: Vec<Value>,
+    usage: Option<Value>,
 }
 
 impl GeminiInferenceClient {
@@ -97,7 +87,7 @@ impl GeminiInferenceClient {
         }
     }
 
-    fn interaction_body(&self, request: &GeminiInteractionRequest<'_>) -> anyhow::Result<Value> {
+    fn interaction_body(&self, request: &InferenceRequest<'_>) -> anyhow::Result<Value> {
         if request.input.is_empty() {
             bail!("Gemini Interactions request must include input");
         }
@@ -106,11 +96,11 @@ impl GeminiInferenceClient {
             .input
             .iter()
             .map(|part| match part {
-                GeminiInputPart::Text(text) => json!({
+                InferenceInput::Text(text) => json!({
                     "type": "text",
                     "text": text,
                 }),
-                GeminiInputPart::InlineImage { bytes, mime_type } => json!({
+                InferenceInput::Image { bytes, mime_type } => json!({
                     "type": "image",
                     "data": STANDARD.encode(bytes),
                     "mime_type": mime_type,
@@ -125,14 +115,21 @@ impl GeminiInferenceClient {
                 "content": content,
             }]),
         };
+        // Keep user media in Dreamscroll's result storage, not the provider's interaction store.
         let mut body = json!({
             "model": request.model_id,
             "input": input,
-            "store": request.store,
+            "store": false,
         });
-
-        if !request.tools.is_empty() {
-            body["tools"] = json!(request.tools);
+        let tools = request
+            .capabilities
+            .iter()
+            .map(|capability| match capability {
+                InferenceCapability::WebSearch => json!({"type": "google_search"}),
+            })
+            .collect::<Vec<_>>();
+        if !tools.is_empty() {
+            body["tools"] = json!(tools);
         }
 
         if let Some(schema) = request.response_schema {
@@ -154,9 +151,9 @@ impl GeminiInferenceClient {
         Ok(body)
     }
 
-    pub async fn interact(
+    async fn interact(
         &self,
-        request: GeminiInteractionRequest<'_>,
+        request: InferenceRequest<'_>,
     ) -> anyhow::Result<GeminiInteractionResponse> {
         let body = self.interaction_body(&request)?;
         let (endpoint, api_key) = match &self.backend {
@@ -181,9 +178,25 @@ impl GeminiInferenceClient {
         serde_json::from_str(&response_text).context("Failed to parse Gemini Interactions response")
     }
 }
+#[async_trait::async_trait]
+impl InferenceClient for GeminiInferenceClient {
+    fn provider_name(&self) -> &'static str {
+        GeminiInferenceClient::provider_name(self)
+    }
+
+    fn backend_name(&self) -> &'static str {
+        GeminiInferenceClient::backend_name(self)
+    }
+
+    async fn infer(&self, request: InferenceRequest<'_>) -> anyhow::Result<InferenceResponse> {
+        let interaction = GeminiInferenceClient::interact(self, request).await?;
+        interaction.into_inference_response()
+    }
+}
+
 impl GeminiInteractionResponse {
     /// Returns text from the final model-output step, after any tool steps.
-    pub fn output_text(&self) -> anyhow::Result<String> {
+    fn output_text(&self) -> anyhow::Result<String> {
         let step = self
             .steps
             .iter()
@@ -212,6 +225,16 @@ impl GeminiInteractionResponse {
         }
         Ok(text)
     }
+
+    fn into_inference_response(self) -> anyhow::Result<InferenceResponse> {
+        let output = serde_json::from_str(&self.output_text()?)
+            .context("Gemini model output is not valid structured JSON")?;
+        Ok(InferenceResponse {
+            output,
+            provider_request_id: self.id,
+            provider_usage_json: self.usage,
+        })
+    }
 }
 
 #[cfg(test)]
@@ -220,14 +243,15 @@ mod tests {
     use crate::{illumination::IlluminationVersion, logic::illuminate::IlluminationTask};
 
     #[test]
-    fn serialized_task_model_selects_interaction_model() {
+    fn generic_request_uses_selected_model_and_maps_web_search() {
         let client = GeminiInferenceClient {
             backend: Backend::DeveloperApi {
                 api_key: "test-key".to_string(),
             },
             http: Client::new(),
         };
-        let input = [GeminiInputPart::Text("hello")];
+        let input = [InferenceInput::Text("hello")];
+        let capabilities = [InferenceCapability::WebSearch];
 
         for model_id in ["model-a", "model-b"] {
             let payload = serde_json::to_vec(&IlluminationTask::new(
@@ -238,18 +262,17 @@ mod tests {
             .expect("task payload should serialize");
             let task: IlluminationTask =
                 serde_json::from_slice(&payload).expect("task payload should deserialize");
-            let request = GeminiInteractionRequest {
+            let request = InferenceRequest {
                 model_id: &task.model_id,
                 input: &input,
                 response_schema: None,
-                tools: &[],
-                store: false,
+                capabilities: &capabilities,
             };
 
-            assert_eq!(
-                client.interaction_body(&request).unwrap()["model"],
-                model_id
-            );
+            let body = client.interaction_body(&request).unwrap();
+            assert_eq!(body["model"], model_id);
+            assert!(!body["store"].as_bool().unwrap());
+            assert_eq!(body["tools"], json!([{"type": "google_search"}]));
         }
     }
 
@@ -269,6 +292,30 @@ mod tests {
         .unwrap();
 
         assert_eq!(response.output_text().unwrap(), "{\"summary\":\"Ada\"}");
+    }
+
+    #[test]
+    fn generic_response_contains_structured_output_and_provider_metadata() {
+        let response: GeminiInteractionResponse = serde_json::from_value(json!({
+            "id": "interaction-123",
+            "status": "completed",
+            "usage": {"total_tokens": 7},
+            "steps": [{"type": "model_output", "content": [
+                {"type": "text", "text": "{\"summary\":\"Ada\"}"}
+            ]}]
+        }))
+        .unwrap();
+
+        let response = response.into_inference_response().unwrap();
+        assert_eq!(response.output, json!({"summary": "Ada"}));
+        assert_eq!(
+            response.provider_request_id.as_deref(),
+            Some("interaction-123")
+        );
+        assert_eq!(
+            response.provider_usage_json,
+            Some(json!({"total_tokens": 7}))
+        );
     }
 
     #[test]

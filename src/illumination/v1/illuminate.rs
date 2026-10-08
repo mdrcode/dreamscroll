@@ -1,5 +1,5 @@
 use anyhow::Context;
-use serde_json::{Value, json};
+use serde_json::json;
 use strum::IntoEnumIterator;
 
 use crate::{
@@ -14,7 +14,7 @@ const PROMPT_VERSION: &str = "capture_illumination_v1";
 
 #[tracing::instrument(skip(client, storage_provider, capture), fields(capture_id = %capture.id))]
 pub async fn illuminate(
-    client: &llms::gemini::GeminiInferenceClient,
+    client: &dyn llms::InferenceClient,
     storage_provider: &dyn storage::StorageProvider,
     capture: &api::CaptureInfo,
     model_id: &str,
@@ -28,48 +28,38 @@ pub async fn illuminate(
     let image = storage_provider.retrieve_bytes(&storage_handle).await?;
     let mime_type = media.mime_type.as_deref().unwrap_or("image/jpeg");
     let input = [
-        llms::gemini::GeminiInputPart::Text(prompt::PROMPT),
-        llms::gemini::GeminiInputPart::InlineImage {
+        llms::InferenceInput::Text(prompt::PROMPT),
+        llms::InferenceInput::Image {
             bytes: image.as_ref(),
             mime_type,
         },
     ];
     let schema = make_schema();
-    let tools = [json!({ "type": "google_search" })];
+    let capabilities = [llms::InferenceCapability::WebSearch];
 
     tracing::info!(
         capture.id,
         media.id,
         image_bytes = image.len(),
         mime_type,
-        "Starting Gemini Interactions illumination"
+        "Starting v1 illumination inference"
     );
     let inference_start = std::time::Instant::now();
-    let interaction = client
-        .interact(llms::gemini::GeminiInteractionRequest {
+    let inference = client
+        .infer(llms::InferenceRequest {
             model_id,
             input: &input,
             response_schema: Some(&schema),
-            tools: &tools,
-            // Do not retain screenshot interactions server-side; Dreamscroll persists the
-            // resulting illumination separately.
-            store: false,
+            capabilities: &capabilities,
         })
         .await?;
-    let structured_json = interaction.output_text()?;
-    let content: Value = serde_json::from_str(&structured_json).with_context(|| {
-        format!(
-            "Failed to parse Gemini illumination JSON for capture {}",
-            capture.id
-        )
-    })?;
     let duration_ms = inference_start.elapsed().as_millis() as i64;
 
     tracing::info!(
         capture.id,
-        provider_request_id = ?interaction.id,
-        gemini_interactions_ms = duration_ms,
-        "Gemini Interactions illumination output received"
+        provider_request_id = ?inference.provider_request_id,
+        inference_ms = duration_ms,
+        "Illumination inference output received"
     );
 
     let inference_metadata = InferenceMetadata {
@@ -79,10 +69,10 @@ pub async fn illuminate(
         backend_name: client.backend_name().to_string(),
         model_id: model_id.to_string(),
         duration_ms,
-        provider_request_id: interaction.id,
-        provider_usage_json: interaction.usage,
+        provider_request_id: inference.provider_request_id,
+        provider_usage_json: inference.provider_usage_json,
     };
-    Illumination::from_raw_json(content, inference_metadata)
+    Illumination::from_raw_json(inference.output, inference_metadata)
         .with_context(|| format!("Failed to parse v1 illumination for capture {}", capture.id))
 }
 

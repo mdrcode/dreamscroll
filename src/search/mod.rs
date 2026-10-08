@@ -16,4 +16,7 @@ pub mod gcloud;
 pub mod capture_data_object;
 pub use capture_data_object::*;
 pub mod capture_searcher;
+
 pub use capture_searcher::*;
+#[cfg(test)]
+pub(crate) mod test_support;

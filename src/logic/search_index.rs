@@ -52,10 +52,14 @@ pub async fn exec(state: &super::LogicState, task: SearchIndexTask) -> Result<()
     let embed_input =
         search::make_capture_info_embed_input(state.storage.as_ref(), &capture).await?;
 
-    let upsert_result =
-        embed_and_upsert(&capture, embed_input, &state.embedder, &state.vector_store)
-            .await
-            .map_err(api::ApiError::internal)?;
+    let upsert_result = embed_and_upsert(
+        &capture,
+        embed_input,
+        state.embedder.as_ref(),
+        state.vector_store.as_ref(),
+    )
+    .await
+    .map_err(api::ApiError::internal)?;
 
     tracing::info!(
         capture_id = task.capture_id,

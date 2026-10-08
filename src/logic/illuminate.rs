@@ -67,7 +67,7 @@ pub async fn exec(
     match task.prompt_version {
         illumination::IlluminationVersion::V1 => {
             let illumination = illumination::v1::illuminate(
-                &state.gemini_client,
+                state.inference_client.as_ref(),
                 state.storage.as_ref(),
                 &capture,
                 &task.model_id,
@@ -87,7 +87,7 @@ pub async fn exec(
         }
         illumination::IlluminationVersion::V2 => {
             let illumination = illumination::v2::illuminate(
-                &state.gemini_client,
+                state.inference_client.as_ref(),
                 state.storage.as_ref(),
                 &capture,
                 &task.model_id,
