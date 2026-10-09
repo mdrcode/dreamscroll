@@ -6,18 +6,18 @@ use crate::{api, logic, task, webhook};
 
 /// Webhook POST route for Cloud Tasks search indexing payloads.
 ///
-/// Expected body is a serialized `TaskEnvelope<SearchIndexTask>`, e.g.:
-/// `{ "user_id": 1, "envelope_id": "u1-search_index-capture123", "task": { "capture_id": 123 } }`
+/// Expected body is a serialized `TaskRun<SearchIndexTask>`, e.g.:
+/// `{ "user_id": 1, "logical_id": "u1-search_index-capture123", "run_id": "2d3954ac-c392-4aa0-933a-1663e597c444", "run_number": 1, "task": { "capture_id": 123 } }`
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
-    Json(envelope): Json<task::TaskEnvelope<logic::search_index::SearchIndexTask>>,
+    Json(task_run): Json<task::TaskRun<logic::search_index::SearchIndexTask>>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let task = envelope.task.clone();
+    let task = task_run.task.clone();
 
     // `None` means the task already completed (at-least-once redelivery); ack it.
     let Some(attempt) = state
         .task_master
-        .begin_attempt(&envelope)
+        .begin_attempt(&task_run)
         .await
         .map_err(api::ApiError::internal)?
     else {
@@ -28,7 +28,7 @@ pub async fn post(
 
     let outcome = state
         .task_master
-        .finish_attempt(&envelope, attempt, &result, None)
+        .finish_attempt(&task_run, attempt, &result, None)
         .await
         .map_err(api::ApiError::internal)?;
 

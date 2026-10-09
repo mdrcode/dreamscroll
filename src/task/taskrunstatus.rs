@@ -79,7 +79,7 @@ impl TaskRunStatus {
     /// True when a worker may still act on this run.
     ///
     /// This is the duplicate-submission predicate: while a run is in flight,
-    /// submitting the same envelope again is refused. `CompleteSuccess` and
+    /// submitting the same logical task again is refused. `CompleteSuccess` and
     /// `CompleteFailure` are terminal, so a rerun is permitted for those.
     pub fn is_in_flight(&self) -> bool {
         matches!(

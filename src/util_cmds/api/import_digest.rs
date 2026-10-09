@@ -57,7 +57,7 @@ pub async fn run(state: ApiCmdState, args: ImportDigestArgs) -> anyhow::Result<(
         let media_bytes = tokio::fs::read(&media_path).await?.into();
 
         match state
-            .client
+            .rest_client
             .import_capture(media_bytes, entry.created_at)
             .await
         {

@@ -100,7 +100,7 @@ The cleanest, most flexible design separates two concerns:
 Crucially, **SSE should carry *thin signals*, not full HTML.** This is the
 HATEOAS-friendly pattern that keeps the frontend cruft-free:
 
-- SSE event: `{ task_type: "illuminate", envelope_id: "u1-illuminate-capture123", entity_type: "capture", entity_id: 123, status: "complete_success", attempts: 1 }`
+- SSE event: `{ schema_version: 2, event_type: "task_status", entity_type: "capture", entity_id: 123, payload: { task_type: "illuminate", status: "complete_success", logical_id: "u1-illuminate-capture123", run_id: "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113", run_number: 1, attempts: 1 } }`
 - Client reacts with a normal HTMX request to re-fetch the *partial*
   (`/detail/{id}` fragment or `/cards`), which the existing Tera templates
   already render.
@@ -111,8 +111,8 @@ This means:
   stream).
 - **One generic mechanism** for *all* task types — no bespoke channel per
   feature.
-- **Reruns "just work"** — the event is keyed by `(envelope_id, run)` and the
-  client just re-fetches whatever partial is relevant.
+- **Reruns "just work"** — each event includes `logical_id`, `run_id`, and
+  `run_number`; the client re-fetches the matching partial.
 
 > **Important distinction:** for this informational UI feature, the database
 > row is the best available current status, while the SSE/`LISTEN` notification
@@ -145,13 +145,13 @@ pub type AvailabilityEvent = ServerEvent<AvailabilityPayload>;
 Task-status wire example:
 
 ```json
-{ "schema_version": 1, "event_type": "task_status", "timestamp": "2026-09-21T18:42:10Z", "entity_type": "capture", "entity_id": 123, "payload": { "subchannel": "illuminate", "status": { "name": "complete_success", "discriminant": 4 }, "run": 1 } }
+{ "schema_version": 2, "event_type": "task_status", "timestamp": "2026-09-21T18:42:10Z", "entity_type": "capture", "entity_id": 123, "payload": { "task_type": "illuminate", "status": { "name": "complete_success", "discriminant": 4 }, "logical_id": "u1-illuminate-capture123", "run_id": "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113", "run_number": 1, "attempts": 1 } }
 ```
 
 Availability wire example:
 
 ```json
-{ "schema_version": 1, "event_type": "availability", "timestamp": "2026-09-21T18:42:15Z", "entity_type": "capture", "entity_id": 123, "payload": { "operation": "deleted" } }
+{ "schema_version": 2, "event_type": "availability", "timestamp": "2026-09-21T18:42:15Z", "entity_type": "capture", "entity_id": 123, "payload": { "operation": "deleted" } }
 ```
 
 This maps to the current state of a `task_run_status` row (see
@@ -317,7 +317,7 @@ successful status write:
   `SubmissionFailed` and publishes that result. A duplicate insert emits no
   event.
 2. **In the webhook handlers** (`webhook/r_illuminate.rs`, `r_spark.rs`,
-   `r_search_index.rs`) — each handler deserializes a `TaskEnvelope<T>`, then
+   `r_search_index.rs`) — each handler deserializes a `TaskRun<T>`, then
   calls `begin_attempt` (which writes `InProgress` with the incremented attempt
   number) and `finish_attempt` (which writes `CompleteSuccess`, `ErrorWillRetry`,
   or `CompleteFailure` and returns the status used to decide the HTTP response)
@@ -325,7 +325,7 @@ successful status write:
 
 > **Note:** status is written in the **webhook handler**, not inside
 > `logic/*::exec`. The `logic` functions stay pure (they take the bare task and
-> don't know about task identity/status). The handler owns the envelope and
+> don't know about task identity/status). The handler owns the TaskRun and
 > reports status around the `exec` call.
 
 > **Note:** `TaskRunTracker` is private to the `task` module and owned by
@@ -362,14 +362,11 @@ changes, publish a typed update describing the new status. This is **best
 effort**. The payload is useful for low-latency consumers, but is not a durable
 event log. The stable-stream design does not query/send an initial snapshot.
 
-The standalone module now has a generic `ServerEvent<E>` envelope. The concrete
-`TaskStatusEvent` uses a `TaskStatusPayload` containing the stable logical
-`subchannel` (currently names such as `illuminate`), the logical `run` number,
-and the compound-serialized `TaskRunStatus`. The envelope supplies the
-timestamp and entity routing key. `AvailabilityEvent` uses the same envelope
-with an `AvailabilityPayload`. These are informational update payloads;
-additional metadata can be added later without changing the basic notification
-semantics.
+The concrete `TaskStatusPayload` carries `logical_id`, globally unique `run_id`,
+`run_number`, attempts, status, and optional timing/result metadata. The generic
+`ServerEvent` supplies the timestamp and entity routing key. `AvailabilityEvent`
+uses the same generic event structure with an `AvailabilityPayload`; these are
+informational hints rather than a durable event log.
 
 The trade-offs are acceptable for this table:
 
@@ -634,9 +631,9 @@ client fans that single stream out to the right card. Nothing about the number o
 cards or concurrent tasks changes the connection count — it's always 1.
 
 **Server side** — every task-status transition publishes an event carrying
-`entity_type`/`entity_id` (plus `task_type`/`envelope_id`). For capture-scoped
-tasks `entity_type = "capture"` and `entity_id` **is** the capture id. The SSE
-handler just forwards *all* of that user's events down the one connection:
+`entity_type`/`entity_id` plus `task_type`, status, and TaskRun identity
+(`logical_id`, `run_id`, `run_number`). For capture tasks, `entity_id` is the
+capture ID. The handler forwards that user's events down the one connection:
 
 ```
 5 uploads → 5 IlluminationTasks → 5× (Queued → InProgress → CompleteSuccess|CompleteFailure) events
@@ -703,7 +700,7 @@ re-fetch is scoped to that card's own URL, so it only re-renders itself.
 ```js
 // webui-v2.js — one listener, routes to the right card
 document.body.addEventListener('sse:task-status', (e) => {
-  const data = JSON.parse(e.detail.data);   // { task_type, envelope_id, entity_type, entity_id, status, attempts }
+  const data = JSON.parse(e.detail.data);   // { task_type, logical_id, run_id, run_number, entity_type, entity_id, status, attempts }
   if (data.entity_type !== 'capture') return;
   const card = document.querySelector(`#card-${data.entity_id}`);
   if (card) {
@@ -806,11 +803,10 @@ described in §5.5; the server cap exceeds the two-minute client activity window
   heartbeats let the client replace a silent stale stream. Background delivery
   remains best-effort because the host may suspend network activity. This is
   not a durable change log and does not guarantee every transition is delivered.
-- **Flexible:** The `(task_type, envelope_id, entity_type, entity_id)` model is
-  generic — illumination, spark, search-index all flow through the same
-  table/channel. Adding a new task type = implement `Task` (with its
-  `entity_type`/`entity_id`), write a row + `NOTIFY` + add an
-  `hx-trigger="sse:task-status"` line.
+- **Flexible:** routing by `(task_type, entity_type, entity_id)` supports
+  illumination, spark, and search-index. TaskRun's `logical_id`, `run_id`, and
+  `run_number` are available to run-specific consumers. Adding a task means
+  implementing `Task`, publishing status, and adding the `hx-trigger` line.
 
 ---
 
@@ -871,10 +867,9 @@ be resolved as implementation work begins:
   successful row inserts/updates for queueing, submission failure, attempt
   start, and attempt outcome. Notification failure is logged but does not affect
   task processing; TaskMaster retains lifecycle policy and ordering.
-4. **The status table is not an event log:** updates mutate one row identified
-  by `(envelope_id, run)`. A notification payload must therefore identify the
-  changed logical run (or be treated only as a wake-up hint); it cannot by
-  itself represent every transition.
+4. **The status table is not an event log:** one row is keyed by
+  `(logical_id, run_number)`. Each status event carries the globally unique
+  `run_id`; notifications remain best-effort hints, not a durable history.
 5. **Resolved:** the old `query_incomplete_for_entity` and
   `query_incomplete_for_user` names were misleading because the queries return
   latest rows for tasks, including successful rows. The current entity snapshot

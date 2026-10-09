@@ -60,7 +60,7 @@ POST http://localhost:8080/api/captures/572/unarchive
 Authorization: Bearer {{token.response.body.access_token}}
 
 ###
-# Returns 202 Accepted with { envelope_id, run }, 409 Conflict if in flight, or 404
+# Returns 202 Accepted with the JSON run_id string, 409 Conflict if in flight, or 404
 POST http://localhost:8080/api/queues/illuminate
 Authorization: Bearer {{token.response.body.access_token}}
 Content-Type: application/json
@@ -68,7 +68,7 @@ Content-Type: application/json
 { "capture_id": 612 }
 
 ###
-GET http://localhost:8080/api/tasks/u1-illuminate-capture612/1
+GET http://localhost:8080/api/tasks/b91a7c4f-7e8a-4bf8-9a76-c81e258ec113
 Authorization: Bearer {{token.response.body.access_token}}
 
 ###

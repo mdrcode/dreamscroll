@@ -58,17 +58,18 @@ Upload (webui/v2/r_upload.rs)
   (`IlluminationTask`, `SparkTask`, `SearchIndexTask`) lives in `src/logic/*.rs`
   and implements `task::Task`. The trait carries the task's **identity**:
   `task_type() -> &'static str`, `entity_type() -> &'static str` (e.g.
-  `"capture"`, `"spark"`), and `entity_id(&self) -> i32`. A `TaskEnvelope<T>`
-  wraps a task with `user_id`, `envelope_id`, `run`, and the payload
-  (`task: T`).
-- **Task identity is deterministic.** `TaskEnvelope::make_envelope_id(user_id,
-  task)` builds `envelope_id = "u{user_id}-{task_type}-{entity_type}{entity_id}"`
-  (e.g. `u1-illuminate-capture123`). There is **no UUID** and no separate
-  `task_id.rs`. The id names the *logical work* and deliberately **excludes** the
-  run — see §6.
+  `"capture"`, `"spark"`), and `entity_id(&self) -> i32`. A `TaskRun<T>` wraps a
+  task with `user_id`, `logical_id`, globally unique `run_id`, `run_number`, and
+  the payload (`task: T`). The queue backend is selected by `TaskMaster`.
+- **Logical identity is deterministic.** `TaskRun::make_logical_id(user_id, task)`
+  builds `logical_id = "u{user_id}-{task_type}-{entity_type}{entity_id}"`
+  (e.g. `u1-illuminate-capture123`) and is stable across reruns.
+- **Run identity is unique.** Every new invocation gets a UUID `run_id`; retries
+  reuse it. `run_number` is a 1-based per-logical-task ordinal used for ordering
+  and the unique `(logical_id, run_number)` submission guard.
 - **`TaskQueue<T>` is enqueue-only and generic.** Status lives in the
   `task_run_status` table. The trait is `async fn enqueue(&self, wrapped:
-  TaskEnvelope<T>)`. Two backends: `LocalTaskQueue` (in-process mpsc +
+  TaskRun<T>)`. Two backends: `LocalTaskQueue` (in-process mpsc +
   semaphore) and `CloudTaskQueue` (Google Cloud Tasks). **Pub/Sub support was
   removed** to focus on Cloud Tasks.
 - **`TaskMaster`** (`task/taskmaster.rs`) is the single funnel through
@@ -90,7 +91,7 @@ Upload (webui/v2/r_upload.rs)
 - **`TaskRunTracker`** (`task/taskruntracker.rs`) is a private persistence
   component owned by `TaskMaster`; Rust visibility prevents production callers
   outside the `task` module from bypassing TaskMaster's lifecycle API. It owns
-  direct `task_run_status` queries/writes, snapshots `TaskEnvelope.task` as JSONB
+  direct `task_run_status` queries/writes, snapshots `TaskRun.task` as JSONB
   when creating a run, and emits optional best-effort status events after
   successful inserts and updates. Notifications do not fail persistence.
   `TaskRunStatus`
@@ -109,11 +110,12 @@ The small, focused **`task_run_status` table** is the source of truth:
 
 ```sql
 CREATE TABLE task_run_status (
-    id            BIGSERIAL PRIMARY KEY,
+    id            BIGSERIAL PRIMARY KEY,     -- internal row key; not exposed
     user_id       INT NOT NULL,
-    envelope_id   TEXT NOT NULL,          -- logical task identity (§2.2)
-    run           INT NOT NULL,           -- which run of the logical task, from 1
-    task_type     TEXT NOT NULL,          -- 'illumination' | 'spark' | 'search_index'
+    logical_id   TEXT NOT NULL,               -- durable logical task identity
+    run_id       TEXT NOT NULL UNIQUE,        -- global ID for this invocation
+    run_number   INT NOT NULL,                -- 1-based ordinal within logical_id
+    task_type     TEXT NOT NULL,          -- 'illuminate' | 'spark' | 'search_index'
     entity_type   TEXT NOT NULL,          -- 'capture' | 'spark'
     entity_id     INT NOT NULL,           -- the entity this task operates on
     task_payload  JSONB NULL,              -- submitted Task payload; null for historical rows
@@ -124,7 +126,7 @@ CREATE TABLE task_run_status (
     last_error_duration_ms BIGINT NULL,
     success_duration_ms BIGINT NULL,
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (envelope_id, run)
+    UNIQUE (logical_id, run_number)
 );
 ```
 
@@ -133,11 +135,16 @@ CREATE TABLE task_run_status (
 > `conn.get_schema_registry("dreamscroll::model::*").sync(&conn)` in
 > `database/postgres.rs`. There is no hand-written migration file.
 
-> **Why `UNIQUE (envelope_id, run)` and not `UNIQUE (envelope_id)`:** one row per
-> *run* is what makes reruns expressible. `envelope_id` alone identifies the
-> logical task; adding `run` lets a rerun append a new row instead of overwriting
-> the previous outcome. The pair is also the guard that makes duplicate
-> submission safe — see §6.
+The TaskRun schema and queued payload are a hard cutover. Drop `task_run_status`
+before using an existing database, and drain or clear queued task payloads using
+the previous schema. The database `id` remains internal; `run_id` is the public
+invocation handle, and generated `logical_id` values remain unchanged.
+
+> **Why `UNIQUE (logical_id, run_number)` and not `UNIQUE (logical_id)`:** one row per
+> run is what makes reruns expressible. `logical_id` names the durable work;
+> adding `run_number` lets a rerun append a row. `run_id` is the separate globally
+> unique handle for that invocation. The composite index also arbitrates concurrent
+> submission of the same logical task — see §6.
 
 - **`status_code`** stores the integer discriminant of `task::TaskRunStatus`
   (`SubmissionFailed=0`, `Queued=1`, `InProgress=2`, `ErrorWillRetry=3`,
@@ -150,7 +157,7 @@ CREATE TABLE task_run_status (
   milliseconds; `processing_started_at` is reset for each retry, while the
   duration fields retain the most recent failed attempt and the successful
   attempt respectively.
-- **`task_payload`** is the immutable JSONB snapshot of `TaskEnvelope.task` for
+- **`task_payload`** is the immutable JSONB snapshot of `TaskRun.task` for
   this run. New runs always write it; older rows remain `NULL`. It is internal
   persistence data and is not included in `TaskRunInfo` or SSE status events.
 
@@ -210,14 +217,14 @@ there is deliberately no separate `is_settled()` predicate.
 - **`ApiError::is_retryable()`** classifies failures: 5xx (server errors) are
   transient and worth retrying; 4xx (client errors) are permanent — retrying
   identical input produces identical results.
-- **`TaskMaster::begin_attempt(envelope)`** reads the persisted attempt count,
+- **`TaskMaster::begin_attempt(task_run)`** reads the persisted attempt count,
   increments it, writes `InProgress`, and returns the 1-based attempt number.
   Deriving the count from the DB (rather than Cloud Tasks' retry-count header)
   means it works identically for every backend, including `LocalTaskQueue`,
   which has no headers. It ignores `CompleteSuccess` and `SubmissionFailed`
   redeliveries, but an `InProgress` redelivery is counted as another attempt;
   this is not an atomic claim, so deliveries can overlap.
-- **`TaskMaster::finish_attempt(envelope, attempt, &result)`** writes the outcome
+**`TaskMaster::finish_attempt(task_run, attempt, &result)`** writes the outcome
   and returns the resulting `TaskRunStatus`.
 
 **The key convention: the Cloud Tasks queue is always configured with MORE max
@@ -268,7 +275,7 @@ continue to use `query_run_status`.
 > `entity_type`, and `entity_id`, then selects the highest run per task type. It
 > currently relies on the single-column `entity_id` index. If query latency
 > degrades as the table grows, consider a composite index on
-> `(user_id, entity_type, entity_id, task_type, run DESC)`. Deferred deliberately:
+> `(user_id, entity_type, entity_id, task_type, run_number DESC)`. Deferred deliberately:
 > this is a single-user app and the table is tiny. SeaORM's derive only supports
 > single-column `#[sea_orm(indexed)]` and composite `unique_key`, so a non-unique
 > composite index needs raw SQL.
@@ -276,21 +283,19 @@ continue to use `query_run_status`.
 ---
 
 ## 6. Runs and reruns
-
-`TaskEnvelope.envelope_id` names the **logical task**
-(`u1-illuminate-capture123`) and `TaskEnvelope.run` names a numbered **task run**.
-Each run can contain multiple worker attempts, counted from 1 in `attempts`.
-`(envelope_id, run)` is unique and keys a `task_run_status` row, so a rerun appends
-  a row rather than overwriting the previous outcome.
-
+`TaskRun.logical_id` names the **logical task** (`u1-illuminate-capture123`).
+`TaskRun.run_id` globally identifies one invocation; `run_number` orders runs of
+the same logical task. Retries reuse the same `run_id`; reruns get a new one and
+the next `run_number`. Worker retries are counted separately in `attempts`.
+`(logical_id, run_number)` is unique; the database row `id` remains internal.
 A submission is planned by reading the latest run of the logical task
 (`plan_submission`):
 
 | Latest run                                                       | Decision                                           |
 | ---------------------------------------------------------------- | -------------------------------------------------- |
-| none                                                             | start run 1                                        |
+| none                                                             | start `run_number` 1                              |
 | in flight (`Queued`/`InProgress`/`ErrorWillRetry`)               | **refuse** — the work is already queued or running |
-| settled (`SubmissionFailed`/`CompleteSuccess`/`CompleteFailure`) | start `run + 1`                                    |
+| settled (`SubmissionFailed`/`CompleteSuccess`/`CompleteFailure`) | start `run_number + 1`                          |
 
 This gives two properties at once:
 
@@ -299,13 +304,14 @@ This gives two properties at once:
 - **Reruns work.** Once a run settles, the next submission starts a new run — so
   "illuminate this again" needs no special machinery, only a settled prior run.
 
-The refusal is returned as `SubmitOutcome::RefusedInFlight { run }`, a normal
+The refusal is returned as `SubmitOutcome::RefusedAlreadyInFlight`, a normal
 outcome rather than an `Err`: duplicates are expected, so callers should not log
-them as failures. `SubmitOutcome::Enqueued { run }` reports the run that started.
+them as failures. `SubmitOutcome::Enqueued { run_id, run_number }` returns the
+TaskRun's globally unique run ID and its per-logical-task ordinal.
 
 > **Correctness rests on the unique index, not the read.** `plan_submission` is
 > check-then-act: two concurrent submitters can both read "no prior run" and both
-> try to insert run 1. The `(envelope_id, run)` unique index arbitrates — the
+> try to insert run number 1. The `(logical_id, run_number)` unique index arbitrates — the
 > loser's insert is a unique violation, which `create_run` maps to `Ok(false)`
 > and `submit_inner` turns into `RefusedInFlight`. This is the same TOCTOU
 > pattern tolerated elsewhere (`pragmatism.md`), except here the constraint makes
@@ -405,17 +411,17 @@ must always see the **most recent** illumination, so:
   than N minutes as dead, or a periodic sweep that stamps `CompleteFailure`.
   *Tolerated — see `pragmatism.md`.*
 - **Entity snapshot ordering is implementation-defined (REVISIT):** the SQL
-  query orders by entity ID, task type, then descending run to support
+  query orders by entity ID, task type, then descending `run_number` to support
   `DISTINCT ON`; consumers should not rely on any additional presentation order.
   Add a final ordering contract if the UI needs one.
 - **`create_run` is check-then-act (REVISIT):** `submit_inner` reads the latest
   run, then inserts. Two concurrent submitters can both pick the same run number.
-  The `(envelope_id, run)` unique index arbitrates, so correctness does not
+  The `(logical_id, run_number)` unique index arbitrates, so correctness does not
   depend on the read. *Tolerated — see `pragmatism.md`.*
 - **`SparkTask.spark_id` is a placeholder (REVISIT):** `api/user/client.rs` mints
   a random `i32` (`uuid::Uuid::new_v4().as_u128() as i32`) because the real spark
   row id only exists after `insert_spark` runs at exec time. This makes spark's
-  `envelope_id` non-deterministic. When spark gets a real identity (e.g. derived
+  `logical_id` non-deterministic. When spark gets a real identity (e.g. derived
   from its sorted `capture_ids`, or the planned "spark seed/spec" entity), it can
   join the deterministic scheme.
 - **Spark is not queryable by capture (accepted for now):** a `SparkTask`
@@ -423,12 +429,12 @@ must always see the **most recent** illumination, so:
   capture-scoped query will not surface it. **Accepted** — the plan is to
   introduce a "spark seed/spec" entity concept later. No N-entity join table is
   needed yet.
-- **Envelope `user_id` is not validated against the capture owner (REVISIT):**
+- **TaskRun `user_id` is not validated against the capture owner (REVISIT):**
   `logic::spark::exec` derives `user_id` from the captures and never compares it
-  to `envelope.user_id`, and `api/service/get_capture.rs` is explicitly **not**
+  to `task_run.user_id`, and `api/service/get_capture.rs` is explicitly **not**
   user-scoped. The webhook routes rely on Cloud Run OIDC, so this is
-  defense-in-depth — but the envelope's `user_id` should be checked so status
-  rows and data writes cannot diverge. *Tolerated — see `pragmatism.md`.*
+  defense-in-depth — but the TaskRun's `user_id` should be checked so status rows
+  and data writes cannot diverge. *Tolerated — see `pragmatism.md`.*
 - **Admin backfill mis-attributes task status to the admin (REVISIT — deferred to
   the backfill session):** two related problems, both currently masked by the app
   being single-user:
@@ -467,22 +473,22 @@ must always see the **most recent** illumination, so:
 
 | File                                      | Role                                                                                                                                                                                           | Status |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `src/task/task_def.rs`                    | `Task` trait (`task_type()`/`entity_type()`/`entity_id()`) + `TaskEnvelope<T>` (`user_id`, `envelope_id`, `run`, payload) + `TaskEnvelope::new(user_id, task, run)` / `make_envelope_id`       | ✅      |
-| `src/task/taskqueue.rs`                   | `TaskQueue<T>` trait, enqueue-only (takes `TaskEnvelope<T>`)                                                                                                                                   | ✅      |
+| `src/task/task_def.rs`                    | `Task` trait + `TaskRun<T>` (`user_id`, `logical_id`, `run_id`, `run_number`, payload) + `TaskRun::new` / `make_logical_id`                    | ✅      |
+| `src/task/taskqueue.rs`                   | `TaskQueue<T>` trait, enqueue-only (takes `TaskRun<T>`)                                                                                                                                             | ✅      |
 | `src/task/taskqueue_local.rs`             | `LocalTaskQueue` — in-process mpsc + semaphore backend (no retry)                                                                                                                              | ✅      |
 | `src/task/taskqueue_cloudtask.rs`         | `CloudTaskQueue` — Google Cloud Tasks backend                                                                                                                                                  | ✅      |
 | `src/task/taskqueue_pubsub.rs`            | **removed** — Pub/Sub support stripped out; Cloud Tasks is the focus                                                                                                                           | ✅      |
 | `src/task/taskmaster.rs`                  | `TaskMaster` — public lifecycle/API boundary; owns queues and coordinates status persistence + notifications; `submit_*` / `begin_attempt` / `finish_attempt` / status query; shared via `Arc` | ✅      |
-| `src/task/taskruntracker.rs`              | `TaskRunTracker` — private-to-task-module persistence component; creates/updates keyed by `(envelope_id, run)` and reads status rows                                                           | ✅      |
+| `src/task/taskruntracker.rs`              | `TaskRunTracker` — private persistence component; writes by `run_id`, orders by `(logical_id, run_number)`                                                                                          | ✅      |
 | `src/task/taskrunstatus.rs`               | `TaskRunStatus` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                      | ✅      |
 | `src/sse/listener.rs`                    | `ServerEventListener` — per-instance Postgres `LISTEN/NOTIFY` listener and fan-out for authenticated SSE streams (see `sse.md`) | ✅      |
 | `src/task/beacon.rs`                      | **removed** — replaced by `TaskMaster`                                                                                                                                                         | ✅      |
-| `src/model/task_run_status.rs`            | `task_run_status` SeaORM model (`(envelope_id, run)` unique, typed status/identity, nullable JSONB task payload) — auto-synced at startup                                                    | ✅      |
+| `src/model/task_run_status.rs`            | `task_run_status` SeaORM model (`id` internal, globally unique `run_id`, unique `(logical_id, run_number)`) — auto-synced at startup         | ✅      |
 | `src/api/apierror.rs`                     | `ApiError::is_retryable()` — 5xx retryable, 4xx permanent                                                                                                                                      | ✅      |
 | `src/config/schema.rs`                    | `Config.task_max_attempts` (env `TASK_MAX_ATTEMPTS`, default 3)                                                                                                                                | ✅      |
 | `src/webhook/http_status_for_task_run.rs` | `http_status_for_task_run` — maps `AttemptOutcome` to the HTTP status Cloud Tasks sees                                                                                                         | ✅      |
 | `src/webhook/webhook_state.rs`            | `WebhookState` carries `task_master: Arc<TaskMaster>`                                                                                                                                          | ✅      |
-| `src/webhook/r_*.rs`                      | accept `TaskEnvelope<T>`; `begin_attempt`/`finish_attempt` around `logic::exec`; return `http_status_for_task_run`                                                                             | ✅      |
+| `src/webhook/r_*.rs`                      | accept `TaskRun<T>`; `begin_attempt`/`finish_attempt` around `logic::exec`; return `http_status_for_task_run`                                                                             | ✅      |
 | `src/logic/illuminate.rs`                 | `IlluminationTask` + `exec` (illuminate **and** index; no idempotency guard — §7)                                                                                                              | ✅      |
 | `src/logic/search_index.rs`               | `SearchIndexTask` + `exec` (no idempotency guard — §7)                                                                                                                                         | ✅      |
 | `src/api/schema/infomaker.rs`             | collapses `illuminations` to the most recent (§7.1)                                                                                                                                            | ✅      |

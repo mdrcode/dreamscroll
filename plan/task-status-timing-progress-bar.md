@@ -12,12 +12,12 @@
 - `updated_at` is changed on every status update, but it is not a lifecycle timestamp: it can represent a retry transition, a late update, or any future metadata update.
 - `begin_attempt` marks a run `InProgress` and increments `attempts`; a redelivery while already `InProgress` is also accepted as another attempt, not rejected as a duplicate.
 - `finish_attempt` changes the run to `CompleteSuccess`, `ErrorWillRetry`, or `CompleteFailure`.
-- Status events carry status, attempts, run, routing identity, processing start,
-  and optional aggregate timing estimates.
+- Status events carry status, attempts, `logical_id`, `run_id`, `run_number`,
+  routing identity, processing start, and optional aggregate timing estimates.
 
 ## 2. Proposed persisted facts
 
-Add these columns to each `(envelope_id, run)` row:
+Add these columns to each `(logical_id, run_number)` row:
 
 | Field                    | Type               | Meaning                                                                                                                      |
 | ------------------------ | ------------------ | ---------------------------------------------------------------------------------------------------------------------------- |
@@ -68,10 +68,10 @@ Task-status SSE events include optional `processing_started_at` and aggregate
 estimate metadata. The browser uses p50 to animate an estimated processing bar
 locally; the server does not stream timer ticks.
 
-`TaskStatusEvent::from_envelope` accepts the complete `task_run_status` row and
+`TaskStatusEvent::from_task_run` accepts a TaskRun and complete status row plus
 an optional `TaskTimingEstimate`. `TaskStatusEvent::from_row` supports snapshot
-events without an envelope. This keeps row-to-payload construction in the SSE
-event module while database access remains in `task_timing.rs`.
+events without a TaskRun. Row-to-payload construction stays in the SSE module;
+database access remains in `task_timing.rs`.
 
 ## 5. Tracker/TaskMaster implementation shape
 

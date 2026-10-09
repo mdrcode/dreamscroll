@@ -70,7 +70,7 @@ pub fn make_api_router(
         .route("/search/similar/{capture_id}", get(r_search_similar::get))
         .route("/queues/illuminate", post(r_task::post_illuminate))
         .route("/queues/search_index", post(r_task::post_search_index))
-        .route("/tasks/{envelope_id}/{run}", get(r_task::get_run))
+        .route("/tasks/{run_id}", get(r_task::get_run))
         .layer(auth::JwtAxumLayer::new(jwt_config));
 
     let mut router = Router::new()

@@ -30,7 +30,7 @@ pub async fn run(state: ApiCmdState, _args: ChangePasswordArgs) -> anyhow::Resul
     }
 
     state
-        .client
+        .rest_client
         .change_password(&current_password, &new_password)
         .await
         .context("failed to change password")?;

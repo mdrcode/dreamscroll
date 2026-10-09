@@ -4,8 +4,8 @@ use sea_orm::entity::prelude::*;
 /// One row per task **run** — the canonical source of truth for
 /// background task runs. See `plan/task-status.md` §3 and §6.
 ///
-/// A logical task (`envelope_id`) can be run more than once; each run gets its
-/// own row, numbered from 1. `(envelope_id, run)` is unique, which is what
+/// A logical task (`logical_id`) can be run more than once; each run gets its
+/// own row, numbered from 1. `(logical_id, run)` is unique, which is what
 /// prevents a duplicate submission of work that is still in flight.
 ///
 /// TODO(REVISIT): the primary read pattern is
@@ -26,15 +26,18 @@ pub struct Model {
     pub id: i64,
     pub user_id: i32,
 
-    /// Identifies the *logical* task (not the run), e.g.
-    /// `u1-illuminate-capture123`. Already encodes user_id + task_type + entity.
+    /// Identifies the logical task (not one of its runs), e.g.
+    /// `u1-illuminate-capture123`.
     #[sea_orm(unique_key = "task_run")]
-    pub envelope_id: String,
+    pub logical_id: String,
 
-    /// Which run of the logical task this row records, counting up from 1.
-    /// A rerun of completed work creates a new row with the next number.
+    /// Globally unique UUID for this TaskRun.
+    #[sea_orm(unique)]
+    pub run_id: String,
+
+    /// 1-based ordinal among runs of the same logical task.
     #[sea_orm(unique_key = "task_run")]
-    pub run: i32,
+    pub run_number: i32,
 
     /// 'illuminate' | 'spark' | 'search_index' | ...
     pub task_type: String,

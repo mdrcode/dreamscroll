@@ -237,10 +237,12 @@ mod tests {
             sse::TaskStatusPayload {
                 task_type: "illuminate".to_string(),
                 status: crate::task::TaskRunStatus::InProgress,
+                logical_id: "u77-illuminate-capture42".to_string(),
+                run_id: "720196b8-3dbf-4c63-9b78-c3f05787d831".to_string(),
+                run_number: 2,
                 attempts: 1,
                 result_entity_type: None,
                 result_entity_id: None,
-                run: 2,
                 processing_started_at: None,
                 estimated_duration_ms_p50: None,
             },
@@ -271,8 +273,9 @@ mod tests {
         let row = crate::model::task_run_status::Model {
             id: 1,
             user_id: 7,
-            envelope_id: "u7-illuminate-capture42".to_string(),
-            run: 3,
+            logical_id: "u7-illuminate-capture42".to_string(),
+            run_id: "720196b8-3dbf-4c63-9b78-c3f05787d831".to_string(),
+            run_number: 3,
             task_type: "illuminate".to_string(),
             entity_type: "capture".to_string(),
             entity_id: 42,
@@ -300,7 +303,7 @@ mod tests {
         let event = sse::TaskStatusEvent::from_row(&row, Some(&estimate)).unwrap();
         assert_eq!(event.entity_id, 42);
         assert_eq!(event.payload.status, crate::task::TaskRunStatus::InProgress);
-        assert_eq!(event.payload.run, 3);
+        assert_eq!(event.payload.run_number, 3);
         assert_eq!(event.user_id, Some(7));
         assert_eq!(event.payload.estimated_duration_ms_p50, Some(10_000));
     }
@@ -310,11 +313,12 @@ mod tests {
         let row = crate::model::task_run_status::Model {
             id: 2,
             user_id: 7,
-            envelope_id: "u7-illuminate-capture42".to_string(),
-            run: 1,
+            logical_id: "u7-illuminate-capture42".to_string(),
+            run_id: "69d394f8-5caa-4363-8c3e-d081b4a353a5".to_string(),
+            run_number: 1,
             task_type: "illuminate".to_string(),
-            entity_type: "capture".to_string(),
             entity_id: 42,
+            entity_type: "capture".to_string(),
             task_payload: None,
             result_entity_type: None,
             result_entity_id: None,
@@ -498,7 +502,9 @@ mod tests {
                     attempts: 1,
                     result_entity_type: None,
                     result_entity_id: None,
-                    run: 1,
+                    logical_id: format!("u{user_id}-illuminate-capture{entity_id}"),
+                    run_id: uuid::Uuid::new_v4().to_string(),
+                    run_number: 1,
                     processing_started_at: None,
                     estimated_duration_ms_p50: None,
                 },

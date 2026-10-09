@@ -205,14 +205,24 @@ mod tests {
             .submit_illuminate(&context, task.clone())
             .await
             .unwrap();
-        let crate::task::SubmitOutcome::Enqueued { run: first_run } = first_run else {
+        let crate::task::SubmitOutcome::Enqueued {
+            run_id: first_run_id,
+            run_number: first_run_number,
+        } = first_run
+        else {
             panic!("first illumination run should enqueue");
         };
-        let first_envelope = crate::task::TaskEnvelope::new(user.id, task.clone(), first_run);
+        let first_task_run = crate::task::TaskRun {
+            user_id: user.id,
+            logical_id: crate::task::TaskRun::make_logical_id(user.id, &task),
+            run_id: first_run_id,
+            run_number: first_run_number,
+            task: task.clone(),
+        };
 
         let failed_attempt = crate::webhook::r_illuminate::post(
             axum::extract::State(state.clone()),
-            axum::Json(first_envelope.clone()),
+            axum::Json(first_task_run.clone()),
         )
         .await
         .unwrap()
@@ -222,7 +232,7 @@ mod tests {
             axum::http::StatusCode::INTERNAL_SERVER_ERROR
         );
         let failed_status = task_master
-            .query_run_status(&context, &first_envelope.envelope_id, first_run)
+            .query_run_status(&context, &first_task_run.run_id)
             .await
             .unwrap()
             .unwrap();
@@ -237,7 +247,7 @@ mod tests {
 
         let successful_attempt = crate::webhook::r_illuminate::post(
             axum::extract::State(state.clone()),
-            axum::Json(first_envelope.clone()),
+            axum::Json(first_task_run.clone()),
         )
         .await
         .unwrap()
@@ -247,7 +257,7 @@ mod tests {
             axum::http::StatusCode::NO_CONTENT
         );
         let completed_status = task_master
-            .query_run_status(&context, &first_envelope.envelope_id, first_run)
+            .query_run_status(&context, &first_task_run.run_id)
             .await
             .unwrap()
             .unwrap();
@@ -280,20 +290,30 @@ mod tests {
             .submit_illuminate(&context, task.clone())
             .await
             .unwrap();
-        let crate::task::SubmitOutcome::Enqueued { run: second_run } = rerun else {
-            panic!("settled illumination task should allow a rerun");
+        let crate::task::SubmitOutcome::Enqueued {
+            run_id: second_run_id,
+            run_number: second_run_number,
+        } = rerun
+        else {
+            panic!("settled TaskRun should enqueue a new run");
         };
-        let second_envelope = crate::task::TaskEnvelope::new(user.id, task, second_run);
+        let second_task_run = crate::task::TaskRun {
+            user_id: user.id,
+            logical_id: crate::task::TaskRun::make_logical_id(user.id, &task),
+            run_id: second_run_id,
+            run_number: second_run_number,
+            task,
+        };
         let rerun_response = crate::webhook::r_illuminate::post(
             axum::extract::State(state),
-            axum::Json(second_envelope.clone()),
+            axum::Json(second_task_run.clone()),
         )
         .await
         .unwrap()
         .into_response();
         assert_eq!(rerun_response.status(), axum::http::StatusCode::NO_CONTENT);
         let rerun_status = task_master
-            .query_run_status(&context, &second_envelope.envelope_id, second_run)
+            .query_run_status(&context, &second_task_run.run_id)
             .await
             .unwrap()
             .unwrap();

@@ -15,8 +15,7 @@ use tokio::{
 use super::*;
 
 type TaskHandlerFuture = Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send + 'static>>;
-type TaskHandler<TTask> =
-    Arc<dyn Fn(TaskEnvelope<TTask>) -> TaskHandlerFuture + Send + Sync + 'static>;
+type TaskHandler<TTask> = Arc<dyn Fn(TaskRun<TTask>) -> TaskHandlerFuture + Send + Sync + 'static>;
 
 pub struct LocalTaskQueue<TTask: Task> {
     inner: Arc<LocalTaskQueueInner<TTask>>,
@@ -24,7 +23,7 @@ pub struct LocalTaskQueue<TTask: Task> {
 }
 
 struct LocalTaskQueueInner<TTask: Task> {
-    task_sender: mpsc::UnboundedSender<TaskEnvelope<TTask>>,
+    task_sender: mpsc::UnboundedSender<TaskRun<TTask>>,
     max_concurrent_tasks: usize,
     dispatcher_handle: Mutex<Option<JoinHandle<()>>>,
 }
@@ -52,17 +51,17 @@ where
 {
     pub fn connect<F, Fut>(max_concurrent_tasks: usize, task_handler: F) -> Self
     where
-        F: Fn(TaskEnvelope<TTask>) -> Fut + Send + Sync + 'static,
+        F: Fn(TaskRun<TTask>) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = anyhow::Result<()>> + Send + 'static,
     {
         let max_concurrent_tasks = max_concurrent_tasks.max(1);
 
         let handler: TaskHandler<TTask> =
-            Arc::new(move |task: TaskEnvelope<TTask>| -> TaskHandlerFuture {
+            Arc::new(move |task: TaskRun<TTask>| -> TaskHandlerFuture {
                 Box::pin(task_handler(task))
             });
         let semaphore = Arc::new(Semaphore::new(max_concurrent_tasks));
-        let (task_sender, mut task_receiver) = mpsc::unbounded_channel::<TaskEnvelope<TTask>>();
+        let (task_sender, mut task_receiver) = mpsc::unbounded_channel::<TaskRun<TTask>>();
 
         // One dispatcher receives tasks in FIFO order and fan-outs execution to workers.
         // A semaphore bounds worker concurrency to max_concurrent_tasks.
@@ -83,7 +82,7 @@ where
     }
 
     async fn run_dispatcher(
-        task_receiver: &mut mpsc::UnboundedReceiver<TaskEnvelope<TTask>>,
+        task_receiver: &mut mpsc::UnboundedReceiver<TaskRun<TTask>>,
         semaphore: Arc<Semaphore>,
         handler: TaskHandler<TTask>,
     ) {
@@ -101,7 +100,7 @@ where
                 let _permit = permit; // releases when dropped
                 if let Err(err) = (handler)(task.clone()).await {
                     tracing::error!(
-                        envelope = ?task,
+                        task_run = ?task,
                         error = ?err,
                         "Local task delivery failed; the task will not be retried by LocalTaskQueue"
                     );
@@ -134,7 +133,7 @@ impl<TTask> TaskQueue<TTask> for LocalTaskQueue<TTask>
 where
     TTask: Task + Send + Sync + 'static,
 {
-    async fn enqueue(&self, envelope: TaskEnvelope<TTask>) -> anyhow::Result<()> {
+    async fn enqueue(&self, task_run: TaskRun<TTask>) -> anyhow::Result<()> {
         let type_name = std::any::type_name::<TTask>()
             .rsplit("::")
             .next()
@@ -142,13 +141,13 @@ where
         let task_str = format!(
             "{} {}",
             type_name,
-            serde_json::to_string(&envelope)
+            serde_json::to_string(&task_run)
                 .unwrap_or_else(|_| "<serialization error>".to_string())
         );
         tracing::info!(task = %task_str, "Enqueuing task into LocalTaskQueue");
         self.inner
             .task_sender
-            .send(envelope)
+            .send(task_run)
             .map_err(|_| anyhow!("Cannot enqueue into LocalTaskQueue after shutdown"))
     }
 }
@@ -184,8 +183,8 @@ mod tests {
         }
     }
 
-    fn envelope(id: i32) -> TaskEnvelope<TestTask> {
-        TaskEnvelope::new(1, TestTask { id }, 1)
+    fn task_run(id: i32) -> TaskRun<TestTask> {
+        TaskRun::new(1, TestTask { id }, 1)
     }
 
     /// Poll until `predicate` holds, or fail the test on timeout.
@@ -204,7 +203,7 @@ mod tests {
         let seen = Arc::new(AsyncMutex::new(Vec::new()));
         let seen_for_worker = Arc::clone(&seen);
 
-        let queue = LocalTaskQueue::connect(4, move |task: TaskEnvelope<TestTask>| {
+        let queue = LocalTaskQueue::connect(4, move |task: TaskRun<TestTask>| {
             let seen = Arc::clone(&seen_for_worker);
             async move {
                 seen.lock().await.push(task.task.id);
@@ -212,8 +211,8 @@ mod tests {
             }
         });
 
-        queue.enqueue(envelope(1)).await?;
-        queue.enqueue(envelope(2)).await?;
+        queue.enqueue(task_run(1)).await?;
+        queue.enqueue(task_run(2)).await?;
 
         wait_until("both tasks to run", || {
             seen.try_lock().map(|s| s.len() == 2).unwrap_or(false)
@@ -230,7 +229,7 @@ mod tests {
         let seen = Arc::new(AsyncMutex::new(Vec::new()));
         let seen_for_worker = Arc::clone(&seen);
 
-        let queue = LocalTaskQueue::connect(1, move |task: TaskEnvelope<TestTask>| {
+        let queue = LocalTaskQueue::connect(1, move |task: TaskRun<TestTask>| {
             let seen = Arc::clone(&seen_for_worker);
             async move {
                 seen.lock().await.push(task.task.id);
@@ -239,7 +238,7 @@ mod tests {
         });
 
         for id in 1..=5 {
-            queue.enqueue(envelope(id)).await?;
+            queue.enqueue(task_run(id)).await?;
         }
 
         wait_until("all FIFO tasks to run", || {
@@ -270,7 +269,7 @@ mod tests {
             Arc::clone(&done),
         );
 
-        let queue = LocalTaskQueue::connect(LIMIT, move |_task: TaskEnvelope<TestTask>| {
+        let queue = LocalTaskQueue::connect(LIMIT, move |_task: TaskRun<TestTask>| {
             let (active, max_active, done) = (
                 Arc::clone(&active_w),
                 Arc::clone(&max_w),
@@ -290,7 +289,7 @@ mod tests {
         });
 
         for id in 0..TASKS {
-            queue.enqueue(envelope(id)).await?;
+            queue.enqueue(task_run(id)).await?;
         }
 
         wait_until("all tasks to finish", || {
@@ -322,7 +321,7 @@ mod tests {
         );
 
         // Concurrency 1, so only the first task can be in flight.
-        let queue = LocalTaskQueue::connect(1, move |_task: TaskEnvelope<TestTask>| {
+        let queue = LocalTaskQueue::connect(1, move |_task: TaskRun<TestTask>| {
             let (started, processed, release) = (
                 Arc::clone(&started_w),
                 Arc::clone(&processed_w),
@@ -337,9 +336,9 @@ mod tests {
             }
         });
 
-        queue.enqueue(envelope(1)).await?;
-        queue.enqueue(envelope(2)).await?;
-        queue.enqueue(envelope(3)).await?;
+        queue.enqueue(task_run(1)).await?;
+        queue.enqueue(task_run(2)).await?;
+        queue.enqueue(task_run(3)).await?;
 
         wait_until("the first task to start", || {
             started.load(Ordering::SeqCst) == 1
@@ -366,7 +365,7 @@ mod tests {
         let processed = Arc::new(AsyncMutex::new(Vec::new()));
         let processed_for_worker = Arc::clone(&processed);
 
-        let queue = LocalTaskQueue::connect(1, move |task: TaskEnvelope<TestTask>| {
+        let queue = LocalTaskQueue::connect(1, move |task: TaskRun<TestTask>| {
             let processed = Arc::clone(&processed_for_worker);
             async move {
                 let id = task.task.id;
@@ -380,7 +379,7 @@ mod tests {
         });
 
         for id in [1, 2, 3] {
-            queue.enqueue(envelope(id)).await?;
+            queue.enqueue(task_run(id)).await?;
         }
 
         wait_until("tasks 1 and 3 to complete", || {
@@ -402,7 +401,7 @@ mod tests {
         let done = Arc::new(AtomicUsize::new(0));
         let done_for_worker = Arc::clone(&done);
 
-        let queue = LocalTaskQueue::connect(0, move |_task: TaskEnvelope<TestTask>| {
+        let queue = LocalTaskQueue::connect(0, move |_task: TaskRun<TestTask>| {
             let done = Arc::clone(&done_for_worker);
             async move {
                 done.fetch_add(1, Ordering::SeqCst);
@@ -410,7 +409,7 @@ mod tests {
             }
         });
 
-        queue.enqueue(envelope(1)).await?;
+        queue.enqueue(task_run(1)).await?;
 
         wait_until("the task to run", || done.load(Ordering::SeqCst) == 1).await;
         Ok(())

@@ -58,7 +58,7 @@ POST https://dreamscroll.ai/api/captures/605/unarchive
 Authorization: Bearer {{token}}
 
 ###
-# Returns 202 Accepted with { envelope_id, run }, 409 Conflict if in flight, or 404
+# Returns 202 Accepted with the JSON run_id string, 409 Conflict if in flight, or 404
 POST https://dreamscroll.ai/api/queues/illuminate
 Authorization: Bearer {{token}}
 Content-Type: application/json
@@ -66,7 +66,7 @@ Content-Type: application/json
 { "capture_id": 608 }
 
 ###
-GET https://dreamscroll.ai/api/tasks/u1-illuminate-capture608/1
+GET https://dreamscroll.ai/api/tasks/b91a7c4f-7e8a-4bf8-9a76-c81e258ec113
 Authorization: Bearer {{token}}
 
 ###

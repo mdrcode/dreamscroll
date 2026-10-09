@@ -6,13 +6,13 @@ use crate::{api, logic, task, webhook};
 
 /// Webhook POST route for Cloud Tasks spark inference payloads.
 ///
-/// Expected body is a serialized `TaskEnvelope<SparkTask>`, e.g.:
-/// `{ "user_id": 1, "envelope_id": "u1-spark-spark5", "task": { "capture_ids": [123, 456] } }`
+/// Expected body is a serialized `TaskRun<SparkTask>`, e.g.:
+/// `{ "user_id": 1, "logical_id": "u1-spark-spark5", "run_id": "9a6f177e-64ed-4ced-8da6-b6a2ec43687d", "run_number": 1, "task": { "capture_ids": [123, 456] } }`
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
-    Json(envelope): Json<task::TaskEnvelope<logic::spark::SparkTask>>,
+    Json(task_run): Json<task::TaskRun<logic::spark::SparkTask>>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let task = envelope.task.clone();
+    let task = task_run.task.clone();
 
     if task.capture_ids.is_empty() {
         return Err(api::ApiError::bad_request(anyhow::anyhow!(
@@ -23,7 +23,7 @@ pub async fn post(
     // `None` means the task already completed (at-least-once redelivery); ack it.
     let Some(attempt) = state
         .task_master
-        .begin_attempt(&envelope)
+        .begin_attempt(&task_run)
         .await
         .map_err(api::ApiError::internal)?
     else {
@@ -34,7 +34,7 @@ pub async fn post(
 
     let outcome = state
         .task_master
-        .finish_attempt(&envelope, attempt, &result, None)
+        .finish_attempt(&task_run, attempt, &result, None)
         .await
         .map_err(api::ApiError::internal)?;
 

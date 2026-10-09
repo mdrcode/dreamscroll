@@ -100,7 +100,7 @@ pub async fn run(state: ApiCmdState, args: SparkArgs) -> anyhow::Result<()> {
 
     let capture_ids = parse_capture_ids(&args.ids)?;
 
-    let captures = state.client.get_captures(Some(&capture_ids)).await?;
+    let captures = state.rest_client.get_captures(Some(&capture_ids)).await?;
 
     if captures.is_empty() {
         return Err(anyhow!("No matching captures found for provided IDs."));

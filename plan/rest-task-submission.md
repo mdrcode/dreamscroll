@@ -56,10 +56,10 @@ On success, the server verifies that the capture is accessible to the caller,
 submits through `TaskMaster`, and returns HTTP `202 Accepted`:
 
 ```json
-{ "envelope_id": "u1-illuminate-capture123", "run": 2 }
+"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113"
 ```
 
-The returned `(envelope_id, run)` identifies one run and is used to query its
+The response body is the `run_id` string itself. Use it to query this exact run's
 status. A submission refused because the same logical task is already in flight
 returns `409 Conflict`. A missing or inaccessible capture returns `404` without
 revealing cross-user existence.
@@ -67,7 +67,7 @@ revealing cross-user existence.
 ### 2.2 Query exact-run status
 
 ```http
-GET /api/tasks/{envelope_id}/{run}
+GET /api/tasks/{run_id}
 Authorization: Bearer <token>
 ```
 
@@ -76,8 +76,9 @@ a run owned by another user returns `404`. The successful response contains:
 
 ```json
 {
-  "envelope_id": "u1-illuminate-capture123",
-  "run": 2,
+  "logical_id": "u1-illuminate-capture123",
+  "run_id": "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113",
+  "run_number": 2,
   "task_type": "illuminate",
   "entity_type": "capture",
   "entity_id": 123,
@@ -110,18 +111,18 @@ that URL/authentication flow and the shared REST client:
 
 Without `--wait`, the CLI submits and immediately queries the exact run status.
 With `--wait`, it queries every two seconds until the run settles or the timeout
-expires. In all cases, it prints the `(envelope_id, run)` pair and current status.
+expires. It prints the `run_id`, logical ID, run number, and current status.
 On timeout, it reports the latest observed status and exits successfully: task
 submission succeeded even though completion was not observed within the wait
-window. The printed identity can be used for a later status lookup.
+window. The `run_id` can be used for a later status lookup.
 
 ## 4. Design boundaries
 
 - Queue names (`illuminate`, `search_index`) are REST submission destinations;
   they are not interchangeable with task identities.
-- `envelope_id` identifies the logical task, while `run` identifies one
-  execution of that logical task. Keep `run` separate from `envelope_id`; the
-  pair is the exact-run handle.
+- `logical_id` identifies the logical task, while `run_id` identifies one globally
+  unique invocation. `run_number` is the per-logical-task ordinal used for ordering.
+  Use `run_id` to fetch the exact TaskRun status.
 - The REST routes call user-facing API client methods, which validate capture
   ownership before enqueue. Task execution continues to use the existing
   webhook/worker flow.

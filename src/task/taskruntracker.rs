@@ -27,18 +27,18 @@ impl TaskRunTracker {
 
     /// Insert a task run in its initial `Queued` state with zero attempts.
     ///
-    /// Returns `Ok(false)` if `(envelope_id, run)`already exists — this covers
-    /// the *lost-a-race* scenario, where a concurrent submit claimed the run
-    /// first. The unique index, not the read, is what makes correctness here.
-    pub async fn create_run<T: Task>(&self, envelope: &TaskEnvelope<T>) -> anyhow::Result<bool> {
-        let task_payload = serde_json::to_value(&envelope.task)?;
+    /// Returns `Ok(false)` if `(logical_id, run_number)` already exists — this
+    /// covers the lost-a-race case; the unique index arbitrates submissions.
+    pub async fn create_run<T: Task>(&self, task_run: &TaskRun<T>) -> anyhow::Result<bool> {
+        let task_payload = serde_json::to_value(&task_run.task)?;
         let result = model::task_run_status::ActiveModel::builder()
             .set_task_type(T::task_type())
-            .set_envelope_id(envelope.envelope_id.as_str())
-            .set_run(envelope.run)
+            .set_logical_id(task_run.logical_id.as_str())
+            .set_run_id(task_run.run_id.as_str())
+            .set_run_number(task_run.run_number)
             .set_entity_type(T::entity_type())
-            .set_entity_id(envelope.task.entity_id())
-            .set_user_id(envelope.user_id)
+            .set_entity_id(task_run.task.entity_id())
+            .set_user_id(task_run.user_id)
             .set_task_payload(Some(task_payload))
             .set_result_entity_type(None)
             .set_result_entity_id(None)
@@ -49,7 +49,7 @@ impl TaskRunTracker {
         match result {
             Ok(row) => {
                 timing::refresh_timing_measures::<T>(&self.db, TaskRunStatus::Queued).await?;
-                self.notify_status(envelope, &row.into()).await;
+                self.notify_status(task_run, &row.into()).await;
                 Ok(true)
             }
             Err(err) if is_unique_violation(&err) => Ok(false),
@@ -57,10 +57,10 @@ impl TaskRunTracker {
         }
     }
 
-    /// Update an existing `(envelope_id, run)`. Warn and ignore if the run is missing.
+    /// Update one TaskRun by its globally unique run ID.
     pub async fn update_run<T: Task>(
         &self,
-        envelope: &TaskEnvelope<T>,
+        task_run: &TaskRun<T>,
         status: TaskRunStatus,
         attempts: i32,
     ) -> anyhow::Result<()> {
@@ -77,28 +77,27 @@ impl TaskRunTracker {
                 model::task_run_status::Column::UpdatedAt,
                 Expr::current_timestamp(),
             )
-            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope.envelope_id.as_str()))
-            .filter(model::task_run_status::Column::Run.eq(envelope.run))
+            .filter(model::task_run_status::Column::RunId.eq(task_run.run_id.as_str()))
             .exec_with_returning(&self.db.conn)
             .await?;
 
         let Some(row) = result.into_iter().next() else {
             tracing::warn!(
-                envelope = ?envelope,
+                task_run = ?task_run,
                 "Ignoring task status update because the run row is missing"
             );
             return Ok(());
         };
 
         timing::refresh_timing_measures::<T>(&self.db, status).await?;
-        self.notify_status(envelope, &row).await;
+        self.notify_status(task_run, &row).await;
         Ok(())
     }
 
     /// Mark the most recent attempt as processing and record its start time.
     pub async fn begin_attempt<T: Task>(
         &self,
-        envelope: &TaskEnvelope<T>,
+        task_run: &TaskRun<T>,
         attempts: i32,
     ) -> anyhow::Result<()> {
         let rows = model::task_run_status::Entity::update_many()
@@ -118,20 +117,19 @@ impl TaskRunTracker {
                 model::task_run_status::Column::UpdatedAt,
                 Expr::current_timestamp(),
             )
-            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope.envelope_id.as_str()))
-            .filter(model::task_run_status::Column::Run.eq(envelope.run))
+            .filter(model::task_run_status::Column::RunId.eq(task_run.run_id.as_str()))
             .exec_with_returning(&self.db.conn)
             .await?;
 
         let Some(row) = rows.into_iter().next() else {
             tracing::warn!(
-                envelope = ?envelope,
+                task_run = ?task_run,
                 "Ignoring task status update because the run row is missing"
             );
             return Ok(());
         };
         timing::refresh_timing_measures::<T>(&self.db, TaskRunStatus::InProgress).await?;
-        self.notify_status(envelope, &row).await;
+        self.notify_status(task_run, &row).await;
         Ok(())
     }
 
@@ -139,7 +137,7 @@ impl TaskRunTracker {
     /// optional result reference on success.
     pub async fn finish_attempt<T: Task>(
         &self,
-        envelope: &TaskEnvelope<T>,
+        task_run: &TaskRun<T>,
         status: TaskRunStatus,
         attempts: i32,
         result_ref: Option<TaskRunResultRef>,
@@ -192,25 +190,24 @@ impl TaskRunTracker {
         }
 
         let rows = update
-            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope.envelope_id.as_str()))
-            .filter(model::task_run_status::Column::Run.eq(envelope.run))
+            .filter(model::task_run_status::Column::RunId.eq(task_run.run_id.as_str()))
             .exec_with_returning(&self.db.conn)
             .await?;
         timing::refresh_timing_measures::<T>(&self.db, status).await?;
         let Some(row) = rows.into_iter().next() else {
             tracing::warn!(
-                envelope = ?envelope,
+                task_run = ?task_run,
                 "Ignoring task status update because the run row is missing"
             );
             return Ok(());
         };
-        self.notify_status(envelope, &row).await;
+        self.notify_status(task_run, &row).await;
         Ok(())
     }
 
     async fn notify_status<T: Task>(
         &self,
-        envelope: &TaskEnvelope<T>,
+        task_run: &TaskRun<T>,
         row: &model::task_run_status::Model,
     ) {
         let Some(notifier) = &self.notifier else {
@@ -223,39 +220,51 @@ impl TaskRunTracker {
             timing::Measure::ProcessingSuccessful,
         )
         .await;
-        let event = sse::TaskStatusEvent::from_envelope(envelope, row, estimate.as_ref());
+        let event = sse::TaskStatusEvent::from_task_run(task_run, row, estimate.as_ref());
         if let Err(error) = notifier.notify_task_status(&event).await {
             tracing::debug!(
-                envelope = ?envelope,
+                task_run = ?task_run,
                 error = ?error,
                 "Failed to publish task-status notification"
             );
         }
     }
 
-    /// Look up a task run, or its latest run when `run` is `None`.
-    ///
-    /// When `user_id` is provided, the lookup is scoped to that user. The
-    /// unscoped form is reserved for TaskMaster's internal lifecycle operations.
+    /// Look up a logical task's latest run, or a particular run number.
     pub async fn query_run_status(
         &self,
-        envelope_id: &str,
-        run: Option<i32>,
+        logical_id: &str,
+        run_number: Option<i32>,
         user_id: Option<i32>,
     ) -> anyhow::Result<Option<model::task_run_status::Model>> {
         let mut query = model::task_run_status::Entity::find()
-            .filter(model::task_run_status::Column::EnvelopeId.eq(envelope_id));
-        if let Some(run) = run {
-            query = query.filter(model::task_run_status::Column::Run.eq(run));
+            .filter(model::task_run_status::Column::LogicalId.eq(logical_id));
+        if let Some(run_number) = run_number {
+            query = query.filter(model::task_run_status::Column::RunNumber.eq(run_number));
         }
         if let Some(user_id) = user_id {
             query = query.filter(model::task_run_status::Column::UserId.eq(user_id));
         }
 
         Ok(query
-            .order_by_desc(model::task_run_status::Column::Run)
+            .order_by_desc(model::task_run_status::Column::RunNumber)
             .one(&self.db.conn)
             .await?)
+    }
+
+    /// Look up one run by its global ID, optionally scoped to its owner.
+    pub async fn query_run_by_id(
+        &self,
+        run_id: &str,
+        user_id: Option<i32>,
+    ) -> anyhow::Result<Option<model::task_run_status::Model>> {
+        let mut query = model::task_run_status::Entity::find()
+            .filter(model::task_run_status::Column::RunId.eq(run_id));
+        if let Some(user_id) = user_id {
+            query = query.filter(model::task_run_status::Column::UserId.eq(user_id));
+        }
+
+        Ok(query.one(&self.db.conn).await?)
     }
 
     /// Latest task statuses per entity and task type for one user.
@@ -285,15 +294,14 @@ impl TaskRunTracker {
             ])
             .order_by_asc(model::task_run_status::Column::EntityId)
             .order_by_asc(model::task_run_status::Column::TaskType)
-            .order_by_desc(model::task_run_status::Column::Run)
+            .order_by_desc(model::task_run_status::Column::RunNumber)
             .all(&self.db.conn)
             .await?)
     }
 }
 
 /// True when a `DbErr` is a unique-constraint violation. The
-/// `(envelope_id, run)` unique index is the real guard against a duplicate
-/// submission, so this is expected, not exceptional.
+/// `(logical_id, run_number)` index makes concurrent duplicate submissions expected.
 fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
     matches!(
         err.sql_err(),
@@ -345,19 +353,19 @@ mod tests {
         }
     }
 
-    fn envelope(user_id: i32, id: i32, run: i32) -> TaskEnvelope<TestTask> {
-        TaskEnvelope::new(user_id, TestTask { id }, run)
+    fn task_run(user_id: i32, id: i32, run_number: i32) -> TaskRun<TestTask> {
+        TaskRun::new(user_id, TestTask { id }, run_number)
     }
 
     async fn create_run_with_status<T: Task>(
         tracker: &TaskRunTracker,
-        envelope: &TaskEnvelope<T>,
+        task_run: &TaskRun<T>,
         status: TaskRunStatus,
         attempts: i32,
     ) -> anyhow::Result<bool> {
-        let created = tracker.create_run(envelope).await?;
+        let created = tracker.create_run(task_run).await?;
         if created && (status != TaskRunStatus::Queued || attempts != 0) {
-            tracker.update_run(envelope, status, attempts).await?;
+            tracker.update_run(task_run, status, attempts).await?;
         }
         Ok(created)
     }
@@ -370,7 +378,7 @@ mod tests {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
-        let env = TaskEnvelope::new(
+        let env = TaskRun::new(
             1,
             crate::logic::illuminate::IlluminationTask::new(
                 42,
@@ -388,12 +396,12 @@ mod tests {
         );
 
         let stored = tracker
-            .query_run_status(&env.envelope_id, None, None)
+            .query_run_status(&env.logical_id, None, None)
             .await
             .expect("query should succeed")
             .expect("row should exist");
 
-        assert_eq!(stored.run, 1);
+        assert_eq!(stored.run_number, 1);
         assert_eq!(stored.user_id, 1);
         assert_eq!(stored.entity_id, 42);
         assert_eq!(stored.entity_type, "capture");
@@ -420,12 +428,12 @@ mod tests {
         };
         let notifier = RecordingNotifier::default();
         let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
-        let task_envelope = envelope(1, 52, 1);
+        let task_run = task_run(1, 52, 1);
 
-        assert!(tracker.create_run(&task_envelope).await.unwrap());
+        assert!(tracker.create_run(&task_run).await.unwrap());
 
         let stored = tracker
-            .query_run_status(&task_envelope.envelope_id, Some(task_envelope.run), None)
+            .query_run_status(&task_run.logical_id, Some(task_run.run_number), None)
             .await
             .unwrap()
             .unwrap();
@@ -444,12 +452,12 @@ mod tests {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
-        let env = envelope(1, 53, 1);
+        let env = task_run(1, 53, 1);
         assert!(tracker.create_run(&env).await.unwrap());
 
         tracker.begin_attempt(&env, 1).await.unwrap();
         let started = tracker
-            .query_run_status(&env.envelope_id, Some(env.run), None)
+            .query_run_status(&env.logical_id, Some(env.run_number), None)
             .await
             .unwrap()
             .unwrap()
@@ -460,7 +468,7 @@ mod tests {
             .await
             .unwrap();
         let after_first_failure = tracker
-            .query_run_status(&env.envelope_id, Some(env.run), None)
+            .query_run_status(&env.logical_id, Some(env.run_number), None)
             .await
             .unwrap()
             .unwrap();
@@ -484,7 +492,7 @@ mod tests {
             .await
             .unwrap();
         let completed = tracker
-            .query_run_status(&env.envelope_id, Some(env.run), None)
+            .query_run_status(&env.logical_id, Some(env.run_number), None)
             .await
             .unwrap()
             .unwrap();
@@ -510,7 +518,7 @@ mod tests {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
-        let env = envelope(1, 54, 1);
+        let env = task_run(1, 54, 1);
         assert!(tracker.create_run(&env).await.unwrap());
 
         tracker
@@ -519,7 +527,7 @@ mod tests {
             .unwrap();
 
         let stored = tracker
-            .query_run_status(&env.envelope_id, Some(env.run), None)
+            .query_run_status(&env.logical_id, Some(env.run_number), None)
             .await
             .unwrap()
             .unwrap();
@@ -535,7 +543,7 @@ mod tests {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
-        let env = envelope(1, 55, 1);
+        let env = task_run(1, 55, 1);
         assert!(tracker.create_run(&env).await.unwrap());
         tracker.begin_attempt(&env, 1).await.unwrap();
         tracker
@@ -561,7 +569,7 @@ mod tests {
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
 
-        let first = envelope(1, 56, 1);
+        let first = task_run(1, 56, 1);
         assert!(tracker.create_run(&first).await.unwrap());
         tracker.begin_attempt(&first, 1).await.unwrap();
         tracker
@@ -569,7 +577,7 @@ mod tests {
             .await
             .unwrap();
 
-        let failed = envelope(1, 57, 1);
+        let failed = task_run(1, 57, 1);
         assert!(tracker.create_run(&failed).await.unwrap());
         tracker.begin_attempt(&failed, 1).await.unwrap();
         tracker
@@ -594,7 +602,7 @@ mod tests {
             .unwrap()
             .unwrap();
 
-        let second = envelope(1, 58, 1);
+        let second = task_run(1, 58, 1);
         assert!(tracker.create_run(&second).await.unwrap());
         tracker.begin_attempt(&second, 1).await.unwrap();
         tracker
@@ -622,16 +630,16 @@ mod tests {
         };
         let notifier = RecordingNotifier::default();
         let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
-        let task_envelope = envelope(1, 42, 1);
+        let first_task_run = task_run(1, 42, 1);
 
-        assert!(tracker.create_run(&task_envelope).await.unwrap());
-        assert!(!tracker.create_run(&task_envelope).await.unwrap());
+        assert!(tracker.create_run(&first_task_run).await.unwrap());
+        assert!(!tracker.create_run(&first_task_run).await.unwrap());
         tracker
-            .update_run(&task_envelope, TaskRunStatus::InProgress, 1)
+            .update_run(&first_task_run, TaskRunStatus::InProgress, 1)
             .await
             .unwrap();
         tracker
-            .update_run(&envelope(1, 99, 1), TaskRunStatus::CompleteSuccess, 1)
+            .update_run(&task_run(1, 99, 1), TaskRunStatus::CompleteSuccess, 1)
             .await
             .unwrap();
 
@@ -648,21 +656,21 @@ mod tests {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(FailingNotifier)));
-        let task_envelope = envelope(1, 42, 1);
+        let task_run = task_run(1, 42, 1);
 
         assert!(
             tracker
-                .create_run(&task_envelope)
+                .create_run(&task_run)
                 .await
                 .expect("best-effort notification failure must not fail persistence")
         );
         tracker
-            .update_run(&task_envelope, TaskRunStatus::InProgress, 1)
+            .update_run(&task_run, TaskRunStatus::InProgress, 1)
             .await
             .expect("best-effort notification failure must not fail persistence");
 
         let stored = tracker
-            .query_run_status(&task_envelope.envelope_id, Some(task_envelope.run), None)
+            .query_run_status(&task_run.logical_id, Some(task_run.run_number), None)
             .await
             .unwrap()
             .unwrap();
@@ -677,7 +685,7 @@ mod tests {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
-        let env = envelope(1, 42, 1);
+        let env = task_run(1, 42, 1);
 
         let first = tracker
             .create_run(&env)
@@ -698,8 +706,8 @@ mod tests {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
-        let first = envelope(1, 42, 1);
-        let second = envelope(1, 42, 1);
+        let first = task_run(1, 42, 1);
+        let second = task_run(1, 42, 1);
 
         let (first_created, second_created) =
             tokio::join!(tracker.create_run(&first), tracker.create_run(&second),);
@@ -708,7 +716,7 @@ mod tests {
         assert_eq!(
             created.iter().filter(|was_created| **was_created).count(),
             1,
-            "the unique (envelope_id, run) constraint must arbitrate concurrent inserts"
+            "the unique (logical_id, run) constraint must arbitrate concurrent inserts"
         );
     }
 
@@ -722,7 +730,7 @@ mod tests {
         assert!(
             create_run_with_status(
                 &tracker,
-                &envelope(1, 42, 1),
+                &task_run(1, 42, 1),
                 TaskRunStatus::CompleteSuccess,
                 1,
             )
@@ -731,18 +739,18 @@ mod tests {
         );
         assert!(
             tracker
-                .create_run(&envelope(1, 42, 2))
+                .create_run(&task_run(1, 42, 2))
                 .await
                 .expect("run 2 should be created")
         );
 
         let latest = tracker
-            .query_run_status(&envelope(1, 42, 1).envelope_id, None, None)
+            .query_run_status(&task_run(1, 42, 1).logical_id, None, None)
             .await
             .expect("query should succeed")
             .expect("a row should exist");
 
-        assert_eq!(latest.run, 2, "latest_run picks the highest run");
+        assert_eq!(latest.run_number, 2, "latest_run picks the highest run");
     }
 
     #[tokio::test]
@@ -751,10 +759,10 @@ mod tests {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
-        let env = envelope(1, 42, 1);
+        let env = task_run(1, 42, 1);
         let result = tracker.create_run(&env).await;
 
-        assert!(result.is_ok(), "a valid envelope carries its task payload");
+        assert!(result.is_ok(), "a valid TaskRun carries its task payload");
     }
 
     #[tokio::test]
@@ -763,8 +771,8 @@ mod tests {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
-        let run1 = envelope(1, 42, 1);
-        let run2 = envelope(1, 42, 2);
+        let run1 = task_run(1, 42, 1);
+        let run2 = task_run(1, 42, 2);
 
         create_run_with_status(&tracker, &run1, TaskRunStatus::CompleteFailure, 1)
             .await
@@ -780,12 +788,12 @@ mod tests {
             .expect("update should succeed");
 
         let stored1 = tracker
-            .query_run_status(&run1.envelope_id, Some(1), None)
+            .query_run_status(&run1.logical_id, Some(1), None)
             .await
             .expect("query should succeed")
             .expect("run 1 should exist");
         let stored2 = tracker
-            .query_run_status(&run2.envelope_id, Some(2), None)
+            .query_run_status(&run2.logical_id, Some(2), None)
             .await
             .expect("query should succeed")
             .expect("run 2 should exist");
@@ -800,7 +808,7 @@ mod tests {
 
         // A run that was never written is simply absent, not an error.
         let missing = tracker
-            .query_run_status(&run1.envelope_id, Some(99), None)
+            .query_run_status(&run1.logical_id, Some(99), None)
             .await
             .expect("query should succeed");
         assert!(missing.is_none());
@@ -814,7 +822,7 @@ mod tests {
         let tracker = TaskRunTracker::new(db.handle(), None);
 
         tracker
-            .create_run(&envelope(1, 42, 1))
+            .create_run(&task_run(1, 42, 1))
             .await
             .expect("create_run should succeed");
 
@@ -853,7 +861,7 @@ mod tests {
 
         create_run_with_status(
             &tracker,
-            &envelope(1, 42, 1),
+            &task_run(1, 42, 1),
             TaskRunStatus::CompleteFailure,
             2,
         )
@@ -861,17 +869,17 @@ mod tests {
         .expect("older run should be created");
         create_run_with_status(
             &tracker,
-            &envelope(1, 42, 2),
+            &task_run(1, 42, 2),
             TaskRunStatus::CompleteSuccess,
             1,
         )
         .await
         .expect("newer run should be created");
         tracker
-            .create_run(&envelope(1, 43, 1))
+            .create_run(&task_run(1, 43, 1))
             .await
             .expect("second entity should be created");
-        create_run_with_status(&tracker, &envelope(2, 42, 1), TaskRunStatus::InProgress, 1)
+        create_run_with_status(&tracker, &task_run(2, 42, 1), TaskRunStatus::InProgress, 1)
             .await
             .expect("other user's entity should be created");
 
@@ -882,7 +890,10 @@ mod tests {
 
         assert_eq!(rows.len(), 2, "only matching user/entity rows are returned");
         assert_eq!(
-            rows.iter().find(|row| row.entity_id == 42).unwrap().run,
+            rows.iter()
+                .find(|row| row.entity_id == 42)
+                .unwrap()
+                .run_number,
             2,
             "only the latest run for an entity is returned"
         );
@@ -919,19 +930,19 @@ mod tests {
 
         create_run_with_status(
             &tracker,
-            &envelope(1, 42, 1),
+            &task_run(1, 42, 1),
             TaskRunStatus::CompleteSuccess,
             1,
         )
         .await
         .unwrap();
-        let search_task = TaskEnvelope::new(
+        let search_task = TaskRun::new(
             1,
             crate::logic::search_index::SearchIndexTask { capture_id: 42 },
             1,
         );
         tracker.create_run(&search_task).await.unwrap();
-        let spark_task = TaskEnvelope::new(
+        let spark_task = TaskRun::new(
             1,
             crate::logic::spark::SparkTask {
                 spark_id: 42,
@@ -974,8 +985,8 @@ mod tests {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
-        let first = envelope(1, 42, 1);
-        let second = envelope(1, 42, 2);
+        let first = task_run(1, 42, 1);
+        let second = task_run(1, 42, 2);
 
         create_run_with_status(&tracker, &first, TaskRunStatus::CompleteFailure, 1)
             .await
@@ -984,16 +995,16 @@ mod tests {
 
         assert_eq!(
             tracker
-                .query_run_status(&first.envelope_id, None, None)
+                .query_run_status(&first.logical_id, None, None)
                 .await
                 .unwrap()
                 .unwrap()
-                .run,
+                .run_number,
             2
         );
         assert!(
             tracker
-                .query_run_status("missing-envelope", None, None)
+                .query_run_status("missing-logical-id", None, None)
                 .await
                 .unwrap()
                 .is_none()
@@ -1009,7 +1020,7 @@ mod tests {
         let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
 
         tracker
-            .update_run(&envelope(1, 42, 1), TaskRunStatus::InProgress, 1)
+            .update_run(&task_run(1, 42, 1), TaskRunStatus::InProgress, 1)
             .await
             .expect("missing-run update is ignored after logging a warning");
 

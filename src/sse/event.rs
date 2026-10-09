@@ -2,9 +2,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::model;
-use crate::task::{Task, TaskEnvelope, TaskRunStatus, timing::TaskTimingEstimate};
+use crate::task::{Task, TaskRun, TaskRunStatus, timing::TaskTimingEstimate};
 
-pub const CURRENT_SCHEMA_VERSION: u8 = 1;
+pub const CURRENT_SCHEMA_VERSION: u8 = 2;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -46,7 +46,9 @@ pub struct AvailabilityPayload {
 pub struct TaskStatusPayload {
     pub task_type: String,
     pub status: TaskRunStatus,
-    pub run: i32,
+    pub logical_id: String,
+    pub run_id: String,
+    pub run_number: i32,
     pub attempts: i32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub result_entity_type: Option<String>,
@@ -79,17 +81,19 @@ impl<E> ServerEvent<E> {
 }
 
 impl ServerEvent<TaskStatusPayload> {
-    pub(crate) fn from_envelope<T: Task>(
-        envelope: &TaskEnvelope<T>,
+    pub(crate) fn from_task_run<T: Task>(
+        task_run: &TaskRun<T>,
         row: &model::task_run_status::Model,
         estimate: Option<&TaskTimingEstimate>,
     ) -> Self {
         let mut event = Self::from_row(row, estimate).expect("validated task status row");
         event.payload.task_type = T::task_type().to_string();
+        event.payload.logical_id = task_run.logical_id.clone();
+        event.payload.run_id = task_run.run_id.clone();
         event.entity_type = T::entity_type().to_string();
-        event.entity_id = envelope.task.entity_id();
-        event.user_id = Some(envelope.user_id);
-        event.payload.run = envelope.run;
+        event.entity_id = task_run.task.entity_id();
+        event.user_id = Some(task_run.user_id);
+        event.payload.run_number = task_run.run_number;
         event.payload.estimated_duration_ms_p50 =
             estimate.and_then(TaskTimingEstimate::client_processing_duration_ms);
         event
@@ -108,10 +112,12 @@ impl ServerEvent<TaskStatusPayload> {
             TaskStatusPayload {
                 task_type: row.task_type.clone(),
                 status,
+                logical_id: row.logical_id.clone(),
+                run_id: row.run_id.clone(),
+                run_number: row.run_number,
                 attempts: row.attempts,
                 result_entity_type: row.result_entity_type.clone(),
                 result_entity_id: row.result_entity_id.clone(),
-                run: row.run,
                 processing_started_at: row.processing_started_at,
                 estimated_duration_ms_p50: estimate
                     .and_then(TaskTimingEstimate::client_processing_duration_ms),
@@ -141,8 +147,10 @@ mod tests {
             42,
             TaskStatusPayload {
                 task_type: "illuminate".to_string(),
-                run: 3,
                 status: TaskRunStatus::CompleteSuccess,
+                logical_id: "u1-illuminate-capture42".to_string(),
+                run_id: "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113".to_string(),
+                run_number: 3,
                 attempts: 1,
                 result_entity_type: None,
                 result_entity_id: None,
@@ -153,7 +161,7 @@ mod tests {
 
         assert_eq!(
             serde_json::to_string(&update).unwrap(),
-            r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"run":3,"attempts":1}}"#
+            r#"{"schema_version":2,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"logical_id":"u1-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#,
         );
     }
 
@@ -163,8 +171,9 @@ mod tests {
             &model::task_run_status::Model {
                 id: 1,
                 user_id: 8,
-                envelope_id: "u8-test-capture91".to_string(),
-                run: 4,
+                logical_id: "u8-test-capture91".to_string(),
+                run_id: "8a0d329d-72ca-4fd5-bd8d-2302f762f37d".to_string(),
+                run_number: 4,
                 task_type: "illuminate".to_string(),
                 entity_type: "capture".to_string(),
                 entity_id: 91,
@@ -198,12 +207,12 @@ mod tests {
             update.payload.result_entity_id.as_deref(),
             Some("8a0d329d-72ca-4fd5-bd8d-2302f762f37d")
         );
-        assert_eq!(update.payload.run, 4);
+        assert_eq!(update.payload.run_number, 4);
         assert_eq!(update.user_id, Some(8));
     }
 
     #[test]
-    fn task_status_from_envelope_copies_identity_and_run() {
+    fn task_status_from_task_run_copies_identity_and_run() {
         #[derive(Clone, Debug, Serialize)]
         struct TestTask {
             id: i32,
@@ -223,12 +232,13 @@ mod tests {
             }
         }
 
-        let envelope = TaskEnvelope::new(17, TestTask { id: 91 }, 4);
+        let task_run = TaskRun::new(17, TestTask { id: 91 }, 4);
         let row = model::task_run_status::Model {
             id: 1,
             user_id: 17,
-            envelope_id: envelope.envelope_id.clone(),
-            run: 4,
+            logical_id: task_run.logical_id.clone(),
+            run_id: task_run.run_id.clone(),
+            run_number: 4,
             task_type: "test".to_string(),
             entity_type: "capture".to_string(),
             entity_id: 91,
@@ -243,14 +253,16 @@ mod tests {
             success_duration_ms: None,
             updated_at: timestamp(),
         };
-        let event = TaskStatusEvent::from_envelope(&envelope, &row, None);
+        let event = TaskStatusEvent::from_task_run(&task_run, &row, None);
 
         assert_eq!(event.entity_type, "capture");
         assert_eq!(event.entity_id, 91);
         assert_eq!(event.payload.task_type, "test");
         assert_eq!(event.payload.status, TaskRunStatus::InProgress);
         assert_eq!(event.payload.attempts, 2);
-        assert_eq!(event.payload.run, 4);
+        assert_eq!(event.payload.logical_id, task_run.logical_id);
+        assert_eq!(event.payload.run_id, task_run.run_id);
+        assert_eq!(event.payload.run_number, 4);
         assert_eq!(event.timestamp, timestamp());
         assert_eq!(event.user_id, Some(17));
     }

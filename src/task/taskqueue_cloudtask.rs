@@ -6,11 +6,8 @@ use google_cloud_tasks_v2::model::{HttpMethod, HttpRequest, OidcToken, Task as C
 
 use super::*;
 
-pub fn make_cloud_tasks_task_name(queue_path: &str, envelope: &TaskEnvelope<impl Task>) -> String {
-    format!(
-        "{queue_path}/tasks/{}-run{}",
-        envelope.envelope_id, envelope.run
-    )
+pub fn make_cloud_tasks_task_name(queue_path: &str, task_run: &TaskRun<impl Task>) -> String {
+    format!("{queue_path}/tasks/{}", task_run.run_id)
 }
 
 /// Dispatches submitted tasks to a Google Cloud Tasks queue, which will call
@@ -58,11 +55,10 @@ impl<T: Task> CloudTaskQueue<T> {
 
 #[async_trait::async_trait]
 impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
-    async fn enqueue(&self, envelope: TaskEnvelope<T>) -> anyhow::Result<()> {
-        // Serialize the full envelope (task definition + identity) so the worker knows
-        // which task and run it's completing.
+    async fn enqueue(&self, task_run: TaskRun<T>) -> anyhow::Result<()> {
+        // Serialize the complete TaskRun so the worker receives the IDs and task payload.
         let body =
-            serde_json::to_vec(&envelope).context("Failed to serialize task wrapper to JSON")?;
+            serde_json::to_vec(&task_run).context("Failed to serialize task wrapper to JSON")?;
 
         let webhook_request = HttpRequest::new()
             .set_url(self.inner.task_webhook_url.clone())
@@ -71,13 +67,11 @@ impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
             .set_oidc_token(self.inner.oidc_token.clone())
             .set_body(body);
 
-        // A deterministic name makes client retries idempotent at the Cloud
-        // Tasks layer. The run is included so intentional reruns get a new
-        // Cloud Task name.
+        // The TaskRun's stable run ID makes client retries idempotent at Cloud Tasks.
         let pending_task = CloudTask::new()
             .set_name(make_cloud_tasks_task_name(
                 &self.inner.cloud_tasks_queue_path,
-                &envelope,
+                &task_run,
             ))
             .set_http_request(webhook_request);
 
@@ -91,8 +85,8 @@ impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
             .await
             .map_err(|err| {
                 anyhow!(
-                    "Cloud Tasks create_task failed for task_id {:?}: {}",
-                    envelope.envelope_id,
+                    "Cloud Tasks create_task failed for run_id {:?}: {}",
+                    task_run.run_id,
                     err
                 )
             })?;
@@ -100,8 +94,8 @@ impl<T: Task + 'static> TaskQueue<T> for CloudTaskQueue<T> {
         tracing::info!(
             queue = %self.inner.cloud_tasks_queue_path,
             task_name = %created_task.name,
-            envelope = ?envelope,
-            "Enqueued task envelope to queue: {} with task_name: {}",
+            task_run = ?task_run,
+            "Enqueued TaskRun to queue: {} with task_name: {}",
             self.inner.cloud_tasks_queue_path,
             created_task.name
         );
@@ -136,18 +130,18 @@ mod tests {
 
     #[test]
     fn task_name_is_stable_per_run() {
-        let envelope = TaskEnvelope::new(7, TestTask { id: 42 }, 3);
+        let task_run = TaskRun::new(7, TestTask { id: 42 }, 3);
 
         assert_eq!(
-            make_cloud_tasks_task_name("projects/p/locations/r/queues/q", &envelope),
-            "projects/p/locations/r/queues/q/tasks/u7-illuminate-capture42-run3"
+            make_cloud_tasks_task_name("projects/p/locations/r/queues/q", &task_run),
+            format!("projects/p/locations/r/queues/q/tasks/{}", task_run.run_id),
         );
     }
 
     #[test]
     fn task_name_changes_for_a_rerun() {
-        let run1 = TaskEnvelope::new(7, TestTask { id: 42 }, 1);
-        let run2 = TaskEnvelope::new(7, TestTask { id: 42 }, 2);
+        let run1 = TaskRun::new(7, TestTask { id: 42 }, 1);
+        let run2 = TaskRun::new(7, TestTask { id: 42 }, 2);
 
         assert_ne!(
             make_cloud_tasks_task_name("projects/p/locations/r/queues/q", &run1),

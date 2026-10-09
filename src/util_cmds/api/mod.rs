@@ -7,7 +7,6 @@ pub mod backfill;
 pub mod change_password;
 pub mod clear_token;
 pub mod export_digest;
-pub mod illumination_text;
 pub mod import_digest;
 pub mod inference;
 pub mod search;

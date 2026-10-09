@@ -43,12 +43,12 @@ impl task::Task for IlluminationTask {
 /// Executes the requested version. Both results are persisted raw; v1 also writes
 /// the current relational projection, while v2 remains an evaluation-only path.
 ///
-/// Each call creates a concrete inference ID and returns it with the capture owner.
+/// Each call creates a concrete inference ID and returns its result reference.
 /// Retries re-illuminate with new IDs; settled reruns append a projection.
 pub async fn exec(
     state: &super::LogicState,
     task: &IlluminationTask,
-) -> Result<(i32, task::TaskRunResultRef), api::ApiError> {
+) -> Result<task::TaskRunResultRef, api::ApiError> {
     let capture_id = task.capture_id;
     tracing::Span::current().record("capture_id", capture_id);
 
@@ -109,10 +109,7 @@ pub async fn exec(
 
     tracing::info!(capture_id, prompt_version = ?task.prompt_version, "Illumination completed and persisted");
 
-    Ok((
-        capture.user_id,
-        task::TaskRunResultRef::new("inference", inference_id),
-    ))
+    Ok(task::TaskRunResultRef::new("inference", inference_id))
 }
 
 #[cfg(test)]

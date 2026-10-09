@@ -1,7 +1,6 @@
 use argh::FromArgs;
 
-use dreamscroll::rest;
-use dreamscroll::{config, telemetry, util_cmds};
+use dreamscroll::{config, rest, telemetry, util_cmds};
 
 #[derive(FromArgs)]
 #[argh(description = "dreamscroll REST API utility")]
@@ -27,7 +26,6 @@ enum Command {
     ChangePassword(util_cmds::api::change_password::ChangePasswordArgs),
     ClearToken(util_cmds::api::clear_token::ClearTokenArgs),
     ExportDigest(util_cmds::api::export_digest::ExportDigestArgs),
-    IlluminationText(util_cmds::api::illumination_text::IlluminationTextArgs),
     ImportDigest(util_cmds::api::import_digest::ImportDigestArgs),
     Search(util_cmds::api::search::SearchArgs),
     SearchSimilar(util_cmds::api::search_similar::SearchSimilarArgs),
@@ -59,9 +57,6 @@ async fn main() -> anyhow::Result<()> {
         Command::ClearToken(args) => util_cmds::api::clear_token::run(state, args).await,
         Command::ExportDigest(args) => util_cmds::api::export_digest::run(state, args).await,
         Command::ImportDigest(args) => util_cmds::api::import_digest::run(state, args).await,
-        Command::IlluminationText(args) => {
-            util_cmds::api::illumination_text::run(state, args).await
-        }
         Command::Spark(args) => util_cmds::api::spark::run(state, args).await,
         Command::Search(args) => util_cmds::api::search::run(state, args).await,
         Command::SearchSimilar(args) => util_cmds::api::search_similar::run(state, args).await,

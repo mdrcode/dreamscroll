@@ -16,7 +16,7 @@ pub struct SearchSimilarArgs {
 
 pub async fn run(state: ApiCmdState, args: SearchSimilarArgs) -> anyhow::Result<()> {
     let capture_infos = state
-        .client
+        .rest_client
         .search_similar(args.capture_id, Some(args.limit))
         .await?;
 

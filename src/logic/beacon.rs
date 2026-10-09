@@ -32,7 +32,7 @@ impl Beacon {
 
     /// Handle a successful illumination signal.
     /// This runs in a background worker, which has no authenticated request Context;
-    /// pass the capture's persisted owner ID rather than the task envelope's user ID.
+    /// pass the capture's persisted owner ID rather than the TaskRun's user ID.
     pub async fn new_illumination(&self, user_id: i32, capture_id: i32) -> anyhow::Result<()> {
         let outcome = self
             .task_master
@@ -45,9 +45,13 @@ impl Beacon {
 
     fn log_outcome(task_type: &str, capture_id: i32, outcome: task::SubmitOutcome) {
         match outcome {
-            task::SubmitOutcome::Enqueued { run } => {
-                tracing::debug!(task_type, capture_id, run, "Beacon enqueued follow-up task")
-            }
+            task::SubmitOutcome::Enqueued { run_id, run_number } => tracing::debug!(
+                task_type,
+                capture_id,
+                run_id = %run_id,
+                run_number,
+                "Beacon enqueued follow-up TaskRun"
+            ),
             task::SubmitOutcome::RefusedAlreadyInFlight => tracing::debug!(
                 task_type,
                 capture_id,

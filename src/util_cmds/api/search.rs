@@ -16,7 +16,7 @@ pub struct SearchArgs {
 
 pub async fn run(state: ApiCmdState, args: SearchArgs) -> anyhow::Result<()> {
     let captures = state
-        .client
+        .rest_client
         .search(&args.query, Some(args.limit as u64))
         .await?;
     println!(

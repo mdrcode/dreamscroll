@@ -11,6 +11,10 @@ use crate::{api, auth};
 
 use super::RestState;
 
+fn accepted_task_run_response(run_id: String) -> (axum::http::StatusCode, Json<String>) {
+    (axum::http::StatusCode::ACCEPTED, Json(run_id))
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CaptureTaskRequest {
     pub capture_id: i32,
@@ -29,11 +33,11 @@ pub async fn post_illuminate(
     State(state): State<Arc<RestState>>,
     Json(request): Json<IlluminateTaskRequest>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let identity = state
+    let run_id = state
         .user_api
         .enqueue_illumination(&user.into(), request.capture_id, request.prompt_version)
         .await?;
-    Ok((axum::http::StatusCode::ACCEPTED, Json(identity)))
+    Ok(accepted_task_run_response(run_id))
 }
 
 /// POST /api/queues/search_index
@@ -42,29 +46,20 @@ pub async fn post_search_index(
     State(state): State<Arc<RestState>>,
     Json(request): Json<CaptureTaskRequest>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let identity = state
+    let run_id = state
         .user_api
         .enqueue_search_index(&user.into(), request.capture_id)
         .await?;
-    Ok((axum::http::StatusCode::ACCEPTED, Json(identity)))
+    Ok(accepted_task_run_response(run_id))
 }
 
-/// GET /api/tasks/{envelope_id}/{run}
+/// GET /api/tasks/{run_id}
 pub async fn get_run(
     user: auth::DreamscrollAuthUser,
     State(state): State<Arc<RestState>>,
-    Path((envelope_id, run)): Path<(String, i32)>,
+    Path(run_id): Path<String>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    if run < 1 {
-        return Err(api::ApiError::bad_request(anyhow::anyhow!(
-            "run must be a positive integer"
-        )));
-    }
-
-    let status = state
-        .user_api
-        .get_task_run(&user.into(), &envelope_id, run)
-        .await?;
+    let status = state.user_api.get_task_run(&user.into(), &run_id).await?;
     Ok(Json(status))
 }
 
@@ -90,5 +85,17 @@ mod tests {
             v2.prompt_version,
             crate::illumination::IlluminationVersion::V2
         );
+    }
+
+    #[tokio::test]
+    async fn accepted_task_run_response_returns_json_run_id() {
+        let run_id = "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113";
+        let response = accepted_task_run_response(run_id.to_string()).into_response();
+
+        assert_eq!(response.status(), axum::http::StatusCode::ACCEPTED);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(serde_json::from_slice::<String>(&body).unwrap(), run_id);
     }
 }

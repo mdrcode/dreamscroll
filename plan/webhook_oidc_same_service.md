@@ -31,7 +31,7 @@ The existing code already has a natural boundary for this change:
 - `src/config/config_def.rs` owns environment-backed configuration.
 - `src/webhook/localclient.rs` intentionally performs unauthenticated local calls.
 
-The existing task envelope idempotency and retry handling should remain unchanged.
+Existing TaskRun deduplication and retry handling should remain unchanged.
 OIDC authenticates the caller; it does not replace `TaskMaster::begin_attempt` or the
 persisted task status checks.
 
@@ -277,10 +277,10 @@ Cloud Tasks backend. HTTPS and hostname validation remain deployment checks.
   existing 5 MiB limit; authentication must happen before expensive task execution.
 
 OIDC does not provide replay prevention. That is acceptable here because Cloud Tasks
-is at-least-once delivery and the existing envelope/run persistence is the replay
-protection for work execution. A valid token can be replayed during its lifetime, but
-it cannot cause a task to execute twice successfully when the existing idempotency
-checks reject completed runs.
+is at-least-once delivery and persisted TaskRun status is the replay guard. A
+redelivery carries the same `run_id`; `TaskMaster` ignores completed runs, while
+`run_number` and `logical_id` distinguish intentional reruns. A valid token can be
+replayed during its lifetime, but it cannot cause completed work to run again.
 
 ## Testing plan
 

@@ -138,7 +138,7 @@ mod tests {
 
     #[test]
     fn decodes_task_status_event() {
-        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"user_id":7,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"attempts":1,"run":3}}"#;
+        let payload = r#"{"schema_version":2,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"user_id":7,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"logical_id":"u7-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#;
         assert!(matches!(
             decode_server_event(payload).unwrap(),
             ReceivedServerEvent::TaskStatus(_)
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn decodes_availability_event() {
-        let payload = r#"{"schema_version":1,"event_type":"availability","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"operation":"deleted"}}"#;
+        let payload = r#"{"schema_version":2,"event_type":"availability","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"operation":"deleted"}}"#;
         assert!(matches!(
             decode_server_event(payload).unwrap(),
             ReceivedServerEvent::Availability(_)
@@ -163,7 +163,7 @@ mod tests {
     #[test]
     fn rejects_missing_and_unsupported_schema_versions() {
         let missing = r#"{"event_type":"availability"}"#;
-        let unsupported = r#"{"schema_version":2,"event_type":"availability"}"#;
+        let unsupported = r#"{"schema_version":3,"event_type":"availability"}"#;
         let negative = r#"{"schema_version":-1,"event_type":"availability"}"#;
 
         assert!(
@@ -188,14 +188,14 @@ mod tests {
 
     #[test]
     fn rejects_task_status_notification_without_owner_id() {
-        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"attempts":1,"run":3}}"#;
+        let payload = r#"{"schema_version":2,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"logical_id":"u7-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#;
         let error = decode_server_event(payload).unwrap_err();
         assert!(error.to_string().contains("routing user_id"));
     }
 
     #[test]
     fn rejects_malformed_task_status_payload() {
-        let payload = r#"{"schema_version":1,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":"not-an-object"}}"#;
+        let payload = r#"{"schema_version":2,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":"not-an-object","logical_id":"u7-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#;
         assert!(decode_server_event(payload).is_err());
     }
 
@@ -225,10 +225,12 @@ mod tests {
             super::super::TaskStatusPayload {
                 task_type: "illuminate".to_string(),
                 status: crate::task::TaskRunStatus::InProgress,
+                logical_id: format!("u741258-illuminate-capture{event_id}"),
+                run_id: "6f6844ec-d1ac-4f51-b4ae-57e92c646b8d".to_string(),
+                run_number: 3,
                 attempts: 2,
                 result_entity_type: None,
                 result_entity_id: None,
-                run: 3,
                 processing_started_at: None,
                 estimated_duration_ms_p50: None,
             },

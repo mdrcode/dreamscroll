@@ -3,18 +3,12 @@ use serde::{Deserialize, Serialize};
 
 use crate::task::TaskRunStatus;
 
-/// Stable public identity returned when a task run is submitted.
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct TaskRunIdentity {
-    pub envelope_id: String,
-    pub run: i32,
-}
-
 /// User-visible status of one task run.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct TaskRunInfo {
-    pub envelope_id: String,
-    pub run: i32,
+    pub logical_id: String,
+    pub run_id: String,
+    pub run_number: i32,
     pub task_type: String,
     pub entity_type: String,
     pub entity_id: i32,
@@ -33,8 +27,9 @@ impl TryFrom<crate::model::task_run_status::Model> for TaskRunInfo {
 
     fn try_from(row: crate::model::task_run_status::Model) -> Result<Self, Self::Error> {
         Ok(Self {
-            envelope_id: row.envelope_id,
-            run: row.run,
+            logical_id: row.logical_id,
+            run_id: row.run_id,
+            run_number: row.run_number,
             task_type: row.task_type,
             entity_type: row.entity_type,
             entity_id: row.entity_id,

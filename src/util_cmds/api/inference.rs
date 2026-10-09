@@ -61,19 +61,16 @@ async fn run_illumination(state: ApiCmdState, args: IlluminateArgs) -> anyhow::R
         args.capture_id,
         prompt_version.as_str()
     );
-    let identity = state
-        .client
+    let run_id = state
+        .rest_client
         .enqueue_illuminate(args.capture_id, prompt_version)
         .await?;
-    eprintln!(
-        "Enqueued illumination task {} (run {}).",
-        identity.envelope_id, identity.run
-    );
+    eprintln!("Enqueued TaskRun {run_id}.");
 
     eprintln!("Polling for task completion...");
     let status = task::wait_for_task_run(
-        &state.client,
-        &identity,
+        &state.rest_client,
+        &run_id,
         Duration::from_secs(args.wait_seconds),
         Duration::from_secs(2),
     )
@@ -82,7 +79,7 @@ async fn run_illumination(state: ApiCmdState, args: IlluminateArgs) -> anyhow::R
 
     eprintln!("Fetching raw illumination result...");
     let inference_id = inference_result_id(&status)?;
-    let raw = state.client.get_illumination_raw(inference_id).await?;
+    let raw = state.rest_client.get_illumination_raw(inference_id).await?;
     let markdown = render_illumination(prompt_version, raw)?;
     println!("{markdown}");
     Ok(())
@@ -111,16 +108,18 @@ fn ensure_successful_run(status: &api::TaskRunInfo) -> anyhow::Result<()> {
     match status.status {
         TaskRunStatus::CompleteSuccess => Ok(()),
         TaskRunStatus::SubmissionFailed | TaskRunStatus::CompleteFailure => Err(anyhow!(
-            "illumination task {} run {} ended with status {} after {} attempt(s)",
-            status.envelope_id,
-            status.run,
+            "illumination TaskRun {} (logical ID {}, run number {}) ended with status {} after {} attempt(s)",
+            status.run_id,
+            status.logical_id,
+            status.run_number,
             status.status,
             status.attempts
         )),
         other_status => Err(anyhow!(
-            "timed out waiting for illumination task {} run {}; latest status {} after {} attempt(s)",
-            status.envelope_id,
-            status.run,
+            "timed out waiting for illumination TaskRun {} (logical ID {}, run number {}); latest status {} after {} attempt(s)",
+            status.run_id,
+            status.logical_id,
+            status.run_number,
             other_status,
             status.attempts
         )),
@@ -183,8 +182,9 @@ mod tests {
     #[test]
     fn only_successful_task_runs_allow_result_fetching() {
         let status = |status| api::TaskRunInfo {
-            envelope_id: "u7-illuminate-capture42".to_string(),
-            run: 1,
+            logical_id: "u7-illuminate-capture42".to_string(),
+            run_id: "3e6d5dd1-4350-49d4-9933-e2de78aab82d".to_string(),
+            run_number: 1,
             task_type: "illuminate".to_string(),
             entity_type: "capture".to_string(),
             entity_id: 42,
@@ -214,8 +214,9 @@ mod tests {
     #[test]
     fn reads_inference_id_from_task_run_result_reference() {
         let status = api::TaskRunInfo {
-            envelope_id: "u7-illuminate-capture42".to_string(),
-            run: 3,
+            logical_id: "u7-illuminate-capture42".to_string(),
+            run_id: "ae6976df-3f83-4d35-b814-785ed1d8ca4c".to_string(),
+            run_number: 3,
             task_type: "illuminate".to_string(),
             entity_type: "capture".to_string(),
             entity_id: 42,

@@ -1,4 +1,4 @@
-use crate::{api, illumination};
+use crate::{api, illumination, task};
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, Utc};
 use reqwest;
@@ -293,7 +293,7 @@ impl Client {
         &self,
         capture_id: i32,
         prompt_version: illumination::IlluminationVersion,
-    ) -> anyhow::Result<api::TaskRunIdentity> {
+    ) -> anyhow::Result<String> {
         let response = self
             .reqwest_client
             .post(format!("{}/queues/illuminate", self.base_url))
@@ -309,10 +309,7 @@ impl Client {
         Self::parse_json_response(response).await
     }
 
-    pub async fn enqueue_search_index(
-        &self,
-        capture_id: i32,
-    ) -> anyhow::Result<api::TaskRunIdentity> {
+    pub async fn enqueue_search_index(&self, capture_id: i32) -> anyhow::Result<String> {
         let response = self
             .reqwest_client
             .post(format!("{}/queues/search_index", self.base_url))
@@ -325,15 +322,10 @@ impl Client {
         Self::parse_json_response(response).await
     }
 
-    pub async fn get_task_run(
-        &self,
-        envelope_id: &str,
-        run: i32,
-    ) -> anyhow::Result<api::TaskRunInfo> {
+    pub async fn get_task_run(&self, run_id: &str) -> anyhow::Result<api::TaskRunInfo> {
         let response = self
             .reqwest_client
-            .get(format!("{}/tasks/{}/{}", self.base_url, envelope_id, run))
-            .bearer_auth(&self.access_token)
+            .get(format!("{}/tasks/{run_id}", self.base_url))
             .send()
             .await
             .context("failed to query task-run status")?;

@@ -6,21 +6,21 @@ use crate::{api, illumination, logic, task, webhook};
 
 /// Webhook POST route for Cloud Tasks illumination payloads.
 ///
-/// Expected body is a serialized `TaskEnvelope<IlluminationTask>`, e.g.:
-/// `{ "user_id": 1, "envelope_id": "u1-illuminate-capture123", "task": { "capture_id": 123, "model_id": "gemini-3.8-flash", "prompt_version": "v1" } }`
+/// Expected body is a serialized `TaskRun<IlluminationTask>`, e.g.:
+/// `{ "user_id": 1, "logical_id": "u1-illuminate-capture123", "run_id": "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113", "run_number": 1, "task": { "capture_id": 123, "model_id": "gemini-3.8-flash", "prompt_version": "v1" } }`
 ///
 /// This is the live worker route for capture-created illumination tasks. It is
 /// also the entry point for future backfill and rerun flows.
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
-    Json(envelope): Json<task::TaskEnvelope<logic::illuminate::IlluminationTask>>,
+    Json(task_run): Json<task::TaskRun<logic::illuminate::IlluminationTask>>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let task = &envelope.task;
+    let task = &task_run.task;
 
     // `None` means the task already completed (at-least-once redelivery); ack it.
     let Some(attempt) = state
         .task_master
-        .begin_attempt(&envelope)
+        .begin_attempt(&task_run)
         .await
         .map_err(api::ApiError::internal)?
     else {
@@ -28,11 +28,11 @@ pub async fn post(
     };
 
     let (result, result_ref) = match logic::illuminate::exec(&state.logic, task).await {
-        Ok((user_id, result_ref)) => {
+        Ok(result_ref) => {
             let result = match task.prompt_version {
                 illumination::IlluminationVersion::V1 => {
                     logic::Beacon::new(state.task_master.clone())
-                        .new_illumination(user_id, task.capture_id)
+                        .new_illumination(task_run.user_id, task.capture_id)
                         .await
                         .map_err(api::ApiError::internal)
                 }
@@ -46,7 +46,7 @@ pub async fn post(
 
     let outcome = state
         .task_master
-        .finish_attempt(&envelope, attempt, &result, result_ref)
+        .finish_attempt(&task_run, attempt, &result, result_ref)
         .await
         .map_err(api::ApiError::internal)?;
 

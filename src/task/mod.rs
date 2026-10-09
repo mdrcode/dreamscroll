@@ -1,4 +1,4 @@
-// Task and TaskEnvelope, the core concepts
+// Task and TaskRun, the core concepts
 mod task_def;
 pub use task_def::*;
 

@@ -206,9 +206,9 @@ impl UserApiClient {
             );
         }
 
-        // Placeholder identity for the task envelope: the real spark row (and its
-        // DB id) doesn't exist until `insert_spark` runs at exec time, so we mint a
-        // random i32 here purely to give the envelope a stable id.
+        // Placeholder entity ID in the logical task; the real Spark row does not
+        // exist until `insert_spark` runs, so this ID is minted before dispatch.
+        // It only provides a stable logical ID until Spark gets a real identity.
         // TODO Replace with a real spark identity scheme.
         let random_spark_id = uuid::Uuid::new_v4().as_u128() as i32;
 
@@ -341,7 +341,7 @@ impl UserApiClient {
         context: &auth::Context,
         capture_id: i32,
         prompt_version: illumination::IlluminationVersion,
-    ) -> Result<TaskRunIdentity, ApiError> {
+    ) -> Result<String, ApiError> {
         if super::get_captures(&self.db, context, vec![capture_id])
             .await?
             .is_empty()
@@ -353,9 +353,8 @@ impl UserApiClient {
         }
 
         let task = self.illumination_task(capture_id, prompt_version)?;
-        let envelope_id = task::TaskEnvelope::make_envelope_id(context.user_id(), &task);
         match self.task_master.submit_illuminate(context, task).await? {
-            task::SubmitOutcome::Enqueued { run } => Ok(TaskRunIdentity { envelope_id, run }),
+            task::SubmitOutcome::Enqueued { run_id, .. } => Ok(run_id),
             task::SubmitOutcome::RefusedAlreadyInFlight => Err(ApiError::conflict(anyhow!(
                 "Illumination for capture {} is already in flight",
                 capture_id
@@ -368,7 +367,7 @@ impl UserApiClient {
         &self,
         context: &auth::Context,
         capture_id: i32,
-    ) -> Result<TaskRunIdentity, ApiError> {
+    ) -> Result<String, ApiError> {
         if super::get_captures(&self.db, context, vec![capture_id])
             .await?
             .is_empty()
@@ -380,9 +379,8 @@ impl UserApiClient {
         }
 
         let task = logic::search_index::SearchIndexTask { capture_id };
-        let envelope_id = task::TaskEnvelope::make_envelope_id(context.user_id(), &task);
         match self.task_master.submit_search_index(context, task).await? {
-            task::SubmitOutcome::Enqueued { run } => Ok(TaskRunIdentity { envelope_id, run }),
+            task::SubmitOutcome::Enqueued { run_id, .. } => Ok(run_id),
             task::SubmitOutcome::RefusedAlreadyInFlight => Err(ApiError::conflict(anyhow!(
                 "Search indexing for capture {} is already in flight",
                 capture_id
@@ -393,12 +391,11 @@ impl UserApiClient {
     pub async fn get_task_run(
         &self,
         context: &auth::Context,
-        envelope_id: &str,
-        run: i32,
+        run_id: &str,
     ) -> Result<TaskRunInfo, ApiError> {
         let row = self
             .task_master
-            .query_run_status(context, envelope_id, run)
+            .query_run_status(context, run_id)
             .await?
             .ok_or_else(|| ApiError::not_found(anyhow!("Task run not found")))?;
 

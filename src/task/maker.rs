@@ -37,7 +37,7 @@ pub async fn make_task_master(
                     &cfg.task_webhook_base_url,
                     &cfg.task_queue_name_illuminate,
                 );
-                LocalTaskQueue::connect(4, move |task: TaskEnvelope<IlluminationTask>| {
+                LocalTaskQueue::connect(4, move |task: TaskRun<IlluminationTask>| {
                     let client = LocalWebhookClient::new();
                     let url = url.clone();
                     async move { client.post_task(&url, &task).await }
@@ -47,7 +47,7 @@ pub async fn make_task_master(
             let spark_queue = {
                 let url =
                     make_prod_webhook_url(&cfg.task_webhook_base_url, &cfg.task_queue_name_spark);
-                LocalTaskQueue::connect(4, move |task: TaskEnvelope<SparkTask>| {
+                LocalTaskQueue::connect(4, move |task: TaskRun<SparkTask>| {
                     let client = LocalWebhookClient::new();
                     let url = url.clone();
                     async move { client.post_task(&url, &task).await }
@@ -59,7 +59,7 @@ pub async fn make_task_master(
                     &cfg.task_webhook_base_url,
                     &cfg.task_queue_name_search_index,
                 );
-                LocalTaskQueue::connect(4, move |task: TaskEnvelope<SearchIndexTask>| {
+                LocalTaskQueue::connect(4, move |task: TaskRun<SearchIndexTask>| {
                     let client = LocalWebhookClient::new();
                     let url = url.clone();
                     async move { client.post_task(&url, &task).await }
