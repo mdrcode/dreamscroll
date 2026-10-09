@@ -1,8 +1,9 @@
-use crate::{api, illumination, task};
 use anyhow::{Context, anyhow};
 use chrono::{DateTime, Utc};
 use reqwest;
 use serde::{Deserialize, Serialize};
+
+use crate::{api, illumination};
 
 // TODO move this client impl into its own file so it's not hiding in mod.rs
 
@@ -326,6 +327,7 @@ impl Client {
         let response = self
             .reqwest_client
             .get(format!("{}/tasks/{run_id}", self.base_url))
+            .bearer_auth(&self.access_token)
             .send()
             .await
             .context("failed to query task-run status")?;
@@ -425,5 +427,61 @@ impl Client {
             let body = read_error_body(response).await;
             Err(anyhow!("request failed with status {}: {}", status, body))
         }
+    }
+}
+#[cfg(test)]
+mod tests {
+    use axum::{
+        Json, Router,
+        http::{HeaderMap, StatusCode, header::AUTHORIZATION},
+        response::{IntoResponse, Response},
+        routing::get,
+    };
+    use chrono::Utc;
+    use tokio::net::TcpListener;
+
+    use super::*;
+
+    async fn require_bearer(headers: HeaderMap) -> Response {
+        if headers
+            .get(AUTHORIZATION)
+            .and_then(|value| value.to_str().ok())
+            != Some("Bearer test-token")
+        {
+            return StatusCode::UNAUTHORIZED.into_response();
+        }
+
+        Json(api::TaskRunInfo {
+            logical_id: "u1-illuminate-capture42".to_string(),
+            run_id: "run-123".to_string(),
+            run_number: 1,
+            task_type: "illuminate".to_string(),
+            entity_type: "capture".to_string(),
+            entity_id: 42,
+            result_entity_type: None,
+            result_entity_id: None,
+            status: task::TaskRunStatus::CompleteSuccess,
+            attempts: 1,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .into_response()
+    }
+
+    #[tokio::test]
+    async fn get_task_run_sends_cached_bearer_token() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let app = Router::new().route("/api/tasks/{run_id}", get(require_bearer));
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app).await.unwrap();
+        });
+
+        let client =
+            Client::connect_with_token(&format!("http://{address}"), "test-token".into()).unwrap();
+        let status = client.get_task_run("run-123").await;
+        server.abort();
+
+        assert_eq!(status.unwrap().run_id, "run-123");
     }
 }
