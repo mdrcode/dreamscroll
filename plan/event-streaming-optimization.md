@@ -38,7 +38,7 @@ long-lived server-side subscription filter.
 
 SSE event envelopes currently have a generic `timestamp` field. For
 `TaskStatusEvent::from_row`, this field is populated from
-`task_run_status.updated_at`:
+`task_runs.updated_at`:
 
 ```rust
 timestamp: row.updated_at
@@ -103,7 +103,7 @@ microsecond precision, making collisions unlikely but not impossible.
 A stronger cursor would be a compound value such as:
 
 ```text
-(updated_at, task_run_status.id)
+(updated_at, task_runs.id)
 ```
 
 The SQL ordering and comparison would need to use both values consistently.
@@ -171,7 +171,7 @@ or a database-side maximum update timestamp.
 
 1. Confirm the exact catch-up query and its cost under reconnect-heavy behavior.
 2. Decide whether task-status `ServerEvent.timestamp` should be formally defined
-   as `task_run_status.updated_at`.
+   as `task_runs.updated_at`.
 3. Determine whether timestamp collisions are acceptable for the prototype.
 4. If yes, prototype a timestamp-only cursor and test reconnect/catch-up races.
 5. Measure whether eliminating duplicate payloads is sufficient or whether the

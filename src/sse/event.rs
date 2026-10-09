@@ -83,7 +83,7 @@ impl<E> ServerEvent<E> {
 impl ServerEvent<TaskStatusPayload> {
     pub(crate) fn from_task_run<T: Task>(
         task_run: &TaskRun<T>,
-        row: &model::task_run_status::Model,
+        row: &model::task_run::Model,
         estimate: Option<&TaskTimingEstimate>,
     ) -> Self {
         let mut event = Self::from_row(row, estimate).expect("validated task status row");
@@ -100,7 +100,7 @@ impl ServerEvent<TaskStatusPayload> {
     }
 
     pub(crate) fn from_row(
-        row: &model::task_run_status::Model,
+        row: &model::task_run::Model,
         estimate: Option<&TaskTimingEstimate>,
     ) -> Option<Self> {
         let status = TaskRunStatus::from_i32(row.status_code).ok()?;
@@ -168,7 +168,7 @@ mod tests {
     #[test]
     fn task_status_constructor_sets_schema_and_routing_fields() {
         let update = TaskStatusEvent::from_row(
-            &model::task_run_status::Model {
+            &model::task_run::Model {
                 id: 1,
                 user_id: 8,
                 logical_id: "u8-test-capture91".to_string(),
@@ -233,7 +233,7 @@ mod tests {
         }
 
         let task_run = TaskRun::new(17, TestTask { id: 91 }, 4);
-        let row = model::task_run_status::Model {
+        let row = model::task_run::Model {
             id: 1,
             user_id: 17,
             logical_id: task_run.logical_id.clone(),

@@ -48,7 +48,7 @@ pub enum SubmitOutcome {
 }
 
 /// Return the next 1-based run number, or `None` if the latest run is in flight.
-fn decide_next_run(latest_run: Option<&model::task_run_status::Model>) -> Option<i32> {
+fn decide_next_run(latest_run: Option<&model::task_run::Model>) -> Option<i32> {
     if let Some(latest) = latest_run {
         match TaskRunStatus::from_i32(latest.status_code) {
             Ok(status) if status.is_in_flight() => None,
@@ -63,7 +63,7 @@ fn decide_next_run(latest_run: Option<&model::task_run_status::Model>) -> Option
 ///
 /// Cloud Tasks delivers at least once, so a redelivery of finished work must
 /// not resurrect it to `InProgress`.
-fn decide_next_attempt(status: Option<&model::task_run_status::Model>) -> Option<i32> {
+fn decide_next_attempt(status: Option<&model::task_run::Model>) -> Option<i32> {
     match status {
         Some(row) if row.status_code == TaskRunStatus::CompleteSuccess.as_i32() => None,
         Some(row) if row.status_code == TaskRunStatus::SubmissionFailed.as_i32() => None,
@@ -128,7 +128,7 @@ impl TaskMaster {
     /// Submit a task for execution.
     ///
     /// Create a TaskRun, enqueue it in the corresponding backend, and record a
-    /// `Queued` row in `task_run_status` before dispatch.
+    /// `Queued` row in `task_runs` before dispatch.
     /// If enqueueing fails, the row is changed to `SubmissionFailed` before the
     /// enqueue error is returned.
     ///
@@ -282,7 +282,7 @@ impl TaskMaster {
         context: &auth::Context,
         entity_type: &str,
         entity_ids: &[i32],
-    ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
+    ) -> anyhow::Result<Vec<model::task_run::Model>> {
         self.run_tracker
             .query_latest_task_runs(context.user_id(), entity_type, entity_ids)
             .await
@@ -292,7 +292,7 @@ impl TaskMaster {
         &self,
         context: &auth::Context,
         run_id: &str,
-    ) -> anyhow::Result<Option<model::task_run_status::Model>> {
+    ) -> anyhow::Result<Option<model::task_run::Model>> {
         self.run_tracker
             .query_run_by_id(run_id, Some(context.user_id()))
             .await
@@ -523,9 +523,9 @@ mod tests {
         assert!(!decide_will_retry(&err, 1, 0));
     }
 
-    /// A `task_run_status` row with only the fields the pure helpers read set to
+    /// A `task_runs` row with only the fields the pure helpers read set to
     /// meaningful values.
-    fn status_row(status: TaskRunStatus, attempts: i32) -> model::task_run_status::Model {
+    fn status_row(status: TaskRunStatus, attempts: i32) -> model::task_run::Model {
         status_row_of_run(status, attempts, 1)
     }
 
@@ -564,8 +564,8 @@ mod tests {
         status: TaskRunStatus,
         attempts: i32,
         run_number: i32,
-    ) -> model::task_run_status::Model {
-        model::task_run_status::Model {
+    ) -> model::task_run::Model {
+        model::task_run::Model {
             id: 0,
             user_id: 1,
             logical_id: "u1-illuminate-capture1".to_string(),

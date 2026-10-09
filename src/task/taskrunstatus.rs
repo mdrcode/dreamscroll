@@ -51,7 +51,7 @@ impl TaskRunStatus {
         }
     }
 
-    /// The integer persisted in the `task_run_status.status_code` column.
+    /// The integer persisted in the `task_runs.status_code` column.
     pub fn as_i32(&self) -> i32 {
         match self {
             TaskRunStatus::SubmissionFailed => 0,

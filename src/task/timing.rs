@@ -80,7 +80,7 @@ pub async fn refresh_timing_measures<T: Task>(
         return Ok(());
     };
     let sql = format!(
-        "WITH recent AS (SELECT {duration} AS duration_ms FROM task_run_status WHERE task_type = $1 AND {filter} ORDER BY updated_at DESC LIMIT {TIMING_SAMPLE_LIMIT}) SELECT COUNT(*)::BIGINT AS sample_count, COALESCE(ROUND(AVG(duration_ms)), 0)::BIGINT AS duration_ms_avg, COALESCE(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p50, COALESCE(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p75, COALESCE(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p90 FROM recent"
+        "WITH recent AS (SELECT {duration} AS duration_ms FROM task_runs WHERE task_type = $1 AND {filter} ORDER BY updated_at DESC LIMIT {TIMING_SAMPLE_LIMIT}) SELECT COUNT(*)::BIGINT AS sample_count, COALESCE(ROUND(AVG(duration_ms)), 0)::BIGINT AS duration_ms_avg, COALESCE(PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p50, COALESCE(PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p75, COALESCE(PERCENTILE_CONT(0.90) WITHIN GROUP (ORDER BY duration_ms), 0)::BIGINT AS duration_ms_p90 FROM recent"
     );
     let statement = sea_orm::Statement::from_sql_and_values(
         DatabaseBackend::Postgres,

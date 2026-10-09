@@ -1,14 +1,14 @@
 # Task Status Timing & Progress Bar — Design Plan
 
 **Status:** Timing persistence, update-in-place aggregate measures, SSE metadata, and client-side estimated progress implemented.
-**Scope:** Add persisted timing facts to `task_run_status`, expose them through task-status reads/SSE, and define the data needed for an estimated illumination progress indicator.
+**Scope:** Add persisted timing facts to `task_runs`, expose them through task-status reads/SSE, and define the data needed for an estimated illumination progress indicator.
 
 > Related: `plan/task-status.md`, `plan/sse.md`, `src/task/taskruntracker.rs`,
-> `src/task/taskmaster.rs`, `src/model/task_run_status.rs`, and `src/sse/event.rs`.
+> `src/task/taskmaster.rs`, `src/model/task_run.rs`, and `src/sse/event.rs`.
 
 ## 1. What exists today
 
-- `task_run_status.created_at` is set when `create_run` inserts the initial `Queued` row. For the current implementation, this is the timestamp when the run first entered the queue, although its name does not communicate that intent.
+- `task_runs.created_at` is set when `create_run` inserts the initial `Queued` row. For the current implementation, this is the timestamp when the run first entered the queue, although its name does not communicate that intent.
 - `updated_at` is changed on every status update, but it is not a lifecycle timestamp: it can represent a retry transition, a late update, or any future metadata update.
 - `begin_attempt` marks a run `InProgress` and increments `attempts`; a redelivery while already `InProgress` is also accepted as another attempt, not rejected as a duplicate.
 - `finish_attempt` changes the run to `CompleteSuccess`, `ErrorWillRetry`, or `CompleteFailure`.
@@ -122,7 +122,7 @@ The query would conceptually be:
 
 ```sql
 SELECT success_duration_ms
-FROM task_run_status
+FROM task_runs
 WHERE task_type = $1
 	AND status_code = <CompleteSuccess>
 	AND success_duration_ms IS NOT NULL

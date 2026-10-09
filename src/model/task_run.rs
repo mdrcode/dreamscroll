@@ -1,26 +1,25 @@
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
-/// One row per task **run** — the canonical source of truth for
-/// background task runs. See `plan/task-status.md` §3 and §6.
+/// Persistence representation of a TaskRun. In addition to its identity and
+/// task payload, each row stores mutable lifecycle, timing, and result state.
+/// See `plan/task-status.md` §3 and §6.
 ///
-/// A logical task (`logical_id`) can be run more than once; each run gets its
-/// own row, numbered from 1. `(logical_id, run)` is unique, which is what
-/// prevents a duplicate submission of work that is still in flight.
+/// A logical task (`logical_id`) can be run more than once; each invocation gets
+/// its own row, numbered from 1. `(logical_id, run_number)` is unique, preventing
+/// duplicate submission of work that is still in flight.
 ///
-/// TODO(REVISIT): the primary read pattern is
-/// `query_latest_task_runs` — `WHERE user_id = ? AND entity_type = ?
-/// AND entity_id IN (...) ORDER BY entity_id, task_type, run DESC` — which
-/// currently only has the single-column `entity_id` index to work with. Add a
-/// composite index on `(user_id, entity_type, entity_id, task_type, run DESC)`
-/// once the table is large enough to matter. Note SeaORM's derive only supports
-/// single-column `#[sea_orm(indexed)]` and composite `unique_key`, so a non-unique
-/// composite index needs raw SQL (e.g. `CREATE INDEX ... IF NOT EXISTS` alongside
-/// the schema sync in `database/postgres.rs`). Deferred deliberately: this is a
-/// single-user app and the table is tiny.
+/// TODO(REVISIT): `query_latest_task_runs` filters by user, entity type, and
+/// entity IDs, then orders by `entity_id`, `task_type`, and `run_number DESC`.
+/// Currently only the single-column `entity_id` index supports the query. Add a
+/// composite index on `(user_id, entity_type, entity_id, task_type,
+/// run_number DESC)` once the table is large enough to matter. SeaORM's derive
+/// only supports single-column `#[sea_orm(indexed)]` and composite `unique_key`,
+/// so this needs raw SQL alongside schema sync. Deferred deliberately: this is
+/// a single-user app and the table is tiny.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "task_run_status")]
+#[sea_orm(table_name = "task_runs")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,

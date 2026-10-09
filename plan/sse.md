@@ -58,7 +58,7 @@ needed for this feature.
 > integration target. The wire model also defines a generic `availability`
 > event payload (`available`/`deleted`), intended for entity additions/removals
 > that may affect a page. The type exists, but capture lifecycle publishing is
-> not implemented. These events do not turn `task_run_status` into a catch-all
+> not implemented. These events do not turn `task_runs` into a catch-all
 > event table.
 
 ---
@@ -154,7 +154,7 @@ Availability wire example:
 { "schema_version": 2, "event_type": "availability", "timestamp": "2026-09-21T18:42:15Z", "entity_type": "capture", "entity_id": 123, "payload": { "operation": "deleted" } }
 ```
 
-This maps to the current state of a `task_run_status` row (see
+This maps to the current state of a `task_runs` row (see
 `task-status.md` §3). It is not a historical event: the table stores one row
 per logical task run and updates that row in place. The `TaskRunStatus` enum
 lives in the task module; the DB stores only its integer discriminant.
@@ -252,7 +252,7 @@ correctness.
 > **Deferred:** backfill/bulk-task handling (marking tasks as background,
 > surfacing backfill progress, an admin progress view) gets a dedicated
 > plan-and-branch session. When it is, the natural shape is a new column on
-> `task_run_status` plus a subscription param — but that decision is deliberately out
+> `task_runs` plus a subscription param — but that decision is deliberately out
 > of scope here.
 
 ---
@@ -266,7 +266,7 @@ instances.** The worker that completes a task can be a different instance than
 the one holding the user's SSE connection, so an in-memory channel on instance
 A would never see events published on instance B.
 
-For task status, `task_run_status` is the persisted best-known current state.
+For task status, `task_runs` is the persisted best-known current state.
 It is not a durable event log, and SSE notifications are informational hints.
 The listener's in-process broadcast is only per-instance fan-out to connected
 SSE handlers, not a cross-instance source of truth.
@@ -286,7 +286,7 @@ fallback is currently implemented.
 > the channel lives in Postgres, which every instance already shares.
 
 > **SeaORM / SQLx boundary:** SeaORM remains responsible for ordinary
-> `task_run_status` reads and writes. It can execute raw PostgreSQL statements,
+> `task_runs` reads and writes. It can execute raw PostgreSQL statements,
 > including `SELECT pg_notify(...)`, but it does not expose a first-class
 > asynchronous notification listener comparable to SQLx's
 > `sqlx::postgres::PgListener`. `LISTEN` requires a dedicated connection to
@@ -357,7 +357,7 @@ this is intentional for best-effort UI feedback.
 
 ### 4.2.1 Notification payload: current-row snapshot
 
-The channel semantic is deliberately simple: after a `task_run_status` row
+The channel semantic is deliberately simple: after a `task_runs` row
 changes, publish a typed update describing the new status. This is **best
 effort**. The payload is useful for low-latency consumers, but is not a durable
 event log. The stable-stream design does not query/send an initial snapshot.
@@ -516,7 +516,7 @@ join task status.
 **Why this is fine for now:**
 
 - **It's simpler.** The page-load render doesn't need to join against
-  `task_run_status` or render per-status states.
+  `task_runs` or render per-status states.
 - A stable stream avoids per-card requests and feed-change reconnections.
 - The catch-up is one batched query, scoped by user and selected entity IDs.
 
@@ -797,7 +797,7 @@ described in §5.5; the server cap exceeds the two-minute client activity window
 - **Idiomatic:** SSE is the canonical HTMX companion; `htmx-ext-sse` is the
   official extension. Axum has first-class SSE support. `LISTEN/NOTIFY` is the
   idiomatic Postgres pub/sub.
-- **Robust for the intended scope:** `task_run_status` persists the best
+- **Robust for the intended scope:** `task_runs` persists the best
   available current status across restarts. `LISTEN/NOTIFY` gives low-latency
   hints; native EventSource retries ordinary transport failures, while named
   heartbeats let the client replace a silent stale stream. Background delivery
@@ -985,7 +985,7 @@ into this comparison.
 - **Capture lifecycle publishing:** the `AvailabilityEvent` wire type already
   models `available`/`deleted` operations for any entity type. Publishing these
   updates remains future work and should use a deliberate source/producer; do
-  not shoehorn lifecycle events into `task_run_status`. The entity-scoped
+  not shoehorn lifecycle events into `task_runs`. The entity-scoped
   snapshot selection and single-SSE-connection design are intended to
   accommodate this later. Its operation hints can use the same stable per-user
   stream.

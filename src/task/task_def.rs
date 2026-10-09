@@ -114,7 +114,7 @@ mod tests {
     }
 
     /// The id format is persisted, so changing it silently would orphan every
-    /// existing `task_run_status` row.
+    /// existing `task_runs` row.
     #[test]
     fn logical_id_format_is_stable() {
         assert_eq!(

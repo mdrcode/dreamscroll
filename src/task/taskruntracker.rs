@@ -6,7 +6,7 @@ use crate::{database, model, sse};
 
 use super::*;
 
-/// Manages all direct reads/writes to `task_run_status` in the db.
+/// Manages all direct reads/writes to `task_runs` in the db.
 ///
 /// Intended to be owned/leveraged by TaskMaster.
 ///
@@ -31,7 +31,7 @@ impl TaskRunTracker {
     /// covers the lost-a-race case; the unique index arbitrates submissions.
     pub async fn create_run<T: Task>(&self, task_run: &TaskRun<T>) -> anyhow::Result<bool> {
         let task_payload = serde_json::to_value(&task_run.task)?;
-        let result = model::task_run_status::ActiveModel::builder()
+        let result = model::task_run::ActiveModel::builder()
             .set_task_type(T::task_type())
             .set_logical_id(task_run.logical_id.as_str())
             .set_run_id(task_run.run_id.as_str())
@@ -64,20 +64,17 @@ impl TaskRunTracker {
         status: TaskRunStatus,
         attempts: i32,
     ) -> anyhow::Result<()> {
-        let result = model::task_run_status::Entity::update_many()
+        let result = model::task_run::Entity::update_many()
             .col_expr(
-                model::task_run_status::Column::StatusCode,
+                model::task_run::Column::StatusCode,
                 Expr::value(status.as_i32()),
             )
+            .col_expr(model::task_run::Column::Attempts, Expr::value(attempts))
             .col_expr(
-                model::task_run_status::Column::Attempts,
-                Expr::value(attempts),
-            )
-            .col_expr(
-                model::task_run_status::Column::UpdatedAt,
+                model::task_run::Column::UpdatedAt,
                 Expr::current_timestamp(),
             )
-            .filter(model::task_run_status::Column::RunId.eq(task_run.run_id.as_str()))
+            .filter(model::task_run::Column::RunId.eq(task_run.run_id.as_str()))
             .exec_with_returning(&self.db.conn)
             .await?;
 
@@ -100,24 +97,21 @@ impl TaskRunTracker {
         task_run: &TaskRun<T>,
         attempts: i32,
     ) -> anyhow::Result<()> {
-        let rows = model::task_run_status::Entity::update_many()
+        let rows = model::task_run::Entity::update_many()
             .col_expr(
-                model::task_run_status::Column::StatusCode,
+                model::task_run::Column::StatusCode,
                 Expr::value(TaskRunStatus::InProgress.as_i32()),
             )
+            .col_expr(model::task_run::Column::Attempts, Expr::value(attempts))
             .col_expr(
-                model::task_run_status::Column::Attempts,
-                Expr::value(attempts),
-            )
-            .col_expr(
-                model::task_run_status::Column::ProcessingStartedAt,
+                model::task_run::Column::ProcessingStartedAt,
                 Expr::current_timestamp(),
             )
             .col_expr(
-                model::task_run_status::Column::UpdatedAt,
+                model::task_run::Column::UpdatedAt,
                 Expr::current_timestamp(),
             )
-            .filter(model::task_run_status::Column::RunId.eq(task_run.run_id.as_str()))
+            .filter(model::task_run::Column::RunId.eq(task_run.run_id.as_str()))
             .exec_with_returning(&self.db.conn)
             .await?;
 
@@ -148,31 +142,28 @@ impl TaskRunTracker {
         let (result_entity_type, result_entity_id) = result_ref
             .map(|result| (Some(result.entity_type), Some(result.entity_id)))
             .unwrap_or_default();
-        let mut update = model::task_run_status::Entity::update_many();
+        let mut update = model::task_run::Entity::update_many();
         update = update
             .col_expr(
-                model::task_run_status::Column::StatusCode,
+                model::task_run::Column::StatusCode,
                 Expr::value(status.as_i32()),
             )
+            .col_expr(model::task_run::Column::Attempts, Expr::value(attempts))
             .col_expr(
-                model::task_run_status::Column::Attempts,
-                Expr::value(attempts),
-            )
-            .col_expr(
-                model::task_run_status::Column::ResultEntityType,
+                model::task_run::Column::ResultEntityType,
                 Expr::value(result_entity_type),
             )
             .col_expr(
-                model::task_run_status::Column::ResultEntityId,
+                model::task_run::Column::ResultEntityId,
                 Expr::value(result_entity_id),
             )
             .col_expr(
-                model::task_run_status::Column::UpdatedAt,
+                model::task_run::Column::UpdatedAt,
                 Expr::current_timestamp(),
             );
         if status == TaskRunStatus::CompleteSuccess {
             update = update.col_expr(
-                model::task_run_status::Column::SuccessDurationMs,
+                model::task_run::Column::SuccessDurationMs,
                 Expr::cust(
                     "CAST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - processing_started_at)) * 1000 AS BIGINT)",
                 ),
@@ -182,7 +173,7 @@ impl TaskRunTracker {
             TaskRunStatus::ErrorWillRetry | TaskRunStatus::CompleteFailure
         ) {
             update = update.col_expr(
-                model::task_run_status::Column::LastErrorDurationMs,
+                model::task_run::Column::LastErrorDurationMs,
                 Expr::cust(
                     "CAST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - processing_started_at)) * 1000 AS BIGINT)",
                 ),
@@ -190,7 +181,7 @@ impl TaskRunTracker {
         }
 
         let rows = update
-            .filter(model::task_run_status::Column::RunId.eq(task_run.run_id.as_str()))
+            .filter(model::task_run::Column::RunId.eq(task_run.run_id.as_str()))
             .exec_with_returning(&self.db.conn)
             .await?;
         timing::refresh_timing_measures::<T>(&self.db, status).await?;
@@ -205,11 +196,7 @@ impl TaskRunTracker {
         Ok(())
     }
 
-    async fn notify_status<T: Task>(
-        &self,
-        task_run: &TaskRun<T>,
-        row: &model::task_run_status::Model,
-    ) {
+    async fn notify_status<T: Task>(&self, task_run: &TaskRun<T>, row: &model::task_run::Model) {
         let Some(notifier) = &self.notifier else {
             return;
         };
@@ -236,18 +223,18 @@ impl TaskRunTracker {
         logical_id: &str,
         run_number: Option<i32>,
         user_id: Option<i32>,
-    ) -> anyhow::Result<Option<model::task_run_status::Model>> {
-        let mut query = model::task_run_status::Entity::find()
-            .filter(model::task_run_status::Column::LogicalId.eq(logical_id));
+    ) -> anyhow::Result<Option<model::task_run::Model>> {
+        let mut query = model::task_run::Entity::find()
+            .filter(model::task_run::Column::LogicalId.eq(logical_id));
         if let Some(run_number) = run_number {
-            query = query.filter(model::task_run_status::Column::RunNumber.eq(run_number));
+            query = query.filter(model::task_run::Column::RunNumber.eq(run_number));
         }
         if let Some(user_id) = user_id {
-            query = query.filter(model::task_run_status::Column::UserId.eq(user_id));
+            query = query.filter(model::task_run::Column::UserId.eq(user_id));
         }
 
         Ok(query
-            .order_by_desc(model::task_run_status::Column::RunNumber)
+            .order_by_desc(model::task_run::Column::RunNumber)
             .one(&self.db.conn)
             .await?)
     }
@@ -257,11 +244,11 @@ impl TaskRunTracker {
         &self,
         run_id: &str,
         user_id: Option<i32>,
-    ) -> anyhow::Result<Option<model::task_run_status::Model>> {
-        let mut query = model::task_run_status::Entity::find()
-            .filter(model::task_run_status::Column::RunId.eq(run_id));
+    ) -> anyhow::Result<Option<model::task_run::Model>> {
+        let mut query =
+            model::task_run::Entity::find().filter(model::task_run::Column::RunId.eq(run_id));
         if let Some(user_id) = user_id {
-            query = query.filter(model::task_run_status::Column::UserId.eq(user_id));
+            query = query.filter(model::task_run::Column::UserId.eq(user_id));
         }
 
         Ok(query.one(&self.db.conn).await?)
@@ -273,28 +260,22 @@ impl TaskRunTracker {
         user_id: i32,
         entity_type: &str,
         entity_ids: &[i32],
-    ) -> anyhow::Result<Vec<model::task_run_status::Model>> {
+    ) -> anyhow::Result<Vec<model::task_run::Model>> {
         if entity_ids.is_empty() {
             return Ok(Vec::new());
         }
 
-        Ok(model::task_run_status::Entity::find()
-            .filter(model::task_run_status::Column::UserId.eq(user_id))
-            .filter(model::task_run_status::Column::EntityType.eq(entity_type))
-            .filter(model::task_run_status::Column::EntityId.is_in(entity_ids.iter().copied()))
+        Ok(model::task_run::Entity::find()
+            .filter(model::task_run::Column::UserId.eq(user_id))
+            .filter(model::task_run::Column::EntityType.eq(entity_type))
+            .filter(model::task_run::Column::EntityId.is_in(entity_ids.iter().copied()))
             .distinct_on([
-                (
-                    model::task_run_status::Entity,
-                    model::task_run_status::Column::EntityId,
-                ),
-                (
-                    model::task_run_status::Entity,
-                    model::task_run_status::Column::TaskType,
-                ),
+                (model::task_run::Entity, model::task_run::Column::EntityId),
+                (model::task_run::Entity, model::task_run::Column::TaskType),
             ])
-            .order_by_asc(model::task_run_status::Column::EntityId)
-            .order_by_asc(model::task_run_status::Column::TaskType)
-            .order_by_desc(model::task_run_status::Column::RunNumber)
+            .order_by_asc(model::task_run::Column::EntityId)
+            .order_by_asc(model::task_run::Column::TaskType)
+            .order_by_desc(model::task_run::Column::RunNumber)
             .all(&self.db.conn)
             .await?)
     }

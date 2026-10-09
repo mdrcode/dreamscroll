@@ -270,7 +270,7 @@ mod tests {
 
     #[test]
     fn catchup_row_becomes_a_task_status_event() {
-        let row = crate::model::task_run_status::Model {
+        let row = crate::model::task_run::Model {
             id: 1,
             user_id: 7,
             logical_id: "u7-illuminate-capture42".to_string(),
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn catchup_row_with_unknown_status_is_skipped() {
-        let row = crate::model::task_run_status::Model {
+        let row = crate::model::task_run::Model {
             id: 2,
             user_id: 7,
             logical_id: "u7-illuminate-capture42".to_string(),

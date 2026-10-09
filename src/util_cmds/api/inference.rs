@@ -68,17 +68,17 @@ async fn run_illumination(state: ApiCmdState, args: IlluminateArgs) -> anyhow::R
     eprintln!("Enqueued TaskRun {run_id}.");
 
     eprintln!("Polling for task completion...");
-    let status = task::wait_for_task_run(
+    let task_run_info = task::wait_for_task_run(
         &state.rest_client,
         &run_id,
         Duration::from_secs(args.wait_seconds),
         Duration::from_secs(2),
     )
     .await?;
-    ensure_successful_run(&status)?;
+    ensure_successful_run(&task_run_info)?;
 
     eprintln!("Fetching raw illumination result...");
-    let inference_id = inference_result_id(&status)?;
+    let inference_id = inference_result_id(&task_run_info)?;
     let raw = state.rest_client.get_illumination_raw(inference_id).await?;
     let markdown = render_illumination(prompt_version, raw)?;
     println!("{markdown}");
@@ -93,10 +93,10 @@ fn parse_prompt_version(value: &str) -> anyhow::Result<IlluminationVersion> {
     }
 }
 
-fn inference_result_id(status: &api::TaskRunInfo) -> anyhow::Result<&str> {
+fn inference_result_id(run_info: &api::TaskRunInfo) -> anyhow::Result<&str> {
     match (
-        status.result_entity_type.as_deref(),
-        status.result_entity_id.as_deref(),
+        run_info.result_entity_type.as_deref(),
+        run_info.result_entity_id.as_deref(),
     ) {
         (Some("inference"), Some(inference_id)) => Ok(inference_id),
         (Some(kind), _) => bail!("unexpected task result entity type {kind:?}"),
@@ -104,24 +104,24 @@ fn inference_result_id(status: &api::TaskRunInfo) -> anyhow::Result<&str> {
     }
 }
 
-fn ensure_successful_run(status: &api::TaskRunInfo) -> anyhow::Result<()> {
-    match status.status {
+fn ensure_successful_run(run_info: &api::TaskRunInfo) -> anyhow::Result<()> {
+    match run_info.status {
         TaskRunStatus::CompleteSuccess => Ok(()),
         TaskRunStatus::SubmissionFailed | TaskRunStatus::CompleteFailure => Err(anyhow!(
             "illumination TaskRun {} (logical ID {}, run number {}) ended with status {} after {} attempt(s)",
-            status.run_id,
-            status.logical_id,
-            status.run_number,
-            status.status,
-            status.attempts
+            run_info.run_id,
+            run_info.logical_id,
+            run_info.run_number,
+            run_info.status,
+            run_info.attempts
         )),
         other_status => Err(anyhow!(
             "timed out waiting for illumination TaskRun {} (logical ID {}, run number {}); latest status {} after {} attempt(s)",
-            status.run_id,
-            status.logical_id,
-            status.run_number,
+            run_info.run_id,
+            run_info.logical_id,
+            run_info.run_number,
             other_status,
-            status.attempts
+            run_info.attempts
         )),
     }
 }

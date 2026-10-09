@@ -19,7 +19,7 @@ When a user uploads a screenshot, the app enqueues an AI-powered illumination in
 the background. There was **no record of that work** — no way to know whether it
 was queued, running, succeeded, or failed, and no way to retry it deliberately.
 
-This document covers the framework that fixes that: a first-class `task_run_status`
+This document covers the framework that fixes that: a first-class `task_runs`
 table, a typed task identity, a retry/exhaustion policy, and a run dimension that
 makes reruns expressible.
 
@@ -68,7 +68,7 @@ Upload (webui/v2/r_upload.rs)
   reuse it. `run_number` is a 1-based per-logical-task ordinal used for ordering
   and the unique `(logical_id, run_number)` submission guard.
 - **`TaskQueue<T>` is enqueue-only and generic.** Status lives in the
-  `task_run_status` table. The trait is `async fn enqueue(&self, wrapped:
+  `task_runs` table. The trait is `async fn enqueue(&self, wrapped:
   TaskRun<T>)`. Two backends: `LocalTaskQueue` (in-process mpsc +
   semaphore) and `CloudTaskQueue` (Google Cloud Tasks). **Pub/Sub support was
   removed** to focus on Cloud Tasks.
@@ -78,8 +78,8 @@ Upload (webui/v2/r_upload.rs)
   `submit_*` / `begin_attempt` / `finish_attempt` / status queries. It is **not
   `Clone`** — shared via `Arc<TaskMaster>`. User-facing `submit_*` APIs require
   an `auth::Context` and derive the task's `user_id` from it. `Beacon` is the
-  narrow trusted coordinator for internal follow-up submissions and uses
-  capture ownership from the loaded capture.
+  narrow trusted coordinator for internal follow-up submissions and reuses the
+  parent TaskRun's `user_id` for its follow-up run.
 - Authenticated REST task submission and exact-run status lookup are documented
   in `rest-task-submission.md`.
 - **Workers do not get a raw status setter.** They go through `begin_attempt`
@@ -91,7 +91,7 @@ Upload (webui/v2/r_upload.rs)
 - **`TaskRunTracker`** (`task/taskruntracker.rs`) is a private persistence
   component owned by `TaskMaster`; Rust visibility prevents production callers
   outside the `task` module from bypassing TaskMaster's lifecycle API. It owns
-  direct `task_run_status` queries/writes, snapshots `TaskRun.task` as JSONB
+  direct `task_runs` queries/writes, snapshots `TaskRun.task` as JSONB
   when creating a run, and emits optional best-effort status events after
   successful inserts and updates. Notifications do not fail persistence.
   `TaskRunStatus`
@@ -104,12 +104,17 @@ Upload (webui/v2/r_upload.rs)
 
 ---
 
-## 3. The `task_run_status` table
+## 3. The `task_runs` table
 
-The small, focused **`task_run_status` table** is the source of truth:
+The focused `task_runs` table is the source of truth.
+
+The row stores TaskRun identity and a JSONB payload snapshot, plus denormalized
+task/entity routing fields and mutable lifecycle status, attempts, timing, and
+result-reference data. It is a persistence representation, not a byte-for-byte
+copy of the queue payload.
 
 ```sql
-CREATE TABLE task_run_status (
+CREATE TABLE task_runs (
     id            BIGSERIAL PRIMARY KEY,     -- internal row key; not exposed
     user_id       INT NOT NULL,
     logical_id   TEXT NOT NULL,               -- durable logical task identity
@@ -119,6 +124,8 @@ CREATE TABLE task_run_status (
     entity_type   TEXT NOT NULL,          -- 'capture' | 'spark'
     entity_id     INT NOT NULL,           -- the entity this task operates on
     task_payload  JSONB NULL,              -- submitted Task payload; null for historical rows
+    result_entity_type TEXT NULL,         -- optional result entity reference
+    result_entity_id   TEXT NULL,
     status_code   INT NOT NULL,            -- integer discriminant of task::TaskRunStatus
     attempts      INT NOT NULL DEFAULT 0,  -- 1-based attempt number within this run
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -131,13 +138,14 @@ CREATE TABLE task_run_status (
 ```
 
 > **Schema management:** the table is defined by the SeaORM model
-> (`src/model/task_run_status.rs`) and created/synced automatically at startup via
+> (`src/model/task_run.rs`) and created/synced automatically at startup via
 > `conn.get_schema_registry("dreamscroll::model::*").sync(&conn)` in
 > `database/postgres.rs`. There is no hand-written migration file.
 
-The TaskRun schema and queued payload are a hard cutover. Drop `task_run_status`
-before using an existing database, and drain or clear queued task payloads using
-the previous schema. The database `id` remains internal; `run_id` is the public
+The `task_run_status` → `task_runs` table rename is a hard cutover; no rows are
+automatically migrated. Drop the old table before using an existing database;
+schema sync creates `task_runs`. Drain or clear queued task payloads using the
+previous schema. The database `id` remains internal; `run_id` is the public
 invocation handle, and generated `logical_id` values remain unchanged.
 
 > **Why `UNIQUE (logical_id, run_number)` and not `UNIQUE (logical_id)`:** one row per
@@ -161,14 +169,14 @@ invocation handle, and generated `logical_id` values remain unchanged.
   this run. New runs always write it; older rows remain `NULL`. It is internal
   persistence data and is not included in `TaskRunInfo` or SSE status events.
 
-> **Why a focused `task_run_status` table (not a generic `events` table):** task state
+> **Why a focused `task_runs` table (not a generic `events` table):** task state
 > is a first-class, non-trivial problem of its own — it has a lifecycle, retries,
 > and reruns. A dedicated table with typed identity/status columns keeps task
 > queries clean. `task_payload` supplements those columns as a parameter snapshot;
 > a generic `kind`+`payload` JSONB table would make task-state queries awkward.
 
 This also fixes a latent bug from the audit notes: *"No task retry/dead-letter in
-LocalTaskQueue — failed tasks silently dropped."* With a `task_run_status` table,
+LocalTaskQueue — failed tasks silently dropped."* With a `task_runs` table,
 `ErrorWillRetry`/`CompleteFailure` states become observable.
 
 ---
@@ -250,7 +258,7 @@ HTTP mapping (`webhook::http_status_for_task_run`) follows from that:
 
 > **The 204-vs-200 distinction is a debugging nicety, visible only in Cloud Run
 > request logs.** Cloud Tasks' own `lastAttempt.responseStatus` normalizes every
-> 2xx to `OK`. The `task_run_status` row remains the source of truth.
+> 2xx to `OK`. The `task_runs` row remains the source of truth.
 
 > **Local dev:** `LocalTaskQueue` does not retry at all (it logs and drops on
 > handler error), so `config_local.env` sets `TASK_MAX_ATTEMPTS=1` — a local
@@ -371,7 +379,7 @@ re-illuminates and re-embeds.
 **Cost accepted:** a retry re-calls the LLM and re-embeds. Failing tasks are the
 minority, and both are API calls we already tolerate duplicating.
 
-> **Consequence:** `task_run_status.attempts` and the illumination count can diverge
+> **Consequence:** `task_runs.attempts` and the illumination count can diverge
 > (a run that exhausts *after* inserting an illumination leaves a row behind).
 > Harmless, since only the most recent illumination is displayed (§7.1).
 
@@ -400,7 +408,7 @@ must always see the **most recent** illumination, so:
 
 ## 8. Open questions / follow-ups
 
-- **`task_run_status` retention (REVISIT):** add a cleanup/eviction policy to avoid
+- **`task_runs` retention (REVISIT):** add a cleanup/eviction policy to avoid
   unbounded table growth. Note the run dimension means a rerun task keeps *all*
   its rows, so growth is per-run rather than per-task. The latest-task-run
   snapshot returns the current row, including terminal statuses (§5). *Tolerated —
@@ -429,18 +437,18 @@ must always see the **most recent** illumination, so:
   capture-scoped query will not surface it. **Accepted** — the plan is to
   introduce a "spark seed/spec" entity concept later. No N-entity join table is
   needed yet.
-- **TaskRun `user_id` is not validated against the capture owner (REVISIT):**
-  `logic::spark::exec` derives `user_id` from the captures and never compares it
-  to `task_run.user_id`, and `api/service/get_capture.rs` is explicitly **not**
-  user-scoped. The webhook routes rely on Cloud Run OIDC, so this is
-  defense-in-depth — but the TaskRun's `user_id` should be checked so status rows
-  and data writes cannot diverge. *Tolerated — see `pragmatism.md`.*
+- **TaskRun `user_id` is not validated against the capture owner (accepted):**
+  the envelope's `user_id` can differ from the capture row. The illumination
+  follow-up uses the parent TaskRun's `user_id` for search-index tracking; the
+  search-index executor re-fetches the capture by ID and derives vector owner
+  metadata from that row. Webhook OIDC and internal queue producers are the
+  current trust boundary. *Tolerated — see `pragmatism.md`.*
 - **Admin backfill mis-attributes task status to the admin (REVISIT — deferred to
   the backfill session):** two related problems, both currently masked by the app
   being single-user:
   1. **Attribution.** `api/admin/backfill.rs` passes the requesting admin's
      `context.user_id()` to `submit_search_index`, so every backfill task's
-     `task_run_status` row is owned by the **admin**, not the capture's owner. The
+     `task_runs` row is owned by the **admin**, not the capture's owner. The
      task itself still works (`logic::search_index::exec` fetches via
      `service_api.get_captures`, which is not user-scoped), but a user-scoped
      status view would **not** show the owner their own captures' backfill
@@ -483,7 +491,7 @@ must always see the **most recent** illumination, so:
 | `src/task/taskrunstatus.rs`               | `TaskRunStatus` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                      | ✅      |
 | `src/sse/listener.rs`                    | `ServerEventListener` — per-instance Postgres `LISTEN/NOTIFY` listener and fan-out for authenticated SSE streams (see `sse.md`) | ✅      |
 | `src/task/beacon.rs`                      | **removed** — replaced by `TaskMaster`                                                                                                                                                         | ✅      |
-| `src/model/task_run_status.rs`            | `task_run_status` SeaORM model (`id` internal, globally unique `run_id`, unique `(logical_id, run_number)`) — auto-synced at startup         | ✅      |
+| `src/model/task_run.rs`                   | `task_runs` SeaORM model (`id` internal, globally unique `run_id`, unique `(logical_id, run_number)`) — auto-synced at startup         | ✅      |
 | `src/api/apierror.rs`                     | `ApiError::is_retryable()` — 5xx retryable, 4xx permanent                                                                                                                                      | ✅      |
 | `src/config/schema.rs`                    | `Config.task_max_attempts` (env `TASK_MAX_ATTEMPTS`, default 3)                                                                                                                                | ✅      |
 | `src/webhook/http_status_for_task_run.rs` | `http_status_for_task_run` — maps `AttemptOutcome` to the HTTP status Cloud Tasks sees                                                                                                         | ✅      |

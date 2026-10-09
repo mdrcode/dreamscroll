@@ -22,10 +22,10 @@ pub struct TaskRunInfo {
     pub updated_at: DateTime<Utc>,
 }
 
-impl TryFrom<crate::model::task_run_status::Model> for TaskRunInfo {
+impl TryFrom<crate::model::task_run::Model> for TaskRunInfo {
     type Error = anyhow::Error;
 
-    fn try_from(row: crate::model::task_run_status::Model) -> Result<Self, Self::Error> {
+    fn try_from(row: crate::model::task_run::Model) -> Result<Self, Self::Error> {
         Ok(Self {
             logical_id: row.logical_id,
             run_id: row.run_id,
