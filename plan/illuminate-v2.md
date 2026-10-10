@@ -29,11 +29,14 @@ Use one entity framework with common fields such as `name`, `description`, and `
   "description": "Joe Smith is notable for …",
   "platform_link": {
     "platform": "x_twitter",
-    "handle": "@joesmith",
-    "url": "https://x.com/joesmith"
+    "handle": "@joesmith"
   }
 }
 ```
+
+`platform_link.display_name` optionally preserves the name visibly shown by the platform. It is distinct from the entity's name and the account handle, is not a locator, and does not establish account ownership.
+
+The v2 prompt and schema request platform, handle, and optional display_name only; the model does not generate URLs. Deterministic URL enrichment from platform and handle is a separate post-inference step and should only be used for unambiguous mappings.
 
 Apply the same pattern to entities that live on a platform:
 
@@ -51,6 +54,9 @@ The prompt and structured response schema must express the priority above, not t
 - Add a platform link only when the image clearly associates it with that entity.
 - Preserve the entity's meaningful description; never replace it with a description of its account.
 - Do not infer that an account is authentic or controlled by a person merely from a matching name or handle.
+- Distinguish occurrences from enduring organizations: festivals, conferences, competitions, performances, and launches are events; their organizers are organizations and should be separate entities only when independently identifiable.
+- Distinguish a specific product from its brand or manufacturer; use `product` for a named item or model, `brand` for a brand, `organization` for its maker, and `software` for apps or programs.
+- Preserve a visible platform display name separately from the entity name and handle; do not treat it as proof of who owns an account.
 - Do not generate a person entity from an anonymous account without evidence.
 - Do not put capture-specific or schema-specific caveats in the entity description.
 
@@ -74,7 +80,10 @@ Today, extracted KNodes and social-media rows are capture-scoped; the code does 
 - A screenshot of a notable person and their clearly attributed account yields a person entity whose description explains the person; the account handle is separate optional metadata.
 - A subreddit or similar platform-hosted community is represented as a community entity with its platform link.
 - An anonymous account is captured as an account entity without fabricating a person or adding app/model disclaimers to its description.
+- A named recurring festival, such as the Venice International Film Festival, is represented as an `event`; its organizer is an `organization` only when independently identifiable.
+- A specific item such as the Nikon Z8 is represented as a `product`, distinct from its brand or manufacturer.
 - Missing or ambiguous links do not displace the primary entity or cause an unsupported association.
+- When visible, a platform display name is preserved separately from the entity name and handle, without being used as identity evidence.
 - Prompt, structured response, persistence, API, search, and UI all use the unified entity contract; no parallel social-media entity path remains by accident.
 
 ## Gemini client and API direction
@@ -102,6 +111,6 @@ The unused `GrokIlluminator` was removed: it read from a hard-coded `localdev/me
 
 ## Decisions still to make
 
-- Whether one entity can have multiple platform links; v2 currently supports one optional `platform_link` with optional handle and URL.
+- V2 platform links require a handle and may include a display name; URLs are not model output. Deterministic post-inference URL construction remains to be evaluated for unambiguous platform/handle pairs.
 - Whether social-account entities use the same platform-link shape as other entities or whether the link is their defining locator.
 - Whether and when to add canonical cross-capture identity and explicit relationships. These are distinct from unifying the current capture-level extraction schema.

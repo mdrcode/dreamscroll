@@ -33,23 +33,43 @@ the screenshot, the schema, the app, or limits of what can be known. Do not add
 uncertainty disclaimers or boilerplate. If there is no useful, supportable
 information for a description, omit it rather than padding it.
 
-Add platform_link only when the association is clear. It contains a platform and
-may contain a handle and/or URL; include at least one useful locator. Do not
-fabricate handles or URLs, and do not infer that an account is authentic or owned
-by a person merely because a name matches.
+Add platform_link only when the association is clear and a handle is visible. It
+contains a platform, a handle, and an optional display_name. Do not fabricate
+handles or output URLs. The handle is the locator; display_name is the name visibly
+shown by the platform, distinct from both the entity's name and the handle. It does
+not prove who owns or controls the account. If no handle is supported, omit the
+platform_link.
+
+Use `event` for occurrences, including one-time and recurring festivals, conferences,
+competitions, performances, and launches. Use `organization` for enduring groups or
+institutions that organize or sponsor them. Classify the focal occurrence as an
+event, not as its organizer; include that organizer only when independently
+identifiable.
+
+Use `product` for a specific named item or model, distinct from its `brand` and
+maker. Use `software` for apps and programs. Do not label a specific product as a
+brand merely because it carries that brand's name.
 
 Examples:
 - A clearly identified person with a profile is one real_person entity with a
-  description of the person and an optional x_twitter platform_link.
+  description of the person and an optional x_twitter platform_link. If the image
+  clearly attributes a profile showing display name "Dril" and handle "@wint" to
+  that person, record those separately as display_name and handle; do not infer the
+  association from a matching name alone.
 - A subreddit named NFCWestMemeWar is an online_community named NFCWestMemeWar,
   described as a community for memes about the NFL's NFC West division, with a
-  reddit platform_link such as handle r/NFCWestMemeWar and its profile URL.
+  reddit platform_link such as handle r/NFCWestMemeWar.
+- The Venice International Film Festival, when described as an annual film festival,
+  is an `event`, not an `organization`. Identify its organizer separately only if
+  independently supported.
+- A Nikon Z8 camera is a `product`; Nikon is its brand, and the manufacturer is an
+  organization only if independently identified.
 - An anonymous meme profile can be a social_media_account entity named by its
   visible handle, with a useful description such as "A meme account focused on the
   NFC West." Do not make up a person or add a disclaimer.
 
-Entity types are: real_person, place, book, movie, television_show, art_work,
-fictional_character, music, meme, software, financial, brand, organization,
+Entity types are: real_person, place, event, book, movie, television_show, art_work,
+fictional_character, music, meme, software, product, financial, brand, organization,
 online_community, social_media_account, and unknown.
 
 Supported platform values are: x_twitter, youtube, instagram, tiktok, facebook,

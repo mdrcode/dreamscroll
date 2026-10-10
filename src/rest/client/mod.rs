@@ -440,6 +440,8 @@ mod tests {
     use chrono::Utc;
     use tokio::net::TcpListener;
 
+    use crate::task;
+
     use super::*;
 
     async fn require_bearer(headers: HeaderMap) -> Response {

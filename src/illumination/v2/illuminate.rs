@@ -125,10 +125,13 @@ fn make_schema() -> serde_json::Value {
                                     "type": "string",
                                     "enum": platforms
                                 },
-                                "handle": { "type": "string" },
-                                "url": { "type": "string" }
+                                "display_name": {
+                                    "type": "string",
+                                    "description": "Optional name visibly shown by the platform; distinct from the entity name and handle."
+                                },
+                                "handle": { "type": "string" }
                             },
-                            "required": ["platform"]
+                            "required": ["platform", "handle"]
                         }
                     },
                     "required": ["name", "type"]
@@ -156,8 +159,20 @@ mod tests {
                 .expect("platforms should be an enum");
 
         assert!(entity_types.contains(&json!("online_community")));
+        assert!(entity_types.contains(&json!("event")));
+        assert!(entity_types.contains(&json!("product")));
         assert!(entity_types.contains(&json!("social_media_account")));
         assert!(platforms.contains(&json!("reddit")));
+        let platform_link_schema = &entity_schema["properties"]["platform_link"];
+        assert_eq!(
+            platform_link_schema["properties"]["display_name"]["type"],
+            json!("string")
+        );
+        assert!(platform_link_schema["properties"].get("url").is_none());
+        assert_eq!(
+            platform_link_schema["required"],
+            json!(["platform", "handle"])
+        );
         assert!(entity_schema["properties"].get("platform_link").is_some());
         assert!(schema["properties"].get("social_media_accounts").is_none());
         assert_eq!(entity_schema["required"], json!(["name", "type"]));
