@@ -166,6 +166,46 @@ impl UserApiClient {
     }
 
     #[tracing::instrument(skip(self, context))]
+    pub async fn get_entities_by_type(
+        &self,
+        context: &auth::Context,
+        entity_type: &str,
+    ) -> Result<Vec<schema::EntityInfo>, ApiError> {
+        let knodes = super::get_knodes_by_type(&self.db, context, entity_type).await?;
+        if knodes.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let capture_ids = knodes
+            .iter()
+            .map(|knode| knode.capture_id)
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect();
+        let captures = super::get_captures(&self.db, context, capture_ids).await?;
+        let capture_infos: HashMap<_, _> = captures
+            .into_iter()
+            .map(|capture| {
+                let capture_id = capture.id;
+                (capture_id, self.info_maker.make_capture_info(capture))
+            })
+            .collect();
+
+        Ok(knodes
+            .into_iter()
+            .filter_map(|knode| {
+                capture_infos
+                    .get(&knode.capture_id)
+                    .cloned()
+                    .map(|capture| {
+                        self.info_maker
+                            .make_knode_entity_info_with_capture_info(knode.into(), capture)
+                    })
+            })
+            .collect())
+    }
+
+    #[tracing::instrument(skip(self, context))]
     pub async fn get_timeline_captures(
         &self,
         context: &auth::Context,

@@ -50,6 +50,20 @@ Use `product` for a specific named item or model, distinct from its `brand` and
 maker. Use `software` for apps and programs. Do not label a specific product as a
 brand merely because it carries that brand's name.
 
+Use `financial` for securities and investing/trading concepts such as stocks,
+funds, indexes, indicators, and strategies; classify issuers as `organization`.
+
+Use `publication` for a named editorial outlet or periodical, including magazines,
+newspapers, journals, and digital editorial publications. This describes the
+publication itself, not its publisher or operator. Keep `book` for standalone books;
+use `brand` or `organization` when the referent is the umbrella brand or operating
+organization rather than the publication.
+
+Use `religious_figure` for figures such as Jesus or Muhammad when their religious
+significance is relevant. This label is neutral about historicity and theology.
+Do not classify a religious figure as `fictional_character` merely because they
+appear in sacred narratives; reserve that type for figures presented as fictional.
+
 Examples:
 - A clearly identified person with a profile is one real_person entity with a
   description of the person and an optional x_twitter platform_link. If the image
@@ -64,13 +78,19 @@ Examples:
   independently supported.
 - A Nikon Z8 camera is a `product`; Nikon is its brand, and the manufacturer is an
   organization only if independently identified.
+- NVIDIA common stock (`NASDAQ: NVDA`) is `financial`; NVIDIA Corporation, its
+  issuer, is an `organization`.
+- Kinfolk or Monocle, when referred to as magazines, and Resident Advisor, when
+  referred to as an editorial music site, are `publication` entities. Stripe Press
+  as a publishing imprint is not itself a publication.
 - An anonymous meme profile can be a social_media_account entity named by its
   visible handle, with a useful description such as "A meme account focused on the
   NFC West." Do not make up a person or add a disclaimer.
 
-Entity types are: real_person, place, event, book, movie, television_show, art_work,
-fictional_character, music, meme, software, product, financial, brand, organization,
-online_community, social_media_account, and unknown.
+Entity types are: real_person, religious_figure, place, event, book, publication,
+movie, television_show, art_work, fictional_character, music, meme, software,
+product, financial, brand, organization, online_community, social_media_account,
+and unknown.
 
 Supported platform values are: x_twitter, youtube, instagram, tiktok, facebook,
 linkedin, threads, bluesky, mastodon, reddit, and other.

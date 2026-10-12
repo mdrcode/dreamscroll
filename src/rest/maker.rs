@@ -48,6 +48,7 @@ pub fn make_api_router(
         .route("/admin/users", post(r_create_user::post))
         .route("/account/password", post(r_change_password::post))
         .route("/captures", get(r_capture::get))
+        .route("/entity", get(r_entity::get))
         .route(
             "/illuminations/raw/{inference_id}",
             get(r_illumination_raw::get),

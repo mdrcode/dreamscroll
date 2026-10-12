@@ -6,6 +6,7 @@ pub mod token_cache;
 pub mod backfill;
 pub mod change_password;
 pub mod clear_token;
+pub mod entities;
 pub mod export_digest;
 pub mod import_digest;
 pub mod inference;

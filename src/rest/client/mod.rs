@@ -182,6 +182,22 @@ impl Client {
         Self::parse_json_response(response).await
     }
 
+    pub async fn get_entities_by_type(
+        &self,
+        entity_type: &str,
+    ) -> anyhow::Result<Vec<api::EntityInfo>> {
+        let response = self
+            .reqwest_client
+            .get(format!("{}/entity", self.base_url))
+            .bearer_auth(&self.access_token)
+            .query(&[("type", entity_type)])
+            .send()
+            .await
+            .context("failed to call entity endpoint")?;
+
+        Self::parse_json_response(response).await
+    }
+
     pub async fn import_capture(
         &self,
         media_bytes: bytes::Bytes,

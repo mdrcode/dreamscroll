@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use sea_orm::prelude::*;
+use sea_orm::QueryOrder;
 
 use crate::{api::*, auth, database::DbHandle, model};
 
@@ -59,4 +60,18 @@ pub async fn get_social_media(
     };
 
     Ok((social_media.into(), capture))
+}
+
+/// Fetch KNodes of a given type owned by the user.
+pub async fn get_knodes_by_type(
+    db: &DbHandle,
+    context: &auth::Context,
+    entity_type: &str,
+) -> Result<Vec<model::knode::Model>, ApiError> {
+    Ok(model::knode::Entity::find()
+        .filter(model::knode::Column::UserId.eq(context.user_id()))
+        .filter(model::knode::Column::KType.eq(entity_type))
+        .order_by_asc(model::knode::Column::Id)
+        .all(&db.conn)
+        .await?)
 }

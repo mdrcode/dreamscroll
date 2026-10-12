@@ -159,8 +159,10 @@ mod tests {
                 .expect("platforms should be an enum");
 
         assert!(entity_types.contains(&json!("online_community")));
+        assert!(entity_types.contains(&json!("religious_figure")));
         assert!(entity_types.contains(&json!("event")));
         assert!(entity_types.contains(&json!("product")));
+        assert!(entity_types.contains(&json!("publication")));
         assert!(entity_types.contains(&json!("social_media_account")));
         assert!(platforms.contains(&json!("reddit")));
         let platform_link_schema = &entity_schema["properties"]["platform_link"];

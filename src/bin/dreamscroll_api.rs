@@ -32,6 +32,7 @@ enum Command {
     Spark(util_cmds::api::spark::SparkArgs),
     Inference(util_cmds::api::inference::InferenceArgs),
     Task(util_cmds::api::task::TaskArgs),
+    UnknownEntities(util_cmds::api::entities::UnknownEntitiesArgs),
 }
 
 #[tokio::main]
@@ -62,6 +63,7 @@ async fn main() -> anyhow::Result<()> {
         Command::SearchSimilar(args) => util_cmds::api::search_similar::run(state, args).await,
         Command::Inference(args) => util_cmds::api::inference::run(state, args).await,
         Command::Task(args) => util_cmds::api::task::run(state, args).await,
+        Command::UnknownEntities(args) => util_cmds::api::entities::run(state, args).await,
     }
 }
 

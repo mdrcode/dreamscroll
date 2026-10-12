@@ -240,13 +240,20 @@ impl InfoMaker {
         capture: model::capture::ModelEx,
     ) -> EntityInfo {
         let capture_info = self.make_capture_info(capture);
+        self.make_knode_entity_info_with_capture_info(knode_model, capture_info)
+    }
 
+    pub fn make_knode_entity_info_with_capture_info(
+        &self,
+        knode_model: model::knode::ModelEx,
+        capture: CaptureInfo,
+    ) -> EntityInfo {
         EntityInfo::KNode {
             id: knode_model.id,
             name: knode_model.name,
             description: knode_model.description,
             k_type: knode_model.k_type,
-            capture: capture_info,
+            capture,
         }
     }
 

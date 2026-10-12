@@ -128,9 +128,11 @@ impl InferenceResult for Illumination {
 #[strum(serialize_all = "snake_case")]
 pub enum EntityType {
     RealPerson,
+    ReligiousFigure,
     Place,
     Event,
     Book,
+    Publication,
     Movie,
     TelevisionShow,
     ArtWork,
@@ -237,6 +239,16 @@ mod tests {
                     "name": "Nikon Z8",
                     "description": "A camera model.",
                     "type": "product"
+                },
+                {
+                    "name": "Monocle",
+                    "description": "An international affairs and lifestyle magazine.",
+                    "type": "publication"
+                },
+                {
+                    "name": "Jesus",
+                    "description": "A religious figure in Christianity.",
+                    "type": "religious_figure"
                 }
             ],
             "future_schema_field": {"preserved": true}
@@ -252,6 +264,8 @@ mod tests {
         );
         assert_eq!(illumination.entities[2].entity_type, EntityType::Event);
         assert_eq!(illumination.entities[3].entity_type, EntityType::Product);
+        assert_eq!(illumination.entities[4].entity_type, EntityType::Publication);
+        assert_eq!(illumination.entities[5].entity_type, EntityType::ReligiousFigure);
         let reddit_link = illumination.entities[0]
             .platform_link
             .as_ref()
@@ -301,6 +315,11 @@ mod tests {
                         "name": "Nikon Z8",
                         "description": "A camera model.",
                         "type": "product"
+                    },
+                    {
+                        "name": "Monocle",
+                        "description": "An international affairs and lifestyle magazine.",
+                        "type": "publication"
                     }
                 ]
             }),
@@ -322,6 +341,9 @@ mod tests {
             "- **Venice International Film Festival** (`event`) — An annual film festival for international cinema."
         ));
         assert!(markdown.contains("- **Nikon Z8** (`product`) — A camera model."));
+        assert!(markdown.contains(
+            "- **Monocle** (`publication`) — An international affairs and lifestyle magazine."
+        ));
         assert!(markdown.contains("- **Anonymous account** (`social_media_account`)"));
         assert!(markdown.contains("- NFC West memes"));
     }

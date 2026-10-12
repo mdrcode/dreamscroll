@@ -56,6 +56,8 @@ The prompt and structured response schema must express the priority above, not t
 - Do not infer that an account is authentic or controlled by a person merely from a matching name or handle.
 - Distinguish occurrences from enduring organizations: festivals, conferences, competitions, performances, and launches are events; their organizers are organizations and should be separate entities only when independently identifiable.
 - Distinguish a specific product from its brand or manufacturer; use `product` for a named item or model, `brand` for a brand, `organization` for its maker, and `software` for apps or programs.
+- Use `publication` for an editorial outlet or periodical (such as a magazine, newspaper, journal, or digital editorial site), not its publisher/operator; `book` remains for standalone books.
+- Classify religiously significant figures as `religious_figure`, not `fictional_character` merely because they appear in sacred narratives; this label takes no position on historicity or theology.
 - Preserve a visible platform display name separately from the entity name and handle; do not treat it as proof of who owns an account.
 - Do not generate a person entity from an anonymous account without evidence.
 - Do not put capture-specific or schema-specific caveats in the entity description.
@@ -82,6 +84,8 @@ Today, extracted KNodes and social-media rows are capture-scoped; the code does 
 - An anonymous account is captured as an account entity without fabricating a person or adding app/model disclaimers to its description.
 - A named recurring festival, such as the Venice International Film Festival, is represented as an `event`; its organizer is an `organization` only when independently identifiable.
 - A specific item such as the Nikon Z8 is represented as a `product`, distinct from its brand or manufacturer.
+- A named magazine or digital editorial outlet is represented as a `publication`, distinct from its publisher/operator, brand, and standalone books.
+- A religious figure such as Jesus or Muhammad is represented as `religious_figure`, without making claims about historicity or theology.
 - Missing or ambiguous links do not displace the primary entity or cause an unsupported association.
 - When visible, a platform display name is preserved separately from the entity name and handle, without being used as identity evidence.
 - Prompt, structured response, persistence, API, search, and UI all use the unified entity contract; no parallel social-media entity path remains by accident.
