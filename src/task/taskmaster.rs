@@ -114,8 +114,7 @@ impl TaskMaster {
             .await
     }
 
-    /// Note that this is a "service only" (backend) method and so takes a raw
-    /// user_id instead of an authenticated context.
+    /// Submit a search-index task from a background worker without an auth context.
     pub(crate) async fn submit_search_index_for_user(
         &self,
         user_id: i32,

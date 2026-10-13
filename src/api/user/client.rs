@@ -242,7 +242,7 @@ impl UserApiClient {
         .await?;
 
         let task =
-            self.illumination_task(capture_model.id, illumination::IlluminationVersion::V1)?;
+            self.illumination_task(capture_model.id, illumination::IlluminationVersion::V2)?;
         if let Err(e) = self.beacon.new_capture(user_context, task).await {
             tracing::warn!(
                 capture_id = capture_model.id,
@@ -272,7 +272,7 @@ impl UserApiClient {
         .await?;
 
         let task =
-            self.illumination_task(capture_model.id, illumination::IlluminationVersion::V1)?;
+            self.illumination_task(capture_model.id, illumination::IlluminationVersion::V2)?;
         if let Err(e) = self.beacon.new_capture(user_context, task).await {
             tracing::warn!(
                 capture_id = capture_model.id,

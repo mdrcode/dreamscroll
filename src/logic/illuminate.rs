@@ -40,8 +40,8 @@ impl task::Task for IlluminationTask {
     }
 }
 
-/// Executes the requested version and persists both raw output and its relational
-/// projection. Each accepted worker attempt gets a new inference ID.
+/// Executes the requested version. V1 is raw-only; v2 also writes the
+/// relational KnowledgeEntity projection.
 pub async fn exec(
     state: &super::LogicState,
     task: &IlluminationTask,
@@ -63,6 +63,11 @@ pub async fn exec(
     let inference_id = uuid::Uuid::new_v4().to_string();
     match task.prompt_version {
         illumination::IlluminationVersion::V1 => {
+            tracing::warn!(
+                capture_id,
+                inference_id = %inference_id,
+                "V1 illumination is raw-only; no relational projection or search index will be written"
+            );
             let illumination = illumination::v1::illuminate(
                 state.inference_client.as_ref(),
                 state.storage.as_ref(),
@@ -76,10 +81,6 @@ pub async fn exec(
             state
                 .service_api
                 .insert_illumination_raw(&capture, &illumination)
-                .await?;
-            state
-                .service_api
-                .insert_illumination_v1(&capture, illumination)
                 .await?;
         }
         illumination::IlluminationVersion::V2 => {

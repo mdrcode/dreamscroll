@@ -1,71 +1,4 @@
-use crate::{
-    api::*,
-    database::DbHandle,
-    illumination::{KnowledgeEntityType, v1, v2},
-    llms::InferenceResult,
-    model,
-};
-
-pub async fn insert_illumination_v1(
-    db: &DbHandle,
-    capture: &CaptureInfo,
-    illumination: v1::Illumination,
-) -> Result<(), ApiError> {
-    let inference_id = illumination.metadata().inference_id.clone();
-    let mut builder = model::illumination::ActiveModel::builder()
-        .set_user_id(capture.user_id)
-        .set_capture_id(capture.id)
-        .set_inference_id(Some(inference_id))
-        .set_summary(&illumination.summary)
-        .set_details(&illumination.details)
-        .set_search_index(
-            model::search_index::ActiveModel::builder()
-                .set_user_id(capture.user_id)
-                .set_capture_id(capture.id)
-                .set_content(format_for_search(&illumination)),
-        );
-
-    let mut position = 0;
-    for entity in &illumination.entities {
-        builder.knowledge_entities.push(
-            model::knowledge_entity::ActiveModel::builder()
-                .set_user_id(capture.user_id)
-                .set_capture_id(capture.id)
-                .set_position(position)
-                .set_name(&entity.name)
-                .set_entity_type(entity.entity_type.to_string())
-                .set_description(Some(entity.description.clone())),
-        );
-        position += 1;
-    }
-
-    for xquery in &illumination.suggested_searches {
-        builder.xqueries.push(
-            model::xquery::ActiveModel::builder()
-                .set_user_id(capture.user_id)
-                .set_capture_id(capture.id)
-                .set_query(xquery),
-        );
-    }
-
-    for account in &illumination.social_media_accounts {
-        builder.knowledge_entities.push(
-            model::knowledge_entity::ActiveModel::builder()
-                .set_user_id(capture.user_id)
-                .set_capture_id(capture.id)
-                .set_position(position)
-                .set_name(&account.display_name)
-                .set_entity_type(KnowledgeEntityType::SocialMediaAccount.to_string())
-                .set_platform(Some(account.platform.to_string()))
-                .set_platform_handle(Some(account.handle.clone()))
-                .set_platform_display_name(Some(account.display_name.clone())),
-        );
-        position += 1;
-    }
-
-    builder.save(&db.conn).await?;
-    Ok(())
-}
+use crate::{api::*, database::DbHandle, illumination::v2, llms::InferenceResult, model};
 
 pub async fn insert_illumination_v2(
     db: &DbHandle,
@@ -159,27 +92,6 @@ pub async fn insert_illumination_raw<R: InferenceResult + ?Sized>(
     Ok(())
 }
 
-pub fn format_for_search(illumination: &v1::Illumination) -> String {
-    // lol, a naive approach for now
-    format!(
-        "{} {} {} {} {}",
-        illumination.summary,
-        illumination.details,
-        illumination
-            .entities
-            .iter()
-            .map(|e| e.name.clone())
-            .collect::<Vec<String>>()
-            .join(" "),
-        illumination.suggested_searches.to_vec().join(" "),
-        illumination
-            .social_media_accounts
-            .iter()
-            .map(|s| s.display_name.clone())
-            .collect::<Vec<String>>()
-            .join(" ")
-    )
-}
 pub fn format_for_search_v2(illumination: &v2::Illumination) -> String {
     illumination.to_markdown()
 }
@@ -187,13 +99,14 @@ pub fn format_for_search_v2(illumination: &v2::Illumination) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::illumination::v1;
     use crate::llms::InferenceMetadata;
     use chrono::Utc;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
     use serde_json::json;
 
     #[tokio::test]
-    async fn insert_persists_raw_results_and_unified_entities_for_v1_and_v2() {
+    async fn insert_persists_v1_raw_only_and_v2_projection() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -281,9 +194,6 @@ mod tests {
         insert_illumination_raw(&db, &capture_info, &illumination)
             .await
             .unwrap();
-        insert_illumination_v1(&db, &capture_info, illumination)
-            .await
-            .unwrap();
 
         let stored_raw = model::illumination_raw::Entity::find()
             .filter(model::illumination_raw::Column::CaptureId.eq(capture.id))
@@ -305,35 +215,30 @@ mod tests {
             Some(json!({"input_tokens": 12}))
         );
 
-        let stored_illumination = model::illumination::Entity::find()
+        let v1_parent_rows = model::illumination::Entity::find()
             .filter(model::illumination::Column::CaptureId.eq(capture.id))
-            .one(&db.conn)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(stored_illumination.summary, "A short summary");
-        assert_eq!(
-            stored_illumination.inference_id.as_deref(),
-            Some(inference_id.as_str())
-        );
-        let v1_entities = model::knowledge_entity::Entity::find()
-            .filter(model::knowledge_entity::Column::IlluminationId.eq(stored_illumination.id))
-            .order_by_asc(model::knowledge_entity::Column::Position)
             .all(&db.conn)
             .await
             .unwrap();
-        assert_eq!(v1_entities.len(), 2);
-        assert_eq!(v1_entities[0].position, 0);
-        assert_eq!(v1_entities[0].entity_type, "real_person");
-        assert_eq!(
-            v1_entities[0].description.as_deref(),
-            Some("Pioneer of computing")
-        );
-        assert_eq!(v1_entities[1].position, 1);
-        assert_eq!(v1_entities[1].entity_type, "social_media_account");
-        assert_eq!(v1_entities[1].platform.as_deref(), Some("x_twitter"));
-        assert_eq!(v1_entities[1].platform_handle.as_deref(), Some("@ada"));
-
+        assert!(v1_parent_rows.is_empty());
+        let v1_entities = model::knowledge_entity::Entity::find()
+            .filter(model::knowledge_entity::Column::UserId.eq(user.id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert!(v1_entities.is_empty());
+        let v1_queries = model::xquery::Entity::find()
+            .filter(model::xquery::Column::UserId.eq(user.id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert!(v1_queries.is_empty());
+        let v1_search_indexes = model::search_index::Entity::find()
+            .filter(model::search_index::Column::UserId.eq(user.id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert!(v1_search_indexes.is_empty());
         let v2_content = json!({
             "summary": "A Reddit community for NFC West memes",
             "details": "A community focused on memes about the NFL's NFC West division.",

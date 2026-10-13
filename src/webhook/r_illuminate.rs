@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use axum::{Json, extract::State, response::IntoResponse};
 
-use crate::{api, illumination, logic, task, webhook};
+use crate::{api, logic, task, webhook};
 
 /// Webhook POST route for Cloud Tasks illumination payloads.
 ///
 /// Expected body is a serialized `TaskRun<IlluminationTask>`, e.g.:
-/// `{ "user_id": 1, "logical_id": "u1-illuminate-capture123", "run_id": "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113", "run_number": 1, "task": { "capture_id": 123, "model_id": "gemini-3.8-flash", "prompt_version": "v1" } }`
+/// `{ "user_id": 1, "logical_id": "u1-illuminate-capture123", "run_id": "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113", "run_number": 1, "task": { "capture_id": 123, "model_id": "gemini-3.8-flash", "prompt_version": "v2" } }`
 ///
 /// This is the live worker route for capture-created illumination tasks. It is
 /// also the entry point for future backfill and rerun flows.
@@ -29,15 +29,10 @@ pub async fn post(
 
     let (result, result_ref) = match logic::illuminate::exec(&state.logic, task).await {
         Ok(result_ref) => {
-            let result = match task.prompt_version {
-                illumination::IlluminationVersion::V1 => {
-                    logic::Beacon::new(state.task_master.clone())
-                        .new_illumination(task_run.user_id, task.capture_id)
-                        .await
-                        .map_err(api::ApiError::internal)
-                }
-                illumination::IlluminationVersion::V2 => Ok(()),
-            };
+            let result = logic::Beacon::new(state.task_master.clone())
+                .new_illumination(task_run.user_id, task)
+                .await
+                .map_err(api::ApiError::internal);
             let result_ref = result.is_ok().then_some(result_ref);
             (result, result_ref)
         }
