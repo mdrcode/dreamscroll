@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use crate::illumination::v1::{EntityType, SocialMediaPlatform};
+use crate::illumination::{KnowledgeEntityType, v1::SocialMediaPlatform};
 
 use super::*;
 
@@ -10,13 +10,15 @@ use super::*;
 pub struct EnumsArgs {}
 
 pub async fn run(_state: AdminCmdState, _args: EnumsArgs) -> anyhow::Result<()> {
-    let knode_types: Vec<String> = {
+    let knowledge_entity_types: Vec<String> = {
         use strum::IntoEnumIterator;
-        EntityType::iter().map(|e| e.as_ref().to_string()).collect()
+        KnowledgeEntityType::iter()
+            .map(|entity_type| entity_type.as_ref().to_string())
+            .collect()
     };
 
-    println!("KNode Entity Types:");
-    println!("{}", knode_types.join(", "));
+    println!("Knowledge Entity Types:");
+    println!("{}", knowledge_entity_types.join(", "));
 
     let social_media_platforms: Vec<String> = {
         use strum::IntoEnumIterator;

@@ -40,11 +40,8 @@ impl task::Task for IlluminationTask {
     }
 }
 
-/// Executes the requested version. Both results are persisted raw; v1 also writes
-/// the current relational projection, while v2 remains an evaluation-only path.
-///
-/// Each call creates a concrete inference ID and returns its result reference.
-/// Retries re-illuminate with new IDs; settled reruns append a projection.
+/// Executes the requested version and persists both raw output and its relational
+/// projection. Each accepted worker attempt gets a new inference ID.
 pub async fn exec(
     state: &super::LogicState,
     task: &IlluminationTask,
@@ -100,10 +97,10 @@ pub async fn exec(
                 .service_api
                 .insert_illumination_raw(&capture, &illumination)
                 .await?;
-            tracing::warn!(
-                capture_id,
-                "Only persisting v2::Illumination result in illumination_raw at this time"
-            );
+            state
+                .service_api
+                .insert_illumination_v2(&capture, illumination)
+                .await?;
         }
     }
 

@@ -1,10 +1,13 @@
 # Illumination v2 — unified entity capture
 
-**Status:** The Gemini Interactions client and per-task model selection are implemented. v2 now has an independent prompt/schema/result and task-version dispatch. Both versions persist raw output; application producers remain on v1, which alone writes the current relational projection. Unified entity persistence, API, search, and UI remain design-only.
+**Status:** The provider-neutral inference client and per-task model selection are implemented. V1 and v2 retain versioned prompts/schemas, both persist raw output and relational illumination results, and both now project entity records into `knowledge_entities`. V1's prompt/DTO remains legacy: it keeps its own `EntityType` and separate `social_media_accounts` field; v2 uses shared `KnowledgeEntityType`.
 
 ## Problem
 
-Illumination currently models ordinary knowledge entities and social-media accounts as separate concepts throughout the pipeline. The Gemini prompt directs the model not to include accounts in `entities`; the response schema has separate `entities` and `social_media_accounts` arrays; persistence uses separate `knodes` and `social_medias` models; and API/UI code exposes and renders them separately.
+V1's legacy prompt still returns separate `entities` and `social_media_accounts` arrays.
+V2 unifies them in one `entities` list with an optional `platform_link`; both
+projections now persist to `knowledge_entities`, while the v1 prompt/DTO remains
+unchanged.
 
 That split makes it easy for the model to treat an account as a substitute for the person behind it. A result such as “Joe Smith’s X account” is not an adequate description of Joe Smith.
 
@@ -18,7 +21,7 @@ In order:
 
 Descriptions are about the entity itself. Do not use them to describe the screenshot, the app's schema, or limits of the model's knowledge. Do not pad a description with boilerplate when there is no useful information to add.
 
-## Proposed entity model
+## Unified entity model
 
 Use one entity framework with common fields such as `name`, `description`, and `type`, plus optional typed platform-link metadata. A platform link is secondary metadata, not a replacement for the entity or its description.
 
@@ -48,7 +51,8 @@ A separate account entity is appropriate when the account itself is independentl
 
 ## Illumination model behavior
 
-The prompt and structured response schema must express the priority above, not the current exclusion rule. The output should keep the entity description and platform link in distinct fields. In particular:
+The v2 prompt and structured response schema enforce the priorities above. V1 keeps
+its legacy prompt/schema until that version is retired. In particular:
 
 - Establish and describe the primary person, community, or other entity independently of its handle.
 - Add a platform link only when the image clearly associates it with that entity.
@@ -61,21 +65,72 @@ The prompt and structured response schema must express the priority above, not t
 - Preserve a visible platform display name separately from the entity name and handle; do not treat it as proof of who owns an account.
 - Do not generate a person entity from an anonymous account without evidence.
 - Do not put capture-specific or schema-specific caveats in the entity description.
+- Provide `search_query` only when it helps locate reliable, canonical information
+  about that entity. Prefer official or primary sources, otherwise reputable
+  references; keep the query narrow and non-exploratory. Keep it distinct from
+  capture-level `suggested_searches` and never use it to invent identity.
 
-The current prompt explicitly excludes social accounts from `entities`, and Gemini's response schema mirrors that split. Both must change together. Add concrete examples for a notable person with an account, a platform-hosted community, and an anonymous account. Flash-class models are expected to handle clear examples, but this is a hypothesis to validate against reviewed screenshots, not a guarantee from prompt wording alone.
+The v2 prompt/schema include people, communities, and accounts in the unified entity
+list, with platform links kept as secondary metadata. The v1 prompt remains a legacy
+contract with a separate social-account array; its `EntityType` is intentionally not
+the shared `KnowledgeEntityType`.
 
-## Code areas affected
+## Implemented persistence and consumers
 
-A full cutover will need to align the end-to-end contract:
+- `src/illumination/knowledge_entity_type.rs` defines the shared v2 taxonomy.
+  V1 retains its narrower `EntityType` and output contract; its persistence adapter
+  maps both output arrays into the common table.
+- `src/model/knowledge_entity.rs` is the single entity projection table.
+  `insert_illumination_v1` and `insert_illumination_v2` populate it, preserving each
+  result's entity order and source `illumination_id`.
+- `knodes` and `social_medias` are retired from the model/API/UI. Capture reads,
+  entity-type listing, search text, deletion, and templates use `knowledge_entities`.
+- A single `KnowledgeEntityInfo` DTO serves both illumination responses and
+  `/entity?type`; it exposes the source `capture_id`, not a full nested capture.
+- Rows are still capture/result-scoped. Identical real-world entities in different
+  captures or reruns remain separate; cross-capture identity, clustering, and merges
+  are explicitly deferred.
 
-- `src/illumination/` owns capture-analysis prompts, response DTO/schema, and orchestration; split these into cohesive files as needed, but do not add a redundant nested `capture_analysis/` module.
-- `src/llms/gemini/` owns only reusable Gemini transport, auth, content serialization, and interaction-step parsing.
-- `src/api/service/insert_illumination.rs` and `src/model/`: persist entities through a unified path rather than separate KNode/social-media paths.
-- `src/api/schema/illuminationinfo.rs`, `entityinfo.rs`, `infomaker.rs`, and capture loaders: expose the unified records consistently.
-- `web/v2/templates/partials/cards/capture.html.tera` and `capture_detail.html.tera`: render unified entities and their links without treating platform links as a competing entity category.
-- Search-index formatting and entity-detail lookup/routes: migrate callers to the unified representation and include useful entity/link text where appropriate.
+## Knowledge entity persistence model
 
-Today, extracted KNodes and social-media rows are capture-scoped; the code does not resolve the same real-world entity across captures or store graph edges. Unifying these records alone must not be presented as solving cross-capture identity resolution.
+The existing `illuminations` result parent, `illumination_raws`, `xqueries`, and
+`search_index` remain. The single unified entity table is `knowledge_entities`, used
+for all entity types, including social accounts and platform-hosted communities. Each
+row represents one entity from one illumination result and is not deduplicated across
+captures or runs.
+
+```text
+knowledge_entities(
+  id PK, user_id FK, capture_id FK, illumination_id FK,
+  position INT NOT NULL, created_at TIMESTAMPTZ NOT NULL,
+  name TEXT NOT NULL, entity_type TEXT NOT NULL,
+  description TEXT NULL, search_query TEXT NULL,
+  platform TEXT NULL, platform_handle TEXT NULL, platform_display_name TEXT NULL,
+  UNIQUE (illumination_id, position)
+)
+```
+
+- One row represents one entity in one illumination result. `id` is the stable row ID;
+  zero-based `position` preserves model order. Names and handles are not unique, so
+  identical real-world entities in different captures or reruns remain separate rows.
+- `entity_type` is stored as snake_case text. V2's prompt schema derives its allowed
+  values from the shared `KnowledgeEntityType` enum. V1 deliberately retains its
+  legacy `EntityType` and narrower schema; its social-account output is mapped to
+  `social_media_account` only by the v1 persistence adapter.
+- `description` and entity-specific canonical `search_query` are nullable. The
+  zero-or-one `platform_link` is flattened to nullable `platform`, `platform_handle`,
+  and `platform_display_name`; the v1/v2 writers and v2 response schema pair platform
+  and handle, but the table has no additional check constraint. No model-generated URL.
+- Capture-wide `suggested_searches` continue to use the existing `xqueries` table and
+  remain distinct from an entity's `search_query`. Raw JSON/provenance stays in
+  `illumination_raws`; `search_index` remains the derived result document.
+- `knowledge_entities` replaces the separate `knodes` and `social_medias` tables in
+  the model, API, search input, deletion path, and capture UI. V1 and v2 projection
+  writers both persist into it; no legacy rows are migrated, and the full backfill
+  repopulates from the v2 output.
+- Reruns still append per-result rows and readers keep the existing per-route result
+  ordering. No active-head, batch-promotion, obsolete-row, merge, or deduplication
+  logic is implemented. Cross-result identity remains a future project.
 
 ## Acceptance criteria
 
@@ -88,6 +143,9 @@ Today, extracted KNodes and social-media rows are capture-scoped; the code does 
 - A religious figure such as Jesus or Muhammad is represented as `religious_figure`, without making claims about historicity or theology.
 - Missing or ambiguous links do not displace the primary entity or cause an unsupported association.
 - When visible, a platform display name is preserved separately from the entity name and handle, without being used as identity evidence.
+- An ambiguously named entity may include a concise `search_query` to locate canonical
+  information about the intended referent, not exploratory topics; omit it when its
+  name and type already identify it.
 - Prompt, structured response, persistence, API, search, and UI all use the unified entity contract; no parallel social-media entity path remains by accident.
 
 ## Gemini client and API direction
@@ -100,14 +158,16 @@ See [the Interactions API sidebar](google-ai-interactions-api.md) for the API-sp
 
 ## Illumination module organization
 
-- `src/illumination/v1/` owns the v1 prompt, schema, typed result, and async inference function.
-- `src/illumination/v2/` independently owns the unified-entity prompt, schema, typed result, and async inference function; it shares no v1 DTOs or prompt/schema code.
+- `src/illumination/v1/` retains the legacy v1 prompt/schema/DTO; its `EntityType` and
+  separate social-account field intentionally do not use `KnowledgeEntityType`.
+- `src/illumination/v2/` uses the shared `KnowledgeEntityType` for its unified output.
 
 `src/llms/gemini/` remains provider plumbing only: authentication, endpoint mapping, generic request serialization, structured output options, and Gemini interaction response parsing. Both version modules depend on `llms::InferenceClient`, not Gemini interaction DTOs, alongside storage and inference metadata/result contracts.
 
-Each typed result's `to_markdown()` is a lossy, whole-document rendering for side-by-side evaluation and console display. V1 and v2 preserve their schema-specific differences rather than forcing a shared entity layout.
+Each typed result's `to_markdown()` is a lossy, whole-document rendering for side-by-side evaluation and console display. V1 and v2 preserve their schema-specific prompt/output differences while persisting through the unified entity table.
 
-- The task payload's `prompt_version` selects `v1` or `v2`; API/WebUI producers continue to enqueue v1. Both versions are persisted to `illumination_raw`, but only `insert_illumination_v1` writes the current relational projection and triggers search indexing. V2 is currently an evaluation path; task identity remains capture-scoped, so versions run sequentially per capture.
+- The task payload's `prompt_version` selects `v1` or `v2`; API/WebUI producers still enqueue v1. Both versions persist raw output and relational illumination/entity/search-index projections. V2 remains the evaluation path until producers are switched; task identity remains capture-scoped, so versions run sequentially per capture.
+
 
 `dreamscroll_api --host <host> inference illuminate <capture_id>` defaults to `v1`; `--prompt-version v2` selects v2. Each accepted worker attempt creates a fresh UUID for its concrete inference. On success, `TaskRunInfo` and SSE expose the successful inference's ID as an `inference` result reference; retries use distinct IDs. The CLI fetches `/illuminations/raw/{inference_id}` and prints schema-specific Markdown to stdout.
 
@@ -116,5 +176,4 @@ The unused `GrokIlluminator` was removed: it read from a hard-coded `localdev/me
 ## Decisions still to make
 
 - V2 platform links require a handle and may include a display name; URLs are not model output. Deterministic post-inference URL construction remains to be evaluated for unambiguous platform/handle pairs.
-- Whether social-account entities use the same platform-link shape as other entities or whether the link is their defining locator.
 - Whether and when to add canonical cross-capture identity and explicit relationships. These are distinct from unifying the current capture-level extraction schema.

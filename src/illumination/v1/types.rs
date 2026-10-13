@@ -127,7 +127,8 @@ impl InferenceResult for Illumination {
     }
 }
 
-/// The type/category of an entity.
+/// Legacy v1 category. Its prompt/DTO intentionally does not use the shared
+/// `KnowledgeEntityType`; v1 still emits social accounts in a separate field.
 #[derive(
     Debug,
     Clone,

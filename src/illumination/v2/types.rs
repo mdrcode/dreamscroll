@@ -3,6 +3,7 @@ use std::fmt::Write as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
+use crate::illumination::KnowledgeEntityType;
 use crate::llms::{InferenceMetadata, InferenceResult};
 
 /// Structured v2 interpretation of a capture, with its original JSON retained.
@@ -88,6 +89,10 @@ impl InferenceResult for Illumination {
                 if let Some(description) = &entity.description {
                     write!(markdown, " — {description}").expect("writing to a String cannot fail");
                 }
+                if let Some(search_query) = &entity.search_query {
+                    writeln!(markdown, "  - Search query: {search_query}")
+                        .expect("writing to a String cannot fail");
+                }
                 markdown.push('\n');
 
                 if let Some(link) = &entity.platform_link {
@@ -113,49 +118,15 @@ impl InferenceResult for Illumination {
     }
 }
 
-#[derive(
-    Debug,
-    Clone,
-    PartialEq,
-    Eq,
-    Serialize,
-    Deserialize,
-    strum::Display,
-    strum::EnumIter,
-    strum::AsRefStr,
-)]
-#[serde(rename_all = "snake_case")]
-#[strum(serialize_all = "snake_case")]
-pub enum EntityType {
-    RealPerson,
-    ReligiousFigure,
-    Place,
-    Event,
-    Book,
-    Publication,
-    Movie,
-    TelevisionShow,
-    ArtWork,
-    FictionalCharacter,
-    Music,
-    Meme,
-    Software,
-    Product,
-    Financial,
-    Brand,
-    Organization,
-    OnlineCommunity,
-    SocialMediaAccount,
-    Unknown,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Entity {
     pub name: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub search_query: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(rename = "type")]
-    pub entity_type: EntityType,
+    pub entity_type: KnowledgeEntityType,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform_link: Option<PlatformLink>,
 }
@@ -213,6 +184,7 @@ mod tests {
             "entities": [
                 {
                     "name": "NFCWestMemeWar",
+                    "search_query": "NFC West Meme War subreddit",
                     "description": "A community for memes about the NFL's NFC West division.",
                     "type": "online_community",
                     "platform_link": {
@@ -260,12 +232,24 @@ mod tests {
 
         assert_eq!(
             illumination.entities[0].entity_type,
-            EntityType::OnlineCommunity
+            KnowledgeEntityType::OnlineCommunity
         );
-        assert_eq!(illumination.entities[2].entity_type, EntityType::Event);
-        assert_eq!(illumination.entities[3].entity_type, EntityType::Product);
-        assert_eq!(illumination.entities[4].entity_type, EntityType::Publication);
-        assert_eq!(illumination.entities[5].entity_type, EntityType::ReligiousFigure);
+        assert_eq!(
+            illumination.entities[2].entity_type,
+            KnowledgeEntityType::Event
+        );
+        assert_eq!(
+            illumination.entities[3].entity_type,
+            KnowledgeEntityType::Product
+        );
+        assert_eq!(
+            illumination.entities[4].entity_type,
+            KnowledgeEntityType::Publication
+        );
+        assert_eq!(
+            illumination.entities[5].entity_type,
+            KnowledgeEntityType::ReligiousFigure
+        );
         let reddit_link = illumination.entities[0]
             .platform_link
             .as_ref()
@@ -278,6 +262,11 @@ mod tests {
         );
         assert!(reddit_link.url.is_none());
         assert_eq!(illumination.entities[1].description, None);
+        assert_eq!(
+            illumination.entities[0].search_query.as_deref(),
+            Some("NFC West Meme War subreddit")
+        );
+        assert_eq!(illumination.entities[1].search_query, None);
         assert_eq!(
             illumination.raw_json()["future_schema_field"]["preserved"],
             json!(true)
@@ -294,6 +283,7 @@ mod tests {
                 "entities": [
                     {
                         "name": "NFCWestMemeWar",
+                        "search_query": "NFC West Meme War subreddit",
                         "description": "A community for NFC West memes.",
                         "type": "online_community",
                         "platform_link": {
@@ -337,6 +327,7 @@ mod tests {
         assert!(markdown.contains(
             "Platform: reddit; display name: NFC West Meme War; handle: r/NFCWestMemeWar"
         ));
+        assert!(markdown.contains("  - Search query: NFC West Meme War subreddit"));
         assert!(markdown.contains(
             "- **Venice International Film Festival** (`event`) — An annual film festival for international cinema."
         ));

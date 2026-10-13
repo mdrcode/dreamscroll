@@ -57,15 +57,9 @@ pub async fn delete_capture(
         .exec(&db.conn)
         .await?;
 
-    model::knode::Entity::delete_many()
-        .filter(model::knode::Column::UserId.eq(context.user_id()))
-        .filter(model::knode::Column::CaptureId.eq(capture_id))
-        .exec(&db.conn)
-        .await?;
-
-    model::social_media::Entity::delete_many()
-        .filter(model::social_media::Column::UserId.eq(context.user_id()))
-        .filter(model::social_media::Column::CaptureId.eq(capture_id))
+    model::knowledge_entity::Entity::delete_many()
+        .filter(model::knowledge_entity::Column::UserId.eq(context.user_id()))
+        .filter(model::knowledge_entity::Column::CaptureId.eq(capture_id))
         .exec(&db.conn)
         .await?;
 

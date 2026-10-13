@@ -38,6 +38,14 @@ impl ServiceApiClient {
         super::insert_illumination_v1(&self.db, capture_info, illumination).await
     }
 
+    pub async fn insert_illumination_v2(
+        &self,
+        capture_info: &schema::CaptureInfo,
+        illumination: illumination::v2::Illumination,
+    ) -> Result<(), ApiError> {
+        super::insert_illumination_v2(&self.db, capture_info, illumination).await
+    }
+
     pub async fn insert_illumination_raw<R: llms::InferenceResult + ?Sized>(
         &self,
         capture_info: &schema::CaptureInfo,

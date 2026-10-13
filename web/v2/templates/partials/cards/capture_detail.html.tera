@@ -58,33 +58,25 @@
         {% if capture.illuminations | length > 0 %}
         {% set illum = capture.illuminations | first %}
 
-        {% if illum.k_nodes | length > 0 %}
+        {% if illum.knowledge_entities | length > 0 %}
         <p class="metadata-subsection-title">Entities</p>
         <dl class="metadata-dict-list">
-            {% for node in illum.k_nodes %}
+            {% for entity in illum.knowledge_entities %}
             <dt>
                 <span class="pill">
-                    <span class="pill__prefix">{{ node.k_type }}</span>
-                    <span class="pill__label">{{ node.name }}</span>
+                    <span class="pill__prefix">{{ entity.type }}</span>
+                    <span class="pill__label">{{ entity.name }}</span>
                 </span>
             </dt>
-                {% if node.description %}
-                <dd>{{ node.description }}</dd>
-                {% endif %}
-            {% endfor %}
-        </dl>
-        {% endif %}
-
-        {% if illum.social_medias | length > 0 %}
-        <p class="metadata-subsection-title">Platform Links</p>
-        <dl class="metadata-dict-list">
-            {% for node in illum.social_medias %}
-            <dt>
-                <span class="pill">
-                    <span class="pill__prefix">{{ node.platform }}</span>
-                    <span class="pill__label">{{ node.display_name }} ({{ node.handle }})</span>
-                </span>
-            </dt>
+            {% if entity.description %}
+            <dd>{{ entity.description }}</dd>
+            {% endif %}
+            {% if entity.platform_link %}
+            <dd>{{ entity.platform_link.platform }}{% if entity.platform_link.display_name %} · {{ entity.platform_link.display_name }}{% endif %} ({{ entity.platform_link.handle }})</dd>
+            {% endif %}
+            {% if entity.search_query %}
+            <dd><a href="https://www.google.com/search?q={{ entity.search_query | urlencode }}" target="_blank" rel="noopener noreferrer">Canonical search: {{ entity.search_query }}</a></dd>
+            {% endif %}
             {% endfor %}
         </dl>
         {% endif %}

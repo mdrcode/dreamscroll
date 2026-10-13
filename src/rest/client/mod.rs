@@ -185,7 +185,7 @@ impl Client {
     pub async fn get_entities_by_type(
         &self,
         entity_type: &str,
-    ) -> anyhow::Result<Vec<api::EntityInfo>> {
+    ) -> anyhow::Result<Vec<api::KnowledgeEntityInfo>> {
         let response = self
             .reqwest_client
             .get(format!("{}/entity", self.base_url))

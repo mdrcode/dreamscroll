@@ -106,14 +106,12 @@ impl InfoMaker {
             HasMany::Loaded(models) => models.into_iter().map(|m| m.query).collect(),
         };
 
-        let k_nodes = match illumination_model.knodes {
+        let knowledge_entities = match illumination_model.knowledge_entities {
             HasMany::Unloaded => vec![],
-            HasMany::Loaded(models) => models.into_iter().map(KNodeInfo::from).collect(),
-        };
-
-        let social_medias = match illumination_model.social_medias {
-            HasMany::Unloaded => vec![],
-            HasMany::Loaded(models) => models.into_iter().map(SocialMediaInfo::from).collect(),
+            HasMany::Loaded(mut models) => {
+                models.sort_by_key(|entity| entity.position);
+                models.into_iter().map(KnowledgeEntityInfo::from).collect()
+            }
         };
 
         IlluminationInfo {
@@ -122,8 +120,7 @@ impl InfoMaker {
             summary: illumination_model.summary,
             details: illumination_model.details,
             x_queries,
-            k_nodes,
-            social_medias,
+            knowledge_entities,
         }
     }
 
@@ -231,45 +228,6 @@ impl InfoMaker {
             referenced_capture_ids,
             capture_previews,
             spark_links,
-        }
-    }
-
-    pub fn make_knode_entity_info(
-        &self,
-        knode_model: model::knode::ModelEx,
-        capture: model::capture::ModelEx,
-    ) -> EntityInfo {
-        let capture_info = self.make_capture_info(capture);
-        self.make_knode_entity_info_with_capture_info(knode_model, capture_info)
-    }
-
-    pub fn make_knode_entity_info_with_capture_info(
-        &self,
-        knode_model: model::knode::ModelEx,
-        capture: CaptureInfo,
-    ) -> EntityInfo {
-        EntityInfo::KNode {
-            id: knode_model.id,
-            name: knode_model.name,
-            description: knode_model.description,
-            k_type: knode_model.k_type,
-            capture,
-        }
-    }
-
-    pub fn make_social_media_entity_info(
-        &self,
-        social_media_model: model::social_media::ModelEx,
-        capture: model::capture::ModelEx,
-    ) -> EntityInfo {
-        let capture_info = self.make_capture_info(capture);
-
-        EntityInfo::SocialMedia {
-            id: social_media_model.id,
-            display_name: social_media_model.display_name,
-            handle: social_media_model.handle,
-            platform: social_media_model.platform,
-            capture: capture_info,
         }
     }
 }

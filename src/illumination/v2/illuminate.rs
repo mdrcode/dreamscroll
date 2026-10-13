@@ -4,6 +4,7 @@ use strum::IntoEnumIterator;
 
 use crate::{
     api,
+    illumination::KnowledgeEntityType,
     llms::{self, InferenceMetadata},
     storage,
 };
@@ -78,7 +79,7 @@ pub async fn illuminate(
 }
 
 fn make_schema() -> serde_json::Value {
-    let entity_types: Vec<String> = EntityType::iter()
+    let entity_types: Vec<String> = KnowledgeEntityType::iter()
         .map(|entity_type| entity_type.as_ref().to_string())
         .collect();
     let platforms: Vec<String> = Platform::iter()
@@ -108,6 +109,10 @@ fn make_schema() -> serde_json::Value {
                     "type": "object",
                     "properties": {
                         "name": { "type": "string" },
+                        "search_query": {
+                            "type": "string",
+                            "description": "Optional concise entity-specific search query for disambiguation or lookup."
+                        },
                         "description": {
                             "type": "string",
                             "description": "Useful information about the entity itself; omit when unsupported or not useful."
@@ -165,6 +170,10 @@ mod tests {
         assert!(entity_types.contains(&json!("publication")));
         assert!(entity_types.contains(&json!("social_media_account")));
         assert!(platforms.contains(&json!("reddit")));
+        assert_eq!(
+            entity_schema["properties"]["search_query"]["type"],
+            json!("string")
+        );
         let platform_link_schema = &entity_schema["properties"]["platform_link"];
         assert_eq!(
             platform_link_schema["properties"]["display_name"]["type"],

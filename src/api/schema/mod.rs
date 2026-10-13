@@ -12,20 +12,14 @@ pub use captureinfo::*;
 mod capturepreviewinfo;
 pub use capturepreviewinfo::*;
 
-mod entityinfo;
-pub use entityinfo::*;
-
 mod illuminationinfo;
 pub use illuminationinfo::*;
 
-mod knodeinfo;
-pub use knodeinfo::*;
+mod knowledgeentityinfo;
+pub use knowledgeentityinfo::*;
 
 mod mediainfo;
 pub use mediainfo::*;
-
-mod socialmediainfo;
-pub use socialmediainfo::*;
 
 mod sparklinkinfo;
 pub use sparklinkinfo::*;

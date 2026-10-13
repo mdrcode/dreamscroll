@@ -19,8 +19,7 @@ pub async fn get_captures(
         .with(model::illumination::Entity)
         .with(model::annotation::Entity)
         .with((model::illumination::Entity, model::xquery::Entity))
-        .with((model::illumination::Entity, model::knode::Entity))
-        .with((model::illumination::Entity, model::social_media::Entity))
+        .with((model::illumination::Entity, model::knowledge_entity::Entity))
         .all(&db.conn)
         .await?;
 

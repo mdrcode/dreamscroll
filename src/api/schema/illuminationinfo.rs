@@ -9,89 +9,49 @@ pub struct IlluminationInfo {
     pub summary: String,
     pub details: String,
     pub x_queries: Vec<String>,
-    pub k_nodes: Vec<KNodeInfo>,
-    pub social_medias: Vec<SocialMediaInfo>,
+    pub knowledge_entities: Vec<KnowledgeEntityInfo>,
 }
 
 impl IlluminationInfo {
     pub fn make_text(&self) -> String {
-        let mut sections: Vec<String> = Vec::new();
-
+        let mut sections = Vec::new();
         push_section(&mut sections, "Summary", &self.summary);
         push_section(&mut sections, "Details", &self.details);
 
-        let knode_lines = self
-            .k_nodes
+        let entity_lines = self
+            .knowledge_entities
             .iter()
-            .filter_map(|k| {
-                let mut parts: Vec<String> = Vec::new();
-                let name = k.name.trim();
-                if !name.is_empty() {
-                    parts.push(name.to_string());
+            .map(|entity| {
+                let mut parts = vec![entity.name.clone(), format!("type: {}", entity.entity_type)];
+                if let Some(description) = &entity.description {
+                    parts.push(format!("description: {description}"));
                 }
-
-                let k_type = k.k_type.trim();
-                if !k_type.is_empty() {
-                    parts.push(format!("type: {}", k_type));
+                if let Some(search_query) = &entity.search_query {
+                    parts.push(format!("canonical search: {search_query}"));
                 }
-
-                let description = k.description.trim();
-                if !description.is_empty() {
-                    parts.push(format!("description: {}", description));
+                if let Some(link) = &entity.platform_link {
+                    parts.push(format!("platform: {}", link.platform));
+                    if let Some(display_name) = &link.display_name {
+                        parts.push(format!("display name: {display_name}"));
+                    }
+                    parts.push(format!("handle: {}", link.handle));
                 }
-
-                if parts.is_empty() {
-                    None
-                } else {
-                    Some(format!("- {}", parts.join(" | ")))
-                }
+                format!("- {}", parts.join(" | "))
             })
             .collect::<Vec<_>>();
-        if !knode_lines.is_empty() {
-            sections.push(format!("Knowledge Nodes\n{}", knode_lines.join("\n")));
+        if !entity_lines.is_empty() {
+            sections.push(format!("Entities\n{}", entity_lines.join("\n")));
         }
 
         let query_lines = self
             .x_queries
             .iter()
-            .map(|q| q.trim())
-            .filter(|q| !q.is_empty())
-            .map(|q| format!("- {}", q))
+            .map(|query| query.trim())
+            .filter(|query| !query.is_empty())
+            .map(|query| format!("- {query}"))
             .collect::<Vec<_>>();
         if !query_lines.is_empty() {
             sections.push(format!("Suggested Queries\n{}", query_lines.join("\n")));
-        }
-
-        let social_lines = self
-            .social_medias
-            .iter()
-            .filter_map(|s| {
-                let mut parts: Vec<String> = Vec::new();
-
-                let display_name = s.display_name.trim();
-                if !display_name.is_empty() {
-                    parts.push(display_name.to_string());
-                }
-
-                let platform = s.platform.trim();
-                if !platform.is_empty() {
-                    parts.push(format!("platform: {}", platform));
-                }
-
-                let handle = s.handle.trim();
-                if !handle.is_empty() {
-                    parts.push(format!("handle: {}", handle));
-                }
-
-                if parts.is_empty() {
-                    None
-                } else {
-                    Some(format!("- {}", parts.join(" | ")))
-                }
-            })
-            .collect::<Vec<_>>();
-        if !social_lines.is_empty() {
-            sections.push(format!("Social Profiles\n{}", social_lines.join("\n")));
         }
 
         sections.join("\n\n")
@@ -100,10 +60,9 @@ impl IlluminationInfo {
 
 fn push_section(sections: &mut Vec<String>, header: &str, body: &str) {
     let body = body.trim();
-    if body.is_empty() {
-        return;
+    if !body.is_empty() {
+        sections.push(format!("{header}\n{body}"));
     }
-    sections.push(format!("{}\n{}", header, body));
 }
 
 #[cfg(test)]
@@ -111,41 +70,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn make_text_contains_main_fields() {
+    fn make_text_includes_unified_entity_details_and_queries() {
         let info = IlluminationInfo {
             id: 10,
             capture_id: 9,
             summary: "summary".to_string(),
             details: "details".to_string(),
-            x_queries: vec!["a".to_string(), "b".to_string()],
-            k_nodes: vec![KNodeInfo {
+            x_queries: vec!["related topic".to_string()],
+            knowledge_entities: vec![KnowledgeEntityInfo {
                 id: 1,
+                capture_id: 9,
                 name: "Ada Lovelace".to_string(),
-                description: "Pioneer of computing".to_string(),
-                k_type: "person".to_string(),
-            }],
-            social_medias: vec![SocialMediaInfo {
-                id: 2,
-                display_name: "Ada".to_string(),
-                handle: "@ada".to_string(),
-                platform: "x".to_string(),
+                entity_type: "real_person".to_string(),
+                description: Some("Pioneer of computing".to_string()),
+                search_query: Some("Ada Lovelace mathematician".to_string()),
+                platform_link: Some(PlatformLinkInfo {
+                    platform: "x_twitter".to_string(),
+                    handle: "@ada".to_string(),
+                    display_name: Some("Ada".to_string()),
+                }),
             }],
         };
 
         let text = info.make_text();
-        assert!(text.contains("Summary"));
-        assert!(text.contains("summary"));
-        assert!(text.contains("Details"));
-        assert!(text.contains("details"));
-        assert!(text.contains("Queries"));
-        assert!(text.contains("- a"));
-        assert!(text.contains("- b"));
-        assert!(text.contains("Knowledge Nodes"));
-        assert!(text.contains("type: person"));
+        assert!(text.contains("Summary\nsummary"));
+        assert!(text.contains("Details\ndetails"));
+        assert!(text.contains("Entities"));
+        assert!(text.contains("type: real_person"));
         assert!(text.contains("description: Pioneer of computing"));
-        assert!(text.contains("Social Profiles"));
-        assert!(text.contains("platform: x"));
+        assert!(text.contains("canonical search: Ada Lovelace mathematician"));
         assert!(text.contains("handle: @ada"));
+        assert!(text.contains("Suggested Queries\n- related topic"));
     }
 
     #[test]
@@ -156,15 +111,13 @@ mod tests {
             summary: "summary".to_string(),
             details: "  ".to_string(),
             x_queries: vec![],
-            k_nodes: vec![],
-            social_medias: vec![],
+            knowledge_entities: vec![],
         };
 
         let text = info.make_text();
         assert!(text.contains("Summary"));
         assert!(!text.contains("Details"));
-        assert!(!text.contains("Queries"));
-        assert!(!text.contains("Knowledge Nodes"));
-        assert!(!text.contains("Social Profiles"));
+        assert!(!text.contains("Entities"));
+        assert!(!text.contains("Suggested Queries"));
     }
 }

@@ -16,9 +16,21 @@ For suggested_searches: Provide concise, natural searches for notable objects,
 people, works, or locations that merit follow-up. Include each distinct item in a
 montage when identifiable.
 
+For search_query: Optionally provide one concise, entity-specific search query only when
+it helps locate reliable, canonical information about that exact entity. Prefer an
+official or primary source when available; otherwise target a reputable reference.
+Use the narrowest identifying terms; this is not a broad exploratory query or a
+suggestion for what to explore next. Omit it when the name and type already identify
+the entity well enough. Do not return a URL or use a query to invent a more specific
+identity. This is distinct from capture-level suggested_searches. For example,
+distinguish Python the programming language ("Python programming language") from a
+python snake ("python snake"), and the Avengers superhero team ("The Avengers
+Marvel superhero team") from the British TV spy series ("The Avengers British TV
+spy series").
+
 For entities: Return one unified list of notable entities. Each entity has a name
-and type, may have a useful description, and may have one optional platform_link.
-Do not create a separate list of social media accounts.
+and type, may have a useful description, one optional search_query, and one optional
+platform_link. Do not create a separate list of social media accounts.
 
 Prioritize the entity's own identity and description. A person's description should
 explain the person, not their account. Attach an account as platform_link only when

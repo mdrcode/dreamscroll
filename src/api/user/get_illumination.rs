@@ -15,8 +15,7 @@ pub async fn get_illuminations(
     let loader = loader
         .with(model::illumination_meta::Entity)
         .with(model::xquery::Entity)
-        .with(model::knode::Entity)
-        .with(model::social_media::Entity)
+        .with(model::knowledge_entity::Entity)
         .all(&db.conn)
         .await?;
 
