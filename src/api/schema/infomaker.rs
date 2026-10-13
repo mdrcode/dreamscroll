@@ -101,10 +101,7 @@ impl InfoMaker {
         &self,
         illumination_model: model::illumination::ModelEx,
     ) -> IlluminationInfo {
-        let x_queries = match illumination_model.xqueries {
-            HasMany::Unloaded => vec![],
-            HasMany::Loaded(models) => models.into_iter().map(|m| m.query).collect(),
-        };
+        let suggested_searches = illumination_model.suggested_searches;
 
         let knowledge_entities = match illumination_model.knowledge_entities {
             HasMany::Unloaded => vec![],
@@ -119,7 +116,7 @@ impl InfoMaker {
             capture_id: illumination_model.capture_id,
             summary: illumination_model.summary,
             details: illumination_model.details,
-            x_queries,
+            suggested_searches,
             knowledge_entities,
         }
     }

@@ -109,7 +109,7 @@ largest category, and the least urgent, because the app is single-user today.
 | --- | --- | --- | --- |
 | **No explicit active illumination head for reruns/backfills** | Concurrent or late results can surface according to existing per-route ordering instead of an intentional promotion. | Keep the initial persistence model to one entity table and existing result flow. | An overlapping re-run/backfill displays or indexes the wrong result. |
 | **No atomic handoff from v2 persistence to vector indexing** | A crash after relational persistence but before the search task is enqueued can leave a capture unindexed; failed enqueue retries illumination and can append another v2 result. | An outbox/transactional handoff is beyond prototype scope; task retries usually recover. | A capture remains unindexed after retries or enqueue failures produce duplicate results. |
-| **Legacy v1 illumination is raw-only** | Explicit v1 runs, including the CLI's current default, store inference JSON/provenance but no relational summary, entities, xqueries, or search-index content. | API/WebUI capture producers use v2; v1 remains available for evaluation and its warning makes raw-only behavior visible. | Before relying on a manually requested v1 result in the app. |
+| **Legacy v1 illumination is raw-only** | Explicit v1 runs, including the CLI's current default, store inference JSON/provenance but no relational illumination, knowledge-entity, or search-index content. | API/WebUI capture producers use v2; v1 remains available for evaluation and its warning makes raw-only behavior visible. | Before relying on a manually requested v1 result in the app. |
 
 ### Code cleanliness
 

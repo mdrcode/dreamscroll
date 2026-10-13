@@ -1,6 +1,6 @@
 # Illumination v2 — unified entity capture
 
-**Status:** V2 has a relational `knowledge_entities` projection and successful v2 illumination now enqueues vector search indexing. API/WebUI capture producers request v2. V1 remains a legacy prompt/DTO and is deliberately raw-only: both versions persist inference JSON/provenance, but only v2 writes relational illumination, entity, query, and search-index rows.
+**Status:** V2 has a relational `knowledge_entities` projection and successful v2 illumination now enqueues vector search indexing. API/WebUI capture producers request v2. V1 remains a legacy prompt/DTO and is deliberately raw-only: both versions persist inference JSON/provenance, but only v2 writes relational illumination summaries, entities, suggested searches, and search-index content.
 
 ## Problem
 
@@ -90,11 +90,12 @@ the shared `KnowledgeEntityType`.
   producers now request v2, so new captures update relational summaries, entities,
   and search-index content; explicitly requested v1 output remains raw-only.
 
-The existing `illuminations` result parent, `illumination_raws`, `xqueries`, and
-`search_index` remain. `knowledge_entities` is the single v2 entity table for all
-entity types, including social accounts and platform-hosted communities. Each row
-represents one entity from one v2 illumination result and is not deduplicated across
-captures or runs.
+The existing `illuminations` result parent, `illumination_raws`, and `search_index`
+remain. Each illumination stores capture-wide `suggested_searches` as a PostgreSQL
+`text[]` column, distinct from each entity's `search_query`. `knowledge_entities` is
+the single v2 entity table for all entity types, including social accounts and
+platform-hosted communities. Each row represents one entity from one v2 illumination
+result and is not deduplicated across captures or runs.
 
 ```text
 knowledge_entities(
@@ -115,12 +116,12 @@ knowledge_entities(
   platform link into nullable `platform`, `platform_handle`, and
   `platform_display_name`; v2 schema requires platform and handle when a link exists.
   No model-generated URL column or separate link table.
-- V2 capture-wide `suggested_searches` remain in `xqueries`, distinct from each
-  entity's `search_query`. Raw JSON/provenance stays in `illumination_raws`;
-  `search_index` remains the derived result document.
+- V2 capture-wide `suggested_searches` are stored on their illumination row and
+  remain distinct from each entity's `search_query`. Raw JSON/provenance stays in
+  `illumination_raws`; `search_index` remains the derived result document.
 - `knowledge_entities` replaces `knodes` and `social_medias` for relational v2
   persistence and its API/UI readers. V1 raw output does not create `illuminations`,
-  `knowledge_entities`, `xqueries`, or `search_index` rows.
+  `knowledge_entities`, or `search_index` rows.
 - V2 reruns append per-result rows and readers keep the existing per-route ordering.
   No migration of v1 rows or merge/deduplication logic; the full backfill populates
   the v2 projection.

@@ -25,12 +25,10 @@ pub struct Model {
 
     pub summary: String,
     pub details: String,
+    pub suggested_searches: Vec<String>,
 
     #[sea_orm(has_one)]
     pub illumination_meta: HasOne<illumination_meta::Entity>,
-
-    #[sea_orm(has_many)]
-    pub xqueries: HasMany<xquery::Entity>,
 
     #[sea_orm(has_many)]
     pub knowledge_entities: HasMany<knowledge_entity::Entity>,

@@ -6,17 +6,20 @@ pub async fn insert_illumination_v2(
     illumination: v2::Illumination,
 ) -> Result<(), ApiError> {
     let inference_id = illumination.metadata().inference_id.clone();
+    let search_content = format_for_search_v2(&illumination);
+    let suggested_searches = illumination.suggested_searches;
     let mut builder = model::illumination::ActiveModel::builder()
         .set_user_id(capture.user_id)
         .set_capture_id(capture.id)
         .set_inference_id(Some(inference_id))
         .set_summary(&illumination.summary)
         .set_details(&illumination.details)
+        .set_suggested_searches(suggested_searches)
         .set_search_index(
             model::search_index::ActiveModel::builder()
                 .set_user_id(capture.user_id)
                 .set_capture_id(capture.id)
-                .set_content(format_for_search_v2(&illumination)),
+                .set_content(search_content),
         );
 
     for (position, entity) in illumination.entities.iter().enumerate() {
@@ -40,15 +43,6 @@ pub async fn insert_illumination_v2(
                 .set_platform(platform)
                 .set_platform_handle(handle)
                 .set_platform_display_name(display_name),
-        );
-    }
-
-    for search in &illumination.suggested_searches {
-        builder.xqueries.push(
-            model::xquery::ActiveModel::builder()
-                .set_user_id(capture.user_id)
-                .set_capture_id(capture.id)
-                .set_query(search),
         );
     }
 
@@ -227,12 +221,6 @@ mod tests {
             .await
             .unwrap();
         assert!(v1_entities.is_empty());
-        let v1_queries = model::xquery::Entity::find()
-            .filter(model::xquery::Column::UserId.eq(user.id))
-            .all(&db.conn)
-            .await
-            .unwrap();
-        assert!(v1_queries.is_empty());
         let v1_search_indexes = model::search_index::Entity::find()
             .filter(model::search_index::Column::UserId.eq(user.id))
             .all(&db.conn)
@@ -242,7 +230,7 @@ mod tests {
         let v2_content = json!({
             "summary": "A Reddit community for NFC West memes",
             "details": "A community focused on memes about the NFL's NFC West division.",
-            "suggested_searches": [],
+            "suggested_searches": ["NFC West memes", "Arizona Cardinals meme history"],
             "entities": [{
                 "name": "NFCWestMemeWar",
                 "description": "A community for memes about the NFL's NFC West division.",
@@ -295,6 +283,13 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        assert_eq!(
+            stored_v2_illumination.suggested_searches,
+            vec![
+                "NFC West memes".to_string(),
+                "Arizona Cardinals meme history".to_string(),
+            ]
+        );
         let v2_entities = model::knowledge_entity::Entity::find()
             .filter(model::knowledge_entity::Column::IlluminationId.eq(stored_v2_illumination.id))
             .order_by_asc(model::knowledge_entity::Column::Position)

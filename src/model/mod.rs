@@ -15,4 +15,3 @@ pub mod spark_output_ref;
 pub mod task_run;
 pub mod task_run_timing;
 pub mod user;
-pub mod xquery;

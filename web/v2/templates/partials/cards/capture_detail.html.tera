@@ -81,10 +81,10 @@
         </dl>
         {% endif %}
 
-        {% if illum.x_queries | length > 0 %}
+        {% if illum.suggested_searches | length > 0 %}
         <p class="metadata-subsection-title">Related Searches</p>
         <div class="pill-group pill-group--wrap pill-group--queries pill-group--stack">
-            {% for query in illum.x_queries %}
+            {% for query in illum.suggested_searches %}
             <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="pill">
                 <span class="pill__prefix">⌕</span>
                 <span class="pill__label">{{ query }}</span>

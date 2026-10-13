@@ -8,7 +8,7 @@ pub struct IlluminationInfo {
     pub capture_id: i32,
     pub summary: String,
     pub details: String,
-    pub x_queries: Vec<String>,
+    pub suggested_searches: Vec<String>,
     pub knowledge_entities: Vec<KnowledgeEntityInfo>,
 }
 
@@ -43,15 +43,15 @@ impl IlluminationInfo {
             sections.push(format!("Entities\n{}", entity_lines.join("\n")));
         }
 
-        let query_lines = self
-            .x_queries
+        let search_lines = self
+            .suggested_searches
             .iter()
-            .map(|query| query.trim())
-            .filter(|query| !query.is_empty())
-            .map(|query| format!("- {query}"))
+            .map(|search| search.trim())
+            .filter(|search| !search.is_empty())
+            .map(|search| format!("- {search}"))
             .collect::<Vec<_>>();
-        if !query_lines.is_empty() {
-            sections.push(format!("Suggested Queries\n{}", query_lines.join("\n")));
+        if !search_lines.is_empty() {
+            sections.push(format!("Suggested searches\n{}", search_lines.join("\n")));
         }
 
         sections.join("\n\n")
@@ -70,13 +70,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn make_text_includes_unified_entity_details_and_queries() {
+    fn make_text_includes_unified_entity_details_and_suggested_searches() {
         let info = IlluminationInfo {
             id: 10,
             capture_id: 9,
             summary: "summary".to_string(),
             details: "details".to_string(),
-            x_queries: vec!["related topic".to_string()],
+            suggested_searches: vec!["related topic".to_string()],
             knowledge_entities: vec![KnowledgeEntityInfo {
                 id: 1,
                 capture_id: 9,
@@ -91,6 +91,12 @@ mod tests {
                 }),
             }],
         };
+        let payload = serde_json::to_value(&info).unwrap();
+        assert_eq!(
+            payload["suggested_searches"],
+            serde_json::json!(["related topic"])
+        );
+        assert!(payload.get("x_queries").is_none());
 
         let text = info.make_text();
         assert!(text.contains("Summary\nsummary"));
@@ -100,7 +106,7 @@ mod tests {
         assert!(text.contains("description: Pioneer of computing"));
         assert!(text.contains("canonical search: Ada Lovelace mathematician"));
         assert!(text.contains("handle: @ada"));
-        assert!(text.contains("Suggested Queries\n- related topic"));
+        assert!(text.contains("Suggested searches\n- related topic"));
     }
 
     #[test]
@@ -110,7 +116,7 @@ mod tests {
             capture_id: 9,
             summary: "summary".to_string(),
             details: "  ".to_string(),
-            x_queries: vec![],
+            suggested_searches: vec![],
             knowledge_entities: vec![],
         };
 
@@ -118,6 +124,6 @@ mod tests {
         assert!(text.contains("Summary"));
         assert!(!text.contains("Details"));
         assert!(!text.contains("Entities"));
-        assert!(!text.contains("Suggested Queries"));
+        assert!(!text.contains("Suggested searches"));
     }
 }

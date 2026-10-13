@@ -51,12 +51,6 @@ pub async fn delete_capture(
         .exec(&db.conn)
         .await?;
 
-    model::xquery::Entity::delete_many()
-        .filter(model::xquery::Column::UserId.eq(context.user_id()))
-        .filter(model::xquery::Column::CaptureId.eq(capture_id))
-        .exec(&db.conn)
-        .await?;
-
     model::knowledge_entity::Entity::delete_many()
         .filter(model::knowledge_entity::Column::UserId.eq(context.user_id()))
         .filter(model::knowledge_entity::Column::CaptureId.eq(capture_id))
