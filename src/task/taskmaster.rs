@@ -260,15 +260,27 @@ impl TaskMaster {
                     .finish_attempt(task_run, status_code, attempt, None)
                     .await?;
 
-                tracing::warn!(
-                    task_run = ?task_run,
-                    attempt,
-                    max_attempts = self.max_attempts_per_run,
-                    retryable = err.is_retryable(),
-                    status_code = %status_code,
-                    error = ?err,
-                    "Task attempt failed"
-                );
+                if status_code == TaskRunStatus::ErrorWillRetry {
+                    tracing::warn!(
+                        task_run = ?task_run,
+                        attempt,
+                        max_attempts = self.max_attempts_per_run,
+                        retryable = err.is_retryable(),
+                        status_code = %status_code,
+                        error = ?err,
+                        "Task attempt failed; retry scheduled"
+                    );
+                } else {
+                    tracing::error!(
+                        task_run = ?task_run,
+                        attempt,
+                        max_attempts = self.max_attempts_per_run,
+                        retryable = err.is_retryable(),
+                        status_code = %status_code,
+                        error = ?err,
+                        "Task attempt failed terminally"
+                    );
+                }
 
                 Ok(status_code)
             }
