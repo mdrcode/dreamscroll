@@ -333,9 +333,10 @@ starts at attempt 1.
 The run dimension and result references are implemented. Current behavior:
 
 - The `IlluminationTask` payload carries `model_id` and `prompt_version`; API/WebUI
-  producers still select v1 by default, while `dreamscroll_api inference` can select
-  v1 or v2. Task identity remains capture-scoped, so v1/v2 runs for one capture
-  must be submitted sequentially after each run settles.
+  producers use v2, REST payloads without a version default to v2, and `dreamscroll_api`
+  commands default to v2. `dreamscroll_api inference` can explicitly select v1 for
+  raw-result evaluation. Task identity remains capture-scoped, so v1/v2 runs for one
+  capture must be submitted sequentially after each run settles.
 
 - Successful runs expose optional `result_entity_type` and `result_entity_id` in
   `TaskRunInfo` and SSE task-status events. Inference runs use the `inference`

@@ -14,7 +14,7 @@ pub async fn insert_illumination_v2(
         .set_inference_id(Some(inference_id))
         .set_summary(&illumination.summary)
         .set_details(&illumination.details)
-        .set_suggested_searches(suggested_searches)
+        .set_suggested_searches(Some(suggested_searches))
         .set_search_index(
             model::search_index::ActiveModel::builder()
                 .set_user_id(capture.user_id)
@@ -285,10 +285,10 @@ mod tests {
             .unwrap();
         assert_eq!(
             stored_v2_illumination.suggested_searches,
-            vec![
+            Some(vec![
                 "NFC West memes".to_string(),
                 "Arizona Cardinals meme history".to_string(),
-            ]
+            ])
         );
         let v2_entities = model::knowledge_entity::Entity::find()
             .filter(model::knowledge_entity::Column::IlluminationId.eq(stored_v2_illumination.id))

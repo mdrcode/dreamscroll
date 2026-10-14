@@ -25,7 +25,7 @@ pub struct Model {
 
     pub summary: String,
     pub details: String,
-    pub suggested_searches: Vec<String>,
+    pub suggested_searches: Option<Vec<String>>,
 
     #[sea_orm(has_one)]
     pub illumination_meta: HasOne<illumination_meta::Entity>,

@@ -1,12 +1,12 @@
 use argh::FromArgs;
 
-use crate::illumination::{KnowledgeEntityType, v1::SocialMediaPlatform};
+use crate::illumination::{KnowledgeEntityType, v2::Platform};
 
 use super::*;
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "enums")]
-#[argh(description = "List unique illumination entity types and social media platforms")]
+#[argh(description = "List knowledge entity types and platform-link platforms")]
 pub struct EnumsArgs {}
 
 pub async fn run(_state: AdminCmdState, _args: EnumsArgs) -> anyhow::Result<()> {
@@ -20,15 +20,15 @@ pub async fn run(_state: AdminCmdState, _args: EnumsArgs) -> anyhow::Result<()> 
     println!("Knowledge Entity Types:");
     println!("{}", knowledge_entity_types.join(", "));
 
-    let social_media_platforms: Vec<String> = {
+    let platforms: Vec<String> = {
         use strum::IntoEnumIterator;
-        SocialMediaPlatform::iter()
-            .map(|e| e.as_ref().to_string())
+        Platform::iter()
+            .map(|platform| platform.as_ref().to_string())
             .collect()
     };
 
-    println!("\nSocial Media Platforms:");
-    println!("{}", social_media_platforms.join(", "));
+    println!("\nPlatform-Link Platforms:");
+    println!("{}", platforms.join(", "));
 
     Ok(())
 }

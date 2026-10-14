@@ -39,8 +39,8 @@ struct IlluminateArgs {
     #[argh(positional, description = "capture ID")]
     capture_id: i32,
 
-    #[argh(option, long = "prompt-version", default = "String::from(\"v1\")")]
-    #[argh(description = "illumination prompt version: v1 or v2 (default: v1)")]
+    #[argh(option, long = "prompt-version", default = "String::from(\"v2\")")]
+    #[argh(description = "illumination prompt version: v1 or v2 (default: v2)")]
     prompt_version: String,
 
     #[argh(option, long = "wait-seconds", default = "60")]

@@ -68,23 +68,25 @@ mod tests {
     use super::*;
 
     #[test]
-    fn illuminate_request_defaults_older_payloads_to_v1_and_accepts_v2() {
-        let legacy: IlluminateTaskRequest =
+    fn illuminate_request_defaults_to_v2_and_accepts_explicit_versions() {
+        let default: IlluminateTaskRequest =
             serde_json::from_value(serde_json::json!({"capture_id": 42})).unwrap();
         assert_eq!(
-            legacy.prompt_version,
-            crate::illumination::IlluminationVersion::V1
-        );
-
-        let v2: IlluminateTaskRequest = serde_json::from_value(serde_json::json!({
-            "capture_id": 42,
-            "prompt_version": "v2"
-        }))
-        .unwrap();
-        assert_eq!(
-            v2.prompt_version,
+            default.prompt_version,
             crate::illumination::IlluminationVersion::V2
         );
+
+        for (version, expected) in [
+            ("v1", crate::illumination::IlluminationVersion::V1),
+            ("v2", crate::illumination::IlluminationVersion::V2),
+        ] {
+            let request: IlluminateTaskRequest = serde_json::from_value(serde_json::json!({
+                "capture_id": 42,
+                "prompt_version": version
+            }))
+            .unwrap();
+            assert_eq!(request.prompt_version, expected);
+        }
     }
 
     #[tokio::test]

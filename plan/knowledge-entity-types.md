@@ -1,12 +1,12 @@
 # Knowledge entity types — working plan
 
-**Status:** Record current decisions and open taxonomy questions. Defer the next taxonomy pass until an environment has been fully backfilled with v2.
+**Status:** Record current v2 decisions and open taxonomy questions. Defer the next taxonomy pass until the selected environment has been fully backfilled with v2.
 
 ## Current model
 
 Illumination v2 uses one entity shape: `name`, optional `description`, `type`, and optional `platform_link`. The type is a practical capture-classification label, not a complete ontology or a claim that entity identity has been resolved across captures. The platform link is locator metadata, not a replacement for the entity.
 
-V1 remains the production path: application producers enqueue v1 and only v1 writes the current relational projection. V2 is persisted as raw illumination for evaluation; it does not yet populate the KNode projection. The two versions have independent prompts and schemas.
+V2 is the application projection: API, REST, WebUI, and `dreamscroll_api unknown-entities` read the unified `knowledge_entities` table. V1 remains available only for explicit raw-result evaluation and stores inference output in `illumination_raws`; it does not write a relational projection. The versions retain separate prompts and schemas.
 
 ## Decisions so far
 
@@ -18,11 +18,11 @@ V1 remains the production path: application producers enqueue v1 and only v1 wri
 
 ## What the current `unknown` inventory tells us
 
-The authenticated `GET /api/entity?type=unknown` route and `dreamscroll_api unknown-entities` command list persisted, user-owned KNodes from non-archived captures. A local v1 scan returned 323 records. This is a v1 baseline, not a v2 evaluation set.
+The authenticated `GET /api/entity?type=unknown` route and `dreamscroll_api unknown-entities` command list user-owned v2 `knowledge_entities` of the requested type from non-archived captures. A local v1 scan returned 323 records; that is a historical v1 baseline, not a v2 evaluation set.
 
-Several examples appear unknown because the active v1 enum lacks types that v2 already has, including `event`, `product`, and `organization` (for example, World War II, Monster Boomerang Petite, and Special Operations Executive). Other examples are movements, practices, or abstract concepts, such as Symbolism, Shinrin-yoku, and Network Science. Those may indicate a real taxonomy gap, but should be assessed from v2 results before adding a broad `concept` type. The scan also contained duplicate World War II KNodes in one capture; treat that as a possible extraction/deduplication issue, not a new entity type.
+Several examples in that historical scan appeared unknown because the v1 enum lacked types that v2 supports, including `event`, `product`, and `organization` (for example, World War II, Monster Boomerang Petite, and Special Operations Executive). Other examples were movements, practices, or abstract concepts, such as Symbolism, Shinrin-yoku, and Network Science. These remain taxonomy questions to assess against v2 results. The scan also contained duplicate World War II KNodes in one capture; treat that as a historical extraction/deduplication observation, not a new entity type.
 
-The current route does **not** return v2 raw-only entities. Do not interpret the legacy v1 unknown count as the number or character of v2 unknowns.
+The current route reads the persisted v2 projection; it does not return explicit v1 results that exist only in `illumination_raws`. Do not compare the v2 unknown count directly with the historical v1 count.
 
 ## Revisit after v2 backfill
 
@@ -37,13 +37,13 @@ Do not expand the type list solely to eliminate `unknown`. Add or split a type o
 
 ## Retrieval with a cached token
 
-The CLI uses the macOS Keychain token cache, keyed by API host and username. Once a token has been cached for the target host, the assistant can retrieve the current persisted unknown KNodes with:
+The CLI uses the macOS Keychain token cache, keyed by API host and username. Once a token has been cached for the target host, the assistant can retrieve current persisted v2 unknown entities with:
 
 ```sh
 cargo run --bin dreamscroll_api -- --host <host> --user <username> unknown-entities
 ```
 
-This command currently reads the KNode projection, not v2 raw illuminations. Before using it to review a v2 backfill, ensure the chosen environment exposes the v2 results through an appropriate authenticated read path; deciding how that path relates to the backfill is deferred with the methodology.
+This command reads the `knowledge_entities` projection from non-archived captures. Explicit v1 results that exist only in `illumination_raws` are intentionally excluded.
 
 ## Reference models
 

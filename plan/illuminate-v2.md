@@ -1,6 +1,6 @@
 # Illumination v2 — unified entity capture
 
-**Status:** V2 has a relational `knowledge_entities` projection and successful v2 illumination now enqueues vector search indexing. API/WebUI capture producers request v2. V1 remains a legacy prompt/DTO and is deliberately raw-only: both versions persist inference JSON/provenance, but only v2 writes relational illumination summaries, entities, suggested searches, and search-index content.
+**Status:** V2 has a relational `knowledge_entities` projection and successful v2 illumination now enqueues vector search indexing. API/WebUI capture producers use v2, and REST requests that omit `prompt_version` default to v2. V1 remains a legacy prompt/DTO and is raw-only: both versions persist inference JSON/provenance, but only v2 writes relational illumination summaries, entities, suggested searches, and search-index content.
 
 ## Problem
 
@@ -87,8 +87,9 @@ the shared `KnowledgeEntityType`.
 - Rows are capture/result-scoped. Identical real-world entities in different captures
   or reruns remain separate; cross-capture identity, clustering, and merges are deferred.
 - V1 requests store only `illumination_raws` and emit a warning. API/WebUI
-  producers now request v2, so new captures update relational summaries, entities,
-  and search-index content; explicitly requested v1 output remains raw-only.
+  producers request v2, and REST/API task defaults select v2, so new captures update
+  relational summaries, entities, and search-index content; explicitly requested v1
+  output remains raw-only.
 
 The existing `illuminations` result parent, `illumination_raws`, and `search_index`
 remain. Each illumination stores capture-wide `suggested_searches` as a PostgreSQL
@@ -160,10 +161,19 @@ See [the Interactions API sidebar](google-ai-interactions-api.md) for the API-sp
 
 Each typed result's `to_markdown()` is a lossy, whole-document rendering for side-by-side evaluation and console display. V1 and v2 preserve their schema-specific prompt/output differences; only v2 writes the relational KnowledgeEntity projection.
 
-- The task payload's `prompt_version` selects `v1` or `v2`; API/WebUI producers enqueue v2. V1 persists raw only and does not create a relational illumination, KnowledgeEntity, xquery, or search-index row. V2 writes the relational projection and enqueues vector search indexing after persistence; task identity remains capture-scoped, so versions run sequentially per capture.
+- The task payload's `prompt_version` selects `v1` or `v2`; API/WebUI producers and
+  REST requests without an explicit version select v2. V1 persists raw only and does
+  not create a relational illumination, KnowledgeEntity, or search-index row. V2
+  writes the relational projection and enqueues vector search indexing after
+  persistence; task identity remains capture-scoped, so versions run sequentially
+  per capture.
 
-
-`dreamscroll_api --host <host> inference illuminate <capture_id>` defaults to `v1`; `--prompt-version v2` selects v2. Each accepted worker attempt creates a fresh UUID for its concrete inference. On success, `TaskRunInfo` and SSE expose the successful inference's ID as an `inference` result reference; retries use distinct IDs. The CLI fetches `/illuminations/raw/{inference_id}` and prints schema-specific Markdown to stdout.
+`dreamscroll_api --host <host> inference illuminate <capture_id>` defaults to `v2`;
+`--prompt-version v1` remains available for raw-result evaluation. Each accepted
+worker attempt creates a fresh UUID for its concrete inference. On success,
+`TaskRunInfo` and SSE expose the successful inference's ID as an `inference` result
+reference; retries use distinct IDs. The CLI fetches
+`/illuminations/raw/{inference_id}` and prints schema-specific Markdown to stdout.
 
 The unused `GrokIlluminator` was removed: it read from a hard-coded `localdev/media` path instead of the configured storage provider, hard-coded JPEG MIME, returned empty entity/search fields, and no local/Docker/production config selected it. The separate `GrokFirestarter` used by `FIRESTARTER=grok` remains untouched.
 

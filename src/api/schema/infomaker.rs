@@ -101,7 +101,7 @@ impl InfoMaker {
         &self,
         illumination_model: model::illumination::ModelEx,
     ) -> IlluminationInfo {
-        let suggested_searches = illumination_model.suggested_searches;
+        let suggested_searches = illumination_model.suggested_searches.unwrap_or_default();
 
         let knowledge_entities = match illumination_model.knowledge_entities {
             HasMany::Unloaded => vec![],
