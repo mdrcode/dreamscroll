@@ -51,7 +51,8 @@ impl task::Task for IlluminationTask {
 pub async fn exec(
     state: &super::LogicState,
     task: &IlluminationTask,
-) -> Result<task::TaskRunResultRef, api::ApiError> {
+    task_run_id: &str,
+) -> Result<(), api::ApiError> {
     let capture_id = task.capture_id;
     tracing::Span::current().record("capture_id", capture_id);
 
@@ -66,12 +67,10 @@ pub async fn exec(
         )));
     };
 
-    let inference_id = uuid::Uuid::new_v4().to_string();
     match task.prompt_version {
         illumination::IlluminationVersion::V1 => {
             tracing::warn!(
                 capture_id,
-                inference_id = %inference_id,
                 "V1 illumination is raw-only; no relational projection or search index will be written"
             );
             let illumination = illumination::v1::illuminate(
@@ -79,14 +78,13 @@ pub async fn exec(
                 state.storage.as_ref(),
                 &capture,
                 &task.model_id,
-                inference_id.clone(),
             )
             .await
             .map_err(api::ApiError::internal)?;
 
             state
                 .service_api
-                .insert_illumination_raw(&capture, &illumination)
+                .insert_illumination_raw(&capture, task_run_id, &illumination)
                 .await?;
         }
         illumination::IlluminationVersion::V2 => {
@@ -95,25 +93,24 @@ pub async fn exec(
                 state.storage.as_ref(),
                 &capture,
                 &task.model_id,
-                inference_id.clone(),
             )
             .await
             .map_err(api::ApiError::internal)?;
 
             state
                 .service_api
-                .insert_illumination_raw(&capture, &illumination)
+                .insert_illumination_raw(&capture, task_run_id, &illumination)
                 .await?;
             state
                 .service_api
-                .insert_illumination_v2(&capture, illumination)
+                .insert_illumination_v2(&capture, task_run_id, illumination)
                 .await?;
         }
     }
 
-    tracing::info!(capture_id, prompt_version = ?task.prompt_version, "Illumination completed and persisted");
+    tracing::info!(capture_id, task_run_id, prompt_version = ?task.prompt_version, "Illumination completed and persisted");
 
-    Ok(task::TaskRunResultRef::new("inference", inference_id))
+    Ok(())
 }
 
 #[cfg(test)]

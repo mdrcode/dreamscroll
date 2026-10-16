@@ -70,6 +70,7 @@ mod tests {
         model::illumination::ActiveModel::builder()
             .set_user_id(user.id)
             .set_capture_id(capture.id)
+            .set_task_run_id(uuid::Uuid::new_v4().to_string())
             .set_summary("legacy summary")
             .set_details("")
             .set_suggested_searches(None)

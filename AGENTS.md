@@ -19,7 +19,8 @@ Be simple, idiomatic, robust, and flexible (in that order).
 - **Document Along The Way:** Update the various plan files as you go. If you
   are informed by useful third-party docs/websites, link to them.
 - **Validate Intelligently:** Do not run unit tests for small naming or plumbing
-  changes. We will always do a full test pass before merging to main.
+  changes. We will always do a full test pass before merging to main. Do not run
+  smoke tests without asking for approval first.
 
 # Module & File Conventions
 - **Module Layout:** Follow the existing clean folder structure under `src/`.

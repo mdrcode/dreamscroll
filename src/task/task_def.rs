@@ -31,6 +31,7 @@ pub struct TaskRun<T: Task> {
     /// Stable across all runs of the same task and target entity.
     pub logical_id: String,
     /// Globally unique identifier for this invocation; unchanged across retries.
+    /// Task-owned raw/partial outputs use this stable key across retries.
     pub run_id: String,
     /// 1-based ordinal among runs of the same logical task.
     pub run_number: i32,

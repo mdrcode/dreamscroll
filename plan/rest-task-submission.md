@@ -88,12 +88,11 @@ a run owned by another user returns `404`. The successful response contains:
   "updated_at": "2026-10-01T12:00:03Z"
 }
 ```
-On successful completion, the response also includes the optional
-`result_entity_type` and `result_entity_id` fields. For an illumination task,
-these identify its inference; the caller knows the task kind and fetches the raw
-result from `GET /api/illuminations/raw/{inference_id}`. This endpoint is
-illumination-specific, not a generic inference-result resolver. The fields are
-omitted while no result reference is available.
+After the run reaches `CompleteSuccess`, fetch its raw illumination result with
+`GET /api/illuminations/raw/{task_run_id}`, passing the `run_id` from the task
+status response. `illumination_raws` stores one raw output per TaskRun; retries
+upsert that row, replacing the previous attempt's result. TaskRun status responses
+do not include a separate result type or result ID.
 
 `SubmissionFailed`, `CompleteSuccess`, and `CompleteFailure` are settled states.
 `Queued`, `InProgress`, and `ErrorWillRetry` may still progress.

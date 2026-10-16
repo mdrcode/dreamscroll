@@ -6,16 +6,16 @@ use crate::{api::ApiError, auth, database::DbHandle, model};
 pub async fn get_illumination_raw(
     db: &DbHandle,
     context: &auth::Context,
-    inference_id: &str,
+    task_run_id: &str,
 ) -> Result<serde_json::Value, ApiError> {
     let result = model::illumination_raw::Entity::find()
         .filter(model::illumination_raw::Column::UserId.eq(context.user_id()))
-        .filter(model::illumination_raw::Column::InferenceId.eq(inference_id))
+        .filter(model::illumination_raw::Column::TaskRunId.eq(task_run_id))
         .one(&db.conn)
         .await?
         .ok_or_else(|| {
             ApiError::not_found(anyhow!(
-                "Raw illumination result not found for ID {inference_id}"
+                "Raw illumination result not found for TaskRun {task_run_id}"
             ))
         })?;
 
@@ -34,7 +34,7 @@ mod tests {
     use chrono::Utc;
 
     #[tokio::test]
-    async fn raw_illumination_lookup_returns_exact_attempt_only_to_its_owner() {
+    async fn raw_illumination_lookup_returns_exact_task_run_only_to_its_owner() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -67,16 +67,16 @@ mod tests {
             .insert(&db.conn)
             .await
             .unwrap();
-        let first_inference_id = "00000000-0000-0000-0000-000000000001";
-        let second_inference_id = "00000000-0000-0000-0000-000000000002";
+        let first_task_run_id = "00000000-0000-0000-0000-000000000001";
+        let second_task_run_id = "00000000-0000-0000-0000-000000000002";
 
-        for (inference_id, content) in [
+        for (task_run_id, content) in [
             (
-                first_inference_id,
+                first_task_run_id,
                 serde_json::json!({"summary": "first inference"}),
             ),
             (
-                second_inference_id,
+                second_task_run_id,
                 serde_json::json!({"summary": "second inference"}),
             ),
         ] {
@@ -84,7 +84,7 @@ mod tests {
                 .set_user_id(user.id)
                 .set_capture_id(capture.id)
                 .set_media_id(media.id)
-                .set_inference_id(inference_id)
+                .set_task_run_id(task_run_id)
                 .set_prompt_version("capture_illumination_v2")
                 .set_provider_name("test")
                 .set_backend_name("test")
@@ -99,27 +99,27 @@ mod tests {
         }
 
         let owner = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user.id));
-        let first_result = get_illumination_raw(&db, &owner, first_inference_id)
+        let first_result = get_illumination_raw(&db, &owner, first_task_run_id)
             .await
             .unwrap();
         assert_eq!(
             first_result,
             serde_json::json!({"summary": "first inference"})
         );
-        let result = get_illumination_raw(&db, &owner, second_inference_id)
+        let result = get_illumination_raw(&db, &owner, second_task_run_id)
             .await
             .unwrap();
         assert_eq!(result, serde_json::json!({"summary": "second inference"}));
 
         let other_user = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(-1));
-        let error = get_illumination_raw(&db, &other_user, second_inference_id)
+        let error = get_illumination_raw(&db, &other_user, second_task_run_id)
             .await
             .unwrap_err();
         assert_eq!(error.status_code, axum::http::StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
-    async fn worker_result_reference_fetches_exact_owner_scoped_raw_result() {
+    async fn worker_result_is_retrieved_by_task_run_id() {
         use axum::response::IntoResponse;
 
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
@@ -242,8 +242,6 @@ mod tests {
             crate::task::TaskRunStatus::ErrorWillRetry
         );
         assert_eq!(failed_status.attempts, 1);
-        assert!(failed_status.result_entity_type.is_none());
-        assert!(failed_status.result_entity_id.is_none());
 
         let successful_attempt = crate::webhook::r_illuminate::post(
             axum::extract::State(state.clone()),
@@ -267,12 +265,7 @@ mod tests {
             crate::task::TaskRunStatus::CompleteSuccess
         );
         assert_eq!(completed_status.attempts, 2);
-        assert_eq!(
-            completed_status.result_entity_type.as_deref(),
-            Some("inference")
-        );
-        let first_inference_id = completed_status.result_entity_id.unwrap();
-        let first_raw = get_illumination_raw(&db, &context, &first_inference_id)
+        let first_raw = get_illumination_raw(&db, &context, &first_task_run.run_id)
             .await
             .unwrap();
         assert_eq!(
@@ -321,10 +314,8 @@ mod tests {
             rerun_status.status,
             crate::task::TaskRunStatus::CompleteSuccess
         );
-        let second_inference_id = rerun_status.result_entity_id.unwrap();
-        assert_ne!(first_inference_id, second_inference_id);
         assert_eq!(
-            get_illumination_raw(&db, &context, &second_inference_id)
+            get_illumination_raw(&db, &context, &second_task_run.run_id)
                 .await
                 .unwrap(),
             serde_json::json!({

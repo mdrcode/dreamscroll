@@ -11,8 +11,9 @@ pub struct Model {
     pub id: i32,
     pub user_id: i32,
     pub capture_id: i32,
-    #[sea_orm(nullable)]
-    pub inference_id: Option<String>,
+    /// TaskRun that produced this projection; retries replace the same row.
+    #[sea_orm(unique)]
+    pub task_run_id: String,
 
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub created_at: DateTime<Utc>,

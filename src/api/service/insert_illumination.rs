@@ -1,28 +1,66 @@
+use sea_orm::{
+    ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, TransactionTrait,
+    sea_query::OnConflict,
+};
+
 use crate::{api::*, database::DbHandle, illumination::v2, llms::InferenceResult, model};
 
+/// Upsert the relational illumination projection for one TaskRun.
 pub async fn insert_illumination_v2(
     db: &DbHandle,
     capture: &CaptureInfo,
+    task_run_id: &str,
     illumination: v2::Illumination,
 ) -> Result<(), ApiError> {
-    let inference_id = illumination.metadata().inference_id.clone();
     let search_content = format_for_search_v2(&illumination);
+    let entities = illumination.entities;
     let suggested_searches = illumination.suggested_searches;
-    let mut builder = model::illumination::ActiveModel::builder()
-        .set_user_id(capture.user_id)
-        .set_capture_id(capture.id)
-        .set_inference_id(Some(inference_id))
-        .set_summary(&illumination.summary)
-        .set_details(&illumination.details)
-        .set_suggested_searches(Some(suggested_searches))
-        .set_search_index(
-            model::search_index::ActiveModel::builder()
-                .set_user_id(capture.user_id)
-                .set_capture_id(capture.id)
-                .set_content(search_content),
-        );
+    let summary = illumination.summary;
+    let details = illumination.details;
+    let tx = db.conn.begin().await?;
 
-    for (position, entity) in illumination.entities.iter().enumerate() {
+    let active = model::illumination::ActiveModel {
+        user_id: Set(capture.user_id),
+        capture_id: Set(capture.id),
+        task_run_id: Set(task_run_id.to_owned()),
+        summary: Set(summary),
+        details: Set(details),
+        suggested_searches: Set(Some(suggested_searches)),
+        ..Default::default()
+    };
+    model::illumination::Entity::insert(active)
+        .on_conflict(
+            OnConflict::column(model::illumination::Column::TaskRunId)
+                .update_columns([
+                    model::illumination::Column::UserId,
+                    model::illumination::Column::CaptureId,
+                    model::illumination::Column::Summary,
+                    model::illumination::Column::Details,
+                    model::illumination::Column::SuggestedSearches,
+                ])
+                .to_owned(),
+        )
+        .exec(&tx)
+        .await?;
+
+    let illumination_row = model::illumination::Entity::find()
+        .filter(model::illumination::Column::TaskRunId.eq(task_run_id))
+        .one(&tx)
+        .await?
+        .ok_or_else(|| {
+            ApiError::internal(anyhow::anyhow!("Illumination upsert returned no row"))
+        })?;
+
+    model::knowledge_entity::Entity::delete_many()
+        .filter(model::knowledge_entity::Column::IlluminationId.eq(illumination_row.id))
+        .exec(&tx)
+        .await?;
+    model::search_index::Entity::delete_many()
+        .filter(model::search_index::Column::IlluminationId.eq(illumination_row.id))
+        .exec(&tx)
+        .await?;
+
+    for (position, entity) in entities.iter().enumerate() {
         let (platform, handle, display_name) = match &entity.platform_link {
             Some(link) => (
                 Some(link.platform.to_string()),
@@ -31,28 +69,39 @@ pub async fn insert_illumination_v2(
             ),
             None => (None, None, None),
         };
-        builder.knowledge_entities.push(
-            model::knowledge_entity::ActiveModel::builder()
-                .set_user_id(capture.user_id)
-                .set_capture_id(capture.id)
-                .set_position(position as i32)
-                .set_name(&entity.name)
-                .set_entity_type(entity.entity_type.to_string())
-                .set_description(entity.description.clone())
-                .set_search_query(entity.search_query.clone())
-                .set_platform(platform)
-                .set_platform_handle(handle)
-                .set_platform_display_name(display_name),
-        );
+        model::knowledge_entity::ActiveModel::builder()
+            .set_user_id(capture.user_id)
+            .set_capture_id(capture.id)
+            .set_illumination_id(illumination_row.id)
+            .set_position(position as i32)
+            .set_name(&entity.name)
+            .set_entity_type(entity.entity_type.to_string())
+            .set_description(entity.description.clone())
+            .set_search_query(entity.search_query.clone())
+            .set_platform(platform)
+            .set_platform_handle(handle)
+            .set_platform_display_name(display_name)
+            .insert(&tx)
+            .await?;
     }
 
-    builder.save(&db.conn).await?;
+    model::search_index::ActiveModel::builder()
+        .set_user_id(capture.user_id)
+        .set_capture_id(capture.id)
+        .set_illumination_id(illumination_row.id)
+        .set_content(search_content)
+        .insert(&tx)
+        .await?;
+
+    tx.commit().await?;
     Ok(())
 }
 
+/// Upsert one raw illumination result per TaskRun; retries replace its content.
 pub async fn insert_illumination_raw<R: InferenceResult + ?Sized>(
     db: &DbHandle,
     capture: &CaptureInfo,
+    task_run_id: &str,
     raw: &R,
 ) -> Result<(), ApiError> {
     let metadata = raw.metadata();
@@ -67,20 +116,40 @@ pub async fn insert_illumination_raw<R: InferenceResult + ?Sized>(
                 capture.id
             ))
         })?;
-    model::illumination_raw::ActiveModel::builder()
-        .set_user_id(capture.user_id)
-        .set_capture_id(capture.id)
-        .set_media_id(media_id)
-        .set_inference_id(&metadata.inference_id)
-        .set_prompt_version(&metadata.prompt_version)
-        .set_provider_name(&metadata.provider_name)
-        .set_backend_name(&metadata.backend_name)
-        .set_model_id(&metadata.model_id)
-        .set_duration_ms(metadata.duration_ms)
-        .set_provider_request_id(metadata.provider_request_id.clone())
-        .set_provider_usage_json(metadata.provider_usage_json.clone())
-        .set_content(raw.raw_json().clone())
-        .insert(&db.conn)
+    let active = model::illumination_raw::ActiveModel {
+        user_id: Set(capture.user_id),
+        capture_id: Set(capture.id),
+        media_id: Set(media_id),
+        task_run_id: Set(task_run_id.to_owned()),
+        prompt_version: Set(metadata.prompt_version.clone()),
+        provider_name: Set(metadata.provider_name.clone()),
+        backend_name: Set(metadata.backend_name.clone()),
+        model_id: Set(metadata.model_id.clone()),
+        duration_ms: Set(metadata.duration_ms),
+        provider_request_id: Set(metadata.provider_request_id.clone()),
+        provider_usage_json: Set(metadata.provider_usage_json.clone()),
+        content: Set(raw.raw_json().clone()),
+        ..Default::default()
+    };
+    model::illumination_raw::Entity::insert(active)
+        .on_conflict(
+            OnConflict::column(model::illumination_raw::Column::TaskRunId)
+                .update_columns([
+                    model::illumination_raw::Column::UserId,
+                    model::illumination_raw::Column::CaptureId,
+                    model::illumination_raw::Column::MediaId,
+                    model::illumination_raw::Column::PromptVersion,
+                    model::illumination_raw::Column::ProviderName,
+                    model::illumination_raw::Column::BackendName,
+                    model::illumination_raw::Column::ModelId,
+                    model::illumination_raw::Column::DurationMs,
+                    model::illumination_raw::Column::ProviderRequestId,
+                    model::illumination_raw::Column::ProviderUsageJson,
+                    model::illumination_raw::Column::Content,
+                ])
+                .to_owned(),
+        )
+        .exec(&db.conn)
         .await?;
 
     Ok(())
@@ -151,7 +220,7 @@ mod tests {
             illuminations: vec![],
             annotation: None,
         };
-        let inference_id = uuid::Uuid::new_v4().to_string();
+        let v1_task_run_id = uuid::Uuid::new_v4().to_string();
         let content = json!({
             "summary": "A short summary",
             "details": "Detailed content",
@@ -172,7 +241,6 @@ mod tests {
         let illumination = v1::Illumination::from_raw_json(
             content.clone(),
             InferenceMetadata {
-                inference_id: inference_id.clone(),
                 prompt_version: "capture_illumination_v1".to_string(),
                 provider_name: "gemini".to_string(),
                 backend_name: "vertex".to_string(),
@@ -185,19 +253,19 @@ mod tests {
         .unwrap();
         assert_eq!(illumination.raw_json(), &content);
 
-        insert_illumination_raw(&db, &capture_info, &illumination)
+        insert_illumination_raw(&db, &capture_info, &v1_task_run_id, &illumination)
             .await
             .unwrap();
 
         let stored_raw = model::illumination_raw::Entity::find()
-            .filter(model::illumination_raw::Column::CaptureId.eq(capture.id))
+            .filter(model::illumination_raw::Column::TaskRunId.eq(&v1_task_run_id))
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
         assert_eq!(stored_raw.prompt_version, "capture_illumination_v1");
         assert_eq!(stored_raw.media_id, media.id);
-        assert_eq!(stored_raw.inference_id, inference_id);
+        assert_eq!(stored_raw.task_run_id, v1_task_run_id);
         assert_eq!(
             stored_raw.provider_request_id.as_deref(),
             Some("interaction-test")
@@ -244,11 +312,10 @@ mod tests {
                 }
             }]
         });
-        let v2_inference_id = uuid::Uuid::new_v4().to_string();
+        let v2_task_run_id = uuid::Uuid::new_v4().to_string();
         let v2_result = crate::illumination::v2::Illumination::from_raw_json(
             v2_content.clone(),
             InferenceMetadata {
-                inference_id: v2_inference_id.clone(),
                 prompt_version: "capture_illumination_v2".to_string(),
                 provider_name: "gemini".to_string(),
                 backend_name: "vertex".to_string(),
@@ -259,26 +326,26 @@ mod tests {
             },
         )
         .expect("v2 output should deserialize");
-        insert_illumination_raw(&db, &capture_info, &v2_result)
+        insert_illumination_raw(&db, &capture_info, &v2_task_run_id, &v2_result)
             .await
             .unwrap();
-        insert_illumination_v2(&db, &capture_info, v2_result)
+        insert_illumination_v2(&db, &capture_info, &v2_task_run_id, v2_result)
             .await
             .unwrap();
 
         let stored_v2 = model::illumination_raw::Entity::find()
             .filter(model::illumination_raw::Column::CaptureId.eq(capture.id))
-            .filter(model::illumination_raw::Column::PromptVersion.eq("capture_illumination_v2"))
+            .filter(model::illumination_raw::Column::TaskRunId.eq(&v2_task_run_id))
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
         assert_eq!(stored_v2.prompt_version, "capture_illumination_v2");
         assert_eq!(stored_v2.content, v2_content);
-        assert_eq!(stored_v2.inference_id, v2_inference_id);
+        assert_eq!(stored_v2.task_run_id, v2_task_run_id);
         assert_eq!(stored_v2.media_id, media.id);
         let stored_v2_illumination = model::illumination::Entity::find()
-            .filter(model::illumination::Column::InferenceId.eq(&v2_inference_id))
+            .filter(model::illumination::Column::TaskRunId.eq(&v2_task_run_id))
             .one(&db.conn)
             .await
             .unwrap()
@@ -307,5 +374,55 @@ mod tests {
             v2_entities[0].platform_handle.as_deref(),
             Some("r/NFCWestMemeWar")
         );
+        let retry_content = json!({
+            "summary": "retry replaces the previous result",
+            "details": "latest attempt output",
+            "suggested_searches": [],
+            "entities": []
+        });
+        let retry_result = crate::illumination::v2::Illumination::from_raw_json(
+            retry_content.clone(),
+            InferenceMetadata {
+                prompt_version: "capture_illumination_v2".to_string(),
+                provider_name: "gemini".to_string(),
+                backend_name: "vertex".to_string(),
+                model_id: "test-model".to_string(),
+                duration_ms: 150,
+                provider_request_id: None,
+                provider_usage_json: None,
+            },
+        )
+        .expect("retry output should deserialize");
+        insert_illumination_raw(&db, &capture_info, &v2_task_run_id, &retry_result)
+            .await
+            .unwrap();
+        insert_illumination_v2(&db, &capture_info, &v2_task_run_id, retry_result)
+            .await
+            .unwrap();
+
+        let raw_rows = model::illumination_raw::Entity::find()
+            .filter(model::illumination_raw::Column::TaskRunId.eq(&v2_task_run_id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(raw_rows.len(), 1);
+        assert_eq!(raw_rows[0].content, retry_content);
+
+        let illumination_rows = model::illumination::Entity::find()
+            .filter(model::illumination::Column::TaskRunId.eq(&v2_task_run_id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(illumination_rows.len(), 1);
+        assert_eq!(
+            illumination_rows[0].summary,
+            "retry replaces the previous result"
+        );
+        let retry_entities = model::knowledge_entity::Entity::find()
+            .filter(model::knowledge_entity::Column::IlluminationId.eq(illumination_rows[0].id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert!(retry_entities.is_empty());
     }
 }

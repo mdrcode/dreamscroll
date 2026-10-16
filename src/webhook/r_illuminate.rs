@@ -27,21 +27,17 @@ pub async fn post(
         return Ok(axum::http::StatusCode::NO_CONTENT);
     };
 
-    let (result, result_ref) = match logic::illuminate::exec(&state.logic, task).await {
-        Ok(result_ref) => {
-            let result = logic::Beacon::new(state.task_master.clone())
-                .new_illumination(task)
-                .await
-                .map_err(api::ApiError::internal);
-            let result_ref = result.is_ok().then_some(result_ref);
-            (result, result_ref)
-        }
-        Err(error) => (Err(error), None),
+    let result = match logic::illuminate::exec(&state.logic, task, &task_run.run_id).await {
+        Ok(()) => logic::Beacon::new(state.task_master.clone())
+            .new_illumination(task)
+            .await
+            .map_err(api::ApiError::internal),
+        Err(error) => Err(error),
     };
 
     let outcome = state
         .task_master
-        .finish_attempt(&task_run, attempt, &result, result_ref)
+        .finish_attempt(&task_run, attempt, &result)
         .await
         .map_err(api::ApiError::internal)?;
 

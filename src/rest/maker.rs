@@ -50,7 +50,7 @@ pub fn make_api_router(
         .route("/captures", get(r_capture::get))
         .route("/entity", get(r_entity::get))
         .route(
-            "/illuminations/raw/{inference_id}",
+            "/illuminations/raw/{task_run_id}",
             get(r_illumination_raw::get),
         )
         .route("/captures/{capture_id}", delete(r_capture::delete))

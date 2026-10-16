@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
 /// Persistence representation of a TaskRun. In addition to its identity and
-/// task payload, each row stores mutable lifecycle, timing, and result state.
+/// task payload, each row stores mutable lifecycle and timing state.
 /// See `plan/task-status.md` §3 and §6.
 ///
 /// A logical task (`logical_id`) can be run more than once; each invocation gets
@@ -30,6 +30,7 @@ pub struct Model {
     pub logical_id: String,
 
     /// Globally unique UUID for this TaskRun.
+    /// Task-owned raw or partial results use this ID as their stable key across retries.
     #[sea_orm(unique)]
     pub run_id: String,
 
@@ -49,11 +50,6 @@ pub struct Model {
     /// Full serialized Task parameters for this run; null for rows created before this field.
     #[sea_orm(nullable, column_type = "JsonBinary")]
     pub task_payload: Option<Json>,
-
-    #[sea_orm(nullable)]
-    pub result_entity_type: Option<String>,
-    #[sea_orm(nullable)]
-    pub result_entity_id: Option<String>,
 
     /// Integer discriminant of `task::TaskRunStatus`.
     pub status_code: i32,

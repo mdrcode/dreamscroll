@@ -178,8 +178,6 @@ mod tests {
             run_number: 3,
             entity_type: "capture".to_string(),
             entity_id: 42,
-            result_entity_type: None,
-            result_entity_id: None,
             status,
             attempts: 1,
             created_at: Utc::now(),

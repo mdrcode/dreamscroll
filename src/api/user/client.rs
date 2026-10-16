@@ -409,9 +409,9 @@ impl UserApiClient {
     pub async fn get_illumination_raw(
         &self,
         context: &auth::Context,
-        inference_id: &str,
+        task_run_id: &str,
     ) -> Result<serde_json::Value, ApiError> {
-        super::get_illumination_raw(&self.db, context, inference_id).await
+        super::get_illumination_raw(&self.db, context, task_run_id).await
     }
 
     #[tracing::instrument(skip(self, context, current_password, new_password))]

@@ -123,9 +123,9 @@ knowledge_entities(
 - `knowledge_entities` replaces `knodes` and `social_medias` for relational v2
   persistence and its API/UI readers. V1 raw output does not create `illuminations`,
   `knowledge_entities`, or `search_index` rows.
-- V2 reruns append per-result rows and readers keep the existing per-route ordering.
-  No migration of v1 rows or merge/deduplication logic; the full backfill populates
-  the v2 projection.
+- A retry of one TaskRun upserts its illumination row and replaces its child
+  projection; a later TaskRun creates a new row. No per-attempt result history is
+  kept. V1 rows remain raw-only; the full backfill populates the v2 projection.
 
 ## Acceptance criteria
 
@@ -169,11 +169,11 @@ Each typed result's `to_markdown()` is a lossy, whole-document rendering for sid
   per capture.
 
 `dreamscroll_api --host <host> inference illuminate <capture_id>` defaults to `v2`;
-`--prompt-version v1` remains available for raw-result evaluation. Each accepted
-worker attempt creates a fresh UUID for its concrete inference. On success,
-`TaskRunInfo` and SSE expose the successful inference's ID as an `inference` result
-reference; retries use distinct IDs. The CLI fetches
-`/illuminations/raw/{inference_id}` and prints schema-specific Markdown to stdout.
+`--prompt-version v1` remains available for raw-result evaluation. A TaskRun's
+`run_id` is the storage key for both raw and relational illumination output.
+Retries upsert the same rows, replacing the prior attempt's output. After
+success, the CLI fetches `/api/illuminations/raw/{task_run_id}` using the run ID
+and renders schema-specific Markdown to stdout.
 
 The unused `GrokIlluminator` was removed: it read from a hard-coded `localdev/media` path instead of the configured storage provider, hard-coded JPEG MIME, returned empty entity/search fields, and no local/Docker/production config selected it. The separate `GrokFirestarter` used by `FIRESTARTER=grok` remains untouched.
 

@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::model;
 use crate::task::{Task, TaskRun, TaskRunStatus, timing::TaskTimingEstimate};
 
-pub const CURRENT_SCHEMA_VERSION: u8 = 2;
+pub const CURRENT_SCHEMA_VERSION: u8 = 4;
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -51,10 +51,6 @@ pub struct TaskStatusPayload {
     pub run_id: String,
     pub run_number: i32,
     pub attempts: i32,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub result_entity_type: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub result_entity_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub processing_started_at: Option<DateTime<Utc>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -117,8 +113,6 @@ impl ServerEvent<TaskStatusPayload> {
                 run_id: row.run_id.clone(),
                 run_number: row.run_number,
                 attempts: row.attempts,
-                result_entity_type: row.result_entity_type.clone(),
-                result_entity_id: row.result_entity_id.clone(),
                 processing_started_at: row.processing_started_at,
                 estimated_duration_ms_p50: estimate
                     .and_then(TaskTimingEstimate::client_processing_duration_ms),
@@ -153,8 +147,6 @@ mod tests {
                 run_id: "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113".to_string(),
                 run_number: 3,
                 attempts: 1,
-                result_entity_type: None,
-                result_entity_id: None,
                 processing_started_at: None,
                 estimated_duration_ms_p50: None,
             },
@@ -162,7 +154,7 @@ mod tests {
 
         assert_eq!(
             serde_json::to_string(&update).unwrap(),
-            r#"{"schema_version":2,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"logical_id":"u1-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#,
+            r#"{"schema_version":4,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"logical_id":"u1-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#,
         );
     }
 
@@ -179,8 +171,6 @@ mod tests {
                 entity_type: "capture".to_string(),
                 entity_id: 91,
                 task_payload: None,
-                result_entity_type: Some("inference".to_string()),
-                result_entity_id: Some("8a0d329d-72ca-4fd5-bd8d-2302f762f37d".to_string()),
                 status_code: TaskRunStatus::CompleteSuccess.as_i32(),
                 attempts: 2,
                 created_at: timestamp(),
@@ -200,14 +190,6 @@ mod tests {
         assert_eq!(update.payload.task_type, "illuminate");
         assert_eq!(update.payload.status, TaskRunStatus::CompleteSuccess);
         assert_eq!(update.payload.attempts, 2);
-        assert_eq!(
-            update.payload.result_entity_type.as_deref(),
-            Some("inference")
-        );
-        assert_eq!(
-            update.payload.result_entity_id.as_deref(),
-            Some("8a0d329d-72ca-4fd5-bd8d-2302f762f37d")
-        );
         assert_eq!(update.payload.run_number, 4);
         assert_eq!(update.user_id, Some(8));
     }
@@ -247,8 +229,6 @@ mod tests {
             entity_type: "capture".to_string(),
             entity_id: 91,
             task_payload: None,
-            result_entity_type: None,
-            result_entity_id: None,
             status_code: TaskRunStatus::InProgress.as_i32(),
             attempts: 2,
             created_at: timestamp(),

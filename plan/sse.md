@@ -100,7 +100,7 @@ The cleanest, most flexible design separates two concerns:
 Crucially, **SSE should carry *thin signals*, not full HTML.** This is the
 HATEOAS-friendly pattern that keeps the frontend cruft-free:
 
-- SSE event: `{ schema_version: 2, event_type: "task_status", entity_type: "capture", entity_id: 123, payload: { task_type: "illuminate", status: "complete_success", logical_id: "u1-illuminate-capture123", run_id: "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113", run_number: 1, attempts: 1 } }`
+- SSE event: `{ schema_version: 4, event_type: "task_status", entity_type: "capture", entity_id: 123, payload: { task_type: "illuminate", status: "complete_success", logical_id: "u1-illuminate-capture123", run_id: "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113", run_number: 1, attempts: 1 } }`
 - Client reacts with a normal HTMX request to re-fetch the *partial*
   (`/detail/{id}` fragment or `/cards`), which the existing Tera templates
   already render.
@@ -145,13 +145,16 @@ pub type AvailabilityEvent = ServerEvent<AvailabilityPayload>;
 Task-status wire example:
 
 ```json
-{ "schema_version": 2, "event_type": "task_status", "timestamp": "2026-09-21T18:42:10Z", "entity_type": "capture", "entity_id": 123, "payload": { "task_type": "illuminate", "status": { "name": "complete_success", "discriminant": 4 }, "logical_id": "u1-illuminate-capture123", "run_id": "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113", "run_number": 1, "attempts": 1 } }
+{ "schema_version": 4, "event_type": "task_status", "timestamp": "2026-09-21T18:42:10Z", "entity_type": "capture", "entity_id": 123, "payload": { "task_type": "illuminate", "status": { "name": "complete_success", "discriminant": 4 }, "logical_id": "u1-illuminate-capture123", "run_id": "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113", "run_number": 1, "attempts": 1 } }
 ```
+
+Schema version 4 removes task result fields from the status payload. Raw task
+output is fetched separately by `run_id`; the listener rejects version 3 events.
 
 Availability wire example:
 
 ```json
-{ "schema_version": 2, "event_type": "availability", "timestamp": "2026-09-21T18:42:15Z", "entity_type": "capture", "entity_id": 123, "payload": { "operation": "deleted" } }
+{ "schema_version": 4, "event_type": "availability", "timestamp": "2026-09-21T18:42:15Z", "entity_type": "capture", "entity_id": 123, "payload": { "operation": "deleted" } }
 ```
 
 This maps to the current state of a `task_runs` row (see
@@ -363,7 +366,8 @@ effort**. The payload is useful for low-latency consumers, but is not a durable
 event log. The stable-stream design does not query/send an initial snapshot.
 
 The concrete `TaskStatusPayload` carries `logical_id`, globally unique `run_id`,
-`run_number`, attempts, status, and optional timing/result metadata. The generic
+`run_number`, attempts, status, and optional timing estimates. Raw task output is
+not sent over SSE; consumers fetch it by `run_id` after completion. The generic
 `ServerEvent` supplies the timestamp and entity routing key. `AvailabilityEvent`
 uses the same generic event structure with an `AvailabilityPayload`; these are
 informational hints rather than a durable event log.

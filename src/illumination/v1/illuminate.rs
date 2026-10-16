@@ -18,7 +18,6 @@ pub async fn illuminate(
     storage_provider: &dyn storage::StorageProvider,
     capture: &api::CaptureInfo,
     model_id: &str,
-    inference_id: String,
 ) -> anyhow::Result<Illumination> {
     let media = capture
         .medias
@@ -63,7 +62,6 @@ pub async fn illuminate(
     );
 
     let inference_metadata = InferenceMetadata {
-        inference_id,
         prompt_version: PROMPT_VERSION.to_string(),
         provider_name: client.provider_name().to_string(),
         backend_name: client.backend_name().to_string(),

@@ -67,6 +67,10 @@ Upload (webui/v2/r_upload.rs)
 - **Run identity is unique.** Every new invocation gets a UUID `run_id`; retries
   reuse it. `run_number` is a 1-based per-logical-task ordinal used for ordering
   and the unique `(logical_id, run_number)` submission guard.
+- **Task-owned raw/partial output is keyed by `TaskRun.run_id`.** An output
+  table stores one row per TaskRun and retries upsert the same row, replacing
+  the prior attempt's output. The task status row carries no output reference.
+
 - **`TaskQueue<T>` is enqueue-only and generic.** Status lives in the
   `task_runs` table. The trait is `async fn enqueue(&self, wrapped:
   TaskRun<T>)`. Two backends: `LocalTaskQueue` (in-process mpsc + semaphore) and
@@ -106,9 +110,9 @@ Upload (webui/v2/r_upload.rs)
 The focused `task_runs` table is the source of truth.
 
 The row stores TaskRun identity and a JSONB payload snapshot, plus denormalized
-task/entity routing fields and mutable lifecycle status, attempts, timing, and
-result-reference data. It is a persistence representation, not a byte-for-byte
-copy of the queue payload.
+task/entity routing fields and mutable lifecycle status, attempts, and timing.
+Raw/relational illumination output lives in `illumination_raws` and
+`illuminations`, keyed by `task_run_id` (`TaskRun.run_id`), not in `task_runs`.
 
 ```sql
 CREATE TABLE task_runs (
@@ -121,8 +125,6 @@ CREATE TABLE task_runs (
     entity_type   TEXT NOT NULL,          -- 'capture' | 'spark'
     entity_id     INT NOT NULL,           -- the entity this task operates on
     task_payload  JSONB NULL,              -- submitted Task payload; null for historical rows
-    result_entity_type TEXT NULL,         -- optional result entity reference
-    result_entity_id   TEXT NULL,
     status_code   INT NOT NULL,            -- integer discriminant of task::TaskRunStatus
     attempts      INT NOT NULL DEFAULT 0,  -- 1-based attempt number within this run
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -139,13 +141,16 @@ CREATE TABLE task_runs (
 > `conn.get_schema_registry("dreamscroll::model::*").sync(&conn)` in
 > `database/postgres.rs`. There is no hand-written migration file.
 
-The `task_run_status` → `task_runs` table rename and the ownership-field rename
-are hard cutovers; no rows are automatically migrated. Existing `task_runs`
-rows cannot safely be interpreted as target-owner attribution because their
-`user_id` may have represented the submitter. Drop the old table before using an
-existing database; schema sync creates the current shape. Drain or clear queued
-payloads using the previous wire format. The database `id` remains internal;
-`run_id` is the public invocation handle.
+The `task_runs`, `illuminations`, and `illumination_raws` schemas use a hard
+cutover; existing rows are not migrated. `task_runs` no longer stores result
+metadata. Both illumination tables have a unique `task_run_id` (the TaskRun's
+`run_id`) and retry writes upsert that row. Drop and recreate these three tables
+to get the current schema. For a consistent illumination-data reset, also drop
+and recreate `search_index`, `knowledge_entities`, and `illumination_metas`,
+which reference the old illumination rows. Startup schema sync recreates the
+current models. Drain or clear queued tasks before dropping `task_runs`, since
+their status rows will be lost. The database `id` remains internal; `run_id` is
+the invocation handle.
 
 > **Why `UNIQUE (logical_id, run_number)` and not `UNIQUE (logical_id)`:** one row per
 > run is what makes reruns expressible. `logical_id` names the durable work;
@@ -327,23 +332,22 @@ TaskRun's globally unique run ID and its per-logical-task ordinal.
 Attempt counting is **per run**: each row carries its own `attempts`, so a rerun
 starts at attempt 1.
 
-### 6.1 Result references and deferred rerun UX
+### 6.1 TaskRun output and deferred rerun UX
 
-The run dimension and result references are implemented. Current behavior:
+Raw and relational illumination outputs are keyed to the TaskRun by `run_id`.
+`illumination_raws` stores provider output; `illuminations` stores the v2
+projection. Each table has one row per TaskRun, and a retry upserts its result,
+replacing the previous attempt's output. No per-attempt result history is kept.
 
 - The `IlluminationTask` payload carries `model_id` and `prompt_version`; API/WebUI
-  producers use v2, REST payloads without a version default to v2, and `dreamscroll_api`
-  commands default to v2. `dreamscroll_api inference` can explicitly select v1 for
-  raw-result evaluation. Task identity remains capture-scoped, so v1/v2 runs for one
-  capture must be submitted sequentially after each run settles.
-
-- Successful runs expose optional `result_entity_type` and `result_entity_id` in
-  `TaskRunInfo` and SSE task-status events. Inference runs use the `inference`
-  type and a UUID `inference_id` for the successful concrete inference; retries
-  use distinct IDs.
-  The CLI fetches illumination output from `/api/illuminations/raw/{inference_id}`.
-- A rerun endpoint + button remains deferred. It can submit a new versioned task
-  after the prior run settles.
+  producers use v2, REST payloads without a version default to v2, and
+  `dreamscroll_api` commands default to v2. `dreamscroll_api inference` can
+  explicitly select v1 for raw-result evaluation. Task identity remains
+  capture-scoped, so v1/v2 runs for one capture must be submitted sequentially.
+- Task status responses and SSE events do not carry a result ID. After a run
+  succeeds, fetch illumination raw output with
+  `GET /api/illuminations/raw/{task_run_id}`, using the TaskRun's `run_id`.
+- A rerun endpoint + button remains deferred. A new task run gets a new `run_id`.
 
 ```html
 <button hx-post="/detail/{{ capture.id }}/rerun"

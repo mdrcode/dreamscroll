@@ -33,17 +33,19 @@ impl ServiceApiClient {
     pub async fn insert_illumination_v2(
         &self,
         capture_info: &schema::CaptureInfo,
+        task_run_id: &str,
         illumination: illumination::v2::Illumination,
     ) -> Result<(), ApiError> {
-        super::insert_illumination_v2(&self.db, capture_info, illumination).await
+        super::insert_illumination_v2(&self.db, capture_info, task_run_id, illumination).await
     }
 
     pub async fn insert_illumination_raw<R: llms::InferenceResult + ?Sized>(
         &self,
         capture_info: &schema::CaptureInfo,
+        task_run_id: &str,
         raw: &R,
     ) -> Result<(), ApiError> {
-        super::insert_illumination_raw(&self.db, capture_info, raw).await
+        super::insert_illumination_raw(&self.db, capture_info, task_run_id, raw).await
     }
 
     pub async fn insert_spark(

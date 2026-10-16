@@ -353,14 +353,11 @@ impl Client {
 
     pub async fn get_illumination_raw(
         &self,
-        inference_id: &str,
+        task_run_id: &str,
     ) -> anyhow::Result<serde_json::Value> {
         let response = self
             .reqwest_client
-            .get(format!(
-                "{}/illuminations/raw/{inference_id}",
-                self.base_url
-            ))
+            .get(format!("{}/illuminations/raw/{task_run_id}", self.base_url))
             .bearer_auth(&self.access_token)
             .send()
             .await
@@ -476,8 +473,6 @@ mod tests {
             task_type: "illuminate".to_string(),
             entity_type: "capture".to_string(),
             entity_id: 42,
-            result_entity_type: None,
-            result_entity_id: None,
             status: task::TaskRunStatus::CompleteSuccess,
             attempts: 1,
             created_at: Utc::now(),

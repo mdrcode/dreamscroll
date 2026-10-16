@@ -25,7 +25,9 @@ pub struct Model {
     #[sea_orm(belongs_to, from = "media_id", to = "id")]
     pub media: HasOne<media::Entity>,
 
-    pub inference_id: String,
+    /// TaskRun that produced this raw output; retries replace the same row.
+    #[sea_orm(unique)]
+    pub task_run_id: String,
     pub prompt_version: String,
     pub provider_name: String,
     pub backend_name: String,
