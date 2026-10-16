@@ -9,5 +9,3 @@ pub use insert_illumination::{insert_illumination_raw, insert_illumination_v2};
 mod insert_spark;
 pub use insert_spark::insert_spark;
 
-mod need_search_index;
-pub use need_search_index::get_captures_need_search_index;

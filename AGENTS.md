@@ -37,6 +37,7 @@ Be simple, idiomatic, robust, and flexible (in that order).
 # Target Environments
 Acknowledged hard dependencies:
 - Postgres
+- SeaORM
 - Google Cloud Run and Cloud Tasks
 - HTMX
 

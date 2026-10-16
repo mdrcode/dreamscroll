@@ -202,8 +202,7 @@ mod tests {
             crate::illumination::IlluminationVersion::V2,
         );
 
-        let first_run = task_master
-            .submit_illuminate(&context, task.clone())
+        let first_run = task_master.submit_illuminate(&context, task.clone(), Some("webhook-backfill"))
             .await
             .unwrap();
         let crate::task::SubmitOutcome::Enqueued {
@@ -217,6 +216,7 @@ mod tests {
             logical_id: crate::task::TaskRun::make_logical_id(&task),
             run_id: first_run_id,
             run_number: first_run_number,
+            backfill_id: Some("webhook-backfill".to_string()),
             task: task.clone(),
         };
 
@@ -265,6 +265,11 @@ mod tests {
             crate::task::TaskRunStatus::CompleteSuccess
         );
         assert_eq!(completed_status.attempts, 2);
+        let indexing_runs = task_master.query_latest_task_runs(&context, "capture", &[capture.id])
+            .await.unwrap();
+        let indexing = indexing_runs.iter().find(|run| run.task_type == "search_index").unwrap();
+        assert_eq!(indexing.backfill_id.as_deref(), Some("webhook-backfill"));
+        assert_eq!(indexing.run_number, 1);
         let first_raw = get_illumination_raw(&db, &context, &first_task_run.run_id)
             .await
             .unwrap();
@@ -279,8 +284,7 @@ mod tests {
             })
         );
 
-        let rerun = task_master
-            .submit_illuminate(&context, task.clone())
+        let rerun = task_master.submit_illuminate(&context, task.clone(), None)
             .await
             .unwrap();
         let crate::task::SubmitOutcome::Enqueued {
@@ -294,6 +298,7 @@ mod tests {
             logical_id: crate::task::TaskRun::make_logical_id(&task),
             run_id: second_run_id,
             run_number: second_run_number,
+            backfill_id: None,
             task,
         };
         let rerun_response = crate::webhook::r_illuminate::post(

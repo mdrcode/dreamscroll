@@ -5,7 +5,7 @@ mod schema;
 pub use schema::*;
 
 mod admin;
-pub use admin::{AdminApiClient, BackfillRequest, BackfillResponse, BackfillType, create_user};
+pub use admin::{AdminApiClient, create_user};
 
 mod service;
 pub use service::client::ServiceApiClient;

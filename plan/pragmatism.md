@@ -1,6 +1,6 @@
 # Pragmatism — tolerated trade-offs
 
-**Status:** living document. Last updated 2026-10-15.
+**Status:** living document. Last updated 2026-10-16.
 
 > **See also:**
 > - `task-status.md` — the task framework (implemented).
@@ -102,6 +102,10 @@ largest category, and the least urgent, because the app is single-user today.
 | **Local queue shutdown is abrupt**                    | Dropping the final `LocalTaskQueue` handle aborts its dispatcher and drops pending in-memory tasks.                                       | The local backend is only for development and tests; production durability comes from Cloud Tasks.       | Local development needs restart-safe work or graceful shutdown testing.                 |
 | **`submit_inner` records status before enqueueing**   | A process crash or ambiguous backend failure can leave a row at `Queued`; definite enqueue failures are changed to `SubmissionFailed`.    | DB-first submission avoids untracked tasks and duplicate execution; reconciliation can wait for the MVP. | A task is observed stuck or missing, or enqueue ambiguity becomes operationally costly. |
 | **No explicit Gemini inference request timeout** | A stalled Developer API or Vertex call can keep an illumination worker occupied until the outer request/task deadline. | Defer client timeout behavior while validating the product; rely on existing outer deadlines for now. | A hung Gemini request causes task retries, duplicate spend, or delayed illumination; then set and test a client timeout shorter than the worker deadline. |
+| **Backfill pumping can temporarily starve lower IDs** | A descending-ID batch occupied by live in-flight tasks is refused and remains eligible, so lower IDs can wait. | Live contention is expected to be short-lived and isolated; keep manual bounded pumps without cursor/scan-ahead/filtering machinery. | Contention or stuck live tasks persistently prevent progress. |
+| **Backfill status counts actual runs, not expected workflow edges** | Beacon descendants inherit the ID, but refusal against unrelated live work creates no tagged child; aggregates cannot prove all expected descendants completed. | Avoid a dependency ledger and deferred follow-up scheduling. Same-backfill logical children are deduplicated, not counted per parent. | Operators need guaranteed end-to-end workflow completion. |
+| **Backfill IDs and progress are developer-managed** | Reusing an ID after changing its definition or deleting tagged TaskRuns can invalidate progress. Failed tagged runs are not automatically replaced. | Stable literals and retained TaskRun rows avoid definition fingerprinting, migrations, and a per-target table. | Frozen membership, automatic recovery, or progress retention management becomes necessary. |
+| **Backfill candidate relation shape is developer-managed** | Definitions must emit unique `entity_id`/`owner_id` rows without internal pagination. Duplicate rows waste batch slots; an inner limit can prevent progress to later targets. | Code-defined implementations use the shared `Backfill` contract and regression checks rather than a runtime query-AST validator or per-target tracking table. | Invalid candidate relations become a recurring implementation error or definitions stop being code-defined. |
 
 ### Illumination persistence
 
@@ -127,7 +131,6 @@ plan to do them properly."
 
 | Topic                        | Notes                                                                                                                                                                                                                                                                                                                       |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Backfill / bulk tasks** | The `background` flag was removed (never populated). Marking tasks as bulk, surfacing progress, and providing an admin view remain deferred. The current global candidate selection is documented in `plan/task-status.md` §8. |
 | **Reruns**                   | The run-number dimension is implemented: per-logical `run_number`, `(logical_id, run_number)` unique constraint, submit-time refusal for in-flight runs, run-scoped attempts, and both idempotency guards removed. Still deferred: a model/force field and rerun endpoint. See `plans/task-status.md` §6. |
 | **Capture lifecycle events** | Explicitly out of scope for the task-status phase; gets its own mechanism. See `plans/sse.md` §9.                                                                                                                                                                                                                           |
 

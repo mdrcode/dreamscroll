@@ -149,10 +149,10 @@ async fn initialize()
             .with_user_expiration_secs(cfg.jwt_user_expiration_secs)
             .with_leeway(cfg.jwt_validation_leeway_secs);
 
+        let admin_api = api::AdminApiClient::new(db.clone(), task_master.clone());
         let api_router = rest::make_api_router(
             user_api.clone(),
-            service_api.clone(),
-            task_master.clone(),
+            admin_api,
             jwt,
             cfg.max_upload_bytes,
         );

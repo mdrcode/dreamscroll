@@ -23,13 +23,6 @@ impl ServiceApiClient {
             .collect())
     }
 
-    pub async fn get_captures_need_search_index(
-        &self,
-        limit: Option<u64>,
-    ) -> Result<Vec<i32>, ApiError> {
-        super::get_captures_need_search_index(&self.db, limit).await
-    }
-
     pub async fn insert_illumination_v2(
         &self,
         capture_info: &schema::CaptureInfo,

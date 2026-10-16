@@ -1,25 +1,16 @@
 use anyhow::anyhow;
 use std::sync::Arc;
 
-use crate::{api::*, auth, database, task};
+use crate::{api::*, auth, backfill, database, task};
 
 pub struct AdminApiClient {
     db: database::DbHandle,
-    service_api: ServiceApiClient,
     task_master: Arc<task::TaskMaster>,
 }
 
 impl AdminApiClient {
-    pub fn new(
-        db: database::DbHandle,
-        service_api: ServiceApiClient,
-        task_master: Arc<task::TaskMaster>,
-    ) -> Self {
-        Self {
-            db,
-            service_api,
-            task_master,
-        }
+    pub fn new(db: database::DbHandle, task_master: Arc<task::TaskMaster>) -> Self {
+        Self { db, task_master }
     }
 
     pub async fn create_user(
@@ -33,13 +24,22 @@ impl AdminApiClient {
         super::create_user(&self.db, username, password, email).await
     }
 
-    pub async fn enqueue_backfill(
+    pub async fn backfill_pump(
         &self,
         context: &auth::Context,
-        req: BackfillRequest,
-    ) -> Result<BackfillResponse, ApiError> {
+        req: backfill::BackfillPumpRequest,
+    ) -> Result<backfill::BackfillPumpResponse, ApiError> {
         ensure_admin(context)?;
-        super::backfill::enqueue(&self.db, &self.service_api, &self.task_master, context, req).await
+        backfill::pump(&self.db, &self.task_master, context, req).await
+    }
+
+    pub async fn backfill_status(
+        &self,
+        context: &auth::Context,
+        backfill_id: &str,
+    ) -> Result<backfill::BackfillStatusResponse, ApiError> {
+        ensure_admin(context)?;
+        backfill::status(&self.db, backfill_id).await
     }
 }
 

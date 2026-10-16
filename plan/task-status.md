@@ -50,7 +50,7 @@ Upload (webui/v2/r_upload.rs)
 > flow, and successful illumination signals Beacon for follow-up. Each task has
 > its own status and retry lifecycle. The
 > `/_wh/cloudtask/illuminate` route is the live path and remains the entry point
-> for future backfill / rerun flows.
+> for backfill and explicit rerun flows as well.
 
 ### 2.2 Key facts
 
@@ -58,15 +58,20 @@ Upload (webui/v2/r_upload.rs)
   (`IlluminationTask`, `SparkTask`, `SearchIndexTask`) lives in `src/logic/*.rs`
   and implements `task::Task`. Its identity includes `task_type()`,
   `entity_type()`, `entity_id(&self)`, and `entity_owner_id(&self)`. `TaskRun<T>`
-  carries `logical_id`, globally unique `run_id`, `run_number`, and the task
-  payload; it does not duplicate the owner's ID. `TaskRunTracker` persists the
-  owner's ID from the task in `task_runs` for owner-scoped status queries.
+  carries `logical_id`, globally unique `run_id`, `run_number`, optional
+  `backfill_id`, and the task payload; it does not duplicate the owner's ID.
+  `TaskRunTracker` persists the owner's ID from the task in `task_runs` for
+  owner-scoped status queries.
 - **Logical identity is deterministic.** `TaskRun::make_logical_id(task)` builds
   `logical_id = "u{entity_owner_id}-{task_type}-{entity_type}{entity_id}"`
   (e.g. `u1-illuminate-capture123`) and is stable across reruns.
 - **Run identity is unique.** Every new invocation gets a UUID `run_id`; retries
   reuse it. `run_number` is a 1-based per-logical-task ordinal used for ordering
   and the unique `(logical_id, run_number)` submission guard.
+- **Backfill correlation is invocation metadata.** Tagged roots and Beacon
+  descendants share `backfill_id`. A unique `(backfill_id, logical_id)` index
+  permits only one invocation per logical task within that backfill, including
+  settled/failed runs; ordinary null-tagged runs can still rerun. See `backfill.md`.
 - **Task-owned raw/partial output is keyed by `TaskRun.run_id`.** An output
   table stores one row per TaskRun and retries upsert the same row, replacing
   the prior attempt's output. The task status row carries no output reference.
@@ -121,6 +126,7 @@ CREATE TABLE task_runs (
     logical_id   TEXT NOT NULL,               -- durable logical task identity
     run_id       TEXT NOT NULL UNIQUE,        -- global ID for this invocation
     run_number   INT NOT NULL,                -- 1-based ordinal within logical_id
+    backfill_id  TEXT NULL,                   -- root/descendant correlation
     task_type     TEXT NOT NULL,          -- 'illuminate' | 'spark' | 'search_index'
     entity_type   TEXT NOT NULL,          -- 'capture' | 'spark'
     entity_id     INT NOT NULL,           -- the entity this task operates on
@@ -134,12 +140,18 @@ CREATE TABLE task_runs (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (logical_id, run_number)
 );
+CREATE UNIQUE INDEX "idx-task_runs-backfill_task"
+    ON task_runs (backfill_id, logical_id);
+CREATE INDEX "idx-task_runs-backfill_status"
+    ON task_runs (backfill_id, task_type, status_code);
 ```
 
 > **Schema management:** the table is defined by the SeaORM model
 > (`src/model/task_run.rs`) and created/synced automatically at startup via
 > `conn.get_schema_registry("dreamscroll::model::*").sync(&conn)` in
-> `database/postgres.rs`. There is no hand-written migration file.
+> `database/postgres.rs`, followed by `database::sync_task_run_indexes` for the
+> overlapping backfill unique key and reporting index. The isolated test harness
+> performs the same setup. There is no hand-written migration file.
 
 The `task_runs`, `illuminations`, and `illumination_raws` schemas use a hard
 cutover; existing rows are not migrated. `task_runs` no longer stores result
@@ -447,19 +459,14 @@ must always see the **most recent** illumination, so:
   target owner's Context or an admin Context to submit. User-scoped status
   queries filter by the persisted `entity_owner_id`. No submitter field is
   stored yet; add one separately if audit attribution becomes necessary.
-- **Admin backfill candidate selection is global and approximate (REVISIT):**
-  `api/service/need_search_index.rs::get_captures_need_search_index` has no user
-  filter and returns recent active captures with illuminations without checking
-  whether they actually need indexing. Backfill now resolves each capture's
-  owner from the capture row before creating its SearchIndexTask, so the status
-  is attributed to the capture owner rather than the requesting admin.
-- **Backfill / bulk tasks (deferred):** the `background` flag was removed (never
-  populated). Marking tasks as bulk, surfacing progress, and providing an admin
-  view remain out of scope for this task-ownership change.
-- **`/_wh/cloudtask/illuminate` route also serves future reruns:** the
-  capture-create path submits `IlluminationTask` through the illumination queue,
-  so the route has no live caller. Kept deliberately — it is the entry point
-  for future backfill and rerun flows. *Tolerated — see `pragmatism.md`.*
+- **Backfill / bulk tasks:** code-defined, manually pumped backfills and
+  task-type/status aggregation are implemented. The first definition re-runs
+  illumination v2 for every capture, attributed to the capture owner; Beacon
+  descendants retain the same backfill ID. The old approximate search-index
+  candidate query and ad-hoc enqueue flow were removed. See `backfill.md` for
+  commands and accepted live-contention starvation.
+- **`/_wh/cloudtask/illuminate` is shared:** live capture creation, explicit
+  reruns, and the backfill pump all use the same worker execution path.
 
 ---
 

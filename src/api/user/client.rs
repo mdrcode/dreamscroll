@@ -208,15 +208,11 @@ impl UserApiClient {
         // TODO Replace with a real spark identity scheme.
         let random_spark_id = uuid::Uuid::new_v4().as_u128() as i32;
 
-        self.task_master
-            .submit_spark(
-                context,
-                logic::spark::SparkTask {
-                    spark_id: random_spark_id,
-                    entity_owner_id: context.user_id(),
-                    capture_ids,
-                },
-            )
+        self.task_master.submit_spark(context, logic::spark::SparkTask {
+            spark_id: random_spark_id,
+            entity_owner_id: context.user_id(),
+            capture_ids,
+        }, None)
             .await
             .map(|_| ())
     }
@@ -355,8 +351,9 @@ impl UserApiClient {
         };
 
         let task = self.illumination_task(capture_id, capture.user_id, prompt_version)?;
-        match self.task_master.submit_illuminate(context, task).await? {
-            task::SubmitOutcome::Enqueued { run_id, .. } => Ok(run_id),
+        match self.task_master.submit_illuminate(context, task, None).await? {
+            task::SubmitOutcome::Enqueued { run_id, .. }
+            | task::SubmitOutcome::AlreadySubmittedBackfill { run_id, .. } => Ok(run_id),
             task::SubmitOutcome::RefusedAlreadyInFlight => Err(ApiError::conflict(anyhow!(
                 "Illumination for capture {} is already in flight",
                 capture_id
@@ -382,8 +379,9 @@ impl UserApiClient {
             capture_id,
             entity_owner_id: capture.user_id,
         };
-        match self.task_master.submit_search_index(context, task).await? {
-            task::SubmitOutcome::Enqueued { run_id, .. } => Ok(run_id),
+        match self.task_master.submit_search_index(context, task, None).await? {
+            task::SubmitOutcome::Enqueued { run_id, .. }
+            | task::SubmitOutcome::AlreadySubmittedBackfill { run_id, .. } => Ok(run_id),
             task::SubmitOutcome::RefusedAlreadyInFlight => Err(ApiError::conflict(anyhow!(
                 "Search indexing for capture {} is already in flight",
                 capture_id

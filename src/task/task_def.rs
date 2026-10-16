@@ -23,9 +23,9 @@ pub trait Task: Clone + Debug + Send + Sync + Serialize {
 ///  - run_id: a globally unique identifier for this individual invocation.
 ///
 /// If a previous run of the same logical task is already in progress, new
-/// submissions are refused. But if all prior runs are complete, submitting the
-/// same task again creates a new run. In that case, the logical_id remains the
-/// same while the run_id changes.
+/// submissions are refused. Ordinary submissions can rerun settled work with
+/// the same logical_id and a fresh run_id. A backfill's logical task is instead
+/// submitted at most once, regardless of its run's eventual outcome.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct TaskRun<T: Task> {
     /// Stable across all runs of the same task and target entity.
@@ -35,6 +35,9 @@ pub struct TaskRun<T: Task> {
     pub run_id: String,
     /// 1-based ordinal among runs of the same logical task.
     pub run_number: i32,
+    /// Developer-managed backfill identity, inherited by descendant tasks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backfill_id: Option<String>,
     pub task: T,
 }
 
@@ -45,6 +48,7 @@ impl<T: Task> TaskRun<T> {
             logical_id: Self::make_logical_id(&task),
             run_id: uuid::Uuid::new_v4().to_string(),
             run_number,
+            backfill_id: None,
             task,
         }
     }
@@ -68,6 +72,7 @@ impl<T: Task> std::fmt::Debug for TaskRun<T> {
         debug.field("logical_id", &self.logical_id);
         debug.field("run_id", &self.run_id);
         debug.field("run_number", &self.run_number);
+        debug.field("backfill_id", &self.backfill_id);
 
         // Bounded preview of the serialized payload, so logs stay readable for
         // large tasks (e.g. a spark with many capture_ids).
@@ -175,6 +180,22 @@ mod tests {
         assert_eq!(task_run.logical_id, "u3-illuminate-capture9");
         assert_eq!(task_run.run_number, 2);
         assert!(uuid::Uuid::parse_str(&task_run.run_id).is_ok());
+    }
+
+    #[test]
+    fn backfill_metadata_survives_delivery_and_old_payloads_remain_untagged() {
+        let mut run = TaskRun::new(TestTask { id: 5, entity_owner_id: 1 }, 1);
+        assert_eq!(run.backfill_id, None);
+        let untagged = serde_json::to_value(&run).unwrap();
+        assert!(untagged.get("backfill_id").is_none());
+        assert_eq!(serde_json::from_value::<TaskRun<TestTask>>(untagged).unwrap().backfill_id, None);
+
+        run.backfill_id = Some("test-backfill".to_string());
+        let tagged = serde_json::to_value(&run).unwrap();
+        let decoded: TaskRun<TestTask> = serde_json::from_value(tagged).unwrap();
+        assert_eq!(decoded.backfill_id.as_deref(), Some("test-backfill"));
+        assert_eq!(decoded.run_id, run.run_id);
+        assert_eq!(decoded.logical_id, run.logical_id);
     }
 
     #[test]

@@ -1,13 +1,12 @@
-use anyhow::anyhow;
 use argh::FromArgs;
 
-use crate::api;
+use crate::backfill;
 
 use super::*;
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "backfill")]
-#[argh(description = "Backfill task queue entries via admin API")]
+#[argh(description = "Pump and inspect code-defined backfills via admin API")]
 pub struct BackfillArgs {
     #[argh(subcommand)]
     command: BackfillCommand,
@@ -16,94 +15,68 @@ pub struct BackfillArgs {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 enum BackfillCommand {
-    SearchIndex(BackfillSearchIndexArgs),
+    Pump(BackfillPumpArgs),
+    Status(BackfillStatusArgs),
 }
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "search_index")]
-#[argh(description = "Enqueue search index tasks")]
-struct BackfillSearchIndexArgs {
+#[argh(subcommand, name = "pump")]
+#[argh(description = "Attempt the next batch and report this pump's submission outcomes")]
+struct BackfillPumpArgs {
     #[argh(positional)]
-    #[argh(description = "capture IDs (omit when using --all)")]
-    capture_ids: Vec<i32>,
-
-    #[argh(switch)]
-    #[argh(description = "target all captures that need search indexing")]
-    all: bool,
+    #[argh(description = "stable string ID of the backfill")]
+    backfill_id: String,
 
     #[argh(option)]
-    #[argh(description = "limit number of captures when using --all")]
+    #[argh(description = "maximum candidates to attempt in this pump (default: 100)")]
     limit: Option<u64>,
+}
 
-    #[argh(switch)]
-    #[argh(description = "required with --all when no --limit is provided")]
-    force_all: bool,
-
-    #[argh(switch)]
-    #[argh(description = "preview candidate counts without enqueueing")]
-    dry_run: bool,
+#[derive(FromArgs)]
+#[argh(subcommand, name = "status")]
+#[argh(description = "Show backfill task run counts by task type and status")]
+struct BackfillStatusArgs {
+    #[argh(positional)]
+    #[argh(description = "stable string ID of the backfill")]
+    backfill_id: String,
 }
 
 pub async fn run(state: ApiCmdState, args: BackfillArgs) -> anyhow::Result<()> {
-    // Just one data type to backfill now, but may be more in the future...
     match args.command {
-        BackfillCommand::SearchIndex(args) => run_search_index(state, args).await,
-    }
-}
-
-async fn run_search_index(state: ApiCmdState, args: BackfillSearchIndexArgs) -> anyhow::Result<()> {
-    if args.all && !args.capture_ids.is_empty() {
-        return Err(anyhow!(
-            "Provide either --all or explicit capture IDs, not both"
-        ));
-    }
-
-    if !args.all && args.capture_ids.is_empty() {
-        return Err(anyhow!(
-            "Provide explicit capture IDs or use --all for backfill"
-        ));
-    }
-
-    if args.force_all && !args.all {
-        return Err(anyhow!("--force-all requires --all"));
-    }
-
-    if args.all && !args.force_all && args.limit.is_none() {
-        return Err(anyhow!("--all requires either --limit <N> or --force-all"));
-    }
-
-    let request = api::BackfillRequest {
-        backfill_type: api::BackfillType::SearchIndex,
-        all: args.all,
-        force_all: args.force_all,
-        limit: args.limit,
-        capture_ids: if args.all {
-            None
-        } else {
-            Some(args.capture_ids.clone())
-        },
-        dry_run: args.dry_run,
-    };
-
-    let response = state.rest_client.admin_enqueue_backfill(&request).await?;
-
-    println!("Backfill enqueue response");
-    println!("- Task type: search_index");
-    println!("- Mode: {}", response.mode);
-    println!("- Candidates: {}", response.candidate_count);
-    println!("- Enqueued: {}", response.enqueued_count);
-    println!("- Skipped: {}", response.skipped_count);
-
-    if !response.skipped_ids.is_empty() {
-        println!(
-            "- Skipped IDs: {}",
-            response
-                .skipped_ids
-                .iter()
-                .map(std::string::ToString::to_string)
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        BackfillCommand::Pump(args) => {
+            let request = backfill::BackfillPumpRequest {
+                backfill_id: args.backfill_id,
+                limit: args.limit,
+            };
+            let response = state.rest_client.admin_backfill_pump(&request).await?;
+            println!("Backfill: {}", response.backfill_id);
+            println!("Pump results (this invocation only):");
+            println!("- Candidates attempted: {}", response.selected_count);
+            println!("- Newly enqueued: {}", response.enqueued_count);
+            println!(
+                "- Skipped (already recorded for this backfill): {}",
+                response.already_submitted_count
+            );
+            println!(
+                "- Skipped (conflicting run already in flight): {}",
+                response.refused_in_flight_count
+            );
+            println!("- Submission errors: {}", response.errors.len());
+            for error in response.errors {
+                println!("  - Entity {}: {}", error.entity_id, error.error);
+            }
+            println!(
+                "For overall progress, use: backfill status {}",
+                response.backfill_id
+            );
+        }
+        BackfillCommand::Status(args) => {
+            let response = state
+                .rest_client
+                .admin_backfill_status(&args.backfill_id)
+                .await?;
+            println!("{}", serde_json::to_string_pretty(&response)?);
+        }
     }
 
     Ok(())

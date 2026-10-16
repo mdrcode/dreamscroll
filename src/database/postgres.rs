@@ -51,6 +51,7 @@ pub async fn connect_postgres_db(
     conn.get_schema_registry("dreamscroll::model::*")
         .sync(&conn)
         .await?;
+    super::sync_task_run_indexes(&conn).await?;
 
     tracing::info!(
         elapsed_ms = started_at.elapsed().as_millis(),

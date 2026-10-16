@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use reqwest;
 use serde::{Deserialize, Serialize};
 
-use crate::{api, illumination};
+use crate::{api, backfill, illumination};
 
 // TODO move this client impl into its own file so it's not hiding in mod.rs
 
@@ -290,18 +290,36 @@ impl Client {
         }
     }
 
-    pub async fn admin_enqueue_backfill(
+    pub async fn admin_backfill_pump(
         &self,
-        request: &api::BackfillRequest,
-    ) -> anyhow::Result<api::BackfillResponse> {
+        request: &backfill::BackfillPumpRequest,
+    ) -> anyhow::Result<backfill::BackfillPumpResponse> {
         let response = self
             .reqwest_client
-            .post(format!("{}/admin/backfill/enqueue", self.base_url))
+            .post(format!("{}/admin/backfill/pump", self.base_url))
             .bearer_auth(&self.access_token)
             .json(request)
             .send()
             .await
-            .context("failed to call admin backfill enqueue endpoint")?;
+            .context("failed to call admin backfill pump endpoint")?;
+
+        Self::parse_json_response(response).await
+    }
+
+    pub async fn admin_backfill_status(
+        &self,
+        backfill_id: &str,
+    ) -> anyhow::Result<backfill::BackfillStatusResponse> {
+        let response = self
+            .reqwest_client
+            .get(format!(
+                "{}/admin/backfill/{}/status",
+                self.base_url, backfill_id
+            ))
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .context("failed to call admin backfill status endpoint")?;
 
         Self::parse_json_response(response).await
     }

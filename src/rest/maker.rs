@@ -17,6 +17,7 @@ pub struct RestState {
 }
 
 /// Creates the API router with all REST endpoints.
+/// Uses user and admin API clients constructed by the application.
 ///
 /// Most routes require JWT authentication. Include a valid JWT token in the
 /// `Authorization: Bearer <token>` header.
@@ -28,13 +29,10 @@ pub struct RestState {
 /// router.
 pub fn make_api_router(
     user_api: api::UserApiClient,
-    service_api: api::ServiceApiClient,
-    task_master: Arc<crate::task::TaskMaster>,
+    admin_api: api::AdminApiClient,
     jwt_config: auth::JwtConfig,
     max_upload_bytes: usize,
 ) -> Router {
-    let admin_api = api::AdminApiClient::new(user_api.db.clone(), service_api, task_master);
-
     let state = Arc::new(RestState {
         user_api,
         admin_api,
@@ -44,7 +42,11 @@ pub fn make_api_router(
     let routes_open = Router::new().route("/token", post(r_token::post));
 
     let routes_protected = Router::new()
-        .route("/admin/backfill/enqueue", post(r_backfill_enqueue::post))
+        .route("/admin/backfill/pump", post(r_backfill::pump))
+        .route(
+            "/admin/backfill/{backfill_id}/status",
+            get(r_backfill::status),
+        )
         .route("/admin/users", post(r_create_user::post))
         .route("/account/password", post(r_change_password::post))
         .route("/captures", get(r_capture::get))

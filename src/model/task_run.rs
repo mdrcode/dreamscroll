@@ -7,7 +7,8 @@ use sea_orm::entity::prelude::*;
 ///
 /// A logical task (`logical_id`) can be run more than once; each invocation gets
 /// its own row, numbered from 1. `(logical_id, run_number)` is unique, preventing
-/// duplicate submission of work that is still in flight.
+/// concurrent submissions from claiming the same ordinal. Tagged runs also have
+/// a unique `(backfill_id, logical_id)` index, independent of their outcome.
 ///
 /// TODO(REVISIT): `query_latest_task_runs` filters by entity owner, entity type,
 /// and entity IDs, then orders by `entity_id`, `task_type`, and `run_number DESC`.
@@ -37,6 +38,9 @@ pub struct Model {
     /// 1-based ordinal among runs of the same logical task.
     #[sea_orm(unique_key = "task_run")]
     pub run_number: i32,
+
+    /// Backfill correlation; null for ordinary submissions and preexisting runs.
+    pub backfill_id: Option<String>,
 
     /// 'illuminate' | 'spark' | 'search_index' | ...
     pub task_type: String,

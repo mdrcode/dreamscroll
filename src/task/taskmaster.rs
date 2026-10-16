@@ -38,13 +38,14 @@ pub struct TaskMaster {
 
 /// The outcome of a Task submission.
 ///
-/// We refuse duplicate submissions of work if the previous run is still in
-/// flight, this is expressed as `RefusedAlreadyInFlight` rather than an
-/// error.
+/// A backfill's logical task is submitted at most once, regardless of outcome.
+/// Ordinary submissions may rerun settled work, but refuse in-flight work.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SubmitOutcome {
     /// A new TaskRun was created and enqueued.
     Enqueued { run_id: String, run_number: i32 },
+    /// This logical task already has a run for the requested backfill.
+    AlreadySubmittedBackfill { run_id: String, run_number: i32 },
     /// The latest run is still in flight, so nothing was enqueued.
     RefusedAlreadyInFlight,
 }
@@ -102,9 +103,10 @@ impl TaskMaster {
         &self,
         context: &auth::Context,
         task: IlluminationTask,
+        backfill_id: Option<&str>,
     ) -> Result<SubmitOutcome, api::ApiError> {
         ensure_task_submission_allowed(context, &task)?;
-        self.submit_inner(self.illuminate_queue.as_ref(), task)
+        self.submit_inner(self.illuminate_queue.as_ref(), task, backfill_id)
             .await
             .map_err(api::ApiError::internal)
     }
@@ -113,6 +115,7 @@ impl TaskMaster {
         &self,
         context: &auth::Context,
         task: SparkTask,
+        backfill_id: Option<&str>,
     ) -> Result<SubmitOutcome, api::ApiError> {
         if task.capture_ids.is_empty() {
             return Err(api::ApiError::bad_request(anyhow::anyhow!(
@@ -120,7 +123,7 @@ impl TaskMaster {
             )));
         }
         ensure_task_submission_allowed(context, &task)?;
-        self.submit_inner(self.spark_queue.as_ref(), task)
+        self.submit_inner(self.spark_queue.as_ref(), task, backfill_id)
             .await
             .map_err(api::ApiError::internal)
     }
@@ -129,9 +132,10 @@ impl TaskMaster {
         &self,
         context: &auth::Context,
         task: SearchIndexTask,
+        backfill_id: Option<&str>,
     ) -> Result<SubmitOutcome, api::ApiError> {
         ensure_task_submission_allowed(context, &task)?;
-        self.submit_inner(self.search_index_queue.as_ref(), task)
+        self.submit_inner(self.search_index_queue.as_ref(), task, backfill_id)
             .await
             .map_err(api::ApiError::internal)
     }
@@ -140,8 +144,9 @@ impl TaskMaster {
     pub(crate) async fn submit_search_index_from_worker(
         &self,
         task: SearchIndexTask,
+        backfill_id: Option<&str>,
     ) -> anyhow::Result<SubmitOutcome> {
-        self.submit_inner(self.search_index_queue.as_ref(), task)
+        self.submit_inner(self.search_index_queue.as_ref(), task, backfill_id)
             .await
     }
 
@@ -154,12 +159,17 @@ impl TaskMaster {
     ///
     /// The first run of a logical task has `run_number` 1. A settled prior run
     /// permits the next ordinal; an in-flight run is refused.
+    /// A backfill identity additionally permits only one run ever for that work.
     async fn submit_inner<T: Task>(
         &self,
         queue: &dyn TaskQueue<T>,
         task: T,
+        backfill_id: Option<&str>,
     ) -> anyhow::Result<SubmitOutcome> {
         let logical_id = TaskRun::<T>::make_logical_id(&task);
+        if let Some(outcome) = self.already_submitted(backfill_id, &logical_id).await? {
+            return Ok(outcome);
+        }
 
         let latest = self
             .run_tracker
@@ -168,6 +178,11 @@ impl TaskMaster {
         let next_run = match decide_next_run(latest.as_ref()) {
             Some(run) => run,
             None => {
+                // A concurrent submission may have claimed this backfill after
+                // our initial lookup; report its identity rather than live refusal.
+                if let Some(outcome) = self.already_submitted(backfill_id, &logical_id).await? {
+                    return Ok(outcome);
+                }
                 tracing::debug!(
                     logical_id = %logical_id,
                     "Refused submit: latest run still in flight",
@@ -176,12 +191,18 @@ impl TaskMaster {
             }
         };
 
-        let task_run = TaskRun::new(task, next_run);
+        let mut task_run = TaskRun::new(task, next_run);
+        task_run.backfill_id = backfill_id.map(str::to_owned);
 
         // Create the Run and record `Queued` (in the database) before truly
         // enqueueing (in the backend).
-        // `false` = another submit won the raise and claimed this run first
+        // `false` = another submit claimed this ordinal or backfill first.
         if !self.run_tracker.create_run(&task_run).await? {
+            // The winner can already be settled, or have claimed another ordinal.
+            // The composite key, not its current lifecycle state, deduplicates it.
+            if let Some(outcome) = self.already_submitted(backfill_id, &logical_id).await? {
+                return Ok(outcome);
+            }
             tracing::debug!(
                 logical_id = %logical_id,
                 run_number = next_run,
@@ -213,6 +234,24 @@ impl TaskMaster {
             run_id: task_run.run_id,
             run_number: next_run,
         })
+    }
+
+    async fn already_submitted(
+        &self,
+        backfill_id: Option<&str>,
+        logical_id: &str,
+    ) -> anyhow::Result<Option<SubmitOutcome>> {
+        let Some(backfill_id) = backfill_id else {
+            return Ok(None);
+        };
+        Ok(self
+            .run_tracker
+            .query_backfill_run(backfill_id, logical_id)
+            .await?
+            .map(|row| SubmitOutcome::AlreadySubmittedBackfill {
+                run_id: row.run_id,
+                run_number: row.run_number,
+            }))
     }
 
     /// Mark an attempt as starting and return its 1-based attempt number.
@@ -591,6 +630,7 @@ mod tests {
             logical_id,
             run_id: row.run_id,
             run_number,
+            backfill_id: row.backfill_id,
             task,
         }
     }
@@ -606,6 +646,7 @@ mod tests {
             logical_id: "u1-illuminate-capture1".to_string(),
             run_id: uuid::Uuid::new_v4().to_string(),
             run_number,
+            backfill_id: None,
             task_type: "illuminate".to_string(),
             entity_type: "capture".to_string(),
             entity_id: 1,
@@ -643,6 +684,238 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn backfill_duplicate_returns_original_identity_in_every_state() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let service = service(&db, false);
+        let context = test_context(1);
+        let first = service
+            .submit_illuminate(&context, illumination_task(42), Some("test-backfill"))
+            .await
+            .unwrap();
+        let SubmitOutcome::Enqueued { run_id, run_number } = first else {
+            panic!("first backfill submission must enqueue");
+        };
+        let run = persisted_task_run(&service, illumination_task(42), run_number).await;
+        assert_eq!(run.backfill_id.as_deref(), Some("test-backfill"));
+        for status in [
+            TaskRunStatus::Queued,
+            TaskRunStatus::InProgress,
+            TaskRunStatus::ErrorWillRetry,
+            TaskRunStatus::CompleteSuccess,
+            TaskRunStatus::CompleteFailure,
+            TaskRunStatus::SubmissionFailed,
+        ] {
+            service
+                .run_tracker
+                .update_run(&run, status, 1)
+                .await
+                .unwrap();
+            assert_eq!(
+                service
+                    .submit_illuminate(&context, illumination_task(42), Some("test-backfill"))
+                    .await
+                    .unwrap(),
+                SubmitOutcome::AlreadySubmittedBackfill {
+                    run_id: run_id.clone(),
+                    run_number
+                },
+                "backfill identity must survive {status}",
+            );
+        }
+        assert!(
+            service
+                .run_tracker
+                .query_run_status(&run.logical_id, Some(2), None)
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn backfills_do_not_retag_live_work_or_change_ordinary_reruns() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let service = service(&db, false);
+        let context = test_context(1);
+        service
+            .submit_illuminate(&context, illumination_task(42), None)
+            .await
+            .unwrap();
+        let live = persisted_task_run(&service, illumination_task(42), 1).await;
+        assert_eq!(
+            service
+                .submit_illuminate(&context, illumination_task(42), Some("test-backfill"))
+                .await
+                .unwrap(),
+            SubmitOutcome::RefusedAlreadyInFlight
+        );
+        assert_eq!(
+            persisted_task_run(&service, illumination_task(42), 1)
+                .await
+                .backfill_id,
+            None
+        );
+        service
+            .run_tracker
+            .update_run(&live, TaskRunStatus::CompleteSuccess, 1)
+            .await
+            .unwrap();
+
+        let tagged = service
+            .submit_illuminate(&context, illumination_task(42), Some("test-backfill"))
+            .await
+            .unwrap();
+        let SubmitOutcome::Enqueued {
+            run_id,
+            run_number: 2,
+        } = tagged
+        else {
+            panic!("settled ordinary work permits a tagged rerun");
+        };
+        let backfill = persisted_task_run(&service, illumination_task(42), 2).await;
+        service
+            .run_tracker
+            .update_run(&backfill, TaskRunStatus::CompleteSuccess, 1)
+            .await
+            .unwrap();
+        assert!(matches!(
+            service
+                .submit_illuminate(&context, illumination_task(42), None)
+                .await
+                .unwrap(),
+            SubmitOutcome::Enqueued { run_number: 3, .. }
+        ));
+        assert_eq!(
+            persisted_task_run(&service, illumination_task(42), 3)
+                .await
+                .backfill_id,
+            None
+        );
+        assert_eq!(
+            service
+                .submit_illuminate(&context, illumination_task(42), Some("test-backfill"))
+                .await
+                .unwrap(),
+            SubmitOutcome::AlreadySubmittedBackfill {
+                run_id,
+                run_number: 2
+            }
+        );
+        assert_eq!(
+            service
+                .submit_illuminate(&context, illumination_task(42), Some("other-backfill"))
+                .await
+                .unwrap(),
+            SubmitOutcome::RefusedAlreadyInFlight
+        );
+        let ordinary = persisted_task_run(&service, illumination_task(42), 3).await;
+        service
+            .run_tracker
+            .update_run(&ordinary, TaskRunStatus::CompleteFailure, 1)
+            .await
+            .unwrap();
+        assert!(matches!(
+            service
+                .submit_illuminate(&context, illumination_task(42), Some("other-backfill"))
+                .await
+                .unwrap(),
+            SubmitOutcome::Enqueued { run_number: 4, .. }
+        ));
+    }
+
+    struct ImmediatelyCompletingQueue {
+        tracker: TaskRunTracker,
+        runs: Arc<tokio::sync::Mutex<Vec<TaskRun<IlluminationTask>>>>,
+    }
+
+    impl std::fmt::Debug for ImmediatelyCompletingQueue {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("ImmediatelyCompletingQueue")
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl TaskQueue<IlluminationTask> for ImmediatelyCompletingQueue {
+        async fn enqueue(&self, run: TaskRun<IlluminationTask>) -> anyhow::Result<()> {
+            let stored = self
+                .tracker
+                .query_run_by_id(&run.run_id, None)
+                .await?
+                .unwrap();
+            assert_eq!(stored.status_code, TaskRunStatus::Queued.as_i32());
+            assert_eq!(stored.backfill_id, run.backfill_id);
+            self.tracker
+                .update_run(&run, TaskRunStatus::CompleteSuccess, 1)
+                .await?;
+            self.runs.lock().await.push(run);
+            Ok(())
+        }
+    }
+
+    #[tokio::test]
+    async fn concurrent_backfill_submissions_deduplicate_even_with_immediate_completion() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let runs = Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .illuminate_queue(ImmediatelyCompletingQueue {
+                tracker: TaskRunTracker::new(db.handle(), None),
+                runs: Arc::clone(&runs),
+            })
+            .build()
+            .unwrap();
+        let context = test_context(1);
+        let (first, second) = tokio::join!(
+            service.submit_illuminate(&context, illumination_task(42), Some("test-backfill")),
+            service.submit_illuminate(&context, illumination_task(42), Some("test-backfill")),
+        );
+        let outcomes = [first.unwrap(), second.unwrap()];
+        let recorded = runs.lock().await;
+        assert_eq!(recorded.len(), 1);
+        let run = &recorded[0];
+        assert!(outcomes.contains(&SubmitOutcome::Enqueued {
+            run_id: run.run_id.clone(),
+            run_number: 1,
+        }));
+        assert!(outcomes.contains(&SubmitOutcome::AlreadySubmittedBackfill {
+            run_id: run.run_id.clone(),
+            run_number: 1,
+        }));
+    }
+
+    #[tokio::test]
+    async fn enqueue_failure_still_claims_backfill_identity() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let service = service(&db, true);
+        let context = test_context(1);
+        assert!(
+            service
+                .submit_illuminate(&context, illumination_task(42), Some("test-backfill"))
+                .await
+                .is_err()
+        );
+        let run = persisted_task_run(&service, illumination_task(42), 1).await;
+        assert_eq!(
+            service
+                .submit_illuminate(&context, illumination_task(42), Some("test-backfill"))
+                .await
+                .unwrap(),
+            SubmitOutcome::AlreadySubmittedBackfill {
+                run_id: run.run_id,
+                run_number: 1
+            }
+        );
+    }
+
+    #[tokio::test]
     async fn submit_illumination_enqueues_task() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
@@ -661,7 +934,7 @@ mod tests {
             .expect("build should succeed with a db");
 
         service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("submit should succeed");
 
@@ -683,13 +956,13 @@ mod tests {
             .expect("build should succeed with a db");
 
         let denied = service
-            .submit_illuminate(&test_context(2), illumination_task(42))
+            .submit_illuminate(&test_context(2), illumination_task(42), None)
             .await
             .expect_err("a non-owner non-admin must be rejected");
         assert_eq!(denied.status_code.as_u16(), 403);
 
         service
-            .submit_illuminate(&admin_context(), illumination_task(43))
+            .submit_illuminate(&admin_context(), illumination_task(43), None)
             .await
             .expect("an admin may submit work owned by another user");
 
@@ -718,7 +991,7 @@ mod tests {
             .expect("build should succeed with a db");
 
         let result = service
-            .submit_illuminate(&test_context(1), illumination_task(9))
+            .submit_illuminate(&test_context(1), illumination_task(9), None)
             .await;
         assert!(result.is_err());
     }
@@ -746,7 +1019,7 @@ mod tests {
             .expect("build should succeed with a db");
 
         service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("submit should succeed");
 
@@ -780,11 +1053,11 @@ mod tests {
             .expect("build should succeed with a db");
 
         let first = service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("first submit should succeed");
         let second = service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("second submit should be answered, not error");
 
@@ -819,8 +1092,8 @@ mod tests {
         );
         let context = test_context(1);
         let (first, second) = tokio::join!(
-            service.submit_illuminate(&context, illumination_task(42)),
-            service.submit_illuminate(&context, illumination_task(42)),
+            service.submit_illuminate(&context, illumination_task(42), None),
+            service.submit_illuminate(&context, illumination_task(42), None),
         );
         let outcomes = [first.unwrap(), second.unwrap()];
 
@@ -829,7 +1102,8 @@ mod tests {
                 .iter()
                 .filter(|outcome| match outcome {
                     SubmitOutcome::Enqueued { run_number, .. } => *run_number == 1,
-                    SubmitOutcome::RefusedAlreadyInFlight => false,
+                    SubmitOutcome::AlreadySubmittedBackfill { .. }
+                    | SubmitOutcome::RefusedAlreadyInFlight => false,
                 })
                 .count(),
             1,
@@ -863,7 +1137,7 @@ mod tests {
             .expect("build should succeed with a db");
 
         service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("first submit should succeed");
 
@@ -890,7 +1164,7 @@ mod tests {
         assert!(row.last_error_duration_ms.is_none());
 
         let rerun = service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("rerun submit should succeed");
 
@@ -920,7 +1194,7 @@ mod tests {
 
         // Run 1 exhausts (incomplete, settled).
         service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("first submit should succeed");
         let task_run = persisted_task_run(&service, illumination_task(42), 1).await;
@@ -945,7 +1219,7 @@ mod tests {
 
         // Run 2 is queued (in flight).
         let rerun = service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("rerun submit should succeed");
         assert!(matches!(
@@ -983,7 +1257,7 @@ mod tests {
 
         // Run 1 exhausts and stays incomplete.
         service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("first submit should succeed");
         let first = persisted_task_run(&service, illumination_task(42), 1).await;
@@ -1003,7 +1277,7 @@ mod tests {
 
         // Run 2 completes.
         service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("rerun submit should succeed");
         let second = persisted_task_run(&service, illumination_task(42), 2).await;
@@ -1049,7 +1323,7 @@ mod tests {
 
         // Run 1: two attempts, then exhaust.
         service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("first submit should succeed");
         let first = persisted_task_run(&service, illumination_task(42), 1).await;
@@ -1095,7 +1369,7 @@ mod tests {
 
         // Run 2 begins at attempt 1 again, even though run 1 used attempts.
         service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("rerun submit should succeed");
         let second = persisted_task_run(&service, illumination_task(42), 2).await;
@@ -1126,7 +1400,7 @@ mod tests {
 
         let task = illumination_task(7);
         service
-            .submit_illuminate(&test_context(1), task.clone())
+            .submit_illuminate(&test_context(1), task.clone(), None)
             .await
             .expect("submit should succeed");
 
@@ -1174,7 +1448,7 @@ mod tests {
 
         let task = illumination_task(9);
         service
-            .submit_illuminate(&test_context(1), task.clone())
+            .submit_illuminate(&test_context(1), task.clone(), None)
             .await
             .expect("submit should succeed");
 
@@ -1234,7 +1508,7 @@ mod tests {
 
         let task = illumination_task(11);
         service
-            .submit_illuminate(&test_context(1), task.clone())
+            .submit_illuminate(&test_context(1), task.clone(), None)
             .await
             .expect("submit should succeed");
 
@@ -1279,7 +1553,7 @@ mod tests {
 
         for capture_id in [1, 2, 3] {
             service
-                .submit_illuminate(&test_context(1), illumination_task(capture_id))
+                .submit_illuminate(&test_context(1), illumination_task(capture_id), None)
                 .await
                 .expect("submit should succeed");
         }
@@ -1328,6 +1602,7 @@ mod tests {
                     entity_owner_id: 1,
                     capture_ids: vec![],
                 },
+                None,
             )
             .await;
 
@@ -1347,7 +1622,7 @@ mod tests {
         let service = service(&db, true);
 
         let result = service
-            .submit_illuminate(&test_context(1), illumination_task(9))
+            .submit_illuminate(&test_context(1), illumination_task(9), None)
             .await;
         assert!(result.is_err(), "the enqueue error must propagate");
 
@@ -1362,7 +1637,7 @@ mod tests {
         );
 
         let retry = service
-            .submit_illuminate(&test_context(1), illumination_task(9))
+            .submit_illuminate(&test_context(1), illumination_task(9), None)
             .await;
         assert!(retry.is_err(), "the test queue is still configured to fail");
 
@@ -1396,7 +1671,7 @@ mod tests {
             .expect("build should succeed with a db");
 
         service
-            .submit_illuminate(&test_context(1), illumination_task(5))
+            .submit_illuminate(&test_context(1), illumination_task(5), None)
             .await
             .expect("submit should succeed");
 
@@ -1438,7 +1713,7 @@ mod tests {
         let service = service(&db, false);
 
         service
-            .submit_illuminate(&test_context(1), illumination_task(42))
+            .submit_illuminate(&test_context(1), illumination_task(42), None)
             .await
             .expect("submit should succeed");
 
@@ -1465,7 +1740,7 @@ mod tests {
         // First "process": one attempt that will retry.
         let first_process = service(&db, false);
         first_process
-            .submit_illuminate(&test_context(1), illumination_task(3))
+            .submit_illuminate(&test_context(1), illumination_task(3), None)
             .await
             .expect("submit should succeed");
         let task_run = persisted_task_run(&first_process, illumination_task(3), 1).await;

@@ -1,5 +1,6 @@
 pub mod api;
 pub mod auth;
+pub mod backfill;
 pub mod common;
 pub mod config;
 pub mod database;

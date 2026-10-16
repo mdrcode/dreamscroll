@@ -27,8 +27,8 @@ impl TaskRunTracker {
 
     /// Insert a task run in its initial `Queued` state with zero attempts.
     ///
-    /// Returns `Ok(false)` if `(logical_id, run_number)` already exists — this
-    /// covers the lost-a-race case; the unique index arbitrates submissions.
+    /// Returns `Ok(false)` for the run ordinal or backfill/logical unique key.
+    /// Other uniqueness violations remain errors rather than lost-race outcomes.
     pub async fn create_run<T: Task>(&self, task_run: &TaskRun<T>) -> anyhow::Result<bool> {
         let task_payload = serde_json::to_value(&task_run.task)?;
         let result = model::task_run::ActiveModel::builder()
@@ -36,6 +36,7 @@ impl TaskRunTracker {
             .set_logical_id(task_run.logical_id.as_str())
             .set_run_id(task_run.run_id.as_str())
             .set_run_number(task_run.run_number)
+            .set_backfill_id(task_run.backfill_id.clone())
             .set_entity_type(T::entity_type())
             .set_entity_id(task_run.task.entity_id())
             .set_entity_owner_id(task_run.task.entity_owner_id())
@@ -50,7 +51,7 @@ impl TaskRunTracker {
                 self.notify_status(task_run, &row.into()).await;
                 Ok(true)
             }
-            Err(err) if is_unique_violation(&err) => Ok(false),
+            Err(err) if is_submission_conflict(&err) => Ok(false),
             Err(err) => Err(err.into()),
         }
     }
@@ -221,6 +222,19 @@ impl TaskRunTracker {
             .await?)
     }
 
+    /// Look up a logical task already submitted for a backfill, in any state.
+    pub async fn query_backfill_run(
+        &self,
+        backfill_id: &str,
+        logical_id: &str,
+    ) -> anyhow::Result<Option<model::task_run::Model>> {
+        Ok(model::task_run::Entity::find()
+            .filter(model::task_run::Column::BackfillId.eq(backfill_id))
+            .filter(model::task_run::Column::LogicalId.eq(logical_id))
+            .one(&self.db.conn)
+            .await?)
+    }
+
     /// Look up one run by its global ID, optionally scoped to its owner.
     pub async fn query_run_by_id(
         &self,
@@ -263,13 +277,22 @@ impl TaskRunTracker {
     }
 }
 
-/// True when a `DbErr` is a unique-constraint violation. The
-/// `(logical_id, run_number)` index makes concurrent duplicate submissions expected.
-fn is_unique_violation(err: &sea_orm::DbErr) -> bool {
-    matches!(
-        err.sql_err(),
-        Some(sea_orm::SqlErr::UniqueConstraintViolation(_))
-    )
+/// Only expected submission keys arbitrate duplicate work; UUID collisions and
+/// any other database constraint violations must still surface as errors.
+fn is_submission_conflict(err: &sea_orm::DbErr) -> bool {
+    let (sea_orm::DbErr::Exec(sea_orm::RuntimeErr::SqlxError(error))
+    | sea_orm::DbErr::Query(sea_orm::RuntimeErr::SqlxError(error))) = err
+    else {
+        return false;
+    };
+    let Some(error) = error.as_database_error() else {
+        return false;
+    };
+    error.code().as_deref() == Some("23505")
+        && matches!(
+            error.constraint(),
+            Some("idx-task_runs-task_run" | "idx-task_runs-backfill_task")
+        )
 }
 
 #[cfg(test)]
@@ -586,7 +609,7 @@ mod tests {
         let first_task_run = task_run(1, 42, 1);
 
         assert!(tracker.create_run(&first_task_run).await.unwrap());
-        assert!(!tracker.create_run(&first_task_run).await.unwrap());
+        assert!(!tracker.create_run(&task_run(1, 42, 1)).await.unwrap());
         tracker
             .update_run(&first_task_run, TaskRunStatus::InProgress, 1)
             .await
@@ -645,12 +668,56 @@ mod tests {
             .await
             .expect("first create_run should succeed");
         let second = tracker
-            .create_run(&env)
+            .create_run(&task_run(1, 42, 1))
             .await
             .expect("a conflict must not be an error");
 
         assert!(first, "the first insert wins");
         assert!(!second, "the second loses the race");
+    }
+
+    #[tokio::test]
+    async fn backfill_key_rejects_a_stale_claim_at_a_different_run_ordinal() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle(), None);
+        let mut first = task_run(1, 42, 1);
+        first.backfill_id = Some("test-backfill".to_string());
+        assert!(tracker.create_run(&first).await.unwrap());
+        tracker.update_run(&first, TaskRunStatus::CompleteSuccess, 1).await.unwrap();
+
+        // A submitter that read "no backfill run" before the winner, but read
+        // latest after it completed, can choose the next ordinal. It still loses.
+        let mut stale = task_run(1, 42, 2);
+        stale.backfill_id = first.backfill_id.clone();
+        assert!(!tracker.create_run(&stale).await.unwrap());
+        let stored = tracker.query_backfill_run("test-backfill", &first.logical_id)
+            .await.unwrap().unwrap();
+        assert_eq!(stored.run_id, first.run_id);
+        assert_eq!(stored.backfill_id, first.backfill_id);
+
+        // The key is scoped by both backfill and logical task, not either alone.
+        let mut other_task = task_run(1, 43, 1);
+        other_task.backfill_id = first.backfill_id.clone();
+        assert!(tracker.create_run(&other_task).await.unwrap());
+        stale.backfill_id = Some("other-backfill".to_string());
+        assert!(tracker.create_run(&stale).await.unwrap());
+        assert!(tracker.create_run(&task_run(1, 42, 3)).await.unwrap());
+        assert!(tracker.create_run(&task_run(1, 42, 4)).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn unrelated_unique_run_id_violation_is_not_a_submission_conflict() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle(), None);
+        let first = task_run(1, 42, 1);
+        assert!(tracker.create_run(&first).await.unwrap());
+        let mut unrelated = task_run(1, 43, 1);
+        unrelated.run_id = first.run_id;
+        assert!(tracker.create_run(&unrelated).await.is_err());
     }
 
     #[tokio::test]
