@@ -2,14 +2,12 @@ use argh::FromArgs;
 
 use crate::illumination::{KnowledgeEntityType, v2::Platform};
 
-use super::*;
-
 #[derive(FromArgs)]
 #[argh(subcommand, name = "enums")]
 #[argh(description = "List knowledge entity types and platform-link platforms")]
 pub struct EnumsArgs {}
 
-pub async fn run(_state: AdminCmdState, _args: EnumsArgs) -> anyhow::Result<()> {
+pub async fn run(_args: EnumsArgs) -> anyhow::Result<()> {
     let knowledge_entity_types: Vec<String> = {
         use strum::IntoEnumIterator;
         KnowledgeEntityType::iter()

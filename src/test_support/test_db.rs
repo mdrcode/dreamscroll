@@ -134,14 +134,7 @@ pub async fn test_db() -> Option<TestDb> {
         }
     };
 
-    // Sync the app's models into the new schema
-    let schema_sync = async {
-        conn.get_schema_registry("dreamscroll::model::*")
-            .sync(&conn)
-            .await?;
-        database::sync_task_run_indexes(&conn).await
-    }
-    .await;
+    let schema_sync = database::sync_schema(&conn).await;
     if let Err(err) = schema_sync {
         eprintln!("test_support::test_db: skipping DB test, schema sync failed: {err}");
         let _ = sqlx::query(AssertSqlSafe(format!(

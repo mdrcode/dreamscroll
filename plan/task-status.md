@@ -147,11 +147,11 @@ CREATE INDEX "idx-task_runs-backfill_status"
 ```
 
 > **Schema management:** the table is defined by the SeaORM model
-> (`src/model/task_run.rs`) and created/synced automatically at startup via
-> `conn.get_schema_registry("dreamscroll::model::*").sync(&conn)` in
-> `database/postgres.rs`, followed by `database::sync_task_run_indexes` for the
-> overlapping backfill unique key and reporting index. The isolated test harness
-> performs the same setup. There is no hand-written migration file.
+> (`src/model/task_run.rs`) and applied by `dreamscroll_admin sync_schema`, which
+> runs the model registry sync and `database::indexes::task_run` index setup.
+> Normal startup checks the schema version marker; it does not sync application
+> models. The isolated test harness performs explicit sync. There is no
+> hand-written migration file.
 
 The `task_runs`, `illuminations`, and `illumination_raws` schemas use a hard
 cutover; existing rows are not migrated. `task_runs` no longer stores result

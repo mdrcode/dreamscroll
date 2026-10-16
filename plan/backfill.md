@@ -122,11 +122,11 @@ Each pump should report selected, enqueued, already-submitted-for-this-backfill,
 
 Concurrent pumps are allowed. The `(backfill_id, logical_id)` unique constraint prevents duplicate backfill invocations even when the first run finishes before another pump submits. The target query is an optimization for selecting unsubmitted work; the database constraint is authoritative.
 
-`database::sync_task_run_indexes` adds the unique `(backfill_id, logical_id)` index and a `(backfill_id, task_type, status_code)` reporting index after SeaORM schema sync, in both production initialization and the isolated test harness. Explicit index setup is needed because the current SeaORM derive cannot express overlapping composite unique keys on `logical_id`. Query-plan tuning for larger datasets can be revisited without changing the progress model.
+`database::indexes::task_run` manages the unique `(backfill_id, logical_id)` index and a `(backfill_id, task_type, status_code)` reporting index during explicit schema sync and in the isolated test harness. Explicit index setup is needed because the current SeaORM derive cannot express overlapping composite unique keys on `logical_id`. Query-plan tuning for larger datasets can be revisited without changing the progress model.
 
 ## Implementation and verification
 
-- Correlation and deduplication: `src/task`, `src/model/task_run.rs`, and `src/database/task_run_indexes.rs`.
+- Correlation and deduplication: `src/task`, `src/model/task_run.rs`, and `src/database/indexes/task_run.rs`.
 - Definition contract and normalized target schema: `src/backfill/definition.rs`; the first workload: `src/backfill/illuminate_v2_backfill.rs`; generic selection, pumping, registry dispatch, and status: `src/backfill/engine.rs`; shared request/result types: `src/backfill/types.rs`. `src/backfill/mod.rs` only declares/re-exports modules and tests. Behavior and extensibility tests live alongside the implementation in `src/backfill/tests.rs` and `src/backfill/extension_tests.rs`.
 - Descendant propagation: the illumination webhook and Beacon. Existing v1/v2 execution and retry behavior are unchanged.
 - Admin authorization, REST client/routes, and CLI: the existing admin, REST, and `util_cmds/api/backfill.rs` modules.

@@ -5,10 +5,12 @@ mod check_users;
 pub use check_users::check_users;
 
 mod postgres;
-pub use postgres::{connect, make_url_from_config};
+pub use postgres::{connect, connect_postgres_db, make_url_from_config};
 
-mod task_run_indexes;
-pub use task_run_indexes::sync_task_run_indexes;
+mod schema_sync;
+pub use schema_sync::{check_schema_version, sync_schema};
+
+mod indexes;
 
 // Unclear if this is needed? Just a wrapper for now
 

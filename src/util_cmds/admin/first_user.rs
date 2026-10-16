@@ -2,16 +2,13 @@ use argh::FromArgs;
 
 use crate::database;
 
-use super::*;
-
 #[derive(FromArgs)]
 #[argh(subcommand, name = "first_user")]
 #[argh(description = "Check if any users exist; if none, create the first admin user")]
 pub struct FirstUserArgs {}
 
-pub async fn run(mut state: AdminCmdState, _args: FirstUserArgs) -> anyhow::Result<()> {
-    let db = state.db_handle().await?;
-    database::check_first_user(&db).await?;
+pub async fn run(db: &database::DbHandle, _args: FirstUserArgs) -> anyhow::Result<()> {
+    database::check_first_user(db).await?;
 
     Ok(())
 }

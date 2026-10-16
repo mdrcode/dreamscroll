@@ -60,22 +60,15 @@ The old `dreamscroll_util` binary was removed.
 
 ## State types
 
-`src/util_cmds/cmd_state.rs` now contains two separate state objects:
+`src/util_cmds/api/state.rs` defines `ApiCmdState` for utility API calls:
 
-- `ApiCmdState`
-  - application configuration
-  - REST host and optional username
-  - lazy REST client initialization
-  - token cache handling
-  - no database, storage provider, user API, service API, or `TaskMaster`
-- `AdminCmdState`
-  - application configuration
-  - direct database handle
-  - lazy storage provider
-  - direct user/service API clients
-  - no REST host or REST client
+- Application configuration
+- REST host and optional username
+- REST client
 
-Commands accept the state type matching their transport boundary.
+Admin commands have no shared state wrapper. Database-backed command handlers
+receive `&database::DbHandle` directly; `enums` and `hash_password` require only
+their CLI arguments.
 
 ## Related changes
 

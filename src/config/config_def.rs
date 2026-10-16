@@ -57,7 +57,18 @@ fn default_max_upload_bytes() -> usize {
     5 * 1024 * 1024
 }
 
-#[derive(Debug, Deserialize)]
+// Useful for dreamscroll_admin which only needs DB access and nothing else.
+// Yes, this means duplication of the PostgresConfig struct, but worth it
+#[derive(Deserialize)]
+pub struct PostgresConfig {
+    pub postgres_host_port: String,
+    pub postgres_user: String,
+    pub postgres_password: String,
+    pub postgres_connection_params: Option<String>,
+    pub postgres_db: String,
+}
+
+#[derive(Deserialize)]
 pub struct Config {
     pub gcloud_project_id: String,
     pub gcloud_region: String,
@@ -121,6 +132,18 @@ pub struct Config {
     pub max_upload_bytes: usize,
 }
 
+pub fn make_postgres() -> anyhow::Result<PostgresConfig> {
+    make_postgres_from_envy_iter(std::env::vars())
+}
+
+fn make_postgres_from_envy_iter<I>(vars: I) -> anyhow::Result<PostgresConfig>
+where
+    I: IntoIterator<Item = (String, String)>,
+{
+    envy::from_iter::<_, PostgresConfig>(vars)
+        .context("Failed to load Postgres config (missing required env vars or invalid values)")
+}
+
 pub fn make() -> anyhow::Result<Config> {
     make_from_envy_iter(std::env::vars())
 }
@@ -131,6 +154,8 @@ where
 {
     let cfg = envy::from_iter::<_, Config>(vars)
         .context("Failed to load config (missing required env vars or invalid values)")?;
+
+    // below, validation of values that depend on each other
 
     let produces_illumination_tasks = cfg
         .services
@@ -154,6 +179,7 @@ where
             )?;
         }
     }
+
     match cfg.storage_backend {
         StorageBackend::Local => {
             require_some(
@@ -243,6 +269,28 @@ mod tests {
         assert_eq!(default_max_upload_bytes(), 5 * 1024 * 1024);
     }
 
+    #[test]
+    fn postgres_config_requires_only_database_variables() {
+        let vars = vec![
+            ("POSTGRES_HOST_PORT".into(), "localhost:5432".into()),
+            ("POSTGRES_USER".into(), "user".into()),
+            ("POSTGRES_PASSWORD".into(), "password".into()),
+            ("POSTGRES_DB".into(), "database".into()),
+            ("PORT".into(), "not-a-port".into()),
+            ("SERVICES".into(), "not-a-service".into()),
+            ("STORAGE_BACKEND".into(), "not-a-backend".into()),
+        ];
+
+        let config = make_postgres_from_envy_iter(vars)
+            .expect("Postgres config should ignore unrelated application settings");
+
+        assert_eq!(config.postgres_host_port, "localhost:5432");
+        assert_eq!(config.postgres_user, "user");
+        assert_eq!(config.postgres_password, "password");
+        assert_eq!(config.postgres_db, "database");
+        assert_eq!(config.postgres_connection_params, None);
+    }
+
     fn required_vars(storage_backend: &str) -> Vec<(String, String)> {
         vec![
             ("GCLOUD_PROJECT_ID".into(), "project".into()),
@@ -272,7 +320,9 @@ mod tests {
         let mut vars = required_vars("gcloud");
         vars.retain(|(key, _)| key != "GEMINI_MODEL_ID");
 
-        let error = make_from_envy_iter(vars).expect_err("API config should require a model");
+        let error = make_from_envy_iter(vars)
+            .err()
+            .expect("API config should require a model");
         assert_eq!(
             error.to_string(),
             "GEMINI_MODEL_ID required when WebUI or API can enqueue illumination tasks"
@@ -296,8 +346,9 @@ mod tests {
 
     #[test]
     fn make_rejects_local_storage_without_local_paths() {
-        let error =
-            make_from_envy_iter(required_vars("local")).expect_err("config should be invalid");
+        let error = make_from_envy_iter(required_vars("local"))
+            .err()
+            .expect("config should be invalid");
 
         assert_eq!(
             error.to_string(),
@@ -332,7 +383,9 @@ mod tests {
             .1 = "webui,api,webhook".into();
         vars.push(("GEMINI_BACKEND".into(), "developer_api".into()));
 
-        let error = make_from_envy_iter(vars).expect_err("API key should be required");
+        let error = make_from_envy_iter(vars)
+            .err()
+            .expect("API key should be required");
         assert!(error.to_string().contains("GEMINI_API_KEY required"));
     }
 
@@ -372,7 +425,9 @@ mod tests {
             .expect("required vars should include TASK_BACKEND")
             .1 = "gcloudtasks".into();
 
-        let error = make_from_envy_iter(vars).expect_err("Cloud Tasks config should require OIDC");
+        let error = make_from_envy_iter(vars)
+            .err()
+            .expect("Cloud Tasks config should require OIDC");
         assert_eq!(
             error.to_string(),
             "TASK_BACKEND is gcloudtasks but no TASK_OIDC_SERVICE_ACCOUNT_EMAIL"

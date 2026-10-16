@@ -15,10 +15,18 @@ pub async fn connect(
     // Once tower_sessions_sqlx_store is updated to use sqlx 0.9, we can remove
     // the second pool. This means currently we are doubling up on connection
     // budget.
-    let db_connection = connect_postgres_db(cfg).await?; // pool #1 internally
+    let db_connection = connect_postgres_db_with_fields(
+        &cfg.postgres_user,
+        &cfg.postgres_password,
+        &cfg.postgres_host_port,
+        &cfg.postgres_db,
+        cfg.postgres_connection_params.as_deref(),
+    )
+    .await?; // pool #1 internally
+    super::check_schema_version(&db_connection).await?;
     tracing::info!(
         elapsed_ms = started_at.elapsed().as_millis(),
-        "Initialized database pool and schema"
+        "Initialized database pool"
     );
     let sqlx08_pool = create_session_sqlx08_pool(cfg).await?; // pool #2
     tracing::info!(
@@ -34,10 +42,35 @@ pub async fn connect(
 }
 
 pub async fn connect_postgres_db(
-    cfg: &config::Config,
+    cfg: &config::PostgresConfig,
+) -> Result<sea_orm::DatabaseConnection, DbErr> {
+    connect_postgres_db_with_fields(
+        &cfg.postgres_user,
+        &cfg.postgres_password,
+        &cfg.postgres_host_port,
+        &cfg.postgres_db,
+        cfg.postgres_connection_params.as_deref(),
+    )
+    .await
+}
+
+async fn connect_postgres_db_with_fields(
+    user: &str,
+    password: &str,
+    host_port: &str,
+    db: &str,
+    connection_params: Option<&str>,
 ) -> Result<sea_orm::DatabaseConnection, DbErr> {
     let started_at = Instant::now();
-    let url = make_url_from_config(cfg, None, false);
+    let url = make_url(
+        user,
+        password,
+        host_port,
+        db,
+        connection_params,
+        None,
+        false,
+    );
     let mut options = sea_orm::ConnectOptions::new(url);
     options.max_connections(5).min_connections(0); // TODO make configurable
     options.sqlx_logging(false);
@@ -46,16 +79,6 @@ pub async fn connect_postgres_db(
     tracing::info!(
         elapsed_ms = started_at.elapsed().as_millis(),
         "Connected SeaORM database pool"
-    );
-
-    conn.get_schema_registry("dreamscroll::model::*")
-        .sync(&conn)
-        .await?;
-    super::sync_task_run_indexes(&conn).await?;
-
-    tracing::info!(
-        elapsed_ms = started_at.elapsed().as_millis(),
-        "Successfully synchronized Postgres database schema"
     );
 
     Ok(conn)
