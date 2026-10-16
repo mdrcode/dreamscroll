@@ -1,9 +1,10 @@
-use anyhow::anyhow;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
-use crate::{api::*, logic, task};
-use crate::auth;
+use anyhow::anyhow;
+use sea_orm::{QuerySelect, prelude::*};
+use serde::{Deserialize, Serialize};
+
+use crate::{api::*, auth, database, logic, model, task};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -35,6 +36,7 @@ pub struct BackfillResponse {
 }
 
 pub async fn enqueue(
+    db: &database::DbHandle,
     service_api: &ServiceApiClient,
     task_master: &Arc<crate::task::TaskMaster>,
     context: &auth::Context,
@@ -90,14 +92,32 @@ pub async fn enqueue(
                 });
             }
 
+            let owners = model::capture::Entity::find()
+                .filter(model::capture::Column::Id.is_in(candidate_ids.iter().copied()))
+                .select_only()
+                .column(model::capture::Column::Id)
+                .column(model::capture::Column::UserId)
+                .into_tuple::<(i32, i32)>()
+                .all(&db.conn)
+                .await?;
+            let owners_by_capture: HashMap<i32, i32> = owners.into_iter().collect();
+
             let mut enqueued_count = 0usize;
             let mut skipped_ids = Vec::new();
 
             for capture_id in candidate_ids {
+                let Some(entity_owner_id) = owners_by_capture.get(&capture_id).copied() else {
+                    skipped_ids.push(capture_id);
+                    continue;
+                };
+
                 match task_master
                     .submit_search_index(
                         context,
-                        logic::search_index::SearchIndexTask { capture_id },
+                        logic::search_index::SearchIndexTask {
+                            capture_id,
+                            entity_owner_id,
+                        },
                     )
                     .await
                 {

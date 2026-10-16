@@ -20,6 +20,8 @@ use super::*;
 /// - `submit_*` — enqueue in the backend, and record a `Queued` row.
 /// - `begin_attempt` / `finish_attempt` — manage lifecycle of a Task Run
 /// - `query_*` — read status (replay / polling).
+/// Submission authorization uses the caller Context; task identity and status
+/// ownership come from `Task::entity_owner_id`, never from the caller ID.
 ///
 /// Status is deliberately not exposed as a raw setter: workers go through
 /// `begin_attempt`/`finish_attempt` so `attempts` and the retry decision stay
@@ -78,6 +80,18 @@ fn decide_next_attempt(status: Option<&model::task_run::Model>) -> Option<i32> {
 fn decide_will_retry(err: &api::ApiError, attempt: i32, max_attempts: i32) -> bool {
     attempt < max_attempts && err.is_retryable()
 }
+fn ensure_task_submission_allowed<T: Task>(
+    context: &auth::Context,
+    task: &T,
+) -> Result<(), api::ApiError> {
+    if context.is_admin() || context.user_id() == task.entity_owner_id() {
+        Ok(())
+    } else {
+        Err(api::ApiError::forbidden(anyhow::anyhow!(
+            "Only the target entity owner or an admin can submit this task"
+        )))
+    }
+}
 
 impl TaskMaster {
     pub fn builder() -> TaskMasterBuilder {
@@ -88,39 +102,46 @@ impl TaskMaster {
         &self,
         context: &auth::Context,
         task: IlluminationTask,
-    ) -> anyhow::Result<SubmitOutcome> {
-        self.submit_inner(self.illuminate_queue.as_ref(), context.user_id(), task)
+    ) -> Result<SubmitOutcome, api::ApiError> {
+        ensure_task_submission_allowed(context, &task)?;
+        self.submit_inner(self.illuminate_queue.as_ref(), task)
             .await
+            .map_err(api::ApiError::internal)
     }
 
     pub async fn submit_spark(
         &self,
         context: &auth::Context,
         task: SparkTask,
-    ) -> anyhow::Result<SubmitOutcome> {
+    ) -> Result<SubmitOutcome, api::ApiError> {
         if task.capture_ids.is_empty() {
-            anyhow::bail!("submit_spark requires at least one capture_id");
+            return Err(api::ApiError::bad_request(anyhow::anyhow!(
+                "submit_spark requires at least one capture_id"
+            )));
         }
-        self.submit_inner(self.spark_queue.as_ref(), context.user_id(), task)
+        ensure_task_submission_allowed(context, &task)?;
+        self.submit_inner(self.spark_queue.as_ref(), task)
             .await
+            .map_err(api::ApiError::internal)
     }
 
     pub async fn submit_search_index(
         &self,
         context: &auth::Context,
         task: SearchIndexTask,
-    ) -> anyhow::Result<SubmitOutcome> {
-        self.submit_inner(self.search_index_queue.as_ref(), context.user_id(), task)
+    ) -> Result<SubmitOutcome, api::ApiError> {
+        ensure_task_submission_allowed(context, &task)?;
+        self.submit_inner(self.search_index_queue.as_ref(), task)
             .await
+            .map_err(api::ApiError::internal)
     }
 
-    /// Submit a search-index task from a background worker without an auth context.
-    pub(crate) async fn submit_search_index_for_user(
+    /// Submit a search-index task from a trusted background worker.
+    pub(crate) async fn submit_search_index_from_worker(
         &self,
-        user_id: i32,
         task: SearchIndexTask,
     ) -> anyhow::Result<SubmitOutcome> {
-        self.submit_inner(self.search_index_queue.as_ref(), user_id, task)
+        self.submit_inner(self.search_index_queue.as_ref(), task)
             .await
     }
 
@@ -136,10 +157,9 @@ impl TaskMaster {
     async fn submit_inner<T: Task>(
         &self,
         queue: &dyn TaskQueue<T>,
-        user_id: i32,
         task: T,
     ) -> anyhow::Result<SubmitOutcome> {
-        let logical_id = TaskRun::<T>::make_logical_id(user_id, &task);
+        let logical_id = TaskRun::<T>::make_logical_id(&task);
 
         let latest = self
             .run_tracker
@@ -156,7 +176,7 @@ impl TaskMaster {
             }
         };
 
-        let task_run = TaskRun::new(user_id, task, next_run);
+        let task_run = TaskRun::new(task, next_run);
 
         // Create the Run and record `Queued` (in the database) before truly
         // enqueueing (in the backend).
@@ -424,6 +444,18 @@ mod tests {
         auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user_id))
     }
 
+    fn admin_context() -> auth::Context {
+        let claims = auth::JwtUserClaims {
+            sub: "2".to_string(),
+            username: "admin".to_string(),
+            is_admin: true,
+            exp: 9999999999,
+            iat: 1000000000,
+            storage_shard: "testshard".to_string(),
+        };
+        auth::Context::from(auth::DreamscrollAuthUser::new_test_jwt(2, claims))
+    }
+
     #[test]
     fn transient_failure_retries_until_budget_is_spent() {
         let err = api::ApiError::internal(anyhow::anyhow!("upstream unavailable"));
@@ -543,6 +575,7 @@ mod tests {
     fn illumination_task(capture_id: i32) -> IlluminationTask {
         IlluminationTask::new(
             capture_id,
+            1,
             "test-model",
             crate::illumination::IlluminationVersion::V1,
         )
@@ -550,11 +583,10 @@ mod tests {
 
     async fn persisted_task_run<T: Task>(
         service: &TaskMaster,
-        user_id: i32,
         task: T,
         run_number: i32,
     ) -> TaskRun<T> {
-        let logical_id = TaskRun::make_logical_id(user_id, &task);
+        let logical_id = TaskRun::make_logical_id(&task);
         let row = service
             .run_tracker
             .query_run_status(&logical_id, Some(run_number), None)
@@ -563,7 +595,6 @@ mod tests {
             .expect("submitted run should exist");
 
         TaskRun {
-            user_id,
             logical_id,
             run_id: row.run_id,
             run_number,
@@ -578,7 +609,7 @@ mod tests {
     ) -> model::task_run::Model {
         model::task_run::Model {
             id: 0,
-            user_id: 1,
+            entity_owner_id: 1,
             logical_id: "u1-illuminate-capture1".to_string(),
             run_id: uuid::Uuid::new_v4().to_string(),
             run_number,
@@ -648,6 +679,35 @@ mod tests {
             .expect("captures mutex should not be poisoned")
             .clone();
         assert_eq!(recorded, vec![42]);
+    }
+
+    #[tokio::test]
+    async fn submit_requires_owner_or_admin_context() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let service = TaskMaster::builder()
+            .db(db.handle())
+            .build()
+            .expect("build should succeed with a db");
+
+        let denied = service
+            .submit_illuminate(&test_context(2), illumination_task(42))
+            .await
+            .expect_err("a non-owner non-admin must be rejected");
+        assert_eq!(denied.status_code.as_u16(), 403);
+
+        service
+            .submit_illuminate(&admin_context(), illumination_task(43))
+            .await
+            .expect("an admin may submit work owned by another user");
+
+        let owner_statuses = service
+            .query_latest_task_runs(&test_context(1), "capture", &[43])
+            .await
+            .expect("the target owner should be able to query task status");
+        assert_eq!(owner_statuses.len(), 1);
+        assert_eq!(owner_statuses[0].entity_owner_id, 1);
     }
 
     #[tokio::test]
@@ -817,7 +877,7 @@ mod tests {
             .expect("first submit should succeed");
 
         // Complete run 1.
-        let task_run = persisted_task_run(&service, 1, illumination_task(42), 1).await;
+        let task_run = persisted_task_run(&service, illumination_task(42), 1).await;
         let attempt = service
             .begin_attempt(&task_run)
             .await
@@ -872,7 +932,7 @@ mod tests {
             .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("first submit should succeed");
-        let task_run = persisted_task_run(&service, 1, illumination_task(42), 1).await;
+        let task_run = persisted_task_run(&service, illumination_task(42), 1).await;
         let attempt = service
             .begin_attempt(&task_run)
             .await
@@ -936,7 +996,7 @@ mod tests {
             .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("first submit should succeed");
-        let first = persisted_task_run(&service, 1, illumination_task(42), 1).await;
+        let first = persisted_task_run(&service, illumination_task(42), 1).await;
         let attempt = service
             .begin_attempt(&first)
             .await
@@ -957,7 +1017,7 @@ mod tests {
             .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("rerun submit should succeed");
-        let second = persisted_task_run(&service, 1, illumination_task(42), 2).await;
+        let second = persisted_task_run(&service, illumination_task(42), 2).await;
         let attempt = service
             .begin_attempt(&second)
             .await
@@ -1003,7 +1063,7 @@ mod tests {
             .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("first submit should succeed");
-        let first = persisted_task_run(&service, 1, illumination_task(42), 1).await;
+        let first = persisted_task_run(&service, illumination_task(42), 1).await;
         let failure = Err(api::ApiError::internal(anyhow::anyhow!("boom")));
 
         let attempt = service
@@ -1049,7 +1109,7 @@ mod tests {
             .submit_illuminate(&test_context(1), illumination_task(42))
             .await
             .expect("rerun submit should succeed");
-        let second = persisted_task_run(&service, 1, illumination_task(42), 2).await;
+        let second = persisted_task_run(&service, illumination_task(42), 2).await;
         let attempt = service
             .begin_attempt(&second)
             .await
@@ -1081,7 +1141,7 @@ mod tests {
             .await
             .expect("submit should succeed");
 
-        let task_run = persisted_task_run(&service, 1, task, 1).await;
+        let task_run = persisted_task_run(&service, task, 1).await;
 
         let attempt = service
             .begin_attempt(&task_run)
@@ -1129,7 +1189,7 @@ mod tests {
             .await
             .expect("submit should succeed");
 
-        let task_run = persisted_task_run(&service, 1, task, 1).await;
+        let task_run = persisted_task_run(&service, task, 1).await;
         let failure = Err(api::ApiError::internal(anyhow::anyhow!("transient")));
 
         // Attempt 1: budget remains, so it will retry.
@@ -1189,7 +1249,7 @@ mod tests {
             .await
             .expect("submit should succeed");
 
-        let task_run = persisted_task_run(&service, 1, task, 1).await;
+        let task_run = persisted_task_run(&service, task, 1).await;
 
         let attempt = service
             .begin_attempt(&task_run)
@@ -1241,12 +1301,15 @@ mod tests {
             .expect("query should succeed");
         assert_eq!(rows.len(), 3);
 
-        // A different user cannot see these entities.
-        let other = service
+        // A different owner cannot see these entities' task statuses.
+        let other_owner = service
             .query_latest_task_runs(&test_context(2), "capture", &[1, 2, 3])
             .await
             .expect("query should succeed");
-        assert!(other.is_empty(), "queries must be scoped by user_id");
+        assert!(
+            other_owner.is_empty(),
+            "queries must be scoped by entity_owner_id"
+        );
     }
 
     /// A service with an illuminate queue that records (or fails) enqueues.
@@ -1273,6 +1336,7 @@ mod tests {
                 &test_context(1),
                 SparkTask {
                     spark_id: 1,
+                    entity_owner_id: 1,
                     capture_ids: vec![],
                 },
             )
@@ -1347,7 +1411,7 @@ mod tests {
             .await
             .expect("submit should succeed");
 
-        let task_run = persisted_task_run(&service, 1, illumination_task(5), 1).await;
+        let task_run = persisted_task_run(&service, illumination_task(5), 1).await;
         let attempt = service
             .begin_attempt(&task_run)
             .await
@@ -1416,7 +1480,7 @@ mod tests {
             .submit_illuminate(&test_context(1), illumination_task(3))
             .await
             .expect("submit should succeed");
-        let task_run = persisted_task_run(&first_process, 1, illumination_task(3), 1).await;
+        let task_run = persisted_task_run(&first_process, illumination_task(3), 1).await;
         let attempt = first_process
             .begin_attempt(&task_run)
             .await

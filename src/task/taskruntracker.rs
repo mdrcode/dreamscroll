@@ -38,7 +38,7 @@ impl TaskRunTracker {
             .set_run_number(task_run.run_number)
             .set_entity_type(T::entity_type())
             .set_entity_id(task_run.task.entity_id())
-            .set_user_id(task_run.user_id)
+            .set_entity_owner_id(task_run.task.entity_owner_id())
             .set_task_payload(Some(task_payload))
             .set_result_entity_type(None)
             .set_result_entity_id(None)
@@ -217,20 +217,20 @@ impl TaskRunTracker {
         }
     }
 
-    /// Look up a logical task's latest run, or a particular run number.
+    /// Look up a logical task's latest run, or a particular run number, optionally scoped to its target owner.
     pub async fn query_run_status(
         &self,
         logical_id: &str,
         run_number: Option<i32>,
-        user_id: Option<i32>,
+        entity_owner_id: Option<i32>,
     ) -> anyhow::Result<Option<model::task_run::Model>> {
         let mut query = model::task_run::Entity::find()
             .filter(model::task_run::Column::LogicalId.eq(logical_id));
         if let Some(run_number) = run_number {
             query = query.filter(model::task_run::Column::RunNumber.eq(run_number));
         }
-        if let Some(user_id) = user_id {
-            query = query.filter(model::task_run::Column::UserId.eq(user_id));
+        if let Some(entity_owner_id) = entity_owner_id {
+            query = query.filter(model::task_run::Column::EntityOwnerId.eq(entity_owner_id));
         }
 
         Ok(query
@@ -243,21 +243,21 @@ impl TaskRunTracker {
     pub async fn query_run_by_id(
         &self,
         run_id: &str,
-        user_id: Option<i32>,
+        entity_owner_id: Option<i32>,
     ) -> anyhow::Result<Option<model::task_run::Model>> {
         let mut query =
             model::task_run::Entity::find().filter(model::task_run::Column::RunId.eq(run_id));
-        if let Some(user_id) = user_id {
-            query = query.filter(model::task_run::Column::UserId.eq(user_id));
+        if let Some(entity_owner_id) = entity_owner_id {
+            query = query.filter(model::task_run::Column::EntityOwnerId.eq(entity_owner_id));
         }
 
         Ok(query.one(&self.db.conn).await?)
     }
 
-    /// Latest task statuses per entity and task type for one user.
+    /// Latest task statuses per entity and task type for one entity owner.
     pub async fn query_latest_task_runs(
         &self,
-        user_id: i32,
+        entity_owner_id: i32,
         entity_type: &str,
         entity_ids: &[i32],
     ) -> anyhow::Result<Vec<model::task_run::Model>> {
@@ -266,7 +266,7 @@ impl TaskRunTracker {
         }
 
         Ok(model::task_run::Entity::find()
-            .filter(model::task_run::Column::UserId.eq(user_id))
+            .filter(model::task_run::Column::EntityOwnerId.eq(entity_owner_id))
             .filter(model::task_run::Column::EntityType.eq(entity_type))
             .filter(model::task_run::Column::EntityId.is_in(entity_ids.iter().copied()))
             .distinct_on([
@@ -320,6 +320,7 @@ mod tests {
     #[derive(Debug, Clone, serde::Serialize)]
     struct TestTask {
         id: i32,
+        entity_owner_id: i32,
     }
 
     impl Task for TestTask {
@@ -332,10 +333,19 @@ mod tests {
         fn entity_id(&self) -> i32 {
             self.id
         }
+        fn entity_owner_id(&self) -> i32 {
+            self.entity_owner_id
+        }
     }
 
-    fn task_run(user_id: i32, id: i32, run_number: i32) -> TaskRun<TestTask> {
-        TaskRun::new(user_id, TestTask { id }, run_number)
+    fn task_run(entity_owner_id: i32, id: i32, run_number: i32) -> TaskRun<TestTask> {
+        TaskRun::new(
+            TestTask {
+                id,
+                entity_owner_id,
+            },
+            run_number,
+        )
     }
 
     async fn create_run_with_status<T: Task>(
@@ -360,9 +370,9 @@ mod tests {
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
         let env = TaskRun::new(
-            1,
             crate::logic::illuminate::IlluminationTask::new(
                 42,
+                1,
                 "test-model",
                 crate::illumination::IlluminationVersion::V2,
             ),
@@ -383,7 +393,7 @@ mod tests {
             .expect("row should exist");
 
         assert_eq!(stored.run_number, 1);
-        assert_eq!(stored.user_id, 1);
+        assert_eq!(stored.entity_owner_id, 1);
         assert_eq!(stored.entity_id, 42);
         assert_eq!(stored.entity_type, "capture");
         assert_eq!(stored.task_type, "illuminate");
@@ -392,6 +402,7 @@ mod tests {
             stored.task_payload,
             Some(serde_json::json!({
                 "capture_id": 42,
+                "entity_owner_id": 1,
                 "model_id": "test-model",
                 "prompt_version": "v2"
             }))
@@ -796,7 +807,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn query_latest_task_runs_is_user_scoped() {
+    async fn query_latest_task_runs_is_owner_scoped() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -819,16 +830,16 @@ mod tests {
             .query_run_status("u1-test-capture42", Some(1), Some(1))
             .await
             .expect("exact-run query should succeed");
-        let other_users_run = tracker
+        let other_owners_run = tracker
             .query_run_status("u1-test-capture42", Some(1), Some(2))
             .await
-            .expect("other-user exact-run query should succeed");
+            .expect("exact-run query should succeed");
 
         assert_eq!(mine.len(), 1);
         assert!(theirs.is_empty(), "entity ids are not a security boundary");
         assert!(my_run.is_some());
         assert!(
-            other_users_run.is_none(),
+            other_owners_run.is_none(),
             "exact-run queries honor the optional owner filter"
         );
     }
@@ -918,15 +929,17 @@ mod tests {
         .await
         .unwrap();
         let search_task = TaskRun::new(
-            1,
-            crate::logic::search_index::SearchIndexTask { capture_id: 42 },
+            crate::logic::search_index::SearchIndexTask {
+                capture_id: 42,
+                entity_owner_id: 1,
+            },
             1,
         );
         tracker.create_run(&search_task).await.unwrap();
         let spark_task = TaskRun::new(
-            1,
             crate::logic::spark::SparkTask {
                 spark_id: 42,
+                entity_owner_id: 1,
                 capture_ids: vec![1],
             },
             1,

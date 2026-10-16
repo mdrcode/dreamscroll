@@ -9,10 +9,10 @@ use sea_orm::entity::prelude::*;
 /// its own row, numbered from 1. `(logical_id, run_number)` is unique, preventing
 /// duplicate submission of work that is still in flight.
 ///
-/// TODO(REVISIT): `query_latest_task_runs` filters by user, entity type, and
-/// entity IDs, then orders by `entity_id`, `task_type`, and `run_number DESC`.
+/// TODO(REVISIT): `query_latest_task_runs` filters by entity owner, entity type,
+/// and entity IDs, then orders by `entity_id`, `task_type`, and `run_number DESC`.
 /// Currently only the single-column `entity_id` index supports the query. Add a
-/// composite index on `(user_id, entity_type, entity_id, task_type,
+/// composite index on `(entity_owner_id, entity_type, entity_id, task_type,
 /// run_number DESC)` once the table is large enough to matter. SeaORM's derive
 /// only supports single-column `#[sea_orm(indexed)]` and composite `unique_key`,
 /// so this needs raw SQL alongside schema sync. Deferred deliberately: this is
@@ -23,7 +23,6 @@ use sea_orm::entity::prelude::*;
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
-    pub user_id: i32,
 
     /// Identifies the logical task (not one of its runs), e.g.
     /// `u1-illuminate-capture123`.
@@ -41,10 +40,10 @@ pub struct Model {
     /// 'illuminate' | 'spark' | 'search_index' | ...
     pub task_type: String,
 
+    /// Owner of the target entity, not the user who submitted the task.
+    pub entity_owner_id: i32,
     /// The type and id of the entity this task operates on, e.g. "capture" and 42.
     pub entity_type: String,
-    // TODO: Restore this index annotation when schema synchronization avoids
-    // reissuing redundant CREATE INDEX statements on every startup.
     pub entity_id: i32,
 
     /// Full serialized Task parameters for this run; null for rows created before this field.

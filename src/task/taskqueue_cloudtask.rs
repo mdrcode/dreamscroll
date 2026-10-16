@@ -126,11 +126,14 @@ mod tests {
         fn entity_id(&self) -> i32 {
             self.id
         }
+        fn entity_owner_id(&self) -> i32 {
+            7
+        }
     }
 
     #[test]
     fn task_name_is_stable_per_run() {
-        let task_run = TaskRun::new(7, TestTask { id: 42 }, 3);
+        let task_run = TaskRun::new(TestTask { id: 42 }, 3);
 
         assert_eq!(
             make_cloud_tasks_task_name("projects/p/locations/r/queues/q", &task_run),
@@ -140,8 +143,8 @@ mod tests {
 
     #[test]
     fn task_name_changes_for_a_rerun() {
-        let run1 = TaskRun::new(7, TestTask { id: 42 }, 1);
-        let run2 = TaskRun::new(7, TestTask { id: 42 }, 2);
+        let run1 = TaskRun::new(TestTask { id: 42 }, 1);
+        let run2 = TaskRun::new(TestTask { id: 42 }, 2);
 
         assert_ne!(
             make_cloud_tasks_task_name("projects/p/locations/r/queues/q", &run1),

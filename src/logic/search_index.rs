@@ -6,6 +6,7 @@ use crate::{api, search, task};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchIndexTask {
     pub capture_id: i32,
+    pub entity_owner_id: i32,
 }
 
 impl task::Task for SearchIndexTask {
@@ -15,6 +16,9 @@ impl task::Task for SearchIndexTask {
 
     fn entity_id(&self) -> i32 {
         self.capture_id
+    }
+    fn entity_owner_id(&self) -> i32 {
+        self.entity_owner_id
     }
 
     fn task_type() -> &'static str {

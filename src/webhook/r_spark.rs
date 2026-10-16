@@ -7,7 +7,7 @@ use crate::{api, logic, task, webhook};
 /// Webhook POST route for Cloud Tasks spark inference payloads.
 ///
 /// Expected body is a serialized `TaskRun<SparkTask>`, e.g.:
-/// `{ "user_id": 1, "logical_id": "u1-spark-spark5", "run_id": "9a6f177e-64ed-4ced-8da6-b6a2ec43687d", "run_number": 1, "task": { "capture_ids": [123, 456] } }`
+/// `{ "logical_id": "u1-spark-spark5", "run_id": "9a6f177e-64ed-4ced-8da6-b6a2ec43687d", "run_number": 1, "task": { "spark_id": 5, "entity_owner_id": 1, "capture_ids": [123, 456] } }`
 pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(task_run): Json<task::TaskRun<logic::spark::SparkTask>>,

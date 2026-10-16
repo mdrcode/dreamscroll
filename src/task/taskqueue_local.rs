@@ -177,6 +177,9 @@ mod tests {
         fn entity_id(&self) -> i32 {
             self.id
         }
+        fn entity_owner_id(&self) -> i32 {
+            1
+        }
 
         fn task_type() -> &'static str {
             "test"
@@ -184,7 +187,7 @@ mod tests {
     }
 
     fn task_run(id: i32) -> TaskRun<TestTask> {
-        TaskRun::new(1, TestTask { id }, 1)
+        TaskRun::new(TestTask { id }, 1)
     }
 
     /// Poll until `predicate` holds, or fail the test on timeout.

@@ -213,12 +213,12 @@ impl UserApiClient {
                 context,
                 logic::spark::SparkTask {
                     spark_id: random_spark_id,
+                    entity_owner_id: context.user_id(),
                     capture_ids,
                 },
             )
             .await
             .map(|_| ())
-            .map_err(ApiError::internal)
     }
 
     /// import_capture has two novel behaviors compared to insert_capture:
@@ -241,8 +241,11 @@ impl UserApiClient {
         )
         .await?;
 
-        let task =
-            self.illumination_task(capture_model.id, illumination::IlluminationVersion::V2)?;
+        let task = self.illumination_task(
+            capture_model.id,
+            capture_model.user_id,
+            illumination::IlluminationVersion::V2,
+        )?;
         if let Err(e) = self.beacon.new_capture(user_context, task).await {
             tracing::warn!(
                 capture_id = capture_model.id,
@@ -271,8 +274,11 @@ impl UserApiClient {
         )
         .await?;
 
-        let task =
-            self.illumination_task(capture_model.id, illumination::IlluminationVersion::V2)?;
+        let task = self.illumination_task(
+            capture_model.id,
+            capture_model.user_id,
+            illumination::IlluminationVersion::V2,
+        )?;
         if let Err(e) = self.beacon.new_capture(user_context, task).await {
             tracing::warn!(
                 capture_id = capture_model.id,
@@ -314,6 +320,7 @@ impl UserApiClient {
     fn illumination_task(
         &self,
         capture_id: i32,
+        entity_owner_id: i32,
         prompt_version: illumination::IlluminationVersion,
     ) -> Result<logic::illuminate::IlluminationTask, ApiError> {
         let model_id = self
@@ -326,6 +333,7 @@ impl UserApiClient {
             })?;
         Ok(logic::illuminate::IlluminationTask::new(
             capture_id,
+            entity_owner_id,
             model_id,
             prompt_version,
         ))
@@ -338,17 +346,15 @@ impl UserApiClient {
         capture_id: i32,
         prompt_version: illumination::IlluminationVersion,
     ) -> Result<String, ApiError> {
-        if super::get_captures(&self.db, context, vec![capture_id])
-            .await?
-            .is_empty()
-        {
+        let captures = super::get_captures(&self.db, context, vec![capture_id]).await?;
+        let Some(capture) = captures.first() else {
             return Err(ApiError::not_found(anyhow!(
                 "Capture with id {} not found or access denied",
                 capture_id
             )));
-        }
+        };
 
-        let task = self.illumination_task(capture_id, prompt_version)?;
+        let task = self.illumination_task(capture_id, capture.user_id, prompt_version)?;
         match self.task_master.submit_illuminate(context, task).await? {
             task::SubmitOutcome::Enqueued { run_id, .. } => Ok(run_id),
             task::SubmitOutcome::RefusedAlreadyInFlight => Err(ApiError::conflict(anyhow!(
@@ -364,17 +370,18 @@ impl UserApiClient {
         context: &auth::Context,
         capture_id: i32,
     ) -> Result<String, ApiError> {
-        if super::get_captures(&self.db, context, vec![capture_id])
-            .await?
-            .is_empty()
-        {
+        let captures = super::get_captures(&self.db, context, vec![capture_id]).await?;
+        let Some(capture) = captures.first() else {
             return Err(ApiError::not_found(anyhow!(
                 "Capture with id {} not found or access denied",
                 capture_id
             )));
-        }
+        };
 
-        let task = logic::search_index::SearchIndexTask { capture_id };
+        let task = logic::search_index::SearchIndexTask {
+            capture_id,
+            entity_owner_id: capture.user_id,
+        };
         match self.task_master.submit_search_index(context, task).await? {
             task::SubmitOutcome::Enqueued { run_id, .. } => Ok(run_id),
             task::SubmitOutcome::RefusedAlreadyInFlight => Err(ApiError::conflict(anyhow!(

@@ -256,6 +256,7 @@ mod tests {
         for model_id in ["model-a", "model-b"] {
             let payload = serde_json::to_vec(&IlluminationTask::new(
                 123,
+                1,
                 model_id,
                 IlluminationVersion::V1,
             ))

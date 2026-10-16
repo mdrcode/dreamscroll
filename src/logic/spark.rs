@@ -6,6 +6,7 @@ use crate::{api, task};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SparkTask {
     pub spark_id: i32,
+    pub entity_owner_id: i32,
     pub capture_ids: Vec<i32>,
 }
 
@@ -16,6 +17,9 @@ impl task::Task for SparkTask {
 
     fn entity_id(&self) -> i32 {
         self.spark_id
+    }
+    fn entity_owner_id(&self) -> i32 {
+        self.entity_owner_id
     }
 
     fn task_type() -> &'static str {
@@ -43,10 +47,12 @@ pub async fn exec(state: &super::LogicState, task: SparkTask) -> Result<(), api:
         )));
     }
 
-    let user_id = captures[0].user_id;
-    if captures.iter().any(|capture| capture.user_id != user_id) {
+    if captures
+        .iter()
+        .any(|capture| capture.user_id != task.entity_owner_id)
+    {
         return Err(api::ApiError::bad_request(anyhow::anyhow!(
-            "capture_ids must belong to the same user"
+            "capture_ids must belong to the spark's entity_owner_id"
         )));
     }
 
@@ -69,11 +75,16 @@ pub async fn exec(state: &super::LogicState, task: SparkTask) -> Result<(), api:
 
     state
         .service_api
-        .insert_spark(user_id, task.capture_ids.clone(), spark, spark_meta)
+        .insert_spark(
+            task.entity_owner_id,
+            task.capture_ids.clone(),
+            spark,
+            spark_meta,
+        )
         .await?;
 
     tracing::info!(
-        user_id,
+        entity_owner_id = task.entity_owner_id,
         input_capture_ids = ?task.capture_ids,
         found_capture_ids = ?found_ids,
         referenced_capture_ids = ?referenced_ids,

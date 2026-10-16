@@ -6,6 +6,7 @@ use crate::{api, illumination, task};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IlluminationTask {
     pub capture_id: i32,
+    pub entity_owner_id: i32,
     /// Gemini model selected for this illumination run.
     pub model_id: String,
     /// Result schema and persistence path selected for this task.
@@ -15,11 +16,13 @@ pub struct IlluminationTask {
 impl IlluminationTask {
     pub fn new(
         capture_id: i32,
+        entity_owner_id: i32,
         model_id: impl Into<String>,
         prompt_version: illumination::IlluminationVersion,
     ) -> Self {
         Self {
             capture_id,
+            entity_owner_id,
             model_id: model_id.into(),
             prompt_version,
         }
@@ -33,6 +36,9 @@ impl task::Task for IlluminationTask {
 
     fn entity_id(&self) -> i32 {
         self.capture_id
+    }
+    fn entity_owner_id(&self) -> i32 {
+        self.entity_owner_id
     }
 
     fn task_type() -> &'static str {
@@ -116,10 +122,11 @@ mod tests {
 
     #[test]
     fn task_payload_serializes_prompt_version_and_model() {
-        let task = IlluminationTask::new(123, "model-a", illumination::IlluminationVersion::V1);
+        let task = IlluminationTask::new(123, 1, "model-a", illumination::IlluminationVersion::V1);
         let payload = serde_json::to_value(task).expect("task should serialize");
 
         assert_eq!(payload["capture_id"], 123);
+        assert_eq!(payload["entity_owner_id"], 1);
         assert_eq!(payload["model_id"], "model-a");
         assert_eq!(payload["prompt_version"], "v1");
     }

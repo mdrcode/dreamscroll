@@ -272,7 +272,7 @@ mod tests {
     fn catchup_row_becomes_a_task_status_event() {
         let row = crate::model::task_run::Model {
             id: 1,
-            user_id: 7,
+            entity_owner_id: 7,
             logical_id: "u7-illuminate-capture42".to_string(),
             run_id: "720196b8-3dbf-4c63-9b78-c3f05787d831".to_string(),
             run_number: 3,
@@ -312,7 +312,7 @@ mod tests {
     fn catchup_row_with_unknown_status_is_skipped() {
         let row = crate::model::task_run::Model {
             id: 2,
-            user_id: 7,
+            entity_owner_id: 7,
             logical_id: "u7-illuminate-capture42".to_string(),
             run_id: "69d394f8-5caa-4363-8c3e-d081b4a353a5".to_string(),
             run_number: 1,

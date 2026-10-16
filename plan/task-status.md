@@ -36,13 +36,13 @@ makes reruns expressible.
 
 ```
 Upload (webui/v2/r_upload.rs)
-  └─ insert_capture() → Beacon.new_capture(user_id, capture_id)
-    └─ TaskMaster.submit_illuminate → /_wh/cloudtask/illuminate
-      └─ logic/illuminate::exec
-        ├─ generate + insert illumination (no idempotency guard — see §7)
-        └─ Beacon.signal_illuminate(user_id, capture_id)
-             └─ Beacon coordinates follow-up work (currently a separate
-                SearchIndexTask with its own run/status)
+  └─ insert_capture() → capture(id, entity_owner_id)
+    └─ Beacon.new_capture(Context, IlluminationTask)
+      └─ TaskMaster.submit_illuminate → /_wh/cloudtask/illuminate
+        └─ logic/illuminate::exec
+          ├─ generate + insert illumination (no idempotency guard — see §7)
+          └─ Beacon.new_illumination(IlluminationTask)
+               └─ TaskMaster submits SearchIndexTask with the same entity owner
 ```
 
 > **Note:** `IngestTask` and `logic/ingest.rs` were **removed**. `Beacon` now
@@ -56,50 +56,47 @@ Upload (webui/v2/r_upload.rs)
 
 - **`Task` is a trait, not an enum.** Each concrete task type
   (`IlluminationTask`, `SparkTask`, `SearchIndexTask`) lives in `src/logic/*.rs`
-  and implements `task::Task`. The trait carries the task's **identity**:
-  `task_type() -> &'static str`, `entity_type() -> &'static str` (e.g.
-  `"capture"`, `"spark"`), and `entity_id(&self) -> i32`. A `TaskRun<T>` wraps a
-  task with `user_id`, `logical_id`, globally unique `run_id`, `run_number`, and
-  the payload (`task: T`). The queue backend is selected by `TaskMaster`.
-- **Logical identity is deterministic.** `TaskRun::make_logical_id(user_id, task)`
-  builds `logical_id = "u{user_id}-{task_type}-{entity_type}{entity_id}"`
+  and implements `task::Task`. Its identity includes `task_type()`,
+  `entity_type()`, `entity_id(&self)`, and `entity_owner_id(&self)`. `TaskRun<T>`
+  carries `logical_id`, globally unique `run_id`, `run_number`, and the task
+  payload; it does not duplicate the owner's ID. `TaskRunTracker` persists the
+  owner's ID from the task in `task_runs` for owner-scoped status queries.
+- **Logical identity is deterministic.** `TaskRun::make_logical_id(task)` builds
+  `logical_id = "u{entity_owner_id}-{task_type}-{entity_type}{entity_id}"`
   (e.g. `u1-illuminate-capture123`) and is stable across reruns.
 - **Run identity is unique.** Every new invocation gets a UUID `run_id`; retries
   reuse it. `run_number` is a 1-based per-logical-task ordinal used for ordering
   and the unique `(logical_id, run_number)` submission guard.
 - **`TaskQueue<T>` is enqueue-only and generic.** Status lives in the
   `task_runs` table. The trait is `async fn enqueue(&self, wrapped:
-  TaskRun<T>)`. Two backends: `LocalTaskQueue` (in-process mpsc +
-  semaphore) and `CloudTaskQueue` (Google Cloud Tasks). **Pub/Sub support was
-  removed** to focus on Cloud Tasks.
-- **`TaskMaster`** (`task/taskmaster.rs`) is the single funnel through
-  which *all* task enqueues and worker lifecycle updates flow. It owns the
-  backend queues and coordinates lifecycle policy and queue behavior. It exposes
-  `submit_*` / `begin_attempt` / `finish_attempt` / status queries. It is **not
-  `Clone`** — shared via `Arc<TaskMaster>`. User-facing `submit_*` APIs require
-  an `auth::Context` and derive the task's `user_id` from it. `Beacon` is the
-  narrow trusted coordinator for internal follow-up submissions and reuses the
-  parent TaskRun's `user_id` for its follow-up run.
+  TaskRun<T>)`. Two backends: `LocalTaskQueue` (in-process mpsc + semaphore) and
+  `CloudTaskQueue` (Google Cloud Tasks). **Pub/Sub support was removed** to
+  focus on Cloud Tasks.
+- **`TaskMaster`** (`task/taskmaster.rs`) is the single funnel through which
+  task enqueues and worker lifecycle updates flow. User-facing `submit_*` APIs
+  require an `auth::Context` and allow only the target owner's Context or an
+  admin Context. The caller is not persisted as task identity. Trusted internal
+  follow-up submissions carry `entity_owner_id` in the Task. Submitter tracking
+  is not implemented; add a separate field if it becomes necessary later.
 - Authenticated REST task submission and exact-run status lookup are documented
   in `rest-task-submission.md`.
 - **Workers do not get a raw status setter.** They go through `begin_attempt`
   (reads the persisted attempt count, increments, writes `InProgress`, returns
-  the 1-based attempt number) and `finish_attempt` (writes the outcome and returns
-  a status that drives the HTTP response). The attempt selection and status update
-  are not an atomic claim; an `InProgress` redelivery can start another worker
-  attempt (§4.2).
+  the 1-based attempt number) and `finish_attempt` (writes the outcome and
+  returns a status that drives the HTTP response). The attempt selection and
+  status update are not an atomic claim; an `InProgress` redelivery can start
+  another worker attempt (§4.2).
 - **`TaskRunTracker`** (`task/taskruntracker.rs`) is a private persistence
   component owned by `TaskMaster`; Rust visibility prevents production callers
   outside the `task` module from bypassing TaskMaster's lifecycle API. It owns
-  direct `task_runs` queries/writes, snapshots `TaskRun.task` as JSONB
-  when creating a run, and emits optional best-effort status events after
-  successful inserts and updates. Notifications do not fail persistence.
-  `TaskRunStatus`
-  (`task/taskrunstatus.rs`) is the strongly-typed status enum; the DB stores
-  only its integer discriminant (`status_code INT`).
+  direct `task_runs` queries/writes, snapshots `TaskRun.task` as JSONB when
+  creating a run, and emits optional best-effort status events after successful
+  inserts and updates. Notifications do not fail persistence.
+  `TaskRunStatus` (`task/taskrunstatus.rs`) is the strongly-typed status enum;
+  the DB stores only its integer discriminant (`status_code INT`).
 - **Deployment is a single Cloud Run service.** Tasks are queued via Cloud Tasks,
-  so **the worker that completes a task may be a different process/instance than
-  the one holding the user's HTTP connection.** This is why the DB — not an
+  so the worker that completes a task may be a different process/instance than
+  the one holding the user's HTTP connection. This is why the DB — not an
   in-process bus — is the source of truth (see `sse.md` §4.1).
 
 ---
@@ -116,7 +113,7 @@ copy of the queue payload.
 ```sql
 CREATE TABLE task_runs (
     id            BIGSERIAL PRIMARY KEY,     -- internal row key; not exposed
-    user_id       INT NOT NULL,
+    entity_owner_id INT NOT NULL,
     logical_id   TEXT NOT NULL,               -- durable logical task identity
     run_id       TEXT NOT NULL UNIQUE,        -- global ID for this invocation
     run_number   INT NOT NULL,                -- 1-based ordinal within logical_id
@@ -142,11 +139,13 @@ CREATE TABLE task_runs (
 > `conn.get_schema_registry("dreamscroll::model::*").sync(&conn)` in
 > `database/postgres.rs`. There is no hand-written migration file.
 
-The `task_run_status` → `task_runs` table rename is a hard cutover; no rows are
-automatically migrated. Drop the old table before using an existing database;
-schema sync creates `task_runs`. Drain or clear queued task payloads using the
-previous schema. The database `id` remains internal; `run_id` is the public
-invocation handle, and generated `logical_id` values remain unchanged.
+The `task_run_status` → `task_runs` table rename and the ownership-field rename
+are hard cutovers; no rows are automatically migrated. Existing `task_runs`
+rows cannot safely be interpreted as target-owner attribution because their
+`user_id` may have represented the submitter. Drop the old table before using an
+existing database; schema sync creates the current shape. Drain or clear queued
+payloads using the previous wire format. The database `id` remains internal;
+`run_id` is the public invocation handle.
 
 > **Why `UNIQUE (logical_id, run_number)` and not `UNIQUE (logical_id)`:** one row per
 > run is what makes reruns expressible. `logical_id` names the durable work;
@@ -438,43 +437,25 @@ must always see the **most recent** illumination, so:
   capture-scoped query will not surface it. **Accepted** — the plan is to
   introduce a "spark seed/spec" entity concept later. No N-entity join table is
   needed yet.
-- **TaskRun `user_id` is not validated against the capture owner (accepted):**
-  the envelope's `user_id` can differ from the capture row. The illumination
-  follow-up uses the parent TaskRun's `user_id` for search-index tracking; the
-  search-index executor re-fetches the capture by ID and derives vector owner
-  metadata from that row. Webhook OIDC and internal queue producers are the
-  current trust boundary. *Tolerated — see `pragmatism.md`.*
-- **Admin backfill mis-attributes task status to the admin (REVISIT — deferred to
-  the backfill session):** two related problems, both currently masked by the app
-  being single-user:
-  1. **Attribution.** `api/admin/backfill.rs` passes the requesting admin's
-     `context.user_id()` to `submit_search_index`, so every backfill task's
-     `task_runs` row is owned by the **admin**, not the capture's owner. The
-     task itself still works (`logic::search_index::exec` fetches via
-     `service_api.get_captures`, which is not user-scoped), but a user-scoped
-     status view would **not** show the owner their own captures' backfill
-     status.
-  2. **Candidate selection is global.**
-     `api/service/need_search_index.rs::get_captures_need_search_index` has **no
-     user filter** — it joins capture + illumination, filters `archived_at IS
-     NULL`, and orders by `created_at DESC`. So `--all` enqueues tasks for *every*
-     user's captures, all attributed to the admin.
-
-  **Why it's deferred:** fixing attribution properly means
-  `get_captures_need_search_index` must return `(capture_id, user_id)` pairs (not
-  `Vec<i32>`) and `backfill::enqueue` must group by owner — real design work that
-  belongs in the dedicated backfill session. A half-fix would be worse than a
-  documented gap. **Note:** `get_captures_need_search_index` also carries its own
-  `TODO` — it returns recent captures without actually checking whether they need
-  indexing, so candidate counts are inaccurate.
+- **Task ownership is separate from submitter identity:** `Task.entity_owner_id`
+  identifies the target owner, and `TaskRunTracker` persists that value for
+  status queries; `TaskRun` has no duplicate owner field. TaskMaster allows the
+  target owner's Context or an admin Context to submit. User-scoped status
+  queries filter by the persisted `entity_owner_id`. No submitter field is
+  stored yet; add one separately if audit attribution becomes necessary.
+- **Admin backfill candidate selection is global and approximate (REVISIT):**
+  `api/service/need_search_index.rs::get_captures_need_search_index` has no user
+  filter and returns recent active captures with illuminations without checking
+  whether they actually need indexing. Backfill now resolves each capture's
+  owner from the capture row before creating its SearchIndexTask, so the status
+  is attributed to the capture owner rather than the requesting admin.
 - **Backfill / bulk tasks (deferred):** the `background` flag was removed (never
-  populated). Backfill handling — marking tasks as bulk, surfacing progress, an
-  admin view, and fixing the `user_id` attribution + global candidate query above
-  — gets a dedicated plan-and-branch session.
-- **`/_wh/cloudtask/illuminate` route also serves future reruns:** the capture-create path
-  submits `IlluminationTask` through the illumination queue, so the route has no
-  live caller. Kept deliberately — it's the entry point for the future backfill
-  and rerun flows. *Tolerated — see `pragmatism.md`.*
+  populated). Marking tasks as bulk, surfacing progress, and providing an admin
+  view remain out of scope for this task-ownership change.
+- **`/_wh/cloudtask/illuminate` route also serves future reruns:** the
+  capture-create path submits `IlluminationTask` through the illumination queue,
+  so the route has no live caller. Kept deliberately — it is the entry point
+  for future backfill and rerun flows. *Tolerated — see `pragmatism.md`.*
 
 ---
 
@@ -482,7 +463,7 @@ must always see the **most recent** illumination, so:
 
 | File                                      | Role                                                                                                                                                                                           | Status |
 | ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ |
-| `src/task/task_def.rs`                    | `Task` trait + `TaskRun<T>` (`user_id`, `logical_id`, `run_id`, `run_number`, payload) + `TaskRun::new` / `make_logical_id`                    | ✅      |
+| `src/task/task_def.rs`                    | `Task` identity + `TaskRun<T>` (`logical_id`, `run_id`, `run_number`, payload); owner derives from task | ✅ |
 | `src/task/taskqueue.rs`                   | `TaskQueue<T>` trait, enqueue-only (takes `TaskRun<T>`)                                                                                                                                             | ✅      |
 | `src/task/taskqueue_local.rs`             | `LocalTaskQueue` — in-process mpsc + semaphore backend (no retry)                                                                                                                              | ✅      |
 | `src/task/taskqueue_cloudtask.rs`         | `CloudTaskQueue` — Google Cloud Tasks backend                                                                                                                                                  | ✅      |

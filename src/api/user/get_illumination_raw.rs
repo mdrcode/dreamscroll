@@ -197,6 +197,7 @@ mod tests {
         let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user.id));
         let task = crate::logic::illuminate::IlluminationTask::new(
             capture.id,
+            user.id,
             "test-model",
             crate::illumination::IlluminationVersion::V2,
         );
@@ -213,8 +214,7 @@ mod tests {
             panic!("first illumination run should enqueue");
         };
         let first_task_run = crate::task::TaskRun {
-            user_id: user.id,
-            logical_id: crate::task::TaskRun::make_logical_id(user.id, &task),
+            logical_id: crate::task::TaskRun::make_logical_id(&task),
             run_id: first_run_id,
             run_number: first_run_number,
             task: task.clone(),
@@ -298,8 +298,7 @@ mod tests {
             panic!("settled TaskRun should enqueue a new run");
         };
         let second_task_run = crate::task::TaskRun {
-            user_id: user.id,
-            logical_id: crate::task::TaskRun::make_logical_id(user.id, &task),
+            logical_id: crate::task::TaskRun::make_logical_id(&task),
             run_id: second_run_id,
             run_number: second_run_number,
             task,

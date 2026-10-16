@@ -34,7 +34,6 @@ impl Beacon {
     /// V1 remains raw-only and has no indexable document.
     pub async fn new_illumination(
         &self,
-        user_id: i32,
         illumination_task: &illuminate::IlluminationTask,
     ) -> anyhow::Result<()> {
         if matches!(
@@ -44,7 +43,10 @@ impl Beacon {
             let capture_id = illumination_task.capture_id;
             let outcome = self
                 .task_master
-                .submit_search_index_for_user(user_id, search_index::SearchIndexTask { capture_id })
+                .submit_search_index_from_worker(search_index::SearchIndexTask {
+                    capture_id,
+                    entity_owner_id: illumination_task.entity_owner_id,
+                })
                 .await?;
 
             Self::log_outcome("search_index", capture_id, outcome);
@@ -89,7 +91,7 @@ mod tests {
             self.0
                 .lock()
                 .expect("search-index queue mutex should not be poisoned")
-                .push((task_run.user_id, task_run.task.capture_id));
+                .push((task_run.task.entity_owner_id, task_run.task.capture_id));
             Ok(())
         }
     }
@@ -112,21 +114,23 @@ mod tests {
         let v2_capture_id = (uuid::Uuid::new_v4().as_u128() & i32::MAX as u128).max(1) as i32;
         let v1_task = illuminate::IlluminationTask::new(
             v1_capture_id,
+            1,
             "test-model",
             crate::illumination::IlluminationVersion::V1,
         );
         let v2_task = illuminate::IlluminationTask::new(
             v2_capture_id,
+            1,
             "test-model",
             crate::illumination::IlluminationVersion::V2,
         );
 
         beacon
-            .new_illumination(1, &v1_task)
+            .new_illumination(&v1_task)
             .await
             .expect("v1 completion should not enqueue indexing");
         beacon
-            .new_illumination(1, &v2_task)
+            .new_illumination(&v2_task)
             .await
             .expect("v2 completion should enqueue indexing");
 

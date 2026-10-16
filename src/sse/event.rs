@@ -21,6 +21,7 @@ pub struct ServerEvent<E> {
     pub timestamp: DateTime<Utc>,
     pub entity_type: String,
     pub entity_id: i32,
+    /// Recipient user ID for per-user routing; task-status events use the target owner.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<i32>,
     pub payload: E,
@@ -92,7 +93,7 @@ impl ServerEvent<TaskStatusPayload> {
         event.payload.run_id = task_run.run_id.clone();
         event.entity_type = T::entity_type().to_string();
         event.entity_id = task_run.task.entity_id();
-        event.user_id = Some(task_run.user_id);
+        event.user_id = Some(row.entity_owner_id);
         event.payload.run_number = task_run.run_number;
         event.payload.estimated_duration_ms_p50 =
             estimate.and_then(TaskTimingEstimate::client_processing_duration_ms);
@@ -123,7 +124,7 @@ impl ServerEvent<TaskStatusPayload> {
                     .and_then(TaskTimingEstimate::client_processing_duration_ms),
             },
         );
-        event.user_id = Some(row.user_id);
+        event.user_id = Some(row.entity_owner_id);
         Some(event)
     }
 }
@@ -170,7 +171,7 @@ mod tests {
         let update = TaskStatusEvent::from_row(
             &model::task_run::Model {
                 id: 1,
-                user_id: 8,
+                entity_owner_id: 8,
                 logical_id: "u8-test-capture91".to_string(),
                 run_id: "8a0d329d-72ca-4fd5-bd8d-2302f762f37d".to_string(),
                 run_number: 4,
@@ -230,12 +231,15 @@ mod tests {
             fn entity_id(&self) -> i32 {
                 self.id
             }
+            fn entity_owner_id(&self) -> i32 {
+                17
+            }
         }
 
-        let task_run = TaskRun::new(17, TestTask { id: 91 }, 4);
+        let task_run = TaskRun::new(TestTask { id: 91 }, 4);
         let row = model::task_run::Model {
             id: 1,
-            user_id: 17,
+            entity_owner_id: 17,
             logical_id: task_run.logical_id.clone(),
             run_id: task_run.run_id.clone(),
             run_number: 4,
