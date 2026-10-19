@@ -250,6 +250,8 @@ fn inference_response(
     if let Value::Object(mut params) = request_body {
         params.remove("input");
         params.remove("model");
+        params.remove("response_format");
+        params.remove("response_mime_type");
         metadata.params = params;
     }
     if let Some(id) = response
@@ -327,6 +329,7 @@ mod tests {
             assert_eq!(body["model"], model_id);
             assert!(!body["store"].as_bool().unwrap());
             assert_eq!(body["tools"], json!([{"type": "google_search"}]));
+            assert_eq!(body["response_format"]["schema"], schema);
             let outcome = inference_response(
                 json!({"usage": {"total_input_tokens": 1}}),
                 reqwest::StatusCode::INTERNAL_SERVER_ERROR,
@@ -341,9 +344,6 @@ mod tests {
                 json!({
                     "store": false,
                     "tools": [{"type": "google_search"}],
-                    "response_format": {
-                        "type": "text", "mime_type": "application/json", "schema": schema,
-                    },
                 })
                 .as_object()
                 .unwrap()
@@ -415,11 +415,7 @@ mod tests {
         assert_eq!(response.metadata.provider_metadata["provider_usage"], usage);
         assert_eq!(
             response.metadata.params,
-            json!({"store": false,
-            "response_format": {"type": "object"}, "response_mime_type": "application/json"})
-            .as_object()
-            .unwrap()
-            .clone()
+            json!({"store": false}).as_object().unwrap().clone()
         );
     }
 

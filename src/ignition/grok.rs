@@ -55,7 +55,6 @@ impl Firestarter for GrokFirestarter {
         let params = serde_json::Map::from_iter([
             ("prompt_version".to_string(), json!(prompt::PROMPT_VERSION)),
             ("tools".to_string(), json!(&request_body.tools)),
-            ("text".to_string(), json!(&request_body.text)),
         ]);
 
         let started = std::time::Instant::now();

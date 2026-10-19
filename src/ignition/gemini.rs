@@ -54,10 +54,6 @@ impl Firestarter for GeminiFirestarter {
         let params = serde_json::Map::from_iter([
             ("prompt_version".to_string(), json!(prompt::PROMPT_VERSION)),
             ("tools".to_string(), json!(&request_body.tools)),
-            (
-                "generationConfig".to_string(),
-                json!(&request_body.generation_config),
-            ),
         ]);
 
         let model_url = format!(
