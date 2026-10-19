@@ -45,6 +45,12 @@ struct IlluminateArgs {
     )]
     thinking_level: Option<crate::llms::gemini::ThinkingLevel>,
 
+    #[argh(option, long = "persist-projection", default = "true")]
+    #[argh(
+        description = "persist relational projection and enqueue search indexing (default: true)"
+    )]
+    persist_projection: bool,
+
     #[argh(option, long = "wait-seconds", default = "60")]
     #[argh(description = "maximum seconds to wait for task completion (default: 60)")]
     wait_seconds: u64,
@@ -65,7 +71,12 @@ async fn run_illumination(state: ApiCmdState, args: IlluminateArgs) -> anyhow::R
     );
     let run_id = state
         .rest_client
-        .enqueue_illuminate(args.capture_id, prompt_version, args.thinking_level)
+        .enqueue_illuminate(
+            args.capture_id,
+            prompt_version,
+            args.thinking_level,
+            args.persist_projection,
+        )
         .await?;
     eprintln!("Enqueued TaskRun {run_id}.");
 
@@ -133,6 +144,24 @@ fn render_illumination(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn persist_projection_defaults_true_and_requires_a_bool() {
+        let parse = |args: &[&str]| IlluminateArgs::from_args(&["inference", "illuminate"], args);
+        assert!(parse(&["42"]).unwrap().persist_projection);
+        assert!(
+            parse(&["42", "--persist-projection", "true"])
+                .unwrap()
+                .persist_projection
+        );
+        assert!(
+            !parse(&["42", "--persist-projection", "false"])
+                .unwrap()
+                .persist_projection
+        );
+        assert!(parse(&["42", "--persist-projection", "yes"]).is_err());
+        assert!(parse(&["42", "--persist-projection"]).is_err());
+    }
 
     #[test]
     fn thinking_level_is_optional_and_rejects_unsupported_values() {

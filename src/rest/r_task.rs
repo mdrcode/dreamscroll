@@ -26,6 +26,12 @@ pub struct IlluminateTaskRequest {
     #[serde(default)]
     pub prompt_version: crate::illumination::IlluminationVersion,
     pub thinking_level: Option<crate::llms::gemini::ThinkingLevel>,
+    #[serde(default = "default_persist_projection")]
+    pub persist_projection: bool,
+}
+
+fn default_persist_projection() -> bool {
+    true
 }
 
 /// POST /api/queues/illuminate
@@ -41,6 +47,7 @@ pub async fn post_illuminate(
             request.capture_id,
             request.prompt_version,
             request.thinking_level,
+            request.persist_projection,
         )
         .await?;
     Ok(accepted_task_run_response(run_id))

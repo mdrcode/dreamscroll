@@ -19,6 +19,14 @@ pub struct IlluminationTask {
     /// See https://ai.google.dev/gemini-api/docs/thinking#controlling-thinking.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<llms::gemini::ThinkingLevel>,
+    /// Persist the relational projection and enqueue indexing; raw output is always retained.
+    /// Setting to `false` is useful for testing or eval
+    #[serde(default = "default_persist_projection")]
+    pub persist_projection: bool,
+}
+
+fn default_persist_projection() -> bool {
+    true
 }
 
 impl IlluminationTask {
@@ -34,6 +42,7 @@ impl IlluminationTask {
             model_id: model_id.into(),
             prompt_version,
             thinking_level: None,
+            persist_projection: true,
         }
     }
 }
@@ -55,7 +64,7 @@ impl task::Task for IlluminationTask {
     }
 }
 
-/// Executes the requested version. V1 is raw-only; v2 also writes the
+/// Executes the requested version. V1 is raw-only; v2 optionally writes the
 /// relational KnowledgeEntity projection.
 pub async fn exec(
     state: &super::LogicState,
@@ -146,14 +155,16 @@ pub async fn exec(
                     illumination.raw_json(),
                 )
                 .await?;
-            state
-                .service_api
-                .insert_illumination_v2(&capture, task_run_id, inference_meta_id, illumination)
-                .await?;
+            if task.persist_projection {
+                state
+                    .service_api
+                    .insert_illumination_v2(&capture, task_run_id, inference_meta_id, illumination)
+                    .await?;
+            }
         }
     }
 
-    tracing::info!(capture_id, task_run_id, prompt_version = ?task.prompt_version, "Illumination completed and persisted");
+    tracing::info!(capture_id, task_run_id, prompt_version = ?task.prompt_version, persist_projection = task.persist_projection, "Illumination completed and persisted");
 
     Ok(())
 }

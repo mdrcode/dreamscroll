@@ -42,6 +42,7 @@ struct IlluminateTaskRequest {
     prompt_version: illumination::IlluminationVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
     thinking_level: Option<llms::gemini::ThinkingLevel>,
+    persist_projection: bool,
 }
 
 impl Client {
@@ -331,6 +332,7 @@ impl Client {
         capture_id: i32,
         prompt_version: illumination::IlluminationVersion,
         thinking_level: Option<llms::gemini::ThinkingLevel>,
+        persist_projection: bool,
     ) -> anyhow::Result<String> {
         let response = self
             .reqwest_client
@@ -340,6 +342,7 @@ impl Client {
                 capture_id,
                 prompt_version,
                 thinking_level,
+                persist_projection,
             })
             .send()
             .await

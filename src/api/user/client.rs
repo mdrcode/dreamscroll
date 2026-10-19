@@ -347,6 +347,7 @@ impl UserApiClient {
         capture_id: i32,
         prompt_version: illumination::IlluminationVersion,
         thinking_level: Option<llms::gemini::ThinkingLevel>,
+        persist_projection: bool,
     ) -> Result<String, ApiError> {
         let captures = super::get_captures(&self.db, context, vec![capture_id]).await?;
         let Some(capture) = captures.first() else {
@@ -358,6 +359,7 @@ impl UserApiClient {
 
         let mut task = self.illumination_task(capture_id, capture.user_id, prompt_version)?;
         task.thinking_level = thinking_level;
+        task.persist_projection = persist_projection;
         match self
             .task_master
             .submit_illuminate(context, task, None)

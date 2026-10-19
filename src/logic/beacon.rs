@@ -5,8 +5,8 @@ use crate::{auth, task};
 use super::*;
 
 /// Controller that coordinates follow-up task submission after capture events.
-/// New captures enqueue illumination; successful v2 illuminations enqueue
-/// vector indexing.
+/// New captures enqueue illumination; successful projected v2 illuminations
+/// enqueue vector indexing.
 #[derive(Clone)]
 pub struct Beacon {
     task_master: Arc<task::TaskMaster>,
@@ -33,17 +33,19 @@ impl Beacon {
         Ok(())
     }
 
-    /// A successful illumination is persisted before indexing.
-    /// V1 remains raw-only and has no indexable document.
+    /// A successful projected illumination is persisted before indexing.
+    /// Raw-only tasks (including V1) have no new indexable document.
     pub async fn new_illumination(
         &self,
         illumination_task: &illuminate::IlluminationTask,
         backfill_id: Option<&str>,
     ) -> anyhow::Result<()> {
-        if matches!(
-            illumination_task.prompt_version,
-            crate::illumination::IlluminationVersion::V2
-        ) {
+        if illumination_task.persist_projection
+            && matches!(
+                illumination_task.prompt_version,
+                crate::illumination::IlluminationVersion::V2
+            )
+        {
             let capture_id = illumination_task.capture_id;
             let outcome = self
                 .task_master
@@ -113,7 +115,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn only_v2_illumination_enqueues_search_index() {
+    async fn only_projected_v2_illumination_enqueues_search_index() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -139,6 +141,23 @@ mod tests {
             1,
             "test-model",
             crate::illumination::IlluminationVersion::V2,
+        );
+        assert!(v2_task.persist_projection);
+        let mut raw_only_task = v2_task.clone();
+        raw_only_task.persist_projection = false;
+        beacon
+            .new_illumination(&raw_only_task, None)
+            .await
+            .expect("raw-only v2 completion should not enqueue indexing");
+        beacon
+            .new_illumination(&raw_only_task, Some("raw-only-backfill"))
+            .await
+            .expect("raw-only backfill completion should not enqueue indexing");
+        assert!(
+            queued
+                .lock()
+                .expect("queue mutex should not be poisoned")
+                .is_empty()
         );
 
         beacon

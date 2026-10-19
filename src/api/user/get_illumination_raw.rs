@@ -172,14 +172,14 @@ mod tests {
                         "summary": "successful retry",
                         "details": "the second worker attempt succeeded",
                         "suggested_searches": [],
-                        "entities": [],
+                        "entities": [{"name": "Existing person", "type": "real_person"}],
                         "future_field": {"kept": true}
                     }),
                     serde_json::json!({
                         "summary": "intentional rerun",
                         "details": "a later run has its own result",
                         "suggested_searches": [],
-                        "entities": []
+                        "entities": [{"name": "Raw-only person", "type": "real_person"}]
                     }),
                 ])),
                 firestarter: Box::new(UnusedFirestarter),
@@ -214,6 +214,16 @@ mod tests {
             backfill_id: Some("webhook-backfill".to_string()),
             task: task.clone(),
         };
+        // Execute an older queued payload that omitted the new field, not just a
+        // serde round trip: the worker must still persist and enqueue indexing.
+        let mut legacy_payload = serde_json::to_value(&first_task_run).unwrap();
+        legacy_payload["task"]
+            .as_object_mut()
+            .unwrap()
+            .remove("persist_projection");
+        let first_task_run: crate::task::TaskRun<crate::logic::illuminate::IlluminationTask> =
+            serde_json::from_value(legacy_payload).unwrap();
+        assert!(first_task_run.task.persist_projection);
 
         let failed_attempt = crate::webhook::r_illuminate::post(
             axum::extract::State(state.clone()),
@@ -289,6 +299,28 @@ mod tests {
             .unwrap();
         assert_eq!(indexing.backfill_id.as_deref(), Some("webhook-backfill"));
         assert_eq!(indexing.run_number, 1);
+        // Settle the existing index run so an accidental raw-only enqueue cannot
+        // be hidden by TaskMaster's in-flight deduplication.
+        let index_task = crate::logic::search_index::SearchIndexTask {
+            capture_id: capture.id,
+            entity_owner_id: user.id,
+        };
+        let index_run = crate::task::TaskRun {
+            logical_id: crate::task::TaskRun::make_logical_id(&index_task),
+            run_id: indexing.run_id.clone(),
+            run_number: indexing.run_number,
+            backfill_id: indexing.backfill_id.clone(),
+            task: index_task,
+        };
+        let index_attempt = task_master
+            .begin_attempt(&index_run)
+            .await
+            .unwrap()
+            .unwrap();
+        task_master
+            .finish_attempt(&index_run, index_attempt, &Ok(()))
+            .await
+            .unwrap();
         let first_raw = get_illumination_raw(&db, &context, &first_task_run.run_id)
             .await
             .unwrap();
@@ -298,7 +330,7 @@ mod tests {
                 "summary": "successful retry",
                 "details": "the second worker attempt succeeded",
                 "suggested_searches": [],
-                "entities": [],
+                "entities": [{"name": "Existing person", "type": "real_person"}],
                 "future_field": {"kept": true}
             })
         );
@@ -318,6 +350,28 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(stored_raw.inference_meta_id, Some(metadata[1].id));
+        let previous_projections = model::illumination::Entity::find()
+            .filter(model::illumination::Column::CaptureId.eq(capture.id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(previous_projections.len(), 1);
+        assert_eq!(previous_projections[0].task_run_id, first_task_run.run_id);
+        let previous_entities = model::knowledge_entity::Entity::find()
+            .filter(model::knowledge_entity::Column::CaptureId.eq(capture.id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(previous_entities.len(), 1);
+        let previous_index_runs = model::task_run::Entity::find()
+            .filter(model::task_run::Column::EntityId.eq(capture.id))
+            .filter(model::task_run::Column::TaskType.eq("search_index"))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(previous_index_runs.len(), 1);
+        let mut task = task;
+        task.persist_projection = false;
 
         let rerun = task_master
             .submit_illuminate(&context, task.clone(), None)
@@ -363,8 +417,57 @@ mod tests {
                 "summary": "intentional rerun",
                 "details": "a later run has its own result",
                 "suggested_searches": [],
-                "entities": []
+                "entities": [{"name": "Raw-only person", "type": "real_person"}]
             })
+        );
+        let raw_only_metadata = model::inference_meta::Entity::find()
+            .filter(model::inference_meta::Column::TaskRunId.eq(&second_task_run.run_id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(raw_only_metadata.len(), 1);
+        assert_eq!(raw_only_metadata[0].attempt, Some(1));
+        assert_eq!(
+            raw_only_metadata[0].params,
+            serde_json::json!({"prompt_version": "capture_illumination_v2"})
+        );
+        let raw_only_row = model::illumination_raw::Entity::find()
+            .filter(model::illumination_raw::Column::TaskRunId.eq(&second_task_run.run_id))
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            raw_only_row.inference_meta_id,
+            Some(raw_only_metadata[0].id)
+        );
+        assert_eq!(
+            model::illumination::Entity::find()
+                .filter(model::illumination::Column::CaptureId.eq(capture.id))
+                .all(&db.conn)
+                .await
+                .unwrap(),
+            previous_projections,
+            "raw-only rerun must neither add nor replace older projections"
+        );
+        assert_eq!(
+            model::knowledge_entity::Entity::find()
+                .filter(model::knowledge_entity::Column::CaptureId.eq(capture.id))
+                .all(&db.conn)
+                .await
+                .unwrap(),
+            previous_entities,
+            "raw-only entities must remain raw, preserving existing entities"
+        );
+        assert_eq!(
+            model::task_run::Entity::find()
+                .filter(model::task_run::Column::EntityId.eq(capture.id))
+                .filter(model::task_run::Column::TaskType.eq("search_index"))
+                .all(&db.conn)
+                .await
+                .unwrap(),
+            previous_index_runs,
+            "raw-only rerun must not enqueue indexing even when no index is in flight"
         );
     }
 }

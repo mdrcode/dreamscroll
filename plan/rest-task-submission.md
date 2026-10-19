@@ -45,13 +45,19 @@ POST /api/queues/illuminate
 Authorization: Bearer <token>
 Content-Type: application/json
 
-{ "capture_id": 123, "prompt_version": "v2", "thinking_level": "low" }
+{ "capture_id": 123, "prompt_version": "v2", "thinking_level": "low", "persist_projection": false }
 ```
 
 Illumination accepts optional `prompt_version` (default `v2`) and `thinking_level`
 (`minimal`, `low`, `medium`, or `high`). Omit the level to keep the provider's
 default. The task stores the selected override alongside its model and prompt
 version. Model-specific supported levels are validated by Gemini.
+
+`persist_projection` defaults to `true` when omitted. Set it to `false` to keep
+only the raw illumination result and usage metadata: no relational Illumination
+or KnowledgeEntity projection is written, and no search-index follow-up is
+enqueued. Existing projections and indexes are left unchanged. V1 remains
+raw-only regardless of this setting.
 
 Search-index submissions use `POST /api/queues/search_index` with only
 `{ "capture_id": N }`. The queue segment identifies the submission destination
@@ -127,8 +133,8 @@ run's result as Markdown. Run the same capture sequentially with different
 levels; save stdout separately to compare outputs:
 
 ```sh
-dreamscroll_api --host localhost:8080 --user alice inference illuminate 123 --thinking-level low > /tmp/illumination-low.md
-dreamscroll_api --host localhost:8080 --user alice inference illuminate 123 --thinking-level high > /tmp/illumination-high.md
+dreamscroll_api --host localhost:8080 --user alice inference illuminate 123 --thinking-level low --persist-projection false > /tmp/illumination-low.md
+dreamscroll_api --host localhost:8080 --user alice inference illuminate 123 --thinking-level high --persist-projection false > /tmp/illumination-high.md
 ```
 
 V2 is the default; `--prompt-version v2` makes it explicit. `--wait-seconds N`
@@ -142,11 +148,13 @@ for `gemini-3-flash-preview` and `gemini-3.1-pro-preview`, `medium` for
 to Gemini; Dreamscroll does not pin these defaults. See the
 [provider's current table](https://ai.google.dev/gemini-api/docs/thinking#controlling-thinking).
 
-This is normal persisted inference, not a dry run: each submission creates a
-TaskRun and writes its raw result and, for V2, relational projection. A second
-run is refused while the same capture's illumination is still in flight. These
-commands do not freeze captures or model aliases; keep those unchanged when
-comparing results. Output can vary between runs even at the same thinking level.
+This still creates normal TaskRuns, records usage metadata, and retains raw
+results; it is not a provider dry run. The examples disable projection writes
+and automatic indexing with `--persist-projection false`. Omitting the option
+(or passing `true`) keeps normal V2 projection/indexing behavior. A second run is
+refused while the same capture's illumination is still in flight. These commands
+do not freeze captures or model aliases; keep those unchanged when comparing
+results. Output can vary between runs even at the same thinking level.
 
 Gemini Interactions calls the setting
 [`generation_config.thinking_level`](https://ai.google.dev/api/interactions-api).
