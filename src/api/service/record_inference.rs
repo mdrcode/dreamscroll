@@ -23,6 +23,7 @@ pub async fn record_inference(
         tokens_in: Set(metadata.tokens_in),
         tokens_in_cached: Set(metadata.tokens_in_cached),
         tokens_out: Set(metadata.tokens_out),
+        tokens_thought: Set(metadata.tokens_thought),
         params: Set(serde_json::Value::Object(metadata.params)),
         provider_metadata: Set(serde_json::Value::Object(metadata.provider_metadata)),
         ..Default::default()

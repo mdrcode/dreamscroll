@@ -133,6 +133,10 @@ fn parse_grok_response(
         metadata.tokens_out = usage
             .get("output_tokens")
             .and_then(serde_json::Value::as_i64);
+        metadata.tokens_thought = usage
+            .get("output_tokens_details")
+            .and_then(|details| details.get("reasoning_tokens"))
+            .and_then(serde_json::Value::as_i64);
         metadata
             .provider_metadata
             .insert("provider_usage".to_string(), usage);
@@ -325,6 +329,7 @@ mod tests {
         assert_eq!(metadata.tokens_in, Some(5_000_000_000));
         assert_eq!(metadata.tokens_in_cached, Some(4_000_000_000));
         assert_eq!(metadata.tokens_out, Some(42));
+        assert_eq!(metadata.tokens_thought, Some(17));
         assert_eq!(metadata.params, request_params());
         assert_eq!(
             metadata.provider_metadata["provider_request_id"],
@@ -356,6 +361,33 @@ mod tests {
             assert_eq!(metadata.tokens_in, None);
             assert_eq!(metadata.tokens_in_cached, None);
             assert_eq!(metadata.tokens_out, None);
+            assert_eq!(metadata.tokens_thought, None);
+        }
+    }
+
+    #[test]
+    fn thought_counts_preserve_nullable_and_i64_values() {
+        for (details, expected) in [
+            (json!(null), None),
+            (json!("invalid"), None),
+            (json!({}), None),
+            (json!({"reasoning_tokens": null}), None),
+            (json!({"reasoning_tokens": "17"}), None),
+            (json!({"reasoning_tokens": 1.5}), None),
+            (json!({"reasoning_tokens": true}), None),
+            (json!({"reasoning_tokens": {}}), None),
+            (json!({"reasoning_tokens": 0}), Some(0)),
+            (
+                json!({"reasoning_tokens": 5_000_000_000_i64}),
+                Some(5_000_000_000),
+            ),
+            (json!({"reasoning_tokens": i64::MAX}), Some(i64::MAX)),
+        ] {
+            let usage = json!({"output_tokens_details": details, "output_tokens": 42});
+            let metadata = parse(json!({"usage": usage})).metadata;
+            assert_eq!(metadata.tokens_thought, expected);
+            assert_eq!(metadata.tokens_out, Some(42));
+            assert_eq!(metadata.provider_metadata["provider_usage"], usage);
         }
     }
 
@@ -369,13 +401,18 @@ mod tests {
             json!({"output": [{"type": "message", "content": [{"type": "output_text", "text": "not json"}]}]}),
             json!({"output": [{"type": "message", "content": [{"type": "output_text", "text": "{}"}]}]}),
         ] {
-            let usage = json!({"input_tokens": 20, "input_tokens_details": {"cached_tokens": 8}});
+            let usage = json!({
+                "input_tokens": 20,
+                "input_tokens_details": {"cached_tokens": 8},
+                "output_tokens_details": {"reasoning_tokens": 17}
+            });
             response["usage"] = usage.clone();
             let outcome = parse(response);
             assert!(outcome.output.is_err());
             assert_eq!(outcome.metadata.tokens_in, Some(20));
             assert_eq!(outcome.metadata.tokens_in_cached, Some(8));
             assert_eq!(outcome.metadata.tokens_out, None);
+            assert_eq!(outcome.metadata.tokens_thought, Some(17));
             assert_eq!(outcome.metadata.params, request_params());
             assert_eq!(outcome.metadata.provider_metadata["provider_usage"], usage);
         }
@@ -388,7 +425,7 @@ mod tests {
             json!({
                 "error": {"message": "failed"},
                 "id": "failed-xai-request",
-                "usage": {"input_tokens": 7},
+                "usage": {"input_tokens": 7, "output_tokens_details": {"reasoning_tokens": 17}},
                 "output": [{"type": "message", "content": [{
                     "type": "output_text", "annotations": annotations
                 }]}]
@@ -406,6 +443,7 @@ mod tests {
                 .contains("XAI API error")
         );
         assert_eq!(outcome.metadata.tokens_in, Some(7));
+        assert_eq!(outcome.metadata.tokens_thought, Some(17));
         assert_eq!(outcome.metadata.params, request_params());
         assert_eq!(
             outcome.metadata.provider_metadata["provider_request_id"],
@@ -413,7 +451,7 @@ mod tests {
         );
         assert_eq!(
             outcome.metadata.provider_metadata["provider_usage"],
-            json!({"input_tokens": 7})
+            json!({"input_tokens": 7, "output_tokens_details": {"reasoning_tokens": 17}})
         );
         assert_eq!(
             outcome.metadata.provider_metadata["provider_grounding"]["annotations"],

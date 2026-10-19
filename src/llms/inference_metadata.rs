@@ -5,6 +5,8 @@ pub struct InferenceMetadata {
     pub tokens_in: Option<i64>,
     pub tokens_in_cached: Option<i64>,
     pub tokens_out: Option<i64>,
+    /// Provider-reported reasoning tokens; inclusion in tokens_out is provider-specific.
+    pub tokens_thought: Option<i64>,
     pub provider_name: String,
     pub backend_name: String,
     pub model_id: String,

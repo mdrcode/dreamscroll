@@ -231,6 +231,7 @@ mod tests {
         assert_eq!(outcome.metadata.tokens_in, Some(5_000_000_000));
         assert_eq!(outcome.metadata.tokens_in_cached, None);
         assert_eq!(outcome.metadata.tokens_out, None);
+        assert_eq!(outcome.metadata.tokens_thought, None);
         assert_eq!(outcome.metadata.provider_metadata["provider_usage"], usage);
         assert_eq!(
             outcome.metadata.params,
@@ -259,5 +260,6 @@ mod tests {
         assert!((vector.as_slice()[1] - 0.8).abs() < 0.00001);
         assert_eq!(outcome.metadata.tokens_in, None);
         assert_eq!(outcome.metadata.tokens_out, None);
+        assert_eq!(outcome.metadata.tokens_thought, None);
     }
 }

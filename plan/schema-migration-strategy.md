@@ -63,7 +63,7 @@ PostgreSQL transaction:
    model-declared constraints.
 3. Run the additive SeaORM model registry sync.
 4. Recreate/ensure every registered application-managed index, including the non-unique inference run/attempt index.
-5. Upsert `dreamscroll_schema_version` with `REQUIRED_SCHEMA_VERSION` (currently 5).
+5. Upsert `dreamscroll_schema_version` with `REQUIRED_SCHEMA_VERSION` (currently 6).
 
 The application requires a minimum schema version. `database::connect` checks
 the marker before migrating the Tower Sessions store or starting the web app.
@@ -91,6 +91,11 @@ usage, IDs, and grounding in `provider_metadata`. Run explicit schema sync; no
 table drops are needed for the version-3 or version-4 upgrade. Historical `params`
 values are not rewritten, and data from the earlier version-4 column is not
 transferred. If that obsolete column exists, its removal remains manual.
+
+Schema version 6 adds nullable BIGINT `inference_metas.tokens_thought` for
+provider-reported thinking/reasoning usage. Existing rows retain NULL; counts are
+not inferred or backfilled from historical usage JSON. Run explicit schema sync
+before starting the updated application.
 
 The transaction prevents other sessions from observing the temporary absence of
 the custom unique index and rolls back partial DDL on failure. It still holds

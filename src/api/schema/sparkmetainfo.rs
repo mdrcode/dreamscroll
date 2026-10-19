@@ -9,6 +9,7 @@ pub struct SparkMetaInfo {
     pub tokens_in: Option<i64>,
     pub tokens_in_cached: Option<i64>,
     pub tokens_out: Option<i64>,
+    pub tokens_thought: Option<i64>,
     pub params: serde_json::Value,
     pub provider_metadata: serde_json::Value,
 }

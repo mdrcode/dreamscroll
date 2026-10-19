@@ -121,6 +121,9 @@ fn parse_gemini_response(
         metadata.tokens_out = usage
             .get("candidatesTokenCount")
             .and_then(serde_json::Value::as_i64);
+        metadata.tokens_thought = usage
+            .get("thoughtsTokenCount")
+            .and_then(serde_json::Value::as_i64);
         metadata
             .provider_metadata
             .insert("provider_usage".to_string(), usage);
@@ -303,6 +306,7 @@ mod tests {
         assert_eq!(metadata.tokens_in, Some(5_000_000_000));
         assert_eq!(metadata.tokens_in_cached, Some(4_000_000_000));
         assert_eq!(metadata.tokens_out, Some(42));
+        assert_eq!(metadata.tokens_thought, Some(17));
         assert_eq!(metadata.params, request_params());
         assert_eq!(
             metadata.provider_metadata["provider_request_id"],
@@ -331,6 +335,27 @@ mod tests {
             assert_eq!(metadata.tokens_in, None);
             assert_eq!(metadata.tokens_in_cached, None);
             assert_eq!(metadata.tokens_out, None);
+            assert_eq!(metadata.tokens_thought, None);
+        }
+    }
+
+    #[test]
+    fn thought_counts_preserve_nullable_and_i64_values() {
+        for (thoughts, expected) in [
+            (json!(null), None),
+            (json!("17"), None),
+            (json!(1.5), None),
+            (json!(true), None),
+            (json!({}), None),
+            (json!(0), Some(0)),
+            (json!(5_000_000_000_i64), Some(5_000_000_000)),
+            (json!(i64::MAX), Some(i64::MAX)),
+        ] {
+            let usage = json!({"thoughtsTokenCount": thoughts, "candidatesTokenCount": 42});
+            let metadata = parse(json!({"usageMetadata": usage})).metadata;
+            assert_eq!(metadata.tokens_thought, expected);
+            assert_eq!(metadata.tokens_out, Some(42));
+            assert_eq!(metadata.provider_metadata["provider_usage"], usage);
         }
     }
 
@@ -343,13 +368,18 @@ mod tests {
             json!({"candidates": [{"content": {"parts": [{"text": "not json"}]}}]}),
             json!({"candidates": [{"content": {"parts": [{"text": "{}"}]}}]}),
         ] {
-            let usage = json!({"promptTokenCount": 20, "cachedContentTokenCount": 8});
+            let usage = json!({
+                "promptTokenCount": 20,
+                "cachedContentTokenCount": 8,
+                "thoughtsTokenCount": 17
+            });
             response["usageMetadata"] = usage.clone();
             let outcome = parse(response);
             assert!(outcome.output.is_err());
             assert_eq!(outcome.metadata.tokens_in, Some(20));
             assert_eq!(outcome.metadata.tokens_in_cached, Some(8));
             assert_eq!(outcome.metadata.tokens_out, None);
+            assert_eq!(outcome.metadata.tokens_thought, Some(17));
             assert_eq!(outcome.metadata.params, request_params());
             assert_eq!(outcome.metadata.provider_metadata["provider_usage"], usage);
         }
@@ -362,7 +392,7 @@ mod tests {
             json!({
                 "error": {"message": "failed"},
                 "responseId": "failed-gemini-request",
-                "usageMetadata": {"promptTokenCount": 7},
+                "usageMetadata": {"promptTokenCount": 7, "thoughtsTokenCount": 17},
                 "candidates": [{"groundingMetadata": grounding}]
             }),
             reqwest::StatusCode::BAD_REQUEST,
@@ -378,6 +408,7 @@ mod tests {
                 .contains("Gemini API error")
         );
         assert_eq!(outcome.metadata.tokens_in, Some(7));
+        assert_eq!(outcome.metadata.tokens_thought, Some(17));
         assert_eq!(outcome.metadata.params, request_params());
         assert_eq!(
             outcome.metadata.provider_metadata["provider_request_id"],
@@ -385,7 +416,7 @@ mod tests {
         );
         assert_eq!(
             outcome.metadata.provider_metadata["provider_usage"],
-            json!({"promptTokenCount": 7})
+            json!({"promptTokenCount": 7, "thoughtsTokenCount": 17})
         );
         assert_eq!(
             outcome.metadata.provider_metadata["provider_grounding"],

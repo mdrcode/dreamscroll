@@ -184,6 +184,7 @@ impl InfoMaker {
                 tokens_in: meta.tokens_in,
                 tokens_in_cached: meta.tokens_in_cached,
                 tokens_out: meta.tokens_out,
+                tokens_thought: meta.tokens_thought,
                 params: meta.params,
                 provider_metadata: meta.provider_metadata,
             }),

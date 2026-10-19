@@ -275,6 +275,7 @@ fn inference_response(
         metadata.tokens_in = usage.get("total_input_tokens").and_then(Value::as_i64);
         metadata.tokens_in_cached = usage.get("total_cached_tokens").and_then(Value::as_i64);
         metadata.tokens_out = usage.get("total_output_tokens").and_then(Value::as_i64);
+        metadata.tokens_thought = usage.get("total_thought_tokens").and_then(Value::as_i64);
         metadata
             .provider_metadata
             .insert("provider_usage".to_string(), usage);
@@ -399,6 +400,7 @@ mod tests {
             "total_input_tokens": 12,
             "total_cached_tokens": 3,
             "total_output_tokens": 7,
+            "total_thought_tokens": 19,
             "total_tokens": 90,
             "input_tokens_by_modality": [{"modality": "image", "tokens": 4}]
         });
@@ -428,6 +430,7 @@ mod tests {
         assert_eq!(response.metadata.tokens_in, Some(12));
         assert_eq!(response.metadata.tokens_in_cached, Some(3));
         assert_eq!(response.metadata.tokens_out, Some(7));
+        assert_eq!(response.metadata.tokens_thought, Some(19));
         assert_eq!(
             response.metadata.provider_metadata["provider_request_id"],
             json!("interaction-123")
@@ -455,7 +458,18 @@ mod tests {
 
     #[test]
     fn missing_usage_counts_remain_unknown_and_are_not_derived_from_totals() {
-        for usage in [Value::Null, json!({}), json!({"total_tokens": 99})] {
+        for usage in [
+            Value::Null,
+            json!({}),
+            json!({"total_tokens": 99}),
+            json!({"total_thought_tokens": null}),
+            json!({"total_thought_tokens": "12"}),
+            json!({"total_thought_tokens": 1.5}),
+            json!({"total_thought_tokens": true}),
+            json!({"total_thought_tokens": []}),
+            json!({"total_thought_tokens": {}}),
+            json!({"total_thought_tokens": u64::MAX}),
+        ] {
             let response = inference_response(
                 json!({"usage": usage}),
                 reqwest::StatusCode::OK,
@@ -467,6 +481,7 @@ mod tests {
             assert_eq!(response.metadata.tokens_in, None);
             assert_eq!(response.metadata.tokens_in_cached, None);
             assert_eq!(response.metadata.tokens_out, None);
+            assert_eq!(response.metadata.tokens_thought, None);
             assert!(
                 !response
                     .metadata
@@ -495,26 +510,33 @@ mod tests {
         assert_eq!(response.metadata.tokens_in, None);
         assert_eq!(response.metadata.tokens_in_cached, None);
         assert_eq!(response.metadata.tokens_out, None);
+        assert_eq!(response.metadata.tokens_thought, None);
         assert!(response.metadata.params.is_empty());
     }
 
     #[test]
     fn usage_counts_preserve_large_values_and_explicit_zero() {
-        let response = inference_response(
-            json!({"usage": {
+        for tokens_thought in [0_i64, 5_000_000_000, i64::MAX] {
+            let usage = json!({
                 "total_input_tokens": 4_000_000_000_i64,
                 "total_cached_tokens": 3_000_000_000_i64,
-                "total_output_tokens": 0
-            }}),
-            reqwest::StatusCode::OK,
-            "developer_api",
-            "model-a",
-            1,
-            json!({}),
-        );
-        assert_eq!(response.metadata.tokens_in, Some(4_000_000_000));
-        assert_eq!(response.metadata.tokens_in_cached, Some(3_000_000_000));
-        assert_eq!(response.metadata.tokens_out, Some(0));
+                "total_output_tokens": 0,
+                "total_thought_tokens": tokens_thought
+            });
+            let response = inference_response(
+                json!({"usage": usage}),
+                reqwest::StatusCode::OK,
+                "developer_api",
+                "model-a",
+                1,
+                json!({}),
+            );
+            assert_eq!(response.metadata.tokens_in, Some(4_000_000_000));
+            assert_eq!(response.metadata.tokens_in_cached, Some(3_000_000_000));
+            assert_eq!(response.metadata.tokens_out, Some(0));
+            assert_eq!(response.metadata.tokens_thought, Some(tokens_thought));
+            assert_eq!(response.metadata.provider_metadata["provider_usage"], usage);
+        }
     }
 
     #[test]
@@ -527,7 +549,8 @@ mod tests {
             let response = inference_response(
                 json!({
                     "id": "interaction-failed",
-                    "usage": {"total_input_tokens": 12, "total_output_tokens": 7},
+                    "usage": {"total_input_tokens": 12, "total_output_tokens": 7,
+                        "total_thought_tokens": 23},
                     "steps": steps
                 }),
                 reqwest::StatusCode::OK,
@@ -540,13 +563,15 @@ mod tests {
             assert!(response.output.is_err());
             assert_eq!(response.metadata.tokens_in, Some(12));
             assert_eq!(response.metadata.tokens_out, Some(7));
+            assert_eq!(response.metadata.tokens_thought, Some(23));
             assert_eq!(
                 response.metadata.provider_metadata["provider_request_id"],
                 json!("interaction-failed")
             );
             assert_eq!(
-                response.metadata.provider_metadata["provider_usage"]["total_input_tokens"],
-                json!(12)
+                response.metadata.provider_metadata["provider_usage"],
+                json!({"total_input_tokens": 12, "total_output_tokens": 7,
+                    "total_thought_tokens": 23})
             );
             assert_eq!(
                 response.metadata.params,
@@ -565,7 +590,8 @@ mod tests {
             json!({
                 "id": "interaction-error",
                 "error": {"message": "provider failed"},
-                "usage": {"total_input_tokens": 12, "total_cached_tokens": 2, "total_output_tokens": 7}
+                "usage": {"total_input_tokens": 12, "total_cached_tokens": 2,
+                    "total_output_tokens": 7, "total_thought_tokens": 29}
             }),
             reqwest::StatusCode::INTERNAL_SERVER_ERROR,
             "developer_api",
@@ -577,13 +603,15 @@ mod tests {
         assert_eq!(response.metadata.tokens_in, Some(12));
         assert_eq!(response.metadata.tokens_in_cached, Some(2));
         assert_eq!(response.metadata.tokens_out, Some(7));
+        assert_eq!(response.metadata.tokens_thought, Some(29));
         assert_eq!(
             response.metadata.provider_metadata["provider_request_id"],
             json!("interaction-error")
         );
         assert_eq!(
-            response.metadata.provider_metadata["provider_usage"]["total_input_tokens"],
-            json!(12)
+            response.metadata.provider_metadata["provider_usage"],
+            json!({"total_input_tokens": 12, "total_cached_tokens": 2,
+                "total_output_tokens": 7, "total_thought_tokens": 29})
         );
         assert_eq!(
             response.metadata.params,
