@@ -168,7 +168,7 @@ Each typed result's `to_markdown()` is a lossy, whole-document rendering for sid
   persistence; task identity remains capture-scoped, so versions run sequentially
   per capture.
 
-`dreamscroll_api --host <host> inference illuminate <capture_id>` defaults to `v2`;
+`dreamscroll_api --host <host> illuminate <capture_id>` defaults to `v2`;
 `--prompt-version v1` remains available for raw-result evaluation. A TaskRun's
 `run_id` is the storage key for both raw and relational illumination output.
 Retries upsert the same rows, replacing the prior attempt's output. After

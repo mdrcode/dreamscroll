@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::{api, auth};
 
-use super::RestState;
+use super::{RestState, client::IlluminateTaskRequest};
 
 fn accepted_task_run_response(run_id: String) -> (axum::http::StatusCode, Json<String>) {
     (axum::http::StatusCode::ACCEPTED, Json(run_id))
@@ -18,20 +18,6 @@ fn accepted_task_run_response(run_id: String) -> (axum::http::StatusCode, Json<S
 #[derive(Debug, Deserialize)]
 pub struct CaptureTaskRequest {
     pub capture_id: i32,
-}
-
-#[derive(Debug, Deserialize)]
-pub struct IlluminateTaskRequest {
-    pub capture_id: i32,
-    #[serde(default)]
-    pub prompt_version: crate::illumination::IlluminationVersion,
-    pub thinking_level: Option<crate::llms::gemini::ThinkingLevel>,
-    #[serde(default = "default_persist_projection")]
-    pub persist_projection: bool,
-}
-
-fn default_persist_projection() -> bool {
-    true
 }
 
 /// POST /api/queues/illuminate

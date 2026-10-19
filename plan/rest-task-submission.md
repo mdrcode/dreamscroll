@@ -53,6 +53,10 @@ Illumination accepts optional `prompt_version` (default `v2`) and `thinking_leve
 default. The task stores the selected override alongside its model and prompt
 version. Model-specific supported levels are validated by Gemini.
 
+The REST handler and client share `rest::client::IlluminateTaskRequest` for this
+payload. The internal `IlluminationTask` remains separate and adds server-resolved
+ownership and model selection.
+
 `persist_projection` defaults to `true` when omitted. Set it to `false` to keep
 only the raw illumination result and usage metadata: no relational Illumination
 or KnowledgeEntity projection is written, and no search-index follow-up is
@@ -111,30 +115,26 @@ do not include a separate result type or result ID.
 ## 3. CLI
 
 `dreamscroll_api` already accepts `--host` and optional `--user`, authenticates
-with a JWT, and caches credentials in the macOS keychain. The new commands reuse
+with a JWT, and caches credentials in the macOS keychain. Illumination reuses
 that URL/authentication flow and the shared REST client:
 
-- `dreamscroll_api task illuminate <capture_id>`
-- `dreamscroll_api task search_index <capture_id>`
-- Either command may add `--wait`.
+- `dreamscroll_api --host <host> illuminate <capture_id>`
 - `--wait-seconds N` sets the maximum wait; default is 60 seconds.
 
-Without `--wait`, the CLI submits and immediately queries the exact run status.
-With `--wait`, it queries every two seconds until the run settles or the timeout
-expires. It prints the `run_id`, logical ID, run number, and current status.
-On timeout, it reports the latest observed status and exits successfully: task
-submission succeeded even though completion was not observed within the wait
-window. The `run_id` can be used for a later status lookup.
+The command polls the exact run every two seconds until it settles or the wait
+limit expires. Failure or timeout exits with an error rather than fetching a
+result. Progress and the run ID go to stderr; successful output is Markdown on
+stdout. Search-index submission remains available through REST, not this CLI.
 
 ### 3.1 Compare illumination thinking levels
 
-`inference illuminate` submits a run, waits for success, and prints that exact
+`illuminate` submits a run, waits for success, and prints that exact
 run's result as Markdown. Run the same capture sequentially with different
 levels; save stdout separately to compare outputs:
 
 ```sh
-dreamscroll_api --host localhost:8080 --user alice inference illuminate 123 --thinking-level low --persist-projection false > /tmp/illumination-low.md
-dreamscroll_api --host localhost:8080 --user alice inference illuminate 123 --thinking-level high --persist-projection false > /tmp/illumination-high.md
+dreamscroll_api --host localhost:8080 --user alice illuminate 123 --thinking-level low --persist-projection false > /tmp/illumination-low.md
+dreamscroll_api --host localhost:8080 --user alice illuminate 123 --thinking-level high --persist-projection false > /tmp/illumination-high.md
 ```
 
 V2 is the default; `--prompt-version v2` makes it explicit. `--wait-seconds N`
@@ -190,4 +190,11 @@ Gemini-specific contract, not a provider-neutral effort scale.
 | Ownership, enqueue, status conversion | `src/api/user/client.rs`, `src/api/schema/taskruninfo.rs` |
 | User-scoped exact-run lookup          | `src/task/taskmaster.rs`, `src/task/taskruntracker.rs`    |
 | REST HTTP client                      | `src/rest/client/mod.rs`                                  |
-| CLI command                           | `src/bin/dreamscroll_api.rs`, `src/util_cmds/api/task.rs` |
+| CLI command                           | `src/bin/dreamscroll_api.rs`, `src/util_cmds/api/illuminate.rs` |
+
+The CLI now exposes `illuminate` directly, without generic `task` or `inference`
+command groups. Its existing exact-run polling and regression cases live in
+`illuminate.rs`; the two former command modules totalled 569 lines, versus 438
+in the consolidated module. `cargo check --all-targets` and
+`cargo build --bin dreamscroll_api` passed. Runtime smoke and unit-test execution
+were skipped as requested (compile checks only).

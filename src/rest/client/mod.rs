@@ -36,13 +36,19 @@ struct CaptureTaskRequest {
     capture_id: i32,
 }
 
-#[derive(Debug, Serialize)]
-struct IlluminateTaskRequest {
-    capture_id: i32,
-    prompt_version: illumination::IlluminationVersion,
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IlluminateTaskRequest {
+    pub capture_id: i32,
+    #[serde(default)]
+    pub prompt_version: crate::illumination::IlluminationVersion,
     #[serde(skip_serializing_if = "Option::is_none")]
-    thinking_level: Option<llms::gemini::ThinkingLevel>,
-    persist_projection: bool,
+    pub thinking_level: Option<crate::llms::gemini::ThinkingLevel>,
+    #[serde(default = "default_persist_projection")]
+    pub persist_projection: bool,
+}
+
+fn default_persist_projection() -> bool {
+    true
 }
 
 impl Client {
