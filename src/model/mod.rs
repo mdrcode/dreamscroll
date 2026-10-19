@@ -1,8 +1,8 @@
 pub mod annotation;
 pub mod capture;
 pub mod illumination;
-pub mod illumination_meta;
 pub mod illumination_raw;
+pub mod inference_meta;
 pub mod knowledge_entity;
 pub mod media;
 pub mod search_index;
@@ -10,7 +10,6 @@ pub mod spark;
 pub mod spark_cluster;
 pub mod spark_input_ref;
 pub mod spark_link;
-pub mod spark_meta;
 pub mod spark_output_ref;
 pub mod task_run;
 pub mod task_run_timing;

@@ -85,13 +85,7 @@ mod tests {
                 .set_capture_id(capture.id)
                 .set_media_id(media.id)
                 .set_task_run_id(task_run_id)
-                .set_prompt_version("capture_illumination_v2")
-                .set_provider_name("test")
-                .set_backend_name("test")
-                .set_model_id("test-model")
-                .set_duration_ms(1)
-                .set_provider_request_id(None)
-                .set_provider_usage_json(None)
+                .set_inference_meta_id(None)
                 .set_content(content)
                 .insert(&db.conn)
                 .await
@@ -202,7 +196,8 @@ mod tests {
             crate::illumination::IlluminationVersion::V2,
         );
 
-        let first_run = task_master.submit_illuminate(&context, task.clone(), Some("webhook-backfill"))
+        let first_run = task_master
+            .submit_illuminate(&context, task.clone(), Some("webhook-backfill"))
             .await
             .unwrap();
         let crate::task::SubmitOutcome::Enqueued {
@@ -242,6 +237,25 @@ mod tests {
             crate::task::TaskRunStatus::ErrorWillRetry
         );
         assert_eq!(failed_status.attempts, 1);
+        let failed_metadata = model::inference_meta::Entity::find()
+            .filter(model::inference_meta::Column::TaskRunId.eq(&first_task_run.run_id))
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("typed output errors must retain inference metadata");
+        assert_eq!(failed_metadata.user_id, user.id);
+        assert_eq!(failed_metadata.attempt, Some(1));
+        assert_eq!(failed_metadata.provider, "test");
+        assert_eq!(failed_metadata.backend, "test");
+        assert_eq!(failed_metadata.model, "test-model");
+        assert_eq!(
+            failed_metadata.params["provider_request_id"],
+            serde_json::json!("test-inference-0")
+        );
+        assert_eq!(
+            failed_metadata.params["prompt_version"],
+            serde_json::json!("capture_illumination_v2")
+        );
 
         let successful_attempt = crate::webhook::r_illuminate::post(
             axum::extract::State(state.clone()),
@@ -265,9 +279,14 @@ mod tests {
             crate::task::TaskRunStatus::CompleteSuccess
         );
         assert_eq!(completed_status.attempts, 2);
-        let indexing_runs = task_master.query_latest_task_runs(&context, "capture", &[capture.id])
-            .await.unwrap();
-        let indexing = indexing_runs.iter().find(|run| run.task_type == "search_index").unwrap();
+        let indexing_runs = task_master
+            .query_latest_task_runs(&context, "capture", &[capture.id])
+            .await
+            .unwrap();
+        let indexing = indexing_runs
+            .iter()
+            .find(|run| run.task_type == "search_index")
+            .unwrap();
         assert_eq!(indexing.backfill_id.as_deref(), Some("webhook-backfill"));
         assert_eq!(indexing.run_number, 1);
         let first_raw = get_illumination_raw(&db, &context, &first_task_run.run_id)
@@ -283,8 +302,25 @@ mod tests {
                 "future_field": {"kept": true}
             })
         );
+        let metadata = model::inference_meta::Entity::find()
+            .filter(model::inference_meta::Column::TaskRunId.eq(&first_task_run.run_id))
+            .order_by_id_asc()
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(metadata.len(), 2, "worker retries append usage records");
+        assert_eq!(metadata[0].id, failed_metadata.id);
+        assert_eq!(metadata[1].attempt, Some(2));
+        let stored_raw = model::illumination_raw::Entity::find()
+            .filter(model::illumination_raw::Column::TaskRunId.eq(&first_task_run.run_id))
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored_raw.inference_meta_id, Some(metadata[1].id));
 
-        let rerun = task_master.submit_illuminate(&context, task.clone(), None)
+        let rerun = task_master
+            .submit_illuminate(&context, task.clone(), None)
             .await
             .unwrap();
         let crate::task::SubmitOutcome::Enqueued {

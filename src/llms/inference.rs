@@ -1,5 +1,7 @@
 use serde_json::Value;
 
+use super::InferenceMetadata;
+
 /// Input modalities accepted by application-level inference requests.
 pub enum InferenceInput<'a> {
     Text(&'a str),
@@ -20,11 +22,10 @@ pub struct InferenceRequest<'a> {
     pub capabilities: &'a [InferenceCapability],
 }
 
-/// Structured output and provider metadata returned by an inference client.
-pub struct InferenceResponse {
-    pub output: Value,
-    pub provider_request_id: Option<String>,
-    pub provider_usage_json: Option<Value>,
+#[derive(Debug)]
+pub struct InferenceOutcome<T> {
+    pub output: anyhow::Result<T>,
+    pub metadata: InferenceMetadata,
 }
 
 /// Provider-neutral boundary for model inference.
@@ -33,5 +34,7 @@ pub trait InferenceClient: Send + Sync {
     fn provider_name(&self) -> &'static str;
     fn backend_name(&self) -> &'static str;
 
-    async fn infer(&self, request: InferenceRequest<'_>) -> anyhow::Result<InferenceResponse>;
+    /// Outer errors lack usable metadata; output errors retain it in the outcome.
+    async fn infer(&self, request: InferenceRequest<'_>)
+    -> anyhow::Result<InferenceOutcome<Value>>;
 }

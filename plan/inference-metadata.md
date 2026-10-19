@@ -1,6 +1,6 @@
 # General inference metadata
 
-**Status:** proposed; search-index TaskRun ID is now passed from the webhook into `logic::search_index::exec`. Inference-metadata persistence and schema changes remain unimplemented.
+**Status:** implemented. TaskRun-backed illumination, Spark, and search-index embedding requests append usage metadata. Schema version 3 requires explicit `dreamscroll_admin sync_schema`; no historical metadata migration.
 
 ## Goal
 
@@ -8,19 +8,22 @@ Replace illumination-specific provider bookkeeping with one `InferenceMeta` enti
 
 ## Current state
 
-- `src/model/illumination_meta.rs` declares `illumination_metas` with `id`, `user_id`, `illumination_id`, and `provider_name`. No application call sites reference this entity; removing its model/table is a straightforward cutover.
-- `src/llms/inference_metadata.rs` already defines an in-memory `InferenceMetadata` value with prompt version, provider/backend/model, duration, request ID, and opaque provider usage JSON. It is currently persisted as columns on `illumination_raws` by `insert_illumination_raw`.
-- `src/ignition/gemini.rs` and `src/ignition/grok.rs` are separate LLM integrations for Spark. Their `SparkMeta` / `spark_metas` persistence stores provider, duration, input/output/total counts, raw usage, grounding data, and capture count. Their token parsers currently do not record cached input counts.
-- `src/search/gcloud/gemini_embedder.rs` calls Vertex `embedContent` for indexing and query embeddings, but discards response usage. Query embeddings are not tied to a `TaskRun`; indexing embeddings are.
+- `src/model/inference_meta.rs` owns the shared `inference_metas` usage ledger; the illumination- and Spark-specific metadata entities are retired.
+- `llms::InferenceOutcome<T>`, declared with the request/client contracts in `src/llms/inference.rs`, carries metadata separately from `output: anyhow::Result<T>`, so provider-output and typed-validation errors do not discard available usage. `InferenceClient::infer` returns `anyhow::Result<InferenceOutcome<serde_json::Value>>` directly, without a response alias. The outer result handles failures before a usable response is available.
+- Typed v1/v2 illumination values expose inherent `raw_json()` and `to_markdown()` methods. Raw persistence takes `&serde_json::Value` directly; no shared result/presentation trait is needed under `llms`.
+- Gemini Interactions, Gemini/xAI Spark, and Vertex embedding adapters normalize response usage and retain the original usage object in `params.provider_usage`.
+- TaskRun orchestration uses `ServiceApiClient::record_inference` for one shared best-effort append before propagating output errors or writing results. Direct CLI inference and inline query embeddings do not persist usage.
 - `TaskRun.run_id` is the stable string UUID used by result rows. It is distinct from the database-native `task_runs.id` primary key.
 
-## Proposed entity contract
+## Entity contract
 
-Add `src/model/inference_meta.rs`, exported from `src/model/mod.rs`, with table `inference_metas`:
+`src/model/inference_meta.rs`, exported from `src/model/mod.rs`, declares table `inference_metas`:
 
 ```text
 inference_metas(
   id SERIAL PRIMARY KEY,
+  user_id INTEGER NOT NULL REFERENCES users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   task_run_id TEXT NULL,
   attempt INTEGER NULL,
   task_type TEXT NULL,
@@ -38,10 +41,12 @@ inference_metas(
 - Use the database-generated `id` as the primary key; `task_run_id` is an additional lookup key containing `TaskRun.run_id`, not the numeric `task_runs.id`.
 - Make `task_run_id` nullable so request-time embeddings (which have no TaskRun) can use the same entity. Add a non-unique index on `(task_run_id, attempt)` for lookup: a TaskRun attempt may generate multiple inference records, while many unassociated rows remain valid.
 - For TaskRun-backed calls, populate `task_type` from the existing `task::Task::task_type()` contract (the current values are `illuminate`, `spark`, and `search_index`). `task_runs.task_type` uses the same values. Keep it nullable for inference operations without a TaskRun.
-- Keep the illumination result's existing logical upsert semantics: one `illumination_raws` row per `TaskRun`, containing the latest successful output. Store its current `inference_meta_id` FK so that output maps to the exact inference that produced it. In contrast, append a distinct `InferenceMeta` row per provider request and never overwrite prior token usage on retry; earlier metadata remains as the usage ledger even when its raw result is no longer retained.
+- Keep illumination's logical upsert semantics: one `illumination_raws` row and one v2 `illuminations` projection per TaskRun. Both store their own nullable `inference_meta_id` FK identifying the request that produced their retained content. Raw and projection writes can succeed independently, so provenance is not inferred through their shared run ID. Each upsert replaces or clears its own link alongside its content; the projection does so inside its existing transaction. Spark stores the same nullable FK directly on `sparks`. Metadata itself is append-only, including calls whose output fails validation or persistence.
 - Keep token values nullable. `NULL` means the provider did not report that measure; do not invent a zero or silently substitute a locally estimated count.
 - Define `tokens_in` as the provider-reported total input count, including cached input when the provider defines it that way. `tokens_in_cached` is a subset, never an extra amount to add. `tokens_out` follows the provider's own output-token definition. No separate `tokens_out_cached` column: current providers expose no such count, and cached response replay is a different request-level concern.
 - `params` is `{}` by default. Store task-specific values such as `prompt_version`, `provider_request_id`, raw provider usage, tool/grounding details, and Spark's `input_capture_count` there. Preserve raw usage when available so normalized fields remain auditable and future parsing can be corrected.
+- Provider identity is `gemini` or `xai`; backend is `developer_api`, `vertex`, or `responses`. Model is the actual request model. Duration measures HTTP send through complete response-body receipt, excluding application validation and database persistence.
+- Every currently persisted record has a user ID, run ID, claimed attempt, and task type. Run/attempt/type remain nullable in the general entity, but non-TaskRun persistence is outside this implementation.
 - Keep the Rust persistence entity named `model::inference_meta::Model` / `InferenceMeta`; avoid conflating it with the existing `llms::InferenceMetadata` request-result value type.
 
 Store one row per provider inference request, not one row per TaskRun or attempt. Append rows across retries and additional requests under the same TaskRun; never upsert metadata by `task_run_id`. Use `id` / `inference_meta_id` for exact association to the currently retained result, and `task_run_id` plus `attempt` to find calls for a run or attempt. The `(task_run_id, attempt)` index must be non-unique: one attempt may make multiple calls, and concurrent deliveries can claim the same attempt ordinal. Non-TaskRun inference rows may use NULL `task_run_id` and `attempt`; query-embedding persistence is deferred.
@@ -59,7 +64,7 @@ Always normalize from response usage fields, not estimated prompt tokenization o
 
 Provider definitions and caveats:
 
-- Gemini Interactions defines `total_input_tokens` as prompt/context tokens and `total_cached_tokens` as the cached portion of the prompt; `total_output_tokens` counts generated response tokens. `total_thought_tokens` and modality breakdowns are additional usage fields and should remain in raw usage JSON, not be folded into these columns without an explicit provider definition.
+- Gemini Interactions defines `total_input_tokens` as prompt/context tokens and `total_cached_tokens` as the cached portion of the prompt; `total_output_tokens` counts generated response tokens. `total_thought_tokens` and modality breakdowns remain in raw usage JSON. `tokens_in + tokens_out` is not a complete billing total.
 - Vertex `generateContent` defines prompt count as including cached content, and defines `cached_content_token_count` as the cached portion. Its `total_token_count` also includes tool-use prompt and thoughts tokens, so it is not an input-plus-output substitute.
 - xAI Responses reports `input_tokens`, `output_tokens`, and `total_tokens`; `input_tokens_details.cached_tokens` is a subset of input. `output_tokens_details.reasoning_tokens` is part of output usage and should remain in raw usage rather than added a second time.
 - Gemini `embedContent` returns `usageMetadata.promptTokenCount`; an embedding vector is not an output-token count. Leave the output columns NULL.
@@ -69,23 +74,32 @@ Research sources (official provider references):
 
 - [Gemini Interactions API response / usage fields](https://ai.google.dev/static/api/interactions.md.txt) — `total_input_tokens`, `total_cached_tokens`, `total_output_tokens`, `total_thought_tokens`.
 - [Vertex AI UsageMetadata](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rpc/google.cloud.aiplatform.v1#google.cloud.aiplatform.v1.GenerateContentResponse.UsageMetadata) — prompt count includes cached content; total also includes tool-use and thoughts; cached-content count is a subset.
+- [Gemini Developer API UsageMetadata](https://ai.google.dev/api/generate-content#UsageMetadata) — directly applicable to Spark's Developer API `generateContent` integration.
 - [xAI prompt-cache usage and pricing](https://docs.x.ai/developers/advanced-api-usage/prompt-caching/usage-and-pricing) — Responses API cached count is `input_tokens_details.cached_tokens`.
 - [Vertex `embedContent` REST response](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/v1/projects.locations.publishers.models/embedContent) — embedding input usage is `usageMetadata.promptTokenCount`.
 - [Vertex AI Generative AI pricing](https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing#embedding-costs) — Gemini Embedding 2 (Unified Multimodal, Preview) lists online text input at $0.20 per 1M tokens and no output-token charge; verify current pricing before using this as a budget estimate.
 
-## Implementation sequence
+## Implemented flow and cutover
 
-1. Add the entity and schema export; remove `IlluminationMeta` and its model export. Rely on the existing explicit `dreamscroll_admin sync_schema` workflow and bump `REQUIRED_SCHEMA_VERSION` for the schema change.
-2. Extend the in-memory inference result metadata contract with the three optional normalized `i64` counts and task parameters. Normalize Gemini Interactions usage in the Gemini adapter; normalize GenerateContent and xAI Responses usage in their existing provider adapters. Normalize Vertex embedding usage for TaskRun-backed search indexing; defer persistence for inline query embeddings (see the code TODO).
-3. Persist one `InferenceMeta` row per provider request; metadata is append-only across retries. When a provider response includes usage, make that metadata available even if output parsing or validation fails, then use one shared best-effort persistence path. If the metadata insert fails, log a warning and continue the inference flow rather than re-invoking a billable provider call solely to retry bookkeeping. Keep illumination's existing TaskRun-keyed raw-result upsert, add `inference_meta_id`, and update it to point to the metadata row for the latest successful output. This preserves app result semantics while retaining token usage for earlier calls. When retiring `spark_metas`, preserve the direct link from each Spark result to its `InferenceMeta`. Pass run ID and attempt into metadata persistence. For search-index, pass `TaskRun.run_id` from the webhook to logic, then through embedding metadata persistence; do not add it to the task payload. Query-embedding persistence is deferred.
-4. Move Spark-specific values (`input_capture_count`, provider grounding, and provider usage) into `params`; update Spark metadata readers/API projections before retiring the redundant provider/token columns and `spark_metas` table. Do not leave a second source of truth for provider, model, duration, or token counts.
-5. Remove obsolete fields, model exports, and tests/call sites after all readers have moved. Add provider parser regression cases covering missing fields, cached-token subsets, large counts, and provider-specific totals. Verify that multiple requests for one TaskRun create distinct metadata rows and that each persisted result points to the metadata row for the request that produced it, including after a retry.
-6. Apply schema with the explicit admin sync command. Existing metadata fields/tables may be discarded; no historical data transfer is required. Reset local/test databases if needed for the prototype cutover.
+1. Worker webhooks pass a borrowed `&TaskRun<T>` envelope and the attempt returned by `begin_attempt` into illumination, Spark, and search-index logic. Logic reads the task and stable run ID from that envelope; attempt stays separate because it identifies the current execution, not the queued run. No second run ID is added to task payloads; mutable task status is not reread to infer request provenance.
+2. Provider adapters return an outcome containing metadata even when valid response JSON contains no usable output, malformed generated JSON, or an HTTP error. Typed illumination validation also preserves the outcome metadata. Transport/body/invalid-response-JSON errors without usable usage remain ordinary errors.
+3. Orchestration appends metadata independently of result writes. An insert failure logs a warning and returns no metadata ID; it does not change the inference result or retry policy. Later output persistence failures do not roll back the usage record.
+4. Raw illumination and the relational v2 projection each upsert their content and metadata ID together. Spark stores the metadata ID on its result row; readers load `inference_meta`. `SparkMetaInfo` exposes provider/backend/model, duration, nullable `i64` counts, and JSON params. The obsolete normalized `total_tokens` field is removed; original provider totals remain in raw usage.
+5. The operator manually removes obsolete metadata tables (`illumination_metas`, `spark_metas`) and removes the old bookkeeping columns from `illumination_raws`, or drops/recreates affected prototype tables. Then explicit `dreamscroll_admin sync_schema` creates the current schema, ensures the non-unique `(task_run_id, attempt)` index, and records schema version 3. Sync contains no inference-specific table/column drops. Version 3 adds the nullable FK to `illuminations`; retained version-2 projection content receives NULL provenance, without guessing historical associations.
 
-## Boundaries and risks
+SeaORM sync is additive and cannot remove retired tables/columns. Manual cleanup must also address the old required columns on `illumination_raws`; dropping only the retired metadata tables is insufficient for new inserts. Do not start the new binary before cleanup and sync. No automatic service-startup DDL or migration dependency is introduced.
 
-- Scope includes Gemini Interactions illumination, Gemini/xAI Spark, and TaskRun-backed Gemini embedding for search indexing. Search-index receives a `TaskRun<SearchIndexTask>` envelope with `run_id`; the webhook now passes it into `logic::search_index::exec`. The ID is not yet attached to embedding metadata or stored with embedding usage because inference-metadata persistence is not implemented. Do not add a second run ID to the task payload.
-- Query embeddings are generated inline during synchronous authenticated `GET /api/search` requests and have no TaskRun. Their usage persistence is deferred; do not create TaskRuns solely for query accounting. A TODO at the call site tracks this work.
-- Attempt to persist usage whenever a provider response supplies it, including responses whose generated output later fails parsing or validation. Keep this to a shared best-effort insert; metadata-write failure logs a warning and does not trigger another inference attempt. Transport errors without usage cannot yield token counts.
-- Provider usage schemas evolve. Keep fixture tests against provider payload shape and preserve raw usage in `params`.
-- Schema sync is reconciliation, not a data migration; old metadata can be discarded for this prototype cutover.
+## Boundaries and accepted tradeoffs
+
+- Persistence is strictly TaskRun-backed. Inline query embeddings and direct CLI provider calls remain database-independent; no TaskRuns are created for accounting.
+- Attempt to record usage whenever a usable provider response supplies it, even if output interpretation fails. Metadata writes are best-effort, not a guaranteed billing ledger: database failures or process termination can lose usage. No bookkeeping retries or recovery machinery.
+- Concurrent deliveries can share an attempt ordinal or finish out of order. The non-unique index and exact result FK accommodate existing accepted behavior; this project adds no task fencing or request deduplication.
+- Provider usage schemas evolve. Parser regression cases cover missing counts, explicit zero, cached subsets, large counts, provider-specific totals, and output failures. Preserve raw usage for audit and future reinterpretation.
+- Schema cutover has no historical metadata transfer or rolling compatibility promise; destructive cleanup is operator-owned, followed by the explicit admin sync command in a controlled deployment.
+
+## Verification
+
+- `cargo check --all-targets` passed; `cargo test --lib` passed all 258 tests.
+- Before automatic cleanup was removed, an approved throwaway-schema smoke exercised the destructive cutover, multiple requests sharing a run/attempt, exact raw-result association, warning-and-continue bookkeeping failure with a cleared result link, and Spark result association. The temporary schema and smoke source were removed; no real provider calls or app-database cutover were performed. Destructive cleanup is now manual.
+- Projection-provenance follow-up: `cargo check --all-targets` and the focused persistence regression passed. An approved throwaway-schema smoke verified the version-2 schema upgrade preserves projection content, retry replacements update exact provenance, and metadata-free replacements clear the old link. Its temporary schema and source were removed.
+- Result-trait cleanup: all callers now use inherent illumination methods and raw JSON persistence; `cargo check --all-targets` passed. No unit tests were run for this plumbing-only change.

@@ -1,16 +1,13 @@
-use anyhow::{Context, bail};
+use std::time::Instant;
+
+use anyhow::{Context, anyhow, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder};
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::{
-    config,
-    llms::{
-        InferenceCapability, InferenceClient, InferenceInput, InferenceRequest, InferenceResponse,
-    },
-};
+use crate::{config, llms::*};
 
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const DEVELOPER_API_URL: &str = "https://generativelanguage.googleapis.com/v1beta/interactions";
@@ -36,11 +33,9 @@ pub struct GeminiInferenceClient {
 /// Provider-specific response shape returned by the Gemini Interactions API.
 #[derive(Debug, Deserialize)]
 struct GeminiInteractionResponse {
-    id: Option<String>,
     status: Option<String>,
     #[serde(default)]
     steps: Vec<Value>,
-    usage: Option<Value>,
 }
 
 impl GeminiInferenceClient {
@@ -154,12 +149,13 @@ impl GeminiInferenceClient {
     async fn interact(
         &self,
         request: InferenceRequest<'_>,
-    ) -> anyhow::Result<GeminiInteractionResponse> {
+    ) -> anyhow::Result<InferenceOutcome<Value>> {
         let body = self.interaction_body(&request)?;
         let (endpoint, api_key) = match &self.backend {
             Backend::DeveloperApi { api_key } => (DEVELOPER_API_URL, Some(api_key.as_str())),
             Backend::Vertex { endpoint, .. } => (endpoint.as_str(), None),
         };
+        let model_id = request.model_id;
         let mut request = self.http.post(endpoint).json(&body);
         if let Some(api_key) = api_key {
             request = request.header("x-goog-api-key", api_key);
@@ -168,14 +164,20 @@ impl GeminiInferenceClient {
             request = request.bearer_auth(token);
         }
 
+        let started = Instant::now();
         let response = request.send().await?;
         let status = response.status();
         let response_text = response.text().await?;
-        if !status.is_success() {
-            bail!("Gemini Interactions API returned {status}: {response_text}");
-        }
-
-        serde_json::from_str(&response_text).context("Failed to parse Gemini Interactions response")
+        let duration_ms = started.elapsed().as_millis() as i64;
+        let response_json: Value = serde_json::from_str(&response_text)
+            .context("Failed to parse Gemini Interactions response")?;
+        Ok(inference_response(
+            response_json,
+            status,
+            self.backend_name(),
+            model_id,
+            duration_ms,
+        ))
     }
 }
 #[async_trait::async_trait]
@@ -188,9 +190,11 @@ impl InferenceClient for GeminiInferenceClient {
         GeminiInferenceClient::backend_name(self)
     }
 
-    async fn infer(&self, request: InferenceRequest<'_>) -> anyhow::Result<InferenceResponse> {
-        let interaction = GeminiInferenceClient::interact(self, request).await?;
-        interaction.into_inference_response()
+    async fn infer(
+        &self,
+        request: InferenceRequest<'_>,
+    ) -> anyhow::Result<InferenceOutcome<Value>> {
+        GeminiInferenceClient::interact(self, request).await
     }
 }
 
@@ -225,16 +229,55 @@ impl GeminiInteractionResponse {
         }
         Ok(text)
     }
+}
 
-    fn into_inference_response(self) -> anyhow::Result<InferenceResponse> {
-        let output = serde_json::from_str(&self.output_text()?)
-            .context("Gemini model output is not valid structured JSON")?;
-        Ok(InferenceResponse {
-            output,
-            provider_request_id: self.id,
-            provider_usage_json: self.usage,
-        })
+fn inference_response(
+    mut response: Value,
+    status: reqwest::StatusCode,
+    backend_name: &str,
+    model_id: &str,
+    duration_ms: i64,
+) -> InferenceOutcome<Value> {
+    let mut metadata = InferenceMetadata {
+        provider_name: "gemini".to_string(),
+        backend_name: backend_name.to_string(),
+        model_id: model_id.to_string(),
+        duration_ms,
+        ..Default::default()
+    };
+    if let Some(id) = response
+        .get_mut("id")
+        .map(Value::take)
+        .filter(Value::is_string)
+    {
+        metadata
+            .params
+            .insert("provider_request_id".to_string(), id);
     }
+    if let Some(usage) = response
+        .get_mut("usage")
+        .map(Value::take)
+        .filter(|value| !value.is_null())
+    {
+        metadata.tokens_in = usage.get("total_input_tokens").and_then(Value::as_i64);
+        metadata.tokens_in_cached = usage.get("total_cached_tokens").and_then(Value::as_i64);
+        metadata.tokens_out = usage.get("total_output_tokens").and_then(Value::as_i64);
+        metadata.params.insert("provider_usage".to_string(), usage);
+    }
+
+    let output = if status.is_success() {
+        serde_json::from_value::<GeminiInteractionResponse>(response)
+            .context("Failed to parse Gemini Interactions response")
+            .and_then(|interaction| {
+                serde_json::from_str(&interaction.output_text()?)
+                    .context("Gemini model output is not valid structured JSON")
+            })
+    } else {
+        Err(anyhow!(
+            "Gemini Interactions API returned {status}: {response}"
+        ))
+    };
+    InferenceOutcome { output, metadata }
 }
 
 #[cfg(test)]
@@ -297,26 +340,41 @@ mod tests {
 
     #[test]
     fn generic_response_contains_structured_output_and_provider_metadata() {
-        let response: GeminiInteractionResponse = serde_json::from_value(json!({
-            "id": "interaction-123",
-            "status": "completed",
-            "usage": {"total_tokens": 7},
-            "steps": [{"type": "model_output", "content": [
-                {"type": "text", "text": "{\"summary\":\"Ada\"}"}
-            ]}]
-        }))
-        .unwrap();
+        let usage = json!({
+            "total_input_tokens": 12,
+            "total_cached_tokens": 3,
+            "total_output_tokens": 7,
+            "total_tokens": 90,
+            "input_tokens_by_modality": [{"modality": "image", "tokens": 4}]
+        });
+        let response = inference_response(
+            json!({
+                "id": "interaction-123",
+                "status": "completed",
+                "usage": usage,
+                "steps": [{"type": "model_output", "content": [
+                    {"type": "text", "text": "{\"summary\":\"Ada\"}"}
+                ]}]
+            }),
+            reqwest::StatusCode::OK,
+            "vertex",
+            "model-a",
+            42,
+        );
 
-        let response = response.into_inference_response().unwrap();
-        assert_eq!(response.output, json!({"summary": "Ada"}));
+        assert_eq!(response.output.unwrap(), json!({"summary": "Ada"}));
+        assert_eq!(response.metadata.provider_name, "gemini");
+        assert_eq!(response.metadata.backend_name, "vertex");
+        assert_eq!(response.metadata.model_id, "model-a");
+        assert_eq!(response.metadata.duration_ms, 42);
+        assert_eq!(response.metadata.tokens_in, Some(12));
+        assert_eq!(response.metadata.tokens_in_cached, Some(3));
+        assert_eq!(response.metadata.tokens_out, Some(7));
         assert_eq!(
-            response.provider_request_id.as_deref(),
-            Some("interaction-123")
+            response.metadata.params["provider_request_id"],
+            json!("interaction-123")
         );
-        assert_eq!(
-            response.provider_usage_json,
-            Some(json!({"total_tokens": 7}))
-        );
+        assert_eq!(response.metadata.params["provider_usage"], usage);
     }
 
     #[test]
@@ -328,5 +386,115 @@ mod tests {
         .unwrap();
 
         assert!(response.output_text().is_err());
+    }
+
+    #[test]
+    fn missing_usage_counts_remain_unknown_and_are_not_derived_from_totals() {
+        for usage in [Value::Null, json!({}), json!({"total_tokens": 99})] {
+            let response = inference_response(
+                json!({"usage": usage}),
+                reqwest::StatusCode::OK,
+                "developer_api",
+                "model-a",
+                1,
+            );
+            assert_eq!(response.metadata.tokens_in, None);
+            assert_eq!(response.metadata.tokens_in_cached, None);
+            assert_eq!(response.metadata.tokens_out, None);
+            assert!(!response.metadata.params.contains_key("provider_request_id"));
+            if usage.is_null() {
+                assert!(!response.metadata.params.contains_key("provider_usage"));
+            } else {
+                assert_eq!(response.metadata.params["provider_usage"], usage);
+            }
+        }
+        let response = inference_response(
+            json!({}),
+            reqwest::StatusCode::OK,
+            "developer_api",
+            "model-a",
+            1,
+        );
+        assert_eq!(response.metadata.tokens_in, None);
+        assert_eq!(response.metadata.tokens_in_cached, None);
+        assert_eq!(response.metadata.tokens_out, None);
+        assert!(response.metadata.params.is_empty());
+    }
+
+    #[test]
+    fn usage_counts_preserve_large_values_and_explicit_zero() {
+        let response = inference_response(
+            json!({"usage": {
+                "total_input_tokens": 4_000_000_000_i64,
+                "total_cached_tokens": 3_000_000_000_i64,
+                "total_output_tokens": 0
+            }}),
+            reqwest::StatusCode::OK,
+            "developer_api",
+            "model-a",
+            1,
+        );
+        assert_eq!(response.metadata.tokens_in, Some(4_000_000_000));
+        assert_eq!(response.metadata.tokens_in_cached, Some(3_000_000_000));
+        assert_eq!(response.metadata.tokens_out, Some(0));
+    }
+
+    #[test]
+    fn output_interpretation_errors_preserve_provider_usage() {
+        for steps in [
+            json!([]),
+            json!([{"type": "model_output", "content": [{"type": "text", "text": "not json"}]}]),
+            Value::Null,
+        ] {
+            let response = inference_response(
+                json!({
+                    "id": "interaction-failed",
+                    "usage": {"total_input_tokens": 12, "total_output_tokens": 7},
+                    "steps": steps
+                }),
+                reqwest::StatusCode::OK,
+                "developer_api",
+                "model-a",
+                1,
+            );
+            assert!(response.output.is_err());
+            assert_eq!(response.metadata.tokens_in, Some(12));
+            assert_eq!(response.metadata.tokens_out, Some(7));
+            assert_eq!(
+                response.metadata.params["provider_request_id"],
+                json!("interaction-failed")
+            );
+            assert_eq!(
+                response.metadata.params["provider_usage"]["total_input_tokens"],
+                json!(12)
+            );
+        }
+    }
+
+    #[test]
+    fn http_error_json_preserves_provider_usage() {
+        let response = inference_response(
+            json!({
+                "id": "interaction-error",
+                "error": {"message": "provider failed"},
+                "usage": {"total_input_tokens": 12, "total_cached_tokens": 2, "total_output_tokens": 7}
+            }),
+            reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+            "developer_api",
+            "model-a",
+            1,
+        );
+        assert!(response.output.unwrap_err().to_string().contains("500"));
+        assert_eq!(response.metadata.tokens_in, Some(12));
+        assert_eq!(response.metadata.tokens_in_cached, Some(2));
+        assert_eq!(response.metadata.tokens_out, Some(7));
+        assert_eq!(
+            response.metadata.params["provider_request_id"],
+            json!("interaction-error")
+        );
+        assert_eq!(
+            response.metadata.params["provider_usage"]["total_input_tokens"],
+            json!(12)
+        );
     }
 }

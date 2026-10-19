@@ -28,17 +28,11 @@ pub struct Model {
     /// TaskRun that produced this raw output; retries replace the same row.
     #[sea_orm(unique)]
     pub task_run_id: String,
-    pub prompt_version: String,
-    pub provider_name: String,
-    pub backend_name: String,
-    pub model_id: String,
-    pub duration_ms: i64,
-
     #[sea_orm(nullable)]
-    pub provider_request_id: Option<String>,
+    pub inference_meta_id: Option<i32>,
 
-    #[sea_orm(nullable, column_type = "JsonBinary")]
-    pub provider_usage_json: Option<Json>,
+    #[sea_orm(belongs_to, from = "inference_meta_id", to = "id")]
+    pub inference_meta: HasOne<inference_meta::Entity>,
 
     #[sea_orm(column_type = "JsonBinary")]
     pub content: Json,

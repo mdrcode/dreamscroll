@@ -685,15 +685,21 @@ mod tests {
         let mut first = task_run(1, 42, 1);
         first.backfill_id = Some("test-backfill".to_string());
         assert!(tracker.create_run(&first).await.unwrap());
-        tracker.update_run(&first, TaskRunStatus::CompleteSuccess, 1).await.unwrap();
+        tracker
+            .update_run(&first, TaskRunStatus::CompleteSuccess, 1)
+            .await
+            .unwrap();
 
         // A submitter that read "no backfill run" before the winner, but read
         // latest after it completed, can choose the next ordinal. It still loses.
         let mut stale = task_run(1, 42, 2);
         stale.backfill_id = first.backfill_id.clone();
         assert!(!tracker.create_run(&stale).await.unwrap());
-        let stored = tracker.query_backfill_run("test-backfill", &first.logical_id)
-            .await.unwrap().unwrap();
+        let stored = tracker
+            .query_backfill_run("test-backfill", &first.logical_id)
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(stored.run_id, first.run_id);
         assert_eq!(stored.backfill_id, first.backfill_id);
 

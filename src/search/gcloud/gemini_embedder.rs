@@ -4,7 +4,7 @@ use reqwest::Client;
 use serde_json::{Value, json};
 use std::time::Duration;
 
-use crate::{config, search};
+use crate::{config, llms, search};
 
 const CLOUD_PLATFORM_SCOPE: &str = "https://www.googleapis.com/auth/cloud-platform";
 const MODEL_ID: &str = "gemini-embedding-2-preview";
@@ -15,6 +15,7 @@ const TASK_TYPE_RETRIEVAL_QUERY: &str = "RETRIEVAL_QUERY";
 #[derive(Clone)]
 pub struct GeminiEmbedder {
     model_url: String,
+    model_id: String,
     dims: u32,
     http: Client,
     adc_credentials: AccessTokenCredentials,
@@ -53,6 +54,7 @@ impl GeminiEmbedder {
 
         Ok(Self {
             model_url,
+            model_id,
             dims: output_dims,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(60)) // sanity
@@ -65,7 +67,7 @@ impl GeminiEmbedder {
         &self,
         parts: Value,
         task_type: &str,
-    ) -> anyhow::Result<search::Embedding<f32, search::Unit>> {
+    ) -> anyhow::Result<llms::InferenceOutcome<search::Embedding<f32, search::Unit>>> {
         let access_token = self.adc_credentials.access_token().await?.token;
 
         let body = json!({
@@ -78,6 +80,7 @@ impl GeminiEmbedder {
             }
         });
 
+        let started = std::time::Instant::now();
         let response = self
             .http
             .post(&self.model_url)
@@ -87,19 +90,19 @@ impl GeminiEmbedder {
             .send()
             .await?;
 
-        if !response.status().is_success() {
-            let status = response.status();
-            let err = response.text().await.unwrap_or_default();
-            anyhow::bail!(
-                "Gemini embedContent failed with status {} and body: {}",
-                status,
-                err
-            );
-        }
-
-        let json: serde_json::Value = response.json().await?;
-        let raw = parse_gemini_v2_embedding_json(&json)?;
-        search::Embedding::from_vec_normalizing(raw)
+        let status = response.status();
+        let text = response.text().await?;
+        let duration_ms = started.elapsed().as_millis() as i64;
+        let json: Value =
+            serde_json::from_str(&text).context("Invalid embedContent response JSON")?;
+        Ok(embedding_response(
+            json,
+            status,
+            self.model_id.clone(),
+            duration_ms,
+            self.dims,
+            task_type,
+        ))
     }
 }
 
@@ -122,7 +125,8 @@ impl search::Embedder<serde_json::Value, search::Embedding<f32, search::Unit>> f
 
         let embedding = self
             .embed_normalizing(json_value, TASK_TYPE_RETRIEVAL_QUERY)
-            .await?;
+            .await?
+            .output?;
         tracing::debug!(dims = embedding.len(), "Query embedding generated");
         Ok(embedding)
     }
@@ -131,15 +135,50 @@ impl search::Embedder<serde_json::Value, search::Embedding<f32, search::Unit>> f
     async fn embed_object(
         &self,
         object: serde_json::Value,
-    ) -> anyhow::Result<search::Embedding<f32, search::Unit>> {
-        // let parts = self.parts_maker.make_embed_parts(object).await?;
-
+    ) -> anyhow::Result<llms::InferenceOutcome<search::Embedding<f32, search::Unit>>> {
         let embedding = self
             .embed_normalizing(object, TASK_TYPE_RETRIEVAL_DOCUMENT)
             .await?;
-        tracing::debug!(dims = embedding.len(), "object embedding generated");
+        tracing::debug!("Object embedding response received");
         Ok(embedding)
     }
+}
+
+fn embedding_response(
+    mut json: Value,
+    status: reqwest::StatusCode,
+    model_id: String,
+    duration_ms: i64,
+    dims: u32,
+    task_type: &str,
+) -> llms::InferenceOutcome<search::Embedding<f32, search::Unit>> {
+    let mut metadata = llms::InferenceMetadata {
+        provider_name: "gemini".to_owned(),
+        backend_name: "vertex".to_owned(),
+        model_id,
+        duration_ms,
+        tokens_in: json
+            .pointer("/usageMetadata/promptTokenCount")
+            .and_then(Value::as_i64),
+        ..Default::default()
+    };
+    let output = if status.is_success() {
+        parse_gemini_v2_embedding_json(&json).and_then(search::Embedding::from_vec_normalizing)
+    } else {
+        Err(anyhow::anyhow!(
+            "Gemini embedContent failed with status {status} and body: {json}"
+        ))
+    };
+    if let Some(usage) = json.get_mut("usageMetadata").map(Value::take) {
+        metadata.params.insert("provider_usage".to_owned(), usage);
+    }
+    metadata
+        .params
+        .insert("embedding_task_type".to_owned(), json!(task_type));
+    metadata
+        .params
+        .insert("output_dimensions".to_owned(), json!(dims));
+    llms::InferenceOutcome { output, metadata }
 }
 
 fn parse_gemini_v2_embedding_json(response: &Value) -> anyhow::Result<Vec<f32>> {
@@ -176,16 +215,37 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn parse_gemini_v2_embedding_json_supports_embeddings_array_shape() {
-        let value = json!({
-            "embeddings": [
-                {
-                    "values": [0.1, 0.2, 0.3]
-                }
-            ]
-        });
+    fn embedding_usage_survives_invalid_vectors_and_preserves_large_input_counts() {
+        let usage = json!({"promptTokenCount": 5_000_000_000_i64, "totalTokenCount": 8});
+        let outcome = embedding_response(
+            json!({"embedding": {"values": []}, "usageMetadata": usage}),
+            reqwest::StatusCode::OK,
+            "test-model".to_owned(),
+            12,
+            3,
+            TASK_TYPE_RETRIEVAL_DOCUMENT,
+        );
+        assert!(outcome.output.is_err());
+        assert_eq!(outcome.metadata.tokens_in, Some(5_000_000_000));
+        assert_eq!(outcome.metadata.tokens_in_cached, None);
+        assert_eq!(outcome.metadata.tokens_out, None);
+        assert_eq!(outcome.metadata.params["provider_usage"], usage);
+    }
 
-        let parsed = parse_gemini_v2_embedding_json(&value).expect("should parse values");
-        assert_eq!(parsed.len(), 3);
+    #[test]
+    fn missing_usage_does_not_invent_embedding_token_counts() {
+        let outcome = embedding_response(
+            json!({"embeddings": [{"values": [3.0, 4.0]}]}),
+            reqwest::StatusCode::OK,
+            "test-model".to_owned(),
+            12,
+            2,
+            TASK_TYPE_RETRIEVAL_DOCUMENT,
+        );
+        let vector = outcome.output.unwrap();
+        assert!((vector.as_slice()[0] - 0.6).abs() < 0.00001);
+        assert!((vector.as_slice()[1] - 0.8).abs() < 0.00001);
+        assert_eq!(outcome.metadata.tokens_in, None);
+        assert_eq!(outcome.metadata.tokens_out, None);
     }
 }

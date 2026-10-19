@@ -1,4 +1,4 @@
-use super::{Firestarter, SparkResult};
+use super::{Firestarter, SparkResponse};
 
 pub(crate) struct UnusedFirestarter;
 
@@ -8,7 +8,10 @@ impl Firestarter for UnusedFirestarter {
         "test"
     }
 
-    async fn spark(&self, _captures: Vec<crate::api::CaptureInfo>) -> anyhow::Result<SparkResult> {
+    async fn spark(
+        &self,
+        _captures: Vec<crate::api::CaptureInfo>,
+    ) -> anyhow::Result<crate::llms::InferenceOutcome<SparkResponse>> {
         anyhow::bail!("spark is not used by the illumination worker test")
     }
 }

@@ -4,7 +4,6 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 use crate::illumination::KnowledgeEntityType;
-use crate::llms::{InferenceMetadata, InferenceResult};
 
 /// Structured v2 interpretation of a capture, with its original JSON retained.
 #[derive(Debug, Clone, Serialize)]
@@ -16,8 +15,6 @@ pub struct Illumination {
 
     #[serde(skip)]
     raw_json: Value,
-    #[serde(skip)]
-    inference_metadata: InferenceMetadata,
 }
 
 #[derive(Deserialize)]
@@ -29,10 +26,7 @@ struct IlluminationFields {
 }
 
 impl Illumination {
-    pub fn from_raw_json(
-        content: Value,
-        inference_metadata: InferenceMetadata,
-    ) -> Result<Self, serde_json::Error> {
+    pub fn from_raw_json(content: Value) -> Result<Self, serde_json::Error> {
         let fields: IlluminationFields = serde_json::from_value(content.clone())?;
 
         Ok(Self {
@@ -41,7 +35,6 @@ impl Illumination {
             suggested_searches: fields.suggested_searches,
             entities: fields.entities,
             raw_json: content,
-            inference_metadata,
         })
     }
 }
@@ -52,20 +45,17 @@ impl<'de> Deserialize<'de> for Illumination {
         D: Deserializer<'de>,
     {
         let content = Value::deserialize(deserializer)?;
-        Self::from_raw_json(content, InferenceMetadata::default()).map_err(serde::de::Error::custom)
+        Self::from_raw_json(content).map_err(serde::de::Error::custom)
     }
 }
 
-impl InferenceResult for Illumination {
-    fn raw_json(&self) -> &Value {
+impl Illumination {
+    pub fn raw_json(&self) -> &Value {
         &self.raw_json
     }
 
-    fn metadata(&self) -> &InferenceMetadata {
-        &self.inference_metadata
-    }
-
-    fn to_markdown(&self) -> String {
+    /// Lossy Markdown projection for evaluation and console display.
+    pub fn to_markdown(&self) -> String {
         let mut markdown = String::new();
         writeln!(
             markdown,
@@ -227,8 +217,7 @@ mod tests {
         });
 
         let illumination =
-            Illumination::from_raw_json(content.clone(), InferenceMetadata::default())
-                .expect("v2 output should deserialize");
+            Illumination::from_raw_json(content.clone()).expect("v2 output should deserialize");
 
         assert_eq!(
             illumination.entities[0].entity_type,
@@ -275,46 +264,43 @@ mod tests {
 
     #[test]
     fn to_markdown_includes_platform_link_and_optional_entity_fields() {
-        let illumination = Illumination::from_raw_json(
-            json!({
-                "summary": "A subreddit for NFC West memes",
-                "details": "A community about the NFL's NFC West division.",
-                "suggested_searches": ["NFC West memes"],
-                "entities": [
-                    {
-                        "name": "NFCWestMemeWar",
-                        "search_query": "NFC West Meme War subreddit",
-                        "description": "A community for NFC West memes.",
-                        "type": "online_community",
-                        "platform_link": {
-                            "platform": "reddit",
-                            "display_name": "NFC West Meme War",
-                            "handle": "r/NFCWestMemeWar"
-                        }
-                    },
-                    {
-                        "name": "Anonymous account",
-                        "type": "social_media_account"
-                    },
-                    {
-                        "name": "Venice International Film Festival",
-                        "description": "An annual film festival for international cinema.",
-                        "type": "event"
-                    },
-                    {
-                        "name": "Nikon Z8",
-                        "description": "A camera model.",
-                        "type": "product"
-                    },
-                    {
-                        "name": "Monocle",
-                        "description": "An international affairs and lifestyle magazine.",
-                        "type": "publication"
+        let illumination = Illumination::from_raw_json(json!({
+            "summary": "A subreddit for NFC West memes",
+            "details": "A community about the NFL's NFC West division.",
+            "suggested_searches": ["NFC West memes"],
+            "entities": [
+                {
+                    "name": "NFCWestMemeWar",
+                    "search_query": "NFC West Meme War subreddit",
+                    "description": "A community for NFC West memes.",
+                    "type": "online_community",
+                    "platform_link": {
+                        "platform": "reddit",
+                        "display_name": "NFC West Meme War",
+                        "handle": "r/NFCWestMemeWar"
                     }
-                ]
-            }),
-            InferenceMetadata::default(),
-        )
+                },
+                {
+                    "name": "Anonymous account",
+                    "type": "social_media_account"
+                },
+                {
+                    "name": "Venice International Film Festival",
+                    "description": "An annual film festival for international cinema.",
+                    "type": "event"
+                },
+                {
+                    "name": "Nikon Z8",
+                    "description": "A camera model.",
+                    "type": "product"
+                },
+                {
+                    "name": "Monocle",
+                    "description": "An international affairs and lifestyle magazine.",
+                    "type": "publication"
+                }
+            ]
+        }))
         .unwrap();
 
         let markdown = illumination.to_markdown();

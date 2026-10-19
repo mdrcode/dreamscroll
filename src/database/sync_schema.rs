@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 1;
+const REQUIRED_SCHEMA_VERSION: i32 = 3;
 
 /// Reconcile the model schema, manual indexes, and applied version atomically.
 pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
@@ -44,6 +44,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             indexes::task_run::before_schema_sync(transaction).await?;
             registry.sync(transaction).await?;
             indexes::task_run::after_schema_sync(transaction).await?;
+            indexes::inference_meta::after_schema_sync(transaction).await?;
             transaction
                 .execute_unprepared(
                     "CREATE TABLE IF NOT EXISTS dreamscroll_schema_version (\
@@ -180,9 +181,12 @@ mod tests {
         check_schema_version(&conn)
             .await
             .expect("synced schema version should be accepted");
-        conn.execute_unprepared("UPDATE dreamscroll_schema_version SET version = 2 WHERE id = 1")
-            .await
-            .expect("advancing the test marker should succeed");
+        conn.execute_unprepared(&format!(
+            "UPDATE dreamscroll_schema_version SET version = {} WHERE id = 1",
+            super::REQUIRED_SCHEMA_VERSION + 1
+        ))
+        .await
+        .expect("advancing the test marker should succeed");
         check_schema_version(&conn)
             .await
             .expect("a newer compatible schema version should be accepted");
@@ -295,9 +299,12 @@ mod tests {
         };
         let conn = test_db.handle().conn;
 
-        conn.execute_unprepared("UPDATE dreamscroll_schema_version SET version = 2 WHERE id = 1")
-            .await
-            .expect("advancing the marker should succeed");
+        conn.execute_unprepared(&format!(
+            "UPDATE dreamscroll_schema_version SET version = {} WHERE id = 1",
+            super::REQUIRED_SCHEMA_VERSION + 1
+        ))
+        .await
+        .expect("advancing the marker should succeed");
         let error = sync_schema(&conn)
             .await
             .expect_err("an older binary must not sync over a newer schema marker");
@@ -318,7 +325,7 @@ mod tests {
         let version: i32 = marker
             .try_get_by_index(0)
             .expect("schema marker version should be an integer");
-        assert_eq!(version, 2);
+        assert_eq!(version, super::REQUIRED_SCHEMA_VERSION + 1);
         check_schema_version(&conn)
             .await
             .expect("newer schema markers should remain compatible at startup");

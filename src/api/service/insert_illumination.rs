@@ -3,13 +3,14 @@ use sea_orm::{
     sea_query::OnConflict,
 };
 
-use crate::{api::*, database::DbHandle, illumination::v2, llms::InferenceResult, model};
+use crate::{api::*, database::DbHandle, illumination::v2, model};
 
 /// Upsert the relational illumination projection for one TaskRun.
 pub async fn insert_illumination_v2(
     db: &DbHandle,
     capture: &CaptureInfo,
     task_run_id: &str,
+    inference_meta_id: Option<i32>,
     illumination: v2::Illumination,
 ) -> Result<(), ApiError> {
     let search_content = format_for_search_v2(&illumination);
@@ -23,6 +24,7 @@ pub async fn insert_illumination_v2(
         user_id: Set(capture.user_id),
         capture_id: Set(capture.id),
         task_run_id: Set(task_run_id.to_owned()),
+        inference_meta_id: Set(inference_meta_id),
         summary: Set(summary),
         details: Set(details),
         suggested_searches: Set(Some(suggested_searches)),
@@ -34,6 +36,7 @@ pub async fn insert_illumination_v2(
                 .update_columns([
                     model::illumination::Column::UserId,
                     model::illumination::Column::CaptureId,
+                    model::illumination::Column::InferenceMetaId,
                     model::illumination::Column::Summary,
                     model::illumination::Column::Details,
                     model::illumination::Column::SuggestedSearches,
@@ -98,13 +101,13 @@ pub async fn insert_illumination_v2(
 }
 
 /// Upsert one raw illumination result per TaskRun; retries replace its content.
-pub async fn insert_illumination_raw<R: InferenceResult + ?Sized>(
+pub async fn insert_illumination_raw(
     db: &DbHandle,
     capture: &CaptureInfo,
     task_run_id: &str,
-    raw: &R,
+    inference_meta_id: Option<i32>,
+    raw: &serde_json::Value,
 ) -> Result<(), ApiError> {
-    let metadata = raw.metadata();
     // Must match the versioned illuminate functions, which analyze the first media on the capture.
     let media_id = capture
         .medias
@@ -121,14 +124,8 @@ pub async fn insert_illumination_raw<R: InferenceResult + ?Sized>(
         capture_id: Set(capture.id),
         media_id: Set(media_id),
         task_run_id: Set(task_run_id.to_owned()),
-        prompt_version: Set(metadata.prompt_version.clone()),
-        provider_name: Set(metadata.provider_name.clone()),
-        backend_name: Set(metadata.backend_name.clone()),
-        model_id: Set(metadata.model_id.clone()),
-        duration_ms: Set(metadata.duration_ms),
-        provider_request_id: Set(metadata.provider_request_id.clone()),
-        provider_usage_json: Set(metadata.provider_usage_json.clone()),
-        content: Set(raw.raw_json().clone()),
+        inference_meta_id: Set(inference_meta_id),
+        content: Set(raw.clone()),
         ..Default::default()
     };
     model::illumination_raw::Entity::insert(active)
@@ -138,13 +135,7 @@ pub async fn insert_illumination_raw<R: InferenceResult + ?Sized>(
                     model::illumination_raw::Column::UserId,
                     model::illumination_raw::Column::CaptureId,
                     model::illumination_raw::Column::MediaId,
-                    model::illumination_raw::Column::PromptVersion,
-                    model::illumination_raw::Column::ProviderName,
-                    model::illumination_raw::Column::BackendName,
-                    model::illumination_raw::Column::ModelId,
-                    model::illumination_raw::Column::DurationMs,
-                    model::illumination_raw::Column::ProviderRequestId,
-                    model::illumination_raw::Column::ProviderUsageJson,
+                    model::illumination_raw::Column::InferenceMetaId,
                     model::illumination_raw::Column::Content,
                 ])
                 .to_owned(),
@@ -167,6 +158,25 @@ mod tests {
     use chrono::Utc;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
     use serde_json::json;
+
+    async fn record_usage(db: &DbHandle, user_id: i32, run_id: &str, tokens: i64) -> i32 {
+        super::super::record_inference(
+            db,
+            user_id,
+            run_id,
+            1,
+            "illuminate",
+            InferenceMetadata {
+                provider_name: "gemini".to_owned(),
+                backend_name: "vertex".to_owned(),
+                model_id: "test-model".to_owned(),
+                tokens_in: Some(tokens),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap()
+    }
 
     #[tokio::test]
     async fn insert_persists_v1_raw_only_and_v2_projection() {
@@ -238,24 +248,19 @@ mod tests {
             "future_schema_field": {"retained": true}
         });
 
-        let illumination = v1::Illumination::from_raw_json(
-            content.clone(),
-            InferenceMetadata {
-                prompt_version: "capture_illumination_v1".to_string(),
-                provider_name: "gemini".to_string(),
-                backend_name: "vertex".to_string(),
-                model_id: "test-model".to_string(),
-                duration_ms: 123,
-                provider_request_id: Some("interaction-test".to_string()),
-                provider_usage_json: Some(json!({"input_tokens": 12})),
-            },
-        )
-        .unwrap();
+        let illumination = v1::Illumination::from_raw_json(content.clone()).unwrap();
         assert_eq!(illumination.raw_json(), &content);
 
-        insert_illumination_raw(&db, &capture_info, &v1_task_run_id, &illumination)
-            .await
-            .unwrap();
+        let v1_meta_id = record_usage(&db, user.id, &v1_task_run_id, 12).await;
+        insert_illumination_raw(
+            &db,
+            &capture_info,
+            &v1_task_run_id,
+            Some(v1_meta_id),
+            illumination.raw_json(),
+        )
+        .await
+        .unwrap();
 
         let stored_raw = model::illumination_raw::Entity::find()
             .filter(model::illumination_raw::Column::TaskRunId.eq(&v1_task_run_id))
@@ -263,19 +268,10 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(stored_raw.prompt_version, "capture_illumination_v1");
+        assert_eq!(stored_raw.inference_meta_id, Some(v1_meta_id));
         assert_eq!(stored_raw.media_id, media.id);
         assert_eq!(stored_raw.task_run_id, v1_task_run_id);
-        assert_eq!(
-            stored_raw.provider_request_id.as_deref(),
-            Some("interaction-test")
-        );
-        assert_eq!(stored_raw.model_id, "test-model");
         assert_eq!(stored_raw.content, content);
-        assert_eq!(
-            stored_raw.provider_usage_json,
-            Some(json!({"input_tokens": 12}))
-        );
 
         let v1_parent_rows = model::illumination::Entity::find()
             .filter(model::illumination::Column::CaptureId.eq(capture.id))
@@ -313,25 +309,27 @@ mod tests {
             }]
         });
         let v2_task_run_id = uuid::Uuid::new_v4().to_string();
-        let v2_result = crate::illumination::v2::Illumination::from_raw_json(
-            v2_content.clone(),
-            InferenceMetadata {
-                prompt_version: "capture_illumination_v2".to_string(),
-                provider_name: "gemini".to_string(),
-                backend_name: "vertex".to_string(),
-                model_id: "test-model".to_string(),
-                duration_ms: 100,
-                provider_request_id: None,
-                provider_usage_json: None,
-            },
+        let v2_result = crate::illumination::v2::Illumination::from_raw_json(v2_content.clone())
+            .expect("v2 output should deserialize");
+        let v2_meta_id = record_usage(&db, user.id, &v2_task_run_id, 20).await;
+        insert_illumination_raw(
+            &db,
+            &capture_info,
+            &v2_task_run_id,
+            Some(v2_meta_id),
+            v2_result.raw_json(),
         )
-        .expect("v2 output should deserialize");
-        insert_illumination_raw(&db, &capture_info, &v2_task_run_id, &v2_result)
-            .await
-            .unwrap();
-        insert_illumination_v2(&db, &capture_info, &v2_task_run_id, v2_result)
-            .await
-            .unwrap();
+        .await
+        .unwrap();
+        insert_illumination_v2(
+            &db,
+            &capture_info,
+            &v2_task_run_id,
+            Some(v2_meta_id),
+            v2_result,
+        )
+        .await
+        .unwrap();
 
         let stored_v2 = model::illumination_raw::Entity::find()
             .filter(model::illumination_raw::Column::CaptureId.eq(capture.id))
@@ -340,7 +338,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(stored_v2.prompt_version, "capture_illumination_v2");
+        assert_eq!(stored_v2.inference_meta_id, Some(v2_meta_id));
         assert_eq!(stored_v2.content, v2_content);
         assert_eq!(stored_v2.task_run_id, v2_task_run_id);
         assert_eq!(stored_v2.media_id, media.id);
@@ -350,6 +348,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
+        assert_eq!(stored_v2_illumination.inference_meta_id, Some(v2_meta_id));
         assert_eq!(
             stored_v2_illumination.suggested_searches,
             Some(vec![
@@ -380,25 +379,38 @@ mod tests {
             "suggested_searches": [],
             "entities": []
         });
-        let retry_result = crate::illumination::v2::Illumination::from_raw_json(
-            retry_content.clone(),
-            InferenceMetadata {
-                prompt_version: "capture_illumination_v2".to_string(),
-                provider_name: "gemini".to_string(),
-                backend_name: "vertex".to_string(),
-                model_id: "test-model".to_string(),
-                duration_ms: 150,
-                provider_request_id: None,
-                provider_usage_json: None,
-            },
+        let retry_result =
+            crate::illumination::v2::Illumination::from_raw_json(retry_content.clone())
+                .expect("retry output should deserialize");
+        let retry_meta_id = record_usage(&db, user.id, &v2_task_run_id, 30).await;
+        insert_illumination_raw(
+            &db,
+            &capture_info,
+            &v2_task_run_id,
+            Some(retry_meta_id),
+            retry_result.raw_json(),
         )
-        .expect("retry output should deserialize");
-        insert_illumination_raw(&db, &capture_info, &v2_task_run_id, &retry_result)
+        .await
+        .unwrap();
+        let prior_projection = model::illumination::Entity::find_by_id(stored_v2_illumination.id)
+            .one(&db.conn)
             .await
+            .unwrap()
             .unwrap();
-        insert_illumination_v2(&db, &capture_info, &v2_task_run_id, retry_result)
-            .await
-            .unwrap();
+        assert_eq!(prior_projection.inference_meta_id, Some(v2_meta_id));
+        assert_eq!(
+            prior_projection.summary,
+            "A Reddit community for NFC West memes"
+        );
+        insert_illumination_v2(
+            &db,
+            &capture_info,
+            &v2_task_run_id,
+            Some(retry_meta_id),
+            retry_result,
+        )
+        .await
+        .unwrap();
 
         let raw_rows = model::illumination_raw::Entity::find()
             .filter(model::illumination_raw::Column::TaskRunId.eq(&v2_task_run_id))
@@ -407,6 +419,31 @@ mod tests {
             .unwrap();
         assert_eq!(raw_rows.len(), 1);
         assert_eq!(raw_rows[0].content, retry_content);
+        assert_eq!(raw_rows[0].inference_meta_id, Some(retry_meta_id));
+        let usage_rows = model::inference_meta::Entity::find()
+            .filter(model::inference_meta::Column::TaskRunId.eq(&v2_task_run_id))
+            .order_by_asc(model::inference_meta::Column::Id)
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(
+            usage_rows
+                .iter()
+                .map(|row| (row.id, row.tokens_in))
+                .collect::<Vec<_>>(),
+            vec![(v2_meta_id, Some(20)), (retry_meta_id, Some(30))]
+        );
+        insert_illumination_raw(&db, &capture_info, &v2_task_run_id, None,
+            &json!({
+                "summary": "untracked output", "details": "metadata insert failed", "suggested_searches": [], "entities": []
+            })).await.unwrap();
+        let untracked = model::illumination_raw::Entity::find_by_id(raw_rows[0].id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(untracked.content["summary"], "untracked output");
+        assert_eq!(untracked.inference_meta_id, None);
 
         let illumination_rows = model::illumination::Entity::find()
             .filter(model::illumination::Column::TaskRunId.eq(&v2_task_run_id))
@@ -414,6 +451,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(illumination_rows.len(), 1);
+        assert_eq!(illumination_rows[0].inference_meta_id, Some(retry_meta_id));
         assert_eq!(
             illumination_rows[0].summary,
             "retry replaces the previous result"
@@ -424,5 +462,26 @@ mod tests {
             .await
             .unwrap();
         assert!(retry_entities.is_empty());
+
+        insert_illumination_v2(
+            &db,
+            &capture_info,
+            &v2_task_run_id,
+            None,
+            crate::illumination::v2::Illumination::from_raw_json(json!({
+                "summary": "untracked projection", "details": "usage unavailable",
+                "suggested_searches": [], "entities": []
+            }))
+            .unwrap(),
+        )
+        .await
+        .unwrap();
+        let untracked_projection = model::illumination::Entity::find_by_id(illumination_rows[0].id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(untracked_projection.summary, "untracked projection");
+        assert_eq!(untracked_projection.inference_meta_id, None);
     }
 }

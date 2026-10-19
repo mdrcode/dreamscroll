@@ -53,7 +53,7 @@ independently whether it should remain on service startup.
 
 ### 2. Centralize explicit schema ownership
 
-`src/database/schema_sync.rs` exposes `database::sync_schema`, the sole
+`src/database/sync_schema.rs` exposes `database::sync_schema`, the sole
 application-schema mutation path. It runs the following sequence in one
 PostgreSQL transaction:
 
@@ -61,9 +61,9 @@ PostgreSQL transaction:
 2. Drop only registered manual unique indexes that SeaORM 2.0.4 misclassifies.
    Never drop all database indexes, primary keys, or indexes backing
    model-declared constraints.
-3. Run the SeaORM model registry sync.
-4. Recreate/ensure every registered application-managed index.
-5. Upsert `dreamscroll_schema_version` with `REQUIRED_SCHEMA_VERSION`.
+3. Run the additive SeaORM model registry sync.
+4. Recreate/ensure every registered application-managed index, including the non-unique inference run/attempt index.
+5. Upsert `dreamscroll_schema_version` with `REQUIRED_SCHEMA_VERSION` (currently 3).
 
 The application requires a minimum schema version. `database::connect` checks
 the marker before migrating the Tower Sessions store or starting the web app.
@@ -78,6 +78,11 @@ within the same transaction.
 Sync refuses to run when an existing marker is newer than the current binary's
 required version, preventing a stale admin image from reconciling or downgrading
 a newer schema. Web startup still accepts newer markers for compatible rollouts.
+
+Schema version 3 adds nullable `illuminations.inference_meta_id`. Existing
+projection content is retained with a NULL link; future projection writes update
+the link in the same transaction as content. Raw results keep their independent
+link, since raw and projection writes need not succeed together.
 
 The transaction prevents other sessions from observing the temporary absence of
 the custom unique index and rolls back partial DDL on failure. It still holds
@@ -111,11 +116,14 @@ current entities with the live schema and records one compatible version.
 
 ### 4. Keep the limitation of model sync explicit
 
-SeaORM's Entity-first `SchemaBuilder::sync` is a model/database diff, not a
-versioned migration ledger. It is useful for supported model-derived table,
-column, key, and foreign-key changes, but it does not encode arbitrary data
-transformations or provide a reviewed sequence of schema versions. It also has
-special unique-index drop behavior, as demonstrated by the current failure.
+SeaORM's Entity-first `SchemaBuilder::sync` is additive: it creates missing tables,
+columns, keys, and foreign keys, but does not drop retired tables/columns or alter
+existing column types. It is not a versioned migration ledger. The operator
+manually drops obsolete inference-metadata tables and removes old bookkeeping
+columns from `illumination_raws` (or drops/recreates affected prototype tables)
+before sync. No inference-specific destructive cleanup is embedded in the command;
+no historical data transfer is needed.
+It also has special unique-index drop behavior, as demonstrated above.
 
 **Formal SeaORM option:** the official `sea-orm-migration` crate provides
 ordered `MigrationTrait::up` / `down` migrations, records applied migration

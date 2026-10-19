@@ -138,12 +138,11 @@ pub async fn run(state: ApiCmdState, args: SparkArgs) -> anyhow::Result<()> {
     let spinner_task = tokio::spawn(run_spinner(stop_rx));
 
     let spark_start = std::time::Instant::now();
-    let spark_result = firestarter.spark(captures).await;
+    let spark_outcome = firestarter.spark(captures).await;
     let _ = stop_tx.send(());
     let _ = spinner_task.await;
 
-    let spark_result = spark_result?;
-    let spark = spark_result.spark;
+    let spark_outcome = spark_outcome?;
     let spark_duration = spark_start.elapsed();
 
     let requested_ids = args
@@ -165,23 +164,10 @@ pub async fn run(state: ApiCmdState, args: SparkArgs) -> anyhow::Result<()> {
     println!("- Captures matched: {}", capture_count);
     println!("- Firestarter: {}", firestarter.name());
     println!("- Spark duration: {:?}", spark_duration);
-    println!(
-        "- Provider usage: in={:?} out={:?} total={:?} duration_ms={}",
-        spark_result.meta.input_tokens,
-        spark_result.meta.output_tokens,
-        spark_result.meta.total_tokens,
-        spark_result.meta.duration_ms
-    );
-    println!(
-        "- Grounding data present: {}",
-        spark_result
-            .meta
-            .provider_grounding_json
-            .as_deref()
-            .is_some()
-    );
+    println!("- Inference metadata: {:#?}", spark_outcome.metadata);
 
     println!();
+    let spark = spark_outcome.output?;
 
     print_spark(&spark);
 

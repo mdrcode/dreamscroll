@@ -173,18 +173,18 @@ impl InfoMaker {
                 .collect(),
         };
 
-        let meta = match spark_model.spark_meta {
+        let meta = match spark_model.inference_meta {
             HasOne::Unloaded => None,
             HasOne::Loaded(None) => None,
             HasOne::Loaded(Some(meta)) => Some(SparkMetaInfo {
-                provider_name: meta.provider_name,
+                provider_name: meta.provider,
+                backend_name: meta.backend,
+                model_id: meta.model,
                 duration_ms: meta.duration_ms,
-                input_capture_count: meta.input_capture_count,
-                input_tokens: meta.input_tokens,
-                output_tokens: meta.output_tokens,
-                total_tokens: meta.total_tokens,
-                provider_usage_json: meta.provider_usage_json,
-                provider_grounding_json: meta.provider_grounding_json,
+                tokens_in: meta.tokens_in,
+                tokens_in_cached: meta.tokens_in_cached,
+                tokens_out: meta.tokens_out,
+                params: meta.params,
             }),
         };
 

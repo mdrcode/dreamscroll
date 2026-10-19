@@ -2,11 +2,7 @@ use anyhow::Context;
 use serde_json::json;
 use strum::IntoEnumIterator;
 
-use crate::{
-    api,
-    llms::{self, InferenceMetadata},
-    storage,
-};
+use crate::{api, llms, storage};
 
 use super::*;
 
@@ -18,7 +14,7 @@ pub async fn illuminate(
     storage_provider: &dyn storage::StorageProvider,
     capture: &api::CaptureInfo,
     model_id: &str,
-) -> anyhow::Result<Illumination> {
+) -> anyhow::Result<llms::InferenceOutcome<Illumination>> {
     let media = capture
         .medias
         .first()
@@ -43,8 +39,7 @@ pub async fn illuminate(
         mime_type,
         "Starting v1 illumination inference"
     );
-    let inference_start = std::time::Instant::now();
-    let inference = client
+    let mut inference = client
         .infer(llms::InferenceRequest {
             model_id,
             input: &input,
@@ -52,26 +47,26 @@ pub async fn illuminate(
             capabilities: &capabilities,
         })
         .await?;
-    let duration_ms = inference_start.elapsed().as_millis() as i64;
 
     tracing::info!(
         capture.id,
-        provider_request_id = ?inference.provider_request_id,
-        inference_ms = duration_ms,
+        provider_request_id = ?inference.metadata.params.get("provider_request_id"),
+        inference_ms = inference.metadata.duration_ms,
         "Illumination inference output received"
     );
 
-    let inference_metadata = InferenceMetadata {
-        prompt_version: PROMPT_VERSION.to_string(),
-        provider_name: client.provider_name().to_string(),
-        backend_name: client.backend_name().to_string(),
-        model_id: model_id.to_string(),
-        duration_ms,
-        provider_request_id: inference.provider_request_id,
-        provider_usage_json: inference.provider_usage_json,
-    };
-    Illumination::from_raw_json(inference.output, inference_metadata)
-        .with_context(|| format!("Failed to parse v1 illumination for capture {}", capture.id))
+    inference
+        .metadata
+        .params
+        .insert("prompt_version".to_string(), json!(PROMPT_VERSION));
+    Ok(llms::InferenceOutcome {
+        output: inference.output.and_then(|output| {
+            Illumination::from_raw_json(output).with_context(|| {
+                format!("Failed to parse v1 illumination for capture {}", capture.id)
+            })
+        }),
+        metadata: inference.metadata,
+    })
 }
 
 fn make_schema() -> serde_json::Value {

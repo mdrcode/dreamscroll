@@ -3,8 +3,6 @@ use std::fmt::Write as _;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
-use crate::llms::{InferenceMetadata, InferenceResult};
-
 /// Structured v1 interpretation of a capture, with the original result retained for persistence.
 #[derive(Debug, Clone, Serialize)]
 pub struct Illumination {
@@ -31,8 +29,6 @@ pub struct Illumination {
 
     #[serde(skip)]
     raw_json: Value,
-    #[serde(skip)]
-    inference_metadata: InferenceMetadata,
 }
 
 // Parses known v1 fields while Illumination retains the full raw JSON.
@@ -46,10 +42,7 @@ struct IlluminationFields {
 }
 
 impl Illumination {
-    pub fn from_raw_json(
-        content: Value,
-        inference_metadata: InferenceMetadata,
-    ) -> Result<Self, serde_json::Error> {
+    pub fn from_raw_json(content: Value) -> Result<Self, serde_json::Error> {
         let fields: IlluminationFields = serde_json::from_value(content.clone())?;
 
         Ok(Self {
@@ -59,7 +52,6 @@ impl Illumination {
             entities: fields.entities,
             social_media_accounts: fields.social_media_accounts,
             raw_json: content,
-            inference_metadata,
         })
     }
 }
@@ -70,20 +62,17 @@ impl<'de> Deserialize<'de> for Illumination {
         D: Deserializer<'de>,
     {
         let content = Value::deserialize(deserializer)?;
-        Self::from_raw_json(content, InferenceMetadata::default()).map_err(serde::de::Error::custom)
+        Self::from_raw_json(content).map_err(serde::de::Error::custom)
     }
 }
 
-impl InferenceResult for Illumination {
-    fn raw_json(&self) -> &Value {
+impl Illumination {
+    pub fn raw_json(&self) -> &Value {
         &self.raw_json
     }
 
-    fn metadata(&self) -> &InferenceMetadata {
-        &self.inference_metadata
-    }
-
-    fn to_markdown(&self) -> String {
+    /// Lossy Markdown projection for evaluation and console display.
+    pub fn to_markdown(&self) -> String {
         let mut markdown = String::new();
         writeln!(
             markdown,
@@ -250,24 +239,21 @@ mod tests {
 
     #[test]
     fn to_markdown_includes_searches_entities_and_social_accounts() {
-        let illumination = Illumination::from_raw_json(
-            serde_json::json!({
-                "summary": "Ada Lovelace, mathematician and writer",
-                "details": "A mathematician and writer.",
-                "suggested_searches": ["Ada Lovelace biography"],
-                "entities": [{
-                    "name": "Ada Lovelace",
-                    "description": "A mathematician and writer.",
-                    "type": "real_person"
-                }],
-                "social_media_accounts": [{
-                    "display_name": "Ada",
-                    "handle": "@ada",
-                    "platform": "x_twitter"
-                }]
-            }),
-            InferenceMetadata::default(),
-        )
+        let illumination = Illumination::from_raw_json(serde_json::json!({
+            "summary": "Ada Lovelace, mathematician and writer",
+            "details": "A mathematician and writer.",
+            "suggested_searches": ["Ada Lovelace biography"],
+            "entities": [{
+                "name": "Ada Lovelace",
+                "description": "A mathematician and writer.",
+                "type": "real_person"
+            }],
+            "social_media_accounts": [{
+                "display_name": "Ada",
+                "handle": "@ada",
+                "platform": "x_twitter"
+            }]
+        }))
         .unwrap();
 
         let markdown = illumination.to_markdown();

@@ -27,7 +27,13 @@ impl task::Task for SparkTask {
     }
 }
 
-pub async fn exec(state: &super::LogicState, task: SparkTask) -> Result<(), api::ApiError> {
+pub async fn exec(
+    state: &super::LogicState,
+    task_run: &task::TaskRun<SparkTask>,
+    attempt: i32,
+) -> Result<(), api::ApiError> {
+    let task = &task_run.task;
+    let task_run_id = task_run.run_id.as_str();
     if task.capture_ids.is_empty() {
         return Err(api::ApiError::bad_request(anyhow::anyhow!(
             "capture_ids must contain at least one capture ID"
@@ -64,8 +70,17 @@ pub async fn exec(state: &super::LogicState, task: SparkTask) -> Result<(), api:
         .spark(captures.clone())
         .await
         .map_err(api::ApiError::internal)?;
-    let spark_meta = spark_result.meta.clone();
-    let spark = spark_result.spark;
+    let inference_meta_id = state
+        .service_api
+        .record_inference(
+            task.entity_owner_id,
+            task_run_id,
+            attempt,
+            <SparkTask as task::Task>::task_type(),
+            spark_result.metadata,
+        )
+        .await;
+    let spark = spark_result.output.map_err(api::ApiError::internal)?;
 
     let referenced_ids = spark
         .clusters
@@ -79,7 +94,7 @@ pub async fn exec(state: &super::LogicState, task: SparkTask) -> Result<(), api:
             task.entity_owner_id,
             task.capture_ids.clone(),
             spark,
-            spark_meta,
+            inference_meta_id,
         )
         .await?;
 

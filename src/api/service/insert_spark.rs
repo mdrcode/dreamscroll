@@ -5,10 +5,11 @@ pub async fn insert_spark(
     user_id: i32,
     input_capture_ids: Vec<i32>,
     spark: ignition::SparkResponse,
-    meta: ignition::SparkMeta,
+    inference_meta_id: Option<i32>,
 ) -> Result<(), ApiError> {
     let spark_row = model::spark::ActiveModel::builder()
         .set_user_id(user_id)
+        .set_inference_meta_id(inference_meta_id)
         .insert(&db.conn)
         .await?;
 
@@ -21,20 +22,6 @@ pub async fn insert_spark(
             .save(&db.conn)
             .await?;
     }
-
-    model::spark_meta::ActiveModel::builder()
-        .set_user_id(user_id)
-        .set_spark_id(spark_row.id)
-        .set_provider_name(&meta.provider_name)
-        .set_duration_ms(meta.duration_ms)
-        .set_input_capture_count(meta.input_capture_count)
-        .set_input_tokens(meta.input_tokens)
-        .set_output_tokens(meta.output_tokens)
-        .set_total_tokens(meta.total_tokens)
-        .set_provider_usage_json(meta.provider_usage_json)
-        .set_provider_grounding_json(meta.provider_grounding_json)
-        .save(&db.conn)
-        .await?;
 
     for cluster in &spark.clusters {
         let cluster_row = model::spark_cluster::ActiveModel::builder()

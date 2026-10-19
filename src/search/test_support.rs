@@ -1,3 +1,5 @@
+use crate::llms;
+
 use super::{DataObject, Embedder, Embedding, Unit, VectorStore, VectorUpsertResult};
 
 pub(crate) struct UnusedEmbedder;
@@ -11,7 +13,7 @@ impl Embedder<serde_json::Value, Embedding<f32, Unit>> for UnusedEmbedder {
     async fn embed_object(
         &self,
         _object: serde_json::Value,
-    ) -> anyhow::Result<Embedding<f32, Unit>> {
+    ) -> anyhow::Result<llms::InferenceOutcome<Embedding<f32, Unit>>> {
         anyhow::bail!("search is not used by the v2 worker test")
     }
 }

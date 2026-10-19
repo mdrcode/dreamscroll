@@ -7,8 +7,8 @@ pub use check_users::check_users;
 mod postgres;
 pub use postgres::{connect, connect_postgres_db, make_url_from_config};
 
-mod schema_sync;
-pub use schema_sync::{check_schema_version, sync_schema};
+mod sync_schema;
+pub use sync_schema::{check_schema_version, sync_schema};
 
 mod indexes;
 

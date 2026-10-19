@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value;
 
-use super::{InferenceClient, InferenceRequest, InferenceResponse};
+use super::{InferenceClient, InferenceMetadata, InferenceOutcome, InferenceRequest};
 
 pub(crate) struct TestInferenceClient {
     outputs: Vec<Value>,
@@ -28,7 +28,10 @@ impl InferenceClient for TestInferenceClient {
         "test"
     }
 
-    async fn infer(&self, _request: InferenceRequest<'_>) -> anyhow::Result<InferenceResponse> {
+    async fn infer(
+        &self,
+        request: InferenceRequest<'_>,
+    ) -> anyhow::Result<InferenceOutcome<Value>> {
         let call = self.calls.fetch_add(1, Ordering::SeqCst);
         let output = self
             .outputs
@@ -36,10 +39,18 @@ impl InferenceClient for TestInferenceClient {
             .cloned()
             .ok_or_else(|| anyhow::anyhow!("test inference outputs exhausted"))?;
 
-        Ok(InferenceResponse {
-            output,
-            provider_request_id: Some(format!("test-inference-{call}")),
-            provider_usage_json: None,
+        Ok(InferenceOutcome {
+            output: Ok(output),
+            metadata: InferenceMetadata {
+                provider_name: self.provider_name().to_string(),
+                backend_name: self.backend_name().to_string(),
+                model_id: request.model_id.to_string(),
+                params: serde_json::Map::from_iter([(
+                    "provider_request_id".to_string(),
+                    Value::String(format!("test-inference-{call}")),
+                )]),
+                ..Default::default()
+            },
         })
     }
 }

@@ -11,6 +11,9 @@ pub struct Model {
     pub id: i32,
     pub user_id: i32,
 
+    #[sea_orm(nullable)]
+    pub inference_meta_id: Option<i32>,
+
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub created_at: DateTime<Utc>,
 
@@ -26,8 +29,8 @@ pub struct Model {
     #[sea_orm(has_many)]
     pub spark_input_refs: HasMany<spark_input_ref::Entity>,
 
-    #[sea_orm(has_one)]
-    pub spark_meta: HasOne<spark_meta::Entity>,
+    #[sea_orm(belongs_to, from = "inference_meta_id", to = "id")]
+    pub inference_meta: HasOne<inference_meta::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

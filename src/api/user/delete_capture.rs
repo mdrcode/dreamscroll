@@ -28,23 +28,6 @@ pub async fn delete_capture(
 
     // TODO this should happen via cascading deletes in the database
 
-    let illumination_ids = model::illumination::Entity::find()
-        .filter(model::illumination::Column::UserId.eq(context.user_id()))
-        .filter(model::illumination::Column::CaptureId.eq(capture_id))
-        .all(&db.conn)
-        .await?
-        .into_iter()
-        .map(|illumination| illumination.id)
-        .collect::<Vec<i32>>();
-
-    if !illumination_ids.is_empty() {
-        model::illumination_meta::Entity::delete_many()
-            .filter(model::illumination_meta::Column::UserId.eq(context.user_id()))
-            .filter(model::illumination_meta::Column::IlluminationId.is_in(illumination_ids))
-            .exec(&db.conn)
-            .await?;
-    }
-
     model::search_index::Entity::delete_many()
         .filter(model::search_index::Column::UserId.eq(context.user_id()))
         .filter(model::search_index::Column::CaptureId.eq(capture_id))

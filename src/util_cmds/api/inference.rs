@@ -4,11 +4,7 @@ use anyhow::{Context, anyhow, bail};
 use argh::FromArgs;
 
 use crate::illumination::IlluminationVersion;
-use crate::{
-    api, illumination,
-    llms::{InferenceMetadata, InferenceResult},
-    task::TaskRunStatus,
-};
+use crate::{api, illumination, task::TaskRunStatus};
 
 use super::{ApiCmdState, task};
 
@@ -119,16 +115,12 @@ fn render_illumination(
     content: serde_json::Value,
 ) -> anyhow::Result<String> {
     match prompt_version {
-        IlluminationVersion::V1 => {
-            illumination::v1::Illumination::from_raw_json(content, InferenceMetadata::default())
-                .context("failed to parse raw v1 illumination result")
-                .map(|result| result.to_markdown())
-        }
-        IlluminationVersion::V2 => {
-            illumination::v2::Illumination::from_raw_json(content, InferenceMetadata::default())
-                .context("failed to parse raw v2 illumination result")
-                .map(|result| result.to_markdown())
-        }
+        IlluminationVersion::V1 => illumination::v1::Illumination::from_raw_json(content)
+            .context("failed to parse raw v1 illumination result")
+            .map(|result| result.to_markdown()),
+        IlluminationVersion::V2 => illumination::v2::Illumination::from_raw_json(content)
+            .context("failed to parse raw v2 illumination result")
+            .map(|result| result.to_markdown()),
     }
 }
 

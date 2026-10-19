@@ -12,8 +12,6 @@ pub async fn post(
     State(state): State<Arc<webhook::WebhookState>>,
     Json(task_run): Json<task::TaskRun<logic::search_index::SearchIndexTask>>,
 ) -> Result<impl IntoResponse, api::ApiError> {
-    let task = task_run.task.clone();
-
     // `None` means the task already completed (at-least-once redelivery); ack it.
     let Some(attempt) = state
         .task_master
@@ -24,7 +22,7 @@ pub async fn post(
         return Ok(axum::http::StatusCode::NO_CONTENT);
     };
 
-    let result = logic::search_index::exec(&state.logic, task).await;
+    let result = logic::search_index::exec(&state.logic, &task_run, attempt).await;
 
     let outcome = state
         .task_master

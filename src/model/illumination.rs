@@ -15,6 +15,12 @@ pub struct Model {
     #[sea_orm(unique)]
     pub task_run_id: String,
 
+    #[sea_orm(nullable)]
+    pub inference_meta_id: Option<i32>,
+
+    #[sea_orm(belongs_to, from = "inference_meta_id", to = "id")]
+    pub inference_meta: HasOne<inference_meta::Entity>,
+
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub created_at: DateTime<Utc>,
 
@@ -27,9 +33,6 @@ pub struct Model {
     pub summary: String,
     pub details: String,
     pub suggested_searches: Option<Vec<String>>,
-
-    #[sea_orm(has_one)]
-    pub illumination_meta: HasOne<illumination_meta::Entity>,
 
     #[sea_orm(has_many)]
     pub knowledge_entities: HasMany<knowledge_entity::Entity>,

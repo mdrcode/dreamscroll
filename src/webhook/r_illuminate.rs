@@ -27,7 +27,7 @@ pub async fn post(
         return Ok(axum::http::StatusCode::NO_CONTENT);
     };
 
-    let result = match logic::illuminate::exec(&state.logic, task, &task_run.run_id).await {
+    let result = match logic::illuminate::exec(&state.logic, &task_run, attempt).await {
         Ok(()) => logic::Beacon::new(state.task_master.clone())
             .new_illumination(task, task_run.backfill_id.as_deref())
             .await

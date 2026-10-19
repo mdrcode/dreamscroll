@@ -50,9 +50,11 @@ impl task::Task for IlluminationTask {
 /// relational KnowledgeEntity projection.
 pub async fn exec(
     state: &super::LogicState,
-    task: &IlluminationTask,
-    task_run_id: &str,
+    task_run: &task::TaskRun<IlluminationTask>,
+    attempt: i32,
 ) -> Result<(), api::ApiError> {
+    let task = &task_run.task;
+    let task_run_id = task_run.run_id.as_str();
     let capture_id = task.capture_id;
     tracing::Span::current().record("capture_id", capture_id);
 
@@ -82,9 +84,25 @@ pub async fn exec(
             .await
             .map_err(api::ApiError::internal)?;
 
+            let inference_meta_id = state
+                .service_api
+                .record_inference(
+                    capture.user_id,
+                    task_run_id,
+                    attempt,
+                    <IlluminationTask as task::Task>::task_type(),
+                    illumination.metadata,
+                )
+                .await;
+            let illumination = illumination.output.map_err(api::ApiError::internal)?;
             state
                 .service_api
-                .insert_illumination_raw(&capture, task_run_id, &illumination)
+                .insert_illumination_raw(
+                    &capture,
+                    task_run_id,
+                    inference_meta_id,
+                    illumination.raw_json(),
+                )
                 .await?;
         }
         illumination::IlluminationVersion::V2 => {
@@ -97,13 +115,29 @@ pub async fn exec(
             .await
             .map_err(api::ApiError::internal)?;
 
+            let inference_meta_id = state
+                .service_api
+                .record_inference(
+                    capture.user_id,
+                    task_run_id,
+                    attempt,
+                    <IlluminationTask as task::Task>::task_type(),
+                    illumination.metadata,
+                )
+                .await;
+            let illumination = illumination.output.map_err(api::ApiError::internal)?;
             state
                 .service_api
-                .insert_illumination_raw(&capture, task_run_id, &illumination)
+                .insert_illumination_raw(
+                    &capture,
+                    task_run_id,
+                    inference_meta_id,
+                    illumination.raw_json(),
+                )
                 .await?;
             state
                 .service_api
-                .insert_illumination_v2(&capture, task_run_id, illumination)
+                .insert_illumination_v2(&capture, task_run_id, inference_meta_id, illumination)
                 .await?;
         }
     }

@@ -4,11 +4,11 @@ use crate::task;
 
 /// A code-defined batch workload: which entities to process and which Tasks
 /// to create.
-/// 
+///
 /// Backfills are defined in code, not the database. The adminstrator
 /// advances progress of a backfill by calling the pump endpoint, which queries
 /// the workload and enqueus a bounded batch of tasks
-/// 
+///
 /// Conceptually, we think of a Backfill as a "left join" between the "work
 /// to be done" (left side) and the "current status of the work" (right side).
 /// The left side is defined by the Backfill definition (an implementation of

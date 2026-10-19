@@ -184,11 +184,22 @@ mod tests {
 
     #[test]
     fn backfill_metadata_survives_delivery_and_old_payloads_remain_untagged() {
-        let mut run = TaskRun::new(TestTask { id: 5, entity_owner_id: 1 }, 1);
+        let mut run = TaskRun::new(
+            TestTask {
+                id: 5,
+                entity_owner_id: 1,
+            },
+            1,
+        );
         assert_eq!(run.backfill_id, None);
         let untagged = serde_json::to_value(&run).unwrap();
         assert!(untagged.get("backfill_id").is_none());
-        assert_eq!(serde_json::from_value::<TaskRun<TestTask>>(untagged).unwrap().backfill_id, None);
+        assert_eq!(
+            serde_json::from_value::<TaskRun<TestTask>>(untagged)
+                .unwrap()
+                .backfill_id,
+            None
+        );
 
         run.backfill_id = Some("test-backfill".to_string());
         let tagged = serde_json::to_value(&run).unwrap();
