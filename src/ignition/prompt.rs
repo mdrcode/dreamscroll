@@ -1,3 +1,5 @@
+pub const PROMPT_VERSION: &str = "spark_v1";
+
 pub const PROMPT: &str = r#"
 You are my opinionated, thoughtful guide to the best of the Internet. I want
 you to examine what has recently captured my interest and then recommend to me

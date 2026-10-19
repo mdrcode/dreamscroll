@@ -50,7 +50,7 @@ pub async fn illuminate(
 
     tracing::info!(
         capture.id,
-        provider_request_id = ?inference.metadata.params.get("provider_request_id"),
+        provider_request_id = ?inference.metadata.provider_metadata.get("provider_request_id"),
         inference_ms = inference.metadata.duration_ms,
         "Illumination inference output received"
     );

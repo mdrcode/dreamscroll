@@ -1,17 +1,17 @@
 # General inference metadata
 
-**Status:** implemented. TaskRun-backed illumination, Spark, and search-index embedding requests append usage metadata. Schema version 3 requires explicit `dreamscroll_admin sync_schema`; no historical metadata migration.
+**Status:** implemented. TaskRun-backed illumination, Spark, and search-index embedding requests append usage metadata. Schema version 5 requires explicit `dreamscroll_admin sync_schema`; no historical metadata migration.
 
 ## Goal
 
-Replace illumination-specific provider bookkeeping with one `InferenceMeta` entity that records useful metadata for any model inference operation. Keep typed, queryable fields for provider/model identity, duration, and normalized token counts; put request/task-specific details in JSONB `params`.
+Replace illumination-specific provider bookkeeping with one `InferenceMeta` entity that records useful metadata for any model inference operation. Keep typed, queryable fields for provider/model identity, duration, and normalized token counts; put additional request configuration in JSONB `params` and provider-reported details in JSONB `provider_metadata`.
 
 ## Current state
 
 - `src/model/inference_meta.rs` owns the shared `inference_metas` usage ledger; the illumination- and Spark-specific metadata entities are retired.
 - `llms::InferenceOutcome<T>`, declared with the request/client contracts in `src/llms/inference.rs`, carries metadata separately from `output: anyhow::Result<T>`, so provider-output and typed-validation errors do not discard available usage. `InferenceClient::infer` returns `anyhow::Result<InferenceOutcome<serde_json::Value>>` directly, without a response alias. The outer result handles failures before a usable response is available.
 - Typed v1/v2 illumination values expose inherent `raw_json()` and `to_markdown()` methods. Raw persistence takes `&serde_json::Value` directly; no shared result/presentation trait is needed under `llms`.
-- Gemini Interactions, Gemini/xAI Spark, and Vertex embedding adapters normalize response usage and retain the original usage object in `params.provider_usage`.
+- Gemini Interactions, Gemini/xAI Spark, and Vertex embedding adapters normalize response usage and retain the original usage object in `provider_metadata.provider_usage`.
 - TaskRun orchestration uses `ServiceApiClient::record_inference` for one shared best-effort append before propagating output errors or writing results. Direct CLI inference and inline query embeddings do not persist usage.
 - `TaskRun.run_id` is the stable string UUID used by result rows. It is distinct from the database-native `task_runs.id` primary key.
 
@@ -34,7 +34,8 @@ inference_metas(
   tokens_in BIGINT NULL,
   tokens_in_cached BIGINT NULL,
   tokens_out BIGINT NULL,
-  params JSONB NOT NULL DEFAULT '{}'
+  params JSONB NOT NULL DEFAULT '{}',
+  provider_metadata JSONB NOT NULL DEFAULT '{}'
 )
 ```
 
@@ -44,7 +45,8 @@ inference_metas(
 - Keep illumination's logical upsert semantics: one `illumination_raws` row and one v2 `illuminations` projection per TaskRun. Both store their own nullable `inference_meta_id` FK identifying the request that produced their retained content. Raw and projection writes can succeed independently, so provenance is not inferred through their shared run ID. Each upsert replaces or clears its own link alongside its content; the projection does so inside its existing transaction. Spark stores the same nullable FK directly on `sparks`. Metadata itself is append-only, including calls whose output fails validation or persistence.
 - Keep token values nullable. `NULL` means the provider did not report that measure; do not invent a zero or silently substitute a locally estimated count.
 - Define `tokens_in` as the provider-reported total input count, including cached input when the provider defines it that way. `tokens_in_cached` is a subset, never an extra amount to add. `tokens_out` follows the provider's own output-token definition. No separate `tokens_out_cached` column: current providers expose no such count, and cached response replay is a different request-level concern.
-- `params` is `{}` by default. Store task-specific values such as `prompt_version`, `provider_request_id`, raw provider usage, tool/grounding details, and Spark's `input_capture_count` there. Preserve raw usage when available so normalized fields remain auditable and future parsing can be corrected.
+- `params` is `{}` by default and contains only additional request configuration: `prompt_version`, configured tools, response format/schema, and embedding task type/dimensions. Illumination keeps its existing prompt versions; Spark identifies the shared prompt as `spark_v1`. Capture counts, input prompts/media, credentials, and response data are excluded.
+- `provider_metadata` is `{}` by default and contains raw `provider_usage`, `provider_request_id`, and `provider_grounding` (including citations/annotations) when available. Preserve raw usage so normalized fields remain auditable and future parsing can be corrected.
 - Provider identity is `gemini` or `xai`; backend is `developer_api`, `vertex`, or `responses`. Model is the actual request model. Duration measures HTTP send through complete response-body receipt, excluding application validation and database persistence.
 - Every currently persisted record has a user ID, run ID, claimed attempt, and task type. Run/attempt/type remain nullable in the general entity, but non-TaskRun persistence is outside this implementation.
 - Keep the Rust persistence entity named `model::inference_meta::Model` / `InferenceMeta`; avoid conflating it with the existing `llms::InferenceMetadata` request-result value type.
@@ -53,7 +55,7 @@ Store one row per provider inference request, not one row per TaskRun or attempt
 
 ## Provider usage research and normalization
 
-Always normalize from response usage fields, not estimated prompt tokenization or `total_tokens` arithmetic. Keep the original provider usage object in `params.provider_usage` where supplied.
+Always normalize from response usage fields, not estimated prompt tokenization or `total_tokens` arithmetic. Keep the original provider usage object in `provider_metadata.provider_usage` where supplied.
 
 | Current operation / API | Input (`tokens_in`) | Cached input (`tokens_in_cached`) | Output (`tokens_out`) |
 | --- | --- | --- | --- |
@@ -84,8 +86,8 @@ Research sources (official provider references):
 1. Worker webhooks pass a borrowed `&TaskRun<T>` envelope and the attempt returned by `begin_attempt` into illumination, Spark, and search-index logic. Logic reads the task and stable run ID from that envelope; attempt stays separate because it identifies the current execution, not the queued run. No second run ID is added to task payloads; mutable task status is not reread to infer request provenance.
 2. Provider adapters return an outcome containing metadata even when valid response JSON contains no usable output, malformed generated JSON, or an HTTP error. Typed illumination validation also preserves the outcome metadata. Transport/body/invalid-response-JSON errors without usable usage remain ordinary errors.
 3. Orchestration appends metadata independently of result writes. An insert failure logs a warning and returns no metadata ID; it does not change the inference result or retry policy. Later output persistence failures do not roll back the usage record.
-4. Raw illumination and the relational v2 projection each upsert their content and metadata ID together. Spark stores the metadata ID on its result row; readers load `inference_meta`. `SparkMetaInfo` exposes provider/backend/model, duration, nullable `i64` counts, and JSON params. The obsolete normalized `total_tokens` field is removed; original provider totals remain in raw usage.
-5. The operator manually removes obsolete metadata tables (`illumination_metas`, `spark_metas`) and removes the old bookkeeping columns from `illumination_raws`, or drops/recreates affected prototype tables. Then explicit `dreamscroll_admin sync_schema` creates the current schema, ensures the non-unique `(task_run_id, attempt)` index, and records schema version 3. Sync contains no inference-specific table/column drops. Version 3 adds the nullable FK to `illuminations`; retained version-2 projection content receives NULL provenance, without guessing historical associations.
+4. Raw illumination and the relational v2 projection each upsert their content and metadata ID together. Spark stores the metadata ID on its result row; readers load `inference_meta`. `SparkMetaInfo` exposes provider/backend/model, duration, nullable `i64` counts, request `params`, and separate `provider_metadata`. The obsolete normalized `total_tokens` field is removed; original provider totals remain in raw usage.
+5. For the original metadata cutover, the operator manually removes obsolete metadata tables (`illumination_metas`, `spark_metas`) and old bookkeeping columns from `illumination_raws`, or drops/recreates affected prototype tables. Explicit `dreamscroll_admin sync_schema` creates the current schema, ensures the non-unique `(task_run_id, attempt)` index, and records schema version 5. Sync contains no inference-specific table/column drops. Version 3 added the nullable FK to `illuminations`; version 5 names the separate provider-details column `inference_metas.provider_metadata`, with an empty-object default. Upgrading from version 3 or 4 requires only schema sync, not table drops. Existing `params` values are left untouched; the request-only contract applies to newly recorded requests. If the earlier version-4 column was already created, its contents are not transferred and that obsolete column can be removed manually.
 
 SeaORM sync is additive and cannot remove retired tables/columns. Manual cleanup must also address the old required columns on `illumination_raws`; dropping only the retired metadata tables is insufficient for new inserts. Do not start the new binary before cleanup and sync. No automatic service-startup DDL or migration dependency is introduced.
 
@@ -103,3 +105,5 @@ SeaORM sync is additive and cannot remove retired tables/columns. Manual cleanup
 - Before automatic cleanup was removed, an approved throwaway-schema smoke exercised the destructive cutover, multiple requests sharing a run/attempt, exact raw-result association, warning-and-continue bookkeeping failure with a cleared result link, and Spark result association. The temporary schema and smoke source were removed; no real provider calls or app-database cutover were performed. Destructive cleanup is now manual.
 - Projection-provenance follow-up: `cargo check --all-targets` and the focused persistence regression passed. An approved throwaway-schema smoke verified the version-2 schema upgrade preserves projection content, retry replacements update exact provenance, and metadata-free replacements clear the old link. Its temporary schema and source were removed.
 - Result-trait cleanup: all callers now use inherent illumination methods and raw JSON persistence; `cargo check --all-targets` passed. No unit tests were run for this plumbing-only change.
+- Request/response separation: `cargo test --lib -- --nocapture` passed 259 tests, including an approved temporary-schema smoke that exercised the version-3 upgrade, empty response-metadata defaults on legacy rows, separate request/response persistence, repeated sync preservation, and explicit schema removal. The temporary smoke source was removed; `cargo check --all-targets` then passed. No provider calls or app-table changes were made.
+- Provider-metadata naming: renamed the in-memory field, persisted column, API field, and callers to `provider_metadata`; schema version 5 requires explicit sync. `cargo check --all-targets` passed. No unit tests or smoke checks were rerun for this naming-only change.

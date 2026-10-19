@@ -45,7 +45,7 @@ impl InferenceClient for TestInferenceClient {
                 provider_name: self.provider_name().to_string(),
                 backend_name: self.backend_name().to_string(),
                 model_id: request.model_id.to_string(),
-                params: serde_json::Map::from_iter([(
+                provider_metadata: serde_json::Map::from_iter([(
                     "provider_request_id".to_string(),
                     Value::String(format!("test-inference-{call}")),
                 )]),

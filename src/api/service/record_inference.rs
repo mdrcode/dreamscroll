@@ -24,6 +24,7 @@ pub async fn record_inference(
         tokens_in_cached: Set(metadata.tokens_in_cached),
         tokens_out: Set(metadata.tokens_out),
         params: Set(serde_json::Value::Object(metadata.params)),
+        provider_metadata: Set(serde_json::Value::Object(metadata.provider_metadata)),
         ..Default::default()
     }
     .insert(&db.conn)

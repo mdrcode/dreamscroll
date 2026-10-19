@@ -249,12 +249,12 @@ mod tests {
         assert_eq!(failed_metadata.backend, "test");
         assert_eq!(failed_metadata.model, "test-model");
         assert_eq!(
-            failed_metadata.params["provider_request_id"],
+            failed_metadata.provider_metadata["provider_request_id"],
             serde_json::json!("test-inference-0")
         );
         assert_eq!(
-            failed_metadata.params["prompt_version"],
-            serde_json::json!("capture_illumination_v2")
+            failed_metadata.params,
+            serde_json::json!({"prompt_version": "capture_illumination_v2"})
         );
 
         let successful_attempt = crate::webhook::r_illuminate::post(

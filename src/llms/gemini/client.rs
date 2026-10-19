@@ -177,6 +177,7 @@ impl GeminiInferenceClient {
             self.backend_name(),
             model_id,
             duration_ms,
+            body,
         ))
     }
 }
@@ -237,6 +238,7 @@ fn inference_response(
     backend_name: &str,
     model_id: &str,
     duration_ms: i64,
+    request_body: Value,
 ) -> InferenceOutcome<Value> {
     let mut metadata = InferenceMetadata {
         provider_name: "gemini".to_string(),
@@ -245,13 +247,18 @@ fn inference_response(
         duration_ms,
         ..Default::default()
     };
+    if let Value::Object(mut params) = request_body {
+        params.remove("input");
+        params.remove("model");
+        metadata.params = params;
+    }
     if let Some(id) = response
         .get_mut("id")
         .map(Value::take)
         .filter(Value::is_string)
     {
         metadata
-            .params
+            .provider_metadata
             .insert("provider_request_id".to_string(), id);
     }
     if let Some(usage) = response
@@ -262,7 +269,9 @@ fn inference_response(
         metadata.tokens_in = usage.get("total_input_tokens").and_then(Value::as_i64);
         metadata.tokens_in_cached = usage.get("total_cached_tokens").and_then(Value::as_i64);
         metadata.tokens_out = usage.get("total_output_tokens").and_then(Value::as_i64);
-        metadata.params.insert("provider_usage".to_string(), usage);
+        metadata
+            .provider_metadata
+            .insert("provider_usage".to_string(), usage);
     }
 
     let output = if status.is_success() {
@@ -295,6 +304,7 @@ mod tests {
         };
         let input = [InferenceInput::Text("hello")];
         let capabilities = [InferenceCapability::WebSearch];
+        let schema = json!({"type": "object", "properties": {"summary": {"type": "string"}}});
 
         for model_id in ["model-a", "model-b"] {
             let payload = serde_json::to_vec(&IlluminationTask::new(
@@ -309,7 +319,7 @@ mod tests {
             let request = InferenceRequest {
                 model_id: &task.model_id,
                 input: &input,
-                response_schema: None,
+                response_schema: Some(&schema),
                 capabilities: &capabilities,
             };
 
@@ -317,6 +327,32 @@ mod tests {
             assert_eq!(body["model"], model_id);
             assert!(!body["store"].as_bool().unwrap());
             assert_eq!(body["tools"], json!([{"type": "google_search"}]));
+            let outcome = inference_response(
+                json!({"usage": {"total_input_tokens": 1}}),
+                reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+                "developer_api",
+                model_id,
+                1,
+                body,
+            );
+            assert!(outcome.output.is_err());
+            assert_eq!(
+                outcome.metadata.params,
+                json!({
+                    "store": false,
+                    "tools": [{"type": "google_search"}],
+                    "response_format": {
+                        "type": "text", "mime_type": "application/json", "schema": schema,
+                    },
+                })
+                .as_object()
+                .unwrap()
+                .clone()
+            );
+            assert_eq!(
+                outcome.metadata.provider_metadata["provider_usage"],
+                json!({"total_input_tokens": 1})
+            );
         }
     }
 
@@ -360,6 +396,8 @@ mod tests {
             "vertex",
             "model-a",
             42,
+            json!({"model": "model-a", "input": [{"text": "private prompt"}], "store": false,
+                "response_format": {"type": "object"}, "response_mime_type": "application/json"}),
         );
 
         assert_eq!(response.output.unwrap(), json!({"summary": "Ada"}));
@@ -371,10 +409,18 @@ mod tests {
         assert_eq!(response.metadata.tokens_in_cached, Some(3));
         assert_eq!(response.metadata.tokens_out, Some(7));
         assert_eq!(
-            response.metadata.params["provider_request_id"],
+            response.metadata.provider_metadata["provider_request_id"],
             json!("interaction-123")
         );
-        assert_eq!(response.metadata.params["provider_usage"], usage);
+        assert_eq!(response.metadata.provider_metadata["provider_usage"], usage);
+        assert_eq!(
+            response.metadata.params,
+            json!({"store": false,
+            "response_format": {"type": "object"}, "response_mime_type": "application/json"})
+            .as_object()
+            .unwrap()
+            .clone()
+        );
     }
 
     #[test]
@@ -397,15 +443,26 @@ mod tests {
                 "developer_api",
                 "model-a",
                 1,
+                json!({}),
             );
             assert_eq!(response.metadata.tokens_in, None);
             assert_eq!(response.metadata.tokens_in_cached, None);
             assert_eq!(response.metadata.tokens_out, None);
-            assert!(!response.metadata.params.contains_key("provider_request_id"));
+            assert!(
+                !response
+                    .metadata
+                    .provider_metadata
+                    .contains_key("provider_request_id")
+            );
             if usage.is_null() {
-                assert!(!response.metadata.params.contains_key("provider_usage"));
+                assert!(
+                    !response
+                        .metadata
+                        .provider_metadata
+                        .contains_key("provider_usage")
+                );
             } else {
-                assert_eq!(response.metadata.params["provider_usage"], usage);
+                assert_eq!(response.metadata.provider_metadata["provider_usage"], usage);
             }
         }
         let response = inference_response(
@@ -414,6 +471,7 @@ mod tests {
             "developer_api",
             "model-a",
             1,
+            json!({}),
         );
         assert_eq!(response.metadata.tokens_in, None);
         assert_eq!(response.metadata.tokens_in_cached, None);
@@ -433,6 +491,7 @@ mod tests {
             "developer_api",
             "model-a",
             1,
+            json!({}),
         );
         assert_eq!(response.metadata.tokens_in, Some(4_000_000_000));
         assert_eq!(response.metadata.tokens_in_cached, Some(3_000_000_000));
@@ -456,17 +515,27 @@ mod tests {
                 "developer_api",
                 "model-a",
                 1,
+                json!({"model": "model-a", "input": [{"text": "private prompt"}],
+                    "store": false, "tools": [{"type": "google_search"}]}),
             );
             assert!(response.output.is_err());
             assert_eq!(response.metadata.tokens_in, Some(12));
             assert_eq!(response.metadata.tokens_out, Some(7));
             assert_eq!(
-                response.metadata.params["provider_request_id"],
+                response.metadata.provider_metadata["provider_request_id"],
                 json!("interaction-failed")
             );
             assert_eq!(
-                response.metadata.params["provider_usage"]["total_input_tokens"],
+                response.metadata.provider_metadata["provider_usage"]["total_input_tokens"],
                 json!(12)
+            );
+            assert_eq!(
+                response.metadata.params,
+                json!({"store": false,
+                "tools": [{"type": "google_search"}]})
+                .as_object()
+                .unwrap()
+                .clone()
             );
         }
     }
@@ -483,18 +552,23 @@ mod tests {
             "developer_api",
             "model-a",
             1,
+            json!({"model": "model-a", "input": [{"text": "private prompt"}], "store": false}),
         );
         assert!(response.output.unwrap_err().to_string().contains("500"));
         assert_eq!(response.metadata.tokens_in, Some(12));
         assert_eq!(response.metadata.tokens_in_cached, Some(2));
         assert_eq!(response.metadata.tokens_out, Some(7));
         assert_eq!(
-            response.metadata.params["provider_request_id"],
+            response.metadata.provider_metadata["provider_request_id"],
             json!("interaction-error")
         );
         assert_eq!(
-            response.metadata.params["provider_usage"]["total_input_tokens"],
+            response.metadata.provider_metadata["provider_usage"]["total_input_tokens"],
             json!(12)
+        );
+        assert_eq!(
+            response.metadata.params,
+            json!({"store": false}).as_object().unwrap().clone()
         );
     }
 }

@@ -170,7 +170,9 @@ fn embedding_response(
         ))
     };
     if let Some(usage) = json.get_mut("usageMetadata").map(Value::take) {
-        metadata.params.insert("provider_usage".to_owned(), usage);
+        metadata
+            .provider_metadata
+            .insert("provider_usage".to_owned(), usage);
     }
     metadata
         .params
@@ -229,7 +231,17 @@ mod tests {
         assert_eq!(outcome.metadata.tokens_in, Some(5_000_000_000));
         assert_eq!(outcome.metadata.tokens_in_cached, None);
         assert_eq!(outcome.metadata.tokens_out, None);
-        assert_eq!(outcome.metadata.params["provider_usage"], usage);
+        assert_eq!(outcome.metadata.provider_metadata["provider_usage"], usage);
+        assert_eq!(
+            outcome.metadata.params,
+            json!({
+                "embedding_task_type": TASK_TYPE_RETRIEVAL_DOCUMENT,
+                "output_dimensions": 3,
+            })
+            .as_object()
+            .unwrap()
+            .clone()
+        );
     }
 
     #[test]

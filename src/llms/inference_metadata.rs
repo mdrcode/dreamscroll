@@ -9,5 +9,7 @@ pub struct InferenceMetadata {
     pub backend_name: String,
     pub model_id: String,
     pub duration_ms: i64,
+    /// Additional request configuration, including prompt_version; never response data.
     pub params: serde_json::Map<String, Value>,
+    pub provider_metadata: serde_json::Map<String, Value>,
 }

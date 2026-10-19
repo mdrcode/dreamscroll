@@ -33,7 +33,6 @@ impl Firestarter for GrokFirestarter {
         &self,
         captures: Vec<crate::api::CaptureInfo>,
     ) -> anyhow::Result<InferenceOutcome<SparkResponse>> {
-        let input_capture_count = captures.len();
         let user_prompt = util::append_captures_to_user_prompt(prompt::PROMPT, captures);
 
         let request_body = GrokRequest {
@@ -53,6 +52,11 @@ impl Firestarter for GrokFirestarter {
                 },
             },
         };
+        let params = serde_json::Map::from_iter([
+            ("prompt_version".to_string(), json!(prompt::PROMPT_VERSION)),
+            ("tools".to_string(), json!(&request_body.tools)),
+            ("text".to_string(), json!(&request_body.text)),
+        ]);
 
         let started = std::time::Instant::now();
         let response = self
@@ -73,7 +77,7 @@ impl Firestarter for GrokFirestarter {
             status,
             self.model_id,
             duration_ms,
-            input_capture_count,
+            params,
         ))
     }
 }
@@ -105,19 +109,16 @@ fn parse_grok_response(
     status: reqwest::StatusCode,
     model_id: &str,
     duration_ms: i64,
-    input_capture_count: usize,
+    params: serde_json::Map<String, serde_json::Value>,
 ) -> InferenceOutcome<SparkResponse> {
     let mut metadata = InferenceMetadata {
         provider_name: "xai".to_string(),
         backend_name: "responses".to_string(),
         model_id: model_id.to_string(),
         duration_ms,
+        params,
         ..Default::default()
     };
-    metadata.params.insert(
-        "input_capture_count".to_string(),
-        json!(input_capture_count),
-    );
     if let Some(usage) = response
         .get_mut("usage")
         .map(serde_json::Value::take)
@@ -133,11 +134,13 @@ fn parse_grok_response(
         metadata.tokens_out = usage
             .get("output_tokens")
             .and_then(serde_json::Value::as_i64);
-        metadata.params.insert("provider_usage".to_string(), usage);
+        metadata
+            .provider_metadata
+            .insert("provider_usage".to_string(), usage);
     }
     if let Some(id) = response.get("id").and_then(serde_json::Value::as_str) {
         metadata
-            .params
+            .provider_metadata
             .insert("provider_request_id".to_string(), json!(id));
     }
     let mut grounding = serde_json::Map::new();
@@ -166,7 +169,7 @@ fn parse_grok_response(
     }
     if !grounding.is_empty() {
         metadata
-            .params
+            .provider_metadata
             .insert("provider_grounding".to_string(), grounding.into());
     }
 
@@ -280,8 +283,15 @@ mod tests {
             reqwest::StatusCode::OK,
             "grok-4-1-fast-reasoning",
             123,
-            4,
+            request_params(),
         )
+    }
+
+    fn request_params() -> serde_json::Map<String, serde_json::Value> {
+        serde_json::Map::from_iter([
+            ("prompt_version".to_string(), json!(prompt::PROMPT_VERSION)),
+            ("tools".to_string(), json!([{"type": "web_search"}])),
+        ])
     }
 
     #[test]
@@ -316,11 +326,14 @@ mod tests {
         assert_eq!(metadata.tokens_in, Some(5_000_000_000));
         assert_eq!(metadata.tokens_in_cached, Some(4_000_000_000));
         assert_eq!(metadata.tokens_out, Some(42));
-        assert_eq!(metadata.params["input_capture_count"], 4);
-        assert_eq!(metadata.params["provider_request_id"], "xai-request");
-        assert_eq!(metadata.params["provider_usage"], usage);
+        assert_eq!(metadata.params, request_params());
         assert_eq!(
-            metadata.params["provider_grounding"],
+            metadata.provider_metadata["provider_request_id"],
+            "xai-request"
+        );
+        assert_eq!(metadata.provider_metadata["provider_usage"], usage);
+        assert_eq!(
+            metadata.provider_metadata["provider_grounding"],
             json!({
                 "citations": citations,
                 "annotations": [annotation]
@@ -364,7 +377,8 @@ mod tests {
             assert_eq!(outcome.metadata.tokens_in, Some(20));
             assert_eq!(outcome.metadata.tokens_in_cached, Some(8));
             assert_eq!(outcome.metadata.tokens_out, None);
-            assert_eq!(outcome.metadata.params["provider_usage"], usage);
+            assert_eq!(outcome.metadata.params, request_params());
+            assert_eq!(outcome.metadata.provider_metadata["provider_usage"], usage);
         }
     }
 
@@ -374,6 +388,7 @@ mod tests {
         let outcome = parse_grok_response(
             json!({
                 "error": {"message": "failed"},
+                "id": "failed-xai-request",
                 "usage": {"input_tokens": 7},
                 "output": [{"type": "message", "content": [{
                     "type": "output_text", "annotations": annotations
@@ -382,7 +397,7 @@ mod tests {
             reqwest::StatusCode::BAD_REQUEST,
             "grok-4-1-fast-reasoning",
             12,
-            1,
+            request_params(),
         );
         assert!(
             outcome
@@ -392,8 +407,17 @@ mod tests {
                 .contains("XAI API error")
         );
         assert_eq!(outcome.metadata.tokens_in, Some(7));
+        assert_eq!(outcome.metadata.params, request_params());
         assert_eq!(
-            outcome.metadata.params["provider_grounding"]["annotations"],
+            outcome.metadata.provider_metadata["provider_request_id"],
+            "failed-xai-request"
+        );
+        assert_eq!(
+            outcome.metadata.provider_metadata["provider_usage"],
+            json!({"input_tokens": 7})
+        );
+        assert_eq!(
+            outcome.metadata.provider_metadata["provider_grounding"]["annotations"],
             annotations
         );
     }

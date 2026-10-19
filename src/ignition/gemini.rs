@@ -35,7 +35,6 @@ impl Firestarter for GeminiFirestarter {
         &self,
         captures: Vec<crate::api::CaptureInfo>,
     ) -> anyhow::Result<InferenceOutcome<SparkResponse>> {
-        let input_capture_count = captures.len();
         let user_prompt = util::append_captures_to_user_prompt(prompt::PROMPT, captures);
 
         let request_body = GenerateContentRequest {
@@ -52,6 +51,14 @@ impl Firestarter for GeminiFirestarter {
                 response_schema: spark_output_schema_gemini(),
             },
         };
+        let params = serde_json::Map::from_iter([
+            ("prompt_version".to_string(), json!(prompt::PROMPT_VERSION)),
+            ("tools".to_string(), json!(&request_body.tools)),
+            (
+                "generationConfig".to_string(),
+                json!(&request_body.generation_config),
+            ),
+        ]);
 
         let model_url = format!(
             "https://generativelanguage.googleapis.com/v1beta/models/{}:generateContent",
@@ -84,7 +91,7 @@ impl Firestarter for GeminiFirestarter {
             status,
             &self.model_id,
             duration_ms,
-            input_capture_count,
+            params,
         ))
     }
 }
@@ -94,19 +101,16 @@ fn parse_gemini_response(
     status: reqwest::StatusCode,
     model_id: &str,
     duration_ms: i64,
-    input_capture_count: usize,
+    params: serde_json::Map<String, serde_json::Value>,
 ) -> InferenceOutcome<SparkResponse> {
     let mut metadata = InferenceMetadata {
         provider_name: "gemini".to_string(),
         backend_name: "developer_api".to_string(),
         model_id: model_id.to_string(),
         duration_ms,
+        params,
         ..Default::default()
     };
-    metadata.params.insert(
-        "input_capture_count".to_string(),
-        json!(input_capture_count),
-    );
     if let Some(usage) = response
         .get_mut("usageMetadata")
         .map(serde_json::Value::take)
@@ -121,14 +125,16 @@ fn parse_gemini_response(
         metadata.tokens_out = usage
             .get("candidatesTokenCount")
             .and_then(serde_json::Value::as_i64);
-        metadata.params.insert("provider_usage".to_string(), usage);
+        metadata
+            .provider_metadata
+            .insert("provider_usage".to_string(), usage);
     }
     if let Some(id) = response
         .get("responseId")
         .and_then(serde_json::Value::as_str)
     {
         metadata
-            .params
+            .provider_metadata
             .insert("provider_request_id".to_string(), json!(id));
     }
     if let Some(candidates) = response
@@ -143,7 +149,7 @@ fn parse_gemini_response(
             .collect::<Vec<_>>();
         if !grounding.is_empty() {
             metadata
-                .params
+                .provider_metadata
                 .insert("provider_grounding".to_string(), json!(grounding));
         }
     }
@@ -260,8 +266,15 @@ mod tests {
             reqwest::StatusCode::OK,
             "gemini-3-flash-preview",
             123,
-            4,
+            request_params(),
         )
+    }
+
+    fn request_params() -> serde_json::Map<String, serde_json::Value> {
+        serde_json::Map::from_iter([
+            ("prompt_version".to_string(), json!(prompt::PROMPT_VERSION)),
+            ("tools".to_string(), json!([{"google_search": {}}])),
+        ])
     }
 
     #[test]
@@ -294,10 +307,16 @@ mod tests {
         assert_eq!(metadata.tokens_in, Some(5_000_000_000));
         assert_eq!(metadata.tokens_in_cached, Some(4_000_000_000));
         assert_eq!(metadata.tokens_out, Some(42));
-        assert_eq!(metadata.params["input_capture_count"], 4);
-        assert_eq!(metadata.params["provider_request_id"], "gemini-request");
-        assert_eq!(metadata.params["provider_usage"], usage);
-        assert_eq!(metadata.params["provider_grounding"], json!([grounding]));
+        assert_eq!(metadata.params, request_params());
+        assert_eq!(
+            metadata.provider_metadata["provider_request_id"],
+            "gemini-request"
+        );
+        assert_eq!(metadata.provider_metadata["provider_usage"], usage);
+        assert_eq!(
+            metadata.provider_metadata["provider_grounding"],
+            json!([grounding])
+        );
     }
 
     #[test]
@@ -335,7 +354,8 @@ mod tests {
             assert_eq!(outcome.metadata.tokens_in, Some(20));
             assert_eq!(outcome.metadata.tokens_in_cached, Some(8));
             assert_eq!(outcome.metadata.tokens_out, None);
-            assert_eq!(outcome.metadata.params["provider_usage"], usage);
+            assert_eq!(outcome.metadata.params, request_params());
+            assert_eq!(outcome.metadata.provider_metadata["provider_usage"], usage);
         }
     }
 
@@ -345,13 +365,14 @@ mod tests {
         let outcome = parse_gemini_response(
             json!({
                 "error": {"message": "failed"},
+                "responseId": "failed-gemini-request",
                 "usageMetadata": {"promptTokenCount": 7},
                 "candidates": [{"groundingMetadata": grounding}]
             }),
             reqwest::StatusCode::BAD_REQUEST,
             "gemini-3-flash-preview",
             12,
-            1,
+            request_params(),
         );
         assert!(
             outcome
@@ -361,8 +382,17 @@ mod tests {
                 .contains("Gemini API error")
         );
         assert_eq!(outcome.metadata.tokens_in, Some(7));
+        assert_eq!(outcome.metadata.params, request_params());
         assert_eq!(
-            outcome.metadata.params["provider_grounding"],
+            outcome.metadata.provider_metadata["provider_request_id"],
+            "failed-gemini-request"
+        );
+        assert_eq!(
+            outcome.metadata.provider_metadata["provider_usage"],
+            json!({"promptTokenCount": 7})
+        );
+        assert_eq!(
+            outcome.metadata.provider_metadata["provider_grounding"],
             json!([grounding])
         );
     }

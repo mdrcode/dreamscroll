@@ -63,7 +63,7 @@ PostgreSQL transaction:
    model-declared constraints.
 3. Run the additive SeaORM model registry sync.
 4. Recreate/ensure every registered application-managed index, including the non-unique inference run/attempt index.
-5. Upsert `dreamscroll_schema_version` with `REQUIRED_SCHEMA_VERSION` (currently 3).
+5. Upsert `dreamscroll_schema_version` with `REQUIRED_SCHEMA_VERSION` (currently 5).
 
 The application requires a minimum schema version. `database::connect` checks
 the marker before migrating the Tower Sessions store or starting the web app.
@@ -83,6 +83,14 @@ Schema version 3 adds nullable `illuminations.inference_meta_id`. Existing
 projection content is retained with a NULL link; future projection writes update
 the link in the same transaction as content. Raw results keep their independent
 link, since raw and projection writes need not succeed together.
+
+Schema version 5 names the non-null JSONB provider-details column
+`inference_metas.provider_metadata`, with an empty-object default. New inference
+rows separate request-only `params` (including `prompt_version`) from provider
+usage, IDs, and grounding in `provider_metadata`. Run explicit schema sync; no
+table drops are needed for the version-3 or version-4 upgrade. Historical `params`
+values are not rewritten, and data from the earlier version-4 column is not
+transferred. If that obsolete column exists, its removal remains manual.
 
 The transaction prevents other sessions from observing the temporary absence of
 the custom unique index and rolls back partial DDL on failure. It still holds
