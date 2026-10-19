@@ -127,6 +127,10 @@ impl GeminiInferenceClient {
             body["tools"] = json!(tools);
         }
 
+        if let Some(thinking_level) = request.thinking_level {
+            body["generation_config"] = json!({"thinking_level": thinking_level});
+        }
+
         if let Some(schema) = request.response_schema {
             match &self.backend {
                 Backend::DeveloperApi { .. } => {
@@ -297,7 +301,7 @@ mod tests {
     use crate::{illumination::IlluminationVersion, logic::illuminate::IlluminationTask};
 
     #[test]
-    fn generic_request_uses_selected_model_and_maps_web_search() {
+    fn generic_request_uses_selected_model_and_maps_web_search_and_thinking() {
         let client = GeminiInferenceClient {
             backend: Backend::DeveloperApi {
                 api_key: "test-key".to_string(),
@@ -309,50 +313,65 @@ mod tests {
         let schema = json!({"type": "object", "properties": {"summary": {"type": "string"}}});
 
         for model_id in ["model-a", "model-b"] {
-            let payload = serde_json::to_vec(&IlluminationTask::new(
-                123,
-                1,
-                model_id,
-                IlluminationVersion::V1,
-            ))
-            .expect("task payload should serialize");
-            let task: IlluminationTask =
-                serde_json::from_slice(&payload).expect("task payload should deserialize");
-            let request = InferenceRequest {
-                model_id: &task.model_id,
-                input: &input,
-                response_schema: Some(&schema),
-                capabilities: &capabilities,
-            };
+            for (level, expected) in [
+                (None, None),
+                (Some(gemini::ThinkingLevel::Minimal), Some("minimal")),
+                (Some(gemini::ThinkingLevel::Low), Some("low")),
+                (Some(gemini::ThinkingLevel::Medium), Some("medium")),
+                (Some(gemini::ThinkingLevel::High), Some("high")),
+            ] {
+                let mut task = IlluminationTask::new(123, 1, model_id, IlluminationVersion::V1);
+                if let Some(level) = level {
+                    task.thinking_level = Some(level);
+                }
+                let payload = serde_json::to_value(task).expect("task payload should serialize");
+                if expected.is_none() {
+                    assert!(payload.get("thinking_level").is_none());
+                }
+                let task: IlluminationTask =
+                    serde_json::from_value(payload).expect("task payload should deserialize");
+                let request = InferenceRequest {
+                    model_id: &task.model_id,
+                    input: &input,
+                    response_schema: Some(&schema),
+                    capabilities: &capabilities,
+                    thinking_level: task.thinking_level,
+                };
 
-            let body = client.interaction_body(&request).unwrap();
-            assert_eq!(body["model"], model_id);
-            assert!(!body["store"].as_bool().unwrap());
-            assert_eq!(body["tools"], json!([{"type": "google_search"}]));
-            assert_eq!(body["response_format"]["schema"], schema);
-            let outcome = inference_response(
-                json!({"usage": {"total_input_tokens": 1}}),
-                reqwest::StatusCode::INTERNAL_SERVER_ERROR,
-                "developer_api",
-                model_id,
-                1,
-                body,
-            );
-            assert!(outcome.output.is_err());
-            assert_eq!(
-                outcome.metadata.params,
-                json!({
+                let body = client.interaction_body(&request).unwrap();
+                assert_eq!(body["model"], model_id);
+                assert!(!body["store"].as_bool().unwrap());
+                assert_eq!(body["tools"], json!([{"type": "google_search"}]));
+                assert_eq!(body["response_format"]["schema"], schema);
+                let mut expected_params = json!({
                     "store": false,
                     "tools": [{"type": "google_search"}],
-                })
-                .as_object()
-                .unwrap()
-                .clone()
-            );
-            assert_eq!(
-                outcome.metadata.provider_metadata["provider_usage"],
-                json!({"total_input_tokens": 1})
-            );
+                });
+                if let Some(expected) = expected {
+                    let config = json!({"thinking_level": expected});
+                    assert_eq!(body["generation_config"], config);
+                    expected_params["generation_config"] = config;
+                } else {
+                    assert!(body.get("generation_config").is_none());
+                }
+                let outcome = inference_response(
+                    json!({"usage": {"total_input_tokens": 1}}),
+                    reqwest::StatusCode::INTERNAL_SERVER_ERROR,
+                    "developer_api",
+                    model_id,
+                    1,
+                    body,
+                );
+                assert!(outcome.output.is_err());
+                assert_eq!(
+                    outcome.metadata.params,
+                    *expected_params.as_object().unwrap()
+                );
+                assert_eq!(
+                    outcome.metadata.provider_metadata["provider_usage"],
+                    json!({"total_input_tokens": 1})
+                );
+            }
         }
     }
 
@@ -397,6 +416,7 @@ mod tests {
             "model-a",
             42,
             json!({"model": "model-a", "input": [{"text": "private prompt"}], "store": false,
+                "generation_config": {"thinking_level": "high"},
                 "response_format": {"type": "object"}, "response_mime_type": "application/json"}),
         );
 
@@ -415,7 +435,10 @@ mod tests {
         assert_eq!(response.metadata.provider_metadata["provider_usage"], usage);
         assert_eq!(
             response.metadata.params,
-            json!({"store": false}).as_object().unwrap().clone()
+            json!({"store": false, "generation_config": {"thinking_level": "high"}})
+                .as_object()
+                .unwrap()
+                .clone()
         );
     }
 

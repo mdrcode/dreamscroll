@@ -39,6 +39,12 @@ struct IlluminateArgs {
     #[argh(description = "illumination prompt version: v1 or v2 (default: v2)")]
     prompt_version: String,
 
+    #[argh(option, long = "thinking-level")]
+    #[argh(
+        description = "reasoning effort: minimal, low, medium, or high (default: provider default)"
+    )]
+    thinking_level: Option<crate::llms::gemini::ThinkingLevel>,
+
     #[argh(option, long = "wait-seconds", default = "60")]
     #[argh(description = "maximum seconds to wait for task completion (default: 60)")]
     wait_seconds: u64,
@@ -59,7 +65,7 @@ async fn run_illumination(state: ApiCmdState, args: IlluminateArgs) -> anyhow::R
     );
     let run_id = state
         .rest_client
-        .enqueue_illuminate(args.capture_id, prompt_version)
+        .enqueue_illuminate(args.capture_id, prompt_version, args.thinking_level)
         .await?;
     eprintln!("Enqueued TaskRun {run_id}.");
 
@@ -127,6 +133,26 @@ fn render_illumination(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn thinking_level_is_optional_and_rejects_unsupported_values() {
+        let parse = |args: &[&str]| IlluminateArgs::from_args(&["inference", "illuminate"], args);
+        assert_eq!(parse(&["42"]).unwrap().thinking_level, None);
+        for (value, expected) in [
+            ("minimal", crate::llms::gemini::ThinkingLevel::Minimal),
+            ("low", crate::llms::gemini::ThinkingLevel::Low),
+            ("medium", crate::llms::gemini::ThinkingLevel::Medium),
+            ("high", crate::llms::gemini::ThinkingLevel::High),
+        ] {
+            assert_eq!(
+                parse(&["42", "--thinking-level", value])
+                    .unwrap()
+                    .thinking_level,
+                Some(expected)
+            );
+        }
+        assert!(parse(&["42", "--thinking-level", "ultra"]).is_err());
+    }
 
     #[test]
     fn parses_supported_prompt_versions() {

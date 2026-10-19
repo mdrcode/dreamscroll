@@ -25,6 +25,7 @@ pub struct IlluminateTaskRequest {
     pub capture_id: i32,
     #[serde(default)]
     pub prompt_version: crate::illumination::IlluminationVersion,
+    pub thinking_level: Option<crate::llms::gemini::ThinkingLevel>,
 }
 
 /// POST /api/queues/illuminate
@@ -35,7 +36,12 @@ pub async fn post_illuminate(
 ) -> Result<impl IntoResponse, api::ApiError> {
     let run_id = state
         .user_api
-        .enqueue_illumination(&user.into(), request.capture_id, request.prompt_version)
+        .enqueue_illumination(
+            &user.into(),
+            request.capture_id,
+            request.prompt_version,
+            request.thinking_level,
+        )
         .await?;
     Ok(accepted_task_run_response(run_id))
 }
@@ -75,6 +81,7 @@ mod tests {
             default.prompt_version,
             crate::illumination::IlluminationVersion::V2
         );
+        assert_eq!(default.thinking_level, None);
 
         for (version, expected) in [
             ("v1", crate::illumination::IlluminationVersion::V1),
@@ -87,6 +94,30 @@ mod tests {
             .unwrap();
             assert_eq!(request.prompt_version, expected);
         }
+    }
+
+    #[test]
+    fn illuminate_request_accepts_typed_thinking_levels_and_rejects_unknown_levels() {
+        for (value, expected) in [
+            ("minimal", crate::llms::gemini::ThinkingLevel::Minimal),
+            ("low", crate::llms::gemini::ThinkingLevel::Low),
+            ("medium", crate::llms::gemini::ThinkingLevel::Medium),
+            ("high", crate::llms::gemini::ThinkingLevel::High),
+        ] {
+            let request: IlluminateTaskRequest = serde_json::from_value(serde_json::json!({
+                "capture_id": 42,
+                "thinking_level": value
+            }))
+            .unwrap();
+            assert_eq!(request.thinking_level, Some(expected));
+        }
+        assert!(
+            serde_json::from_value::<IlluminateTaskRequest>(serde_json::json!({
+                "capture_id": 42,
+                "thinking_level": "ultra"
+            }))
+            .is_err()
+        );
     }
 
     #[tokio::test]

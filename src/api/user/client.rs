@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::anyhow;
 
-use crate::{api::*, auth, database, illumination, logic, search, storage, task};
+use crate::{api::*, auth, database, illumination, llms, logic, search, storage, task};
 
 #[derive(Clone)]
 pub struct UserApiClient {
@@ -346,6 +346,7 @@ impl UserApiClient {
         context: &auth::Context,
         capture_id: i32,
         prompt_version: illumination::IlluminationVersion,
+        thinking_level: Option<llms::gemini::ThinkingLevel>,
     ) -> Result<String, ApiError> {
         let captures = super::get_captures(&self.db, context, vec![capture_id]).await?;
         let Some(capture) = captures.first() else {
@@ -355,7 +356,8 @@ impl UserApiClient {
             )));
         };
 
-        let task = self.illumination_task(capture_id, capture.user_id, prompt_version)?;
+        let mut task = self.illumination_task(capture_id, capture.user_id, prompt_version)?;
+        task.thinking_level = thinking_level;
         match self
             .task_master
             .submit_illuminate(context, task, None)

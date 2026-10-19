@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use reqwest;
 use serde::{Deserialize, Serialize};
 
-use crate::{api, backfill, illumination};
+use crate::{api, backfill, illumination, llms};
 
 // TODO move this client impl into its own file so it's not hiding in mod.rs
 
@@ -40,6 +40,8 @@ struct CaptureTaskRequest {
 struct IlluminateTaskRequest {
     capture_id: i32,
     prompt_version: illumination::IlluminationVersion,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking_level: Option<llms::gemini::ThinkingLevel>,
 }
 
 impl Client {
@@ -328,6 +330,7 @@ impl Client {
         &self,
         capture_id: i32,
         prompt_version: illumination::IlluminationVersion,
+        thinking_level: Option<llms::gemini::ThinkingLevel>,
     ) -> anyhow::Result<String> {
         let response = self
             .reqwest_client
@@ -336,6 +339,7 @@ impl Client {
             .json(&IlluminateTaskRequest {
                 capture_id,
                 prompt_version,
+                thinking_level,
             })
             .send()
             .await

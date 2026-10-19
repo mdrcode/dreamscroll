@@ -14,6 +14,7 @@ pub async fn illuminate(
     storage_provider: &dyn storage::StorageProvider,
     capture: &api::CaptureInfo,
     model_id: &str,
+    thinking_level: Option<llms::gemini::ThinkingLevel>,
 ) -> anyhow::Result<llms::InferenceOutcome<Illumination>> {
     let media = capture
         .medias
@@ -46,6 +47,7 @@ pub async fn illuminate(
             input: &input,
             response_schema: Some(&schema),
             capabilities: &capabilities,
+            thinking_level,
         })
         .await?;
 

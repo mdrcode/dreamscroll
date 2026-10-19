@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use super::InferenceMetadata;
+use super::{InferenceMetadata, gemini};
 
 /// Input modalities accepted by application-level inference requests.
 pub enum InferenceInput<'a> {
@@ -20,6 +20,7 @@ pub struct InferenceRequest<'a> {
     pub input: &'a [InferenceInput<'a>],
     pub response_schema: Option<&'a Value>,
     pub capabilities: &'a [InferenceCapability],
+    pub thinking_level: Option<gemini::ThinkingLevel>,
 }
 
 #[derive(Debug)]

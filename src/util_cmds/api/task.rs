@@ -60,7 +60,7 @@ pub async fn run(state: ApiCmdState, args: TaskArgs) -> anyhow::Result<()> {
         TaskCommand::Illuminate(args) => {
             let run_id = state
                 .rest_client
-                .enqueue_illuminate(args.capture_id, illumination::IlluminationVersion::V2)
+                .enqueue_illuminate(args.capture_id, illumination::IlluminationVersion::V2, None)
                 .await?;
             (run_id, args.wait, args.wait_seconds)
         }

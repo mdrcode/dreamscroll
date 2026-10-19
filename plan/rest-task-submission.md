@@ -45,12 +45,17 @@ POST /api/queues/illuminate
 Authorization: Bearer <token>
 Content-Type: application/json
 
-{ "capture_id": 123 }
+{ "capture_id": 123, "prompt_version": "v2", "thinking_level": "low" }
 ```
 
-Search-index submissions use `POST /api/queues/search_index` with the same
-request schema. The queue segment identifies the submission destination and
-selects the concrete task implementation. It is not the task identity.
+Illumination accepts optional `prompt_version` (default `v2`) and `thinking_level`
+(`minimal`, `low`, `medium`, or `high`). Omit the level to keep the provider's
+default. The task stores the selected override alongside its model and prompt
+version. Model-specific supported levels are validated by Gemini.
+
+Search-index submissions use `POST /api/queues/search_index` with only
+`{ "capture_id": N }`. The queue segment identifies the submission destination
+and selects the concrete task implementation. It is not the task identity.
 
 On success, the server verifies that the capture is accessible to the caller,
 submits through `TaskMaster`, and returns HTTP `202 Accepted`:
@@ -114,6 +119,44 @@ expires. It prints the `run_id`, logical ID, run number, and current status.
 On timeout, it reports the latest observed status and exits successfully: task
 submission succeeded even though completion was not observed within the wait
 window. The `run_id` can be used for a later status lookup.
+
+### 3.1 Compare illumination thinking levels
+
+`inference illuminate` submits a run, waits for success, and prints that exact
+run's result as Markdown. Run the same capture sequentially with different
+levels; save stdout separately to compare outputs:
+
+```sh
+dreamscroll_api --host localhost:8080 --user alice inference illuminate 123 --thinking-level low > /tmp/illumination-low.md
+dreamscroll_api --host localhost:8080 --user alice inference illuminate 123 --thinking-level high > /tmp/illumination-high.md
+```
+
+V2 is the default; `--prompt-version v2` makes it explicit. `--wait-seconds N`
+changes the 60-second wait limit. The service's `GEMINI_MODEL_ID` selects the
+model for both runs. Omit `--thinking-level` for the provider-default baseline.
+The shared inference adapter also supports the override for V1.
+
+As of Oct 2026, Gemini's default effort is model-specific: for example, `high`
+for `gemini-3-flash-preview` and `gemini-3.1-pro-preview`, `medium` for
+`gemini-3.8-flash`, and `minimal` for `gemini-3.5-flash-lite`. Omission delegates
+to Gemini; Dreamscroll does not pin these defaults. See the
+[provider's current table](https://ai.google.dev/gemini-api/docs/thinking#controlling-thinking).
+
+This is normal persisted inference, not a dry run: each submission creates a
+TaskRun and writes its raw result and, for V2, relational projection. A second
+run is refused while the same capture's illumination is still in flight. These
+commands do not freeze captures or model aliases; keep those unchanged when
+comparing results. Output can vary between runs even at the same thinking level.
+
+Gemini Interactions calls the setting
+[`generation_config.thinking_level`](https://ai.google.dev/api/interactions-api).
+The selected override is also retained in
+`InferenceMeta.params.generation_config.thinking_level`, so results and usage
+can be associated with the chosen level. Supported levels vary by model; see
+the [thinking guide](https://ai.google.dev/gemini-api/docs/thinking#controlling-thinking).
+No local model-support matrix or automatic downgrade is maintained.
+The Rust enum lives at `llms::gemini::ThinkingLevel`: these named levels are a
+Gemini-specific contract, not a provider-neutral effort scale.
 
 ## 4. Design boundaries
 

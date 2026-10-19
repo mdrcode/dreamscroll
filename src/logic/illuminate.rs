@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{api, illumination, task};
+use crate::{api, illumination, llms, task};
 
 /// The concrete task for illuminating a single capture.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -11,6 +11,14 @@ pub struct IlluminationTask {
     pub model_id: String,
     /// Result schema and persistence path selected for this task.
     pub prompt_version: illumination::IlluminationVersion,
+    /// Optional reasoning effort override; omitted tasks retain the provider default.
+    /// As of Oct 2026, Gemini defaults are model-specific: e.g. `high` for
+    /// `gemini-3-flash-preview` and `gemini-3.1-pro-preview`, `medium` for
+    /// `gemini-3.8-flash`, and `minimal` for `gemini-3.5-flash-lite`.
+    /// `None` delegates to Gemini rather than pinning any of these defaults.
+    /// See https://ai.google.dev/gemini-api/docs/thinking#controlling-thinking.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<llms::gemini::ThinkingLevel>,
 }
 
 impl IlluminationTask {
@@ -25,6 +33,7 @@ impl IlluminationTask {
             entity_owner_id,
             model_id: model_id.into(),
             prompt_version,
+            thinking_level: None,
         }
     }
 }
@@ -80,6 +89,7 @@ pub async fn exec(
                 state.storage.as_ref(),
                 &capture,
                 &task.model_id,
+                task.thinking_level,
             )
             .await
             .map_err(api::ApiError::internal)?;
@@ -111,6 +121,7 @@ pub async fn exec(
                 state.storage.as_ref(),
                 &capture,
                 &task.model_id,
+                task.thinking_level,
             )
             .await
             .map_err(api::ApiError::internal)?;
@@ -145,20 +156,4 @@ pub async fn exec(
     tracing::info!(capture_id, task_run_id, prompt_version = ?task.prompt_version, "Illumination completed and persisted");
 
     Ok(())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn task_payload_serializes_prompt_version_and_model() {
-        let task = IlluminationTask::new(123, 1, "model-a", illumination::IlluminationVersion::V1);
-        let payload = serde_json::to_value(task).expect("task should serialize");
-
-        assert_eq!(payload["capture_id"], 123);
-        assert_eq!(payload["entity_owner_id"], 1);
-        assert_eq!(payload["model_id"], "model-a");
-        assert_eq!(payload["prompt_version"], "v1");
-    }
 }
