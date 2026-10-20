@@ -354,7 +354,7 @@ function setupTaskProgress() {
         const update = function () {
             const elapsed = Math.max(0, Date.now() - state.processingStartedAt);
             state.percent = Math.max(state.percent,
-                Math.min(92, (elapsed / state.estimatedDurationMs) * 100));
+                Math.min(90, (elapsed / state.estimatedDurationMs) * 100));
             show(captureId, estimatedProgressLabel(state, elapsed),
                 false, true, state.percent);
         };
@@ -363,10 +363,15 @@ function setupTaskProgress() {
     }
 
     function estimatedProgressLabel(state, elapsed) {
-        const remaining = state.estimatedDurationMs - elapsed;
-        return remaining <= 0
-            ? 'Illuminating (longer than est.)...'
-            : 'Illuminating (est. ' + formatDuration(remaining) + ')';
+        const ratio = elapsed / state.estimatedDurationMs;
+        if (ratio <= 0.9) {
+            const remaining = state.estimatedDurationMs - elapsed;
+            return 'Illuminating (est. ' + formatDuration(remaining) + ')';
+        }
+        if (ratio <= 1.2) {
+            return 'Illuminating...';
+        }
+        return 'Illuminating (longer than est.)...';
     }
 
     function formatDuration(durationMs) {
