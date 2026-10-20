@@ -63,7 +63,7 @@
         <dl class="metadata-dict-list">
             {% for entity in illum.knowledge_entities %}
             <dt>
-                <span class="pill">
+                <span class="pill"{% if entity.description %} title="{{ entity.description }}"{% endif %}>
                     <span class="pill__prefix">{{ entity.type }}</span>
                     <span class="pill__label">{{ entity.name }}</span>
                 </span>

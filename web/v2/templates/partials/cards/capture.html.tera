@@ -36,7 +36,7 @@
         {% if illum.knowledge_entities | length > 0 %}
         <div class="pill-group pill-group--scroll pill-group--entities pill-group--stack">
             {% for entity in illum.knowledge_entities %}
-            <span class="pill">
+            <span class="pill"{% if entity.description %} title="{{ entity.description }}"{% endif %}>
                 <span class="pill__prefix">{{ entity.type }}</span>
                 <span class="pill__label">{{ entity.name }}{% if entity.platform_link %} · {{ entity.platform_link.platform }}{% endif %}</span>
             </span>
