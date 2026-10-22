@@ -79,7 +79,7 @@ mod tests {
     fn unversioned_assets_use_short_cache() {
         assert_eq!(asset_cache_control(None), UNVERSIONED_ASSET_CACHE_CONTROL);
         assert_eq!(
-            asset_cache_control(Some("view=masonry-v2")),
+            asset_cache_control(Some("preview=1")),
             UNVERSIONED_ASSET_CACHE_CONTROL
         );
         assert_eq!(
@@ -95,11 +95,11 @@ mod tests {
             VERSIONED_ASSET_CACHE_CONTROL
         );
         assert_eq!(
-            asset_cache_control(Some("v=revision-123&view=masonry-v2")),
+            asset_cache_control(Some("v=revision-123&preview=1")),
             VERSIONED_ASSET_CACHE_CONTROL
         );
         assert_eq!(
-            asset_cache_control(Some("view=masonry-v2&v=revision-123")),
+            asset_cache_control(Some("preview=1&v=revision-123")),
             VERSIONED_ASSET_CACHE_CONTROL
         );
     }

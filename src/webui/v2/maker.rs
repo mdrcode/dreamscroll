@@ -15,6 +15,11 @@ use super::*;
 
 fn load_templates() -> Result<Tera, tera::Error> {
     let mut tera = Tera::new();
+    // Autoescape is keyed to the full template suffix. Tera's defaults do not
+    // match `.html.tera`, so without this every `{{ value }}` renders raw HTML.
+    // Use the whole suffix so future non-HTML templates (e.g. `.txt.tera`) are
+    // not accidentally HTML-escaped.
+    tera.autoescape_on(vec![".html.tera"]);
     tera.register_filter("json_encode", tera_contrib::json::json_encode);
     tera.register_filter("urlencode", tera_contrib::urlencode::urlencode);
     tera.load_from_glob("web/v2/templates/**/*.tera")?;
@@ -47,7 +52,6 @@ pub fn make_ui_router(
                 "web/v2/static/dreamscroll-v2.css",
                 "web/v2/static/favicon-32x32.png",
                 "web/v2/static/manifest.webmanifest",
-                "web/v2/static/masonry.css",
                 "web/v2/static/webui-v2.js",
             ] {
                 if let Ok(contents) = std::fs::read(path) {
@@ -106,7 +110,6 @@ pub fn make_ui_router(
             "/annotation/{capture_id}/archive",
             post(r_annotation::archive),
         )
-        .route("/masonry", get(r_masonry::get))
         .route("/command", post(r_command::post))
         .route("/upload", post(r_upload::post))
         .route("/logout", post(r_auth::logout_post))
@@ -136,5 +139,61 @@ mod tests {
     #[test]
     fn templates_load_successfully() {
         load_templates().expect("all v2 templates should load");
+    }
+
+    #[test]
+    fn html_templates_escape_untrusted_content() {
+        let tera = load_templates().expect("all v2 templates should load");
+        let mut context = tera::Context::new();
+        context.insert(
+            "capture",
+            &serde_json::json!({
+                "id": 7,
+                "annotation": { "content": "<script>alert(1)</script>" }
+            }),
+        );
+
+        let rendered = tera
+            .render("partials/cards/annotation_block.html.tera", &context)
+            .expect("annotation block should render");
+
+        assert!(rendered.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
+        assert!(!rendered.contains("<script>alert(1)</script>"));
+    }
+
+    #[test]
+    fn spark_card_renders_clusters_without_wrapper() {
+        let tera = load_templates().expect("all v2 templates should load");
+        let mut context = tera::Context::new();
+        context.insert(
+            "card",
+            &serde_json::json!({
+                "spark": {
+                    "created_at": "2026-10-22T12:00:00Z",
+                    "created_at_human": "just now",
+                    "meta": null,
+                    "spark_clusters": [{
+                        "title": "Test cluster",
+                        "summary": "Cluster summary",
+                        "spark_links": [{
+                            "url": "https://example.com",
+                            "commentary": "Link commentary"
+                        }],
+                        "capture_previews": [{
+                            "id": 42,
+                            "url": "https://example.com/image.jpg",
+                            "summary": "Capture summary"
+                        }]
+                    }]
+                }
+            }),
+        );
+
+        let rendered = tera
+            .render("partials/cards/spark.html.tera", &context)
+            .expect("spark card should render");
+
+        assert!(rendered.contains("Test cluster"));
+        assert!(rendered.contains("https://example.com/image.jpg"));
     }
 }

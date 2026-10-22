@@ -608,6 +608,14 @@ The `capture_ids` query parameter only selects the initial snapshot. It is not
 a live subscription filter; the server continues to send all events for the
 authenticated user.
 
+The client seeds `capture_ids` only from rendered capture cards that do **not**
+already have an illumination (`.capture-card__illumination`). A reload during a
+re-illumination therefore gets no in-progress catch-up for that card until the
+terminal live event arrives. This is deliberate: querying latest TaskRun state
+for every rendered capture on each page load/connect is not worth the DB load
+for a rare flow. See `pragmatism.md`. Revisit if that flow becomes common or
+in-progress state during reruns becomes required.
+
 ### 5.2 Direct status indicators (future UI work)
 
 If we later want to display status directly rather than refresh a partial, the

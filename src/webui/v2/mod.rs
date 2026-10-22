@@ -18,6 +18,5 @@ mod r_detail_partial;
 mod r_events;
 mod r_index;
 mod r_login_page;
-mod r_masonry;
 mod r_related;
 mod r_upload;

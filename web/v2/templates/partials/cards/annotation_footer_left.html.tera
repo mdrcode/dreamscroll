@@ -3,9 +3,7 @@
     class="card-footer__left"
     {% if oob | default(value=false) %}hx-swap-oob="outerHTML"{% endif %}>
     {% set is_annotation_editing = annotation_editing | default(value=false) %}
-    {% if capture.annotation %}
-    {% elif is_annotation_editing %}
-    {% else %}
+    {% if not capture.annotation and not is_annotation_editing %}
     <button
         type="button"
         class="card-footer__action"

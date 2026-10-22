@@ -1,13 +1,13 @@
 <article class="feed-card feed-card--spark spark-card">
-    {% if card.clusters | length == 0 %}
+    {% if card.spark.spark_clusters | length == 0 %}
     <p class="spark-card-summary">No clusters found for this spark yet.</p>
     {% endif %}
 
-    {% for cluster_card in card.clusters %}
+    {% for cluster in card.spark.spark_clusters %}
     <article class="spark-cluster">
-        {% if cluster_card.capture_previews | length > 0 %}
+        {% if cluster.capture_previews | length > 0 %}
         <div class="spark-capture-list">
-            {% for capture in cluster_card.capture_previews %}
+            {% for capture in cluster.capture_previews %}
             <a href="/detail/{{ capture.id }}" class="spark-capture-item" title="Capture {{ capture.id }}">
                 <div class="spark-capture-thumb">
                     <img src="{{ capture.url }}" alt="capture {{ capture.id }}">
@@ -20,12 +20,12 @@
         </div>
         {% endif %}
 
-        <h3 class="spark-cluster-title">{{ cluster_card.cluster.title }}</h3>
-        <p class="spark-cluster-summary">{{ cluster_card.cluster.summary }}</p>
+        <h3 class="spark-cluster-title">{{ cluster.title }}</h3>
+        <p class="spark-cluster-summary">{{ cluster.summary }}</p>
 
-        {% if cluster_card.cluster.spark_links | length > 0 %}
+        {% if cluster.spark_links | length > 0 %}
         <ol class="spark-links">
-            {% for link in cluster_card.cluster.spark_links %}
+            {% for link in cluster.spark_links %}
             <li>
                 <div><a href="{{ link.url }}" target="_blank" rel="noopener noreferrer">{{ link.url }}</a></div>
                 <div>{{ link.commentary }}</div>

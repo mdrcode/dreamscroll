@@ -79,7 +79,7 @@ Cache-Control: public, max-age=31536000, immutable
 
 This is appropriate because the URL changes when the deployed revision changes. The asset filename itself is currently stable, but the version query parameter is part of the browser/CDN cache key. `immutable` tells compatible clients not to revalidate during the year-long lifetime.
 
-For `/static/favicon-32x32.png`, `/static/masonry.css`, and other static files that may not yet carry the version query parameter, either:
+For `/static/favicon-32x32.png`, `/static/app-icon-512x512.png`, and other static files that may not yet carry the version query parameter, either:
 
 - add the same version query parameter in templates where practical; or
 - use a shorter explicit TTL for unversioned assets, such as `public, max-age=3600`.

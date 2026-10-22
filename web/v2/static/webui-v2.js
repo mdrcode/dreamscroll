@@ -11,7 +11,7 @@ document.addEventListener('DOMContentLoaded', function () {
     setupSearchEndpointRouting();
     setupCaptureExpandToggle(document);
     setupMetadataCardExpandToggle(document);
-    setupRelatedCapturesMasonry(document);
+    setupRelatedCapturesGallery(document);
     setupSearchClearOnSlashCommand();
     setupAnnotationEditorCaret(document);
     setupUploadInteractions();
@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', function () {
         }
 
         if (targetId === 'related-captures') {
-            setupRelatedCapturesMasonry(e.target);
+            setupRelatedCapturesGallery(e.target);
         }
 
         if (targetId.startsWith('annotation-block-')) {
@@ -510,7 +510,7 @@ function setupAnnotationEditorCaret(rootNode) {
     });
 }
 
-function setupRelatedCapturesMasonry(rootNode) {
+function setupRelatedCapturesGallery(rootNode) {
     const galleries = [];
     if (rootNode.matches && rootNode.matches('[data-related-captures]')) {
         galleries.push(rootNode);
@@ -522,7 +522,7 @@ function setupRelatedCapturesMasonry(rootNode) {
     }
 
     galleries.forEach(function (gallery) {
-        if (gallery.dataset.masonryBound === 'true') {
+        if (gallery.dataset.relatedCapturesBound === 'true') {
             return;
         }
 
@@ -623,7 +623,7 @@ function setupRelatedCapturesMasonry(rootNode) {
         });
 
         rerenderIfNeeded();
-        gallery.dataset.masonryBound = 'true';
+        gallery.dataset.relatedCapturesBound = 'true';
     });
 }
 

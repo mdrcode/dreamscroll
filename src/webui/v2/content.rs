@@ -60,13 +60,6 @@ pub struct CaptureCard {
 #[derive(Debug, Clone, Serialize)]
 pub struct SparkCard {
     pub spark: api::SparkInfo,
-    pub clusters: Vec<SparkClusterCard>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct SparkClusterCard {
-    pub cluster: api::SparkClusterInfo,
-    pub capture_previews: Vec<api::CapturePreviewInfo>,
 }
 
 pub(super) async fn render_content(
@@ -126,18 +119,7 @@ fn cards_from_captures(captures: Vec<api::CaptureInfo>) -> Vec<Card> {
 fn cards_from_sparks(sparks: Vec<api::SparkInfo>) -> Vec<Card> {
     sparks
         .into_iter()
-        .map(|spark| {
-            let clusters = spark
-                .spark_clusters
-                .iter()
-                .map(|cluster| SparkClusterCard {
-                    cluster: cluster.clone(),
-                    capture_previews: cluster.capture_previews.clone(),
-                })
-                .collect();
-
-            Card::Spark(SparkCard { spark, clusters })
-        })
+        .map(|spark| Card::Spark(SparkCard { spark }))
         .collect()
 }
 
