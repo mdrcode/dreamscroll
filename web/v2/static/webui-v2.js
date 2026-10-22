@@ -16,20 +16,28 @@ document.addEventListener('DOMContentLoaded', function () {
     setupAnnotationEditorCaret(document);
     setupUploadInteractions();
 
+    // htmx:load fires for content inserted by a swap (including the outerHTML
+    // single-card SSE refresh) and for the initial body, so this is where
+    // delegated behavior for freshly rendered cards belongs.
+    window.htmx.onLoad(function (node) {
+        setupCaptureExpandToggle(node);
+        setupMetadataCardExpandToggle(node);
+    });
+
     document.body.addEventListener('htmx:afterSwap', function (e) {
-        if (e.target && e.target.id === 'card-feed') {
-            setupCaptureExpandToggle(e.target);
-            setupMetadataCardExpandToggle(e.target);
+        const targetId = e.target && e.target.id ? e.target.id : '';
+
+        if (targetId === 'card-feed' || targetId.startsWith('capture-card-')) {
             if (window.dreamscrollTaskProgress) {
                 window.dreamscrollTaskProgress.refresh();
             }
         }
 
-        if (e.target && e.target.id === 'related-captures') {
+        if (targetId === 'related-captures') {
             setupRelatedCapturesMasonry(e.target);
         }
 
-        if (e.target && e.target.id && e.target.id.startsWith('annotation-block-')) {
+        if (targetId.startsWith('annotation-block-')) {
             setupAnnotationEditorCaret(e.target);
         }
     });
@@ -814,7 +822,17 @@ function setupCaptureExpandToggle(rootNode) {
 }
 
 function setupMetadataCardExpandToggle(rootNode) {
-    rootNode.querySelectorAll('.metadata-card').forEach(function (card) {
+    const cards = [];
+    if (rootNode.matches && rootNode.matches('.metadata-card')) {
+        cards.push(rootNode);
+    }
+    if (rootNode.querySelectorAll) {
+        rootNode.querySelectorAll('.metadata-card').forEach(function (card) {
+            cards.push(card);
+        });
+    }
+
+    cards.forEach(function (card) {
         if (card.dataset.expandBound === 'true') {
             return;
         }
