@@ -107,11 +107,11 @@ impl CaptureSearcher {
     pub async fn search_similar(
         &self,
         user_context: &auth::Context,
-        query_capture: &api::CaptureInfo,
+        query_capture_id: i32,
         limit: Option<u64>,
     ) -> anyhow::Result<Vec<i32>, api::ApiError> {
         let limit = limit.unwrap_or(100).clamp(1, 1000) as u32;
-        let object_id = query_capture.data_object_id();
+        let object_id = format!("u{}-c{}", user_context.user_id(), query_capture_id);
 
         let query_embedding = self
             .vector_store
@@ -120,7 +120,7 @@ impl CaptureSearcher {
             .map_err(api::ApiError::internal)?;
         let Some(query_embedding) = query_embedding else {
             tracing::warn!(
-                capture_id = query_capture.id,
+                capture_id = query_capture_id,
                 object_id,
                 "No embedding found for query capture; returning empty similar results"
             );
@@ -160,7 +160,7 @@ impl CaptureSearcher {
                 );
                 continue;
             }
-            if capture_id == query_capture.id {
+            if capture_id == query_capture_id {
                 continue;
             }
             if seen_capture_ids.insert(capture_id) {

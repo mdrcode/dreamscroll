@@ -17,7 +17,6 @@ fn load_templates() -> Result<Tera, tera::Error> {
     let mut tera = Tera::new();
     // Enforce autoescaping for all HTML templates, to prevent XSS
     tera.autoescape_on(vec![".html.tera"]);
-    tera.register_filter("json_encode", tera_contrib::json::json_encode);
     tera.register_filter("urlencode", tera_contrib::urlencode::urlencode);
     tera.load_from_glob("web/v2/templates/**/*.tera")?;
     Ok(tera)
@@ -97,7 +96,7 @@ pub fn make_ui_router(
             "/detail/{id}/illumination",
             get(r_illumination::detail_fragments),
         )
-        .route("/detail/{id}/related", get(r_related::get))
+        .route("/detail/{id}/related/previews", get(r_related::previews))
         .route("/cards", get(r_feed::fragment))
         .route(
             "/cards/capture/{id}/illumination",
@@ -252,7 +251,7 @@ mod tests {
                         }],
                         "capture_previews": [{
                             "id": 42,
-                            "url": "https://example.com/image.jpg",
+                            "thumbnail_url": "https://example.com/image.jpg",
                             "summary": "Capture summary"
                         }]
                     }]

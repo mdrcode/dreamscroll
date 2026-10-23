@@ -32,7 +32,11 @@
 
 <section
     id="related-captures"
-    hx-get="/detail/{{ capture.id }}/related"
-    hx-trigger="load"
-    hx-swap="innerHTML">
+    class="related-captures"
+    data-related-captures
+    data-previews-url="/detail/{{ capture.id }}/related/previews"
+    aria-label="Related captures">
+    <p class="metadata-subsection-title">Related Captures</p>
+    <div class="empty-state related-captures__empty" hidden>No related captures found.</div>
+    <div class="related-captures__grid" aria-label="Related capture gallery"></div>
 </section>

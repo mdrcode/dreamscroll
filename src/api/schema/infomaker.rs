@@ -133,7 +133,8 @@ impl InfoMaker {
         let summary = match &capture_model.illuminations {
             HasMany::Unloaded => "No capture summary available.".to_string(),
             HasMany::Loaded(models) => models
-                .first()
+                .iter()
+                .max_by_key(|illumination| illumination.id)
                 .map(|illum| illum.summary.clone())
                 .unwrap_or_else(|| "No capture summary available.".to_string()),
         };
@@ -142,7 +143,7 @@ impl InfoMaker {
 
         Some(CapturePreviewInfo {
             id: capture_model.id,
-            url: self.url_maker.make_url(&handle),
+            thumbnail_url: self.url_maker.make_url(&handle),
             summary,
         })
     }

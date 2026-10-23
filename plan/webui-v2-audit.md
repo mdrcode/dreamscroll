@@ -1,6 +1,6 @@
 # WebUI v2 Audit — Bugs, Architecture, and Pruning
 
-**Status:** Open; UI2-001/UI2-003/UI2-006 fixed; D01/D02/D03/D04/D05/D07 pruned, D08 partial; UI2-005 and UI2-009 accepted. Audit date: 2026-10-22.
+**Status:** Open; UI2-001/UI2-003/UI2-004/UI2-006/UI2-012 fixed; D01/D02/D03/D04/D05/D07 pruned, D08 partial; UI2-005/UI2-009/UI2-D06 accepted. Audit date: 2026-10-22.
 **Scope:** `web/v2` templates/static assets and `src/webui/v2` handlers, plus the
 API/data shapes those views consume.
 **Method:** Full read of 13 templates, 1,061-line CSS, 1,238-line JS, all 19
@@ -21,7 +21,7 @@ Severity is user impact, not effort.
 | UI2-001 | `xss-autoescape-off` | P0 | Fixed | Tera never autoescaped `.html.tera`; fixed in the template loader. |
 | UI2-002 | `detail-search-hijack` | P1 | Open | Header search/clear on a detail page swaps the detail feed and fights SSE. |
 | UI2-003 | `draft-clobber` | P1 | Fixed | SSE now refreshes only illumination fragments; annotation DOM is outside the target. |
-| UI2-004 | `related-json-breakout` | P1 | Open | Related-captures JSON is marked `safe` and embeds full models; `</script>` breaks out. |
+| UI2-004 | `related-json-breakout` | P1 | Fixed | Related previews are a JSON resource; no inline JSON or full models in HTML. |
 | UI2-005 | `catchup-skips-reruns` | P1 | Accepted | SSE catch-up ignores cards that already have an old illumination, so rerun progress is missing after reload. Accepted DB-load trade-off. |
 | UI2-006 | `related-leak` | P1 | Fixed | Detail SSE no longer refreshes the feed/related section; related loads once. |
 | UI2-007 | `silent-errors` | P2 | Open | htmx failures and HTML-route API errors have no user-visible channel. |
@@ -29,7 +29,7 @@ Severity is user impact, not effort.
 | UI2-009 | `blend-limit` | P2 | Accepted | `limit` applies per source, so blended feeds can return up to 2× the requested cards. Deferred to feed architecture work. |
 | UI2-010 | `entity-title-only` | P2 | Open | Entity descriptions on feed cards exist only in `title=`, unusable on touch. |
 | UI2-011 | `pwa-share-feedback` | P3 | Open | PWA share-target upload redirects with no success/error notice. |
-| UI2-012 | `related-double-wrapper` | P3 | Open | `/detail/{id}/related` returns a wrapper inserted inside another wrapper. |
+| UI2-012 | `related-double-wrapper` | P3 | Fixed | Related fragment now returns inner content into the existing section root. |
 | UI2-A01 | `no-base-layout` | Arch | Open | Every full page duplicates head/header/upload/search/progress markup. |
 | UI2-A02 | `implicit-page-mode` | Arch | Open | Shared header markup has page-dependent behavior with no explicit page kind. |
 | UI2-A03 | `fragment-contracts` | Arch | Open | Endpoints disagree on returning inner content vs a complete wrapper. |
@@ -40,7 +40,7 @@ Severity is user impact, not effort.
 | UI2-D03 | `annotation-empty-branches` | Prune | Fixed | Footer template now uses one condition. |
 | UI2-D04 | `masonry-dup` | Prune | Fixed | Removed the standalone experiment; related-captures gallery is now the only gallery renderer. |
 | UI2-D05 | `masonry-orphan` | Prune | Fixed | Removed `/masonry`, its template, handler, CSS, and dead query. |
-| UI2-D06 | `noop-service-worker` | Prune | Open | `sw.js` only calls `skipWaiting`/`claim`. |
+| UI2-D06 | `noop-service-worker` | Prune | Accepted | Retained as a PWA installability/share-target requirement; no behavior needed. |
 | UI2-D07 | `capture-lookup-dup` | Prune | Fixed | Added `UserApiClient::get_capture`; four handlers use it. |
 | UI2-D08 | `css-noise` | Prune | Partial | Removed dead illumination and duplicate masonry selectors; login palette refactor remains. |
 
@@ -158,17 +158,20 @@ refresh; feed disclosure state is preserved because `is-expanded` lives on the
 stable article. Morph swaps remain the long-term improvement
 (`plan/htmx4.md`).
 
-### UI2-004 — `related-json-breakout` (P1)
+### UI2-004 — `related-json-breakout` (P1, fixed)
 
-`related_captures.html.tera:7` embeds `captures | json_encode | safe` inside a
-`<script type=application/json>`. `captures` is a full `CaptureInfo`, including
-summaries and annotation text. Autoescaping is bypassed by `safe`, so a summary
-containing `</script>` terminates the block and injects markup. It also bloats
-the response and exposes internals (`media` storage fields, annotation) to all
-feed HTML consumers.
+`related_captures.html.tera` embedded the full `CaptureInfo` with
+`json_encode | safe` inside a `<script type=application/json>`. A summary
+containing `</script>` could terminate the block and inject markup, and the
+payload exposed annotation and media internals.
 
-**Fix.** Return a minimal server-side DTO `{id, url}`, or escape `<` as
-`\u003c` in the JSON. Do both: minimal DTO is the real fix.
+**Applied.** Related captures now use `CapturePreviewInfo` (`id`,
+`thumbnail_url`, `summary`) as a narrow projection served by
+`GET /detail/{id}/related/previews` as JSON. The detail template owns the
+gallery shell; the client fetches previews and lays them out. No inline JSON or
+full `CaptureInfo` models reach the HTML. The gallery uses `thumbnail_url` and
+exposes `summary` as a desktop tooltip; accessibility for that summary remains
+deferred.
 
 ### UI2-005 — `catchup-skips-reruns` (P1, accepted trade-off)
 
@@ -244,13 +247,15 @@ The manifest share target posts to `/upload`. A non-htmx upload redirects to
 **Fix.** Redirect with a query/flag that the feed renders as a notice, or use a
 dedicated share-result page.
 
-### UI2-012 — `related-double-wrapper` (P3)
+### UI2-012 — `related-double-wrapper` (P3, fixed)
 
-`#related-captures` targets `innerHTML`, but `partials/cards/related_captures.html.tera`
-returns a `<section class="related-captures">` wrapper. The result is a section
-inside a section with two responsibility layers.
+`#related-captures` targeted `innerHTML`, but the fragment returned a
+`<section class="related-captures">` wrapper. The result was a section inside a
+section with two responsibility layers.
 
-**Fix.** Return inner content only, or target `outerHTML` with one root.
+**Applied.** The related gallery is now a server-rendered shell inside the
+detail shape. There is no related HTML partial or htmx load; the shell carries
+`data-previews-url`, and the client populates its grid from the JSON endpoint.
 
 ---
 
@@ -355,6 +360,6 @@ key for that.
 2. **UI2-A01/A02** base layout and explicit page kind; then **UI2-002**
    detail search/clear semantics.
 3. **UI2-003** draft guard and smaller detail refresh target.
-4. **UI2-004/006/007** related DTO, related refresh cleanup, error channel.
+4. **UI2-006/007** related refresh cleanup, error channel.
 5. **UI2-008** accessibility/clipping; then the pruning items D01-D08.
 6. **UI2-A05** decide occurrence vs canonical, then build the entity page.

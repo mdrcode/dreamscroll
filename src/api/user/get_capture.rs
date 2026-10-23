@@ -30,17 +30,42 @@ pub async fn get_captures(
         .all(&db.conn)
         .await?;
 
+    Ok(order_captures(captures, ids))
+}
+
+pub async fn get_captures_for_previews(
+    db: &DbHandle,
+    context: &auth::Context,
+    ids: Vec<i32>,
+) -> Result<Vec<model::capture::ModelEx>, ApiError> {
+    if ids.is_empty() {
+        return Ok(vec![]);
+    }
+
+    let captures = model::capture::Entity::load()
+        .filter(model::capture::Column::UserId.eq(context.user_id()))
+        .filter(model::capture::Column::ArchivedAt.is_null())
+        .filter(model::capture::Column::Id.is_in(ids.clone()))
+        .with(model::media::Entity)
+        .with(model::illumination::Entity)
+        .all(&db.conn)
+        .await?;
+
+    Ok(order_captures(captures, ids))
+}
+
+fn order_captures(
+    captures: Vec<model::capture::ModelEx>,
+    ids: Vec<i32>,
+) -> Vec<model::capture::ModelEx> {
     let mut captures_by_id: HashMap<i32, model::capture::ModelEx> = captures
         .into_iter()
         .map(|capture| (capture.id, capture))
         .collect();
 
-    let ordered = ids
-        .into_iter()
+    ids.into_iter()
         .filter_map(|capture_id| captures_by_id.remove(&capture_id))
-        .collect();
-
-    Ok(ordered)
+        .collect()
 }
 
 #[cfg(test)]

@@ -42,10 +42,6 @@ document.addEventListener('DOMContentLoaded', function () {
             }
         }
 
-        if (targetId === 'related-captures') {
-            setupRelatedCapturesGallery(e.target);
-        }
-
         if (targetId.startsWith('annotation-block-')) {
             setupAnnotationEditorCaret(e.target);
         }
@@ -569,105 +565,133 @@ function setupRelatedCapturesGallery(rootNode) {
             return;
         }
 
-        const dataNode = gallery.querySelector('.related-captures__data');
         const grid = gallery.querySelector('.related-captures__grid');
         const emptyState = gallery.querySelector('.related-captures__empty');
-        if (!dataNode || !grid || !emptyState) {
+        const previewsUrl = gallery.dataset.previewsUrl;
+        if (!grid || !emptyState || !previewsUrl) {
             return;
         }
 
-        let captures = [];
-        try {
-            captures = JSON.parse(dataNode.textContent || '[]');
-        } catch (_err) {
-            captures = [];
+        gallery.dataset.relatedCapturesBound = 'true';
+        loadRelatedCaptures(gallery, grid, emptyState, previewsUrl);
+    });
+}
+
+async function loadRelatedCaptures(gallery, grid, emptyState, previewsUrl) {
+    gallery.setAttribute('aria-busy', 'true');
+
+    let captures;
+    try {
+        const response = await fetch(previewsUrl, {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' }
+        });
+        if (!response.ok) {
+            throw new Error('Related previews request failed: ' + response.status);
         }
+        captures = await response.json();
+    } catch (_error) {
+        emptyState.textContent = 'Could not load related captures.';
+        emptyState.hidden = false;
+        grid.replaceChildren();
+        gallery.removeAttribute('aria-busy');
+        return;
+    }
 
-        const images = captures
-            .map(function (capture) {
-                if (!capture || !Array.isArray(capture.medias) || capture.medias.length === 0) {
-                    return null;
-                }
-                return {
-                    id: capture.id,
-                    url: capture.medias[0].url
-                };
-            })
-            .filter(function (image) {
-                return image && image.id && image.url;
-            });
+    gallery.removeAttribute('aria-busy');
+    if (!Array.isArray(captures)) {
+        captures = [];
+    }
 
-        function getColumnCount() {
-            const raw = getComputedStyle(grid).getPropertyValue('--related-captures-cols').trim();
-            const parsed = Number.parseInt(raw, 10);
-            if (!Number.isFinite(parsed) || parsed < 1) {
-                return 1;
+    const images = captures
+        .map(function (capture) {
+            if (!capture || !capture.id || typeof capture.thumbnail_url !== 'string' || !capture.thumbnail_url) {
+                return null;
             }
-            return parsed;
-        }
-
-        function renderColumns() {
-            if (images.length === 0) {
-                emptyState.hidden = false;
-                grid.replaceChildren();
-                return;
-            }
-
-            emptyState.hidden = true;
-
-            const columnCount = getColumnCount();
-            const buckets = Array.from({ length: columnCount }, function () {
-                return [];
-            });
-
-            images.forEach(function (image, idx) {
-                buckets[idx % columnCount].push(image);
-            });
-
-            const fragment = document.createDocumentFragment();
-            buckets.forEach(function (bucket) {
-                const column = document.createElement('div');
-                column.className = 'related-captures__column';
-
-                bucket.forEach(function (image) {
-                    const link = document.createElement('a');
-                    link.className = 'related-captures__item';
-                    link.href = '/detail/' + String(image.id);
-
-                    const img = document.createElement('img');
-                    img.src = image.url;
-                    img.alt = 'similar capture image';
-
-                    link.appendChild(img);
-                    column.appendChild(link);
-                });
-
-                fragment.appendChild(column);
-            });
-
-            grid.replaceChildren(fragment);
-        }
-
-        let lastCount = -1;
-        function rerenderIfNeeded() {
-            const count = getColumnCount();
-            if (count !== lastCount) {
-                lastCount = count;
-                renderColumns();
-            }
-        }
-
-        let resizeTimer = null;
-        window.addEventListener('resize', function () {
-            if (resizeTimer !== null) {
-                window.clearTimeout(resizeTimer);
-            }
-            resizeTimer = window.setTimeout(rerenderIfNeeded, 120);
+            return {
+                id: capture.id,
+                thumbnail_url: capture.thumbnail_url,
+                summary: typeof capture.summary === 'string' ? capture.summary : ''
+            };
+        })
+        .filter(function (image) {
+            return image && image.id && image.thumbnail_url;
         });
 
-        rerenderIfNeeded();
-        gallery.dataset.relatedCapturesBound = 'true';
+    function getColumnCount() {
+        const raw = getComputedStyle(grid).getPropertyValue('--related-captures-cols').trim();
+        const parsed = Number.parseInt(raw, 10);
+        if (!Number.isFinite(parsed) || parsed < 1) {
+            return 1;
+        }
+        return parsed;
+    }
+
+    function renderColumns() {
+        if (images.length === 0) {
+            emptyState.textContent = 'No related captures found.';
+            emptyState.hidden = false;
+            grid.replaceChildren();
+            return;
+        }
+
+        emptyState.hidden = true;
+
+        const columnCount = getColumnCount();
+        const buckets = Array.from({ length: columnCount }, function () {
+            return [];
+        });
+
+        images.forEach(function (image, idx) {
+            buckets[idx % columnCount].push(image);
+        });
+
+        const fragment = document.createDocumentFragment();
+        buckets.forEach(function (bucket) {
+            const column = document.createElement('div');
+            column.className = 'related-captures__column';
+
+            bucket.forEach(function (image) {
+                const link = document.createElement('a');
+                link.className = 'related-captures__item';
+                link.href = '/detail/' + String(image.id);
+                if (image.summary) {
+                    link.title = image.summary;
+                }
+
+                const img = document.createElement('img');
+                img.src = image.thumbnail_url;
+                img.alt = 'similar capture image';
+                img.loading = 'lazy';
+
+                link.appendChild(img);
+                column.appendChild(link);
+            });
+
+            fragment.appendChild(column);
+        });
+
+        grid.replaceChildren(fragment);
+    }
+
+    let lastCount = -1;
+    function rerenderIfNeeded() {
+        const count = getColumnCount();
+        if (count !== lastCount) {
+            lastCount = count;
+            renderColumns();
+        }
+    }
+
+    let resizeTimer = null;
+    window.addEventListener('resize', function () {
+        if (resizeTimer !== null) {
+            window.clearTimeout(resizeTimer);
+        }
+        resizeTimer = window.setTimeout(rerenderIfNeeded, 120);
     });
+
+    rerenderIfNeeded();
 }
 
 function setupPwaServiceWorker() {

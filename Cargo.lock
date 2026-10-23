@@ -5205,7 +5205,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e6c07f9f25dce5c40e92d0dcaa33508c451a07395dfcdd9040320ed6bb4a52a9"
 dependencies = [
  "percent-encoding",
- "serde_json",
  "tera",
 ]
 
