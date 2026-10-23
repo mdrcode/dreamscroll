@@ -1,10 +1,10 @@
 # HTMX 4 Upgrade — Evaluation
 
-**Status:** Not started. We pin `htmx.org@2.0.7` and have verified the current
-JS against that exact build. htmx 4.0.0 exists but is intentionally `next` on
-npm; 2.x remains `latest` and is supported indefinitely. No forced timeline.
+**Status:** 2.0.11 pinned (`base.html.tera:14`, SRI verified 2026-10-23).
+htmx 4.0.0 is not started but is intentionally `next` on npm; 2.x remains
+`latest` and is supported indefinitely. No forced timeline.
 
-**Scope:** Assess whether and how to move `web/v2` from htmx 2.0.7 to 4.0.0.
+**Scope:** Assess whether and how to move `web/v2` from htmx 2.0.11 to 4.0.0.
 Covers the user-visible gains, the migration points that affect this codebase,
 and a concrete checklist. Does not cover htmx 4 extensions we do not use.
 
@@ -14,13 +14,18 @@ and a concrete checklist. Does not cover htmx 4 extensions we do not use.
 
 | Source | Version | Published |
 |---|---|---|
-| Pinned in `web/v2/templates/index.html.tera:12`, `detail.html.tera:12` | **2.0.7** (with SRI) | 2025-09-08 |
+| Pinned in `web/v2/templates/base.html.tera:14` | **2.0.11** (with SRI) | 2026-09-22 |
 | npm `latest` | 2.0.11 | 2026-09-22 |
 | npm `next` | **4.0.0** | 2026-08-28 |
 
 The pin is explicit (no floating CDN URL), so nothing upgrades by accident.
 `4.0.0` stays on `next` until roughly early 2027 to avoid force-upgrading apps
 that reference unversioned CDN URLs.
+
+The 2.0.11 patch baseline adds `<hx-partial>` (backported from 4.0), fixes OOB
+target lookup for detached context elements, and fixes history path
+normalization. Those reduce the reasons to jump to 4.0; `<hx-partial>` is
+available now if the single OOB swap grows into multiple regions.
 
 Sources:
 
@@ -29,8 +34,8 @@ Sources:
 
 ## 2. Why upgrade (for us)
 
-Our usage is deliberately small: seven `hx-get`, two `hx-post`, eight
-`hx-target`, nine `hx-swap`, one `hx-swap-oob`, two `hx-push-url`, two
+Our usage is deliberately small: five `hx-get`, two `hx-post`, seven
+`hx-target`, seven `hx-swap`, two `hx-swap-oob`, one `hx-push-url`, one
 `hx-trigger` — nearly all with explicit targets and swaps. We do not rely on
 implicit attribute inheritance, `hx-headers`, `hx-include`, `hx-vars`, or
 `hx-delete`.
@@ -39,17 +44,19 @@ Ordered by practical value here:
 
 1. **Morph swaps (`innerMorph` / `outerMorph`).** The strongest reason.
    The SSE single-card refresh uses
-   `htmx.ajax(..., { swap: 'outerHTML' })` (`webui-v2.js:80-95`), which destroys
+   `htmx.ajax(..., { swap: 'outerHTML' })` (`webui-v2.js:116-134`), which destroys
    the card's DOM: open “More” disclosure, focus, scroll position, video state.
    Morph keeps node identity and listeners and patches only the diff.
    Caveat: morph preserves nodes/listeners, not arbitrary client-only classes
    or inline styles. Our disclosure state (`detailsExpanded`, `is-expanded`,
    inline `max-height`) may still need reconciliation or `hx-morph-skip` /
    `morphSkipChildren`.
-2. **`<hx-partial>`.** Replaces `hx-swap-oob` with explicit per-target
-   targeting/swap config. We have one OOB use
-   (`annotation_footer_left.html.tera`) and any future multi-region SSE update
-   would benefit. Clearer than “magic” OOB elements.
+2. **`<hx-partial>`.** Available on the 2.0.11 baseline, so not a reason to
+   upgrade. It replaces `hx-swap-oob` with explicit per-target
+   targeting/swap config. We have two OOB uses
+   (`annotation_footer_left.html.tera`, `capture_metadata.html.tera`) and any
+   future multi-region SSE update would benefit. Clearer than “magic” OOB
+   elements.
 3. **`fetch()` internals and streaming HTML.** Enables the rewritten `hx-sse`,
    `hx-multipart`, and `hx-download`. Our SSE is a hand-rolled `EventSource`
    (~60 lines in `webui-v2.js`). Not necessary to change, but it becomes a
@@ -79,7 +86,7 @@ Ordered by practical value here:
 | htmx 2 | htmx 4 | Our site |
 |---|---|---|
 | `htmx:afterSwap` | `htmx:after:swap` | `webui-v2.js:27` |
-| `htmx:configRequest` | `htmx:config:request` | `webui-v2.js:753` |
+| `htmx:configRequest` | `htmx:config:request` | `webui-v2.js:826` |
 | `htmx:load` | `htmx:after:init` (via `htmx.onLoad`) | `webui-v2.js:22` |
 
 ### 3.2 Error responses now swap
@@ -138,13 +145,14 @@ Note the CLI is argparse-based and requires the path **before** `--ext`; also
 
 ### 3.7 Templates and delivery
 
-- Update both `<script>` tags to `htmx.org@4.0.0` and recompute the SRI hash.
+- Update the single `<script>` tag in `web/v2/templates/base.html.tera` to
+  `htmx.org@4.0.0` and recompute the SRI hash.
 - Run the official checker as shown in §3.5 (`.tera` extension and path order
   matter).
 
 ## 4. Suggested migration order
 
-1. Pin 4.0.0 in both layouts with SRI; run the upgrade checker.
+1. Pin 4.0.0 in `base.html.tera` with SRI; run the upgrade checker.
 2. Optionally load the `htmx-2-compat` extension first to keep 2.x event names
    and defaults, then migrate incrementally. Drop the extension when done.
 3. Rename the three event listeners; rewrite the search `config:request`
@@ -161,18 +169,23 @@ Note the CLI is argparse-based and requires the path **before** `--ext`; also
 
 ## 5. Recommendation
 
-**Not urgent, and cheap when we choose to do it.** Our templates avoid nearly
-all breaking attribute behavior; the migration is mostly three event renames,
-one `config:request` rewrite, error-swap policy, and the history decision.
+**Not urgent, and cheap when we choose to do it.** We are on the 2.0.11 patch
+baseline. Our templates avoid nearly all breaking attribute behavior; the
+migration is mostly three event renames, one `config:request` rewrite,
+error-swap policy, and the history decision.
 
 The only feature that justifies upgrading on its own is **morph swaps on the
 SSE card refresh**. If we want that benefit sooner without a major-version
 change, the htmx 2 idiomorph extension can provide it; otherwise adopt 4.0 when
-we next touch the SSE/card rendering path.
+it moves to `latest` or when we next touch the SSE/card rendering path.
 
 ## 6. Verification note
 
-The current JS was exercised in Chromium against **htmx 2.0.7** (the version
-the templates serve), not 4.0.0: initial render, single-card `outerHTML` SSE
-swap, and `#card-feed` `innerHTML` swap all wire “More”/metadata toggles via
-`htmx.onLoad`. Re-run that harness against 4.0.0 as part of step 6.
+The current JS was exercised in Chromium against **htmx 2.0.7**: initial render,
+single-card `outerHTML` SSE swap, and `#card-feed` `innerHTML` swap all wire
+“More”/metadata toggles via `htmx.onLoad`.
+
+The 2.0.11 bump changes only the pinned URL and SRI; the SRI was recomputed from
+the unpkg payload and matches `sha384-2OatzQy1H+Zd/IIrjr1TcuDGqLXeHhbooAyJY1KdQMKnr4LZ22k31GBLdYKHmVjg`.
+Re-run the browser harness against 2.0.11 before relying on this note for new
+integration work, and against 4.0.0 as part of step 6.

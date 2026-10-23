@@ -11,7 +11,7 @@
     <link rel="stylesheet" href="/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}">
     {% block head %}{% endblock %}
     {% block scripts %}
-    <script defer src="https://unpkg.com/htmx.org@2.0.7" integrity="sha384-ZBXiYtYQ6hJ2Y0ZNoYuI+Nq5MqWBr+chMrS/RkXpNzQCApHEhOt2aY8EJgqwHLkJ" crossorigin="anonymous"></script>
+    <script defer src="https://unpkg.com/htmx.org@2.0.11" integrity="sha384-2OatzQy1H+Zd/IIrjr1TcuDGqLXeHhbooAyJY1KdQMKnr4LZ22k31GBLdYKHmVjg" crossorigin="anonymous"></script>
     <script defer src="/static/webui-v2.js?v={{ static_asset_version | urlencode }}"></script>
     {% endblock %}
 </head>
