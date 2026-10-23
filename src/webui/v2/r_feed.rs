@@ -40,6 +40,7 @@ async fn make_context(
     let cards = render_content(&state.user_api, context_user, query).await?;
 
     let mut context = state.template_context();
+    context.insert("page_kind", &"feed");
     context.insert("page_snapshot_at", &page_snapshot_at);
     context.insert("cards", &cards);
     Ok(context)

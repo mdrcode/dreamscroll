@@ -83,11 +83,7 @@ function setupTaskStatusEvents() {
         return;
     }
 
-    const mode = document.body ? document.body.dataset.sseMode : '';
-    if (mode !== 'feed' && mode !== 'detail') {
-        console.error('Dreamscroll SSE not started: missing or invalid data-sse-mode.', mode);
-        return;
-    }
+    const pageKind = document.body ? document.body.dataset.pageKind : '';
 
     function handleCaptureIlluminationTaskStatus(update) {
         if (!Number.isInteger(update.entity_id)) {
@@ -101,13 +97,15 @@ function setupTaskStatusEvents() {
             return;
         }
 
-        if (mode === 'detail') {
+        if (pageKind === 'capture_detail') {
             if (document.body.dataset.captureId !== captureId) return;
             refreshDetailIllumination(captureId, update.timestamp);
             return;
         }
 
-        refreshFeedIllumination(captureId, update.timestamp);
+        if (pageKind === 'feed') {
+            refreshFeedIllumination(captureId, update.timestamp);
+        }
     }
 
     function refreshFeedIllumination(captureId, eventTimestamp) {
@@ -778,8 +776,10 @@ function setupSearchClearButton() {
         searchInput.value = '';
         syncClearButtonVisibility();
 
-        // Clear should always reload timeline results with an empty query.
-        reloadFeedFrame();
+        // Only the feed reloads in place; detail/entity search navigates.
+        if (document.body && document.body.dataset.pageKind === 'feed') {
+            reloadFeedFrame();
+        }
     });
 
     searchInput.addEventListener('input', syncClearButtonVisibility);

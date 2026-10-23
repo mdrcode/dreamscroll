@@ -1,6 +1,6 @@
 # WebUI v2 Audit — Bugs, Architecture, and Pruning
 
-**Status:** Open; UI2-001/UI2-003/UI2-004/UI2-006/UI2-012 fixed; D01/D02/D03/D04/D05/D07 pruned, D08 partial; UI2-005/UI2-009/UI2-D06 accepted. Audit date: 2026-10-22.
+**Status:** Open; UI2-001/UI2-002/UI2-003/UI2-004/UI2-006/UI2-012/UI2-A01/UI2-A02/UI2-A03 fixed; D01/D02/D03/D04/D05/D07 pruned, D08 partial; UI2-005/UI2-009/UI2-A04/UI2-A05/UI2-D06 accepted. Audit date: 2026-10-22.
 **Scope:** `web/v2` templates/static assets and `src/webui/v2` handlers, plus the
 API/data shapes those views consume.
 **Method:** Full read of 13 templates, 1,061-line CSS, 1,238-line JS, all 19
@@ -19,7 +19,7 @@ Severity is user impact, not effort.
 | ID | Slug | Severity | Status | One-liner |
 |---|---|---|---|---|
 | UI2-001 | `xss-autoescape-off` | P0 | Fixed | Tera never autoescaped `.html.tera`; fixed in the template loader. |
-| UI2-002 | `detail-search-hijack` | P1 | Open | Header search/clear on a detail page swaps the detail feed and fights SSE. |
+| UI2-002 | `detail-search-hijack` | P1 | Fixed | Page-kind-aware header navigates detail search to the feed. |
 | UI2-003 | `draft-clobber` | P1 | Fixed | SSE now refreshes only illumination fragments; annotation DOM is outside the target. |
 | UI2-004 | `related-json-breakout` | P1 | Fixed | Related previews are a JSON resource; no inline JSON or full models in HTML. |
 | UI2-005 | `catchup-skips-reruns` | P1 | Accepted | SSE catch-up ignores cards that already have an old illumination, so rerun progress is missing after reload. Accepted DB-load trade-off. |
@@ -30,11 +30,11 @@ Severity is user impact, not effort.
 | UI2-010 | `entity-title-only` | P2 | Open | Entity descriptions on feed cards exist only in `title=`, unusable on touch. |
 | UI2-011 | `pwa-share-feedback` | P3 | Open | PWA share-target upload redirects with no success/error notice. |
 | UI2-012 | `related-double-wrapper` | P3 | Fixed | Related fragment now returns inner content into the existing section root. |
-| UI2-A01 | `no-base-layout` | Arch | Open | Every full page duplicates head/header/upload/search/progress markup. |
-| UI2-A02 | `implicit-page-mode` | Arch | Open | Shared header markup has page-dependent behavior with no explicit page kind. |
-| UI2-A03 | `fragment-contracts` | Arch | Open | Endpoints disagree on returning inner content vs a complete wrapper. |
-| UI2-A04 | `no-pagination` | Arch | Open | Feed/related/entity listings have caps but no paging or “load more”. |
-| UI2-A05 | `entity-identity` | Product | Open | `knowledge_entities` rows are occurrences; no canonical entity identity exists. |
+| UI2-A01 | `no-base-layout` | Arch | Fixed | Added `base.html.tera` and shared header/upload chrome. |
+| UI2-A02 | `implicit-page-mode` | Arch | Fixed | `data-page-kind` now drives search, SSE routing, and chrome. |
+| UI2-A03 | `fragment-contracts` | Arch | Fixed | HTML fragment shape now matches each target’s swap mode; JSON is separate. |
+| UI2-A04 | `no-pagination` | Arch | Accepted | Fixed caps are accepted for UI v2; pagination is a future enhancement. |
+| UI2-A05 | `entity-identity` | Product | Accepted | Canonical identity is deferred to the future knowledge-system model. |
 | UI2-D01 | `spark-wrapper-dup` | Prune | Fixed | Removed `SparkClusterCard`; templates read `card.spark.spark_clusters`. |
 | UI2-D02 | `unused-context` | Prune | Fixed | Removed unused `is_search` and `content_mode` inserts. |
 | UI2-D03 | `annotation-empty-branches` | Prune | Fixed | Footer template now uses one condition. |
@@ -124,22 +124,15 @@ asserts the output is escaped. Passed.
 **Evidence:** `maker.rs:16-27`; Tera `autoescape_suffixes`; live `curl` before
 the fix. The two `| safe` JSON sites still need UI2-004.
 
-### UI2-002 — `detail-search-hijack` (P1)
+### UI2-002 — `detail-search-hijack` (P1, fixed)
 
-`detail.html.tera:33-36` copies the feed header search form (`hx-get="/cards"`,
-`hx-target="#card-feed"`, `hx-push-url`). On `/detail/N`, searching replaces
-the detail card with feed results and pushes `/?query=…` while the document
-shell remains detail. `reloadFeedFrame()` has the same problem for the clear
-button (`webui-v2.js:929`).
+The detail header reused the feed's htmx search, replacing `#card-feed` and
+leaving detail SSE able to overwrite the temporary search results.
 
-A later terminal task-status event for capture N runs the detail refresh path
-(`webui-v2.js:75-80`) and replaces those search results with the detail
-partial again.
-
-**Fix.** Make search behavior page-kind-specific. On non-feed pages, use normal
-navigation (`action="/"`, no `hx-*`) or target a dedicated results region that
-detail SSE never touches. Serve the clear button's reload through the same page
-kind decision.
+**Applied.** The shared header renders the feed search with `hx-get="/cards"`,
+target `#card-feed`, and URL push. Non-feed pages render a plain `GET /?query=…`
+form and the clear button only clears the input. No `sse_mode` remains; page kind
+drives the behavior.
 
 ### UI2-003 — `draft-clobber` (P1, fixed)
 
@@ -261,56 +254,64 @@ detail shape. There is no related HTML partial or htmx load; the shell carries
 
 ## 4. Architecture issues
 
-### UI2-A01 — `no-base-layout`
+### UI2-A01 — `no-base-layout` (fixed)
 
-`index.html.tera`, `detail.html.tera`, and `login.html.tera` each duplicate the
-full head, header, upload form, search form, progress UI, and notice. A new
-entity page would be a fourth copy.
+`index.html.tera`, `detail.html.tera`, and `login.html.tera` each duplicated the
+full head, header, upload form, search form, progress UI, and notice.
 
-**Fix.** Extract `base.html.tera` and `partials/header.html.tera` before adding
-pages. Parameters: search query, page kind, SSE mode/capture ID, feed content
-mode. Use Tera `extends`/`block`.
+**Applied.** Added `base.html.tera` and `partials/header.html.tera`. Feed and
+detail share the full chrome; account pages get the title-only header and no
+SSE scripts. Page title, head extras, body attributes, and content are blocks.
+No SSE mode was added to the base; page kind owns behavior.
 
-### UI2-A02 — `implicit-page-mode`
+### UI2-A02 — `implicit-page-mode` (fixed)
 
-The same header search markup is reused on feed and detail, but should behave
-differently. JS infers behavior from element existence and body data. This is
-the root of `detail-search-hijack`.
+The same header search markup was reused on feed and detail, while JS inferred
+behavior from element presence and a separate SSE mode.
 
-**Fix.** Encode `data-page-kind` (`feed`, `capture_detail`, `entity_detail`) and
-branch explicitly. Header partial takes behavior as a parameter.
+**Applied.** Full pages now set `data-page-kind` (`feed`, `capture_detail`,
+`account`). The header renders search presentation from it, and JS derives SSE
+routing from it. `data-sse-mode` is gone. All authenticated pages start SSE;
+catch-up and event targeting are page-specific.
 
-### UI2-A03 — `fragment-contracts`
+### UI2-A03 — `fragment-contracts` (fixed)
 
-Endpoints disagree: `/cards` returns inner content for `innerHTML`; `/related`
-returns a wrapper inserted inside another wrapper; the detail partial includes
-unrelated regions (metadata, related). This makes target semantics fragile.
+The original problem was concrete: `/related` returned a wrapper inserted inside
+another wrapper, and the detail partial included unrelated regions (metadata,
+related). Both paths have been removed/replaced.
 
-**Fix.** One rule: each endpoint returns exactly the target's inner content,
-with one root element and no wrapper duplication. Document it next to the route
-table.
+The remaining rule is consistent:
 
-### UI2-A04 — `no-pagination`
+- `innerHTML` targets receive inner content (`/cards`).
+- `outerHTML` targets receive exactly one root (`/cards/capture/{id}/illumination`,
+  annotation blocks).
+- Multi-region updates return a primary root plus explicit `hx-swap-oob`
+  fragments (`/detail/{id}/illumination`, annotation footer).
+- Client-rendered components use JSON resources (`/detail/{id}/related/previews`),
+  not HTML fragments carrying embedded data.
+
+No wrapper duplication or unrelated region inclusion remains.
+
+### UI2-A04 — `no-pagination` (accepted for v2)
 
 Feed is capped at 50 and related captures at 12. There is no paging or “load
 more”, and the planned entity page would need a cap for “appears in”.
 `plan/feed-view-incremental-updates.md` owns feed reconciliation but not the
 page-size UX.
 
-**Fix.** Decide whether prototype scope stops at caps or adds a cursor/limit
-control. Total-limit semantics are deferred with the feed architecture work
-(UI2-009).
+**Decision:** accepted for UI v2. Pagination is a future enhancement, to be
+considered alongside the feed architecture work.
 
-### UI2-A05 — `entity-identity`
+### UI2-A05 — `entity-identity` (accepted)
 
 `knowledge_entities.id` is unique per illumination run. There is no canonical
 entity table or identity resolution. A “knowledge entity detail page” therefore
 means either one occurrence or a name/type grouping, not a stable entity.
 
-**Decision needed before implementation.** Recommendation: occurrence page
-first (`/entity/{id}`), with an explicitly labeled “also appears in” list based
-on exact `(name, type)` matches. Canonical pages would need a normalization key
-and are a larger product decision.
+**Decision:** accepted. Canonical entity identity, merging, and clustering are
+a future knowledge-system cornerstone, not a UI v2 fix. Revisit only when that
+identity model is designed. An occurrence page remains optional, but must be
+labeled as an occurrence rather than a canonical entity.
 
 ---
 
@@ -329,7 +330,10 @@ and are a larger product decision.
 
 ---
 
-## 6. Entity page design (pending UI2-A05)
+## 6. Entity page design (deferred with UI2-A05)
+
+These notes remain a possible occurrence-page design, but the page is deferred
+until the canonical identity model is addressed.
 
 Recommended starting point: occurrence page.
 
@@ -357,9 +361,7 @@ key for that.
 ## 7. Suggested execution order
 
 1. **UI2-001** autoescape + regression test — **Done**.
-2. **UI2-A01/A02** base layout and explicit page kind; then **UI2-002**
-   detail search/clear semantics.
+2. **UI2-A01/A02 + UI2-002** base layout, page kind, and detail search — **Done**.
 3. **UI2-003** draft guard and smaller detail refresh target.
 4. **UI2-006/007** related refresh cleanup, error channel.
 5. **UI2-008** accessibility/clipping; then the pruning items D01-D08.
-6. **UI2-A05** decide occurrence vs canonical, then build the entity page.

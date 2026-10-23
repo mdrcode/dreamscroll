@@ -13,14 +13,14 @@
             <dt>
                 <span class="pill"{% if entity.description %} title="{{ entity.description }}"{% endif %}>
                     <span class="pill__prefix">{{ entity.type }}</span>
-                    <span class="pill__label">{{ entity.name }}</span>
+                    <span class="pill__label">{{ entity.name }}{% if entity.platform_link %} · {{ entity.platform_link.platform }}{% endif %}</span>
                 </span>
             </dt>
             {% if entity.description %}
             <dd>{{ entity.description }}</dd>
             {% endif %}
             {% if entity.platform_link %}
-            <dd>{{ entity.platform_link.platform }}{% if entity.platform_link.display_name %} · {{ entity.platform_link.display_name }}{% endif %} ({{ entity.platform_link.handle }})</dd>
+            <dd>{% if entity.platform_link.display_name %}{{ entity.platform_link.display_name }} {% endif %}({{ entity.platform_link.handle }})</dd>
             {% endif %}
             {% if entity.search_query %}
             <dd><a href="https://www.google.com/search?q={{ entity.search_query | urlencode }}" target="_blank" rel="noopener noreferrer">Canonical search: {{ entity.search_query }}</a></dd>

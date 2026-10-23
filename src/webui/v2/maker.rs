@@ -232,6 +232,55 @@ mod tests {
     }
 
     #[test]
+    fn page_layouts_use_explicit_page_kind() {
+        let tera = load_templates().expect("all v2 templates should load");
+
+        let mut feed = tera::Context::new();
+        feed.insert("static_asset_version", &"test");
+        feed.insert("page_kind", &"feed");
+        feed.insert("feed_content_mode", &"timeline");
+        feed.insert("query", &"");
+        feed.insert("cards", &serde_json::json!([]));
+        let feed = tera.render("index.html.tera", &feed).unwrap();
+        assert!(feed.contains("data-page-kind=\"feed\""));
+        assert!(feed.contains("hx-get=\"/cards\""));
+        assert!(feed.contains("id=\"file-upload-form\""));
+
+        let mut detail = tera::Context::new();
+        detail.insert("static_asset_version", &"test");
+        detail.insert("page_kind", &"capture_detail");
+        detail.insert("feed_content_mode", &"detail");
+        detail.insert("page_snapshot_at", &"2026-10-22T12:00:00Z");
+        detail.insert(
+            "capture",
+            &serde_json::json!({
+                "id": 7,
+                "medias": [{ "url": "https://example.com/image.jpg", "storage_uuid": "abc" }],
+                "illuminations": [],
+                "annotation": null,
+                "created_at": "2026-10-22T12:00:00Z",
+                "created_at_human": "now"
+            }),
+        );
+        let detail = tera.render("detail.html.tera", &detail).unwrap();
+        assert!(detail.contains("data-page-kind=\"capture_detail\""));
+        assert!(detail.contains("data-capture-id=\"7\""));
+        assert!(detail.contains("action=\"/\""));
+        assert!(!detail.contains("hx-get=\"/cards\""));
+
+        let mut account = tera::Context::new();
+        account.insert("static_asset_version", &"test");
+        account.insert("page_kind", &"account");
+        account.insert("csrf_token", &"token");
+        account.insert("already_logged_in", &false);
+        let account = tera.render("login.html.tera", &account).unwrap();
+        assert!(account.contains("data-page-kind=\"account\""));
+        assert!(!account.contains("header-search-form"));
+        assert!(!account.contains("file-upload-form"));
+        assert!(!account.contains("webui-v2.js"));
+    }
+
+    #[test]
     fn spark_card_renders_clusters_without_wrapper() {
         let tera = load_templates().expect("all v2 templates should load");
         let mut context = tera::Context::new();

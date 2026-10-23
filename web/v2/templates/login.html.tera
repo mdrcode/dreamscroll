@@ -1,120 +1,108 @@
-<!DOCTYPE html>
-<html>
+{% extends "base.html.tera" %}
 
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#1a1917">
-    <title>Login - dreamscroll</title>
-    <link rel="manifest" href="/manifest.webmanifest?v={{ static_asset_version | urlencode }}">
-    <link rel="icon" type="image/png" sizes="32x32" href="/static/favicon-32x32.png?v={{ static_asset_version | urlencode }}">
-    <link rel="stylesheet" href="/static/dreamscroll-v2.css?v={{ static_asset_version | urlencode }}">
-    <style>
-        #login-panel {
-            width: 100%;
-            max-width: 420px;
-            margin-top: 18px;
-            padding: 16px;
-            border: 1px solid #d4dbe4;
-            border-radius: 12px;
-            background: #fff;
-            box-sizing: border-box;
-        }
+{% block title %}Login - dreamscroll{% endblock %}
 
-        #login-panel h2 {
-            margin: 0 0 10px;
-            font-size: 1.2rem;
-            color: var(--color-text-primary);
-        }
+{% block head %}
+<style>
+    #login-panel {
+        width: 100%;
+        max-width: 420px;
+        margin-top: 18px;
+        padding: 16px;
+        border: 1px solid #d4dbe4;
+        border-radius: 12px;
+        background: #fff;
+        box-sizing: border-box;
+    }
 
-        .login-error {
-            background-color: #fff4f4;
-            border: 1px solid #ffcccc;
-            border-radius: 8px;
-            color: #a32626;
-            padding: 10px;
-            margin-bottom: 12px;
-        }
+    #login-panel h2 {
+        margin: 0 0 10px;
+        font-size: 1.2rem;
+        color: var(--color-text-primary);
+    }
 
-        .login-form-group {
-            margin-bottom: 12px;
-        }
+    .login-error {
+        background-color: #fff4f4;
+        border: 1px solid #ffcccc;
+        border-radius: 8px;
+        color: #a32626;
+        padding: 10px;
+        margin-bottom: 12px;
+    }
 
-        .login-form-group label {
-            display: block;
-            margin-bottom: 4px;
-            font-size: 0.95rem;
-        }
+    .login-form-group {
+        margin-bottom: 12px;
+    }
 
-        .login-form-group input {
-            width: 100%;
-            box-sizing: border-box;
-            padding: 9px 12px;
-            border: 1px solid #d2d7df;
-            border-radius: 8px;
-            font-size: 0.95rem;
-        }
+    .login-form-group label {
+        display: block;
+        margin-bottom: 4px;
+        font-size: 0.95rem;
+    }
 
-        .login-form-group input:focus {
-            outline: none;
-            border-color: var(--color-link);
-        }
+    .login-form-group input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 9px 12px;
+        border: 1px solid #d2d7df;
+        border-radius: 8px;
+        font-size: 0.95rem;
+    }
 
-        #login-submit {
-            border: 1px solid var(--color-text-primary);
-            background: var(--color-text-primary);
-            color: #fff;
-            border-radius: 8px;
-            padding: 8px 12px;
-            cursor: pointer;
-            font-size: 0.95rem;
-        }
+    .login-form-group input:focus {
+        outline: none;
+        border-color: var(--color-link);
+    }
 
-        #login-submit:hover {
-            opacity: 0.92;
-        }
-    </style>
-</head>
+    #login-submit {
+        border: 1px solid var(--color-text-primary);
+        background: var(--color-text-primary);
+        color: #fff;
+        border-radius: 8px;
+        padding: 8px 12px;
+        cursor: pointer;
+        font-size: 0.95rem;
+    }
 
-<body>
-    <div id="page-content-container">
-        <div id="header-row">
-            <h1 id="page-title"><a href="/" class="header-title-link">dreamscroll</a></h1>
+    #login-submit:hover {
+        opacity: 0.92;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}{% endblock %}
+
+{% block content %}
+<div id="login-panel">
+    {% if already_logged_in %}
+    <h2>Already Logged In</h2>
+    <p>You are currently logged in as {{ username }}.</p>
+    <p><a href="/">Go to feed</a></p>
+    <form method="POST" action="/logout">
+        <button id="login-submit" type="submit">Logout</button>
+    </form>
+    {% else %}
+    <h2>Login</h2>
+
+    {% if error %}
+    <div class="login-error">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/login">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+
+        <div class="login-form-group">
+            <label for="username">Username</label>
+            <input type="text" id="username" name="username" required autofocus>
         </div>
 
-        <div id="login-panel">
-            {% if already_logged_in %}
-            <h2>Already Logged In</h2>
-            <p>You are currently logged in as {{ username }}.</p>
-            <p><a href="/">Go to feed</a></p>
-            <form method="POST" action="/logout">
-                <button id="login-submit" type="submit">Logout</button>
-            </form>
-            {% else %}
-            <h2>Login</h2>
-
-            {% if error %}
-            <div class="login-error">{{ error }}</div>
-            {% endif %}
-
-            <form method="POST" action="/login">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-
-                <div class="login-form-group">
-                    <label for="username">Username</label>
-                    <input type="text" id="username" name="username" required autofocus>
-                </div>
-
-                <div class="login-form-group">
-                    <label for="password">Password</label>
-                    <input type="password" id="password" name="password" required>
-                </div>
-
-                <button id="login-submit" type="submit">Login</button>
-            </form>
-            {% endif %}
+        <div class="login-form-group">
+            <label for="password">Password</label>
+            <input type="password" id="password" name="password" required>
         </div>
-    </div>
-</body>
 
-</html>
+        <button id="login-submit" type="submit">Login</button>
+    </form>
+    {% endif %}
+</div>
+{% endblock %}

@@ -22,6 +22,7 @@ pub async fn get(
     let capture = state.user_api.get_capture(&context_user, id).await?;
 
     let mut context = state.template_context();
+    context.insert("page_kind", &"capture_detail");
     context.insert("page_snapshot_at", &page_snapshot_at);
     context.insert("feed_content_mode", "detail");
     context.insert("capture", &capture);
