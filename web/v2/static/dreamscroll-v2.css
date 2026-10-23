@@ -705,7 +705,7 @@ body {
     margin: 4px 0 10px 0;
 }
 
-.spark-capture-item {
+.capture-preview-item {
     display: grid;
     grid-template-columns: 92px 1fr;
     gap: 10px;
@@ -717,29 +717,29 @@ body {
     padding: 6px;
 }
 
-.spark-capture-item:hover {
+.capture-preview-item:hover {
     border-color: var(--color-stroke);
 }
 
-.spark-capture-thumb {
+.capture-preview-thumb {
     width: 92px;
     height: 72px;
     border-radius: 4px;
     overflow: hidden;
 }
 
-.spark-capture-thumb img {
+.capture-preview-thumb img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
 }
 
-.spark-capture-meta {
+.capture-preview-meta {
     min-width: 0;
 }
 
-.spark-capture-meta-summary {
+.capture-preview-meta-summary {
     font-size: 0.8125rem;
     line-height: 1.3;
     margin: 0;
@@ -766,6 +766,45 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     vertical-align: bottom;
+}
+
+.entity-card {
+    padding: 14px;
+}
+
+.entity-card__header {
+    margin-bottom: 12px;
+}
+
+.entity-card__name {
+    margin: 2px 0 8px;
+    font-size: 1.7rem;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    overflow-wrap: anywhere;
+}
+
+.entity-card__description {
+    margin: 0 0 12px;
+    font-size: 1rem;
+    line-height: 1.5;
+    white-space: pre-line;
+}
+
+.entity-card__meta {
+    margin-bottom: 0;
+}
+
+.entity-card__muted {
+    color: var(--color-text-secondary);
+}
+
+.entity-section {
+    margin-top: 14px;
+}
+
+.entity-section .capture-preview-item {
+    max-width: 420px;
 }
 
 .metadata-dict-list {
@@ -1022,6 +1061,18 @@ body {
 
     .capture-card__details-toggle-row {
         margin: 10px 0 12px;
+    }
+
+    .entity-card {
+        padding: 10px;
+    }
+
+    .entity-card__name {
+        font-size: 1.45rem;
+    }
+
+    .entity-section .capture-preview-item {
+        max-width: none;
     }
 
 }

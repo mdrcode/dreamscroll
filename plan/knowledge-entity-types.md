@@ -8,6 +8,8 @@ Illumination v2 uses one entity shape: `name`, optional `description`, `type`, a
 
 V2 is the application projection: API, REST, WebUI, and `dreamscroll_api unknown-entities` read the unified `knowledge_entities` table. V1 remains available only for explicit raw-result evaluation and stores inference output in `illumination_raws`; it does not write a relational projection. The versions retain separate prompts and schemas.
 
+The WebUI exposes each row as an occurrence at `/entity/{id}`. That page shows the source capture and sibling entities, but it does not establish canonical identity across captures. Cross-capture grouping by exact `(name, type)` is deferred.
+
 ## Decisions so far
 
 - Keep one unified entity shape; do not restore a separate account list in v2.

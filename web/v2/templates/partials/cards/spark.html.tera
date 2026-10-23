@@ -8,12 +8,12 @@
         {% if cluster.capture_previews | length > 0 %}
         <div class="spark-capture-list">
             {% for capture in cluster.capture_previews %}
-            <a href="/detail/{{ capture.id }}" class="spark-capture-item" title="Capture {{ capture.id }}">
-                <div class="spark-capture-thumb">
+            <a href="/detail/{{ capture.id }}" class="capture-preview-item" title="Capture {{ capture.id }}">
+                <div class="capture-preview-thumb">
                     <img src="{{ capture.thumbnail_url }}" alt="capture {{ capture.id }}">
                 </div>
-                <div class="spark-capture-meta">
-                    <p class="spark-capture-meta-summary">{{ capture.summary }}</p>
+                <div class="capture-preview-meta">
+                    <p class="capture-preview-meta-summary">{{ capture.summary }}</p>
                 </div>
             </a>
             {% endfor %}

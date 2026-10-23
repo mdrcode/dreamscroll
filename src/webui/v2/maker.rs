@@ -92,6 +92,7 @@ pub fn make_ui_router(
     let routes_protected = Router::new()
         .route("/", get(r_feed::page))
         .route("/detail/{id}", get(r_detail::get))
+        .route("/entity/{id}", get(r_entity::get))
         .route(
             "/detail/{id}/illumination",
             get(r_illumination::detail_fragments),
@@ -176,6 +177,7 @@ mod tests {
                     "summary": "Summary text",
                     "details": "Details text",
                     "knowledge_entities": [{
+                        "id": 11,
                         "type": "real_person",
                         "name": "Ada Lovelace",
                         "description": "Mathematician",
@@ -193,6 +195,7 @@ mod tests {
         assert!(feed.contains("id=\"capture-illumination-7\""));
         assert!(feed.contains("data-has-illumination=\"true\""));
         assert!(feed.contains("Ada Lovelace"));
+        assert!(feed.contains("href=\"/entity/11\""));
         assert!(feed.contains("aria-controls=\"capture-details-7\""));
         assert!(
             feed.contains("id=\"capture-details-7\" class=\"capture-card__details-panel\" inert")
@@ -214,6 +217,7 @@ mod tests {
         assert!(metadata.contains("hx-swap-oob=\"outerHTML\""));
         assert!(metadata.contains("id=\"capture-metadata-content-7\""));
         assert!(metadata.contains("Ada Lovelace"));
+        assert!(metadata.contains("href=\"/entity/11\""));
 
         let mut empty_context = tera::Context::new();
         empty_context.insert("page_snapshot_at", &"2026-10-22T12:00:00Z");
@@ -285,6 +289,63 @@ mod tests {
         assert!(!account.contains("header-search-form"));
         assert!(!account.contains("file-upload-form"));
         assert!(!account.contains("webui-v2.js"));
+    }
+
+    #[test]
+    fn entity_page_renders_occurrence_and_source_capture() {
+        let tera = load_templates().expect("all v2 templates should load");
+        let mut context = tera::Context::new();
+        context.insert("static_asset_version", &"test");
+        context.insert("page_kind", &"entity_detail");
+        context.insert(
+            "entity",
+            &serde_json::json!({
+                "id": 11,
+                "capture_id": 7,
+                "name": "Ada Lovelace",
+                "type": "real_person",
+                "description": "Pioneer of computing",
+                "search_query": "Ada Lovelace mathematician",
+                "platform_link": {
+                    "platform": "x_twitter",
+                    "handle": "@ada",
+                    "display_name": "Ada"
+                }
+            }),
+        );
+        context.insert(
+            "capture",
+            &serde_json::json!({
+                "id": 7,
+                "medias": [{ "url": "https://example.com/image.jpg" }],
+                "illuminations": [{ "summary": "Source capture summary" }],
+                "created_at_human": "just now"
+            }),
+        );
+        context.insert(
+            "siblings",
+            &serde_json::json!([{
+                "id": 12,
+                "name": "Charles Babbage",
+                "type": "real_person",
+                "description": "Mathematician"
+            }]),
+        );
+
+        let rendered = tera.render("entity.html.tera", &context).unwrap();
+
+        assert!(rendered.contains("data-page-kind=\"entity_detail\""));
+        assert!(rendered.contains("Entity occurrence"));
+        assert!(rendered.contains("Ada Lovelace"));
+        assert!(rendered.contains("Pioneer of computing"));
+        assert!(
+            rendered.contains("https://www.google.com/search?q=Ada%20Lovelace%20mathematician")
+        );
+        assert!(rendered.contains("href=\"/detail/7\""));
+        assert!(rendered.contains("Source capture summary"));
+        assert!(rendered.contains("href=\"/entity/12\""));
+        assert!(rendered.contains("Charles Babbage"));
+        assert!(!rendered.contains("annotation-block"));
     }
 
     #[test]

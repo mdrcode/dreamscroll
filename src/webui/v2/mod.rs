@@ -12,6 +12,7 @@ mod r_annotation;
 mod r_auth;
 mod r_command;
 mod r_detail;
+mod r_entity;
 mod r_events;
 mod r_feed;
 mod r_illumination;

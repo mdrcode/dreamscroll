@@ -1,0 +1,88 @@
+{% extends "base.html.tera" %}
+
+{% block title %}dreamscroll - {{ entity.name }}{% endblock %}
+
+{% block content %}
+<article class="feed-card entity-card" aria-labelledby="entity-name">
+    <header class="entity-card__header">
+        <p class="metadata-subsection-title">Entity occurrence</p>
+        <h2 id="entity-name" class="entity-card__name">{{ entity.name }}</h2>
+        <div class="pill-group pill-group--wrap">
+            <span class="pill">
+                <span class="pill__prefix">type</span>
+                <span class="pill__label">{{ entity.type }}</span>
+            </span>
+            {% if entity.platform_link %}
+            <span class="pill">
+                <span class="pill__prefix">{{ entity.platform_link.platform }}</span>
+                <span class="pill__label">{{ entity.platform_link.handle }}</span>
+            </span>
+            {% endif %}
+        </div>
+    </header>
+
+    <div class="entity-card__body">
+        {% if entity.description %}
+        <p class="entity-card__description">{{ entity.description }}</p>
+        {% endif %}
+
+        <dl class="metadata-dict-list entity-card__meta">
+            {% if entity.platform_link %}
+            <dt>Platform</dt>
+            <dd>
+                {{ entity.platform_link.platform }} · {{ entity.platform_link.handle }}
+                {% if entity.platform_link.display_name %}
+                <span class="entity-card__muted">({{ entity.platform_link.display_name }})</span>
+                {% endif %}
+            </dd>
+            {% endif %}
+
+            {% if entity.search_query %}
+            <dt>Canonical search</dt>
+            <dd>
+                <a href="https://www.google.com/search?q={{ entity.search_query | urlencode }}"
+                    target="_blank" rel="noopener noreferrer">{{ entity.search_query }}</a>
+            </dd>
+            {% endif %}
+        </dl>
+    </div>
+
+    <footer class="card-footer">
+        <span class="card-timestamp">Occurrence {{ entity.id }} · {{ capture.created_at_human }}</span>
+    </footer>
+</article>
+
+<section class="entity-section" aria-labelledby="entity-source-title">
+    <p id="entity-source-title" class="metadata-subsection-title">Appears in</p>
+    <a href="/detail/{{ capture.id }}" class="capture-preview-item" title="Capture {{ capture.id }}">
+        <div class="capture-preview-thumb">
+            {% if capture.medias | length > 0 %}
+            <img src="{{ capture.medias[0].url }}" alt="capture {{ capture.id }}">
+            {% endif %}
+        </div>
+        <div class="capture-preview-meta">
+            <p class="capture-preview-meta-summary">
+                {% if capture.illuminations | length > 0 %}
+                {{ capture.illuminations[0].summary }}
+                {% else %}
+                Open capture {{ capture.id }}
+                {% endif %}
+            </p>
+        </div>
+    </a>
+</section>
+
+{% if siblings | length > 0 %}
+<section class="entity-section" aria-labelledby="entity-siblings-title">
+    <p id="entity-siblings-title" class="metadata-subsection-title">Also in this capture</p>
+    <div class="pill-group pill-group--wrap">
+        {% for sibling in siblings %}
+        <a class="pill" href="/entity/{{ sibling.id }}"{% if sibling.description %} title="{{ sibling.description }}"{% endif %}>
+            <span class="pill__prefix">{{ sibling.type }}</span>
+            <span class="pill__label">{{ sibling.name }}</span>
+        </a>
+        {% endfor %}
+    </div>
+</section>
+{% endif %}
+{% endblock %}

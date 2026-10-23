@@ -27,7 +27,7 @@ Severity is user impact, not effort.
 | UI2-007 | `silent-errors` | P2 | Accepted | Error-channel work deferred; revisit with the htmx 4 migration. |
 | UI2-008 | `collapse-a11y-clip` | P2 | Accepted | Accessibility fixed; fixed max-height clipping accepted for v2. |
 | UI2-009 | `blend-limit` | P2 | Accepted | `limit` applies per source, so blended feeds can return up to 2× the requested cards. Deferred to feed architecture work. |
-| UI2-010 | `entity-title-only` | P2 | Accepted | Deferred until the entity occurrence page is built. |
+| UI2-010 | `entity-title-only` | P2 | Fixed | Entity pills link to `/entity/{id}`; the occurrence page shows descriptions and the source capture. |
 | UI2-011 | `pwa-share-feedback` | P3 | Accepted | Share-target feedback deferred; revisit with PWA polish. |
 | UI2-012 | `related-double-wrapper` | P3 | Fixed | Related fragment now returns inner content into the existing section root. |
 | UI2-A01 | `no-base-layout` | Arch | Fixed | Added `base.html.tera` and shared header/upload chrome. |
@@ -226,14 +226,15 @@ concatenates and sorts (`content.rs:105-120`). `limit=50` can return 100 cards;
 bound, not a total-feed contract. Combined-limit semantics belong with the
 planned feed architecture work. Recorded in `plan/pragmatism.md`.
 
-### UI2-010 — `entity-title-only` (P2, accepted)
+### UI2-010 — `entity-title-only` (P2, fixed)
 
-Feed entity pills put descriptions only in `title=`. Touch users cannot access
-them; keyboard users get nothing useful. The detail page displays descriptions,
-but the feed does not.
+Feed entity pills put descriptions only in `title=`, which touch users cannot
+access. They now link to `/entity/{id}`. The occurrence page shows the
+description, type, platform metadata, canonical search, source capture preview,
+and sibling entities from the same capture.
 
-**Decision:** accepted until the entity occurrence page exists. Link pills there
-and show descriptions on that page; no inline feed description is planned.
+**Applied.** Feed and detail metadata pills are anchors. The occurrence page is
+explicitly labeled as an occurrence, not a canonical entity.
 
 ### UI2-011 — `pwa-share-feedback` (P3, accepted)
 
@@ -311,9 +312,9 @@ entity table or identity resolution. A “knowledge entity detail page” theref
 means either one occurrence or a name/type grouping, not a stable entity.
 
 **Decision:** accepted. Canonical entity identity, merging, and clustering are
-a future knowledge-system cornerstone, not a UI v2 fix. Revisit only when that
-identity model is designed. An occurrence page remains optional, but must be
-labeled as an occurrence rather than a canonical entity.
+a future knowledge-system cornerstone, not a UI v2 fix. An occurrence page is
+now implemented at `/entity/{id}` and is explicitly labeled as an occurrence,
+not a canonical entity. Revisit identity when that model is designed.
 
 ---
 
@@ -332,31 +333,29 @@ labeled as an occurrence rather than a canonical entity.
 
 ---
 
-## 6. Entity page design (deferred with UI2-A05)
+## 6. Entity page design (occurrence page implemented)
 
-These notes remain a possible occurrence-page design, but the page is deferred
-until the canonical identity model is addressed.
+The first page is an occurrence page, consistent with UI2-A05: it is not a
+canonical entity and does not merge same-name occurrences.
 
-Recommended starting point: occurrence page.
+Implemented:
 
-- **Data:** add `UserApiClient::get_knowledge_entity(context, id)` (join
-  capture, filter owner + unarchived) and `get_entities_by_name(context, name,
-  type)` for “also appears in”. No raw DB access in the handler.
+- **Data:** `UserApiClient::get_entity(context, id)` joins the source capture,
+  filters owner and unarchived captures, and returns a `KnowledgeEntityInfo`.
+  No raw DB access in the handler.
 - **Page:** entity type/name, description, platform link, canonical search,
-  source capture thumbnail/date/link, sibling entities from the same
-  illumination, and other captures with the same exact `(name, type)` labeled
-  as name matches, not identity.
-- **Navigation:** turn entity pills in `capture.html` and `capture_detail.html`
-  into anchors to `/entity/{id}`. This also addresses `entity-title-only`.
-- **Template:** extend the new base layout; reuse `pill`, `metadata-dict-list`,
-  and a compact capture-preview partial. Do not reuse the full capture card.
-- **Live updates:** start static. If live later, add an `entity` SSE mode that
-  refreshes only the entity component when its source capture’s illumination
-  completes; do not reuse the detail whole-feed refresh.
+  source capture thumbnail/summary/date/link, and sibling entities from the
+  same illumination. The page is labeled “Entity occurrence”.
+- **Navigation:** entity pills in the feed and detail metadata are anchors to
+  `/entity/{id}`. This resolves `entity-title-only`.
+- **Template:** extends the shared base layout and reuses `pill`,
+  `metadata-dict-list`, and the compact capture-preview pattern. It does not
+  reuse the full capture card.
+- **Live updates:** static. No entity SSE mode is registered.
 
-If canonical entities are wanted instead, the route should be name/type-based
-(`/entities/{type}/{slug}`) and needs a normalization rule. IDs are the wrong
-key for that.
+Deferred: cross-capture “also appears in” results for the same exact
+`(name, type)`, which would need explicit name-match labeling and an entity
+search/grouping API.
 
 ---
 

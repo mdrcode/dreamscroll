@@ -157,6 +157,16 @@ impl UserApiClient {
     }
 
     #[tracing::instrument(skip(self, context))]
+    pub async fn get_entity(
+        &self,
+        context: &auth::Context,
+        id: i32,
+    ) -> Result<schema::KnowledgeEntityInfo, ApiError> {
+        let entity = super::get_knowledge_entity(&self.db, context, id).await?;
+        Ok(schema::KnowledgeEntityInfo::from(entity))
+    }
+
+    #[tracing::instrument(skip(self, context))]
     pub async fn get_entities_by_type(
         &self,
         context: &auth::Context,
