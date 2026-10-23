@@ -1,6 +1,6 @@
 # WebUI v2 Audit — Bugs, Architecture, and Pruning
 
-**Status:** Open; UI2-001/UI2-002/UI2-003/UI2-004/UI2-006/UI2-012/UI2-A01/UI2-A02/UI2-A03 fixed; UI2-008 partial; D01/D02/D03/D04/D05/D07/D08 pruned; UI2-005/UI2-009/UI2-A04/UI2-A05/UI2-D06 accepted. Audit date: 2026-10-22.
+**Status:** UI v2 audit complete. All findings are fixed or accepted; no open items. Audit date: 2026-10-22.
 **Scope:** `web/v2` templates/static assets and `src/webui/v2` handlers, plus the
 API/data shapes those views consume.
 **Method:** Full read of 13 templates, 1,061-line CSS, 1,238-line JS, all 19
@@ -24,11 +24,11 @@ Severity is user impact, not effort.
 | UI2-004 | `related-json-breakout` | P1 | Fixed | Related previews are a JSON resource; no inline JSON or full models in HTML. |
 | UI2-005 | `catchup-skips-reruns` | P1 | Accepted | SSE catch-up ignores cards that already have an old illumination, so rerun progress is missing after reload. Accepted DB-load trade-off. |
 | UI2-006 | `related-leak` | P1 | Fixed | Detail SSE no longer refreshes the feed/related section; related loads once. |
-| UI2-007 | `silent-errors` | P2 | Open | htmx failures and HTML-route API errors have no user-visible channel. |
-| UI2-008 | `collapse-a11y-clip` | P2 | Partial | Collapsed content is inert and disclosures expose ARIA state; fixed max-height clipping remains. |
+| UI2-007 | `silent-errors` | P2 | Accepted | Error-channel work deferred; revisit with the htmx 4 migration. |
+| UI2-008 | `collapse-a11y-clip` | P2 | Accepted | Accessibility fixed; fixed max-height clipping accepted for v2. |
 | UI2-009 | `blend-limit` | P2 | Accepted | `limit` applies per source, so blended feeds can return up to 2× the requested cards. Deferred to feed architecture work. |
-| UI2-010 | `entity-title-only` | P2 | Open | Entity descriptions on feed cards exist only in `title=`, unusable on touch. |
-| UI2-011 | `pwa-share-feedback` | P3 | Open | PWA share-target upload redirects with no success/error notice. |
+| UI2-010 | `entity-title-only` | P2 | Accepted | Deferred until the entity occurrence page is built. |
+| UI2-011 | `pwa-share-feedback` | P3 | Accepted | Share-target feedback deferred; revisit with PWA polish. |
 | UI2-012 | `related-double-wrapper` | P3 | Fixed | Related fragment now returns inner content into the existing section root. |
 | UI2-A01 | `no-base-layout` | Arch | Fixed | Added `base.html.tera` and shared header/upload chrome. |
 | UI2-A02 | `implicit-page-mode` | Arch | Fixed | `data-page-kind` now drives search, SSE routing, and chrome. |
@@ -190,18 +190,17 @@ fresh related section and re-fetching `/related`; each gallery added a
 **Applied.** Detail SSE now swaps only the illumination region and metadata
 article, so the related section loads once and its listener is not duplicated.
 
-### UI2-007 — `silent-errors` (P2)
+### UI2-007 — `silent-errors` (P2, accepted)
 
 htmx 2 ignores 4xx/5xx responses. Invalid `/spark`, failed annotation
 save/archive, and upload errors on htmx paths produce no feedback. HTML routes
 also return JSON `ApiError` bodies (for example `/detail/999`), which is wrong
 for a full-page navigation. htmx 4 will swap error bodies, making this worse.
 
-**Fix.** Add one global `htmx:responseError` handler rendering a dismissible
-notice, plus an HTML error page for full-page routes. Do this before the htmx 4
-migration.
+**Decision:** accepted for UI v2. Revisit as part of the htmx 4 migration, where
+a global error channel is required anyway.
 
-### UI2-008 — `collapse-a11y-clip` (P2, partial)
+### UI2-008 — `collapse-a11y-clip` (P2, accepted)
 
 Collapsed panels used `opacity:0` plus `max-height:0` without `inert`, so links
 inside remained tabbable and readable by screen readers. Expanded panels cap at
@@ -214,8 +213,8 @@ metadata toggles expose the same relationship. The search input has an
 accessible name, and related-capture links use the summary as their accessible
 name.
 
-**Remaining.** Removing the fixed `900px`/`2400px` expansion caps needs a
-disclosure height/animation decision.
+**Decision:** the remaining fixed-height clipping is accepted for UI v2. Revisit
+with a disclosure height/animation change.
 
 ### UI2-009 — `blend-limit` (P2, accepted trade-off)
 
@@ -227,22 +226,21 @@ concatenates and sorts (`content.rs:105-120`). `limit=50` can return 100 cards;
 bound, not a total-feed contract. Combined-limit semantics belong with the
 planned feed architecture work. Recorded in `plan/pragmatism.md`.
 
-### UI2-010 — `entity-title-only` (P2)
+### UI2-010 — `entity-title-only` (P2, accepted)
 
-Feed entity pills (`capture.html:34`) put descriptions only in `title=`.
-Touch users cannot access them; keyboard users get nothing useful. The detail
-page displays descriptions, but the feed does not.
+Feed entity pills put descriptions only in `title=`. Touch users cannot access
+them; keyboard users get nothing useful. The detail page displays descriptions,
+but the feed does not.
 
-**Fix.** Link pills to the entity page (see §6) and show description text
-there; optionally add an accessible disclosure in the feed.
+**Decision:** accepted until the entity occurrence page exists. Link pills there
+and show descriptions on that page; no inline feed description is planned.
 
-### UI2-011 — `pwa-share-feedback` (P3)
+### UI2-011 — `pwa-share-feedback` (P3, accepted)
 
 The manifest share target posts to `/upload`. A non-htmx upload redirects to
 `/` without an upload notice or capture link.
 
-**Fix.** Redirect with a query/flag that the feed renders as a notice, or use a
-dedicated share-result page.
+**Decision:** accepted for UI v2; revisit with PWA polish.
 
 ### UI2-012 — `related-double-wrapper` (P3, fixed)
 
@@ -368,4 +366,4 @@ key for that.
 2. **UI2-A01/A02 + UI2-002** base layout, page kind, and detail search — **Done**.
 3. **UI2-003** draft guard and smaller detail refresh target.
 4. **UI2-006/007** related refresh cleanup, error channel.
-5. **UI2-008** accessibility/clipping; then the pruning items D01-D08.
+5. All remaining findings are accepted; no open UI v2 work.
