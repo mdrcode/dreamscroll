@@ -27,11 +27,7 @@ pub async fn get(
         .expect("protected route requires an authenticated user");
     let context_user = user.into();
     let page_snapshot_at = state.current_db_timestamp().await?;
-    let captures = state.user_api.get_captures(&context_user, vec![id]).await?;
-    let capture = captures
-        .into_iter()
-        .next()
-        .ok_or_else(|| api::ApiError::not_found(anyhow!("Capture with id {} not found", id)))?;
+    let capture = state.user_api.get_capture(&context_user, id).await?;
 
     let mut context = state.template_context();
     context.insert("page_snapshot_at", &page_snapshot_at);

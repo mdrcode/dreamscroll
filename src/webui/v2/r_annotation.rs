@@ -41,20 +41,6 @@ fn render_annotation_response(
     Ok(Html(format!("{}{}", annotation_html, footer_html)).into_response())
 }
 
-async fn get_capture_or_404(
-    state: &WebState,
-    context_user: &auth::Context,
-    capture_id: i32,
-) -> Result<api::CaptureInfo, api::ApiError> {
-    let captures = state
-        .user_api
-        .get_captures(context_user, vec![capture_id])
-        .await?;
-    captures.into_iter().next().ok_or_else(|| {
-        api::ApiError::not_found(anyhow!("Capture with id {} not found", capture_id))
-    })
-}
-
 pub async fn form(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
@@ -63,7 +49,10 @@ pub async fn form(
     let user = auth.user.unwrap();
     let context_user = user.into();
 
-    let capture = get_capture_or_404(&state, &context_user, capture_id).await?;
+    let capture = state
+        .user_api
+        .get_capture(&context_user, capture_id)
+        .await?;
     render_annotation_response(
         &state,
         &capture,
@@ -80,7 +69,10 @@ pub async fn block(
     let user = auth.user.unwrap();
     let context_user = user.into();
 
-    let capture = get_capture_or_404(&state, &context_user, capture_id).await?;
+    let capture = state
+        .user_api
+        .get_capture(&context_user, capture_id)
+        .await?;
     render_annotation_response(
         &state,
         &capture,
@@ -103,7 +95,10 @@ pub async fn set(
         .set_annotation(&context_user, capture_id, form.content)
         .await?;
 
-    let capture = get_capture_or_404(&state, &context_user, capture_id).await?;
+    let capture = state
+        .user_api
+        .get_capture(&context_user, capture_id)
+        .await?;
     render_annotation_response(
         &state,
         &capture,
@@ -125,7 +120,10 @@ pub async fn archive(
         .archive_annotation(&context_user, capture_id)
         .await?;
 
-    let capture = get_capture_or_404(&state, &context_user, capture_id).await?;
+    let capture = state
+        .user_api
+        .get_capture(&context_user, capture_id)
+        .await?;
     render_annotation_response(
         &state,
         &capture,

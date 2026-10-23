@@ -55,6 +55,19 @@ impl UserApiClient {
     }
 
     #[tracing::instrument(skip(self, context))]
+    pub async fn get_capture(
+        &self,
+        context: &auth::Context,
+        id: i32,
+    ) -> Result<CaptureInfo, ApiError> {
+        self.get_captures(context, vec![id])
+            .await?
+            .into_iter()
+            .next()
+            .ok_or_else(|| ApiError::not_found(anyhow!("Capture with id {id} not found")))
+    }
+
+    #[tracing::instrument(skip(self, context))]
     pub async fn get_illuminations(
         &self,
         context: &auth::Context,

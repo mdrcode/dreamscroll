@@ -1,6 +1,6 @@
 # WebUI v2 Audit — Bugs, Architecture, and Pruning
 
-**Status:** Open; UI2-001 fixed; D01/D02/D03/D04/D05 pruned, D08 partial; UI2-005 and UI2-009 accepted. Audit date: 2026-10-22.
+**Status:** Open; UI2-001 fixed; D01/D02/D03/D04/D05/D07 pruned, D08 partial; UI2-005 and UI2-009 accepted. Audit date: 2026-10-22.
 **Scope:** `web/v2` templates/static assets and `src/webui/v2` handlers, plus the
 API/data shapes those views consume.
 **Method:** Full read of 13 templates, 1,061-line CSS, 1,238-line JS, all 19
@@ -41,7 +41,7 @@ Severity is user impact, not effort.
 | UI2-D04 | `masonry-dup` | Prune | Fixed | Removed the standalone experiment; related-captures gallery is now the only gallery renderer. |
 | UI2-D05 | `masonry-orphan` | Prune | Fixed | Removed `/masonry`, its template, handler, CSS, and dead query. |
 | UI2-D06 | `noop-service-worker` | Prune | Open | `sw.js` only calls `skipWaiting`/`claim`. |
-| UI2-D07 | `capture-lookup-dup` | Prune | Open | Four handlers repeat capture lookup/404/context assembly. |
+| UI2-D07 | `capture-lookup-dup` | Prune | Fixed | Added `UserApiClient::get_capture`; four handlers use it. |
 | UI2-D08 | `css-noise` | Prune | Partial | Removed dead illumination and duplicate masonry selectors; login palette refactor remains. |
 
 ---
@@ -286,13 +286,14 @@ table.
 
 ### UI2-A04 — `no-pagination`
 
-Feed is capped at 50, related at 12, masonry at 100. There is no paging or
-“load more”, and the planned entity page would need a cap for “appears in”.
+Feed is capped at 50 and related captures at 12. There is no paging or “load
+more”, and the planned entity page would need a cap for “appears in”.
 `plan/feed-view-incremental-updates.md` owns feed reconciliation but not the
 page-size UX.
 
 **Fix.** Decide whether prototype scope stops at caps or adds a cursor/limit
-control. At minimum, make `limit` semantics consistent (`UI2-009`).
+control. Total-limit semantics are deferred with the feed architecture work
+(UI2-009).
 
 ### UI2-A05 — `entity-identity`
 
