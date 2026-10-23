@@ -8,6 +8,10 @@
 
     --color-link: #0066cc;
 
+    --color-error-bg: #fff4f4;
+    --color-error-border: #ffcccc;
+    --color-error-text: #a32626;
+
     --font-size-page-title: clamp(2.2rem, 5vw, 3rem);
     --font-size-capture-text: 1rem;
     --font-size-capture-seemore: 0.75rem;
@@ -347,6 +351,72 @@ body {
     border-radius: 8px;
 }
 
+#login-panel {
+    width: 100%;
+    max-width: 420px;
+    margin-top: 18px;
+    padding: 16px;
+    border: 1px solid var(--color-stroke-soft);
+    border-radius: 12px;
+    background: var(--color-card);
+    box-sizing: border-box;
+}
+
+#login-panel h2 {
+    margin: 0 0 10px;
+    font-size: 1.2rem;
+    color: var(--color-text-primary);
+}
+
+.login-error {
+    background-color: var(--color-error-bg);
+    border: 1px solid var(--color-error-border);
+    border-radius: 8px;
+    color: var(--color-error-text);
+    padding: 10px;
+    margin-bottom: 12px;
+}
+
+.login-form-group {
+    margin-bottom: 12px;
+}
+
+.login-form-group label {
+    display: block;
+    margin-bottom: 4px;
+    font-size: 0.95rem;
+}
+
+.login-form-group input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 9px 12px;
+    border: 1px solid var(--color-stroke-soft);
+    border-radius: 8px;
+    background: var(--color-canvas);
+    color: var(--color-text-primary);
+    font-size: 0.95rem;
+}
+
+.login-form-group input:focus {
+    outline: none;
+    border-color: var(--color-link);
+}
+
+#login-submit {
+    border: 1px solid var(--color-stroke);
+    background: var(--color-stroke);
+    color: var(--color-canvas);
+    border-radius: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 0.95rem;
+}
+
+#login-submit:hover {
+    opacity: 0.92;
+}
+
 .feed-card {
     width: 100%;
     box-sizing: border-box;
@@ -407,6 +477,11 @@ body {
 }
 
 .capture-card__details-toggle {
+    border: none;
+    background: transparent;
+    padding: 0;
+    cursor: pointer;
+    font-family: inherit;
     color: var(--color-text-secondary);
     text-decoration: none;
     text-transform: uppercase;

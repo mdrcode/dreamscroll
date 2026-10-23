@@ -38,7 +38,12 @@ document.addEventListener('DOMContentLoaded', function () {
             const card = region && region.closest('.capture-card');
             if (card && card.classList.contains('is-expanded')) {
                 const toggle = card.querySelector('.capture-card__details-toggle');
-                if (toggle) toggle.textContent = 'Less';
+                if (toggle) {
+                    toggle.textContent = 'Less';
+                    toggle.setAttribute('aria-expanded', 'true');
+                }
+                const panel = card.querySelector('.capture-card__details-panel');
+                if (panel) panel.inert = false;
             }
         }
 
@@ -653,6 +658,7 @@ async function loadRelatedCaptures(gallery, grid, emptyState, previewsUrl) {
                 const link = document.createElement('a');
                 link.className = 'related-captures__item';
                 link.href = '/detail/' + String(image.id);
+                link.setAttribute('aria-label', image.summary || 'Related capture');
                 if (image.summary) {
                     link.title = image.summary;
                 }
@@ -865,25 +871,37 @@ function applyFeedParameters(parameters, state) {
 }
 
 function setupCaptureExpandToggle(rootNode) {
-    rootNode.querySelectorAll('.capture-card__details-toggle').forEach(function (link) {
-        if (link.closest('.metadata-card')) {
+    rootNode.querySelectorAll('.capture-card__details-toggle').forEach(function (button) {
+        if (button.closest('.metadata-card')) {
             return;
         }
 
-        if (link.dataset.bound === 'true') {
+        if (button.dataset.bound === 'true') {
             return;
         }
 
-        link.dataset.bound = 'true';
-        link.addEventListener('click', function (e) {
+        button.dataset.bound = 'true';
+        const row = button.closest('.capture-card');
+        const panel = row && row.querySelector('.capture-card__details-panel');
+        const expanded = !!(row && row.classList.contains('is-expanded'));
+        button.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+        if (panel) {
+            panel.inert = !expanded;
+        }
+
+        button.addEventListener('click', function (e) {
             e.preventDefault();
-            const row = this.closest('.capture-card');
             if (!row) {
                 return;
             }
 
             row.classList.toggle('is-expanded');
-            this.textContent = row.classList.contains('is-expanded') ? 'Less' : 'More';
+            const isExpanded = row.classList.contains('is-expanded');
+            this.textContent = isExpanded ? 'Less' : 'More';
+            this.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
+            if (panel) {
+                panel.inert = !isExpanded;
+            }
         });
     });
 }
@@ -915,6 +933,7 @@ function setupMetadataCardExpandToggle(rootNode) {
 
         function setExpanded(isExpanded) {
             card.classList.toggle('is-expanded', isExpanded);
+            content.inert = !isExpanded;
             toggle.textContent = 'More';
             toggle.setAttribute('aria-expanded', isExpanded ? 'true' : 'false');
         }

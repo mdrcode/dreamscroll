@@ -2,7 +2,7 @@
     class="feed-card feed-card--capture capture-card metadata-card"
     {% if oob | default(value=false) %}hx-swap-oob="outerHTML"{% endif %}>
     <div class="capture-card__body">
-        <div class="metadata-card__content capture-card__details-panel">
+        <div id="capture-metadata-content-{{ capture.id }}" class="metadata-card__content capture-card__details-panel" inert>
         {% if capture.illuminations | length > 0 %}
         {% set illum = capture.illuminations | first %}
 
@@ -45,7 +45,10 @@
         </div>
 
         <div class="capture-card__details-toggle-row metadata-card__toggle-row">
-            <button type="button" class="capture-card__details-toggle metadata-card__toggle">More</button>
+            <button type="button"
+                class="capture-card__details-toggle metadata-card__toggle"
+                aria-expanded="false"
+                aria-controls="capture-metadata-content-{{ capture.id }}">More</button>
         </div>
     </div>
 </article>

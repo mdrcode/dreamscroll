@@ -1,6 +1,6 @@
 # WebUI v2 Audit — Bugs, Architecture, and Pruning
 
-**Status:** Open; UI2-001/UI2-002/UI2-003/UI2-004/UI2-006/UI2-012/UI2-A01/UI2-A02/UI2-A03 fixed; D01/D02/D03/D04/D05/D07 pruned, D08 partial; UI2-005/UI2-009/UI2-A04/UI2-A05/UI2-D06 accepted. Audit date: 2026-10-22.
+**Status:** Open; UI2-001/UI2-002/UI2-003/UI2-004/UI2-006/UI2-012/UI2-A01/UI2-A02/UI2-A03 fixed; UI2-008 partial; D01/D02/D03/D04/D05/D07/D08 pruned; UI2-005/UI2-009/UI2-A04/UI2-A05/UI2-D06 accepted. Audit date: 2026-10-22.
 **Scope:** `web/v2` templates/static assets and `src/webui/v2` handlers, plus the
 API/data shapes those views consume.
 **Method:** Full read of 13 templates, 1,061-line CSS, 1,238-line JS, all 19
@@ -25,7 +25,7 @@ Severity is user impact, not effort.
 | UI2-005 | `catchup-skips-reruns` | P1 | Accepted | SSE catch-up ignores cards that already have an old illumination, so rerun progress is missing after reload. Accepted DB-load trade-off. |
 | UI2-006 | `related-leak` | P1 | Fixed | Detail SSE no longer refreshes the feed/related section; related loads once. |
 | UI2-007 | `silent-errors` | P2 | Open | htmx failures and HTML-route API errors have no user-visible channel. |
-| UI2-008 | `collapse-a11y-clip` | P2 | Open | Collapsed panels stay focusable/readable; expanded panels clip at magic max-heights. |
+| UI2-008 | `collapse-a11y-clip` | P2 | Partial | Collapsed content is inert and disclosures expose ARIA state; fixed max-height clipping remains. |
 | UI2-009 | `blend-limit` | P2 | Accepted | `limit` applies per source, so blended feeds can return up to 2× the requested cards. Deferred to feed architecture work. |
 | UI2-010 | `entity-title-only` | P2 | Open | Entity descriptions on feed cards exist only in `title=`, unusable on touch. |
 | UI2-011 | `pwa-share-feedback` | P3 | Open | PWA share-target upload redirects with no success/error notice. |
@@ -42,7 +42,7 @@ Severity is user impact, not effort.
 | UI2-D05 | `masonry-orphan` | Prune | Fixed | Removed `/masonry`, its template, handler, CSS, and dead query. |
 | UI2-D06 | `noop-service-worker` | Prune | Accepted | Retained as a PWA installability/share-target requirement; no behavior needed. |
 | UI2-D07 | `capture-lookup-dup` | Prune | Fixed | Added `UserApiClient::get_capture`; four handlers use it. |
-| UI2-D08 | `css-noise` | Prune | Partial | Removed dead illumination and duplicate masonry selectors; login palette refactor remains. |
+| UI2-D08 | `css-noise` | Prune | Fixed | Removed dead selectors; auth styles moved to shared CSS and palette tokens. |
 
 ---
 
@@ -201,17 +201,21 @@ for a full-page navigation. htmx 4 will swap error bodies, making this worse.
 notice, plus an HTML error page for full-page routes. Do this before the htmx 4
 migration.
 
-### UI2-008 — `collapse-a11y-clip` (P2)
+### UI2-008 — `collapse-a11y-clip` (P2, partial)
 
-Collapsed panels use `opacity:0` plus `max-height:0`
-(`dreamscroll-v2.css:422-428`) without `hidden`/`inert`, so links inside remain
-tabbable and readable by screen readers. Expanded panels cap at `900px`
-(capture details) and `2400px` (metadata) and silently clip longer content
-(`:740-757`).
+Collapsed panels used `opacity:0` plus `max-height:0` without `inert`, so links
+inside remained tabbable and readable by screen readers. Expanded panels cap at
+`900px` (capture details) and `2400px` (metadata) and silently clip longer
+content.
 
-**Fix.** Toggle `hidden`/`inert` or `visibility:hidden` when collapsed; remove
-the max-height cap on expansion. Wire `aria-expanded`/`aria-controls` on the
-capture toggle as already done for metadata toggles.
+**Applied.** Collapsed content is now `inert` on the server and toggled by JS.
+Feed disclosures are real buttons with `aria-expanded` and `aria-controls`;
+metadata toggles expose the same relationship. The search input has an
+accessible name, and related-capture links use the summary as their accessible
+name.
+
+**Remaining.** Removing the fixed `900px`/`2400px` expansion caps needs a
+disclosure height/animation decision.
 
 ### UI2-009 — `blend-limit` (P2, accepted trade-off)
 

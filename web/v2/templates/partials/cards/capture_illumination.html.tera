@@ -12,10 +12,13 @@
 
     {% if has_details %}
     <div class="capture-card__details-toggle-row">
-        <a href="#" class="capture-card__details-toggle">More</a>
+        <button type="button"
+            class="capture-card__details-toggle"
+            aria-expanded="false"
+            aria-controls="capture-details-{{ capture.id }}">More</button>
     </div>
 
-    <div class="capture-card__details-panel">
+    <div id="capture-details-{{ capture.id }}" class="capture-card__details-panel" inert>
         <div class="capture-card__details-wrap">
             <p class="capture-card__details">{{ illum.details }}</p>
         </div>

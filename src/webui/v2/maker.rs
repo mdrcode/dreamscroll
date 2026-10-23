@@ -193,12 +193,17 @@ mod tests {
         assert!(feed.contains("id=\"capture-illumination-7\""));
         assert!(feed.contains("data-has-illumination=\"true\""));
         assert!(feed.contains("Ada Lovelace"));
+        assert!(feed.contains("aria-controls=\"capture-details-7\""));
+        assert!(
+            feed.contains("id=\"capture-details-7\" class=\"capture-card__details-panel\" inert")
+        );
         assert!(!feed.contains("annotation-block"));
 
         let detail = tera
             .render("partials/cards/detail_illumination.html.tera", &context)
             .expect("detail illumination should render");
         assert!(detail.contains("Summary text"));
+        assert!(detail.contains("aria-controls=\"capture-detail-summary-7\""));
         assert!(!detail.contains("Ada Lovelace"));
 
         context.insert("oob", &true);
@@ -207,6 +212,7 @@ mod tests {
             .expect("detail metadata should render");
         assert!(metadata.contains("id=\"capture-metadata-7\""));
         assert!(metadata.contains("hx-swap-oob=\"outerHTML\""));
+        assert!(metadata.contains("id=\"capture-metadata-content-7\""));
         assert!(metadata.contains("Ada Lovelace"));
 
         let mut empty_context = tera::Context::new();
@@ -245,6 +251,7 @@ mod tests {
         assert!(feed.contains("data-page-kind=\"feed\""));
         assert!(feed.contains("hx-get=\"/cards\""));
         assert!(feed.contains("id=\"file-upload-form\""));
+        assert!(feed.contains("aria-label=\"Search captures\""));
 
         let mut detail = tera::Context::new();
         detail.insert("static_asset_version", &"test");
