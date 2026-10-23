@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use axum::{
     extract::{Path, State},
     response::{Html, IntoResponse, Response},
@@ -27,10 +26,7 @@ pub async fn get(
     context.insert("feed_content_mode", "detail");
     context.insert("capture", &capture);
 
-    let rendered = state
-        .tera
-        .render("detail.html.tera", &context)
-        .map_err(|e| anyhow!("Failed to render template: {:?}", e))?;
+    let rendered = state.render("detail.html.tera", &context)?;
 
     Ok(Html(rendered).into_response())
 }

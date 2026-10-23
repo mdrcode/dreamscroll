@@ -1,6 +1,6 @@
 # WebUI v2 Audit — Bugs, Architecture, and Pruning
 
-**Status:** Open; UI2-001 fixed; D01/D02/D03/D04/D05/D07 pruned, D08 partial; UI2-005 and UI2-009 accepted. Audit date: 2026-10-22.
+**Status:** Open; UI2-001/UI2-003/UI2-006 fixed; D01/D02/D03/D04/D05/D07 pruned, D08 partial; UI2-005 and UI2-009 accepted. Audit date: 2026-10-22.
 **Scope:** `web/v2` templates/static assets and `src/webui/v2` handlers, plus the
 API/data shapes those views consume.
 **Method:** Full read of 13 templates, 1,061-line CSS, 1,238-line JS, all 19
@@ -20,10 +20,10 @@ Severity is user impact, not effort.
 |---|---|---|---|---|
 | UI2-001 | `xss-autoescape-off` | P0 | Fixed | Tera never autoescaped `.html.tera`; fixed in the template loader. |
 | UI2-002 | `detail-search-hijack` | P1 | Open | Header search/clear on a detail page swaps the detail feed and fights SSE. |
-| UI2-003 | `draft-clobber` | P1 | Open | SSE card refreshes destroy in-progress annotation drafts and disclosure state. |
+| UI2-003 | `draft-clobber` | P1 | Fixed | SSE now refreshes only illumination fragments; annotation DOM is outside the target. |
 | UI2-004 | `related-json-breakout` | P1 | Open | Related-captures JSON is marked `safe` and embeds full models; `</script>` breaks out. |
 | UI2-005 | `catchup-skips-reruns` | P1 | Accepted | SSE catch-up ignores cards that already have an old illumination, so rerun progress is missing after reload. Accepted DB-load trade-off. |
-| UI2-006 | `related-leak` | P1 | Open | Detail SSE re-fetches related captures and leaks a `resize` listener per refresh. |
+| UI2-006 | `related-leak` | P1 | Fixed | Detail SSE no longer refreshes the feed/related section; related loads once. |
 | UI2-007 | `silent-errors` | P2 | Open | htmx failures and HTML-route API errors have no user-visible channel. |
 | UI2-008 | `collapse-a11y-clip` | P2 | Open | Collapsed panels stay focusable/readable; expanded panels clip at magic max-heights. |
 | UI2-009 | `blend-limit` | P2 | Accepted | `limit` applies per source, so blended feeds can return up to 2× the requested cards. Deferred to feed architecture work. |
@@ -141,18 +141,22 @@ navigation (`action="/"`, no `hx-*`) or target a dedicated results region that
 detail SSE never touches. Serve the clear button's reload through the same page
 kind decision.
 
-### UI2-003 — `draft-clobber` (P1)
+### UI2-003 — `draft-clobber` (P1, fixed)
 
-Feed SSE refreshes replace the entire card with `outerHTML`
-(`webui-v2.js:92`); detail SSE replaces all of `#card-feed` with `innerHTML`
-(`:75-80`). Both regions contain the annotation editor. A terminal illumination
-event while the user is typing silently discards the draft. Expanded
-disclosures are also reset.
+Feed SSE used to replace the entire card with `outerHTML`; detail SSE replaced
+all of `#card-feed` with `innerHTML`. Both regions contained the annotation
+editor, so a terminal illumination event while the user was typing silently
+discarded the draft.
 
-**Fix.** Before refreshing, skip when the target contains
-`.capture-card__annotation-input`, or preserve/restore the draft. Refresh a
-smaller detail component rather than the whole feed. Morph swaps are the
-long-term fix (`plan/htmx4.md`).
+**Applied.** SSE now targets `#capture-illumination-{id}` only. Feed uses
+`/cards/capture/{id}/illumination`; detail uses `/detail/{id}/illumination`,
+which also updates `#capture-metadata-{id}` via `hx-swap-oob`. The annotation
+editor, footer, image, and related section are outside every target.
+
+**Remaining limitation.** Detail summary/details disclosure state resets on
+refresh; feed disclosure state is preserved because `is-expanded` lives on the
+stable article. Morph swaps remain the long-term improvement
+(`plan/htmx4.md`).
 
 ### UI2-004 — `related-json-breakout` (P1)
 
@@ -163,17 +167,16 @@ containing `</script>` terminates the block and injects markup. It also bloats
 the response and exposes internals (`media` storage fields, annotation) to all
 feed HTML consumers.
 
-**Fix.** Return a minimal server-side DTO `{id, url}` (as `r_masonry` already
-does), or escape `<` as `\u003c` in the JSON. Do both: minimal DTO is the real
-fix.
+**Fix.** Return a minimal server-side DTO `{id, url}`, or escape `<` as
+`\u003c` in the JSON. Do both: minimal DTO is the real fix.
 
 ### UI2-005 — `catchup-skips-reruns` (P1, accepted trade-off)
 
-`captureIdsForCatchup()` (`webui-v2.js:122-127`) only includes cards without
-`.capture-card__illumination`. A capture with an old illumination being rerun
-is excluded, so reloading during the rerun yields no catch-up event and no
-progress bar. The terminal SSE event eventually refreshes the card, but the
-in-progress period is invisible.
+`captureIdsForCatchup()` only includes cards whose illumination region is
+absent or has `data-has-illumination="false"`. A capture with an old
+illumination being rerun is excluded, so reloading during the rerun yields no
+catch-up event and no progress bar. The terminal SSE event eventually refreshes
+the illumination, but the in-progress period is invisible.
 
 **Decision:** accepted. Catch-up would otherwise query latest TaskRun state for
 every rendered capture on every page load and SSE connect, which is not worth
@@ -181,17 +184,15 @@ the DB load for the low-frequency reload-during-rerun flow. Recorded in
 `plan/pragmatism.md`. Revisit only if that flow becomes common or in-progress
 state during reruns becomes a product requirement.
 
-### UI2-006 — `related-leak` (P1)
+### UI2-006 — `related-leak` (P1, fixed)
 
-`capture_detail.html.tera:107-109` puts `hx-trigger="load"` on the related
-section inside the detail partial. Every detail SSE refresh replaces
-`#card-feed`, inserting a fresh related section and re-fetching `/related`.
-`setupRelatedCapturesMasonry` adds a `window.resize` listener per gallery
-(`webui-v2.js:618`) and never removes it, so detached galleries leak.
+`capture_detail.html.tera` puts `hx-trigger="load"` on the related section
+inside the detail partial. Detail SSE used to replace `#card-feed`, inserting a
+fresh related section and re-fetching `/related`; each gallery added a
+`window.resize` listener and never removed it, so detached galleries leaked.
 
-**Fix.** Refresh only the capture article, not related. Use one global debounced
-resize listener that rescans bound galleries, or clean up on
-`htmx:beforeCleanupElement`.
+**Applied.** Detail SSE now swaps only the illumination region and metadata
+article, so the related section loads once and its listener is not duplicated.
 
 ### UI2-007 — `silent-errors` (P2)
 

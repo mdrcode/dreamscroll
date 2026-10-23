@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use axum::{
     extract::{Path, State},
     response::{Html, IntoResponse, Response},
@@ -27,10 +26,7 @@ pub async fn get(
     let mut context = state.template_context();
     context.insert("captures", &captures);
 
-    let rendered = state
-        .tera
-        .render("partials/cards/related_captures.html.tera", &context)
-        .map_err(|e| anyhow!("Failed to render template: {:?}", e))?;
+    let rendered = state.render("partials/cards/related_captures.html.tera", &context)?;
 
     Ok(Html(rendered).into_response())
 }

@@ -45,10 +45,7 @@ pub async fn get(
         }
     }
 
-    let rendered = state
-        .tera
-        .render("login.html.tera", &context)
-        .map_err(|e| anyhow!("Failed to render template: {:?}", e))?;
+    let rendered = state.render("login.html.tera", &context)?;
 
     Ok(Html(rendered).into_response())
 }

@@ -20,6 +20,12 @@ impl WebState {
         context
     }
 
+    pub fn render(&self, template: &str, context: &Context) -> Result<String, api::ApiError> {
+        self.tera
+            .render(template, context)
+            .map_err(|error| anyhow::anyhow!("Failed to render {template}: {error}").into())
+    }
+
     pub async fn current_db_timestamp(
         &self,
     ) -> Result<chrono::DateTime<chrono::Utc>, sea_orm::DbErr> {

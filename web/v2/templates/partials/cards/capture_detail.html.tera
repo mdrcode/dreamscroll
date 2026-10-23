@@ -1,4 +1,4 @@
-<article id="capture-card-{{ capture.id }}" data-capture-id="{{ capture.id }}" data-snapshot-at="{{ page_snapshot_at }}" class="feed-card feed-card--capture capture-card capture-card--detail">
+<article id="capture-card-{{ capture.id }}" data-capture-id="{{ capture.id }}" class="feed-card feed-card--capture capture-card capture-card--detail">
     <div class="card-header card-header--detail">
         <p class="metadata-subsection-title">Capture {{ capture.id }}</p>
     </div>
@@ -15,31 +15,7 @@
             <div class="capture-card__task-progress-text">Preparing illumination...</div>
         </div>
 
-        {% if capture.illuminations | length > 0 %}
-        {% set illum = capture.illuminations | first %}
-        {% set has_details = illum.details %}
-
-        <div class="capture-card__illumination{% if animate_illumination %} is-revealing{% endif %}">
-
-        {% if illum.summary or has_details %}
-        <div class="capture-detail-disclosure metadata-card">
-            <div class="metadata-card__content capture-card__details-panel">
-                {% if illum.summary %}
-                <p class="capture-card__summary">{{ illum.summary }}</p>
-                {% endif %}
-
-                {% if has_details %}
-                <p class="capture-card__details">{{ illum.details }}</p>
-                {% endif %}
-            </div>
-
-            <div class="capture-card__details-toggle-row metadata-card__toggle-row">
-                <button type="button" class="capture-card__details-toggle metadata-card__toggle">More</button>
-            </div>
-        </div>
-        {% endif %}
-        </div>
-        {% endif %}
+        {% include "partials/cards/detail_illumination.html.tera" %}
 
     </div>
 
@@ -52,55 +28,7 @@
     </div>
 </article>
 
-<article class="feed-card feed-card--capture capture-card metadata-card">
-    <div class="capture-card__body">
-        <div class="metadata-card__content capture-card__details-panel">
-        {% if capture.illuminations | length > 0 %}
-        {% set illum = capture.illuminations | first %}
-
-        {% if illum.knowledge_entities | length > 0 %}
-        <p class="metadata-subsection-title">Entities</p>
-        <dl class="metadata-dict-list">
-            {% for entity in illum.knowledge_entities %}
-            <dt>
-                <span class="pill"{% if entity.description %} title="{{ entity.description }}"{% endif %}>
-                    <span class="pill__prefix">{{ entity.type }}</span>
-                    <span class="pill__label">{{ entity.name }}</span>
-                </span>
-            </dt>
-            {% if entity.description %}
-            <dd>{{ entity.description }}</dd>
-            {% endif %}
-            {% if entity.platform_link %}
-            <dd>{{ entity.platform_link.platform }}{% if entity.platform_link.display_name %} · {{ entity.platform_link.display_name }}{% endif %} ({{ entity.platform_link.handle }})</dd>
-            {% endif %}
-            {% if entity.search_query %}
-            <dd><a href="https://www.google.com/search?q={{ entity.search_query | urlencode }}" target="_blank" rel="noopener noreferrer">Canonical search: {{ entity.search_query }}</a></dd>
-            {% endif %}
-            {% endfor %}
-        </dl>
-        {% endif %}
-
-        {% if illum.suggested_searches | length > 0 %}
-        <p class="metadata-subsection-title">Related Searches</p>
-        <div class="pill-group pill-group--wrap pill-group--queries pill-group--stack">
-            {% for query in illum.suggested_searches %}
-            <a href="https://www.google.com/search?q={{ query | urlencode }}" target="_blank" rel="noopener noreferrer" class="pill">
-                <span class="pill__prefix">⌕</span>
-                <span class="pill__label">{{ query }}</span>
-            </a>
-            {% endfor %}
-        </div>
-        {% endif %}
-
-        {% endif %}
-        </div>
-
-        <div class="capture-card__details-toggle-row metadata-card__toggle-row">
-            <button type="button" class="capture-card__details-toggle metadata-card__toggle">More</button>
-        </div>
-    </div>
-</article>
+{% include "partials/cards/capture_metadata.html.tera" %}
 
 <section
     id="related-captures"

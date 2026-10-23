@@ -27,9 +27,18 @@ document.addEventListener('DOMContentLoaded', function () {
     document.body.addEventListener('htmx:afterSwap', function (e) {
         const targetId = e.target && e.target.id ? e.target.id : '';
 
-        if (targetId === 'card-feed' || targetId.startsWith('capture-card-')) {
+        if (targetId === 'card-feed' || targetId.startsWith('capture-card-') || targetId.startsWith('capture-illumination-')) {
             if (window.dreamscrollTaskProgress) {
                 window.dreamscrollTaskProgress.refresh();
+            }
+        }
+
+        if (targetId.startsWith('capture-illumination-')) {
+            const region = document.getElementById(targetId);
+            const card = region && region.closest('.capture-card');
+            if (card && card.classList.contains('is-expanded')) {
+                const toggle = card.querySelector('.capture-card__details-toggle');
+                if (toggle) toggle.textContent = 'Less';
             }
         }
 
@@ -44,6 +53,34 @@ document.addEventListener('DOMContentLoaded', function () {
 
 });
 
+const taskStatusHandlers = new Map();
+
+function taskStatusHandlerKey(entityType, taskType) {
+    return entityType + ':' + taskType;
+}
+
+// Task status is a generic signal. Register one handler per
+// (entity_type, task_type); the receipt/dispatch path must not assume
+// illumination or captures.
+function registerTaskStatusHandler(entityType, taskType, handler) {
+    taskStatusHandlers.set(taskStatusHandlerKey(entityType, taskType), handler);
+}
+
+function dispatchTaskStatus(update) {
+    if (!update || typeof update.entity_type !== 'string') {
+        return;
+    }
+    if (!update.payload || typeof update.payload.task_type !== 'string') {
+        return;
+    }
+    const handler = taskStatusHandlers.get(
+        taskStatusHandlerKey(update.entity_type, update.payload.task_type)
+    );
+    if (handler) {
+        handler(update);
+    }
+}
+
 function setupTaskStatusEvents() {
     if (!window.EventSource) {
         console.info('Dreamscroll SSE unavailable: this browser has no EventSource support.');
@@ -55,44 +92,49 @@ function setupTaskStatusEvents() {
         console.error('Dreamscroll SSE not started: missing or invalid data-sse-mode.', mode);
         return;
     }
-    function refreshSubscribedEntity(update) {
-        if (!update) {
-            return;
-        }
-        if (update.entity_type !== 'capture' || !Number.isInteger(update.entity_id)) {
-            return;
-        }
-        if (!update.payload || update.payload.task_type !== 'illuminate') {
+
+    function handleCaptureIlluminationTaskStatus(update) {
+        if (!Number.isInteger(update.entity_id)) {
             return;
         }
         const captureId = String(update.entity_id);
         if (window.dreamscrollTaskProgress) {
             window.dreamscrollTaskProgress.accept(update);
         }
-        if (!shouldRefreshForTaskStatus(update.payload && update.payload.status)) {
+        if (!isRefreshWorthyTaskStatus(update.payload.status)) {
             return;
         }
 
         if (mode === 'detail') {
             if (document.body.dataset.captureId !== captureId) return;
-            const card = document.querySelector('#card-feed [data-snapshot-at]');
-            if (!card || !isNewerThanSnapshot(update.timestamp, card.dataset.snapshotAt)) return;
-            window.htmx.ajax('GET', '/detail/' + captureId + '/partial?animate_illumination=true', {
-                target: '#card-feed',
-                swap: 'innerHTML'
-            });
+            refreshDetailIllumination(captureId, update.timestamp);
             return;
         }
 
-        const card = document.getElementById('capture-card-' + captureId);
-        if (card && isNewerThanSnapshot(update.timestamp, card.dataset.snapshotAt)) {
-            window.htmx.ajax('GET', '/cards/capture/' + captureId + '?animate_illumination=true', {
-                source: card,
-                target: card,
-                swap: 'outerHTML'
-            });
-        }
+        refreshFeedIllumination(captureId, update.timestamp);
     }
+
+    function refreshFeedIllumination(captureId, eventTimestamp) {
+        const region = document.getElementById('capture-illumination-' + captureId);
+        if (!region || !isNewerThanSnapshot(eventTimestamp, region.dataset.snapshotAt)) return;
+        window.htmx.ajax('GET', '/cards/capture/' + captureId + '/illumination?animate_illumination=true', {
+            source: region,
+            target: region,
+            swap: 'outerHTML'
+        });
+    }
+
+    function refreshDetailIllumination(captureId, eventTimestamp) {
+        const region = document.getElementById('capture-illumination-' + captureId);
+        if (!region || !isNewerThanSnapshot(eventTimestamp, region.dataset.snapshotAt)) return;
+        window.htmx.ajax('GET', '/detail/' + captureId + '/illumination?animate_illumination=true', {
+            source: region,
+            target: region,
+            swap: 'outerHTML'
+        });
+    }
+
+    registerTaskStatusHandler('capture', 'illuminate', handleCaptureIlluminationTaskStatus);
 
     function isNewerThanSnapshot(eventTimestamp, snapshotTimestamp) {
         if (typeof eventTimestamp !== 'string' || typeof snapshotTimestamp !== 'string') return false;
@@ -112,7 +154,7 @@ function setupTaskStatusEvents() {
             + BigInt(fractionalNanoseconds || '0');
     }
 
-    function shouldRefreshForTaskStatus(status) {
+    function isRefreshWorthyTaskStatus(status) {
         if (!status || typeof status.name !== 'string') return false;
         return status.name === 'error_will_retry'
             || status.name === 'complete_success'
@@ -122,7 +164,8 @@ function setupTaskStatusEvents() {
     function captureIdsForCatchup() {
         const captureIds = new Set();
         document.querySelectorAll('[data-capture-id]').forEach(function (card) {
-            if (card.dataset.captureId && !card.querySelector('.capture-card__illumination')) {
+            const illumination = card.querySelector('.capture-card__illumination');
+            if (card.dataset.captureId && (!illumination || illumination.dataset.hasIllumination !== 'true')) {
                 captureIds.add(card.dataset.captureId);
             }
         });
@@ -213,7 +256,7 @@ function setupTaskStatusEvents() {
                 console.error('Ignoring malformed Dreamscroll SSE payload.');
                 return;
             }
-            refreshSubscribedEntity(update);
+            dispatchTaskStatus(update);
         });
         currentSource.onerror = function () {
             if (source !== currentSource) return;

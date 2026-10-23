@@ -6,3 +6,6 @@
  - [ ] Figure out a better solution for agents to create "smoke" environments for
    testing. Currently, sometimes they use my local dev environment and sometimes
    they hack a test database. The test code contains tons of random DB hacking.
+ - [ ] Rename the internal feed fragment route from `/cards` to a feed-oriented
+   path (e.g. `/feed` or `/feed/fragment`), updating templates, JS, canonical
+   redirects, and tests.

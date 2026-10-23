@@ -15,10 +15,7 @@ use super::*;
 
 fn load_templates() -> Result<Tera, tera::Error> {
     let mut tera = Tera::new();
-    // Autoescape is keyed to the full template suffix. Tera's defaults do not
-    // match `.html.tera`, so without this every `{{ value }}` renders raw HTML.
-    // Use the whole suffix so future non-HTML templates (e.g. `.txt.tera`) are
-    // not accidentally HTML-escaped.
+    // Enforce autoescaping for all HTML templates, to prevent XSS
     tera.autoescape_on(vec![".html.tera"]);
     tera.register_filter("json_encode", tera_contrib::json::json_encode);
     tera.register_filter("urlencode", tera_contrib::urlencode::urlencode);
@@ -94,12 +91,18 @@ pub fn make_ui_router(
         .layer(auth_layer.clone());
 
     let routes_protected = Router::new()
-        .route("/", get(r_index::get))
+        .route("/", get(r_feed::page))
         .route("/detail/{id}", get(r_detail::get))
-        .route("/detail/{id}/partial", get(r_detail_partial::get))
+        .route(
+            "/detail/{id}/illumination",
+            get(r_illumination::detail_fragments),
+        )
         .route("/detail/{id}/related", get(r_related::get))
-        .route("/cards", get(r_cards::get))
-        .route("/cards/capture/{id}", get(r_capture_card::get))
+        .route("/cards", get(r_feed::fragment))
+        .route(
+            "/cards/capture/{id}/illumination",
+            get(r_illumination::feed_fragment),
+        )
         .route("/events", get(r_events::get))
         .route(
             "/annotation/{capture_id}",
@@ -159,6 +162,74 @@ mod tests {
 
         assert!(rendered.contains("&lt;script&gt;alert(1)&lt;/script&gt;"));
         assert!(!rendered.contains("<script>alert(1)</script>"));
+    }
+
+    #[test]
+    fn illumination_fragments_render_without_capture_chrome() {
+        let tera = load_templates().expect("all v2 templates should load");
+        let mut context = tera::Context::new();
+        context.insert("page_snapshot_at", &"2026-10-22T12:00:00Z");
+        context.insert(
+            "capture",
+            &serde_json::json!({
+                "id": 7,
+                "illuminations": [{
+                    "summary": "Summary text",
+                    "details": "Details text",
+                    "knowledge_entities": [{
+                        "type": "real_person",
+                        "name": "Ada Lovelace",
+                        "description": "Mathematician",
+                        "search_query": "Ada Lovelace",
+                        "platform_link": null
+                    }],
+                    "suggested_searches": ["Ada Lovelace"]
+                }]
+            }),
+        );
+
+        let feed = tera
+            .render("partials/cards/capture_illumination.html.tera", &context)
+            .expect("feed illumination should render");
+        assert!(feed.contains("id=\"capture-illumination-7\""));
+        assert!(feed.contains("data-has-illumination=\"true\""));
+        assert!(feed.contains("Ada Lovelace"));
+        assert!(!feed.contains("annotation-block"));
+
+        let detail = tera
+            .render("partials/cards/detail_illumination.html.tera", &context)
+            .expect("detail illumination should render");
+        assert!(detail.contains("Summary text"));
+        assert!(!detail.contains("Ada Lovelace"));
+
+        context.insert("oob", &true);
+        let metadata = tera
+            .render("partials/cards/capture_metadata.html.tera", &context)
+            .expect("detail metadata should render");
+        assert!(metadata.contains("id=\"capture-metadata-7\""));
+        assert!(metadata.contains("hx-swap-oob=\"outerHTML\""));
+        assert!(metadata.contains("Ada Lovelace"));
+
+        let mut empty_context = tera::Context::new();
+        empty_context.insert("page_snapshot_at", &"2026-10-22T12:00:00Z");
+        empty_context.insert(
+            "capture",
+            &serde_json::json!({ "id": 8, "illuminations": [] }),
+        );
+        let empty_feed = tera
+            .render(
+                "partials/cards/capture_illumination.html.tera",
+                &empty_context,
+            )
+            .expect("empty feed illumination should render");
+        assert!(empty_feed.contains("data-has-illumination=\"false\""));
+        let empty_detail = tera
+            .render(
+                "partials/cards/detail_illumination.html.tera",
+                &empty_context,
+            )
+            .expect("empty detail illumination should render");
+        assert!(empty_detail.contains("data-has-illumination=\"false\""));
     }
 
     #[test]

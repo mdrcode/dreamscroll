@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use anyhow::anyhow;
 use axum::{
     extract::{Form, Path, State},
     response::{Html, IntoResponse, Response},
@@ -26,17 +25,11 @@ fn render_annotation_response(
     let mut context = state.template_context();
     context.insert("capture", capture);
 
-    let annotation_html = state
-        .tera
-        .render(annotation_template, &context)
-        .map_err(|e| anyhow!("Failed to render template: {:?}", e))?;
+    let annotation_html = state.render(annotation_template, &context)?;
 
     context.insert("oob", &true);
     context.insert("annotation_editing", &annotation_editing);
-    let footer_html = state
-        .tera
-        .render("partials/cards/annotation_footer_left.html.tera", &context)
-        .map_err(|e| anyhow!("Failed to render template: {:?}", e))?;
+    let footer_html = state.render("partials/cards/annotation_footer_left.html.tera", &context)?;
 
     Ok(Html(format!("{}{}", annotation_html, footer_html)).into_response())
 }
