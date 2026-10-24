@@ -13,3 +13,5 @@ config_prod.env
 
 .env
 src/rest/.env
+# local smoke credentials
+smoke.env

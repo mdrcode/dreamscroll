@@ -15,8 +15,7 @@ pub struct UserApiClient {
     task_master: Arc<task::TaskMaster>,
     beacon: logic::Beacon,
     default_illumination_model_id: Option<String>,
-    /// Shared so background indexing and search use the same instance for the Local backend.
-    search_service: Arc<search::SearchService>,
+    capture_searcher: search::CaptureSearcher,
 }
 
 impl UserApiClient {
@@ -27,7 +26,7 @@ impl UserApiClient {
         task_master: Arc<task::TaskMaster>,
         beacon: logic::Beacon,
         default_illumination_model_id: Option<String>,
-        search_service: Arc<search::SearchService>,
+        capture_searcher: search::CaptureSearcher,
     ) -> Self {
         Self {
             db,
@@ -36,7 +35,7 @@ impl UserApiClient {
             task_master,
             beacon,
             default_illumination_model_id,
-            search_service,
+            capture_searcher,
         }
     }
 
@@ -490,7 +489,7 @@ impl UserApiClient {
         query: &str,
         limit: Option<u64>,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
-        let capture_ids = self.search_service.search(context, query, limit).await?;
+        let capture_ids = self.capture_searcher.search(context, query, limit).await?;
         if capture_ids.is_empty() {
             return Ok(vec![]);
         }
@@ -511,7 +510,7 @@ impl UserApiClient {
         limit: Option<u64>,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
         let capture_ids = self
-            .search_service
+            .capture_searcher
             .search_similar(context, capture_id, limit)
             .await?;
         if capture_ids.is_empty() {
@@ -534,7 +533,7 @@ impl UserApiClient {
         limit: Option<u64>,
     ) -> Result<Vec<schema::CapturePreviewInfo>, ApiError> {
         let capture_ids = self
-            .search_service
+            .capture_searcher
             .search_similar(context, capture_id, limit)
             .await?;
         if capture_ids.is_empty() {

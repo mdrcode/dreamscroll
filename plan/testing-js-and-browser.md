@@ -3,6 +3,9 @@
 **Status:** Planned follow-up; no browser test framework is currently configured.
 **Scope:** Add focused coverage for browser behavior controlling SSE connection lifetime, event-driven partial refreshes, and upload feedback.
 
+> **See also:** `smoke.md` for ad hoc local-browser interaction and approval
+> boundaries.
+
 ## Why consider this
 
 `web/v2/static/webui-v2.js` is plain browser JavaScript with no build step. The SSE client combines a two-minute inactivity close with a heartbeat stale check; native EventSource owns transport retries. These rules affect Cloud Run request/concurrency usage and UI freshness.

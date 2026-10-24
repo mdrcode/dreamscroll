@@ -70,12 +70,12 @@ async fn initialize()
 
     let stg = storage::make_provider(&cfg).await;
     let url_maker = storage::UrlMaker::from_config(&cfg);
+    // Every app instance may produce or consume these user-wide events.
     let notifier: Arc<dyn sse::ServerEventNotifier> =
         Arc::new(sse::PostgresNotifier::new(&db.conn));
     let task_master = task::make_task_master(&cfg, db.clone(), Some(notifier)).await?;
     let beacon = logic::Beacon::new(task_master.clone());
-    // For the local backend, the whole app must share this instance so indexing and search use the same index.
-    let search_service = Arc::new(search::SearchService::from_config(&cfg).await?);
+    let searcher = search::CaptureSearcher::from_config(&cfg).await?;
 
     let user_api = api::UserApiClient::new(
         db.clone(),
@@ -84,7 +84,7 @@ async fn initialize()
         task_master.clone(),
         beacon.clone(),
         cfg.gemini_model_id.clone(),
-        search_service.clone(),
+        searcher,
     );
     let service_api = api::ServiceApiClient::new(db.clone(), url_maker.clone());
     tracing::info!("Initialized storage, task master, and API clients");
@@ -162,6 +162,8 @@ async fn initialize()
     if cfg.services.contains(&config::Service::Webhook) {
         let inference_client = llms::gemini::GeminiInferenceClient::from_config(&cfg)?;
         let firestarter = ignition::make_firestarter(&cfg)?;
+        let embedder = search::gcloud::GeminiEmbedder::from_config(&cfg)?;
+        let vector_store = search::gcloud::VertexVectorStore::from_config(&cfg).await?;
         let webhook_oidc = webhook::oidc_from_config(&cfg)?;
 
         let webhook_router = webhook::make_webhook_router(
@@ -171,7 +173,8 @@ async fn initialize()
                     storage: stg,
                     inference_client: Box::new(inference_client),
                     firestarter,
-                    search_service: search_service.clone(),
+                    embedder: Box::new(embedder),
+                    vector_store: Box::new(vector_store),
                 },
                 task_master: task_master.clone(),
             },
