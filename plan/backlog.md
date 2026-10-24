@@ -1,4 +1,4 @@
- - [ ] Enhance IlluminationTask to support persist=false (for evval) and thinking=?
+ - [ X ] Enhance IlluminationTask to support persist=false (for eval) and thinking=?
    as a model parameter.
  - [ ] Add last_error_code and last_error_message to TaskRun model.
  - [ ] Add a `dreamscroll_api backfill errors` command to show which entities had
