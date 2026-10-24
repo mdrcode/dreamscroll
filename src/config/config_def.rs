@@ -19,6 +19,14 @@ pub enum StorageBackend {
     GCloud,
 }
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum SearchBackend {
+    #[default]
+    Gcloud,
+    Local,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "lowercase")]
 pub enum TaskQueueBackend {
@@ -106,6 +114,8 @@ pub struct Config {
     pub storage_gcloud_prod_endpoint: Option<String>,
     pub storage_gcloud_bucket_name: Option<String>,
 
+    #[serde(default)]
+    pub search_backend: SearchBackend,
     pub search_embed_collection_id: Option<String>,
     pub search_embed_vector_field: Option<String>,
     pub search_embed_vector_dims: Option<u32>,

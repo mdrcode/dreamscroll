@@ -24,11 +24,16 @@ pub async fn get_illumination_raw(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use super::*;
     use crate::{
         ignition::test_support::UnusedFirestarter,
         llms::test_support::TestInferenceClient,
-        search::test_support::{UnusedEmbedder, UnusedVectorStore},
+        search::{
+            SearchService,
+            test_support::{UnusedEmbedder, UnusedSearcher, UnusedVectorStore},
+        },
         storage::test_support::TestStorageProvider,
     };
     use chrono::Utc;
@@ -156,13 +161,13 @@ mod tests {
             db.clone(),
             crate::storage::UrlMaker::from_config(&config),
         );
-        let task_master = std::sync::Arc::new(
+        let task_master = Arc::new(
             crate::task::TaskMaster::builder()
                 .db(db.clone())
                 .build()
                 .unwrap(),
         );
-        let state = std::sync::Arc::new(crate::webhook::WebhookState {
+        let state = Arc::new(crate::webhook::WebhookState {
             logic: crate::logic::LogicState {
                 service_api,
                 storage: Box::new(TestStorageProvider),
@@ -183,8 +188,11 @@ mod tests {
                     }),
                 ])),
                 firestarter: Box::new(UnusedFirestarter),
-                embedder: Box::new(UnusedEmbedder),
-                vector_store: Box::new(UnusedVectorStore),
+                search_service: Arc::new(SearchService::from_parts(
+                    Box::new(UnusedEmbedder),
+                    Box::new(UnusedSearcher),
+                    Box::new(UnusedVectorStore),
+                )),
             },
             task_master: task_master.clone(),
         });

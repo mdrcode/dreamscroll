@@ -63,7 +63,8 @@ pub async fn exec(
         search::make_capture_info_embed_input(state.storage.as_ref(), &capture).await?;
 
     let inference = state
-        .embedder
+        .search_service
+        .embedder()
         .embed_object(embed_input)
         .await
         .map_err(api::ApiError::internal)?;
@@ -79,7 +80,8 @@ pub async fn exec(
         .await;
     let embedding = inference.output.map_err(api::ApiError::internal)?;
     let upsert_result = state
-        .vector_store
+        .search_service
+        .vector_store()
         .upsert_object_embedding(&capture, &embedding)
         .await
         .map_err(api::ApiError::internal)?;

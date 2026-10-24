@@ -409,7 +409,8 @@ mod tests {
                 "capture_id": 42,
                 "entity_owner_id": 1,
                 "model_id": "test-model",
-                "prompt_version": "v2"
+                "prompt_version": "v2",
+                "persist_projection": true
             }))
         );
         assert_eq!(stored.attempts, 0);

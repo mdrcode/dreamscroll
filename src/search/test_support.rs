@@ -1,6 +1,9 @@
 use crate::llms;
 
-use super::{DataObject, Embedder, Embedding, Unit, VectorStore, VectorUpsertResult};
+use super::{
+    DataObject, Embedder, Embedding, QueryParams, SearchResultPage, Searcher, Unit, VectorStore,
+    VectorUpsertResult,
+};
 
 pub(crate) struct UnusedEmbedder;
 
@@ -14,6 +17,36 @@ impl Embedder<serde_json::Value, Embedding<f32, Unit>> for UnusedEmbedder {
         &self,
         _object: serde_json::Value,
     ) -> anyhow::Result<llms::InferenceOutcome<Embedding<f32, Unit>>> {
+        anyhow::bail!("search is not used by the v2 worker test")
+    }
+}
+
+pub(crate) struct UnusedSearcher;
+
+#[async_trait::async_trait]
+impl Searcher<Embedding<f32, Unit>> for UnusedSearcher {
+    async fn search_text(
+        &self,
+        _text_query: &str,
+        _params: &QueryParams,
+    ) -> anyhow::Result<SearchResultPage> {
+        anyhow::bail!("search is not used by the v2 worker test")
+    }
+
+    async fn search_embedding(
+        &self,
+        _embedding_query: &Embedding<f32, Unit>,
+        _params: &QueryParams,
+    ) -> anyhow::Result<SearchResultPage> {
+        anyhow::bail!("search is not used by the v2 worker test")
+    }
+
+    async fn search_hybrid(
+        &self,
+        _text_query: &str,
+        _embedding_query: &Embedding<f32, Unit>,
+        _params: &QueryParams,
+    ) -> anyhow::Result<SearchResultPage> {
         anyhow::bail!("search is not used by the v2 worker test")
     }
 }
