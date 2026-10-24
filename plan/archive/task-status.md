@@ -1,15 +1,17 @@
 # Task Status — Design & Implementation
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 **Status:** **Implemented and merged.** This documents the task framework as it
 exists on this branch.
 **Scope:** Task identity, queueing, status persistence, the retry/exhaustion
 policy, the run dimension, and the query API.
 
 > **See also:**
-> - `sse.md` — the implemented authenticated SSE delivery layer for task status.
-> - `rest-task-submission.md` — authenticated REST submission and CLI polling.
-> - `pragmatism.md` — the ledger of deliberately tolerated trade-offs.
-> - `testing.md` — the two-tier test model (unit vs. DB).
+> - `plan/archive/sse.md` — the implemented authenticated SSE delivery layer for task status.
+> - `plan/archive/rest-task-submission.md` — authenticated REST submission and CLI polling.
+> - `plan/pragmatism.md` — the ledger of deliberately tolerated trade-offs.
+> - `plan/testing.md` — the two-tier test model (unit vs. DB).
 
 ---
 
@@ -24,7 +26,7 @@ table, a typed task identity, a retry/exhaustion policy, and a run dimension tha
 makes reruns expressible.
 
 > **Scope boundary:** this document covers **task state only**. Browser delivery
-> is implemented separately via authenticated SSE; see `sse.md`. Capture
+> is implemented separately via authenticated SSE; see `plan/archive/sse.md`. Capture
 > lifecycle events (a capture uploaded/deleted on another device) remain a
 > separate, deferred concern.
 
@@ -71,7 +73,7 @@ Upload (webui/v2/r_upload.rs)
 - **Backfill correlation is invocation metadata.** Tagged roots and Beacon
   descendants share `backfill_id`. A unique `(backfill_id, logical_id)` index
   permits only one invocation per logical task within that backfill, including
-  settled/failed runs; ordinary null-tagged runs can still rerun. See `backfill.md`.
+  settled/failed runs; ordinary null-tagged runs can still rerun. See `plan/archive/backfill.md`.
 - **Task-owned raw/partial output is keyed by `TaskRun.run_id`.** An output
   table stores one row per TaskRun and retries upsert the same row, replacing
   the prior attempt's output. The task status row carries no output reference.
@@ -88,7 +90,7 @@ Upload (webui/v2/r_upload.rs)
   follow-up submissions carry `entity_owner_id` in the Task. Submitter tracking
   is not implemented; add a separate field if it becomes necessary later.
 - Authenticated REST task submission and exact-run status lookup are documented
-  in `rest-task-submission.md`.
+  in `plan/archive/rest-task-submission.md`.
 - **Workers do not get a raw status setter.** They go through `begin_attempt`
   (reads the persisted attempt count, increments, writes `InProgress`, returns
   the 1-based attempt number) and `finish_attempt` (writes the outcome and
@@ -106,7 +108,7 @@ Upload (webui/v2/r_upload.rs)
 - **Deployment is a single Cloud Run service.** Tasks are queued via Cloud Tasks,
   so the worker that completes a task may be a different process/instance than
   the one holding the user's HTTP connection. This is why the DB — not an
-  in-process bus — is the source of truth (see `sse.md` §4.1).
+  in-process bus — is the source of truth (see `plan/archive/sse.md` §4.1).
 
 ---
 
@@ -338,7 +340,7 @@ TaskRun's globally unique run ID and its per-logical-task ordinal.
 > try to insert run number 1. The `(logical_id, run_number)` unique index arbitrates — the
 > loser's insert is a unique violation, which `create_run` maps to `Ok(false)`
 > and `submit_inner` turns into `RefusedInFlight`. This is the same TOCTOU
-> pattern tolerated elsewhere (`pragmatism.md`), except here the constraint makes
+> pattern tolerated elsewhere (`plan/pragmatism.md`), except here the constraint makes
 > it safe rather than merely unlikely.
 
 Attempt counting is **per run**: each row carries its own `attempts`, so a rerun
@@ -385,7 +387,7 @@ re-illuminates and re-embeds.
 **Why they were removed:**
 
 - They were a cost optimization for duplicate work we have **already declared
-  tolerable** (`pragmatism.md`).
+  tolerable** (`plan/pragmatism.md`).
 - The illuminate guard **silently no-opped every rerun** — a "skip if already
   illuminated" check reports success while doing no work. Making it correct meant
   deriving the run number from the illumination count, machinery that didn't
@@ -428,12 +430,12 @@ must always see the **most recent** illumination, so:
   unbounded table growth. Note the run dimension means a rerun task keeps *all*
   its rows, so growth is per-run rather than per-task. The latest-task-run
   snapshot returns the current row, including terminal statuses (§5). *Tolerated —
-  see `pragmatism.md`.*
+  see `plan/pragmatism.md`.*
 - **Stuck tasks (REVISIT):** there is no heartbeat or timeout, so a task that is
   enqueued but never picked up (queue dropped, worker crash) stays `Queued`
   forever and looks active. Consider treating `Queued`/`InProgress` rows older
   than N minutes as dead, or a periodic sweep that stamps `CompleteFailure`.
-  *Tolerated — see `pragmatism.md`.*
+  *Tolerated — see `plan/pragmatism.md`.*
 - **Entity snapshot ordering is implementation-defined (REVISIT):** the SQL
   query orders by entity ID, task type, then descending `run_number` to support
   `DISTINCT ON`; consumers should not rely on any additional presentation order.
@@ -441,7 +443,7 @@ must always see the **most recent** illumination, so:
 - **`create_run` is check-then-act (REVISIT):** `submit_inner` reads the latest
   run, then inserts. Two concurrent submitters can both pick the same run number.
   The `(logical_id, run_number)` unique index arbitrates, so correctness does not
-  depend on the read. *Tolerated — see `pragmatism.md`.*
+  depend on the read. *Tolerated — see `plan/pragmatism.md`.*
 - **`SparkTask.spark_id` is a placeholder (REVISIT):** `api/user/client.rs` mints
   a random `i32` (`uuid::Uuid::new_v4().as_u128() as i32`) because the real spark
   row id only exists after `insert_spark` runs at exec time. This makes spark's
@@ -463,7 +465,7 @@ must always see the **most recent** illumination, so:
   task-type/status aggregation are implemented. The first definition re-runs
   illumination v2 for every capture, attributed to the capture owner; Beacon
   descendants retain the same backfill ID. The old approximate search-index
-  candidate query and ad-hoc enqueue flow were removed. See `backfill.md` for
+  candidate query and ad-hoc enqueue flow were removed. See `plan/archive/backfill.md` for
   commands and accepted live-contention starvation.
 - **`/_wh/cloudtask/illuminate` is shared:** live capture creation, explicit
   reruns, and the backfill pump all use the same worker execution path.
@@ -482,15 +484,15 @@ must always see the **most recent** illumination, so:
 | `src/task/taskmaster.rs`                  | `TaskMaster` — public lifecycle/API boundary; owns queues and coordinates status persistence + notifications; `submit_*` / `begin_attempt` / `finish_attempt` / status query; shared via `Arc` | ✅      |
 | `src/task/taskruntracker.rs`              | `TaskRunTracker` — private persistence component; writes by `run_id`, orders by `(logical_id, run_number)`                                                                                          | ✅      |
 | `src/task/taskrunstatus.rs`               | `TaskRunStatus` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                      | ✅      |
-| `src/sse/listener.rs`                    | `ServerEventListener` — per-instance Postgres `LISTEN/NOTIFY` listener and fan-out for authenticated SSE streams (see `sse.md`) | ✅      |
+| `src/sse/listener.rs`                    | `ServerEventListener` — per-instance Postgres `LISTEN/NOTIFY` listener and fan-out for authenticated SSE streams (see `plan/archive/sse.md`) | ✅      |
 | `src/task/beacon.rs`                      | **removed** — replaced by `TaskMaster`                                                                                                                                                         | ✅      |
 | `src/model/task_run.rs`                   | `task_runs` SeaORM model (`id` internal, globally unique `run_id`, unique `(logical_id, run_number)`) — auto-synced at startup         | ✅      |
 | `src/api/apierror.rs`                     | `ApiError::is_retryable()` — 5xx retryable, 4xx permanent                                                                                                                                      | ✅      |
-| `src/config/schema.rs`                    | `Config.task_max_attempts` (env `TASK_MAX_ATTEMPTS`, default 3)                                                                                                                                | ✅      |
+| `src/config/config_def.rs`                | `Config.task_max_attempts` (env `TASK_MAX_ATTEMPTS`, default 3)                                                                                                                                | ✅      |
 | `src/webhook/http_status_for_task_run.rs` | `http_status_for_task_run` — maps `AttemptOutcome` to the HTTP status Cloud Tasks sees                                                                                                         | ✅      |
 | `src/webhook/webhook_state.rs`            | `WebhookState` carries `task_master: Arc<TaskMaster>`                                                                                                                                          | ✅      |
 | `src/webhook/r_*.rs`                      | accept `TaskRun<T>`; `begin_attempt`/`finish_attempt` around `logic::exec`; return `http_status_for_task_run`                                                                             | ✅      |
 | `src/logic/illuminate.rs`                 | `IlluminationTask` + `exec` (illuminate **and** index; no idempotency guard — §7)                                                                                                              | ✅      |
 | `src/logic/search_index.rs`               | `SearchIndexTask` + `exec` (no idempotency guard — §7)                                                                                                                                         | ✅      |
 | `src/api/schema/infomaker.rs`             | collapses `illuminations` to the most recent (§7.1)                                                                                                                                            | ✅      |
-| `src/test_support/test_db.rs`             | schema-per-test DB harness (see `testing.md`)                                                                                                                                                  | ✅      |
+| `src/test_support/test_db.rs`             | schema-per-test DB harness (see `plan/testing.md`)                                                                                                                                                  | ✅      |

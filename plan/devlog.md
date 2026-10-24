@@ -1,6 +1,6 @@
 # Dreamscroll Development Log
 
-## 20260-04-05
+## 2026-04-05
 
 - [X] Capture to Capture recommendations in the UI
 - [X] Mike to send Peter his credentials
@@ -52,14 +52,14 @@ Gonna take a break from the UI work and get back to the actual data quality.
 Going to rough out the Igniter -> Spark concept which will take a set of
 captures (+illuminations) as input and then provide recommendations.
 
-## 2027-03-09
+## 2026-03-09
 
 Over the weekend I have migrated from Pub/Sub to using Cloud Tasks for the async
 workloads . This is motivated by Cloud Tasks support for low-cost querying of
 individual task status which can then be trivially broadcast to the client using
 Firebase SDK (hopefully...).
 
-## 2027-03-06
+## 2026-03-06
 
 This week saw significant progress on the mobile layout and overall
 responsiveness of the app. The content cards on a canvas paradigm has been
@@ -75,7 +75,7 @@ Next up, a few big things on the horizon:
   it is queued or currently being illuminated, and maybe even we project an ETA
   using trailing average of past illuminations.
 
-## 2027-03-05
+## 2026-03-05
 
 Tons of Codex-led iteration on mobile and we have a slick, responsive layout.
 Not perfect but 10x better than what we had before. We have settled into a

@@ -1,5 +1,7 @@
 # Utility binaries split
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 **Status:** Implemented 2026-09-21.
 
 ## Goal

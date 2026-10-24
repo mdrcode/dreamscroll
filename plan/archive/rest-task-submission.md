@@ -1,12 +1,14 @@
 # REST Task Submission and CLI Evaluation
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 **Status:** Implemented.
 **Scope:** Submit supported background tasks through the authenticated REST API,
 then optionally wait for a specific run from `dreamscroll_api`.
 
 > **See also:**
-> - `task-status.md` — task identity, queues, run lifecycle, and persisted status.
-> - `testing.md` — validation strategy.
+> - `plan/archive/task-status.md` — task identity, queues, run lifecycle, and persisted status.
+> - `plan/testing.md` — validation strategy.
 
 ## 1. Goals
 

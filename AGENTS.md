@@ -16,8 +16,9 @@ Be simple, idiomatic, robust, and flexible (in that order).
   please explain your research/conclusion and seek confirmation first before
   adding it.
 - **No Schema Or Migration Overhead:** Do not worry about data migrations or backward compatibility. Nuke the database or use crude hacks if needed for prototype speed.
-- **Document Along The Way:** Update the various plan files as you go. If you
-  are informed by useful third-party docs/websites, link to them.
+- **Document Along The Way:** Update the various plan files as you go. Start at
+  `plan/README.md` for what is live, deferred, and archived. If
+  you are informed by useful third-party docs/websites, link to them.
 - **Validate Intelligently:** Do not run unit tests for small naming or plumbing
   changes. We will always do a full test pass before merging to main. Do not run
   smoke tests without asking for approval first.

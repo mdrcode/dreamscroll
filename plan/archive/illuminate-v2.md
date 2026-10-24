@@ -1,5 +1,7 @@
 # Illumination v2 — unified entity capture
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 **Status:** V2 has a relational `knowledge_entities` projection and successful v2 illumination now enqueues vector search indexing. API/WebUI capture producers use v2, and REST requests that omit `prompt_version` default to v2. V1 remains a legacy prompt/DTO and is raw-only: both versions persist inference JSON/provenance, but only v2 writes relational illumination summaries, entities, suggested searches, and search-index content.
 
 ## Problem

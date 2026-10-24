@@ -1,5 +1,7 @@
 # Database Clock and Snapshot Watermarks
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 **Status:** Implemented for task-status SSE card freshness.
 **Scope:** Rules for comparing persisted task-status timestamps with rendered
 capture-card snapshots. This is not a general database architecture guide.

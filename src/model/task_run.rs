@@ -3,7 +3,7 @@ use sea_orm::entity::prelude::*;
 
 /// Persistence representation of a TaskRun. In addition to its identity and
 /// task payload, each row stores mutable lifecycle and timing state.
-/// See `plan/task-status.md` §3 and §6.
+/// See `plan/archive/task-status.md` §3 and §6.
 ///
 /// A logical task (`logical_id`) can be run more than once; each invocation gets
 /// its own row, numbered from 1. `(logical_id, run_number)` is unique, preventing

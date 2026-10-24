@@ -1,5 +1,7 @@
 # Backfill management
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 **Status:** Implemented: typed Backfill definitions, shared bounded pumping, TaskRun correlation, database uniqueness, Beacon descendant propagation, and admin API/CLI status reporting. The existing executor remains the execution path.
 
 ## Goal and scope
@@ -38,7 +40,7 @@ The current contracts in `src/task` are authoritative:
 
 The backfill factory must set the Task's owner from the server-side target query, never the administrator's Context. Do not add separate owner/type/ID submission arguments or restore a TaskEntity wrapper. Existing persistence, logical identity, owner-scoped status queries, and SSE routing use that Task ownership.
 
-The current executor trusts admin/internal producers to supply the correct owner; it does not generally cross-check Task ownership against the persisted target or validate the worker payload against the stored run. Do not describe worker ownership verification as implemented or make adding it a backfill prerequisite. This trust boundary is recorded in `pragmatism.md`.
+The current executor trusts admin/internal producers to supply the correct owner; it does not generally cross-check Task ownership against the persisted target or validate the worker payload against the stored run. Do not describe worker ownership verification as implemented or make adding it a backfill prerequisite. This trust boundary is recorded in `plan/pragmatism.md`.
 
 Keep existing execution behavior. For example, successful v2 illumination invokes Beacon to submit search indexing with the parent Task's owner; v1 illumination is raw-only. Backfill uses these same execution paths, extending worker-to-Beacon submission only to propagate invocation correlation metadata.
 

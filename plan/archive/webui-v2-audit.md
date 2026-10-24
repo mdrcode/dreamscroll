@@ -1,5 +1,7 @@
 # WebUI v2 Audit — Bugs, Architecture, and Pruning
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 **Status:** UI v2 audit complete. All findings are fixed or accepted; no open items. Audit date: 2026-10-22.
 **Scope:** `web/v2` templates/static assets and `src/webui/v2` handlers, plus the
 API/data shapes those views consume.

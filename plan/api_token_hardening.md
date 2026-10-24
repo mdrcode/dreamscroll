@@ -43,7 +43,7 @@ This plan does not cover:
 
 - Browser session cookies, which remain handled by `axum-login` and Tower Sessions.
 - Google-signed Cloud Tasks ID-token verification, which belongs to the webhook OIDC
-  design in `plan/webhook_oidc_same_service.md`.
+  design in `plan/archive/webhook_oidc_same_service.md`.
 - Interactive login with an external OIDC provider.
 
 If external interactive OIDC or multiple identity providers are added later, reassess

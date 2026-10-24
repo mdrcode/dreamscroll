@@ -2,7 +2,7 @@
 
 **Date:** 2026-10-06
 **Status:** Reference / overview
-**Purpose:** A single place to look up the per-instance connection and concurrency budgets that shape how Dreamscroll scales on Cloud Run + Cloud SQL. Written to inform the SSE design (`sse.md`) and future scaling decisions.
+**Purpose:** A single place to look up the per-instance connection and concurrency budgets that shape how Dreamscroll scales on Cloud Run + Cloud SQL. Written to inform the SSE design (`plan/archive/sse.md`) and future scaling decisions.
 
 > **TL;DR:** The binding constraint for long-lived SSE connections is **Cloud Run's per-instance HTTP concurrency budget**, not the Cloud SQL connection limit. The DB budget is generous; the HTTP concurrency budget is what you'll actually hit.
 
@@ -127,6 +127,6 @@ From the Cloud Run container contract — long-lived connections are **treated a
 
 ## 6. Related
 
-- `plan/sse.md` — the SSE design that motivated this reference.
+- `plan/archive/sse.md` — the SSE design that motivated this reference.
 - `_project/gcloud/cloudsql_postgres.md` — Cloud SQL connectivity setup.
 - `_project/gcloud/cloud_task_queue.md` — task queueing across instances.

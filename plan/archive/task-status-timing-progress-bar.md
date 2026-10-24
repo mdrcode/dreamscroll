@@ -1,9 +1,11 @@
 # Task Status Timing & Progress Bar — Design Plan
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 **Status:** Timing persistence, update-in-place aggregate measures, SSE metadata, and client-side estimated progress implemented.
 **Scope:** Add persisted timing facts to `task_runs`, expose them through task-status reads/SSE, and define the data needed for an estimated illumination progress indicator.
 
-> Related: `plan/task-status.md`, `plan/sse.md`, `src/task/taskruntracker.rs`,
+> Related: `plan/archive/task-status.md`, `plan/archive/sse.md`, `src/task/taskruntracker.rs`,
 > `src/task/taskmaster.rs`, `src/model/task_run.rs`, and `src/sse/event.rs`.
 
 ## 1. What exists today
@@ -78,7 +80,7 @@ database access remains in `task_timing.rs`.
 Prefer lifecycle-specific tracker operations over a generic status setter:
 
 - `create_run`: unchanged status behavior; confirms the queued timestamp is captured.
-- `begin_attempt`: `TaskMaster` chooses the attempt number from persisted state; the tracker writes `InProgress`, `attempts`, and `processing_started_at` in one SQL update. This is not an atomic claim or fence: a duplicate `InProgress` delivery may also start (see `pragmatism.md`).
+- `begin_attempt`: `TaskMaster` chooses the attempt number from persisted state; the tracker writes `InProgress`, `attempts`, and `processing_started_at` in one SQL update. This is not an atomic claim or fence: a duplicate `InProgress` delivery may also start (see `plan/pragmatism.md`).
 - `finish_attempt`: a tracker method that atomically sets the outcome and computes the duration from the stored processing start. It should update the error duration for every error and the success duration for success.
 
 This keeps timing invariants next to the existing attempts/status invariants and avoids relying on Rust `Instant` across workers. `TaskMaster` remains the lifecycle policy boundary. The implementation uses PostgreSQL `CURRENT_TIMESTAMP` for both the start timestamp and the finish calculation, with `EXTRACT(EPOCH ...) * 1000` cast to `BIGINT`.
@@ -247,7 +249,7 @@ Once an estimate query is designed, test that it has no estimate with insufficie
 ## 9. Suggested incremental implementation order
 
 1. Agree on the timestamp/duration semantics above.
-2. Add nullable timing columns to the SeaORM model and update `plan/task-status.md`'s schema/file map.
+2. Add nullable timing columns to the SeaORM model and update `plan/archive/task-status.md`'s schema/file map.
 3. Add lifecycle-specific tracker writes and TaskMaster integration. **Done.**
 4. Add DB-backed tracker tests.
 5. Add timing to status snapshots and extend SSE with optional estimator metadata. **Done.**

@@ -2,9 +2,9 @@
 
 **Status:** living document. Last updated 2026-10-06.
 
-> **See also:** `task-status.md` (the framework these tests cover),
-> `pragmatism.md` (tolerated trade-offs), `sse.md` (implemented SSE delivery),
-> `smoke.md` (agent-assisted local smoke testing).
+> **See also:** `plan/archive/task-status.md` (the framework these tests cover),
+> `plan/pragmatism.md` (tolerated trade-offs), `plan/archive/sse.md` (implemented SSE delivery),
+> `plan/smoke.md` (agent-assisted local smoke testing).
 
 ## The two tiers
 

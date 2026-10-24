@@ -59,7 +59,7 @@ impl ServerEventListener {
 ///
 /// PgListener::recv() handles transient Postgres connection loss itself. If
 /// recv returns an error, this task logs and exits; the SSE client can reconnect
-/// but cannot revive this fan-out task. See `plan/sse.md` §6 for the distinction.
+/// but cannot revive this fan-out task. See `plan/archive/sse.md` §6 for the distinction.
 pub fn spawn_local_fanout(
     mut listener: ServerEventListener,
     mut shutdown: watch::Receiver<bool>,

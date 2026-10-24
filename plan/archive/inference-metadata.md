@@ -1,5 +1,7 @@
 # General inference metadata
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 **Status:** implemented. TaskRun-backed illumination, Spark, and search-index embedding requests append usage metadata. Schema version 6 requires explicit `dreamscroll_admin sync_schema`; no historical metadata migration.
 
 ## Goal

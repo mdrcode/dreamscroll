@@ -1,5 +1,7 @@
 # Real-time Task Status via SSE — Design
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 **Status:** Task-status SSE is wired as one authenticated stream per page.
 `capture_ids` selects a current-status snapshot whenever an `EventSource` is
 created; the stream then delivers live task-status events and a named heartbeat
@@ -17,9 +19,9 @@ HTMX clients over Server-Sent Events. This is informational UI feedback, not a
 workflow engine, durable change log, or source of truth for task orchestration.
 
 > **See also:**
-> - `task-status.md` — the task framework this builds on (done).
-> - `pragmatism.md` — the ledger of deliberately tolerated trade-offs.
-> - `topology_and_throughput.md` — the connection/concurrency budgets that shape
+> - `plan/archive/task-status.md` — the task framework this builds on (done).
+> - `plan/pragmatism.md` — the ledger of deliberately tolerated trade-offs.
+> - `plan/topology_and_throughput.md` — the connection/concurrency budgets that shape
 >   the adaptive-lifetime design (§6.3).
 
 ---
@@ -158,7 +160,7 @@ Availability wire example:
 ```
 
 This maps to the current state of a `task_runs` row (see
-`task-status.md` §3). It is not a historical event: the table stores one row
+`plan/archive/task-status.md` §3). It is not a historical event: the table stores one row
 per logical task run and updates that row in place. The `TaskRunStatus` enum
 lives in the task module; the DB stores only its integer discriminant.
 
@@ -613,7 +615,7 @@ already have an illumination (`.capture-card__illumination`). A reload during a
 re-illumination therefore gets no in-progress catch-up for that card until the
 terminal live event arrives. This is deliberate: querying latest TaskRun state
 for every rendered capture on each page load/connect is not worth the DB load
-for a rare flow. See `pragmatism.md`. Revisit if that flow becomes common or
+for a rare flow. See `plan/pragmatism.md`. Revisit if that flow becomes common or
 in-progress state during reruns becomes required.
 
 ### 5.2 Direct status indicators (future UI work)
@@ -851,8 +853,8 @@ status rendering.
 | `src/webui/v2/maker.rs`            | build routes and shared state; fingerprint local static assets                                    | ✅      |
 | `src/webui/v2/web_state.rs`        | hold shared WebUI state, template context, and DB-clock timestamp helper                          | ✅      |
 | `src/webui/v2/r_events.rs`         | emit the initial capture snapshot, then user-filtered live updates                                | ✅      |
-| `src/webui/v2/r_capture_card.rs`   | authenticated capture-card refresh endpoint                                                       | ✅      |
-| `src/webui/v2/r_detail_partial.rs` | authenticated capture-detail partial refresh endpoint                                             | ✅      |
+| `src/webui/v2/r_feed.rs`           | authenticated feed fragment (`/cards`) used for full feed refreshes                               | ✅      |
+| `src/webui/v2/r_illumination.rs`   | authenticated per-card fragments: `feed_fragment` (`/cards/capture/{id}/illumination`) and `detail_fragments` (`/detail/{id}/illumination`) | ✅      |
 | `web/v2/templates/*.tera`          | `data-sse-mode`, `data-capture-id`, and stable card IDs for client event routing                  | ✅      |
 | `web/v2/static/webui-v2.js`        | maintain one stable EventSource; send initial IDs and route all live events by entity ID          | ✅      |
 | `Cargo.toml`                       | direct `futures-util` dependency for `stream::unfold` in the Axum SSE handler                     | ✅      |
@@ -992,7 +994,7 @@ into this comparison.
   or another targeted partial load.
 - **Backfill / bulk tasks (deferred):** status events from backfill currently
   reach the user's stream like any other event. Suppressing or distinguishing
-  them is out of scope; create a separate `plan/backfill.md` and feature branch
+  them is out of scope; create a separate `plan/archive/backfill.md` and feature branch
   when that work starts. A `background` annotation may be considered then.
 - **Capture lifecycle publishing:** the `AvailabilityEvent` wire type already
   models `available`/`deleted` operations for any entity type. Publishing these

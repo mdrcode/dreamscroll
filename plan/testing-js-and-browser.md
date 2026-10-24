@@ -3,7 +3,7 @@
 **Status:** Planned follow-up; no browser test framework is currently configured.
 **Scope:** Add focused coverage for browser behavior controlling SSE connection lifetime, event-driven partial refreshes, and upload feedback.
 
-> **See also:** `smoke.md` for ad hoc local-browser interaction and approval
+> **See also:** `plan/smoke.md` for ad hoc local-browser interaction and approval
 > boundaries.
 
 ## Why consider this

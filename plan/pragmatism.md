@@ -1,12 +1,12 @@
 # Pragmatism — tolerated trade-offs
 
-**Status:** living document. Last updated 2026-10-16.
+**Status:** living document. Last updated 2026-10-23.
 
 > **See also:**
-> - `task-status.md` — the task framework (implemented).
-> - `sse.md` — the implemented SSE delivery layer.
-> - `testing.md` — the two-tier test model.
-> - `topology_and_throughput.md` — connection/concurrency budgets.
+> - `plan/archive/task-status.md` — the task framework (implemented).
+> - `plan/archive/sse.md` — the implemented SSE delivery layer.
+> - `plan/testing.md` — the two-tier test model.
+> - `plan/topology_and_throughput.md` — connection/concurrency budgets.
 
 ## Philosophy
 
@@ -82,6 +82,8 @@ largest category, and the least urgent, because the app is single-user today.
 | **Inference usage persistence is best-effort** | Database insert failure or process termination can lose usage; successful outputs may have NULL `inference_meta_id`. Only TaskRun-backed requests are recorded, so direct CLI inference and inline query embeddings are excluded. | One shared warning-and-continue insert avoids retrying billable inference for bookkeeping. No recovery queue, outbox, or accounting-only TaskRuns. Raw usage remains available when the insert succeeds. | Missing usage becomes material for budgeting, or synchronous-query accounting is needed. |
 | **Inference metadata cutover requires manual cleanup** | The operator drops obsolete metadata tables and removes old required bookkeeping columns from `illumination_raws`, or drops/recreates affected prototype tables, before running explicit schema sync. Historical bookkeeping may be discarded. | Prototype data needs no migration. Destructive cleanup stays manual rather than accumulating one-off DDL in `sync_schema`; model sync remains additive. | Historical metadata must be preserved, or staged/rolling schema compatibility is required. |
 | **Historical inference JSON is not reclassified** | Rows written before request/provider separation may still contain response details in `params`; `provider_metadata` defaults to `{}` on existing rows. Data from the earlier version-4 provider-details column is not transferred. New rows use request-only params and separate provider metadata. | Prototype bookkeeping needs no data migration or compatibility branch; obsolete columns remain operator-owned cleanup. | Historical metadata must obey the new semantic contract for analysis. |
+| **Related-capture previews are recomputed per detail-page view** | Each `/detail/{id}/related/previews` request fetches the source embedding and runs one vector search; nothing is cached or persisted. | The gallery is client-fetched after the detail page renders, so it never blocks first paint; results are cheap at prototype scale and staleness would be a new invalidation problem. | Related previews dominate detail-page latency or vector-search spend, or results must be stable across reloads. |
+| **Entity-type listing is unbounded** | `get_entities_by_type` returns every matching row for the user with no limit or pagination, and the CLI taxonomy review relies on that shape. | Single user, and the endpoint exists for taxonomy review rather than interactive browsing. | The listing grows past a few hundred rows or gains a UI consumer. |
 | **Thinking-level model compatibility is provider-validated** | The CLI/API accepts Gemini's four documented levels, but a particular model may reject a level it does not support. Omitting the override preserves provider defaults. | Avoid a stale local model-support matrix and silent effort downgrades while comparing inference behavior. | Provider validation errors become common enough to justify model-specific preflight checks. |
 
 ### Security / defense-in-depth
@@ -121,6 +123,8 @@ largest category, and the least urgent, because the app is single-user today.
 | **No atomic handoff from v2 persistence to vector indexing** | A crash after relational persistence but before the search task is enqueued can leave a capture unindexed; failed enqueue retries illumination and can append another v2 result. | An outbox/transactional handoff is beyond prototype scope; task retries usually recover. | A capture remains unindexed after retries or enqueue failures produce duplicate results. |
 | **Legacy v1 illumination is raw-only** | Explicit v1 runs, including `dreamscroll_api illuminate --prompt-version v1`, store inference JSON/provenance but no relational illumination, knowledge-entity, or search-index content. | API/WebUI and REST requests default to v2; v1 remains available for evaluation of `illumination_raws` and emits a warning. | Before relying on a manually requested v1 result in the app. |
 | **Legacy illumination rows may lack suggested searches** | Older rows can have `NULL` after suggested searches moved into `illuminations`; the UI now treats these as empty, so former `xqueries` suggestions are not migrated. | Avoid a data migration for prototype-local data; new v2 inserts always persist the list. | If old captures need their prior suggestions restored. |
+| **Raw-only reruns leave projections and the search index on the prior run** | `persist_projection=false` writes raw output and usage metadata but preserves existing projections and skips indexing, so the newest raw result is not what the UI displays or search returns. | The mode exists for evaluation of prompts/model parameters; overwriting a good projection with an eval run would be worse. | Eval runs need to surface side by side with the live projection, or operators forget which run is live. |
+| **Occurrence pages derive siblings from the capture's newest illumination** | The entity page reads the capture, not the occurrence's own `illumination_id`, so after a re-illumination an occurrence lists the siblings produced by the later illumination rather than the ones it was created with. | Sibling navigation is a browsing aid, not a historical projection; querying by the occurrence's illumination adds a second read path for a rare state. | Occurrence pages become a record of per-run output rather than a current-entity view. |
 
 ### Code cleanliness
 
@@ -137,8 +141,9 @@ plan to do them properly."
 
 | Topic                        | Notes                                                                                                                                                                                                                                                                                                                       |
 | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Reruns**                   | The run-number dimension is implemented: per-logical `run_number`, `(logical_id, run_number)` unique constraint, submit-time refusal for in-flight runs, run-scoped attempts, and both idempotency guards removed. Still deferred: a model/force field and rerun endpoint. See `plans/task-status.md` §6. |
-| **Capture lifecycle events** | Explicitly out of scope for the task-status phase; gets its own mechanism. See `plans/sse.md` §9.                                                                                                                                                                                                                           |
+| **Reruns**                   | The run-number dimension is implemented: per-logical `run_number`, `(logical_id, run_number)` unique constraint, submit-time refusal for in-flight runs, run-scoped attempts, and both idempotency guards removed. Still deferred: a model/force field and rerun endpoint. See `plan/archive/task-status.md` §6. |
+| **Capture lifecycle events** | Explicitly out of scope for the task-status phase; gets its own mechanism. See `plan/archive/sse.md` §9.                                                                                                                                                           |
+| **htmx 4.0 migration**       | 2.0.11 is pinned; 4.0.0 remains `next` on npm with no timeline. Migration points and the two risky behaviors are mapped in `plan/htmx4.md`.                                                                                                                    |
 
 ---
 

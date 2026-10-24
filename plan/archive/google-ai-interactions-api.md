@@ -1,5 +1,7 @@
 # Google AI Interactions API — sidebar investigation
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 **Status:** Implemented and verified: 199 library tests, web binary check, and full-prompt/schema live smoke pass on both APIs. Cloud Run service-account validation remains.
 
 ## Objective and guardrail

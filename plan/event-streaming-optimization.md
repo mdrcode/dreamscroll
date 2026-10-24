@@ -178,7 +178,7 @@ or a database-side maximum update timestamp.
    database query itself remains a material cost.
 6. If the query remains expensive, evaluate a compound cursor, durable sequence,
    or freshness shortcut.
-7. Update `plan/sse.md` and the task-status timing plan after the design is
+7. Update `plan/archive/sse.md` and the task-status timing plan after the design is
    selected.
 
 ## Non-goals for this plan

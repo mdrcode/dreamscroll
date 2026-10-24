@@ -43,7 +43,7 @@ Availability has two useful signals: contractual SLA/status history (including e
 4. On success, validate and store the image in existing media storage, then update status for the UI. On failure, retain the link and provide a clear retry path.
 5. Start with a simple synchronous provider call inside the worker; use provider-managed async jobs only if measurements or documented limits require them.
 
-Align status delivery and image storage with the app’s existing task-status/SSE and media-serving designs rather than creating parallel mechanisms: [task-status timing plan](./task-status-timing-progress-bar.md), [SSE plan](./sse.md), [media-serving plan](./media-serving.md).
+Align status delivery and image storage with the app’s existing task-status/SSE and media-serving designs rather than creating parallel mechanisms: [task-status timing plan](archive/task-status-timing-progress-bar.md), [SSE plan](archive/sse.md), [media-serving plan](./media-serving.md).
 
 ## 4. Metadata behavior and use
 

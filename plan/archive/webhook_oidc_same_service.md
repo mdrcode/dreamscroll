@@ -1,5 +1,7 @@
 # Webhook authentication when hosted by the production Cloud Run service
 
+> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
+
 ## Recommendation
 
 Keep the webhook routes in the existing production Cloud Run service, but protect
