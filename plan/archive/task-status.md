@@ -482,7 +482,8 @@ must always see the **most recent** illumination, so:
 | `src/task/taskqueue_cloudtask.rs`         | `CloudTaskQueue` — Google Cloud Tasks backend                                                                                                                                                  | ✅      |
 | `src/task/taskqueue_pubsub.rs`            | **removed** — Pub/Sub support stripped out; Cloud Tasks is the focus                                                                                                                           | ✅      |
 | `src/task/taskmaster.rs`                  | `TaskMaster` — public lifecycle/API boundary; owns queues and coordinates status persistence + notifications; `submit_*` / `begin_attempt` / `finish_attempt` / status query; shared via `Arc` | ✅      |
-| `src/task/taskruntracker.rs`              | `TaskRunTracker` — private persistence component; writes by `run_id`, orders by `(logical_id, run_number)`                                                                                          | ✅      |
+| `src/task/taskruntracker.rs`              | `TaskRunTracker` — private persistence component; `insert_run` / `set_status` / `mark_in_progress` / `record_outcome` plus queries; one `write_status` funnel; orders by `(logical_id, run_number)` | ✅      |
+| `src/task/statuspublisher.rs`             | `StatusPublisher` — best-effort SSE task-status hints (timing estimate + event + notification policy), split out of the tracker                                                                    | ✅      |
 | `src/task/taskrunstatus.rs`               | `TaskRunStatus` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                      | ✅      |
 | `src/sse/listener.rs`                    | `ServerEventListener` — per-instance Postgres `LISTEN/NOTIFY` listener and fan-out for authenticated SSE streams (see `plan/archive/sse.md`) | ✅      |
 | `src/task/beacon.rs`                      | **removed** — replaced by `TaskMaster`                                                                                                                                                         | ✅      |
@@ -515,11 +516,11 @@ Deliberate properties:
   was. A `500` may be our bug or an upstream dependency's; deciding between them
   is not something a column can do reliably, and a wrong guess is worse than an
   honest code plus message.
-- **Most recent failure wins.** `TaskRunTracker::finish_attempt` overwrites both
+- **Most recent failure wins.** `TaskRunTracker::record_outcome` overwrites both
   on every `ErrorWillRetry`/`CompleteFailure`. A later `CompleteSuccess` does not
   clear them — the row then shows the success status alongside the last failure,
   which is what makes "retried and recovered" distinguishable from "never failed".
-- **A rejected enqueue is recorded too.** `TaskRunTracker::update_run` writes
+- **A rejected enqueue is recorded too.** `TaskRunTracker::set_status` writes
   `SubmissionFailed` with the enqueue error (always `500`, our side), so the one
   failure with no worker, no request log, and no inference record is still
   explainable after the pump response is gone.

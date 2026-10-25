@@ -197,7 +197,7 @@ impl TaskMaster {
         // Create the Run and record `Queued` (in the database) before truly
         // enqueueing (in the backend).
         // `false` = another submit claimed this ordinal or backfill first.
-        if !self.run_tracker.create_run(&task_run).await? {
+        if !self.run_tracker.insert_run(&task_run).await? {
             // The winner can already be settled, or have claimed another ordinal.
             // The composite key, not its current lifecycle state, deduplicates it.
             if let Some(outcome) = self.already_submitted(backfill_id, &logical_id).await? {
@@ -225,7 +225,7 @@ impl TaskMaster {
 
             let submission_error = api::ApiError::internal(enqueue_err);
             self.run_tracker
-                .update_run(
+                .set_status(
                     &task_run,
                     TaskRunStatus::SubmissionFailed,
                     0,
@@ -287,7 +287,7 @@ impl TaskMaster {
             return Ok(None);
         };
 
-        self.run_tracker.begin_attempt(task_run, attempt).await?;
+        self.run_tracker.mark_in_progress(task_run, attempt).await?;
 
         Ok(Some(attempt))
     }
@@ -303,7 +303,7 @@ impl TaskMaster {
         match run_result {
             Ok(()) => {
                 self.run_tracker
-                    .finish_attempt(task_run, TaskRunStatus::CompleteSuccess, attempt, None)
+                    .record_outcome(task_run, TaskRunStatus::CompleteSuccess, attempt, None)
                     .await?;
                 Ok(TaskRunStatus::CompleteSuccess)
             }
@@ -315,7 +315,7 @@ impl TaskMaster {
                 };
 
                 self.run_tracker
-                    .finish_attempt(task_run, status_code, attempt, Some(err))
+                    .record_outcome(task_run, status_code, attempt, Some(err))
                     .await?;
 
                 if status_code == TaskRunStatus::ErrorWillRetry {
@@ -717,7 +717,7 @@ mod tests {
         ] {
             service
                 .run_tracker
-                .update_run(&run, status, 1, None)
+                .set_status(&run, status, 1, None)
                 .await
                 .unwrap();
             assert_eq!(
@@ -769,7 +769,7 @@ mod tests {
         );
         service
             .run_tracker
-            .update_run(&live, TaskRunStatus::CompleteSuccess, 1, None)
+            .set_status(&live, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
@@ -787,7 +787,7 @@ mod tests {
         let backfill = persisted_task_run(&service, illumination_task(42), 2).await;
         service
             .run_tracker
-            .update_run(&backfill, TaskRunStatus::CompleteSuccess, 1, None)
+            .set_status(&backfill, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
         assert!(matches!(
@@ -823,7 +823,7 @@ mod tests {
         let ordinary = persisted_task_run(&service, illumination_task(42), 3).await;
         service
             .run_tracker
-            .update_run(&ordinary, TaskRunStatus::CompleteFailure, 1, None)
+            .set_status(&ordinary, TaskRunStatus::CompleteFailure, 1, None)
             .await
             .unwrap();
         assert!(matches!(
@@ -857,7 +857,7 @@ mod tests {
             assert_eq!(stored.status_code, TaskRunStatus::Queued.as_i32());
             assert_eq!(stored.backfill_id, run.backfill_id);
             self.tracker
-                .update_run(&run, TaskRunStatus::CompleteSuccess, 1, None)
+                .set_status(&run, TaskRunStatus::CompleteSuccess, 1, None)
                 .await?;
             self.runs.lock().await.push(run);
             Ok(())

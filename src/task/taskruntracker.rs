@@ -1,20 +1,24 @@
 use std::sync::Arc;
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr};
+use sea_orm::{
+    ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, UpdateMany, sea_query::Expr,
+};
 
 use crate::{api, database, model, sse};
 
+use super::statuspublisher::StatusPublisher;
 use super::*;
 
 /// Manages all direct reads/writes to `task_runs` in the db.
 ///
 /// Intended to be owned/leveraged by TaskMaster.
 ///
-/// Publishes a best-effort status hint after each successful insert/update.
+/// Persistence only: every write funnels through `write_status`, and publication
+/// is delegated to `StatusPublisher`.
 #[derive(Clone)]
 pub struct TaskRunTracker {
     db: database::DbHandle,
-    notifier: Option<Arc<dyn sse::ServerEventNotifier>>,
+    publisher: StatusPublisher,
 }
 
 impl TaskRunTracker {
@@ -22,14 +26,17 @@ impl TaskRunTracker {
         db: database::DbHandle,
         notifier: Option<Arc<dyn sse::ServerEventNotifier>>,
     ) -> Self {
-        Self { db, notifier }
+        Self {
+            publisher: StatusPublisher::new(db.clone(), notifier),
+            db,
+        }
     }
 
     /// Insert a task run in its initial `Queued` state with zero attempts.
     ///
     /// Returns `Ok(false)` for the run ordinal or backfill/logical unique key.
     /// Other uniqueness violations remain errors rather than lost-race outcomes.
-    pub async fn create_run<T: Task>(&self, task_run: &TaskRun<T>) -> anyhow::Result<bool> {
+    pub async fn insert_run<T: Task>(&self, task_run: &TaskRun<T>) -> anyhow::Result<bool> {
         let task_payload = serde_json::to_value(&task_run.task)?;
         let result = model::task_run::ActiveModel::builder()
             .set_task_type(T::task_type())
@@ -47,8 +54,7 @@ impl TaskRunTracker {
             .await;
         match result {
             Ok(row) => {
-                timing::refresh_timing_measures::<T>(&self.db, TaskRunStatus::Queued).await?;
-                self.notify_status(task_run, &row.into()).await;
+                self.publisher.publish(task_run, &row.into()).await;
                 Ok(true)
             }
             Err(err) if is_submission_conflict(&err) => Ok(false),
@@ -56,47 +62,43 @@ impl TaskRunTracker {
         }
     }
 
-    /// Update one TaskRun by its globally unique run ID.
+    /// Apply one status transition, then publish the resulting row.
     ///
-    /// `error` records the literal failure report for a run that failed outside
-    /// an attempt — a backend that rejected enqueue (`SubmissionFailed`, where no
-    /// worker ever runs). Attempt outcomes go through `finish_attempt` instead.
-    pub async fn update_run<T: Task>(
+    /// Every status write goes through here, so status, attempts, `updated_at`,
+    /// the missing-row outcome, the timing refresh, and publication keep one
+    /// order. `extras` adds the columns specific to the transition.
+    ///
+    /// Timing measures are refreshed for every status; `timing` measures only
+    /// `InProgress` and `CompleteSuccess` and ignores the rest.
+    async fn write_status<T, F>(
         &self,
         task_run: &TaskRun<T>,
         status: TaskRunStatus,
         attempts: i32,
-        error: Option<&api::ApiError>,
-    ) -> anyhow::Result<()> {
-        let mut update = model::task_run::Entity::update_many();
-        update = update
-            .col_expr(
-                model::task_run::Column::StatusCode,
-                Expr::value(status.as_i32()),
-            )
-            .col_expr(model::task_run::Column::Attempts, Expr::value(attempts))
-            .col_expr(
-                model::task_run::Column::UpdatedAt,
-                Expr::current_timestamp(),
-            );
-        if let Some(error) = error {
-            update = update
+        extras: F,
+    ) -> anyhow::Result<()>
+    where
+        T: Task,
+        F: FnOnce(UpdateMany<model::task_run::Entity>) -> UpdateMany<model::task_run::Entity>,
+    {
+        let update = extras(
+            model::task_run::Entity::update_many()
                 .col_expr(
-                    model::task_run::Column::LastErrorCode,
-                    Expr::value(i32::from(error.status_code.as_u16())),
+                    model::task_run::Column::StatusCode,
+                    Expr::value(status.as_i32()),
                 )
+                .col_expr(model::task_run::Column::Attempts, Expr::value(attempts))
                 .col_expr(
-                    model::task_run::Column::LastErrorMessage,
-                    Expr::value(truncate_error_message(error.message())),
-                );
-        }
+                    model::task_run::Column::UpdatedAt,
+                    Expr::current_timestamp(),
+                ),
+        );
 
-        let result = update
+        let rows = update
             .filter(model::task_run::Column::RunId.eq(task_run.run_id.as_str()))
             .exec_with_returning(&self.db.conn)
             .await?;
-
-        let Some(row) = result.into_iter().next() else {
+        let Some(row) = rows.into_iter().next() else {
             tracing::warn!(
                 task_run = ?task_run,
                 "Ignoring task status update because the run row is missing"
@@ -105,44 +107,42 @@ impl TaskRunTracker {
         };
 
         timing::refresh_timing_measures::<T>(&self.db, status).await?;
-        self.notify_status(task_run, &row).await;
+        self.publisher.publish(task_run, &row).await;
         Ok(())
     }
 
+    /// Set a run's status outside an attempt, optionally recording the failure.
+    ///
+    /// Submission uses this for a backend that rejects enqueue:
+    /// `SubmissionFailed` plus the enqueue error. Attempt outcomes go through
+    /// `record_outcome` instead.
+    pub async fn set_status<T: Task>(
+        &self,
+        task_run: &TaskRun<T>,
+        status: TaskRunStatus,
+        attempts: i32,
+        error: Option<&api::ApiError>,
+    ) -> anyhow::Result<()> {
+        self.write_status(task_run, status, attempts, |update| match error {
+            Some(error) => with_error_columns(update, error),
+            None => update,
+        })
+        .await
+    }
+
     /// Mark the most recent attempt as processing and record its start time.
-    pub async fn begin_attempt<T: Task>(
+    pub async fn mark_in_progress<T: Task>(
         &self,
         task_run: &TaskRun<T>,
         attempts: i32,
     ) -> anyhow::Result<()> {
-        let rows = model::task_run::Entity::update_many()
-            .col_expr(
-                model::task_run::Column::StatusCode,
-                Expr::value(TaskRunStatus::InProgress.as_i32()),
-            )
-            .col_expr(model::task_run::Column::Attempts, Expr::value(attempts))
-            .col_expr(
+        self.write_status(task_run, TaskRunStatus::InProgress, attempts, |update| {
+            update.col_expr(
                 model::task_run::Column::ProcessingStartedAt,
                 Expr::current_timestamp(),
             )
-            .col_expr(
-                model::task_run::Column::UpdatedAt,
-                Expr::current_timestamp(),
-            )
-            .filter(model::task_run::Column::RunId.eq(task_run.run_id.as_str()))
-            .exec_with_returning(&self.db.conn)
-            .await?;
-
-        let Some(row) = rows.into_iter().next() else {
-            tracing::warn!(
-                task_run = ?task_run,
-                "Ignoring task status update because the run row is missing"
-            );
-            return Ok(());
-        };
-        timing::refresh_timing_measures::<T>(&self.db, TaskRunStatus::InProgress).await?;
-        self.notify_status(task_run, &row).await;
-        Ok(())
+        })
+        .await
     }
 
     /// Record an attempt outcome, its duration, and (for failures) the literal
@@ -151,89 +151,37 @@ impl TaskRunTracker {
     /// `error` is only meaningful for `ErrorWillRetry`/`CompleteFailure`; passing
     /// `None` leaves `last_error_code`/`last_error_message` untouched, which is
     /// what a status-only write wants. A later success does not clear them.
-    pub async fn finish_attempt<T: Task>(
+    pub async fn record_outcome<T: Task>(
         &self,
         task_run: &TaskRun<T>,
         status: TaskRunStatus,
         attempts: i32,
         error: Option<&api::ApiError>,
     ) -> anyhow::Result<()> {
-        let mut update = model::task_run::Entity::update_many();
-        update = update
-            .col_expr(
-                model::task_run::Column::StatusCode,
-                Expr::value(status.as_i32()),
-            )
-            .col_expr(model::task_run::Column::Attempts, Expr::value(attempts))
-            .col_expr(
-                model::task_run::Column::UpdatedAt,
-                Expr::current_timestamp(),
-            );
-        if status == TaskRunStatus::CompleteSuccess {
-            update = update.col_expr(
-                model::task_run::Column::SuccessDurationMs,
-                Expr::cust(
-                    "CAST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - processing_started_at)) * 1000 AS BIGINT)",
-                ),
-            );
-        } else if matches!(
-            status,
-            TaskRunStatus::ErrorWillRetry | TaskRunStatus::CompleteFailure
-        ) {
-            update = update.col_expr(
-                model::task_run::Column::LastErrorDurationMs,
-                Expr::cust(
-                    "CAST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - processing_started_at)) * 1000 AS BIGINT)",
-                ),
-            );
-            if let Some(error) = error {
-                update = update
-                    .col_expr(
-                        model::task_run::Column::LastErrorCode,
-                        Expr::value(i32::from(error.status_code.as_u16())),
-                    )
-                    .col_expr(
-                        model::task_run::Column::LastErrorMessage,
-                        Expr::value(truncate_error_message(error.message())),
-                    );
+        self.write_status(task_run, status, attempts, |update| {
+            if status == TaskRunStatus::CompleteSuccess {
+                return update.col_expr(
+                    model::task_run::Column::SuccessDurationMs,
+                    Expr::cust(ATTEMPT_DURATION_MS),
+                );
             }
-        }
+            if !matches!(
+                status,
+                TaskRunStatus::ErrorWillRetry | TaskRunStatus::CompleteFailure
+            ) {
+                return update;
+            }
 
-        let rows = update
-            .filter(model::task_run::Column::RunId.eq(task_run.run_id.as_str()))
-            .exec_with_returning(&self.db.conn)
-            .await?;
-        timing::refresh_timing_measures::<T>(&self.db, status).await?;
-        let Some(row) = rows.into_iter().next() else {
-            tracing::warn!(
-                task_run = ?task_run,
-                "Ignoring task status update because the run row is missing"
+            let update = update.col_expr(
+                model::task_run::Column::LastErrorDurationMs,
+                Expr::cust(ATTEMPT_DURATION_MS),
             );
-            return Ok(());
-        };
-        self.notify_status(task_run, &row).await;
-        Ok(())
-    }
-
-    async fn notify_status<T: Task>(&self, task_run: &TaskRun<T>, row: &model::task_run::Model) {
-        let Some(notifier) = &self.notifier else {
-            return;
-        };
-
-        let estimate = timing::get_timing_estimate(
-            &self.db,
-            T::task_type(),
-            timing::Measure::ProcessingSuccessful,
-        )
-        .await;
-        let event = sse::TaskStatusEvent::from_task_run(task_run, row, estimate.as_ref());
-        if let Err(error) = notifier.notify_task_status(&event).await {
-            tracing::debug!(
-                task_run = ?task_run,
-                error = ?error,
-                "Failed to publish task-status notification"
-            );
-        }
+            match error {
+                Some(error) => with_error_columns(update, error),
+                None => update,
+            }
+        })
+        .await
     }
 
     /// Look up a logical task's latest run, or a particular run number, optionally scoped to its target owner.
@@ -313,6 +261,11 @@ impl TaskRunTracker {
     }
 }
 
+/// Attempt duration in milliseconds, measured from `begin_attempt`. Yields NULL
+/// when no attempt ever started.
+const ATTEMPT_DURATION_MS: &str =
+    "CAST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - processing_started_at)) * 1000 AS BIGINT)";
+
 /// Cap for a persisted failure message. An upstream error can carry a whole
 /// response body in its chain; a bounded row stays readable and cheap to print.
 const ERROR_MESSAGE_MAX_CHARS: usize = 2_000;
@@ -326,6 +279,23 @@ fn truncate_error_message(message: String) -> String {
     let mut truncated: String = message.chars().take(ERROR_MESSAGE_MAX_CHARS - 1).collect();
     truncated.push('…');
     truncated
+}
+
+/// Persist the literal failure report: the failing layer's HTTP status and its
+/// annotated error message.
+fn with_error_columns(
+    update: UpdateMany<model::task_run::Entity>,
+    error: &api::ApiError,
+) -> UpdateMany<model::task_run::Entity> {
+    update
+        .col_expr(
+            model::task_run::Column::LastErrorCode,
+            Expr::value(i32::from(error.status_code.as_u16())),
+        )
+        .col_expr(
+            model::task_run::Column::LastErrorMessage,
+            Expr::value(truncate_error_message(error.message())),
+        )
 }
 
 /// Only expected submission keys arbitrate duplicate work; UUID collisions and
@@ -408,15 +378,15 @@ mod tests {
         api::ApiError::internal(anyhow::anyhow!("test failure"))
     }
 
-    async fn create_run_with_status<T: Task>(
+    async fn insert_run_with_status<T: Task>(
         tracker: &TaskRunTracker,
         task_run: &TaskRun<T>,
         status: TaskRunStatus,
         attempts: i32,
     ) -> anyhow::Result<bool> {
-        let created = tracker.create_run(task_run).await?;
+        let created = tracker.insert_run(task_run).await?;
         if created && (status != TaskRunStatus::Queued || attempts != 0) {
-            tracker.update_run(task_run, status, attempts, None).await?;
+            tracker.set_status(task_run, status, attempts, None).await?;
         }
         Ok(created)
     }
@@ -424,7 +394,7 @@ mod tests {
     // --- DB-backed ---
 
     #[tokio::test]
-    async fn create_run_persists_identity_and_task_payload() {
+    async fn insert_run_persists_identity_and_task_payload() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -441,9 +411,9 @@ mod tests {
 
         assert!(
             tracker
-                .create_run(&env)
+                .insert_run(&env)
                 .await
-                .expect("create_run should succeed")
+                .expect("insert_run should succeed")
         );
 
         let stored = tracker
@@ -475,7 +445,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_run_always_starts_queued_with_zero_attempts() {
+    async fn insert_run_always_starts_queued_with_zero_attempts() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -483,7 +453,7 @@ mod tests {
         let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
         let task_run = task_run(1, 52, 1);
 
-        assert!(tracker.create_run(&task_run).await.unwrap());
+        assert!(tracker.insert_run(&task_run).await.unwrap());
 
         let stored = tracker
             .query_run_status(&task_run.logical_id, Some(task_run.run_number), None)
@@ -506,9 +476,9 @@ mod tests {
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
         let env = task_run(1, 53, 1);
-        assert!(tracker.create_run(&env).await.unwrap());
+        assert!(tracker.insert_run(&env).await.unwrap());
 
-        tracker.begin_attempt(&env, 1).await.unwrap();
+        tracker.mark_in_progress(&env, 1).await.unwrap();
         let started = tracker
             .query_run_status(&env.logical_id, Some(env.run_number), None)
             .await
@@ -517,7 +487,7 @@ mod tests {
             .processing_started_at
             .unwrap();
         tracker
-            .finish_attempt(&env, TaskRunStatus::ErrorWillRetry, 1, Some(&task_error()))
+            .record_outcome(&env, TaskRunStatus::ErrorWillRetry, 1, Some(&task_error()))
             .await
             .unwrap();
         let after_first_failure = tracker
@@ -529,9 +499,9 @@ mod tests {
         assert!(after_first_failure.last_error_duration_ms.unwrap() >= 0);
         assert!(after_first_failure.success_duration_ms.is_none());
 
-        tracker.begin_attempt(&env, 2).await.unwrap();
+        tracker.mark_in_progress(&env, 2).await.unwrap();
         tracker
-            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 2, None)
+            .record_outcome(&env, TaskRunStatus::CompleteSuccess, 2, None)
             .await
             .unwrap();
         let completed = tracker
@@ -551,10 +521,10 @@ mod tests {
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
         let env = task_run(1, 54, 1);
-        assert!(tracker.create_run(&env).await.unwrap());
+        assert!(tracker.insert_run(&env).await.unwrap());
 
         tracker
-            .finish_attempt(&env, TaskRunStatus::CompleteFailure, 1, Some(&task_error()))
+            .record_outcome(&env, TaskRunStatus::CompleteFailure, 1, Some(&task_error()))
             .await
             .unwrap();
 
@@ -576,13 +546,13 @@ mod tests {
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
         let env = task_run(1, 59, 1);
-        assert!(tracker.create_run(&env).await.unwrap());
-        tracker.begin_attempt(&env, 1).await.unwrap();
+        assert!(tracker.insert_run(&env).await.unwrap());
+        tracker.mark_in_progress(&env, 1).await.unwrap();
 
         let error =
             api::ApiError::internal(anyhow::anyhow!("quota exceeded").context("vertex request"));
         tracker
-            .finish_attempt(&env, TaskRunStatus::CompleteFailure, 1, Some(&error))
+            .record_outcome(&env, TaskRunStatus::CompleteFailure, 1, Some(&error))
             .await
             .unwrap();
 
@@ -599,9 +569,9 @@ mod tests {
         );
 
         // The report describes the most recent failure; a later success keeps it.
-        tracker.begin_attempt(&env, 2).await.unwrap();
+        tracker.mark_in_progress(&env, 2).await.unwrap();
         tracker
-            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 2, None)
+            .record_outcome(&env, TaskRunStatus::CompleteSuccess, 2, None)
             .await
             .unwrap();
         let completed = tracker
@@ -640,10 +610,10 @@ mod tests {
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
         let env = task_run(1, 55, 1);
-        assert!(tracker.create_run(&env).await.unwrap());
-        tracker.begin_attempt(&env, 1).await.unwrap();
+        assert!(tracker.insert_run(&env).await.unwrap());
+        tracker.mark_in_progress(&env, 1).await.unwrap();
         tracker
-            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 1, None)
+            .record_outcome(&env, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
@@ -666,18 +636,18 @@ mod tests {
         let tracker = TaskRunTracker::new(db.handle(), None);
 
         let first = task_run(1, 56, 1);
-        assert!(tracker.create_run(&first).await.unwrap());
-        tracker.begin_attempt(&first, 1).await.unwrap();
+        assert!(tracker.insert_run(&first).await.unwrap());
+        tracker.mark_in_progress(&first, 1).await.unwrap();
         tracker
-            .finish_attempt(&first, TaskRunStatus::CompleteSuccess, 1, None)
+            .record_outcome(&first, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
         let failed = task_run(1, 57, 1);
-        assert!(tracker.create_run(&failed).await.unwrap());
-        tracker.begin_attempt(&failed, 1).await.unwrap();
+        assert!(tracker.insert_run(&failed).await.unwrap());
+        tracker.mark_in_progress(&failed, 1).await.unwrap();
         tracker
-            .finish_attempt(
+            .record_outcome(
                 &failed,
                 TaskRunStatus::CompleteFailure,
                 1,
@@ -704,10 +674,10 @@ mod tests {
             .unwrap();
 
         let second = task_run(1, 58, 1);
-        assert!(tracker.create_run(&second).await.unwrap());
-        tracker.begin_attempt(&second, 1).await.unwrap();
+        assert!(tracker.insert_run(&second).await.unwrap());
+        tracker.mark_in_progress(&second, 1).await.unwrap();
         tracker
-            .finish_attempt(&second, TaskRunStatus::CompleteSuccess, 1, None)
+            .record_outcome(&second, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
         let updated_row = model::task_run_timing::Entity::find()
@@ -733,14 +703,14 @@ mod tests {
         let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
         let first_task_run = task_run(1, 42, 1);
 
-        assert!(tracker.create_run(&first_task_run).await.unwrap());
-        assert!(!tracker.create_run(&task_run(1, 42, 1)).await.unwrap());
+        assert!(tracker.insert_run(&first_task_run).await.unwrap());
+        assert!(!tracker.insert_run(&task_run(1, 42, 1)).await.unwrap());
         tracker
-            .update_run(&first_task_run, TaskRunStatus::InProgress, 1, None)
+            .set_status(&first_task_run, TaskRunStatus::InProgress, 1, None)
             .await
             .unwrap();
         tracker
-            .update_run(&task_run(1, 99, 1), TaskRunStatus::CompleteSuccess, 1, None)
+            .set_status(&task_run(1, 99, 1), TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
@@ -761,12 +731,12 @@ mod tests {
 
         assert!(
             tracker
-                .create_run(&task_run)
+                .insert_run(&task_run)
                 .await
                 .expect("best-effort notification failure must not fail persistence")
         );
         tracker
-            .update_run(&task_run, TaskRunStatus::InProgress, 1, None)
+            .set_status(&task_run, TaskRunStatus::InProgress, 1, None)
             .await
             .expect("best-effort notification failure must not fail persistence");
 
@@ -781,7 +751,7 @@ mod tests {
     /// The unique index is what actually prevents a duplicate submission, so the
     /// tracker must report the conflict rather than propagate it as an error.
     #[tokio::test]
-    async fn create_run_refuses_a_duplicate_run() {
+    async fn insert_run_refuses_a_duplicate_run() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -789,11 +759,11 @@ mod tests {
         let env = task_run(1, 42, 1);
 
         let first = tracker
-            .create_run(&env)
+            .insert_run(&env)
             .await
-            .expect("first create_run should succeed");
+            .expect("first insert_run should succeed");
         let second = tracker
-            .create_run(&task_run(1, 42, 1))
+            .insert_run(&task_run(1, 42, 1))
             .await
             .expect("a conflict must not be an error");
 
@@ -809,9 +779,9 @@ mod tests {
         let tracker = TaskRunTracker::new(db.handle(), None);
         let mut first = task_run(1, 42, 1);
         first.backfill_id = Some("test-backfill".to_string());
-        assert!(tracker.create_run(&first).await.unwrap());
+        assert!(tracker.insert_run(&first).await.unwrap());
         tracker
-            .update_run(&first, TaskRunStatus::CompleteSuccess, 1, None)
+            .set_status(&first, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
@@ -819,7 +789,7 @@ mod tests {
         // latest after it completed, can choose the next ordinal. It still loses.
         let mut stale = task_run(1, 42, 2);
         stale.backfill_id = first.backfill_id.clone();
-        assert!(!tracker.create_run(&stale).await.unwrap());
+        assert!(!tracker.insert_run(&stale).await.unwrap());
         let stored = tracker
             .query_backfill_run("test-backfill", &first.logical_id)
             .await
@@ -831,11 +801,11 @@ mod tests {
         // The key is scoped by both backfill and logical task, not either alone.
         let mut other_task = task_run(1, 43, 1);
         other_task.backfill_id = first.backfill_id.clone();
-        assert!(tracker.create_run(&other_task).await.unwrap());
+        assert!(tracker.insert_run(&other_task).await.unwrap());
         stale.backfill_id = Some("other-backfill".to_string());
-        assert!(tracker.create_run(&stale).await.unwrap());
-        assert!(tracker.create_run(&task_run(1, 42, 3)).await.unwrap());
-        assert!(tracker.create_run(&task_run(1, 42, 4)).await.unwrap());
+        assert!(tracker.insert_run(&stale).await.unwrap());
+        assert!(tracker.insert_run(&task_run(1, 42, 3)).await.unwrap());
+        assert!(tracker.insert_run(&task_run(1, 42, 4)).await.unwrap());
     }
 
     #[tokio::test]
@@ -845,14 +815,14 @@ mod tests {
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
         let first = task_run(1, 42, 1);
-        assert!(tracker.create_run(&first).await.unwrap());
+        assert!(tracker.insert_run(&first).await.unwrap());
         let mut unrelated = task_run(1, 43, 1);
         unrelated.run_id = first.run_id;
-        assert!(tracker.create_run(&unrelated).await.is_err());
+        assert!(tracker.insert_run(&unrelated).await.is_err());
     }
 
     #[tokio::test]
-    async fn concurrent_create_run_calls_are_arbitrated_by_unique_index() {
+    async fn concurrent_insert_run_calls_are_arbitrated_by_unique_index() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -861,7 +831,7 @@ mod tests {
         let second = task_run(1, 42, 1);
 
         let (first_created, second_created) =
-            tokio::join!(tracker.create_run(&first), tracker.create_run(&second),);
+            tokio::join!(tracker.insert_run(&first), tracker.insert_run(&second),);
         let created = [first_created.unwrap(), second_created.unwrap()];
 
         assert_eq!(
@@ -872,14 +842,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_run_allows_a_new_run_of_the_same_task() {
+    async fn insert_run_allows_a_new_run_of_the_same_task() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
 
         assert!(
-            create_run_with_status(
+            insert_run_with_status(
                 &tracker,
                 &task_run(1, 42, 1),
                 TaskRunStatus::CompleteSuccess,
@@ -890,7 +860,7 @@ mod tests {
         );
         assert!(
             tracker
-                .create_run(&task_run(1, 42, 2))
+                .insert_run(&task_run(1, 42, 2))
                 .await
                 .expect("run 2 should be created")
         );
@@ -905,19 +875,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_run_accepts_the_required_payload() {
+    async fn insert_run_accepts_the_required_payload() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
         let env = task_run(1, 42, 1);
-        let result = tracker.create_run(&env).await;
+        let result = tracker.insert_run(&env).await;
 
         assert!(result.is_ok(), "a valid TaskRun carries its task payload");
     }
 
     #[tokio::test]
-    async fn update_run_touches_only_its_own_run() {
+    async fn set_status_touches_only_its_own_run() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -925,16 +895,16 @@ mod tests {
         let run1 = task_run(1, 42, 1);
         let run2 = task_run(1, 42, 2);
 
-        create_run_with_status(&tracker, &run1, TaskRunStatus::CompleteFailure, 1)
+        insert_run_with_status(&tracker, &run1, TaskRunStatus::CompleteFailure, 1)
             .await
             .expect("run 1 should be created");
         tracker
-            .create_run(&run2)
+            .insert_run(&run2)
             .await
             .expect("run 2 should be created");
 
         tracker
-            .update_run(&run1, TaskRunStatus::InProgress, 7, None)
+            .set_status(&run1, TaskRunStatus::InProgress, 7, None)
             .await
             .expect("update should succeed");
 
@@ -973,9 +943,9 @@ mod tests {
         let tracker = TaskRunTracker::new(db.handle(), None);
 
         tracker
-            .create_run(&task_run(1, 42, 1))
+            .insert_run(&task_run(1, 42, 1))
             .await
-            .expect("create_run should succeed");
+            .expect("insert_run should succeed");
 
         let mine = tracker
             .query_latest_task_runs(1, "capture", &[42])
@@ -1010,7 +980,7 @@ mod tests {
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
 
-        create_run_with_status(
+        insert_run_with_status(
             &tracker,
             &task_run(1, 42, 1),
             TaskRunStatus::CompleteFailure,
@@ -1018,7 +988,7 @@ mod tests {
         )
         .await
         .expect("older run should be created");
-        create_run_with_status(
+        insert_run_with_status(
             &tracker,
             &task_run(1, 42, 2),
             TaskRunStatus::CompleteSuccess,
@@ -1027,10 +997,10 @@ mod tests {
         .await
         .expect("newer run should be created");
         tracker
-            .create_run(&task_run(1, 43, 1))
+            .insert_run(&task_run(1, 43, 1))
             .await
             .expect("second entity should be created");
-        create_run_with_status(&tracker, &task_run(2, 42, 1), TaskRunStatus::InProgress, 1)
+        insert_run_with_status(&tracker, &task_run(2, 42, 1), TaskRunStatus::InProgress, 1)
             .await
             .expect("other user's entity should be created");
 
@@ -1079,7 +1049,7 @@ mod tests {
         };
         let tracker = TaskRunTracker::new(db.handle(), None);
 
-        create_run_with_status(
+        insert_run_with_status(
             &tracker,
             &task_run(1, 42, 1),
             TaskRunStatus::CompleteSuccess,
@@ -1094,7 +1064,7 @@ mod tests {
             },
             1,
         );
-        tracker.create_run(&search_task).await.unwrap();
+        tracker.insert_run(&search_task).await.unwrap();
         let spark_task = TaskRun::new(
             crate::logic::spark::SparkTask {
                 spark_id: 42,
@@ -1103,7 +1073,7 @@ mod tests {
             },
             1,
         );
-        create_run_with_status(&tracker, &spark_task, TaskRunStatus::InProgress, 1)
+        insert_run_with_status(&tracker, &spark_task, TaskRunStatus::InProgress, 1)
             .await
             .unwrap();
 
@@ -1141,10 +1111,10 @@ mod tests {
         let first = task_run(1, 42, 1);
         let second = task_run(1, 42, 2);
 
-        create_run_with_status(&tracker, &first, TaskRunStatus::CompleteFailure, 1)
+        insert_run_with_status(&tracker, &first, TaskRunStatus::CompleteFailure, 1)
             .await
             .unwrap();
-        tracker.create_run(&second).await.unwrap();
+        tracker.insert_run(&second).await.unwrap();
 
         assert_eq!(
             tracker
@@ -1165,7 +1135,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn update_run_for_missing_row_warns_and_does_not_publish() {
+    async fn set_status_for_missing_row_warns_and_does_not_publish() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -1173,9 +1143,34 @@ mod tests {
         let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
 
         tracker
-            .update_run(&task_run(1, 42, 1), TaskRunStatus::InProgress, 1, None)
+            .set_status(&task_run(1, 42, 1), TaskRunStatus::InProgress, 1, None)
             .await
             .expect("missing-run update is ignored after logging a warning");
+
+        assert!(
+            tracker
+                .query_run_status("u1-test-capture42", None, None)
+                .await
+                .unwrap()
+                .is_none()
+        );
+        assert!(notifier.0.lock().unwrap().is_empty());
+    }
+
+    /// Every status write shares the missing-row outcome; an attempt outcome must
+    /// not publish a hint for a run that was never written.
+    #[tokio::test]
+    async fn record_outcome_for_missing_row_warns_and_does_not_publish() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let notifier = RecordingNotifier::default();
+        let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
+
+        tracker
+            .record_outcome(&task_run(1, 42, 1), TaskRunStatus::CompleteSuccess, 1, None)
+            .await
+            .expect("missing-run outcome is ignored after logging a warning");
 
         assert!(
             tracker
