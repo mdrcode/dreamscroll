@@ -633,10 +633,10 @@ mod tests {
             .await
             .unwrap();
 
-        let measure =
-            timing::get_timing_estimate(&tracker.db, "test", timing::Measure::ProcessingSuccessful)
-                .await
-                .expect("successful attempt should create a processing measure");
+        let measure = timing::TimingEstimator::new(tracker.db.clone())
+            .client_estimate("test")
+            .await
+            .expect("successful attempt should create a processing measure");
         assert_eq!(measure.sample_count, 1);
         assert!(measure.duration_ms_avg >= 0);
         assert!(measure.duration_ms_p50 >= 0);
@@ -672,10 +672,10 @@ mod tests {
             .await
             .unwrap();
 
-        let measure =
-            timing::get_timing_estimate(&tracker.db, "test", timing::Measure::ProcessingSuccessful)
-                .await
-                .expect("successful processing measure should exist");
+        let measure = timing::TimingEstimator::new(tracker.db.clone())
+            .client_estimate("test")
+            .await
+            .expect("successful processing measure should exist");
         assert_eq!(measure.sample_count, 1, "failures are excluded");
 
         let timing_row = model::task_run_timing::Entity::find()

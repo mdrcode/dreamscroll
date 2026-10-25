@@ -1,16 +1,9 @@
-use anyhow::{Context, bail};
+use anyhow::Context;
 use serde_json::Value;
 use sqlx::postgres::PgListener;
 use tokio::sync::{broadcast, watch};
 
 use super::*;
-
-/// A decoded notification received from the shared server-event channel.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub enum ReceivedServerEvent {
-    TaskStatus(TaskStatusEvent),
-    Availability(AvailabilityEvent),
-}
 
 /// Owns a dedicated, long-lived PostgreSQL connection required by `LISTEN`.
 ///
@@ -37,19 +30,19 @@ impl ServerEventListener {
         Ok(Self { listener })
     }
 
-    /// Wait for and decode the next best-effort server event.
-    pub async fn recv(&mut self) -> anyhow::Result<ReceivedServerEvent> {
-        // SQLx 0.9 PgListener::recv() transparently reconnects after an
-        // intermittent connection loss and restores its LISTEN subscriptions.
-        // This fan-out task only stops if recv returns a terminal error (for
-        // example, payload decoding fails); client SSE retries alone cannot
-        // restart this task once it has exited.
+    /// Wait for the next notification and decode it.
+    ///
+    /// `Ok(None)` means the payload was skipped (unknown kind, wrong schema
+    /// version, malformed); only a transport failure is returned, because that is
+    /// what ends the fan-out. SQLx 0.9 reconnects after intermittent connection
+    /// loss on its own.
+    pub async fn recv(&mut self) -> anyhow::Result<Option<TaskStatusEvent>> {
         let notification = self
             .listener
             .recv()
             .await
             .context("receive server-event notification")?;
-        decode_server_event(notification.payload())
+        Ok(decode_server_event(notification.payload()))
     }
 }
 
@@ -63,7 +56,7 @@ impl ServerEventListener {
 pub fn spawn_local_fanout(
     mut listener: ServerEventListener,
     mut shutdown: watch::Receiver<bool>,
-) -> broadcast::Sender<ReceivedServerEvent> {
+) -> broadcast::Sender<TaskStatusEvent> {
     let (sender, _) = broadcast::channel(128); // TODO where did 128 come from?
     let task_sender = sender.clone();
 
@@ -78,7 +71,9 @@ pub fn spawn_local_fanout(
                 }
                 result = listener.recv() => {
                     match result {
-                        Ok(event) => { let _ = task_sender.send(event); }
+                        Ok(Some(event)) => { let _ = task_sender.send(event); }
+                        // Skipped payloads are already logged; keep listening.
+                        Ok(None) => {}
                         Err(error) => {
                             tracing::warn!(error = ?error, "Server-event listener stopped");
                             break;
@@ -92,40 +87,52 @@ pub fn spawn_local_fanout(
     sender
 }
 
-fn decode_server_event(payload: &str) -> anyhow::Result<ReceivedServerEvent> {
-    let value: Value = serde_json::from_str(payload).context("parse server-event JSON")?;
-    let schema_version = value
-        .get("schema_version")
-        .and_then(Value::as_u64)
-        .context("server event has no unsigned integer schema_version")?;
-    if schema_version != u64::from(CURRENT_SCHEMA_VERSION) {
-        bail!(
-            "unsupported server-event schema_version: {schema_version} (current: {CURRENT_SCHEMA_VERSION})"
-        );
-    }
-
-    let event_type = value
-        .get("event_type")
-        .and_then(Value::as_str)
-        .context("server event has no string event_type")?;
-
-    match event_type {
-        "task_status" => {
-            let event: TaskStatusEvent =
-                serde_json::from_value(value).context("decode task-status event")?;
-            let Some(user_id) = event.user_id else {
-                bail!("PostgreSQL task-status notification has no routing user_id");
-            };
-            if user_id <= 0 {
-                bail!("PostgreSQL task-status notification has invalid routing user_id");
-            }
-            Ok(ReceivedServerEvent::TaskStatus(event))
+/// Decode one notification, skipping anything this build does not understand.
+///
+/// A bad payload must never stop the fan-out: skipping keeps live updates working,
+/// and a `schema_version` bump during a rolling deploy would otherwise kill the
+/// listener on every instance still running the previous build.
+fn decode_server_event(payload: &str) -> Option<TaskStatusEvent> {
+    let value: Value = match serde_json::from_str(payload) {
+        Ok(value) => value,
+        Err(error) => {
+            tracing::warn!(error = ?error, "Skipping undecodable server-event JSON");
+            return None;
         }
-        "availability" => Ok(ReceivedServerEvent::Availability(
-            serde_json::from_value(value).context("decode availability event")?,
-        )),
-        other => bail!("unsupported server event type: {other}"),
+    };
+
+    let schema_version = value.get("schema_version").and_then(Value::as_u64);
+    if schema_version != Some(u64::from(CURRENT_SCHEMA_VERSION)) {
+        tracing::warn!(
+            schema_version = ?schema_version,
+            expected = CURRENT_SCHEMA_VERSION,
+            "Skipping server event with an unsupported schema_version"
+        );
+        return None;
     }
+
+    let event_type = value.get("event_type").and_then(Value::as_str);
+    if event_type != Some("task_status") {
+        tracing::warn!(event_type = ?event_type, "Skipping unsupported server-event type");
+        return None;
+    }
+
+    let event: TaskStatusEvent = match serde_json::from_value(value) {
+        Ok(event) => event,
+        Err(error) => {
+            tracing::warn!(error = ?error, "Skipping malformed task-status event");
+            return None;
+        }
+    };
+    if !event.user_id.is_some_and(|user_id| user_id > 0) {
+        tracing::warn!(
+            run_id = %event.payload.run_id,
+            "Skipping task-status event without a routing user_id"
+        );
+        return None;
+    }
+
+    Some(event)
 }
 
 #[cfg(test)]
@@ -136,71 +143,49 @@ mod tests {
 
     use super::*;
 
+    const TASK_STATUS: &str = r#"{"schema_version":4,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"user_id":7,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"logical_id":"u7-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#;
+
     #[test]
     fn decodes_task_status_event() {
-        let payload = r#"{"schema_version":4,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"user_id":7,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"logical_id":"u7-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#;
-        let ReceivedServerEvent::TaskStatus(event) = decode_server_event(payload).unwrap() else {
-            panic!("task-status payload should decode");
-        };
+        let event = decode_server_event(TASK_STATUS).expect("task-status payload should decode");
         assert_eq!(event.payload.run_id, "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113");
+        assert!(event.belongs_to(7));
     }
 
     #[test]
-    fn decodes_availability_event() {
-        let payload = r#"{"schema_version":4,"event_type":"availability","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"operation":"deleted"}}"#;
-        assert!(matches!(
-            decode_server_event(payload).unwrap(),
-            ReceivedServerEvent::Availability(_)
-        ));
+    fn skips_unsupported_event_type() {
+        let availability = r#"{"schema_version":4,"event_type":"availability","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"operation":"deleted"}}"#;
+        assert!(decode_server_event(availability).is_none());
     }
 
     #[test]
-    fn rejects_unknown_event_type() {
-        let payload = r#"{"event_type":"unknown"}"#;
-        assert!(decode_server_event(payload).is_err());
+    fn skips_missing_and_unsupported_schema_versions() {
+        let missing = r#"{"event_type":"task_status"}"#;
+        let unsupported = r#"{"schema_version":5,"event_type":"task_status"}"#;
+        let negative = r#"{"schema_version":-1,"event_type":"task_status"}"#;
+
+        assert!(decode_server_event(missing).is_none());
+        assert!(decode_server_event(unsupported).is_none());
+        assert!(decode_server_event(negative).is_none());
     }
 
     #[test]
-    fn rejects_missing_and_unsupported_schema_versions() {
-        let missing = r#"{"event_type":"availability"}"#;
-        let unsupported = r#"{"schema_version":5,"event_type":"availability"}"#;
-        let negative = r#"{"schema_version":-1,"event_type":"availability"}"#;
+    fn skips_task_status_without_routing_user_id() {
+        let no_owner = TASK_STATUS.replace(r#""user_id":7,"#, "");
+        assert!(decode_server_event(&no_owner).is_none());
+    }
 
-        assert!(
-            decode_server_event(missing)
-                .unwrap_err()
-                .to_string()
-                .contains("schema_version")
+    #[test]
+    fn skips_malformed_task_status_payload() {
+        let malformed = TASK_STATUS.replace(
+            r#""status":{"name":"complete_success","discriminant":4}"#,
+            r#""status":"not-an-object""#,
         );
-        assert!(
-            decode_server_event(unsupported)
-                .unwrap_err()
-                .to_string()
-                .contains("unsupported")
-        );
-        assert!(
-            decode_server_event(negative)
-                .unwrap_err()
-                .to_string()
-                .contains("schema_version")
-        );
-    }
-
-    #[test]
-    fn rejects_task_status_notification_without_owner_id() {
-        let payload = r#"{"schema_version":4,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"logical_id":"u7-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#;
-        let error = decode_server_event(payload).unwrap_err();
-        assert!(error.to_string().contains("routing user_id"));
-    }
-
-    #[test]
-    fn rejects_malformed_task_status_payload() {
-        let payload = r#"{"schema_version":4,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"payload":{"task_type":"illuminate","status":"not-an-object","logical_id":"u7-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#;
-        assert!(decode_server_event(payload).is_err());
+        assert!(decode_server_event(&malformed).is_none());
     }
 
     #[tokio::test]
-    async fn postgres_notification_reaches_local_fanout() {
+    async fn a_skipped_notification_does_not_stop_the_fanout() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -217,70 +202,54 @@ mod tests {
         let notifier = super::super::PostgresNotifier::new(&db.conn);
 
         let event_id = (uuid::Uuid::new_v4().as_u128() as u32) as i32;
-        let task_status = super::super::TaskStatusEvent::new(
-            super::super::ServerEventTypes::TaskStatus,
-            Utc::now(),
-            "capture",
-            event_id,
-            super::super::TaskStatusPayload {
-                task_type: "illuminate".to_string(),
-                status: crate::task::TaskRunStatus::InProgress,
-                logical_id: format!("u741258-illuminate-capture{event_id}"),
-                run_id: "6f6844ec-d1ac-4f51-b4ae-57e92c646b8d".to_string(),
-                run_number: 3,
-                attempts: 2,
-                processing_started_at: None,
-                estimated_duration_ms_p50: None,
-            },
-        );
         let task_status = super::super::ServerEvent {
             user_id: Some(741_258),
-            ..task_status
+            ..TaskStatusEvent::new(
+                ServerEventTypes::TaskStatus,
+                Utc::now(),
+                "capture",
+                event_id,
+                super::super::TaskStatusPayload {
+                    task_type: "illuminate".to_string(),
+                    status: crate::task::TaskRunStatus::InProgress,
+                    logical_id: format!("u741258-illuminate-capture{event_id}"),
+                    run_id: "6f6844ec-d1ac-4f51-b4ae-57e92c646b8d".to_string(),
+                    run_number: 3,
+                    attempts: 2,
+                    processing_started_at: None,
+                    estimated_duration_ms_p50: None,
+                },
+            )
         };
+        // A version this build does not understand must be skipped, not fatal.
+        let from_a_newer_build = super::super::ServerEvent {
+            schema_version: CURRENT_SCHEMA_VERSION + 1,
+            ..task_status.clone()
+        };
+        notifier
+            .notify(&from_a_newer_build)
+            .await
+            .expect("unsupported notification should publish");
+
         notifier
             .notify(&task_status)
             .await
             .expect("task status notification should publish");
 
-        let received_task = receive_matching_entity(&mut receiver, event_id).await;
-        assert_eq!(received_task, ReceivedServerEvent::TaskStatus(task_status));
-
-        let availability_id = event_id.wrapping_add(1);
-        let availability = super::super::AvailabilityEvent::new(
-            super::super::ServerEventTypes::Availability,
-            Utc::now(),
-            "capture",
-            availability_id,
-            super::super::AvailabilityPayload {
-                operation: super::super::AvailabilityState::Deleted,
-            },
-        );
-        notifier
-            .notify(&availability)
-            .await
-            .expect("availability notification should publish");
-
-        let received_availability = receive_matching_entity(&mut receiver, availability_id).await;
-        assert_eq!(
-            received_availability,
-            ReceivedServerEvent::Availability(availability)
-        );
+        let received = receive_matching_entity(&mut receiver, event_id).await;
+        assert_eq!(received, task_status);
 
         shutdown_tx.send(true).expect("fanout is still subscribed");
     }
 
     async fn receive_matching_entity(
-        receiver: &mut broadcast::Receiver<ReceivedServerEvent>,
+        receiver: &mut broadcast::Receiver<TaskStatusEvent>,
         entity_id: i32,
-    ) -> ReceivedServerEvent {
+    ) -> TaskStatusEvent {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 let event = receiver.recv().await.expect("fanout should remain open");
-                let received_id = match &event {
-                    ReceivedServerEvent::TaskStatus(event) => event.entity_id,
-                    ReceivedServerEvent::Availability(event) => event.entity_id,
-                };
-                if received_id == entity_id {
+                if event.entity_id == entity_id {
                     return event;
                 }
             }

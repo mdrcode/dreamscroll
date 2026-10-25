@@ -7,7 +7,7 @@ pub struct WebState {
     pub user_api: api::UserApiClient,
     pub task_master: std::sync::Arc<task::TaskMaster>,
     pub status_catchup: task::StatusCatchup,
-    pub server_events: tokio::sync::broadcast::Sender<sse::ReceivedServerEvent>,
+    pub server_events: tokio::sync::broadcast::Sender<sse::TaskStatusEvent>,
     pub shutdown: tokio::sync::watch::Receiver<bool>,
     pub tera: tera::Tera,
     pub static_asset_version: String,

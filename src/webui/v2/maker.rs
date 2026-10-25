@@ -25,7 +25,7 @@ fn load_templates() -> Result<Tera, tera::Error> {
 pub fn make_ui_router(
     user_api: api::UserApiClient,
     task_master: Arc<task::TaskMaster>,
-    server_events: tokio::sync::broadcast::Sender<sse::ReceivedServerEvent>,
+    server_events: tokio::sync::broadcast::Sender<sse::TaskStatusEvent>,
     shutdown: tokio::sync::watch::Receiver<bool>,
     auth_backend: auth::WebAuthBackend,
     session_layer: SessionManagerLayer<impl tower_sessions::SessionStore + Clone>,

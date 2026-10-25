@@ -1003,3 +1003,18 @@ into this comparison.
   snapshot selection and single-SSE-connection design are intended to
   accommodate this later. Its operation hints can use the same stable per-user
   stream.
+
+## 11. Tolerant decode, single-kind fan-out (2026-10-25)
+
+The fan-out channel now carries `TaskStatusEvent` directly; `ReceivedServerEvent`
+and the reserved `Availability` vocabulary (`AvailabilityEvent`, payload, state)
+are gone. Availability hints remain future work per §9 and will arrive with a real
+producer; modelling a second kind ahead of that only produced an unconstructible
+variant and tests for a path nothing could trigger.
+
+Decoding is now best effort per notification. A malformed payload, an unknown
+`event_type`, or a `schema_version` mismatch is logged and skipped instead of
+failing `ServerEventListener::recv`, so the fan-out loop only stops on a transport
+error. This matters for rolling deploys: the previous behaviour treated a payload
+from a newer build as fatal and silently ended live updates for every instance
+still on the old schema version.

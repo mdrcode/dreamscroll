@@ -9,7 +9,6 @@ pub const CURRENT_SCHEMA_VERSION: u8 = 4;
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ServerEventTypes {
-    Availability,
     TaskStatus,
 }
 
@@ -28,19 +27,28 @@ pub struct ServerEvent<E> {
 }
 
 // Concrete payload-enriched ServerEvent types
-pub type AvailabilityEvent = ServerEvent<AvailabilityPayload>;
 pub type TaskStatusEvent = ServerEvent<TaskStatusPayload>;
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AvailabilityState {
-    Available,
-    Deleted,
+impl TaskStatusEvent {
+    /// Whether this event is addressed to `user_id`.
+    pub fn belongs_to(&self, user_id: i32) -> bool {
+        self.user_id == Some(user_id)
+    }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
-pub struct AvailabilityPayload {
-    pub operation: AvailabilityState,
+impl<E> ServerEvent<E>
+where
+    E: Clone + Serialize,
+{
+    /// Browser wire form: the notify payload minus the routing-only `user_id`.
+    ///
+    /// `user_id` stays in `Serialize` because that impl also feeds `pg_notify`,
+    /// where the field routes an event to the right user on every instance.
+    pub fn browser_json(&self) -> serde_json::Result<String> {
+        let mut wire = self.clone();
+        wire.user_id = None;
+        serde_json::to_string(&wire)
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -116,6 +124,64 @@ mod tests {
     }
 
     #[test]
+    fn belongs_to_matches_only_its_recipient() {
+        let event = |user_id: i32| TaskStatusEvent {
+            user_id: Some(user_id),
+            ..TaskStatusEvent::new(
+                ServerEventTypes::TaskStatus,
+                timestamp(),
+                "capture",
+                42,
+                TaskStatusPayload {
+                    task_type: "illuminate".to_string(),
+                    status: TaskRunStatus::InProgress,
+                    logical_id: format!("u{user_id}-illuminate-capture42"),
+                    run_id: "6f6844ec-d1ac-4f51-b4ae-57e92c646b8d".to_string(),
+                    run_number: 1,
+                    attempts: 1,
+                    processing_started_at: None,
+                    estimated_duration_ms_p50: None,
+                },
+            )
+        };
+
+        assert!(event(7).belongs_to(7));
+        assert!(!event(8).belongs_to(7));
+    }
+
+    #[test]
+    fn browser_json_omits_internal_user_id() {
+        let update = TaskStatusEvent {
+            user_id: Some(77),
+            ..TaskStatusEvent::new(
+                ServerEventTypes::TaskStatus,
+                timestamp(),
+                "capture",
+                42,
+                TaskStatusPayload {
+                    task_type: "illuminate".to_string(),
+                    status: TaskRunStatus::InProgress,
+                    logical_id: "u77-illuminate-capture42".to_string(),
+                    run_id: "720196b8-3dbf-4c63-9b78-c3f05787d831".to_string(),
+                    run_number: 2,
+                    attempts: 1,
+                    processing_started_at: None,
+                    estimated_duration_ms_p50: None,
+                },
+            )
+        };
+
+        let event_json = update.browser_json().unwrap();
+        assert!(!event_json.contains("user_id"));
+        assert!(event_json.contains("\"entity_id\":42"));
+        assert!(event_json.contains("\"event_type\":\"task_status\""));
+        assert!(
+            serde_json::to_string(&update).unwrap().contains("user_id"),
+            "the notify form keeps the routing field"
+        );
+    }
+
+    #[test]
     fn task_status_update_has_stable_wire_shape() {
         let update = TaskStatusEvent::new(
             ServerEventTypes::TaskStatus,
@@ -163,22 +229,5 @@ mod tests {
         assert_eq!(update.payload.attempts, 2);
         assert_eq!(update.payload.run_number, 4);
         assert_eq!(update.user_id, Some(8));
-    }
-
-    #[test]
-    fn availability_update_round_trips() {
-        let update = AvailabilityEvent::new(
-            ServerEventTypes::Availability,
-            timestamp(),
-            "capture",
-            42,
-            AvailabilityPayload {
-                operation: AvailabilityState::Deleted,
-            },
-        );
-
-        let encoded = serde_json::to_string(&update).unwrap();
-        let decoded: AvailabilityEvent = serde_json::from_str(&encoded).unwrap();
-        assert_eq!(decoded, update);
     }
 }

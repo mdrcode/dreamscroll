@@ -5,9 +5,8 @@ use axum::{
     response::sse::{Event, Sse},
 };
 use axum_login::AuthSession;
-use futures_util::{StreamExt, stream};
+use futures_util::StreamExt;
 use serde::Deserialize;
-use tokio::sync::broadcast;
 
 use crate::{api, auth, sse};
 
@@ -52,7 +51,7 @@ pub async fn get(
         )
     };
 
-    let task_status_stream = make_event_stream(
+    let event_stream = sse::http::make_event_stream(
         user.user_id(),
         catchup_events,
         server_events_rx,
@@ -60,25 +59,9 @@ pub async fn get(
         tokio::time::Instant::now() + MAX_STREAM_LIFETIME, // deadline
         HEARTBEAT_INTERVAL,
     )
-    .map(|item| Ok(task_status_sse_event(item)));
+    .map(|item| Ok(item.into_wire_frame()));
 
-    Ok(Sse::new(task_status_stream))
-}
-
-#[derive(Debug, Eq, PartialEq)]
-enum StreamItem {
-    TaskStatus(sse::TaskStatusEvent),
-    Heartbeat,
-}
-
-fn task_status_sse_event(item: StreamItem) -> Event {
-    match item {
-        StreamItem::TaskStatus(task_status) => Event::default()
-            .event("task-status")
-            .data(task_event_json(&task_status)),
-        // Axum omits empty data fields, and EventSource does not dispatch data-less events.
-        StreamItem::Heartbeat => Event::default().event("heartbeat").data("1"),
-    }
+    Ok(Sse::new(event_stream))
 }
 
 /// A failed catch-up must not fail the stream.
@@ -98,81 +81,6 @@ fn catchup_or_skip(
             );
             None
         }
-    }
-}
-
-fn make_event_stream(
-    user_id: i32,
-    catchup: Option<Vec<sse::TaskStatusEvent>>,
-    events_rx: broadcast::Receiver<sse::ReceivedServerEvent>,
-    shutdown: tokio::sync::watch::Receiver<bool>,
-    deadline: tokio::time::Instant,
-    heartbeat_interval: Duration,
-) -> impl futures_util::Stream<Item = StreamItem> {
-    let next_heartbeat = tokio::time::Instant::now() + heartbeat_interval;
-    let live_events = stream::unfold(
-        (events_rx, user_id, shutdown, deadline, next_heartbeat),
-        move |(mut events_rx, user_id, mut shutdown, deadline, mut next_heartbeat)| async move {
-            loop {
-                if *shutdown.borrow() {
-                    return None;
-                }
-
-                tokio::select! {
-                    _ = tokio::time::sleep_until(deadline) => return None,
-                    _ = tokio::time::sleep_until(next_heartbeat) => {
-                        next_heartbeat = tokio::time::Instant::now() + heartbeat_interval;
-                        return Some((
-                            StreamItem::Heartbeat,
-                            (events_rx, user_id, shutdown, deadline, next_heartbeat),
-                        ));
-                    }
-                    changed = shutdown.changed() => {
-                        if changed.is_err() || *shutdown.borrow() {
-                            return None;
-                        }
-                    }
-                    received = events_rx.recv() => {
-                        match received {
-                            Ok(received) => {
-                                if let Some(update) = filter_for_user(received, user_id) {
-                                    return Some((
-                                        StreamItem::TaskStatus(update),
-                                        (events_rx, user_id, shutdown, deadline, next_heartbeat),
-                                    ));
-                                }
-                            }
-                            Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                                // Dropped frames may include a terminal status, which
-                                // would strand the client's progress UI. Ending the
-                                // stream makes the browser reconnect in seconds and
-                                // replay the current state through catch-up.
-                                tracing::warn!(
-                                    skipped,
-                                    "SSE receiver lagged; reconnecting so catch-up restores state"
-                                );
-                                return None;
-                            }
-                            Err(broadcast::error::RecvError::Closed) => return None,
-                        }
-                    }
-                }
-            }
-        },
-    );
-    let catchup_events = stream::iter(catchup.into_iter().flatten().map(StreamItem::TaskStatus));
-    catchup_events.chain(live_events)
-}
-
-fn filter_for_user(
-    received: sse::ReceivedServerEvent,
-    user_id: i32,
-) -> Option<sse::TaskStatusEvent> {
-    match received {
-        sse::ReceivedServerEvent::TaskStatus(update) if update.user_id == Some(user_id) => {
-            Some(update)
-        }
-        sse::ReceivedServerEvent::TaskStatus(_) | sse::ReceivedServerEvent::Availability(_) => None,
     }
 }
 
@@ -206,56 +114,9 @@ fn parse_capture_ids(raw: Option<&str>) -> Result<Vec<i32>, api::ApiError> {
     Ok(ids)
 }
 
-/// Browser wire form: the same event minus the internal recipient id.
-///
-/// `user_id` stays in the `Serialize` impl because that impl is also the
-/// Postgres `NOTIFY` transport, where the field is what routes an event to the
-/// right user on every instance.
-fn task_event_json(update: &sse::TaskStatusEvent) -> String {
-    let mut wire = update.clone();
-    wire.user_id = None;
-    serde_json::to_string(&wire).unwrap_or_else(|error| {
-        tracing::error!(error = ?error, "Failed to serialize task-status event");
-        "{}".to_string()
-    })
-}
-
 #[cfg(test)]
 mod tests {
-    use chrono::Utc;
-    use futures_util::StreamExt;
-    use tokio::sync::{broadcast, watch};
-
     use super::*;
-
-    #[test]
-    fn task_status_sse_omits_internal_user_id() {
-        let update = sse::ServerEvent::<sse::TaskStatusPayload>::new(
-            sse::ServerEventTypes::TaskStatus,
-            Utc::now(),
-            "capture",
-            42,
-            sse::TaskStatusPayload {
-                task_type: "illuminate".to_string(),
-                status: crate::task::TaskRunStatus::InProgress,
-                logical_id: "u77-illuminate-capture42".to_string(),
-                run_id: "720196b8-3dbf-4c63-9b78-c3f05787d831".to_string(),
-                run_number: 2,
-                attempts: 1,
-                processing_started_at: None,
-                estimated_duration_ms_p50: None,
-            },
-        );
-        let update = sse::ServerEvent {
-            user_id: Some(77),
-            ..update
-        };
-
-        let event_json = task_event_json(&update);
-        assert!(!event_json.contains("user_id"));
-        assert!(event_json.contains("\"entity_id\":42"));
-        assert!(event_json.contains("\"event_type\":\"task_status\""));
-    }
 
     #[test]
     fn a_failed_catchup_degrades_to_live_only() {
@@ -266,51 +127,11 @@ mod tests {
             .is_none(),
             "a non-200 response closes EventSource, so catch-up failure must not fail the stream"
         );
-        let events = catchup_or_skip(Ok(vec![task_status_event(
-            7,
-            42,
-            crate::task::TaskRunStatus::InProgress,
-        )]))
-        .expect("successful catch-up is forwarded");
+
+        let row = crate::model::task_run::task_run_model();
+        let event = sse::TaskStatusEvent::from_row(&row, None).unwrap();
+        let events = catchup_or_skip(Ok(vec![event])).expect("successful catch-up is forwarded");
         assert_eq!(events.len(), 1);
-    }
-
-    #[tokio::test]
-    async fn a_lagged_receiver_ends_the_stream_so_catchup_can_restore_state() {
-        let (sender, receiver) = broadcast::channel(1);
-        let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
-        // Overflow the one-slot buffer before the stream polls: the receiver
-        // reports `Lagged` and a dropped terminal status could strand the UI.
-        sender
-            .send(sse::ReceivedServerEvent::TaskStatus(task_status_event(
-                7,
-                42,
-                crate::task::TaskRunStatus::InProgress,
-            )))
-            .unwrap();
-        sender
-            .send(sse::ReceivedServerEvent::TaskStatus(task_status_event(
-                7,
-                42,
-                crate::task::TaskRunStatus::CompleteSuccess,
-            )))
-            .unwrap();
-
-        let mut events = Box::pin(make_event_stream(
-            7,
-            None,
-            receiver,
-            shutdown_receiver,
-            tokio::time::Instant::now() + Duration::from_secs(10),
-            Duration::from_secs(20),
-        ));
-
-        assert!(
-            tokio::time::timeout(Duration::from_secs(1), events.next())
-                .await
-                .expect("lagged stream should end promptly")
-                .is_none()
-        );
     }
 
     #[test]
@@ -356,7 +177,6 @@ mod tests {
 
         let estimate = crate::task::timing::TaskTimingEstimate {
             task_type: "illuminate".to_string(),
-            measure: crate::task::timing::Measure::ProcessingSuccessful,
             sample_count: crate::task::timing::MINIMUM_CLIENT_ESTIMATE_SAMPLES,
             duration_ms_avg: 10_000,
             duration_ms_p50: 10_000,
@@ -381,181 +201,5 @@ mod tests {
         row.status_code = i32::MAX;
 
         assert!(sse::TaskStatusEvent::from_row(&row, None).is_none());
-    }
-
-    #[test]
-    fn live_stream_forwards_only_the_authenticated_users_task_status() {
-        let own = task_status_event(7, 42, crate::task::TaskRunStatus::InProgress);
-        let other = task_status_event(8, 43, crate::task::TaskRunStatus::InProgress);
-
-        assert!(filter_for_user(sse::ReceivedServerEvent::TaskStatus(own), 7).is_some());
-        assert!(filter_for_user(sse::ReceivedServerEvent::TaskStatus(other), 7).is_none());
-        assert!(
-            filter_for_user(
-                sse::ReceivedServerEvent::Availability(sse::AvailabilityEvent::new(
-                    sse::ServerEventTypes::Availability,
-                    Utc::now(),
-                    "capture",
-                    42,
-                    sse::AvailabilityPayload {
-                        operation: sse::AvailabilityState::Available,
-                    },
-                )),
-                7,
-            )
-            .is_none()
-        );
-    }
-
-    #[tokio::test]
-    async fn stream_emits_catchup_then_user_wide_live_events() {
-        let catchup = task_status_event(7, 42, crate::task::TaskRunStatus::InProgress);
-        let (sender, receiver) = broadcast::channel(8);
-        let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(make_event_stream(
-            7,
-            Some(vec![catchup.clone()]),
-            receiver,
-            shutdown_receiver,
-            tokio::time::Instant::now() + Duration::from_secs(10),
-            Duration::from_secs(20),
-        ));
-
-        assert_eq!(
-            tokio::time::timeout(Duration::from_secs(1), events.next())
-                .await
-                .expect("catch-up should be immediate")
-                .unwrap(),
-            StreamItem::TaskStatus(catchup),
-            "catch-up must be the first event"
-        );
-
-        // Live delivery is user-wide, not limited to the initial entity IDs.
-        sender
-            .send(sse::ReceivedServerEvent::TaskStatus(task_status_event(
-                7,
-                999,
-                crate::task::TaskRunStatus::CompleteSuccess,
-            )))
-            .unwrap();
-        let live = tokio::time::timeout(Duration::from_secs(1), events.next())
-            .await
-            .expect("live event should follow the catch-up")
-            .unwrap();
-        let StreamItem::TaskStatus(live) = live else {
-            panic!("expected live task-status event");
-        };
-        assert_eq!(live.entity_id, 999);
-        assert_eq!(
-            live.payload.status,
-            crate::task::TaskRunStatus::CompleteSuccess
-        );
-    }
-
-    #[tokio::test]
-    async fn shutdown_ends_a_stream_even_before_first_event() {
-        let (_sender, receiver) = broadcast::channel(8);
-        let (shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(make_event_stream(
-            7,
-            None,
-            receiver,
-            shutdown_receiver,
-            tokio::time::Instant::now() + Duration::from_secs(10),
-            Duration::from_secs(20),
-        ));
-
-        shutdown_sender.send(true).unwrap();
-        assert!(
-            tokio::time::timeout(Duration::from_secs(1), events.next())
-                .await
-                .expect("shutdown should end stream promptly")
-                .is_none()
-        );
-    }
-    #[tokio::test]
-    async fn live_stream_emits_heartbeat_without_task_events() {
-        let (_sender, receiver) = broadcast::channel(8);
-        let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(make_event_stream(
-            7,
-            None,
-            receiver,
-            shutdown_receiver,
-            tokio::time::Instant::now() + Duration::from_secs(10),
-            Duration::from_millis(10),
-        ));
-
-        assert_eq!(
-            tokio::time::timeout(Duration::from_secs(1), events.next())
-                .await
-                .expect("heartbeat should arrive on an otherwise idle stream"),
-            Some(StreamItem::Heartbeat)
-        );
-    }
-
-    #[tokio::test]
-    async fn heartbeat_sse_frame_includes_a_data_field_for_dispatch() {
-        use axum::response::IntoResponse;
-
-        let response = Sse::new(stream::iter([Ok::<_, Infallible>(task_status_sse_event(
-            StreamItem::Heartbeat,
-        ))]))
-        .into_response();
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let frame = String::from_utf8(body.to_vec()).unwrap();
-
-        assert!(frame.lines().any(|line| line == "event: heartbeat"));
-        assert!(frame.lines().any(|line| line == "data: 1"));
-    }
-
-    #[tokio::test]
-    async fn server_deadline_closes_the_stream_normally() {
-        let (_sender, receiver) = broadcast::channel(8);
-        let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
-        let mut events = Box::pin(make_event_stream(
-            7,
-            None,
-            receiver,
-            shutdown_receiver,
-            deadline,
-            Duration::from_secs(20),
-        ));
-
-        assert!(
-            tokio::time::timeout(Duration::from_secs(1), events.next())
-                .await
-                .expect("stream should close at its deadline")
-                .is_none()
-        );
-    }
-
-    fn task_status_event(
-        user_id: i32,
-        entity_id: i32,
-        status: crate::task::TaskRunStatus,
-    ) -> sse::TaskStatusEvent {
-        sse::ServerEvent {
-            user_id: Some(user_id),
-            ..sse::ServerEvent::new(
-                sse::ServerEventTypes::TaskStatus,
-                Utc::now(),
-                "capture",
-                entity_id,
-                sse::TaskStatusPayload {
-                    task_type: "illuminate".to_string(),
-                    status,
-                    attempts: 1,
-                    logical_id: format!("u{user_id}-illuminate-capture{entity_id}"),
-                    run_id: uuid::Uuid::new_v4().to_string(),
-                    run_number: 1,
-                    processing_started_at: None,
-                    estimated_duration_ms_p50: None,
-                },
-            )
-        }
     }
 }

@@ -33,7 +33,25 @@ impl TimingEstimator {
     /// The aggregate for a task's successful processing, if any has been recorded.
     /// The sample-count gate is applied by the event builder.
     pub async fn client_estimate(&self, task_type: &str) -> Option<TaskTimingEstimate> {
-        get_timing_estimate(&self.db, task_type, Measure::ProcessingSuccessful).await
+        let row = model::task_run_timing::Entity::find()
+            .filter(model::task_run_timing::Column::TaskType.eq(task_type))
+            .filter(
+                model::task_run_timing::Column::OperationType
+                    .eq(Measure::ProcessingSuccessful.as_ref()),
+            )
+            .one(&self.db.conn)
+            .await
+            .ok()
+            .flatten()?;
+
+        Some(TaskTimingEstimate {
+            task_type: row.task_type,
+            sample_count: row.sample_count,
+            duration_ms_avg: row.duration_ms_avg,
+            duration_ms_p50: row.duration_ms_p50,
+            duration_ms_p75: row.duration_ms_p75,
+            duration_ms_p90: row.duration_ms_p90,
+        })
     }
 }
 
@@ -41,7 +59,6 @@ impl TimingEstimator {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TaskTimingEstimate {
     pub(crate) task_type: String,
-    pub(crate) measure: Measure,
     pub(crate) sample_count: i64,
     pub(crate) duration_ms_avg: i64,
     pub(crate) duration_ms_p50: i64,
@@ -54,29 +71,6 @@ impl TaskTimingEstimate {
     pub fn client_processing_duration_ms(&self) -> Option<i64> {
         (self.sample_count >= MINIMUM_CLIENT_ESTIMATE_SAMPLES).then_some(self.duration_ms_p50)
     }
-}
-
-pub async fn get_timing_estimate(
-    db: &database::DbHandle,
-    task_type: &str,
-    operation_type: Measure,
-) -> Option<TaskTimingEstimate> {
-    model::task_run_timing::Entity::find()
-        .filter(model::task_run_timing::Column::TaskType.eq(task_type))
-        .filter(model::task_run_timing::Column::OperationType.eq(operation_type.as_ref()))
-        .one(&db.conn)
-        .await
-        .ok()
-        .flatten()
-        .map(|row| TaskTimingEstimate {
-            task_type: row.task_type,
-            measure: operation_type,
-            sample_count: row.sample_count,
-            duration_ms_avg: row.duration_ms_avg,
-            duration_ms_p50: row.duration_ms_p50,
-            duration_ms_p75: row.duration_ms_p75,
-            duration_ms_p90: row.duration_ms_p90,
-        })
 }
 
 /// Recalculate one update-in-place timing aggregate from the most recent 30
