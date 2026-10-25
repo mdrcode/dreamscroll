@@ -1,26 +1,26 @@
 use std::sync::Arc;
 
-use crate::{database, model, sse};
+use crate::{model, sse};
 
-use super::{Task, TaskRun, timing};
+use super::{Task, TaskRun, timing::TimingEstimator};
 
-/// Publishes best-effort status hints after a `task_runs` write.
+/// Delivers best-effort status hints after a `task_runs` write.
 ///
-/// Split out of `TaskRunTracker` so the tracker stays a persistence component:
-/// the timing-estimate lookup, SSE event construction, and the "a failed
-/// notification never fails the write" policy all live here.
+/// Split out of `TaskRunTracker` so the tracker stays persistence-only, while this
+/// owns the estimate, the SSE event, and the "a failed notification never fails
+/// the write" policy.
 #[derive(Clone)]
 pub struct StatusPublisher {
-    db: database::DbHandle,
+    timing: TimingEstimator,
     notifier: Option<Arc<dyn sse::ServerEventNotifier>>,
 }
 
 impl StatusPublisher {
     pub fn new(
-        db: database::DbHandle,
+        timing: TimingEstimator,
         notifier: Option<Arc<dyn sse::ServerEventNotifier>>,
     ) -> Self {
-        Self { db, notifier }
+        Self { timing, notifier }
     }
 
     /// Notify subscribers about one persisted status row. Best effort: errors are
@@ -30,12 +30,7 @@ impl StatusPublisher {
             return;
         };
 
-        let estimate = timing::get_timing_estimate(
-            &self.db,
-            T::task_type(),
-            timing::Measure::ProcessingSuccessful,
-        )
-        .await;
+        let estimate = self.timing.client_estimate(T::task_type()).await;
         let event = sse::TaskStatusEvent::from_task_run(task_run, row, estimate.as_ref());
         if let Err(error) = notifier.notify_task_status(&event).await {
             tracing::debug!(

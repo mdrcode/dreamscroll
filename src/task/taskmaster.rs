@@ -9,6 +9,7 @@ use crate::logic::spark::SparkTask;
 use crate::model;
 use crate::sse::ServerEventNotifier;
 
+use super::statuspublisher::StatusPublisher;
 use super::taskruntracker::TaskRunTracker;
 use super::*;
 
@@ -30,6 +31,7 @@ use super::*;
 /// Not `Clone`; share via `Arc`.
 pub struct TaskMaster {
     run_tracker: TaskRunTracker,
+    status_catchup: StatusCatchup,
     max_attempts_per_run: i32, // mirrors `Config::task_max_attempts`
     illuminate_queue: Box<dyn TaskQueue<IlluminationTask>>,
     search_index_queue: Box<dyn TaskQueue<SearchIndexTask>>,
@@ -96,6 +98,11 @@ fn ensure_task_submission_allowed<T: Task>(
 impl TaskMaster {
     pub fn builder() -> TaskMasterBuilder {
         TaskMasterBuilder::default()
+    }
+
+    /// TaskMaster owns the DB, so also owns StatusCatchup construction
+    pub fn status_catchup(&self) -> StatusCatchup {
+        self.status_catchup.clone()
     }
 
     pub async fn submit_illuminate(
@@ -440,8 +447,16 @@ impl TaskMasterBuilder {
             .spark_queue
             .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
 
+        // Each SSE adapter mints its own timing estimator: both are stateless
+        // handles over the same pool, and neither outlives the component using it.
+        let estimator = timing::TimingEstimator::new(db.clone());
+        let publisher = StatusPublisher::new(estimator.clone(), self.notifier);
+        let run_tracker = TaskRunTracker::new(db.clone(), publisher);
+        let status_catchup = StatusCatchup::new(run_tracker.clone(), estimator);
+
         Ok(TaskMaster {
-            run_tracker: TaskRunTracker::new(db, self.notifier),
+            run_tracker,
+            status_catchup,
             // Mirrors `Config::task_max_attempts` so a builder that forgets
             // `.max_attempts(..)` behaves like production rather than disabling retries.
             max_attempts_per_run: self.max_attempts.unwrap_or(3).max(1),
@@ -860,7 +875,7 @@ mod tests {
         let service = TaskMaster::builder()
             .db(db.handle())
             .illuminate_queue(ImmediatelyCompletingQueue {
-                tracker: TaskRunTracker::new(db.handle(), None),
+                tracker: TaskRunTracker::for_tests(db.handle(), None),
                 runs: Arc::clone(&runs),
             })
             .build()

@@ -61,9 +61,11 @@ pub fn make_ui_router(
             )
         });
 
+    let status_catchup = task_master.status_catchup();
     let state = Arc::new(WebState {
         user_api,
         task_master,
+        status_catchup,
         server_events,
         shutdown,
         tera,

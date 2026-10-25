@@ -16,6 +16,27 @@ pub enum Measure {
     ProcessingSuccessful,
 }
 
+/// Reads the timing aggregates that drive client-facing estimates.
+///
+/// One owner for "what does this task type currently take", so neither the
+/// persistence component nor the SSE adapters query `task_run_timing` directly.
+#[derive(Clone)]
+pub struct TimingEstimator {
+    db: database::DbHandle,
+}
+
+impl TimingEstimator {
+    pub fn new(db: database::DbHandle) -> Self {
+        Self { db }
+    }
+
+    /// The aggregate for a task's successful processing, if any has been recorded.
+    /// The sample-count gate is applied by the event builder.
+    pub async fn client_estimate(&self, task_type: &str) -> Option<TaskTimingEstimate> {
+        get_timing_estimate(&self.db, task_type, Measure::ProcessingSuccessful).await
+    }
+}
+
 /// Aggregate timing estimate used by task-status events.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TaskTimingEstimate {

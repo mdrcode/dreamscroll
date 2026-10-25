@@ -9,7 +9,7 @@ use futures_util::{StreamExt, stream};
 use serde::Deserialize;
 use tokio::sync::broadcast;
 
-use crate::{api, auth, sse, task};
+use crate::{api, auth, sse};
 
 use super::WebState;
 
@@ -19,10 +19,10 @@ const MAX_STREAM_LIFETIME: Duration = Duration::from_secs(3 * 60);
 
 #[derive(Debug, Deserialize)]
 pub struct CatchupParams {
-    // Catch-up currently supports capture IDs only. Ideally this becomes a
-    // generic entity selector (for example, URL-encoded JSON like
-    // `catchup=[{"entity_type":"capture","ids":[5,6,7]}]`), but that
-    // flexibility is premature until another entity needs catch-up support.
+    // `StatusCatchup::events` is generic over entity type; this query parameter
+    // is capture-only until another entity needs catch-up. Expanding it
+    // (for example, URL-encoded JSON like
+    // `catchup=[{"entity_type":"capture","ids":[5,6,7]}]`) is premature until then.
     capture_ids: Option<String>,
 }
 
@@ -40,7 +40,12 @@ pub async fn get(
     let catchup_events = if catchup_capture_ids.is_empty() {
         None
     } else {
-        Some(make_catchup(&context, &state, &catchup_capture_ids).await?)
+        Some(
+            state
+                .status_catchup
+                .events(context.user_id(), "capture", &catchup_capture_ids)
+                .await?,
+        )
     };
 
     let task_status_stream = make_task_status_stream(
@@ -133,45 +138,6 @@ fn make_task_status_stream(
             .map(TaskStatusStreamItem::TaskStatus),
     );
     catchup_events.chain(live_events)
-}
-
-async fn make_catchup(
-    context: &auth::Context,
-    state: &WebState,
-    capture_ids: &[i32],
-) -> Result<Vec<sse::TaskStatusEvent>, api::ApiError> {
-    let mut latest_runs = state
-        .task_master
-        .query_latest_task_runs(context, "capture", capture_ids)
-        .await?
-        .into_iter()
-        .filter_map(|row| sse::TaskStatusEvent::from_row(&row, None))
-        .collect::<Vec<_>>();
-
-    let illuminate_in_progress: Vec<_> = latest_runs
-        .iter()
-        .enumerate()
-        .filter_map(|(index, event)| {
-            (event.payload.task_type == "illuminate"
-                && event.payload.status == task::TaskRunStatus::InProgress)
-                .then_some(index)
-        })
-        .collect();
-    if illuminate_in_progress.is_empty() {
-        return Ok(latest_runs);
-    }
-
-    let estimate = task::timing::get_timing_estimate(
-        &state.user_api.db, // TODO shouldn't be handling a raw DB handle here, whoops
-        "illuminate",
-        task::timing::Measure::ProcessingSuccessful,
-    )
-    .await
-    .and_then(|estimate| estimate.client_processing_duration_ms());
-    for index in illuminate_in_progress {
-        latest_runs[index].payload.estimated_duration_ms_p50 = estimate;
-    }
-    Ok(latest_runs)
 }
 
 fn filter_for_user(

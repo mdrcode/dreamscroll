@@ -1,10 +1,14 @@
+#[cfg(test)]
 use std::sync::Arc;
 
 use sea_orm::{
     ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, UpdateMany, sea_query::Expr,
 };
 
-use crate::{api, database, model, sse};
+use crate::{api, database, model};
+
+#[cfg(test)]
+use crate::sse;
 
 use super::statuspublisher::StatusPublisher;
 use super::*;
@@ -22,14 +26,18 @@ pub struct TaskRunTracker {
 }
 
 impl TaskRunTracker {
-    pub fn new(
+    pub fn new(db: database::DbHandle, publisher: StatusPublisher) -> Self {
+        Self { db, publisher }
+    }
+
+    /// Tracker with no subscriber, for tests and read-only callers.
+    #[cfg(test)]
+    pub(super) fn for_tests(
         db: database::DbHandle,
         notifier: Option<Arc<dyn sse::ServerEventNotifier>>,
     ) -> Self {
-        Self {
-            publisher: StatusPublisher::new(db.clone(), notifier),
-            db,
-        }
+        let publisher = StatusPublisher::new(timing::TimingEstimator::new(db.clone()), notifier);
+        Self::new(db, publisher)
     }
 
     /// Insert a task run in its initial `Queued` state with zero attempts.
@@ -398,7 +406,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let env = TaskRun::new(
             crate::logic::illuminate::IlluminationTask::new(
                 42,
@@ -450,7 +458,7 @@ mod tests {
             return;
         };
         let notifier = RecordingNotifier::default();
-        let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
+        let tracker = TaskRunTracker::for_tests(db.handle(), Some(Arc::new(notifier.clone())));
         let task_run = task_run(1, 52, 1);
 
         assert!(tracker.insert_run(&task_run).await.unwrap());
@@ -474,7 +482,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let env = task_run(1, 53, 1);
         assert!(tracker.insert_run(&env).await.unwrap());
 
@@ -519,7 +527,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let env = task_run(1, 54, 1);
         assert!(tracker.insert_run(&env).await.unwrap());
 
@@ -544,7 +552,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let env = task_run(1, 59, 1);
         assert!(tracker.insert_run(&env).await.unwrap());
         tracker.mark_in_progress(&env, 1).await.unwrap();
@@ -608,7 +616,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let env = task_run(1, 55, 1);
         assert!(tracker.insert_run(&env).await.unwrap());
         tracker.mark_in_progress(&env, 1).await.unwrap();
@@ -633,7 +641,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
 
         let first = task_run(1, 56, 1);
         assert!(tracker.insert_run(&first).await.unwrap());
@@ -700,7 +708,7 @@ mod tests {
             return;
         };
         let notifier = RecordingNotifier::default();
-        let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
+        let tracker = TaskRunTracker::for_tests(db.handle(), Some(Arc::new(notifier.clone())));
         let first_task_run = task_run(1, 42, 1);
 
         assert!(tracker.insert_run(&first_task_run).await.unwrap());
@@ -726,7 +734,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(FailingNotifier)));
+        let tracker = TaskRunTracker::for_tests(db.handle(), Some(Arc::new(FailingNotifier)));
         let task_run = task_run(1, 42, 1);
 
         assert!(
@@ -755,7 +763,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let env = task_run(1, 42, 1);
 
         let first = tracker
@@ -776,7 +784,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let mut first = task_run(1, 42, 1);
         first.backfill_id = Some("test-backfill".to_string());
         assert!(tracker.insert_run(&first).await.unwrap());
@@ -813,7 +821,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let first = task_run(1, 42, 1);
         assert!(tracker.insert_run(&first).await.unwrap());
         let mut unrelated = task_run(1, 43, 1);
@@ -826,7 +834,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let first = task_run(1, 42, 1);
         let second = task_run(1, 42, 1);
 
@@ -846,7 +854,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
 
         assert!(
             insert_run_with_status(
@@ -879,7 +887,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let env = task_run(1, 42, 1);
         let result = tracker.insert_run(&env).await;
 
@@ -891,7 +899,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let run1 = task_run(1, 42, 1);
         let run2 = task_run(1, 42, 2);
 
@@ -940,7 +948,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
 
         tracker
             .insert_run(&task_run(1, 42, 1))
@@ -978,7 +986,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
 
         insert_run_with_status(
             &tracker,
@@ -1032,7 +1040,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
 
         let rows = tracker
             .query_latest_task_runs(1, "capture", &[])
@@ -1047,7 +1055,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
 
         insert_run_with_status(
             &tracker,
@@ -1107,7 +1115,7 @@ mod tests {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let tracker = TaskRunTracker::new(db.handle(), None);
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
         let first = task_run(1, 42, 1);
         let second = task_run(1, 42, 2);
 
@@ -1140,7 +1148,7 @@ mod tests {
             return;
         };
         let notifier = RecordingNotifier::default();
-        let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
+        let tracker = TaskRunTracker::for_tests(db.handle(), Some(Arc::new(notifier.clone())));
 
         tracker
             .set_status(&task_run(1, 42, 1), TaskRunStatus::InProgress, 1, None)
@@ -1165,7 +1173,7 @@ mod tests {
             return;
         };
         let notifier = RecordingNotifier::default();
-        let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
+        let tracker = TaskRunTracker::for_tests(db.handle(), Some(Arc::new(notifier.clone())));
 
         tracker
             .record_outcome(&task_run(1, 42, 1), TaskRunStatus::CompleteSuccess, 1, None)

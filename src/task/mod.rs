@@ -12,7 +12,10 @@ pub use taskmaster::*;
 mod taskrunstatus;
 pub use taskrunstatus::*;
 
-// StatusPublisher turns a persisted status row into a best-effort SSE hint.
+// StatusCatchup (replay) and StatusPublisher (live) are the two SSE-facing
+// adapters over task-run state, kept out of TaskMaster's lifecycle API.
+mod statuscatchup;
+pub use statuscatchup::StatusCatchup;
 mod statuspublisher;
 
 // TaskRunTracker is TaskMaster's private persistence component for task-run
