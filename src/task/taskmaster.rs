@@ -223,11 +223,17 @@ impl TaskMaster {
                 "Failed to enqueue task",
             );
 
+            let submission_error = api::ApiError::internal(enqueue_err);
             self.run_tracker
-                .update_run(&task_run, TaskRunStatus::SubmissionFailed, 0)
+                .update_run(
+                    &task_run,
+                    TaskRunStatus::SubmissionFailed,
+                    0,
+                    Some(&submission_error),
+                )
                 .await?;
 
-            return Err(enqueue_err);
+            return Err(submission_error.into());
         }
 
         Ok(SubmitOutcome::Enqueued {
@@ -297,7 +303,7 @@ impl TaskMaster {
         match run_result {
             Ok(()) => {
                 self.run_tracker
-                    .finish_attempt(task_run, TaskRunStatus::CompleteSuccess, attempt)
+                    .finish_attempt(task_run, TaskRunStatus::CompleteSuccess, attempt, None)
                     .await?;
                 Ok(TaskRunStatus::CompleteSuccess)
             }
@@ -309,7 +315,7 @@ impl TaskMaster {
                 };
 
                 self.run_tracker
-                    .finish_attempt(task_run, status_code, attempt)
+                    .finish_attempt(task_run, status_code, attempt, Some(err))
                     .await?;
 
                 if status_code == TaskRunStatus::ErrorWillRetry {
@@ -655,6 +661,8 @@ mod tests {
             attempts,
             created_at: chrono::Utc::now(),
             processing_started_at: None,
+            last_error_code: None,
+            last_error_message: None,
             last_error_duration_ms: None,
             success_duration_ms: None,
             updated_at: chrono::Utc::now(),
@@ -709,7 +717,7 @@ mod tests {
         ] {
             service
                 .run_tracker
-                .update_run(&run, status, 1)
+                .update_run(&run, status, 1, None)
                 .await
                 .unwrap();
             assert_eq!(
@@ -761,7 +769,7 @@ mod tests {
         );
         service
             .run_tracker
-            .update_run(&live, TaskRunStatus::CompleteSuccess, 1)
+            .update_run(&live, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
@@ -779,7 +787,7 @@ mod tests {
         let backfill = persisted_task_run(&service, illumination_task(42), 2).await;
         service
             .run_tracker
-            .update_run(&backfill, TaskRunStatus::CompleteSuccess, 1)
+            .update_run(&backfill, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
         assert!(matches!(
@@ -815,7 +823,7 @@ mod tests {
         let ordinary = persisted_task_run(&service, illumination_task(42), 3).await;
         service
             .run_tracker
-            .update_run(&ordinary, TaskRunStatus::CompleteFailure, 1)
+            .update_run(&ordinary, TaskRunStatus::CompleteFailure, 1, None)
             .await
             .unwrap();
         assert!(matches!(
@@ -849,7 +857,7 @@ mod tests {
             assert_eq!(stored.status_code, TaskRunStatus::Queued.as_i32());
             assert_eq!(stored.backfill_id, run.backfill_id);
             self.tracker
-                .update_run(&run, TaskRunStatus::CompleteSuccess, 1)
+                .update_run(&run, TaskRunStatus::CompleteSuccess, 1, None)
                 .await?;
             self.runs.lock().await.push(run);
             Ok(())
@@ -1488,6 +1496,12 @@ mod tests {
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].status_code, TaskRunStatus::CompleteFailure.as_i32());
         assert_eq!(rows[0].attempts, 2);
+        assert_eq!(
+            rows[0].last_error_code,
+            Some(500),
+            "TaskMaster must persist the worker's reported status"
+        );
+        assert_eq!(rows[0].last_error_message.as_deref(), Some("transient"));
     }
 
     /// A redelivery of already-completed work is not resurrected.

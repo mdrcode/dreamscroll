@@ -98,9 +98,9 @@ pub fn make_ui_router(
             get(r_illumination::detail_fragments),
         )
         .route("/detail/{id}/related/previews", get(r_related::previews))
-        .route("/cards", get(r_feed::fragment))
+        .route("/feed", get(r_feed::fragment))
         .route(
-            "/cards/capture/{id}/illumination",
+            "/feed/capture/{id}/illumination",
             get(r_illumination::feed_fragment),
         )
         .route("/events", get(r_events::get))
@@ -253,7 +253,7 @@ mod tests {
         feed.insert("cards", &serde_json::json!([]));
         let feed = tera.render("index.html.tera", &feed).unwrap();
         assert!(feed.contains("data-page-kind=\"feed\""));
-        assert!(feed.contains("hx-get=\"/cards\""));
+        assert!(feed.contains("hx-get=\"/feed\""));
         assert!(feed.contains("id=\"file-upload-form\""));
         assert!(feed.contains("aria-label=\"Search captures\""));
 
@@ -277,7 +277,7 @@ mod tests {
         assert!(detail.contains("data-page-kind=\"capture_detail\""));
         assert!(detail.contains("data-capture-id=\"7\""));
         assert!(detail.contains("action=\"/\""));
-        assert!(!detail.contains("hx-get=\"/cards\""));
+        assert!(!detail.contains("hx-get=\"/feed\""));
 
         let mut account = tera::Context::new();
         account.insert("static_asset_version", &"test");

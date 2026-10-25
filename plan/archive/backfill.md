@@ -141,3 +141,60 @@ After the module-only relocation, `cargo check --all-targets` and `dreamscroll_a
 
 For the optional candidate-limit extension, all 15 backfill regressions passed against PostgreSQL, including limits below/above the default, refused attempts consuming candidate slots, and zero rejection without consuming targets. CLI help exposes `--limit`. A disposable-schema runtime smoke deserialized real JSON requests with explicit and omitted limits and observed batch counts 2, 1, 100, 2, and 0; zero was rejected and 105 total runs were persisted. No external inference or Cloud Tasks calls were made; temporary smoke code and schema were removed.
 
+
+## Failure detail: `backfill failures`
+
+**Added 2026-10-24.** Aggregate `status` counts answer "how many failed"; they do
+not say which targets or why. This adds the per-target view.
+
+- **Engine:** `backfill::failures(db, backfill_id)` selects runs tagged with the
+  backfill whose status is terminal and unsuccessful — `CompleteFailure` (a worker
+  ran it and exhausted its retries) or `SubmissionFailed` (it never reached a
+  worker) — ordered by entity ID then task type.
+- **No collapse step.** The `(backfill_id, logical_id)` unique index means a
+  tagged target has exactly one tagged run, so no later run can supersede a
+  failure and there is no "latest run wins" reconciliation to perform.
+- **What each row carries:** a `TaskRunInfo` — the same projection the per-run
+  status endpoints return — so it includes `logical_id`, `run_id`, `run_number`,
+  `task_type`, `entity_type`/`entity_id`, `status`, `attempts`, `created_at`,
+  `updated_at`, and the error fields described in `plan/archive/task-status.md`
+  §10. A `CompleteFailure` carries the worker's error; a `SubmissionFailed`
+  carries the enqueue error written at submission time, so both are triageable
+  without the pump response or Cloud Logging. Rows written before schema version
+  7 have `NULL` there. No backfill-specific type is needed: the row is already a
+  serializable task-run status with its errors.
+- **"Terminal" means the last reporting layer said so.** A run abandoned by the
+  delivery pipeline — worker killed mid-attempt (`in_progress`) or no further
+  retry delivered (`error_will_retry`) — never advances and is not listed here;
+  it appears only in `status`, which counts in-flight work. Excluding those
+  statuses is deliberate: including them would report healthy retries as
+  failures.
+- **Descendants included**, since they inherit `backfill_id`.
+- **No pagination.** The result is bounded by the number of failed targets, not
+  runs, and the table is small; a limit would silently hide failures from a
+  command whose purpose is enumerating them.
+
+Surfaces: `GET /api/admin/backfill/<id>/failures` (admin only, `404` for an
+unknown ID), `AdminApiClient::backfill_failures`,
+`rest::client::Client::admin_backfill_failures`,
+and `dreamscroll_api backfill failures <id>`. The CLI prints one line per failure
+with the entity, task type, run/attempt counts, status, and error; embedded
+newlines in a persisted message are collapsed so each failure stays on one line.
+
+Verification: `failures_report_terminal_runs_with_the_error_each_recorded`
+asserts against PostgreSQL that a `CompleteFailure` with a stored 403/message
+appears while a success and an in-flight run do not.
+`a_partial_pump_failure_is_reported_and_not_automatically_resubmitted` creates a
+real `SubmissionFailed` run through a rejecting queue and asserts it is listed
+with the enqueue error (`500`, `queue rejected capture 2`). The admin/unknown-ID
+test covers `403` and `404`.
+
+Live smoke (2026-10-25) against a local dev server on the persistent dev database:
+`GET /api/admin/backfill/illuminate-v2-all-captures-2026-10-16/failures` returned
+`200` with all 17 pre-existing terminal failures (captures 88–672); non-admin
+token `403`, unknown ID `404`, no token `401`. The CLI printed the same 17 rows as
+`- capture <id> [illuminate run 1, 1 attempts, complete_failure]: no error recorded`
+— those runs predate schema version 7, so
+both error columns are `NULL`. The `code + message` rendering is covered by the
+`describe_error` unit test rather than the smoke, which would have required
+writing error values into the dev database.

@@ -41,6 +41,15 @@ impl AdminApiClient {
         ensure_admin(context)?;
         backfill::status(&self.db, backfill_id).await
     }
+
+    pub async fn backfill_failures(
+        &self,
+        context: &auth::Context,
+        backfill_id: &str,
+    ) -> Result<backfill::BackfillFailuresResponse, ApiError> {
+        ensure_admin(context)?;
+        backfill::failures(&self.db, backfill_id).await
+    }
 }
 
 fn ensure_admin(context: &auth::Context) -> Result<(), ApiError> {

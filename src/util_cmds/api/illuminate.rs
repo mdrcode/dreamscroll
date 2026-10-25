@@ -201,6 +201,8 @@ mod tests {
             entity_id: 42,
             status,
             attempts: 1,
+            error_code: None,
+            error_message: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -396,6 +398,8 @@ mod tests {
             entity_id: 42,
             status,
             attempts: 1,
+            error_code: None,
+            error_message: None,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
         };

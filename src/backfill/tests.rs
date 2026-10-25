@@ -50,15 +50,30 @@ fn request() -> BackfillPumpRequest {
 }
 
 async fn settle(db: &database::DbHandle, run_id: &str, status: task::TaskRunStatus) {
-    model::task_run::Entity::update_many()
+    settle_with_error(db, run_id, status, None).await;
+}
+
+async fn settle_with_error(
+    db: &database::DbHandle,
+    run_id: &str,
+    status: task::TaskRunStatus,
+    error: Option<(i32, &str)>,
+) {
+    let mut update = model::task_run::Entity::update_many()
         .col_expr(
             model::task_run::Column::StatusCode,
             Expr::value(status.as_i32()),
         )
-        .filter(model::task_run::Column::RunId.eq(run_id))
-        .exec(&db.conn)
-        .await
-        .unwrap();
+        .filter(model::task_run::Column::RunId.eq(run_id));
+    if let Some((code, message)) = error {
+        update = update
+            .col_expr(model::task_run::Column::LastErrorCode, Expr::value(code))
+            .col_expr(
+                model::task_run::Column::LastErrorMessage,
+                Expr::value(message),
+            );
+    }
+    update.exec(&db.conn).await.unwrap();
 }
 
 #[tokio::test]
@@ -107,6 +122,59 @@ async fn bounded_pumps_cover_all_captures_and_do_not_resubmit_failed_targets() {
         .await
         .unwrap();
     assert_eq!(exhausted.selected_count, 0);
+}
+
+#[tokio::test]
+async fn failures_report_terminal_runs_with_the_error_each_recorded() {
+    let Some(test_db) = crate::test_support::test_db::test_db().await else {
+        return;
+    };
+    let db = test_db.handle();
+    captures(&db, 3).await;
+    let master = Arc::new(task::TaskMaster::builder().db(db.clone()).build().unwrap());
+    let client = api::AdminApiClient::new(db.clone(), master);
+    let context = admin_context();
+    client.backfill_pump(&context, request()).await.unwrap();
+    let runs = model::task_run::Entity::find()
+        .filter(model::task_run::Column::BackfillId.eq(ILLUMINATE_V2_BACKFILL_ID))
+        .order_by_asc(model::task_run::Column::EntityId)
+        .all(&db.conn)
+        .await
+        .unwrap();
+    assert_eq!(runs.len(), 3);
+
+    settle_with_error(
+        &db,
+        &runs[0].run_id,
+        task::TaskRunStatus::CompleteFailure,
+        Some((403, "vertex: quota exceeded")),
+    )
+    .await;
+    settle(&db, &runs[1].run_id, task::TaskRunStatus::CompleteSuccess).await;
+    settle(&db, &runs[2].run_id, task::TaskRunStatus::InProgress).await;
+
+    let response = client
+        .backfill_failures(&context, ILLUMINATE_V2_BACKFILL_ID)
+        .await
+        .unwrap();
+
+    assert_eq!(response.backfill_id, ILLUMINATE_V2_BACKFILL_ID);
+    assert_eq!(
+        response.failures.len(),
+        1,
+        "successes and in-flight work are not failures"
+    );
+    let complete = &response.failures[0];
+    assert_eq!(
+        (complete.entity_id, &complete.status),
+        (1, &task::TaskRunStatus::CompleteFailure)
+    );
+    assert_eq!(complete.run_id, runs[0].run_id);
+    assert_eq!(complete.error_code, Some(403));
+    assert_eq!(
+        complete.error_message.as_deref(),
+        Some("vertex: quota exceeded")
+    );
 }
 
 #[tokio::test]
@@ -225,6 +293,14 @@ async fn backfill_operations_require_admin_and_a_registered_definition() {
     );
     assert_eq!(
         client
+            .backfill_failures(&user, ILLUMINATE_V2_BACKFILL_ID)
+            .await
+            .unwrap_err()
+            .status_code,
+        axum::http::StatusCode::FORBIDDEN
+    );
+    assert_eq!(
+        client
             .backfill_pump(
                 &admin_context(),
                 BackfillPumpRequest {
@@ -240,6 +316,14 @@ async fn backfill_operations_require_admin_and_a_registered_definition() {
     assert_eq!(
         client
             .backfill_status(&admin_context(), "unknown")
+            .await
+            .unwrap_err()
+            .status_code,
+        axum::http::StatusCode::NOT_FOUND
+    );
+    assert_eq!(
+        client
+            .backfill_failures(&admin_context(), "unknown")
             .await
             .unwrap_err()
             .status_code,
@@ -313,6 +397,24 @@ async fn a_partial_pump_failure_is_reported_and_not_automatically_resubmitted() 
             .unwrap()
             .selected_count,
         0
+    );
+
+    // The rejected enqueue is the one failure with no worker evidence, so its
+    // error must reach the row that `backfill failures` lists.
+    let failures = client
+        .backfill_failures(&admin_context(), ILLUMINATE_V2_BACKFILL_ID)
+        .await
+        .unwrap()
+        .failures;
+    assert_eq!(failures.len(), 1);
+    assert_eq!(
+        (failures[0].entity_id, &failures[0].status),
+        (2, &task::TaskRunStatus::SubmissionFailed)
+    );
+    assert_eq!(failures[0].error_code, Some(500));
+    assert_eq!(
+        failures[0].error_message.as_deref(),
+        Some("queue rejected capture 2")
     );
 }
 

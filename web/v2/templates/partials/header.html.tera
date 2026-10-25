@@ -14,9 +14,9 @@
     </form>
 
     <form id="header-search-form"
-        action="{% if page_kind == "feed" %}/cards{% else %}/{% endif %}"
+        action="{% if page_kind == "feed" %}/feed{% else %}/{% endif %}"
         method="get"
-        {% if page_kind == "feed" %}hx-get="/cards" hx-target="#card-feed" hx-swap="innerHTML" hx-push-url="true"{% endif %}>
+        {% if page_kind == "feed" %}hx-get="/feed" hx-target="#card-feed" hx-swap="innerHTML" hx-push-url="true"{% endif %}>
         <div id="header-search-input-wrap">
             <input id="header-search-input"
                 type="text"

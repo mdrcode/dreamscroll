@@ -47,6 +47,10 @@ pub fn make_api_router(
             "/admin/backfill/{backfill_id}/status",
             get(r_backfill::status),
         )
+        .route(
+            "/admin/backfill/{backfill_id}/failures",
+            get(r_backfill::failures),
+        )
         .route("/admin/users", post(r_create_user::post))
         .route("/account/password", post(r_change_password::post))
         .route("/captures", get(r_capture::get))

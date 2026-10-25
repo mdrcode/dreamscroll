@@ -496,3 +496,47 @@ must always see the **most recent** illumination, so:
 | `src/logic/search_index.rs`               | `SearchIndexTask` + `exec` (no idempotency guard — §7)                                                                                                                                         | ✅      |
 | `src/api/schema/infomaker.rs`             | collapses `illuminations` to the most recent (§7.1)                                                                                                                                            | ✅      |
 | `src/test_support/test_db.rs`             | schema-per-test DB harness (see `plan/testing.md`)                                                                                                                                                  | ✅      |
+
+## 10. Failure reporting: `last_error_code` / `last_error_message`
+
+**Added 2026-10-24.** Schema version 7.
+
+Before this, a failed attempt persisted only its status and duration; the reason
+existed solely in logs, so triage meant correlating a `run_id` against Cloud Logging.
+
+| Column | Type | Content |
+| --- | --- | --- |
+| `last_error_code` | `INTEGER NULL` | The HTTP status the failing layer reported, verbatim (`500`, `403`, `429`, …). |
+| `last_error_message` | `VARCHAR NULL` | `ApiError::message()`: the annotated `anyhow` chain on one line, e.g. `vertex request: quota exceeded`. Unbounded in Postgres; the cap is applied in Rust, not the column. |
+
+Deliberate properties:
+
+- **No classification.** The columns record what was reported, not whose fault it
+  was. A `500` may be our bug or an upstream dependency's; deciding between them
+  is not something a column can do reliably, and a wrong guess is worse than an
+  honest code plus message.
+- **Most recent failure wins.** `TaskRunTracker::finish_attempt` overwrites both
+  on every `ErrorWillRetry`/`CompleteFailure`. A later `CompleteSuccess` does not
+  clear them — the row then shows the success status alongside the last failure,
+  which is what makes "retried and recovered" distinguishable from "never failed".
+- **A rejected enqueue is recorded too.** `TaskRunTracker::update_run` writes
+  `SubmissionFailed` with the enqueue error (always `500`, our side), so the one
+  failure with no worker, no request log, and no inference record is still
+  explainable after the pump response is gone.
+- **`None` leaves them untouched.** Passing `error: None` is for status-only
+  writes; it never writes `NULL` over a previous report.
+- **Bounded.** The message is truncated to 2,000 chars on a char boundary, because
+  an upstream error chain can embed a whole response body. See the truncation row
+  in `plan/pragmatism.md`.
+
+Exposed through `TaskRunInfo` (`error_code`, `error_message`), which serves
+`/tasks/{run_id}` and the backfill failure listing; the SSE task-status payload is
+unchanged. `dreamscroll_api backfill failures` (see `plan/archive/backfill.md`
+§Failure detail) serializes the same `TaskRunInfo` rows through the backfill
+engine.
+
+Upgrading an existing database: schema version 7 makes the app and admin binaries
+refuse to start until `dreamscroll_admin sync_schema` runs; the registry sync only
+adds the two nullable columns, so nothing existing is rewritten. Ask the owner
+before touching the local dev database (`AGENTS.md`). Tests are unaffected — the
+harness syncs a throwaway schema per test.

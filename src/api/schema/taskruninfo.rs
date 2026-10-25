@@ -14,6 +14,8 @@ pub struct TaskRunInfo {
     pub entity_id: i32,
     pub status: TaskRunStatus,
     pub attempts: i32,
+    pub error_code: Option<i32>,
+    pub error_message: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -31,6 +33,8 @@ impl TryFrom<crate::model::task_run::Model> for TaskRunInfo {
             entity_id: row.entity_id,
             status: TaskRunStatus::from_i32(row.status_code)?,
             attempts: row.attempts,
+            error_code: row.last_error_code,
+            error_message: row.last_error_message,
             created_at: row.created_at,
             updated_at: row.updated_at,
         })
@@ -55,6 +59,8 @@ mod tests {
             entity_id: 42,
             status: TaskRunStatus::CompleteSuccess,
             attempts: 1,
+            error_code: None,
+            error_message: None,
             created_at: now,
             updated_at: now,
         };

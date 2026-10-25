@@ -6,6 +6,12 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
+- [ ] Change the formatting pattern of the "commands" for both dreamscroll_api
+  to use consistent - or _. Currently we use a mix.
+- [ ] Change /detail to be /capture to be more RESTful and to match the pattern
+  we established with /entity.
+- [ ] Add a terminal indication to Backfill data somehow. Like "first dry pump"
+  timestamp or something.
 - [ ] **Settle the agent smoke-environment story.** Today an agent can use the
   persistent local instance (see `plan/smoke.md`) or hack a test database, and test
   code carries a lot of ad hoc DB surgery. A deterministic in-memory search
@@ -13,15 +19,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `fa9762f`), leaving only the manual procedure. Decide between: a supported
   throwaway profile, a seeded fixture harness, or making the
   persistent-instance procedure the only path.
-- [ ] **Rename the feed fragment route `/cards` → `/feed`.** `r_feed::fragment`
-  already owns the handler; only the paths, canonical redirects, template
-  references, and tests still say `cards`. `src/webui/v2/maker.rs` mounts both
-  `/cards` and `/cards/capture/{id}/illumination`.
-- [ ] **Add `last_error_code` and `last_error_message` to the `TaskRun` model.**
-  Failures currently surface as status plus logs, which makes `backfill errors`
-  and any retry triage harder than it should be.
-- [ ] **Add a `dreamscroll_api backfill errors` command** listing which entities
-  failed during a backfill and with which error.
 - [ ] **Validate the Interactions API path from the Cloud Run service account.**
   Both Google backends pass a full-prompt/schema live smoke locally; the Vertex
   path under the deployed service account is unverified. See

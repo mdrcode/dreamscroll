@@ -68,6 +68,13 @@ Required cases:
 - A failure before a processing start still updates status but leaves the duration `NULL` and does not panic.
 - Timing fields are independent between separate runs of the same logical task.
 
+Failure-report cases (`last_error_code` / `last_error_message`, see
+`plan/archive/task-status.md` §10):
+
+- A failed attempt stores the reported HTTP status and the annotated error chain verbatim.
+- Success after a failure preserves both fields.
+- A message longer than the cap is truncated on a char boundary.
+
 Avoid exact-duration assertions because scheduling and database latency make them brittle. Assert nullability, non-negativity, and timestamp ordering instead.
 
 ## Suggested adoption order

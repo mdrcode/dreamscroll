@@ -21,7 +21,7 @@ Add a DB-backed authenticated route test that:
 
 ## Follow-on routes
 
-Apply the same harness to `/cards/capture/{id}` and `/detail/{id}/partial`: assert rendered partial content for an owned capture, not-found behavior for missing/archived/other-user captures, and no cross-user data leakage.
+Apply the same harness to `/feed/capture/{id}/illumination` and `/detail/{id}/partial`: assert rendered partial content for an owned capture, not-found behavior for missing/archived/other-user captures, and no cross-user data leakage.
 
 ## Test boundaries
 

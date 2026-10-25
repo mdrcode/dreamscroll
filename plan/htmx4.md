@@ -100,7 +100,7 @@ partials.
 
 ### 3.3 History behavior
 
-The header search form uses `hx-get="/cards" hx-target="#card-feed"
+The header search form uses `hx-get="/feed" hx-target="#card-feed"
 hx-push-url="true"`. htmx 2 restored a cached DOM snapshot. htmx 4 re-fetches
 the page on back and swaps it into `<body>` (or `[hx-history-elt]`). Options:
 add an `hx-history-elt` around the feed, load `hx-history-cache` (sessionStorage
@@ -109,7 +109,7 @@ extension), or drop `hx-push-url` for the feed.
 ### 3.4 `htmx:configRequest` shape
 
 Our search routing mutates `e.detail.path` and `e.detail.parameters` to force
-`/cards` plus feed state. In htmx 4 the event detail is request-context based
+`/feed` plus feed state. In htmx 4 the event detail is request-context based
 (`e.detail.ctx.request.action`, `ctx.request.body`) and GET parameters live in
 the URL. This handler must be rewritten, not just renamed; it is the
 highest-risk JS migration item.

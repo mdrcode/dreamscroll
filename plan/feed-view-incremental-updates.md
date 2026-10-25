@@ -5,9 +5,9 @@
 
 ## Problem
 
-After a successful upload, the current timeline path calls `reloadFeedFrame()` and fetches the entire `/cards` feed. This is semantically correct—the server recomputes which cards belong in the current view—but can transfer hundreds of kilobytes when only one capture was added.
+After a successful upload, the current timeline path calls `reloadFeedFrame()` and fetches the entire `/feed` fragment. This is semantically correct—the server recomputes which cards belong in the current view—but can transfer hundreds of kilobytes when only one capture was added.
 
-Simply fetching `/cards/capture/{id}` and prepending the result is not correct in general. The capture might be archived, outside the timeline's current limit, excluded by the selected feed-content mode, or not match the active search. Feed membership and ordering are defined by server-side query logic, not by the client.
+Simply fetching one card fragment (e.g. `/feed/capture/{id}/illumination`) and prepending the result is not correct in general. The capture might be archived, outside the timeline's current limit, excluded by the selected feed-content mode, or not match the active search. Feed membership and ordering are defined by server-side query logic, not by the client.
 
 ## Desired behavior
 
@@ -16,11 +16,11 @@ Simply fetching `/cards/capture/{id}` and prepending the result is not correct i
 - The client incrementally fetches partials for newly included entities, removes entities no longer included, and reorders existing DOM cards to match server ordering.
 - A local upload and an availability event from another device use the same reconciliation path.
 - SSE task-status events continue to refresh only a matching rendered card when the status could reflect changed content.
-- If incremental reconciliation fails or is unavailable, a full `/cards` refresh remains a correct fallback.
+- If incremental reconciliation fails or is unavailable, a full `/feed` refresh remains a correct fallback.
 
 ## Possible design to evaluate
 
-1. Add an authenticated endpoint that returns the active view's ordered card identities (`kind`/entity type plus ID), using the same query parameters and `render_content` membership logic as `/cards` but omitting expensive card content.
+1. Add an authenticated endpoint that returns the active view's ordered card identities (`kind`/entity type plus ID), using the same query parameters and `render_content` membership logic as `/feed` but omitting expensive card content.
 2. On upload success or an entity-availability hint, request that lightweight identity list.
 3. Diff the response against rendered card roots:
    - fetch a partial only for newly included cards;
@@ -37,7 +37,7 @@ Do not prepend an uploaded capture solely because the upload response contains i
 
 ## Validation plan
 
-- Unit-test view identity generation against the same filters, modes, ordering, and limits used by `/cards`.
+- Unit-test view identity generation against the same filters, modes, ordering, and limits used by `/feed`.
 - Add authenticated route tests using the existing DB-backed route harness plan.
 - Browser-test reconciliation: insertion, removal, ordering, duplicate event/upload races, filtering, and fallback behavior.
 - Compare payload and request behavior against the existing full-refresh path during local testing.

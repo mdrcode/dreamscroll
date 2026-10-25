@@ -7,7 +7,7 @@ use sea_orm::{
 };
 
 use crate::{
-    api::ApiError,
+    api::{self, ApiError},
     auth, database, model,
     task::{self, Task},
 };
@@ -192,5 +192,40 @@ pub async fn status(
     Ok(BackfillStatusResponse {
         backfill_id: definition.id().to_owned(),
         counts,
+    })
+}
+
+/// Terminally unsuccessful runs for a backfill, with the error each failing
+/// layer reported.
+///
+/// Tagged runs are unique per logical task (`(backfill_id, logical_id)`), so each
+/// row is the target's only tagged run: no later run can supersede a failure, and
+/// there is nothing to collapse. Successes and in-flight work are excluded; see
+/// `status` for those counts.
+pub async fn failures(
+    db: &database::DbHandle,
+    backfill_id: &str,
+) -> Result<BackfillFailuresResponse, ApiError> {
+    let definition = definition(backfill_id)?;
+    let rows = model::task_run::Entity::find()
+        .filter(model::task_run::Column::BackfillId.eq(definition.id()))
+        .filter(model::task_run::Column::StatusCode.is_in([
+            task::TaskRunStatus::CompleteFailure.as_i32(),
+            task::TaskRunStatus::SubmissionFailed.as_i32(),
+        ]))
+        .order_by_asc(model::task_run::Column::EntityId)
+        .order_by_asc(model::task_run::Column::TaskType)
+        .order_by_asc(model::task_run::Column::Id)
+        .all(&db.conn)
+        .await?;
+
+    let failures = rows
+        .into_iter()
+        .map(|row| api::TaskRunInfo::try_from(row).map_err(ApiError::internal))
+        .collect::<Result<Vec<_>, ApiError>>()?;
+
+    Ok(BackfillFailuresResponse {
+        backfill_id: definition.id().to_owned(),
+        failures,
     })
 }

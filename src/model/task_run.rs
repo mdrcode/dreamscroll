@@ -66,6 +66,18 @@ pub struct Model {
     /// When the most recent attempt entered `InProgress`.
     pub processing_started_at: Option<DateTime<Utc>>,
 
+    /// HTTP status reported by the layer that failed, stored verbatim.
+    ///
+    /// Deliberately not a taxonomy: a 500 may originate in our code or in an
+    /// upstream dependency, and the column records only what was reported. See
+    /// `plan/archive/task-status.md` §10.
+    pub last_error_code: Option<i32>,
+
+    /// Message of the most recent failed attempt: the annotated error chain on
+    /// a single line, truncated by `TaskRunTracker`. Null for runs that never
+    /// failed, and preserved (not cleared) by a later successful attempt.
+    pub last_error_message: Option<String>,
+
     /// Processing duration of the most recent failed attempt, in milliseconds.
     pub last_error_duration_ms: Option<i64>,
 

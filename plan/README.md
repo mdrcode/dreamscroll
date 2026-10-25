@@ -27,7 +27,7 @@ inside it (never rewrite history), and update the row below.
 | [smoke.md](smoke.md) | Living | Manual smoke procedure against the persistent local instance (`smoke-agent` account). |
 | [devlog.md](devlog.md) | Living — historical | Reverse-chronological daily log. Last entry 2026-04-05; open items were triaged into `plan/backlog.md`. |
 | [htmx4.md](htmx4.md) | Deferred decision | 2.0.11 pinned with SRI. 4.0 migration points and risks mapped; no timeline. |
-| [feed-view-incremental-updates.md](feed-view-incremental-updates.md) | Planned follow-up | Replace the full `/cards` refetch after upload with server-defined membership updates. |
+| [feed-view-incremental-updates.md](feed-view-incremental-updates.md) | Planned follow-up | Replace the full `/feed` refetch after upload with server-defined membership updates. |
 | [testing-auth-routes.md](testing-auth-routes.md) | Planned follow-up | Exercise protected routes through real Axum auth middleware on an isolated Postgres schema. |
 | [testing-js-and-browser.md](testing-js-and-browser.md) | Planned follow-up | Browser-level coverage for SSE connection lifetime, partial refresh, and upload feedback. |
 | [testing-coverage.md](testing-coverage.md) | Planned — initial | Strategy for coverage beyond the current two tiers. |
@@ -59,3 +59,4 @@ inside it (never rewrite history), and update the row below.
 | [webhook_oidc_same_service.md](archive/webhook_oidc_same_service.md) | Google OIDC verification for `/_wh/*` routes in the production service. |
 | [google-ai-interactions-api.md](archive/google-ai-interactions-api.md) | One Interactions API client for both Google backends. |
 | [webui-v2-audit.md](archive/webui-v2-audit.md) | Full audit of `web/v2`; all findings fixed or accepted. |
+| [feed-route-rename.md](archive/feed-route-rename.md) | Feed fragment route renamed `/cards` → `/feed`; what moved and what deliberately did not. |

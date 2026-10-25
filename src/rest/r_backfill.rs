@@ -34,3 +34,17 @@ pub async fn status(
 
     Ok(Json(response))
 }
+
+/// GET /api/admin/backfill/{backfill_id}/failures - terminal failures (admin only).
+pub async fn failures(
+    user: auth::DreamscrollAuthUser,
+    State(state): State<Arc<RestState>>,
+    Path(backfill_id): Path<String>,
+) -> Result<impl IntoResponse, api::ApiError> {
+    let response = state
+        .admin_api
+        .backfill_failures(&user.into(), &backfill_id)
+        .await?;
+
+    Ok(Json(response))
+}

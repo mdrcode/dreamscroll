@@ -116,7 +116,7 @@ function setupTaskStatusEvents() {
     function refreshFeedIllumination(captureId, eventTimestamp) {
         const region = document.getElementById('capture-illumination-' + captureId);
         if (!region || !isNewerThanSnapshot(eventTimestamp, region.dataset.snapshotAt)) return;
-        window.htmx.ajax('GET', '/cards/capture/' + captureId + '/illumination?animate_illumination=true', {
+        window.htmx.ajax('GET', '/feed/capture/' + captureId + '/illumination?animate_illumination=true', {
             source: region,
             target: region,
             swap: 'outerHTML'
@@ -831,7 +831,7 @@ function setupSearchEndpointRouting() {
             return;
         }
 
-        e.detail.path = '/cards';
+        e.detail.path = '/feed';
         const parameters = e.detail.parameters || (e.detail.parameters = {});
         applyFeedParameters(parameters, state);
     });
@@ -1007,9 +1007,9 @@ function buildFeedUrlFromCurrentState() {
 
     const query = params.toString();
     if (query.length === 0) {
-        return '/cards';
+        return '/feed';
     }
-    return '/cards?' + query;
+    return '/feed?' + query;
 }
 
 function reloadFeedFrame() {

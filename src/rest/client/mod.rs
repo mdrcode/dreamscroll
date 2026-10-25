@@ -333,6 +333,24 @@ impl Client {
         Self::parse_json_response(response).await
     }
 
+    pub async fn admin_backfill_failures(
+        &self,
+        backfill_id: &str,
+    ) -> anyhow::Result<backfill::BackfillFailuresResponse> {
+        let response = self
+            .reqwest_client
+            .get(format!(
+                "{}/admin/backfill/{}/failures",
+                self.base_url, backfill_id
+            ))
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .context("failed to call admin backfill failures endpoint")?;
+
+        Self::parse_json_response(response).await
+    }
+
     pub async fn enqueue_illuminate(
         &self,
         capture_id: i32,
@@ -506,6 +524,8 @@ mod tests {
             entity_id: 42,
             status: task::TaskRunStatus::CompleteSuccess,
             attempts: 1,
+            error_code: None,
+            error_message: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         })

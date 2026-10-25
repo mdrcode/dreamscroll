@@ -51,6 +51,13 @@ impl ApiError {
         Self::new(StatusCode::UNAUTHORIZED, error.into())
     }
 
+    /// The failing layer's own message: the annotated error chain on one line,
+    /// with `anyhow` context preserved. Persisted for failure triage; it carries
+    /// no classification of whose fault the failure was.
+    pub fn message(&self) -> String {
+        format!("{:#}", self.error)
+    }
+
     /// Whether a task that failed with this error is worth retrying.
     ///
     /// Client errors (4xx) are treated as permanent — retrying identical input

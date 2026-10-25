@@ -64,10 +64,47 @@ Do not bypass authentication or inject session cookies.
 
 ---
 
+## Admin commands via `dreamscroll_api`
+
+`dreamscroll_api` does not read `smoke.env`. It authenticates with a JWT cached in
+the OS keychain, keyed by host + username, so the credential is specific to
+`localhost:8080` and the account that minted it. Only an admin account can call
+`/api/admin/*`; `smoke-agent` cannot.
+
+An agent cannot type the owner's password, so the flow is:
+
+1. Build the binaries the run needs:
+   ```bash
+   cargo build --bin dreamscroll_api --bin dreamscroll_web
+   ```
+2. Start the local server (see Setup) and leave it running — the token is cached
+   against a reachable host.
+3. Ask the user to cache the token themselves, by running one authenticated
+   command and entering their password at the `Enter password:` prompt:
+   ```bash
+   ./target/debug/dreamscroll_api --host localhost:8080 --user <admin> \
+     backfill status <backfill-id>
+   ```
+   Take their confirmation that it succeeded; do not inspect the keychain.
+4. Run the admin command. The cached token is reused without a prompt:
+   ```bash
+   ./target/debug/dreamscroll_api --host localhost:8080 --user <admin> \
+     backfill failures <backfill-id>
+   ```
+
+Never mint, inject, or seed a token into the keychain to skip the prompt; the
+cached credential must be the user's own. Prefer read-only admin commands
+(`status`, `errors`) for verification, and follow the usual ask-first rule for
+anything that mutates state.
+
+---
+
 ## Boundaries
 
 - Use only the local host (`127.0.0.1` / `localhost`).
-- Use the `smoke-agent` account, not the owner's account.
+- Use the `smoke-agent` account, not the owner's account, for UI and HTTP checks.
+  Admin REST commands are the exception: they need an admin account whose token
+  only the owner can cache (see Admin commands above).
 - Search, uploads, illumination, annotation changes, and archive/delete can
   mutate data or call paid providers; ask before using them.
 - The account and its data are persistent. There is no automatic cleanup.

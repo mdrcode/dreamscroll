@@ -3,7 +3,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::task;
+use crate::{api, task};
 
 /// Request one bounded batch of submissions, not execution to completion.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -50,4 +50,10 @@ pub struct BackfillStatusCount {
 pub struct BackfillStatusResponse {
     pub backfill_id: String,
     pub counts: Vec<BackfillStatusCount>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BackfillFailuresResponse {
+    pub backfill_id: String,
+    pub failures: Vec<api::TaskRunInfo>,
 }

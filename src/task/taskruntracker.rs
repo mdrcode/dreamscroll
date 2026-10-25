@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr};
 
-use crate::{database, model, sse};
+use crate::{api, database, model, sse};
 
 use super::*;
 
@@ -57,13 +57,19 @@ impl TaskRunTracker {
     }
 
     /// Update one TaskRun by its globally unique run ID.
+    ///
+    /// `error` records the literal failure report for a run that failed outside
+    /// an attempt — a backend that rejected enqueue (`SubmissionFailed`, where no
+    /// worker ever runs). Attempt outcomes go through `finish_attempt` instead.
     pub async fn update_run<T: Task>(
         &self,
         task_run: &TaskRun<T>,
         status: TaskRunStatus,
         attempts: i32,
+        error: Option<&api::ApiError>,
     ) -> anyhow::Result<()> {
-        let result = model::task_run::Entity::update_many()
+        let mut update = model::task_run::Entity::update_many();
+        update = update
             .col_expr(
                 model::task_run::Column::StatusCode,
                 Expr::value(status.as_i32()),
@@ -72,7 +78,20 @@ impl TaskRunTracker {
             .col_expr(
                 model::task_run::Column::UpdatedAt,
                 Expr::current_timestamp(),
-            )
+            );
+        if let Some(error) = error {
+            update = update
+                .col_expr(
+                    model::task_run::Column::LastErrorCode,
+                    Expr::value(i32::from(error.status_code.as_u16())),
+                )
+                .col_expr(
+                    model::task_run::Column::LastErrorMessage,
+                    Expr::value(truncate_error_message(error.message())),
+                );
+        }
+
+        let result = update
             .filter(model::task_run::Column::RunId.eq(task_run.run_id.as_str()))
             .exec_with_returning(&self.db.conn)
             .await?;
@@ -126,12 +145,18 @@ impl TaskRunTracker {
         Ok(())
     }
 
-    /// Record an attempt outcome and preserve its duration.
+    /// Record an attempt outcome, its duration, and (for failures) the literal
+    /// error that was reported.
+    ///
+    /// `error` is only meaningful for `ErrorWillRetry`/`CompleteFailure`; passing
+    /// `None` leaves `last_error_code`/`last_error_message` untouched, which is
+    /// what a status-only write wants. A later success does not clear them.
     pub async fn finish_attempt<T: Task>(
         &self,
         task_run: &TaskRun<T>,
         status: TaskRunStatus,
         attempts: i32,
+        error: Option<&api::ApiError>,
     ) -> anyhow::Result<()> {
         let mut update = model::task_run::Entity::update_many();
         update = update
@@ -161,6 +186,17 @@ impl TaskRunTracker {
                     "CAST(EXTRACT(EPOCH FROM (CURRENT_TIMESTAMP - processing_started_at)) * 1000 AS BIGINT)",
                 ),
             );
+            if let Some(error) = error {
+                update = update
+                    .col_expr(
+                        model::task_run::Column::LastErrorCode,
+                        Expr::value(i32::from(error.status_code.as_u16())),
+                    )
+                    .col_expr(
+                        model::task_run::Column::LastErrorMessage,
+                        Expr::value(truncate_error_message(error.message())),
+                    );
+            }
         }
 
         let rows = update
@@ -277,6 +313,21 @@ impl TaskRunTracker {
     }
 }
 
+/// Cap for a persisted failure message. An upstream error can carry a whole
+/// response body in its chain; a bounded row stays readable and cheap to print.
+const ERROR_MESSAGE_MAX_CHARS: usize = 2_000;
+
+/// Truncate on a char boundary so the persisted message is always valid UTF-8.
+/// The ellipsis counts toward the cap.
+fn truncate_error_message(message: String) -> String {
+    if message.chars().count() <= ERROR_MESSAGE_MAX_CHARS {
+        return message;
+    }
+    let mut truncated: String = message.chars().take(ERROR_MESSAGE_MAX_CHARS - 1).collect();
+    truncated.push('…');
+    truncated
+}
+
 /// Only expected submission keys arbitrate duplicate work; UUID collisions and
 /// any other database constraint violations must still surface as errors.
 fn is_submission_conflict(err: &sea_orm::DbErr) -> bool {
@@ -353,6 +404,10 @@ mod tests {
         )
     }
 
+    fn task_error() -> api::ApiError {
+        api::ApiError::internal(anyhow::anyhow!("test failure"))
+    }
+
     async fn create_run_with_status<T: Task>(
         tracker: &TaskRunTracker,
         task_run: &TaskRun<T>,
@@ -361,7 +416,7 @@ mod tests {
     ) -> anyhow::Result<bool> {
         let created = tracker.create_run(task_run).await?;
         if created && (status != TaskRunStatus::Queued || attempts != 0) {
-            tracker.update_run(task_run, status, attempts).await?;
+            tracker.update_run(task_run, status, attempts, None).await?;
         }
         Ok(created)
     }
@@ -462,7 +517,7 @@ mod tests {
             .processing_started_at
             .unwrap();
         tracker
-            .finish_attempt(&env, TaskRunStatus::ErrorWillRetry, 1)
+            .finish_attempt(&env, TaskRunStatus::ErrorWillRetry, 1, Some(&task_error()))
             .await
             .unwrap();
         let after_first_failure = tracker
@@ -476,7 +531,7 @@ mod tests {
 
         tracker.begin_attempt(&env, 2).await.unwrap();
         tracker
-            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 2)
+            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 2, None)
             .await
             .unwrap();
         let completed = tracker
@@ -499,7 +554,7 @@ mod tests {
         assert!(tracker.create_run(&env).await.unwrap());
 
         tracker
-            .finish_attempt(&env, TaskRunStatus::CompleteFailure, 1)
+            .finish_attempt(&env, TaskRunStatus::CompleteFailure, 1, Some(&task_error()))
             .await
             .unwrap();
 
@@ -515,6 +570,70 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn failed_attempt_persists_the_literal_reported_error() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::new(db.handle(), None);
+        let env = task_run(1, 59, 1);
+        assert!(tracker.create_run(&env).await.unwrap());
+        tracker.begin_attempt(&env, 1).await.unwrap();
+
+        let error =
+            api::ApiError::internal(anyhow::anyhow!("quota exceeded").context("vertex request"));
+        tracker
+            .finish_attempt(&env, TaskRunStatus::CompleteFailure, 1, Some(&error))
+            .await
+            .unwrap();
+
+        let stored = tracker
+            .query_run_status(&env.logical_id, Some(env.run_number), None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.last_error_code, Some(500));
+        assert_eq!(
+            stored.last_error_message.as_deref(),
+            Some("vertex request: quota exceeded"),
+            "the annotated chain is preserved, not reclassified"
+        );
+
+        // The report describes the most recent failure; a later success keeps it.
+        tracker.begin_attempt(&env, 2).await.unwrap();
+        tracker
+            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 2, None)
+            .await
+            .unwrap();
+        let completed = tracker
+            .query_run_status(&env.logical_id, Some(env.run_number), None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            completed.status_code,
+            TaskRunStatus::CompleteSuccess.as_i32()
+        );
+        assert_eq!(completed.last_error_code, Some(500));
+        assert_eq!(
+            completed.last_error_message.as_deref(),
+            Some("vertex request: quota exceeded")
+        );
+    }
+
+    #[test]
+    fn error_message_truncation_keeps_utf8_boundaries() {
+        assert_eq!(truncate_error_message("short".to_string()), "short");
+
+        // Three-byte characters: a byte-offset slice at the cap would panic.
+        let long = "€".repeat(ERROR_MESSAGE_MAX_CHARS + 5);
+        let truncated = truncate_error_message(long);
+
+        assert_eq!(truncated.chars().count(), ERROR_MESSAGE_MAX_CHARS);
+        assert!(truncated.starts_with(&"€".repeat(ERROR_MESSAGE_MAX_CHARS - 1)));
+        assert!(truncated.ends_with('…'));
+    }
+
+    #[tokio::test]
     async fn successful_attempt_refreshes_processing_measure() {
         let Some(db) = crate::test_support::test_db::test_db().await else {
             return;
@@ -524,7 +643,7 @@ mod tests {
         assert!(tracker.create_run(&env).await.unwrap());
         tracker.begin_attempt(&env, 1).await.unwrap();
         tracker
-            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 1)
+            .finish_attempt(&env, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
@@ -550,7 +669,7 @@ mod tests {
         assert!(tracker.create_run(&first).await.unwrap());
         tracker.begin_attempt(&first, 1).await.unwrap();
         tracker
-            .finish_attempt(&first, TaskRunStatus::CompleteSuccess, 1)
+            .finish_attempt(&first, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
@@ -558,7 +677,12 @@ mod tests {
         assert!(tracker.create_run(&failed).await.unwrap());
         tracker.begin_attempt(&failed, 1).await.unwrap();
         tracker
-            .finish_attempt(&failed, TaskRunStatus::CompleteFailure, 1)
+            .finish_attempt(
+                &failed,
+                TaskRunStatus::CompleteFailure,
+                1,
+                Some(&task_error()),
+            )
             .await
             .unwrap();
 
@@ -583,7 +707,7 @@ mod tests {
         assert!(tracker.create_run(&second).await.unwrap());
         tracker.begin_attempt(&second, 1).await.unwrap();
         tracker
-            .finish_attempt(&second, TaskRunStatus::CompleteSuccess, 1)
+            .finish_attempt(&second, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
         let updated_row = model::task_run_timing::Entity::find()
@@ -612,11 +736,11 @@ mod tests {
         assert!(tracker.create_run(&first_task_run).await.unwrap());
         assert!(!tracker.create_run(&task_run(1, 42, 1)).await.unwrap());
         tracker
-            .update_run(&first_task_run, TaskRunStatus::InProgress, 1)
+            .update_run(&first_task_run, TaskRunStatus::InProgress, 1, None)
             .await
             .unwrap();
         tracker
-            .update_run(&task_run(1, 99, 1), TaskRunStatus::CompleteSuccess, 1)
+            .update_run(&task_run(1, 99, 1), TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
@@ -642,7 +766,7 @@ mod tests {
                 .expect("best-effort notification failure must not fail persistence")
         );
         tracker
-            .update_run(&task_run, TaskRunStatus::InProgress, 1)
+            .update_run(&task_run, TaskRunStatus::InProgress, 1, None)
             .await
             .expect("best-effort notification failure must not fail persistence");
 
@@ -687,7 +811,7 @@ mod tests {
         first.backfill_id = Some("test-backfill".to_string());
         assert!(tracker.create_run(&first).await.unwrap());
         tracker
-            .update_run(&first, TaskRunStatus::CompleteSuccess, 1)
+            .update_run(&first, TaskRunStatus::CompleteSuccess, 1, None)
             .await
             .unwrap();
 
@@ -810,7 +934,7 @@ mod tests {
             .expect("run 2 should be created");
 
         tracker
-            .update_run(&run1, TaskRunStatus::InProgress, 7)
+            .update_run(&run1, TaskRunStatus::InProgress, 7, None)
             .await
             .expect("update should succeed");
 
@@ -1049,7 +1173,7 @@ mod tests {
         let tracker = TaskRunTracker::new(db.handle(), Some(Arc::new(notifier.clone())));
 
         tracker
-            .update_run(&task_run(1, 42, 1), TaskRunStatus::InProgress, 1)
+            .update_run(&task_run(1, 42, 1), TaskRunStatus::InProgress, 1, None)
             .await
             .expect("missing-run update is ignored after logging a warning");
 

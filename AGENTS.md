@@ -16,6 +16,7 @@ Be simple, idiomatic, robust, and flexible (in that order).
   please explain your research/conclusion and seek confirmation first before
   adding it.
 - **No Schema Or Migration Overhead:** Do not worry about data migrations or backward compatibility. Nuke the database or use crude hacks if needed for prototype speed.
+- **Confirm Local DB Writes:** Do not change the local dev database (`sync_schema`, seeding, resets, manual SQL) without explicit approval. Say what needs to change and let the user run it or approve it first.
 - **Document Along The Way:** Update the various plan files as you go. Start at
   `plan/README.md` for what is live, deferred, and archived. If
   you are informed by useful third-party docs/websites, link to them.
