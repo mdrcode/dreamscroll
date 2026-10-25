@@ -16,9 +16,8 @@ use super::WebState;
 // Clients cannot observe SSE keep-alive comments, so send a named liveness event.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
 const MAX_STREAM_LIFETIME: Duration = Duration::from_secs(3 * 60);
-// A blended feed renders at most 100 cards; anything past this is not a page
-// asking for its own catch-up. Each ID becomes a bind parameter.
-const MAX_CATCHUP_CAPTURE_IDS: usize = 200;
+// A blended feed renders at most 100 cards; each ID becomes a bind parameter.
+const MAX_CATCHUP_ENTITIES: usize = 200;
 
 #[derive(Debug, Deserialize)]
 pub struct CatchupParams {
@@ -34,11 +33,13 @@ pub async fn get(
     State(state): State<Arc<WebState>>,
     Query(params): Query<CatchupParams>,
 ) -> Result<Sse<impl futures_util::Stream<Item = Result<Event, Infallible>>>, api::ApiError> {
-    let context = auth::Context::from(
-        auth.user
-            .expect("protected route requires an authenticated user"),
-    );
+    let user = auth
+        .user
+        .expect("protected route; user must be authenticated");
+
+    // Immediately subscribe so we don't miss events while doing catch-up
     let server_events_rx = state.server_events.subscribe();
+
     let catchup_capture_ids = parse_capture_ids(params.capture_ids.as_deref())?;
     let catchup_events = if catchup_capture_ids.is_empty() {
         None
@@ -46,13 +47,13 @@ pub async fn get(
         catchup_or_skip(
             state
                 .status_catchup
-                .events(context.user_id(), "capture", &catchup_capture_ids)
+                .events(user.user_id(), "capture", &catchup_capture_ids)
                 .await,
         )
     };
 
-    let task_status_stream = make_task_status_stream(
-        context.user_id(),
+    let task_status_stream = make_event_stream(
+        user.user_id(),
         catchup_events,
         server_events_rx,
         state.shutdown.clone(),
@@ -65,18 +66,18 @@ pub async fn get(
 }
 
 #[derive(Debug, Eq, PartialEq)]
-enum TaskStatusStreamItem {
+enum StreamItem {
     TaskStatus(sse::TaskStatusEvent),
     Heartbeat,
 }
 
-fn task_status_sse_event(item: TaskStatusStreamItem) -> Event {
+fn task_status_sse_event(item: StreamItem) -> Event {
     match item {
-        TaskStatusStreamItem::TaskStatus(task_status) => Event::default()
+        StreamItem::TaskStatus(task_status) => Event::default()
             .event("task-status")
             .data(task_event_json(&task_status)),
         // Axum omits empty data fields, and EventSource does not dispatch data-less events.
-        TaskStatusStreamItem::Heartbeat => Event::default().event("heartbeat").data("1"),
+        StreamItem::Heartbeat => Event::default().event("heartbeat").data("1"),
     }
 }
 
@@ -100,14 +101,14 @@ fn catchup_or_skip(
     }
 }
 
-fn make_task_status_stream(
+fn make_event_stream(
     user_id: i32,
     catchup: Option<Vec<sse::TaskStatusEvent>>,
     events_rx: broadcast::Receiver<sse::ReceivedServerEvent>,
     shutdown: tokio::sync::watch::Receiver<bool>,
     deadline: tokio::time::Instant,
     heartbeat_interval: Duration,
-) -> impl futures_util::Stream<Item = TaskStatusStreamItem> {
+) -> impl futures_util::Stream<Item = StreamItem> {
     let next_heartbeat = tokio::time::Instant::now() + heartbeat_interval;
     let live_events = stream::unfold(
         (events_rx, user_id, shutdown, deadline, next_heartbeat),
@@ -122,7 +123,7 @@ fn make_task_status_stream(
                     _ = tokio::time::sleep_until(next_heartbeat) => {
                         next_heartbeat = tokio::time::Instant::now() + heartbeat_interval;
                         return Some((
-                            TaskStatusStreamItem::Heartbeat,
+                            StreamItem::Heartbeat,
                             (events_rx, user_id, shutdown, deadline, next_heartbeat),
                         ));
                     }
@@ -136,7 +137,7 @@ fn make_task_status_stream(
                             Ok(received) => {
                                 if let Some(update) = filter_for_user(received, user_id) {
                                     return Some((
-                                        TaskStatusStreamItem::TaskStatus(update),
+                                        StreamItem::TaskStatus(update),
                                         (events_rx, user_id, shutdown, deadline, next_heartbeat),
                                     ));
                                 }
@@ -159,12 +160,7 @@ fn make_task_status_stream(
             }
         },
     );
-    let catchup_events = stream::iter(
-        catchup
-            .into_iter()
-            .flatten()
-            .map(TaskStatusStreamItem::TaskStatus),
-    );
+    let catchup_events = stream::iter(catchup.into_iter().flatten().map(StreamItem::TaskStatus));
     catchup_events.chain(live_events)
 }
 
@@ -200,9 +196,9 @@ fn parse_capture_ids(raw: Option<&str>) -> Result<Vec<i32>, api::ApiError> {
         if !ids.contains(&id) {
             ids.push(id);
         }
-        if ids.len() > MAX_CATCHUP_CAPTURE_IDS {
+        if ids.len() > MAX_CATCHUP_ENTITIES {
             return Err(api::ApiError::bad_request(anyhow::anyhow!(
-                "capture_ids accepts at most {MAX_CATCHUP_CAPTURE_IDS} IDs"
+                "capture_ids accepts at most {MAX_CATCHUP_ENTITIES} IDs"
             )));
         }
     }
@@ -210,12 +206,18 @@ fn parse_capture_ids(raw: Option<&str>) -> Result<Vec<i32>, api::ApiError> {
     Ok(ids)
 }
 
+/// Browser wire form: the same event minus the internal recipient id.
+///
+/// `user_id` stays in the `Serialize` impl because that impl is also the
+/// Postgres `NOTIFY` transport, where the field is what routes an event to the
+/// right user on every instance.
 fn task_event_json(update: &sse::TaskStatusEvent) -> String {
-    let mut data = serde_json::to_value(update).unwrap_or_default();
-    if let Some(object) = data.as_object_mut() {
-        object.remove("user_id");
-    }
-    serde_json::to_string(&data).unwrap_or_else(|_| "{}".to_string())
+    let mut wire = update.clone();
+    wire.user_id = None;
+    serde_json::to_string(&wire).unwrap_or_else(|error| {
+        tracing::error!(error = ?error, "Failed to serialize task-status event");
+        "{}".to_string()
+    })
 }
 
 #[cfg(test)]
@@ -294,7 +296,7 @@ mod tests {
             )))
             .unwrap();
 
-        let mut events = Box::pin(make_task_status_stream(
+        let mut events = Box::pin(make_event_stream(
             7,
             None,
             receiver,
@@ -313,16 +315,16 @@ mod tests {
 
     #[test]
     fn capture_ids_are_capped() {
-        let at_limit = (1..=MAX_CATCHUP_CAPTURE_IDS as i32)
+        let at_limit = (1..=MAX_CATCHUP_ENTITIES as i32)
             .map(|id| id.to_string())
             .collect::<Vec<_>>()
             .join(",");
         assert_eq!(
             parse_capture_ids(Some(&at_limit)).unwrap().len(),
-            MAX_CATCHUP_CAPTURE_IDS
+            MAX_CATCHUP_ENTITIES
         );
 
-        let over_limit = (1..=MAX_CATCHUP_CAPTURE_IDS as i32 + 1)
+        let over_limit = (1..=MAX_CATCHUP_ENTITIES as i32 + 1)
             .map(|id| id.to_string())
             .collect::<Vec<_>>()
             .join(",");
@@ -410,7 +412,7 @@ mod tests {
         let catchup = task_status_event(7, 42, crate::task::TaskRunStatus::InProgress);
         let (sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(make_task_status_stream(
+        let mut events = Box::pin(make_event_stream(
             7,
             Some(vec![catchup.clone()]),
             receiver,
@@ -424,7 +426,7 @@ mod tests {
                 .await
                 .expect("catch-up should be immediate")
                 .unwrap(),
-            TaskStatusStreamItem::TaskStatus(catchup),
+            StreamItem::TaskStatus(catchup),
             "catch-up must be the first event"
         );
 
@@ -440,7 +442,7 @@ mod tests {
             .await
             .expect("live event should follow the catch-up")
             .unwrap();
-        let TaskStatusStreamItem::TaskStatus(live) = live else {
+        let StreamItem::TaskStatus(live) = live else {
             panic!("expected live task-status event");
         };
         assert_eq!(live.entity_id, 999);
@@ -454,7 +456,7 @@ mod tests {
     async fn shutdown_ends_a_stream_even_before_first_event() {
         let (_sender, receiver) = broadcast::channel(8);
         let (shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(make_task_status_stream(
+        let mut events = Box::pin(make_event_stream(
             7,
             None,
             receiver,
@@ -475,7 +477,7 @@ mod tests {
     async fn live_stream_emits_heartbeat_without_task_events() {
         let (_sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(make_task_status_stream(
+        let mut events = Box::pin(make_event_stream(
             7,
             None,
             receiver,
@@ -488,7 +490,7 @@ mod tests {
             tokio::time::timeout(Duration::from_secs(1), events.next())
                 .await
                 .expect("heartbeat should arrive on an otherwise idle stream"),
-            Some(TaskStatusStreamItem::Heartbeat)
+            Some(StreamItem::Heartbeat)
         );
     }
 
@@ -497,7 +499,7 @@ mod tests {
         use axum::response::IntoResponse;
 
         let response = Sse::new(stream::iter([Ok::<_, Infallible>(task_status_sse_event(
-            TaskStatusStreamItem::Heartbeat,
+            StreamItem::Heartbeat,
         ))]))
         .into_response();
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -514,7 +516,7 @@ mod tests {
         let (_sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
         let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
-        let mut events = Box::pin(make_task_status_stream(
+        let mut events = Box::pin(make_event_stream(
             7,
             None,
             receiver,

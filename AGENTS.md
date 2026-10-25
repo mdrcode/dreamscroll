@@ -1,5 +1,5 @@
 # Vision
-This app empowers users to build a personal, AI-enriched knowledge graph from
+Our app Dreamscroll empowers users to build a personal, AI-enriched knowledge graph from
 screenshots and share links.
 
 # Philosophy
@@ -10,13 +10,17 @@ Be simple, idiomatic, robust, and flexible (in that order).
   obsessing about production hardening. Trade robustness for speed,
   thoughtfully.
 - **Log Technical Debt:** Document all shortcuts and tradeoffs in `plan/pragmatism.md`.
+- **Strive for Coherent Commits:** Git is our journal and source of truth.
+  Ensure that each commit is a coherent unit of work.
 - **Confirm Big Changes:** Do not go down deep refactoring or architectural
   rabbit holes without first seeking confirmation.
 - **Confirm New Dependencies:** If a new third-party crate might be helpful,
-  please explain your research/conclusion and seek confirmation first before
-  adding it.
-- **No Schema Or Migration Overhead:** Do not worry about data migrations or backward compatibility. Nuke the database or use crude hacks if needed for prototype speed.
-- **Confirm Local DB Writes:** Do not change the local dev database (`sync_schema`, seeding, resets, manual SQL) without explicit approval. Say what needs to change and let the user run it or approve it first.
+  please explain your research/conclusion and seek confirmation before
+  adding.
+- **No Schema Or Migration Overhead:** Do not worry about data migrations or
+  backward compatibility. We can nuke the database or use crude hacks if needed for
+  development velocity.
+- **Confirm Local DB Writes:** Do not change the local dev database (`sync_schema`, seeding, resets, manual SQL) without explicit approval.
 - **Document Along The Way:** Update the various plan files as you go. Start at
   `plan/README.md` for what is live, deferred, and archived. If
   you are informed by useful third-party docs/websites, link to them.
@@ -33,7 +37,8 @@ Be simple, idiomatic, robust, and flexible (in that order).
   sibling types. Don't burn time on frivolous import specificity. Always
   organize use directives in the order: (1) system/core first, (2) external crates, (3) local modules.
 - **Comments:** Keep comments concise and high-value. Avoid superfluous prose;
-  architecture and naming should explain themselves. Important decisions and
+  architecture and naming should explain themselves. Frequently, a single line
+  comment is more useful and durable than multiple paragraphs. Important decisions and
   logic should be documented so that they are salient and discoverable.
 
 # Target Environments
