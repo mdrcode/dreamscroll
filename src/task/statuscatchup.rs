@@ -14,7 +14,7 @@ use super::{
 /// stream would already have delivered, including the timing estimate a running
 /// event carries. It never publishes and never writes.
 ///
-/// Shares `TaskMaster`'s tracker (see `TaskMaster::catchup`), so there is one run
+/// Shares `TaskMaster`'s tracker (see `TaskMaster::status_catchup`), so there is one run
 /// store per process; the owner-scoped latest-run query and the estimate live
 /// there.
 #[derive(Clone)]

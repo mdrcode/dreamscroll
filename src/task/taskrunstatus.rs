@@ -59,7 +59,7 @@ impl TaskRunStatus {
         }
     }
 
-    /// True when a worker may still act on this run.
+    /// True while the work is queued, running, or awaiting another retry.
     ///
     /// This is the duplicate-submission predicate: while a run is in flight,
     /// submitting the same logical task again is refused. `CompleteSuccess` and

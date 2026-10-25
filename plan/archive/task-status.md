@@ -217,24 +217,18 @@ LocalTaskQueue — failed tasks silently dropped."* With a `task_runs` table,
 > attempt 1 and `CompleteFailure` on the final attempt. The decision is made by
 > `AttemptOutcome::from_failure(err, attempt, max_attempts)`.
 
-### 4.1 Two predicates, deliberately distinct
+### 4.1 One predicate
 
-`TaskRunStatus` exposes the predicates used to distinguish worker eligibility
-and user-visible incomplete work:
+`TaskRunStatus::is_in_flight()` names the statuses a worker may still act on —
+`Queued`, `InProgress`, `ErrorWillRetry` — and it is the duplicate-submission
+predicate (§6): while a run is in flight, submitting the same logical task again
+is refused. `CompleteSuccess`, `CompleteFailure`, and `SubmissionFailed` are
+settled, so a rerun is permitted for those.
 
-| Predicate         | Members                                  | Question it answers                 |
-| ----------------- | ---------------------------------------- | ----------------------------------- |
-| `is_in_flight()`  | `Queued`, `InProgress`, `ErrorWillRetry` | May a worker still act on this?     |
-| `is_incomplete()` | the above **+ `CompleteFailure`**        | Does the user still need to see it? |
-
-`CompleteFailure` is the **only** execution status where they disagree: the user still needs
-to see the failure, but no worker will touch it again — which is exactly what
-makes it rerunnable. A settled run (rerunnable) is simply `!is_in_flight()`;
-there is deliberately no separate `is_settled()` predicate.
-
-> **Do not conflate these.** `is_in_flight` gates duplicate-submission refusal
-> (§6); `is_incomplete` gates the query API (§5). A test
-> (`in_flight_is_not_the_same_as_incomplete`) locks the divergence.
+There is deliberately no `is_incomplete()`: the query API collapses to the latest
+run per (entity, task type) and returns it whatever its status, so "the user still
+needs to see this" is a rendering decision rather than a predicate the task layer
+applies.
 
 ### 4.2 The retry/exhaustion policy
 
@@ -486,7 +480,7 @@ must always see the **most recent** illumination, so:
 | `src/task/statuspublisher.rs`             | `StatusPublisher` — best-effort SSE task-status hints: estimate via `TimingEstimator`, event construction, and the notification policy                                                          | ✅      |
 | `src/task/timing.rs`                      | `TimingEstimator` (`client_estimate`) plus the `task_run_timing` aggregate refresh; the single owner of "what does this task type take"                                                          | ✅      |
 | `src/task/statuscatchup.rs`               | `StatusCatchup` — read-side counterpart of `StatusPublisher`: replay of the latest status per (entity, task type) as SSE events, with the estimate a live event would carry. Built by `TaskMaster::builder` and held alongside the tracker, sharing that one tracker | ✅      |
-| `src/task/taskrunstatus.rs`               | `TaskRunStatus` enum + `is_in_flight()`/`is_incomplete()`; DB stores integer discriminant                                                                                                      | ✅      |
+| `src/task/taskrunstatus.rs`               | `TaskRunStatus` enum + `is_in_flight()`; DB stores integer discriminant                                                                                                      | ✅      |
 | `src/sse/listener.rs`                    | `ServerEventListener` — per-instance Postgres `LISTEN/NOTIFY` listener and fan-out for authenticated SSE streams (see `plan/archive/sse.md`) | ✅      |
 | `src/task/beacon.rs`                      | **removed** — replaced by `TaskMaster`                                                                                                                                                         | ✅      |
 | `src/model/task_run.rs`                   | `task_runs` SeaORM model (`id` internal, globally unique `run_id`, unique `(logical_id, run_number)`) — auto-synced at startup         | ✅      |

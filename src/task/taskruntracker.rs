@@ -62,7 +62,7 @@ impl TaskRunTracker {
             .await;
         match result {
             Ok(row) => {
-                self.publisher.publish(task_run, &row.into()).await;
+                self.publisher.publish(&row.into()).await;
                 Ok(true)
             }
             Err(err) if is_submission_conflict(&err) => Ok(false),
@@ -114,8 +114,16 @@ impl TaskRunTracker {
             return Ok(());
         };
 
-        timing::refresh_timing_measures::<T>(&self.db, status).await?;
-        self.publisher.publish(task_run, &row).await;
+        // Best effort: the row is committed, and clients should still see the
+        // status change even if the derived aggregate cannot be refreshed.
+        if let Err(error) = timing::refresh_timing_measures::<T>(&self.db, status).await {
+            tracing::warn!(
+                status = %status,
+                error = ?error,
+                "Failed to refresh timing measures"
+            );
+        }
+        self.publisher.publish(&row).await;
         Ok(())
     }
 

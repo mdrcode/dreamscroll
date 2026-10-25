@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::model;
-use crate::task::{Task, TaskRun, TaskRunStatus, timing::TaskTimingEstimate};
+use crate::task::{TaskRunStatus, timing::TaskTimingEstimate};
 
 pub const CURRENT_SCHEMA_VERSION: u8 = 4;
 
@@ -78,24 +78,6 @@ impl<E> ServerEvent<E> {
 }
 
 impl ServerEvent<TaskStatusPayload> {
-    pub(crate) fn from_task_run<T: Task>(
-        task_run: &TaskRun<T>,
-        row: &model::task_run::Model,
-        estimate: Option<&TaskTimingEstimate>,
-    ) -> Self {
-        let mut event = Self::from_row(row, estimate).expect("validated task status row");
-        event.payload.task_type = T::task_type().to_string();
-        event.payload.logical_id = task_run.logical_id.clone();
-        event.payload.run_id = task_run.run_id.clone();
-        event.entity_type = T::entity_type().to_string();
-        event.entity_id = task_run.task.entity_id();
-        event.user_id = Some(row.entity_owner_id);
-        event.payload.run_number = task_run.run_number;
-        event.payload.estimated_duration_ms_p50 =
-            estimate.and_then(TaskTimingEstimate::client_processing_duration_ms);
-        event
-    }
-
     pub(crate) fn from_row(
         row: &model::task_run::Model,
         estimate: Option<&TaskTimingEstimate>,
@@ -181,56 +163,6 @@ mod tests {
         assert_eq!(update.payload.attempts, 2);
         assert_eq!(update.payload.run_number, 4);
         assert_eq!(update.user_id, Some(8));
-    }
-
-    #[test]
-    fn task_status_from_task_run_copies_identity_and_run() {
-        #[derive(Clone, Debug, Serialize)]
-        struct TestTask {
-            id: i32,
-        }
-
-        impl Task for TestTask {
-            fn task_type() -> &'static str {
-                "test"
-            }
-
-            fn entity_type() -> &'static str {
-                "capture"
-            }
-
-            fn entity_id(&self) -> i32 {
-                self.id
-            }
-            fn entity_owner_id(&self) -> i32 {
-                17
-            }
-        }
-
-        let task_run = TaskRun::new(TestTask { id: 91 }, 4);
-        let mut row = model::task_run::task_run_model();
-        row.entity_owner_id = 17;
-        row.logical_id = task_run.logical_id.clone();
-        row.run_id = task_run.run_id.clone();
-        row.run_number = 4;
-        row.task_type = "test".to_string();
-        row.entity_id = 91;
-        row.status_code = TaskRunStatus::InProgress.as_i32();
-        row.attempts = 2;
-        row.created_at = timestamp();
-        row.updated_at = timestamp();
-        let event = TaskStatusEvent::from_task_run(&task_run, &row, None);
-
-        assert_eq!(event.entity_type, "capture");
-        assert_eq!(event.entity_id, 91);
-        assert_eq!(event.payload.task_type, "test");
-        assert_eq!(event.payload.status, TaskRunStatus::InProgress);
-        assert_eq!(event.payload.attempts, 2);
-        assert_eq!(event.payload.logical_id, task_run.logical_id);
-        assert_eq!(event.payload.run_id, task_run.run_id);
-        assert_eq!(event.payload.run_number, 4);
-        assert_eq!(event.timestamp, timestamp());
-        assert_eq!(event.user_id, Some(17));
     }
 
     #[test]

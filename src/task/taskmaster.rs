@@ -351,7 +351,10 @@ impl TaskMaster {
         }
     }
 
-    // TODO should we return something better than the internal Model instances here??
+    /// Latest run per (entity, task type). Tests only: production reads go through
+    /// `status_catchup` or `query_run_status`, so this cannot become a second,
+    /// un-scoped read idiom.
+    #[cfg(test)]
     pub async fn query_latest_task_runs(
         &self,
         context: &auth::Context,
@@ -447,8 +450,8 @@ impl TaskMasterBuilder {
             .spark_queue
             .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
 
-        // Each SSE adapter mints its own timing estimator: both are stateless
-        // handles over the same pool, and neither outlives the component using it.
+        // One estimator shared by both SSE adapters: it is a stateless handle over
+        // the pool, so there is nothing for the two to disagree about.
         let estimator = timing::TimingEstimator::new(db.clone());
         let publisher = StatusPublisher::new(estimator.clone(), self.notifier);
         let run_tracker = TaskRunTracker::new(db.clone(), publisher);
