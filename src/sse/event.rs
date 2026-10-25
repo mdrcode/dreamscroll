@@ -160,31 +160,17 @@ mod tests {
 
     #[test]
     fn task_status_constructor_sets_schema_and_routing_fields() {
-        let update = TaskStatusEvent::from_row(
-            &model::task_run::Model {
-                id: 1,
-                entity_owner_id: 8,
-                logical_id: "u8-test-capture91".to_string(),
-                run_id: "8a0d329d-72ca-4fd5-bd8d-2302f762f37d".to_string(),
-                run_number: 4,
-                backfill_id: None,
-                task_type: "illuminate".to_string(),
-                entity_type: "capture".to_string(),
-                entity_id: 91,
-                task_payload: None,
-                status_code: TaskRunStatus::CompleteSuccess.as_i32(),
-                attempts: 2,
-                created_at: timestamp(),
-                processing_started_at: None,
-                last_error_code: None,
-                last_error_message: None,
-                last_error_duration_ms: None,
-                success_duration_ms: None,
-                updated_at: timestamp(),
-            },
-            None,
-        )
-        .unwrap();
+        let mut row = model::task_run::task_run_model();
+        row.entity_owner_id = 8;
+        row.logical_id = "u8-test-capture91".to_string();
+        row.run_number = 4;
+        row.entity_id = 91;
+        row.status_code = TaskRunStatus::CompleteSuccess.as_i32();
+        row.attempts = 2;
+        row.created_at = timestamp();
+        row.updated_at = timestamp();
+
+        let update = TaskStatusEvent::from_row(&row, None).unwrap();
 
         assert_eq!(update.schema_version, CURRENT_SCHEMA_VERSION);
         assert_eq!(update.event_type, ServerEventTypes::TaskStatus);
@@ -222,27 +208,17 @@ mod tests {
         }
 
         let task_run = TaskRun::new(TestTask { id: 91 }, 4);
-        let row = model::task_run::Model {
-            id: 1,
-            entity_owner_id: 17,
-            logical_id: task_run.logical_id.clone(),
-            run_id: task_run.run_id.clone(),
-            run_number: 4,
-            backfill_id: None,
-            task_type: "test".to_string(),
-            entity_type: "capture".to_string(),
-            entity_id: 91,
-            task_payload: None,
-            status_code: TaskRunStatus::InProgress.as_i32(),
-            attempts: 2,
-            created_at: timestamp(),
-            processing_started_at: None,
-            last_error_code: None,
-            last_error_message: None,
-            last_error_duration_ms: None,
-            success_duration_ms: None,
-            updated_at: timestamp(),
-        };
+        let mut row = model::task_run::task_run_model();
+        row.entity_owner_id = 17;
+        row.logical_id = task_run.logical_id.clone();
+        row.run_id = task_run.run_id.clone();
+        row.run_number = 4;
+        row.task_type = "test".to_string();
+        row.entity_id = 91;
+        row.status_code = TaskRunStatus::InProgress.as_i32();
+        row.attempts = 2;
+        row.created_at = timestamp();
+        row.updated_at = timestamp();
         let event = TaskStatusEvent::from_task_run(&task_run, &row, None);
 
         assert_eq!(event.entity_type, "capture");

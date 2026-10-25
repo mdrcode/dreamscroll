@@ -89,3 +89,31 @@ pub struct Model {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+/// A complete, valid row for tests that assert on a subset of the columns: take
+/// this and mutate the fields the test cares about, so adding a column does not
+/// require editing every fixture.
+#[cfg(test)]
+pub fn task_run_model() -> Model {
+    Model {
+        id: 1,
+        entity_owner_id: 1,
+        logical_id: "u1-illuminate-capture42".to_string(),
+        run_id: "8a0d329d-72ca-4fd5-bd8d-2302f762f37d".to_string(),
+        run_number: 1,
+        backfill_id: None,
+        task_type: "illuminate".to_string(),
+        entity_type: "capture".to_string(),
+        entity_id: 42,
+        task_payload: None,
+        status_code: 1, // Queued
+        attempts: 0,
+        created_at: chrono::Utc::now(),
+        processing_started_at: None,
+        last_error_code: None,
+        last_error_message: None,
+        last_error_duration_ms: None,
+        success_duration_ms: None,
+        updated_at: chrono::Utc::now(),
+    }
+}

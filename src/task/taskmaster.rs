@@ -75,12 +75,11 @@ fn decide_next_attempt(status: Option<&model::task_run::Model>) -> Option<i32> {
     }
 }
 
-/// Determines whether a failed attempt should be retried.
-///
-/// We define internal retry-ability to the ApiError code
+/// Determines whether a failed attempt should be retried
 fn decide_will_retry(err: &api::ApiError, attempt: i32, max_attempts: i32) -> bool {
     attempt < max_attempts && err.is_retryable()
 }
+
 fn ensure_task_submission_allowed<T: Task>(
     context: &auth::Context,
     task: &T,
@@ -646,27 +645,15 @@ mod tests {
         attempts: i32,
         run_number: i32,
     ) -> model::task_run::Model {
-        model::task_run::Model {
-            id: 0,
-            entity_owner_id: 1,
-            logical_id: "u1-illuminate-capture1".to_string(),
-            run_id: uuid::Uuid::new_v4().to_string(),
-            run_number,
-            backfill_id: None,
-            task_type: "illuminate".to_string(),
-            entity_type: "capture".to_string(),
-            entity_id: 1,
-            task_payload: None,
-            status_code: status.as_i32(),
-            attempts,
-            created_at: chrono::Utc::now(),
-            processing_started_at: None,
-            last_error_code: None,
-            last_error_message: None,
-            last_error_duration_ms: None,
-            success_duration_ms: None,
-            updated_at: chrono::Utc::now(),
-        }
+        let mut row = model::task_run::task_run_model();
+        row.id = 0;
+        row.logical_id = "u1-illuminate-capture1".to_string();
+        row.run_id = uuid::Uuid::new_v4().to_string();
+        row.run_number = run_number;
+        row.entity_id = 1;
+        row.status_code = status.as_i32();
+        row.attempts = attempts;
+        row
     }
 
     #[derive(Debug, Clone)]

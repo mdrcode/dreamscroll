@@ -268,27 +268,13 @@ mod tests {
 
     #[test]
     fn catchup_row_becomes_a_task_status_event() {
-        let row = crate::model::task_run::Model {
-            id: 1,
-            entity_owner_id: 7,
-            logical_id: "u7-illuminate-capture42".to_string(),
-            run_id: "720196b8-3dbf-4c63-9b78-c3f05787d831".to_string(),
-            run_number: 3,
-            backfill_id: None,
-            task_type: "illuminate".to_string(),
-            entity_type: "capture".to_string(),
-            entity_id: 42,
-            task_payload: None,
-            status_code: crate::task::TaskRunStatus::InProgress.as_i32(),
-            attempts: 2,
-            created_at: Utc::now(),
-            processing_started_at: None,
-            last_error_code: None,
-            last_error_message: None,
-            last_error_duration_ms: None,
-            success_duration_ms: None,
-            updated_at: Utc::now(),
-        };
+        let mut row = crate::model::task_run::task_run_model();
+        row.entity_owner_id = 7;
+        row.logical_id = "u7-illuminate-capture42".to_string();
+        row.run_id = "720196b8-3dbf-4c63-9b78-c3f05787d831".to_string();
+        row.run_number = 3;
+        row.status_code = crate::task::TaskRunStatus::InProgress.as_i32();
+        row.attempts = 2;
 
         let estimate = crate::task::timing::TaskTimingEstimate {
             task_type: "illuminate".to_string(),
@@ -309,27 +295,12 @@ mod tests {
 
     #[test]
     fn catchup_row_with_unknown_status_is_skipped() {
-        let row = crate::model::task_run::Model {
-            id: 2,
-            entity_owner_id: 7,
-            logical_id: "u7-illuminate-capture42".to_string(),
-            run_id: "69d394f8-5caa-4363-8c3e-d081b4a353a5".to_string(),
-            run_number: 1,
-            backfill_id: None,
-            task_type: "illuminate".to_string(),
-            entity_id: 42,
-            entity_type: "capture".to_string(),
-            task_payload: None,
-            status_code: i32::MAX,
-            attempts: 0,
-            created_at: Utc::now(),
-            processing_started_at: None,
-            last_error_code: None,
-            last_error_message: None,
-            last_error_duration_ms: None,
-            success_duration_ms: None,
-            updated_at: Utc::now(),
-        };
+        let mut row = crate::model::task_run::task_run_model();
+        row.id = 2;
+        row.entity_owner_id = 7;
+        row.logical_id = "u7-illuminate-capture42".to_string();
+        row.run_id = "69d394f8-5caa-4363-8c3e-d081b4a353a5".to_string();
+        row.status_code = i32::MAX;
 
         assert!(sse::TaskStatusEvent::from_row(&row, None).is_none());
     }
