@@ -16,6 +16,9 @@ use super::WebState;
 // Clients cannot observe SSE keep-alive comments, so send a named liveness event.
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(20);
 const MAX_STREAM_LIFETIME: Duration = Duration::from_secs(3 * 60);
+// A blended feed renders at most 100 cards; anything past this is not a page
+// asking for its own catch-up. Each ID becomes a bind parameter.
+const MAX_CATCHUP_CAPTURE_IDS: usize = 200;
 
 #[derive(Debug, Deserialize)]
 pub struct CatchupParams {
@@ -40,11 +43,11 @@ pub async fn get(
     let catchup_events = if catchup_capture_ids.is_empty() {
         None
     } else {
-        Some(
+        catchup_or_skip(
             state
                 .status_catchup
                 .events(context.user_id(), "capture", &catchup_capture_ids)
-                .await?,
+                .await,
         )
     };
 
@@ -74,6 +77,26 @@ fn task_status_sse_event(item: TaskStatusStreamItem) -> Event {
             .data(task_event_json(&task_status)),
         // Axum omits empty data fields, and EventSource does not dispatch data-less events.
         TaskStatusStreamItem::Heartbeat => Event::default().event("heartbeat").data("1"),
+    }
+}
+
+/// A failed catch-up must not fail the stream.
+///
+/// EventSource does not retry a non-200 response, so returning an error here
+/// would close the page's only source of live status until the user interacts.
+/// Live-only delivery is strictly better than a dead stream.
+fn catchup_or_skip(
+    result: Result<Vec<sse::TaskStatusEvent>, api::ApiError>,
+) -> Option<Vec<sse::TaskStatusEvent>> {
+    match result {
+        Ok(events) => Some(events),
+        Err(error) => {
+            tracing::warn!(
+                error = ?error,
+                "Status catch-up failed; continuing with live events only"
+            );
+            None
+        }
     }
 }
 
@@ -119,10 +142,15 @@ fn make_task_status_stream(
                                 }
                             }
                             Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                                tracing::debug!(
+                                // Dropped frames may include a terminal status, which
+                                // would strand the client's progress UI. Ending the
+                                // stream makes the browser reconnect in seconds and
+                                // replay the current state through catch-up.
+                                tracing::warn!(
                                     skipped,
-                                    "SSE receiver lagged and dropped best-effort updates"
+                                    "SSE receiver lagged; reconnecting so catch-up restores state"
                                 );
+                                return None;
                             }
                             Err(broadcast::error::RecvError::Closed) => return None,
                         }
@@ -172,6 +200,11 @@ fn parse_capture_ids(raw: Option<&str>) -> Result<Vec<i32>, api::ApiError> {
         if !ids.contains(&id) {
             ids.push(id);
         }
+        if ids.len() > MAX_CATCHUP_CAPTURE_IDS {
+            return Err(api::ApiError::bad_request(anyhow::anyhow!(
+                "capture_ids accepts at most {MAX_CATCHUP_CAPTURE_IDS} IDs"
+            )));
+        }
     }
 
     Ok(ids)
@@ -220,6 +253,83 @@ mod tests {
         assert!(!event_json.contains("user_id"));
         assert!(event_json.contains("\"entity_id\":42"));
         assert!(event_json.contains("\"event_type\":\"task_status\""));
+    }
+
+    #[test]
+    fn a_failed_catchup_degrades_to_live_only() {
+        assert!(
+            catchup_or_skip(Err(api::ApiError::internal(anyhow::anyhow!(
+                "pool timeout"
+            ))))
+            .is_none(),
+            "a non-200 response closes EventSource, so catch-up failure must not fail the stream"
+        );
+        let events = catchup_or_skip(Ok(vec![task_status_event(
+            7,
+            42,
+            crate::task::TaskRunStatus::InProgress,
+        )]))
+        .expect("successful catch-up is forwarded");
+        assert_eq!(events.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_lagged_receiver_ends_the_stream_so_catchup_can_restore_state() {
+        let (sender, receiver) = broadcast::channel(1);
+        let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
+        // Overflow the one-slot buffer before the stream polls: the receiver
+        // reports `Lagged` and a dropped terminal status could strand the UI.
+        sender
+            .send(sse::ReceivedServerEvent::TaskStatus(task_status_event(
+                7,
+                42,
+                crate::task::TaskRunStatus::InProgress,
+            )))
+            .unwrap();
+        sender
+            .send(sse::ReceivedServerEvent::TaskStatus(task_status_event(
+                7,
+                42,
+                crate::task::TaskRunStatus::CompleteSuccess,
+            )))
+            .unwrap();
+
+        let mut events = Box::pin(make_task_status_stream(
+            7,
+            None,
+            receiver,
+            shutdown_receiver,
+            tokio::time::Instant::now() + Duration::from_secs(10),
+            Duration::from_secs(20),
+        ));
+
+        assert!(
+            tokio::time::timeout(Duration::from_secs(1), events.next())
+                .await
+                .expect("lagged stream should end promptly")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn capture_ids_are_capped() {
+        let at_limit = (1..=MAX_CATCHUP_CAPTURE_IDS as i32)
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        assert_eq!(
+            parse_capture_ids(Some(&at_limit)).unwrap().len(),
+            MAX_CATCHUP_CAPTURE_IDS
+        );
+
+        let over_limit = (1..=MAX_CATCHUP_CAPTURE_IDS as i32 + 1)
+            .map(|id| id.to_string())
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(
+            parse_capture_ids(Some(&over_limit)).is_err(),
+            "an unbounded list becomes unbounded bind parameters"
+        );
     }
 
     #[test]
