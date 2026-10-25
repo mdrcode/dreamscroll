@@ -127,22 +127,25 @@ This means:
 
 ### 3.1 The update-event shape
 
-Every update is a small, typed payload inside the generic `ServerEvent<E>`
+Every update is a small, typed payload inside the generic `ServerEventEnvelope<E>`
 envelope implemented in `src/sse/event.rs`:
 
 ```rust
-pub struct ServerEvent<E> {
+pub struct ServerEventEnvelope<E> {
     pub schema_version: u8,
-    pub event_type: ServerEventTypes,
+    pub event_type: ServerEventKind,
     pub timestamp: DateTime<Utc>,
     pub entity_type: String,
     pub entity_id: i32,
+    pub entity_owner_id: Option<i32>, // notify-payload routing only
     pub payload: E,
 }
 
-pub type TaskStatusEvent = ServerEvent<TaskStatusPayload>;
-pub type AvailabilityEvent = ServerEvent<AvailabilityPayload>;
+pub type TaskStatusUpdate = ServerEventEnvelope<TaskStatusPayload>;
 ```
+
+`ServerEventKind` is an enum with one variant today (`TaskStatus`). The listener
+matches it, so a second kind cannot be added without updating the fan-out.
 
 Task-status wire example:
 
@@ -152,12 +155,6 @@ Task-status wire example:
 
 Schema version 4 removes task result fields from the status payload. Raw task
 output is fetched separately by `run_id`; the listener rejects version 3 events.
-
-Availability wire example:
-
-```json
-{ "schema_version": 4, "event_type": "availability", "timestamp": "2026-09-21T18:42:15Z", "entity_type": "capture", "entity_id": 123, "payload": { "operation": "deleted" } }
-```
 
 This maps to the current state of a `task_runs` row (see
 `plan/archive/task-status.md` §3). It is not a historical event: the table stores one row
@@ -174,14 +171,16 @@ second string enum.
 
 The generic envelope is a compile-time Rust convenience; `event_type` is the
 runtime discriminator used by clients and other JSON consumers. The SSE event
-name may remain specific (`task-status` or `availability`) for HTMX,
-even though both payloads share the same envelope shape.
+name stays specific (`task-status`) for HTMX, even though the envelope is
+generic.
 
 > **Why a single named SSE event (`task-status`) rather than per-status names
 > (`illumination-complete`, etc.):** named events are fine for a fixed set, but
 > they don't scale to "subscribe to a subset" or "route by status" cleanly. A
 > single event name with a `status` field in the payload keeps the client logic
 > uniform and lets it filter on `status`/`task_type`/`entity_id` as needed.
+
+The availability vocabulary was removed before it had a producer; see §11.
 
 ### 3.2 Client subscription filtering
 
@@ -340,10 +339,10 @@ successful status write:
 
 The implementation is split by responsibility:
 
-- `src/sse/event.rs` defines the generic, versioned `ServerEvent<E>` envelope
-  and typed task-status/availability payloads.
+- `src/sse/event.rs` defines the generic, versioned `ServerEventEnvelope<E>`
+  envelope, the `ServerEventKind` discriminator, and the task-status payload.
 - `src/sse/notifier.rs` shares SeaORM's SQLx 0.9 pool, serializes a
-  `ServerEvent<E>`, and sends it to `server_event_channel` using SQLx `pg_notify`.
+  `ServerEventEnvelope<E>`, and sends it to `server_event_channel` using SQLx `pg_notify`.
 - `TaskMaster` is the public task lifecycle boundary and coordinates lifecycle
   policy with queue operations. Its private `TaskRunTracker` dependency owns
   status persistence and invokes an injected `ServerEventNotifier` after
@@ -370,8 +369,7 @@ event log. The stable-stream design does not query/send an initial snapshot.
 The concrete `TaskStatusPayload` carries `logical_id`, globally unique `run_id`,
 `run_number`, attempts, status, and optional timing estimates. Raw task output is
 not sent over SSE; consumers fetch it by `run_id` after completion. The generic
-`ServerEvent` supplies the timestamp and entity routing key. `AvailabilityEvent`
-uses the same generic event structure with an `AvailabilityPayload`; these are
+`ServerEventEnvelope` supplies the timestamp and entity routing key. These are
 informational hints rather than a durable event log.
 
 The trade-offs are acceptable for this table:
@@ -737,7 +735,7 @@ concurrent tasks update 5 distinct cards independently, in any completion order.
   cards update independently and out-of-order completions are fine.
 
 > **The one thing to get right: the event payload must carry `entity_id`.** For
-> the fan-out to work, every event must be self-describing. `TaskStatusEvent`
+> the fan-out to work, every event must be self-describing. `TaskStatusUpdate`
 > (§3.1) already denormalizes `entity_type`/`entity_id` for exactly this reason.
 > If a task type ever has no single capture (e.g. a spark over many captures),
 > the payload's `entity_type` tells the client which routing key is appropriate —
@@ -1006,7 +1004,7 @@ into this comparison.
 
 ## 11. Tolerant decode, single-kind fan-out (2026-10-25)
 
-The fan-out channel now carries `TaskStatusEvent` directly; `ReceivedServerEvent`
+The fan-out channel now carries `TaskStatusUpdate` directly; `ReceivedServerEvent`
 and the reserved `Availability` vocabulary (`AvailabilityEvent`, payload, state)
 are gone. Availability hints remain future work per §9 and will arrive with a real
 producer; modelling a second kind ahead of that only produced an unconstructible
@@ -1018,3 +1016,10 @@ failing `ServerEventListener::recv`, so the fan-out loop only stops on a transpo
 error. This matters for rolling deploys: the previous behaviour treated a payload
 from a newer build as fatal and silently ended live updates for every instance
 still on the old schema version.
+
+The envelope's routing field is `entity_owner_id`, not `user_id`: it is the owner
+of the entity the event is about (never the submitter), matching `Task` and
+`TaskRun` vocabulary. The field stays in the `pg_notify` payload for cross-instance
+routing and is cleared from the SSE payload (`filtered_json`). A notification from
+a build that still sends `user_id` therefore decodes without an owner and is
+skipped with a warning; the next reconnect restores state through catch-up.

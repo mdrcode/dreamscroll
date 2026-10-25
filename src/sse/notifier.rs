@@ -1,11 +1,11 @@
-use super::{ServerEvent, TaskStatusEvent};
+use super::{ServerEventEnvelope, TaskStatusUpdate};
 use anyhow::Context;
 use sea_orm::DatabaseConnection;
 use sqlx::PgPool;
 
 #[async_trait::async_trait]
 pub trait ServerEventNotifier: Send + Sync {
-    async fn notify_task_status(&self, event: &TaskStatusEvent) -> anyhow::Result<()>;
+    async fn notify_task_status(&self, event: &TaskStatusUpdate) -> anyhow::Result<()>;
 }
 
 /// PostgreSQL channel used for best-effort server event notifications.
@@ -24,7 +24,10 @@ impl PostgresNotifier {
         }
     }
 
-    pub async fn notify<E: serde::Serialize>(&self, event: &ServerEvent<E>) -> anyhow::Result<()> {
+    pub async fn notify<E: serde::Serialize>(
+        &self,
+        event: &ServerEventEnvelope<E>,
+    ) -> anyhow::Result<()> {
         let payload = serde_json::to_string(event).context("serialize server event")?;
         sqlx::query("SELECT pg_notify($1, $2)")
             .bind(SERVER_EVENT_CHANNEL)
@@ -40,7 +43,7 @@ impl PostgresNotifier {
 impl ServerEventNotifier for PostgresNotifier {
     /// Publish to listeners on this database. PostgreSQL delivers notifications
     /// on transaction commit; they are best effort and not retained.
-    async fn notify_task_status(&self, event: &TaskStatusEvent) -> anyhow::Result<()> {
+    async fn notify_task_status(&self, event: &TaskStatusUpdate) -> anyhow::Result<()> {
         self.notify(event).await
     }
 }

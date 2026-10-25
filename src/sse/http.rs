@@ -7,11 +7,11 @@
 
 use std::time::Duration;
 
-use axum::response::sse::Event;
+use axum::response::sse;
 use futures_util::{Stream, StreamExt, stream};
 use tokio::sync::{broadcast, watch};
 
-use super::TaskStatusEvent;
+use super::TaskStatusUpdate;
 
 /// One frame of the HTTP SSE stream: a payload or a liveness tick.
 ///
@@ -19,31 +19,41 @@ use super::TaskStatusEvent;
 /// status", so the stream vocabulary lives here, next to the framing.
 #[derive(Debug, Eq, PartialEq)]
 pub enum HttpStreamItem {
-    TaskStatus(TaskStatusEvent),
     Heartbeat,
+    TaskStatus(TaskStatusUpdate),
 }
 
-impl HttpStreamItem {
-    /// Encode this item as an SSE wire frame.
-    pub fn into_wire_frame(self) -> Event {
-        match self {
-            Self::TaskStatus(task_status) => Event::default().event("task-status").data(
-                task_status.browser_json().unwrap_or_else(|error| {
-                    tracing::error!(error = ?error, "Failed to serialize task-status event");
-                    "{}".to_string()
-                }),
-            ),
+impl From<HttpStreamItem> for sse::Event {
+    fn from(item: HttpStreamItem) -> Self {
+        match item {
+            HttpStreamItem::TaskStatus(update) => sse::Event::default()
+                .event("task-status")
+                .data(filtered_json(&update)),
             // Axum omits empty data fields, and EventSource does not dispatch
             // data-less events.
-            Self::Heartbeat => Event::default().event("heartbeat").data("1"),
+            HttpStreamItem::Heartbeat => sse::Event::default().event("heartbeat").data("1"),
         }
     }
 }
 
-pub fn make_event_stream(
+/// The SSE payload: the same envelope minus the routing-only `entity_owner_id`.
+///
+/// One `Serialize` impl serves two destinations, and only `pg_notify` needs the
+/// owner (to route across instances). Serde attributes are per type, so the field
+/// is cleared here and `skip_serializing_if` omits it.
+fn filtered_json(update: &TaskStatusUpdate) -> String {
+    let mut filtered = update.clone();
+    filtered.entity_owner_id = None;
+    serde_json::to_string(&filtered).unwrap_or_else(|error| {
+        tracing::error!(error = ?error, "Failed to serialize task-status update");
+        "{}".to_string()
+    })
+}
+
+pub fn make_sse_stream(
     user_id: i32,
-    catchup: Option<Vec<TaskStatusEvent>>,
-    events_rx: broadcast::Receiver<TaskStatusEvent>,
+    catchup: Option<Vec<TaskStatusUpdate>>,
+    events_rx: broadcast::Receiver<TaskStatusUpdate>,
     shutdown: watch::Receiver<bool>,
     deadline: tokio::time::Instant,
     heartbeat_interval: Duration,
@@ -74,7 +84,8 @@ pub fn make_event_stream(
                     received = events_rx.recv() => {
                         match received {
                             Ok(event) => {
-                                if event.belongs_to(user_id) {
+                                // Routing: this connection only carries its own user.
+                                if event.entity_owner_id == Some(user_id) {
                                     return Some((
                                         HttpStreamItem::TaskStatus(event),
                                         (events_rx, user_id, shutdown, deadline, next_heartbeat),
@@ -117,7 +128,7 @@ mod tests {
     use tokio::sync::{broadcast, watch};
 
     use super::*;
-    use crate::sse::{ServerEvent, ServerEventTypes, TaskStatusPayload};
+    use crate::sse::{ServerEventEnvelope, ServerEventKind, TaskStatusPayload};
     use crate::task::TaskRunStatus;
 
     #[tokio::test]
@@ -125,7 +136,7 @@ mod tests {
         let catchup = task_status_event(7, 42, TaskRunStatus::InProgress);
         let (sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(make_event_stream(
+        let mut events = Box::pin(make_sse_stream(
             7,
             Some(vec![catchup.clone()]),
             receiver,
@@ -158,6 +169,55 @@ mod tests {
         assert_eq!(live.payload.status, TaskRunStatus::CompleteSuccess);
     }
 
+    #[test]
+    fn filtered_payload_omits_the_entity_owner() {
+        let update = task_status_event(77, 42, TaskRunStatus::InProgress);
+
+        let json = filtered_json(&update);
+        assert!(!json.contains("entity_owner_id"));
+        assert!(json.contains("\"entity_id\":42"));
+        assert!(json.contains("\"event_type\":\"task_status\""));
+        assert!(
+            serde_json::to_string(&update)
+                .unwrap()
+                .contains("entity_owner_id"),
+            "the notification form keeps the routing field"
+        );
+    }
+
+    #[tokio::test]
+    async fn another_users_task_status_is_not_forwarded() {
+        let (sender, receiver) = broadcast::channel(8);
+        let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
+        let mut events = Box::pin(make_sse_stream(
+            7,
+            None,
+            receiver,
+            shutdown_receiver,
+            tokio::time::Instant::now() + Duration::from_secs(10),
+            Duration::from_secs(20),
+        ));
+
+        sender
+            .send(task_status_event(8, 43, TaskRunStatus::InProgress))
+            .unwrap();
+        sender
+            .send(task_status_event(7, 44, TaskRunStatus::InProgress))
+            .unwrap();
+
+        let item = tokio::time::timeout(Duration::from_secs(1), events.next())
+            .await
+            .expect("the recipient's event should arrive")
+            .unwrap();
+        let HttpStreamItem::TaskStatus(event) = item else {
+            panic!("expected a task-status item");
+        };
+        assert_eq!(
+            event.entity_id, 44,
+            "the other user's event must be filtered, not just reordered"
+        );
+    }
+
     #[tokio::test]
     async fn a_lagged_receiver_ends_the_stream_so_catchup_can_restore_state() {
         let (sender, receiver) = broadcast::channel(1);
@@ -171,7 +231,7 @@ mod tests {
             .send(task_status_event(7, 42, TaskRunStatus::CompleteSuccess))
             .unwrap();
 
-        let mut events = Box::pin(make_event_stream(
+        let mut events = Box::pin(make_sse_stream(
             7,
             None,
             receiver,
@@ -192,7 +252,7 @@ mod tests {
     async fn shutdown_ends_a_stream_even_before_first_event() {
         let (_sender, receiver) = broadcast::channel(8);
         let (shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(make_event_stream(
+        let mut events = Box::pin(make_sse_stream(
             7,
             None,
             receiver,
@@ -214,7 +274,7 @@ mod tests {
     async fn live_stream_emits_heartbeat_without_task_events() {
         let (_sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
-        let mut events = Box::pin(make_event_stream(
+        let mut events = Box::pin(make_sse_stream(
             7,
             None,
             receiver,
@@ -236,7 +296,7 @@ mod tests {
         use axum::response::IntoResponse;
 
         let response = axum::response::sse::Sse::new(stream::iter([Ok::<_, Infallible>(
-            HttpStreamItem::Heartbeat.into_wire_frame(),
+            sse::Event::from(HttpStreamItem::Heartbeat),
         )]))
         .into_response();
         let body = axum::body::to_bytes(response.into_body(), usize::MAX)
@@ -253,7 +313,7 @@ mod tests {
         let (_sender, receiver) = broadcast::channel(8);
         let (_shutdown_sender, shutdown_receiver) = watch::channel(false);
         let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
-        let mut events = Box::pin(make_event_stream(
+        let mut events = Box::pin(make_sse_stream(
             7,
             None,
             receiver,
@@ -270,11 +330,11 @@ mod tests {
         );
     }
 
-    fn task_status_event(user_id: i32, entity_id: i32, status: TaskRunStatus) -> TaskStatusEvent {
-        ServerEvent {
-            user_id: Some(user_id),
-            ..ServerEvent::new(
-                ServerEventTypes::TaskStatus,
+    fn task_status_event(user_id: i32, entity_id: i32, status: TaskRunStatus) -> TaskStatusUpdate {
+        ServerEventEnvelope {
+            entity_owner_id: Some(user_id),
+            ..ServerEventEnvelope::new(
+                ServerEventKind::TaskStatus,
                 Utc::now(),
                 "capture",
                 entity_id,

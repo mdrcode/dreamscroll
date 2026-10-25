@@ -51,7 +51,7 @@ pub async fn get(
         )
     };
 
-    let event_stream = sse::http::make_event_stream(
+    let event_stream = sse::http::make_sse_stream(
         user.user_id(),
         catchup_events,
         server_events_rx,
@@ -59,7 +59,7 @@ pub async fn get(
         tokio::time::Instant::now() + MAX_STREAM_LIFETIME, // deadline
         HEARTBEAT_INTERVAL,
     )
-    .map(|item| Ok(item.into_wire_frame()));
+    .map(|item| Ok::<_, Infallible>(item.into()));
 
     Ok(Sse::new(event_stream))
 }
@@ -70,8 +70,8 @@ pub async fn get(
 /// would close the page's only source of live status until the user interacts.
 /// Live-only delivery is strictly better than a dead stream.
 fn catchup_or_skip(
-    result: Result<Vec<sse::TaskStatusEvent>, api::ApiError>,
-) -> Option<Vec<sse::TaskStatusEvent>> {
+    result: Result<Vec<sse::TaskStatusUpdate>, api::ApiError>,
+) -> Option<Vec<sse::TaskStatusUpdate>> {
     match result {
         Ok(events) => Some(events),
         Err(error) => {
@@ -129,7 +129,7 @@ mod tests {
         );
 
         let row = crate::model::task_run::task_run_model();
-        let event = sse::TaskStatusEvent::from_row(&row, None).unwrap();
+        let event = sse::TaskStatusUpdate::from_row(&row, None).unwrap();
         let events = catchup_or_skip(Ok(vec![event])).expect("successful catch-up is forwarded");
         assert_eq!(events.len(), 1);
     }
@@ -183,11 +183,11 @@ mod tests {
             duration_ms_p75: 12_000,
             duration_ms_p90: 15_000,
         };
-        let event = sse::TaskStatusEvent::from_row(&row, Some(&estimate)).unwrap();
+        let event = sse::TaskStatusUpdate::from_row(&row, Some(&estimate)).unwrap();
         assert_eq!(event.entity_id, 42);
         assert_eq!(event.payload.status, crate::task::TaskRunStatus::InProgress);
         assert_eq!(event.payload.run_number, 3);
-        assert_eq!(event.user_id, Some(7));
+        assert_eq!(event.entity_owner_id, Some(7));
         assert_eq!(event.payload.estimated_duration_ms_p50, Some(10_000));
     }
 
@@ -200,6 +200,6 @@ mod tests {
         row.run_id = "69d394f8-5caa-4363-8c3e-d081b4a353a5".to_string();
         row.status_code = i32::MAX;
 
-        assert!(sse::TaskStatusEvent::from_row(&row, None).is_none());
+        assert!(sse::TaskStatusUpdate::from_row(&row, None).is_none());
     }
 }

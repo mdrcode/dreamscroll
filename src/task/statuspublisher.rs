@@ -33,7 +33,7 @@ impl StatusPublisher {
         };
 
         let estimate = self.timing.client_estimate(&row.task_type).await;
-        let Some(event) = sse::TaskStatusEvent::from_row(row, estimate.as_ref()) else {
+        let Some(event) = sse::TaskStatusUpdate::from_row(row, estimate.as_ref()) else {
             tracing::warn!(
                 run_id = %row.run_id,
                 status_code = row.status_code,

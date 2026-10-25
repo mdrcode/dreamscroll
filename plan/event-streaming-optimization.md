@@ -1,6 +1,6 @@
 # Event-streaming optimization
 
-**Status:** exploratory. **Last updated:** 2026-10-06.
+**Status:** exploratory. **Last updated:** 2026-10-25.
 
 ## Problem
 
@@ -37,18 +37,16 @@ The `capture_ids` parameter selects the initial catch-up set only. It is not a
 long-lived server-side subscription filter.
 
 SSE event envelopes currently have a generic `timestamp` field. For
-`TaskStatusEvent::from_row`, this field is populated from
+`TaskStatusUpdate::from_row`, this field is populated from
 `task_runs.updated_at`:
 
 ```rust
 timestamp: row.updated_at
 ```
 
-However, `ServerEvent::new` accepts an arbitrary timestamp and availability
-events are constructed independently. Therefore, the timestamp is effectively
-a persisted status-row freshness timestamp for row-derived task-status events,
-but it is not a universally enforced `updated_at` or event-log sequence for
-every server event type.
+However, `ServerEventEnvelope::new` accepts an arbitrary timestamp, so the field
+is not a universally enforced `updated_at` or an event-log sequence; today the
+only producer derives it from the row.
 
 ## Candidate optimization: timestamp cursor
 
@@ -170,7 +168,7 @@ or a database-side maximum update timestamp.
 ## Recommended investigation order
 
 1. Confirm the exact catch-up query and its cost under reconnect-heavy behavior.
-2. Decide whether task-status `ServerEvent.timestamp` should be formally defined
+2. Decide whether task-status `ServerEventEnvelope.timestamp` should be formally defined
    as `task_runs.updated_at`.
 3. Determine whether timestamp collisions are acceptable for the prototype.
 4. If yes, prototype a timestamp-only cursor and test reconnect/catch-up races.

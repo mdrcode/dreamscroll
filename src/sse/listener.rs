@@ -36,7 +36,7 @@ impl ServerEventListener {
     /// version, malformed); only a transport failure is returned, because that is
     /// what ends the fan-out. SQLx 0.9 reconnects after intermittent connection
     /// loss on its own.
-    pub async fn recv(&mut self) -> anyhow::Result<Option<TaskStatusEvent>> {
+    pub async fn recv(&mut self) -> anyhow::Result<Option<TaskStatusUpdate>> {
         let notification = self
             .listener
             .recv()
@@ -56,7 +56,7 @@ impl ServerEventListener {
 pub fn spawn_local_fanout(
     mut listener: ServerEventListener,
     mut shutdown: watch::Receiver<bool>,
-) -> broadcast::Sender<TaskStatusEvent> {
+) -> broadcast::Sender<TaskStatusUpdate> {
     let (sender, _) = broadcast::channel(128); // TODO where did 128 come from?
     let task_sender = sender.clone();
 
@@ -74,6 +74,8 @@ pub fn spawn_local_fanout(
                         Ok(Some(event)) => { let _ = task_sender.send(event); }
                         // Skipped payloads are already logged; keep listening.
                         Ok(None) => {}
+                        // No retry: the sender outlives this task, so a dead
+                        // fan-out looks like an idle stream until restart.
                         Err(error) => {
                             tracing::warn!(error = ?error, "Server-event listener stopped");
                             break;
@@ -92,7 +94,7 @@ pub fn spawn_local_fanout(
 /// A bad payload must never stop the fan-out: skipping keeps live updates working,
 /// and a `schema_version` bump during a rolling deploy would otherwise kill the
 /// listener on every instance still running the previous build.
-fn decode_server_event(payload: &str) -> Option<TaskStatusEvent> {
+fn decode_server_event(payload: &str) -> Option<TaskStatusUpdate> {
     let value: Value = match serde_json::from_str(payload) {
         Ok(value) => value,
         Err(error) => {
@@ -111,23 +113,43 @@ fn decode_server_event(payload: &str) -> Option<TaskStatusEvent> {
         return None;
     }
 
-    let event_type = value.get("event_type").and_then(Value::as_str);
-    if event_type != Some("task_status") {
-        tracing::warn!(event_type = ?event_type, "Skipping unsupported server-event type");
+    let Some(kind_value) = value.get("event_type") else {
+        tracing::warn!("Skipping server event with no event_type");
         return None;
-    }
+    };
+    let kind: ServerEventKind = match serde_json::from_value(kind_value.clone()) {
+        Ok(kind) => kind,
+        Err(error) => {
+            tracing::warn!(
+                error = ?error,
+                event_type = ?kind_value,
+                "Skipping server event with an unknown event_type"
+            );
+            return None;
+        }
+    };
 
-    let event: TaskStatusEvent = match serde_json::from_value(value) {
+    // Matching the enum turns a new kind into a compile error here rather than a
+    // notification that is silently dropped.
+    match kind {
+        ServerEventKind::TaskStatus => decode_task_status_update(value),
+    }
+}
+
+/// Decode the `task_status` body of an envelope that already passed the version
+/// and kind gates.
+fn decode_task_status_update(value: Value) -> Option<TaskStatusUpdate> {
+    let event: TaskStatusUpdate = match serde_json::from_value(value) {
         Ok(event) => event,
         Err(error) => {
             tracing::warn!(error = ?error, "Skipping malformed task-status event");
             return None;
         }
     };
-    if !event.user_id.is_some_and(|user_id| user_id > 0) {
+    if !event.entity_owner_id.is_some_and(|owner_id| owner_id > 0) {
         tracing::warn!(
             run_id = %event.payload.run_id,
-            "Skipping task-status event without a routing user_id"
+            "Skipping task-status event without an entity owner"
         );
         return None;
     }
@@ -143,13 +165,13 @@ mod tests {
 
     use super::*;
 
-    const TASK_STATUS: &str = r#"{"schema_version":4,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"user_id":7,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"logical_id":"u7-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#;
+    const TASK_STATUS: &str = r#"{"schema_version":4,"event_type":"task_status","timestamp":"2026-09-21T18:42:10Z","entity_type":"capture","entity_id":42,"entity_owner_id":7,"payload":{"task_type":"illuminate","status":{"name":"complete_success","discriminant":4},"logical_id":"u7-illuminate-capture42","run_id":"b91a7c4f-7e8a-4bf8-9a76-c81e258ec113","run_number":3,"attempts":1}}"#;
 
     #[test]
     fn decodes_task_status_event() {
         let event = decode_server_event(TASK_STATUS).expect("task-status payload should decode");
         assert_eq!(event.payload.run_id, "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113");
-        assert!(event.belongs_to(7));
+        assert_eq!(event.entity_owner_id, Some(7));
     }
 
     #[test]
@@ -170,8 +192,8 @@ mod tests {
     }
 
     #[test]
-    fn skips_task_status_without_routing_user_id() {
-        let no_owner = TASK_STATUS.replace(r#""user_id":7,"#, "");
+    fn skips_task_status_without_an_entity_owner() {
+        let no_owner = TASK_STATUS.replace(r#""entity_owner_id":7,"#, "");
         assert!(decode_server_event(&no_owner).is_none());
     }
 
@@ -202,10 +224,10 @@ mod tests {
         let notifier = super::super::PostgresNotifier::new(&db.conn);
 
         let event_id = (uuid::Uuid::new_v4().as_u128() as u32) as i32;
-        let task_status = super::super::ServerEvent {
-            user_id: Some(741_258),
-            ..TaskStatusEvent::new(
-                ServerEventTypes::TaskStatus,
+        let task_status = super::super::ServerEventEnvelope {
+            entity_owner_id: Some(741_258),
+            ..TaskStatusUpdate::new(
+                ServerEventKind::TaskStatus,
                 Utc::now(),
                 "capture",
                 event_id,
@@ -222,7 +244,7 @@ mod tests {
             )
         };
         // A version this build does not understand must be skipped, not fatal.
-        let from_a_newer_build = super::super::ServerEvent {
+        let from_a_newer_build = super::super::ServerEventEnvelope {
             schema_version: CURRENT_SCHEMA_VERSION + 1,
             ..task_status.clone()
         };
@@ -243,9 +265,9 @@ mod tests {
     }
 
     async fn receive_matching_entity(
-        receiver: &mut broadcast::Receiver<TaskStatusEvent>,
+        receiver: &mut broadcast::Receiver<TaskStatusUpdate>,
         entity_id: i32,
-    ) -> TaskStatusEvent {
+    ) -> TaskStatusUpdate {
         tokio::time::timeout(Duration::from_secs(5), async {
             loop {
                 let event = receiver.recv().await.expect("fanout should remain open");

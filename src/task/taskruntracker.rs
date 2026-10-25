@@ -339,11 +339,11 @@ mod tests {
     use super::*;
 
     #[derive(Clone, Default)]
-    struct RecordingNotifier(Arc<Mutex<Vec<sse::TaskStatusEvent>>>);
+    struct RecordingNotifier(Arc<Mutex<Vec<sse::TaskStatusUpdate>>>);
 
     #[async_trait::async_trait]
     impl sse::ServerEventNotifier for RecordingNotifier {
-        async fn notify_task_status(&self, event: &sse::TaskStatusEvent) -> anyhow::Result<()> {
+        async fn notify_task_status(&self, event: &sse::TaskStatusUpdate) -> anyhow::Result<()> {
             self.0.lock().unwrap().push(event.clone());
             Ok(())
         }
@@ -353,7 +353,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl sse::ServerEventNotifier for FailingNotifier {
-        async fn notify_task_status(&self, _event: &sse::TaskStatusEvent) -> anyhow::Result<()> {
+        async fn notify_task_status(&self, _event: &sse::TaskStatusUpdate) -> anyhow::Result<()> {
             anyhow::bail!("simulated notification failure")
         }
     }

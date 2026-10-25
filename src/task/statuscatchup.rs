@@ -37,7 +37,7 @@ impl StatusCatchup {
         entity_owner_id: i32,
         entity_type: &str,
         entity_ids: &[i32],
-    ) -> Result<Vec<sse::TaskStatusEvent>, api::ApiError> {
+    ) -> Result<Vec<sse::TaskStatusUpdate>, api::ApiError> {
         let rows = self
             .tracker
             .query_latest_task_runs(entity_owner_id, entity_type, entity_ids)
@@ -61,7 +61,7 @@ impl StatusCatchup {
                 } else {
                     None
                 };
-                sse::TaskStatusEvent::from_row(&row, estimate)
+                sse::TaskStatusUpdate::from_row(&row, estimate)
             })
             .collect())
     }
@@ -145,7 +145,7 @@ mod tests {
             2,
             "one event per task type, scoped to the caller's entities"
         );
-        assert!(events.iter().all(|event| event.user_id == Some(1)));
+        assert!(events.iter().all(|event| event.entity_owner_id == Some(1)));
         let illuminate_event = events
             .iter()
             .find(|event| event.payload.task_type == "illuminate")
