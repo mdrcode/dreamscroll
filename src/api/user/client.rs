@@ -54,17 +54,16 @@ impl UserApiClient {
             .collect())
     }
 
+    /// Fetch one of the user's own captures by id, archived included. Archived
+    /// captures stay viewable; they are only hidden from feeds.
     #[tracing::instrument(skip(self, context))]
     pub async fn get_capture(
         &self,
         context: &auth::Context,
         id: i32,
     ) -> Result<CaptureInfo, ApiError> {
-        self.get_captures(context, vec![id])
-            .await?
-            .into_iter()
-            .next()
-            .ok_or_else(|| ApiError::not_found(anyhow!("Capture with id {id} not found")))
+        let capture = super::get_capture(&self.db, context, id).await?;
+        Ok(self.info_maker.make_capture_info(capture))
     }
 
     #[tracing::instrument(skip(self, context))]
@@ -191,6 +190,20 @@ impl UserApiClient {
         limit: u64,
     ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
         let captures = super::get_timeline_captures(&self.db, context, limit).await;
+
+        Ok(captures?
+            .into_iter()
+            .map(|m| self.info_maker.make_capture_info(m))
+            .collect())
+    }
+
+    #[tracing::instrument(skip(self, context))]
+    pub async fn get_captures_archived(
+        &self,
+        context: &auth::Context,
+        limit: u64,
+    ) -> Result<Vec<schema::CaptureInfo>, ApiError> {
+        let captures = super::get_captures_archived(&self.db, context, limit).await;
 
         Ok(captures?
             .into_iter()
@@ -474,12 +487,12 @@ impl UserApiClient {
     }
 
     #[tracing::instrument(skip(self, context))]
-    pub async fn archive_annotation(
+    pub async fn soft_delete_annotation(
         &self,
         context: &auth::Context,
         capture_id: i32,
     ) -> Result<(), ApiError> {
-        super::archive_annotation(&self.db, context, capture_id).await
+        super::soft_delete_annotation(&self.db, context, capture_id).await
     }
 
     #[tracing::instrument(skip(self, context))]

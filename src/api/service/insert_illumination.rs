@@ -216,6 +216,7 @@ mod tests {
             user_id: user.id,
             created_at: Utc::now(),
             created_at_human: String::new(),
+            archived_at: None,
             medias: vec![crate::api::MediaInfo {
                 id: media.id,
                 storage_uuid: media.storage_uuid,

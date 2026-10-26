@@ -1,0 +1,6 @@
+<form class="card-footer__archive-form"
+    method="post"
+    action="{% if capture.archived_at %}/detail/{{ capture.id }}/unarchive{% else %}/detail/{{ capture.id }}/archive{% endif %}">
+    <input type="hidden" name="next" value="{{ archive_return_to }}">
+    <button type="submit" class="card-footer__action">{% if capture.archived_at %}unarchive{% else %}archive{% endif %}</button>
+</form>

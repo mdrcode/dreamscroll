@@ -3,6 +3,9 @@ pub mod client;
 mod get_capture;
 pub use get_capture::*;
 
+mod get_captures_archived;
+pub use get_captures_archived::*;
+
 mod get_entity;
 pub use get_entity::*;
 
@@ -24,8 +27,8 @@ pub use insert_capture::*;
 mod archive_capture;
 pub use archive_capture::*;
 
-mod archive_annotation;
-pub use archive_annotation::*;
+mod soft_delete_annotation;
+pub use soft_delete_annotation::*;
 
 mod delete_capture;
 pub use delete_capture::*;

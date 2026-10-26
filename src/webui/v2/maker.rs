@@ -93,7 +93,10 @@ pub fn make_ui_router(
 
     let routes_protected = Router::new()
         .route("/", get(r_feed::page))
+        .route("/archived", get(r_archived::page))
         .route("/detail/{id}", get(r_detail::get))
+        .route("/detail/{id}/archive", post(r_capture::archive))
+        .route("/detail/{id}/unarchive", post(r_capture::unarchive))
         .route("/entity/{id}", get(r_entity::get))
         .route(
             "/detail/{id}/illumination",
@@ -112,8 +115,8 @@ pub fn make_ui_router(
         )
         .route("/annotation/{capture_id}/form", get(r_annotation::form))
         .route(
-            "/annotation/{capture_id}/archive",
-            post(r_annotation::archive),
+            "/annotation/{capture_id}/soft-delete",
+            post(r_annotation::soft_delete),
         )
         .route("/command", post(r_command::post))
         .route("/upload", post(r_upload::post))
@@ -264,6 +267,8 @@ mod tests {
         detail.insert("page_kind", &"capture_detail");
         detail.insert("feed_content_mode", &"detail");
         detail.insert("page_snapshot_at", &"2026-10-22T12:00:00Z");
+        detail.insert("show_archive_actions", &true);
+        detail.insert("archive_return_to", &"/detail/7");
         detail.insert(
             "capture",
             &serde_json::json!({
@@ -280,6 +285,8 @@ mod tests {
         assert!(detail.contains("data-capture-id=\"7\""));
         assert!(detail.contains("action=\"/\""));
         assert!(!detail.contains("hx-get=\"/feed\""));
+        assert!(detail.contains("action=\"/detail/7/archive\""));
+        assert!(detail.contains(">archive</button>"));
 
         let mut account = tera::Context::new();
         account.insert("static_asset_version", &"test");
@@ -291,6 +298,55 @@ mod tests {
         assert!(!account.contains("header-search-form"));
         assert!(!account.contains("file-upload-form"));
         assert!(!account.contains("webui-v2.js"));
+    }
+
+    #[test]
+    fn archived_page_lists_archived_captures_with_unarchive_action() {
+        let tera = load_templates().expect("all v2 templates should load");
+        let mut context = tera::Context::new();
+        context.insert("static_asset_version", &"test");
+        context.insert("page_kind", &"feed");
+        context.insert("page_title", &"dreamscroll - archived");
+        context.insert("feed_heading", &"Archived");
+        context.insert("feed_empty_message", &"No archived captures.");
+        context.insert("feed_content_mode", &"archived");
+        context.insert("show_archive_actions", &true);
+        context.insert("archive_return_to", &"/archived");
+        context.insert("page_snapshot_at", &"2026-10-22T12:00:00Z");
+        context.insert(
+            "cards",
+            &serde_json::json!([{
+                "kind": "capture",
+                "capture": {
+                    "id": 9,
+                    "medias": [{ "url": "https://example.com/image.jpg", "storage_uuid": "abc" }],
+                    "illuminations": [],
+                    "annotation": null,
+                    "archived_at": "2026-10-21T12:00:00Z",
+                    "created_at": "2026-10-20T12:00:00Z",
+                    "created_at_human": "yesterday"
+                }
+            }]),
+        );
+
+        let rendered = tera.render("index.html.tera", &context).unwrap();
+
+        assert!(rendered.contains("<title>dreamscroll - archived</title>"));
+        assert!(rendered.contains(">Archived</p>"));
+        assert!(rendered.contains("action=\"/detail/9/unarchive\""));
+        assert!(rendered.contains(">unarchive</button>"));
+        assert!(rendered.contains("name=\"next\" value=\"/archived\""));
+        assert!(!rendered.contains("action=\"/detail/9/archive\""));
+
+        let mut empty = tera::Context::new();
+        empty.insert("static_asset_version", &"test");
+        empty.insert("page_kind", &"feed");
+        empty.insert("feed_content_mode", &"archived");
+        empty.insert("feed_empty_message", &"No archived captures.");
+        empty.insert("cards", &serde_json::json!([]));
+        let empty = tera.render("index.html.tera", &empty).unwrap();
+        assert!(empty.contains("No archived captures."));
+        assert!(!empty.contains("No cards to show."));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 <div
-    id="annotation-footer-left-{{ capture.id }}"
-    class="card-footer__left"
+    id="annotation-footer-note-{{ capture.id }}"
+    class="card-footer__note"
     {% if oob | default(value=false) %}hx-swap-oob="outerHTML"{% endif %}>
     {% set is_annotation_editing = annotation_editing | default(value=false) %}
     {% if not capture.annotation and not is_annotation_editing %}

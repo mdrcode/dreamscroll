@@ -20,12 +20,13 @@
                 hx-target="#annotation-block-{{ capture.id }}"
                 hx-swap="outerHTML">cancel</button>
             {% if capture.annotation %}
+            {# Soft delete: stamps annotations.archived_at. There is no way back. #}
             <button
                 type="button"
                 class="capture-card__annotation-action"
-                hx-post="/annotation/{{ capture.id }}/archive"
+                hx-post="/annotation/{{ capture.id }}/soft-delete"
                 hx-target="#annotation-block-{{ capture.id }}"
-                hx-swap="outerHTML">archive</button>
+                hx-swap="outerHTML">delete</button>
             {% endif %}
         </div>
     </form>

@@ -9,7 +9,9 @@ mod web_state;
 pub use web_state::WebState;
 
 mod r_annotation;
+mod r_archived;
 mod r_auth;
+mod r_capture;
 mod r_command;
 mod r_detail;
 mod r_entity;

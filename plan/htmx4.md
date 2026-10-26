@@ -54,7 +54,7 @@ Ordered by practical value here:
 2. **`<hx-partial>`.** Available on the 2.0.11 baseline, so not a reason to
    upgrade. It replaces `hx-swap-oob` with explicit per-target
    targeting/swap config. We have two OOB uses
-   (`annotation_footer_left.html.tera`, `capture_metadata.html.tera`) and any
+   (`annotation_footer_note.html.tera`, `capture_metadata.html.tera`) and any
    future multi-region SSE update would benefit. Clearer than “magic” OOB
    elements.
 3. **`fetch()` internals and streaming HTML.** Enables the rewritten `hx-sse`,
@@ -164,7 +164,7 @@ Note the CLI is argparse-based and requires the path **before** `--ext`; also
 6. Switch the SSE card refresh from `outerHTML` to `outerMorph` and verify
    disclosure/focus/scroll behavior; reconcile any client-only state that morph
    discards.
-7. Smoke-test: upload → SSE card refresh, annotation add/edit/archive,
+7. Smoke-test: upload → SSE card refresh, annotation add/edit/delete,
    search submit and back button, related-captures load, mobile upload.
 
 ## 5. Recommendation

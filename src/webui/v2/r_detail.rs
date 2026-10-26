@@ -26,6 +26,10 @@ pub async fn get(
     context.insert("page_snapshot_at", &page_snapshot_at);
     context.insert("feed_content_mode", "detail");
     context.insert("capture", &capture);
+    context.insert("show_archive_actions", &true);
+    // Archiving or unarchiving here leaves the user on the same page, with the
+    // action flipped.
+    context.insert("archive_return_to", &format!("/detail/{id}"));
 
     let rendered = state.render("detail.html.tera", &context)?;
 

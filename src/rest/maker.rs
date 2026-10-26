@@ -67,8 +67,8 @@ pub fn make_api_router(
         )
         .route("/captures/{capture_id}/annotation", post(r_annotation::set))
         .route(
-            "/captures/{capture_id}/annotation/archive",
-            post(r_annotation::archive),
+            "/captures/{capture_id}/annotation/soft-delete",
+            post(r_annotation::soft_delete),
         )
         .route("/captures/import", post(r_import_capture::post))
         .route("/dummy", get(r_dummy::get))

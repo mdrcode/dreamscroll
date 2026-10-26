@@ -38,19 +38,19 @@ pub async fn set(
     Ok(Json(annotation))
 }
 
-/// POST /api/captures/{capture_id}/annotation/archive - Archive latest active
-/// annotation for a capture.
+/// POST /api/captures/{capture_id}/annotation/soft-delete - Soft-delete the latest
+/// active annotation for a capture.
 ///
 /// Requires JWT authentication. The capture must belong to the authenticated user.
 /// Idempotent: returns success even when no active annotation exists.
-pub async fn archive(
+pub async fn soft_delete(
     user: DreamscrollAuthUser,
     State(state): State<Arc<RestState>>,
     Path(capture_id): Path<i32>,
 ) -> Result<impl IntoResponse, api::ApiError> {
     state
         .user_api
-        .archive_annotation(&user.into(), capture_id)
+        .soft_delete_annotation(&user.into(), capture_id)
         .await?;
 
     Ok(StatusCode::NO_CONTENT)

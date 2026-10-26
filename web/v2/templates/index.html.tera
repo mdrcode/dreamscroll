@@ -1,11 +1,12 @@
 {% extends "base.html.tera" %}
 
-{% block title %}dreamscroll{% endblock %}
+{% block title %}{{ page_title | default(value="dreamscroll") }}{% endblock %}
 
 {% block body_attrs %} data-feed-content-mode="{{ feed_content_mode }}"{% endblock %}
 
 {% block content %}
 <div id="card-feed">
+    {% if feed_heading | default(value="") %}<p class="metadata-subsection-title feed-heading">{{ feed_heading }}</p>{% endif %}
     {% include "partials/feed.html.tera" %}
 </div>
 {% endblock %}

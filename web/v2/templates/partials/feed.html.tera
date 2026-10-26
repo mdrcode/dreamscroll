@@ -1,5 +1,5 @@
 {% if cards | length == 0 %}
-<div class="empty-state">No cards to show.</div>
+<div class="empty-state">{{ feed_empty_message | default(value="No cards to show.") }}</div>
 {% endif %}
 
 {% for card in cards %}

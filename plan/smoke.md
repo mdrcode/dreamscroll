@@ -105,8 +105,8 @@ anything that mutates state.
 - Use the `smoke-agent` account, not the owner's account, for UI and HTTP checks.
   Admin REST commands are the exception: they need an admin account whose token
   only the owner can cache (see Admin commands above).
-- Search, uploads, illumination, annotation changes, and archive/delete can
-  mutate data or call paid providers; ask before using them.
+- Search, uploads, illumination, annotation edits and deletes, and capture
+  archive/delete can mutate data or call paid providers; ask before using them.
 - The account and its data are persistent. There is no automatic cleanup.
 
 ---

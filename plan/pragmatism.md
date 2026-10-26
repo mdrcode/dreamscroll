@@ -1,6 +1,6 @@
 # Pragmatism — tolerated trade-offs
 
-**Status:** living document. Last updated 2026-10-23.
+**Status:** living document. Last updated 2026-10-25.
 
 > **See also:**
 > - `plan/archive/task-status.md` — the task framework (implemented).
@@ -127,6 +127,14 @@ largest category, and the least urgent, because the app is single-user today.
 | **Legacy illumination rows may lack suggested searches** | Older rows can have `NULL` after suggested searches moved into `illuminations`; the UI now treats these as empty, so former `xqueries` suggestions are not migrated. | Avoid a data migration for prototype-local data; new v2 inserts always persist the list. | If old captures need their prior suggestions restored. |
 | **Raw-only reruns leave projections and the search index on the prior run** | `persist_projection=false` writes raw output and usage metadata but preserves existing projections and skips indexing, so the newest raw result is not what the UI displays or search returns. | The mode exists for evaluation of prompts/model parameters; overwriting a good projection with an eval run would be worse. | Eval runs need to surface side by side with the live projection, or operators forget which run is live. |
 | **Occurrence pages derive siblings from the capture's newest illumination** | The entity page reads the capture, not the occurrence's own `illumination_id`, so after a re-illumination an occurrence lists the siblings produced by the later illumination rather than the ones it was created with. | Sibling navigation is a browsing aid, not a historical projection; querying by the occurrence's illumination adds a second read path for a rare state. | Occurrence pages become a record of per-run output rather than a current-entity view. |
+
+### Web UI and REST surface
+
+| Issue | Effect | Why tolerated | Revisit trigger |
+| --- | --- | --- | --- |
+| **The archived feed is unlinked and unpaged** | `/archived` renders the user's archived captures, most recently archived first, capped at 100. Nothing in the header navigates there; the URL has to be typed. | Archive is a recovery surface, not a destination. A nav entry and a cursor would be spent before anyone uses the page. See `GET /archived` in `src/webui/v2/r_archived.rs`. | Archiving becomes routine, or the cap starts hiding captures someone wants back. |
+| **Archive/unarchive is a plain form POST with a full page load** | The button lives in the card footer and posts `next` (a validated local path) so the user lands back where they clicked. No HTMX fragment, no optimistic toggle. | Cheapest thing that works and needs no JS; the same page renders the flipped button on reload. A fragment endpoint would have to re-render the whole detail card for one word. | Archiving becomes a bulk or high-frequency action. |
+| **`GET /api/captures` cannot read an archived capture back** | The REST read goes through the same bulk loader as the feeds, which filters archived rows, so a client that archived a capture gets nothing for that id. The web UI can still open it by id. | The web UI is the only archive client today; `?include_archived=true` is API surface nobody has asked for. | A non-web client needs to reopen or list archived captures. |
 
 ### Code cleanliness
 

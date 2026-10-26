@@ -9,6 +9,9 @@ pub struct CaptureInfo {
     pub user_id: i32,
     pub created_at: DateTime<Utc>,
     pub created_at_human: String,
+    /// Set when the capture is archived: hidden from feeds, still the owner's
+    /// data and still viewable by id.
+    pub archived_at: Option<DateTime<Utc>>,
     pub medias: Vec<MediaInfo>,
     /// At most **one** entry: the most recent illumination (highest `id`).
     ///

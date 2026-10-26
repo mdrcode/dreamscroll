@@ -5,7 +5,10 @@ use sea_orm::{ActiveModelTrait, QueryOrder, Set};
 
 use crate::{api::*, auth, database::DbHandle, model};
 
-pub async fn archive_annotation(
+/// Soft-delete: stamps `archived_at` on the capture's latest active annotation.
+/// The row survives, but nothing reads archived annotations, and there is no
+/// unarchive path — writing a new note inserts a new row.
+pub async fn soft_delete_annotation(
     db: &DbHandle,
     context: &auth::Context,
     capture_id: i32,

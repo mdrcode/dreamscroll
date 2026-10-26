@@ -29,7 +29,7 @@ fn render_annotation_response(
 
     context.insert("oob", &true);
     context.insert("annotation_editing", &annotation_editing);
-    let footer_html = state.render("partials/cards/annotation_footer_left.html.tera", &context)?;
+    let footer_html = state.render("partials/cards/annotation_footer_note.html.tera", &context)?;
 
     Ok(Html(format!("{}{}", annotation_html, footer_html)).into_response())
 }
@@ -100,7 +100,7 @@ pub async fn set(
     )
 }
 
-pub async fn archive(
+pub async fn soft_delete(
     auth: AuthSession<auth::WebAuthBackend>,
     State(state): State<Arc<WebState>>,
     Path(capture_id): Path<i32>,
@@ -110,7 +110,7 @@ pub async fn archive(
 
     state
         .user_api
-        .archive_annotation(&context_user, capture_id)
+        .soft_delete_annotation(&context_user, capture_id)
         .await?;
 
     let capture = state

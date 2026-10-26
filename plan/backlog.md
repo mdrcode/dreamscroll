@@ -10,6 +10,9 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   to use consistent - or _. Currently we use a mix.
 - [ ] Change /detail to be /capture to be more RESTful and to match the pattern
   we established with /entity.
+- [ ] Expose the archived feed navigationally and paginate it. `/archived` works
+  but is reachable only by typing the URL and caps at 100 captures, most recently
+  archived first. See the Web UI table in `plan/pragmatism.md`.
 - [ ] Add a terminal indication to Backfill data somehow. Like "first dry pump"
   timestamp or something.
 - [ ] **Settle the agent smoke-environment story.** Today an agent can use the

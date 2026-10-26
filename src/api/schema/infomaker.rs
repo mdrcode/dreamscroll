@@ -59,6 +59,7 @@ impl InfoMaker {
             user_id: capture_model.user_id,
             created_at: capture_model.created_at,
             created_at_human: common::humanize_datetime(capture_model.created_at),
+            archived_at: capture_model.archived_at,
             medias,
             illuminations,
             annotation,

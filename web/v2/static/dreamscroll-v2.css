@@ -509,7 +509,7 @@ body {
     margin-top: auto;
 }
 
-.card-footer__left {
+.card-footer__note {
     display: flex;
     align-items: center;
     min-height: 1.1rem;
@@ -524,6 +524,14 @@ body {
     font-style: italic;
     padding: 0;
     cursor: pointer;
+}
+
+.card-footer__archive-form {
+    margin: 0;
+}
+
+.feed-heading {
+    margin-bottom: 10px;
 }
 
 .card-footer__action:visited {
@@ -573,10 +581,16 @@ body {
     line-height: 1.4;
 }
 
-.capture-card__annotation-actions,
-.capture-card__annotation-form-actions {
+.capture-card__annotation-actions {
     display: flex;
     justify-content: flex-end;
+    gap: 8px;
+    margin-top: 6px;
+}
+
+.capture-card__annotation-form-actions {
+    display: flex;
+    justify-content: center;
     gap: 8px;
     margin-top: 6px;
 }

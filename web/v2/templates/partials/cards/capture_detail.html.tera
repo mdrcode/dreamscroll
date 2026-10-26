@@ -22,7 +22,8 @@
     <div class="card-footer card-footer--detail">
         {% include "partials/cards/annotation_block.html.tera" %}
         <div class="card-footer__meta">
-            {% include "partials/cards/annotation_footer_left.html.tera" %}
+            {% include "partials/cards/capture_archive_action.html.tera" %}
+            {% include "partials/cards/annotation_footer_note.html.tera" %}
             <a class="card-footer__action" href="/detail/{{ capture.id }}" title="{{ capture.created_at }}">{{ capture.created_at_human }}</a>
         </div>
     </div>
