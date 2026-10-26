@@ -126,7 +126,7 @@ function setupTaskStatusEvents() {
     function refreshDetailIllumination(captureId, eventTimestamp) {
         const region = document.getElementById('capture-illumination-' + captureId);
         if (!region || !isNewerThanSnapshot(eventTimestamp, region.dataset.snapshotAt)) return;
-        window.htmx.ajax('GET', '/detail/' + captureId + '/illumination?animate_illumination=true', {
+        window.htmx.ajax('GET', '/capture/' + captureId + '/illumination?animate_illumination=true', {
             source: region,
             target: region,
             swap: 'outerHTML'
@@ -657,7 +657,7 @@ async function loadRelatedCaptures(gallery, grid, emptyState, previewsUrl) {
             bucket.forEach(function (image) {
                 const link = document.createElement('a');
                 link.className = 'related-captures__item';
-                link.href = '/detail/' + String(image.id);
+                link.href = '/capture/' + String(image.id);
                 link.setAttribute('aria-label', image.summary || 'Related capture');
                 if (image.summary) {
                     link.title = image.summary;
@@ -1073,7 +1073,7 @@ function setupUploadInteractions() {
         noticeMessage.textContent = '';
         if (uploadResult) {
             const link = document.createElement('a');
-            link.href = uploadResult.detail_url;
+            link.href = uploadResult.capture_url;
             link.textContent = 'Capture ' + String(uploadResult.capture_id);
             noticeMessage.appendChild(link);
             noticeMessage.appendChild(document.createTextNode(' successfully uploaded.'));
@@ -1106,7 +1106,7 @@ function setupUploadInteractions() {
 
         try {
             const payload = JSON.parse(xhr.responseText);
-            if (!payload || !Number.isInteger(payload.capture_id) || typeof payload.detail_url !== 'string') {
+            if (!payload || !Number.isInteger(payload.capture_id) || typeof payload.capture_url !== 'string') {
                 return null;
             }
             return payload;

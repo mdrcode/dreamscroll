@@ -1,7 +1,7 @@
 <article id="capture-card-{{ card.capture.id }}" data-capture-id="{{ card.capture.id }}" class="feed-card feed-card--capture capture-card">
     {% set capture = card.capture %}
     <div class="capture-card__image-container">
-        <a class="capture-card__image-link" href="/detail/{{ card.capture.id }}">
+        <a class="capture-card__image-link" href="/capture/{{ card.capture.id }}">
             <img class="capture-card__image" src="{{ card.capture.medias[0].url }}" alt="image {{ card.capture.medias[0].storage_uuid }}">
         </a>
     </div>
@@ -19,7 +19,7 @@
         <div class="card-footer">
             {% if show_archive_actions | default(value=false) %}{% include "partials/cards/capture_archive_action.html.tera" %}{% endif %}
             {% include "partials/cards/annotation_footer_note.html.tera" %}
-            <a class="card-footer__action" href="/detail/{{ capture.id }}" title="{{ capture.created_at }}">{{ capture.created_at_human }}</a>
+            <a class="card-footer__action" href="/capture/{{ capture.id }}" title="{{ capture.created_at }}">{{ capture.created_at_human }}</a>
         </div>
     </div>
 </article>

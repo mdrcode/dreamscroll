@@ -18,7 +18,7 @@ use super::WebState;
 #[derive(Serialize)]
 struct UploadResult {
     capture_id: i32,
-    detail_url: String,
+    capture_url: String,
 }
 
 pub async fn post(
@@ -51,7 +51,7 @@ pub async fn post(
 
     let payload = UploadResult {
         capture_id: cap.id,
-        detail_url: format!("/detail/{}", cap.id),
+        capture_url: format!("/capture/{}", cap.id),
     };
 
     Ok((StatusCode::CREATED, Json(payload)).into_response())

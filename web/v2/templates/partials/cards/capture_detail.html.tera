@@ -1,5 +1,5 @@
 <article id="capture-card-{{ capture.id }}" data-capture-id="{{ capture.id }}" class="feed-card feed-card--capture capture-card capture-card--detail">
-    <div class="card-header card-header--detail">
+    <div class="card-header">
         <p class="metadata-subsection-title">Capture {{ capture.id }}</p>
     </div>
 
@@ -24,7 +24,7 @@
         <div class="card-footer__meta">
             {% include "partials/cards/capture_archive_action.html.tera" %}
             {% include "partials/cards/annotation_footer_note.html.tera" %}
-            <a class="card-footer__action" href="/detail/{{ capture.id }}" title="{{ capture.created_at }}">{{ capture.created_at_human }}</a>
+            <a class="card-footer__action" href="/capture/{{ capture.id }}" title="{{ capture.created_at }}">{{ capture.created_at_human }}</a>
         </div>
     </div>
 </article>
@@ -35,7 +35,7 @@
     id="related-captures"
     class="related-captures"
     data-related-captures
-    data-previews-url="/detail/{{ capture.id }}/related/previews"
+    data-previews-url="/capture/{{ capture.id }}/related/previews"
     aria-label="Related captures">
     <p class="metadata-subsection-title">Related Captures</p>
     <div class="empty-state related-captures__empty" hidden>No related captures found.</div>

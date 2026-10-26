@@ -94,15 +94,15 @@ pub fn make_ui_router(
     let routes_protected = Router::new()
         .route("/", get(r_feed::page))
         .route("/archived", get(r_archived::page))
-        .route("/detail/{id}", get(r_detail::get))
-        .route("/detail/{id}/archive", post(r_capture::archive))
-        .route("/detail/{id}/unarchive", post(r_capture::unarchive))
+        .route("/capture/{id}", get(r_capture::get))
+        .route("/capture/{id}/archive", post(r_capture::archive))
+        .route("/capture/{id}/unarchive", post(r_capture::unarchive))
         .route("/entity/{id}", get(r_entity::get))
         .route(
-            "/detail/{id}/illumination",
+            "/capture/{id}/illumination",
             get(r_illumination::detail_fragments),
         )
-        .route("/detail/{id}/related/previews", get(r_related::previews))
+        .route("/capture/{id}/related/previews", get(r_related::previews))
         .route("/feed", get(r_feed::fragment))
         .route(
             "/feed/capture/{id}/illumination",
@@ -268,7 +268,7 @@ mod tests {
         detail.insert("feed_content_mode", &"detail");
         detail.insert("page_snapshot_at", &"2026-10-22T12:00:00Z");
         detail.insert("show_archive_actions", &true);
-        detail.insert("archive_return_to", &"/detail/7");
+        detail.insert("archive_return_to", &"/capture/7");
         detail.insert(
             "capture",
             &serde_json::json!({
@@ -280,12 +280,12 @@ mod tests {
                 "created_at_human": "now"
             }),
         );
-        let detail = tera.render("detail.html.tera", &detail).unwrap();
+        let detail = tera.render("capture.html.tera", &detail).unwrap();
         assert!(detail.contains("data-page-kind=\"capture_detail\""));
         assert!(detail.contains("data-capture-id=\"7\""));
         assert!(detail.contains("action=\"/\""));
         assert!(!detail.contains("hx-get=\"/feed\""));
-        assert!(detail.contains("action=\"/detail/7/archive\""));
+        assert!(detail.contains("action=\"/capture/7/archive\""));
         assert!(detail.contains(">archive</button>"));
 
         let mut account = tera::Context::new();
@@ -333,10 +333,10 @@ mod tests {
 
         assert!(rendered.contains("<title>dreamscroll - archived</title>"));
         assert!(rendered.contains(">Archived</p>"));
-        assert!(rendered.contains("action=\"/detail/9/unarchive\""));
+        assert!(rendered.contains("action=\"/capture/9/unarchive\""));
         assert!(rendered.contains(">unarchive</button>"));
         assert!(rendered.contains("name=\"next\" value=\"/archived\""));
-        assert!(!rendered.contains("action=\"/detail/9/archive\""));
+        assert!(!rendered.contains("action=\"/capture/9/archive\""));
 
         let mut empty = tera::Context::new();
         empty.insert("static_asset_version", &"test");
@@ -399,7 +399,7 @@ mod tests {
         assert!(
             rendered.contains("https://www.google.com/search?q=Ada%20Lovelace%20mathematician")
         );
-        assert!(rendered.contains("href=\"/detail/7\""));
+        assert!(rendered.contains("href=\"/capture/7\""));
         assert!(rendered.contains("Source capture summary"));
         assert!(rendered.contains("href=\"/entity/12\""));
         assert!(rendered.contains("Charles Babbage"));

@@ -60,3 +60,4 @@ inside it (never rewrite history), and update the row below.
 | [google-ai-interactions-api.md](archive/google-ai-interactions-api.md) | One Interactions API client for both Google backends. |
 | [webui-v2-audit.md](archive/webui-v2-audit.md) | Full audit of `web/v2`; all findings fixed or accepted. |
 | [feed-route-rename.md](archive/feed-route-rename.md) | Feed fragment route renamed `/cards` → `/feed`; what moved and what deliberately did not. |
+| [webui-capture-route.md](archive/webui-capture-route.md) | Capture page routes moved from `/detail` to `/capture`; upload field renamed with them. |
