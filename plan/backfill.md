@@ -1,8 +1,6 @@
 # Backfill management
 
-> **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
-
-**Status:** Implemented: typed Backfill definitions, shared bounded pumping, TaskRun correlation, database uniqueness, Beacon descendant propagation, and admin API/CLI status reporting. The existing executor remains the execution path.
+**Status:** Living — implemented: typed Backfill definitions, bounded pumping, TaskRun correlation, database uniqueness, Beacon descendant propagation, admin API/CLI status reporting, and the dry-pump latch. The existing executor remains the execution path. See [plan/README.md](README.md) for the index.
 
 ## Goal and scope
 
@@ -106,11 +104,11 @@ dreamscroll_api --host localhost:8080 backfill pump --limit 25 illuminate-v2-all
 dreamscroll_api --host localhost:8080 backfill status illuminate-v2-all-captures-2026-10-16
 ```
 
-Repeat pumps manually until `selected_count` is zero; inspect status separately for queued work or failures. Pump CLI output is explicitly labeled **this invocation only**: candidates attempted, newly enqueued, skipped because already recorded for this backfill, skipped because a conflicting run is in flight, and submission errors. These are submission outcomes, not cumulative backfill status; the output points to `backfill status` for overall progress.
+Repeat pumps manually until a pump finds no candidates. That pump records the dry streak (`dry_since`); later pumps are refused until `--force`, and a forced pump that finds work clears the streak. Use `--force` once you know work has appeared — new captures, or a cause you fixed. Inspect status separately for queued work or failures. Pump CLI output is explicitly labeled **this invocation only**: candidates attempted, newly enqueued, skipped because already recorded for this backfill, skipped because a conflicting run is in flight, and submission errors. These are submission outcomes, not cumulative backfill status; the output points to `backfill status` for overall progress.
 
 `pump --limit N` optionally sets the maximum candidates attempted by that invocation. Omission uses 100; values above 100 are supported. The limit must be positive (zero returns HTTP 400). It caps attempts, not successful enqueues: refusals/errors can reduce the number enqueued, and the pump does not scan ahead to fill those slots. Descendant tasks do not count against this root-candidate limit. Progress exclusion still happens before limiting.
 
-Both operations require an admin account. Unknown IDs return 404. REST endpoints are `POST /api/admin/backfill/pump` with `{"backfill_id":"<id>","limit":25}` (the `limit` field is optional) and `GET /api/admin/backfill/<id>/status`. The old ad-hoc search-index backfill command and enqueue endpoint have been removed.
+Both operations require an admin account. Unknown IDs return 404. REST endpoints are `POST /api/admin/backfill/pump` with `{"backfill_id":"<id>","limit":25,"force":false}` (the `limit` and `force` fields are optional) and `GET /api/admin/backfill/<id>/status`. The old ad-hoc search-index backfill command and enqueue endpoint have been removed.
 
 ## Status and failures
 
@@ -198,3 +196,57 @@ token `403`, unknown ID `404`, no token `401`. The CLI printed the same 17 rows 
 both error columns are `NULL`. The `code + message` rendering is covered by the
 `describe_error` unit test rather than the smoke, which would have required
 writing error values into the dev database.
+
+## Dry latch: a record of the pump that found nothing
+
+**Added 2026-10-25.** Pumping was open-ended: a pump that selected zero targets
+returned an empty batch indistinguishable from a successful one, so nothing
+distinguished "I pumped and there was nothing" from "I pumped and it worked".
+`status` could not answer it either — the candidate set is live data.
+
+A backfill is a manual re-run of a pipeline segment, not a workflow with an
+anticipated work-item set. Handlers create descendant runs at execution time,
+so there is no declared edge set to close over; "every item that will ever
+exist" is not merely expensive to track, it is undefined. Terminality is
+therefore a fact about the **submission stream**, and the only honest record is
+what a pump observed.
+
+- `model::backfill` (`backfills` table, schema version 8) stores one row per
+  backfill ID: `last_pumped_at` and `dry_since`.
+- A pump with `selected_count == 0` starts a dry streak; later dry pumps keep
+  the original start; a pump that selects candidates clears it. `selected_count`
+  decides, not `enqueued_count`: a batch of in-flight refusals, duplicates, or
+  submission errors still saw candidates and is not dry.
+- While `dry_since` is set, the default pump is refused with `409`. Error bodies
+  stay opaque (`status` + `report_id`), so the status code is the public contract:
+  the CLI turns it into the dry guidance, and `status` carries the timestamps. A
+  refused pump writes nothing, so `last_pumped_at` continues to describe the last
+  real observation.
+- `force: true` (CLI `--force`) is the operator's acknowledgement that work may
+  have appeared since. It bypasses only the latch — never target selection,
+  deduplication, or the in-flight refusal. A forced pump that selects nothing
+  preserves the streak start; one that selects candidates clears it, so normal
+  pumping resumes without a flag.
+- The record means "no eligible targets as of a pump". It does not mean tagged
+  runs are settled, that they succeeded, or that every possible descendant was
+  submitted. Those are `status` and `failures` questions, and the plan's earlier
+  counts caveat is unchanged.
+- The write is one statement (`INSERT ... ON CONFLICT DO UPDATE ... RETURNING`),
+  so there is no check-then-act. Concurrent pumps can race the latch: a dry pump
+  can set it just after another pump selected work. The next pump refuses and the
+  operator forces; no locking or pump serialization, consistent with the
+  concurrent-pump stance above.
+- `status` exposes `last_pumped_at` and `dry_since` beside the run counts; the
+  CLI prints a dry hint and both pump and status report the timestamps.
+
+Verification: `a_dry_pump_latches_and_force_reopens_only_when_it_finds_work`
+(dry pump → `409` with no write → forced dry keeps the streak start → new
+capture + force clears it → the default pump runs again) and
+`pump_requests_that_omit_force_deserialize_and_force_is_opt_in` for the wire
+contract. Refusal text does not cross the wire: the body remains the generic
+status/report_id pair, and `backfill pump` maps `409` to the dry guidance itself.
+All 11 backfill tests passed against PostgreSQL; `sync_schema` moved the local
+dev database to version 8 and the restarted local server reported a compatible
+schema. No HTTP admin smoke: per `plan/smoke.md` those routes need the owner's
+credential, and the admin route is an unchanged thin wrapper over the engine
+covered by the tests.

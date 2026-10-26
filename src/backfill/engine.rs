@@ -1,8 +1,10 @@
 use std::{future::Future, sync::Arc};
 
 use anyhow::anyhow;
+use chrono::{DateTime, SecondsFormat, Utc};
 use sea_orm::{
-    ColumnTrait, EntityTrait, FromQueryResult, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
+    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, FromQueryResult, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait, Statement,
     sea_query::{Expr, ExprTrait, Order, Query},
 };
 
@@ -54,6 +56,7 @@ pub async fn pump(
                 db,
                 &backfill,
                 req.limit.unwrap_or(BATCH_SIZE),
+                req.force,
                 |task, id| task_master.submit_illuminate(context, task, Some(id)),
             )
             .await
@@ -110,6 +113,7 @@ pub(super) async fn pump_definition<B, F, Fut>(
     db: &database::DbHandle,
     backfill: &B,
     limit: u64,
+    force: bool,
     submit: F,
 ) -> Result<BackfillPumpResponse, ApiError>
 where
@@ -122,35 +126,110 @@ where
             "Candidate limit must be greater than zero"
         )));
     }
+    ensure_not_dry(db, backfill.id(), force).await?;
+
     let targets = select_targets(db, backfill, limit).await?;
-    let mut response = BackfillPumpResponse {
-        backfill_id: backfill.id().to_owned(),
-        selected_count: targets.len(),
-        enqueued_count: 0,
-        already_submitted_count: 0,
-        refused_in_flight_count: 0,
-        errors: Vec::new(),
-    };
+    let selected_count = targets.len();
+    let mut enqueued_count = 0;
+    let mut already_submitted_count = 0;
+    let mut refused_in_flight_count = 0;
+    let mut errors = Vec::new();
 
     for target in targets {
         match submit(backfill.make_task(target), backfill.id()).await {
-            Ok(task::SubmitOutcome::Enqueued { .. }) => response.enqueued_count += 1,
+            Ok(task::SubmitOutcome::Enqueued { .. }) => enqueued_count += 1,
             Ok(task::SubmitOutcome::AlreadySubmittedBackfill { .. }) => {
-                response.already_submitted_count += 1
+                already_submitted_count += 1
             }
-            Ok(task::SubmitOutcome::RefusedAlreadyInFlight) => {
-                response.refused_in_flight_count += 1
-            }
+            Ok(task::SubmitOutcome::RefusedAlreadyInFlight) => refused_in_flight_count += 1,
             Err(error) => {
                 tracing::warn!(backfill_id = backfill.id(), entity_id = target.entity_id, error = ?error, "Backfill submission failed");
-                response.errors.push(BackfillSubmissionError {
+                errors.push(BackfillSubmissionError {
                     entity_id: target.entity_id,
                     error: error.into_inner().to_string(),
                 });
             }
         }
     }
-    Ok(response)
+
+    let (pumped_at, dry_since) = record_pump(db, backfill.id(), selected_count == 0).await?;
+    Ok(BackfillPumpResponse {
+        backfill_id: backfill.id().to_owned(),
+        selected_count,
+        enqueued_count,
+        already_submitted_count,
+        refused_in_flight_count,
+        errors,
+        dry_since,
+        pumped_at,
+    })
+}
+
+/// Refuse the default pump once a dry streak is recorded. `force` is the
+/// operator's acknowledgement that work may have appeared since; it only
+/// bypasses this latch, never selection, deduplication, or in-flight refusal.
+async fn ensure_not_dry(
+    db: &database::DbHandle,
+    backfill_id: &str,
+    force: bool,
+) -> Result<(), ApiError> {
+    if force {
+        return Ok(());
+    }
+    let Some(record) = model::backfill::Entity::find_by_id(backfill_id.to_owned())
+        .one(&db.conn)
+        .await?
+    else {
+        return Ok(());
+    };
+    let Some(dry_since) = record.dry_since else {
+        return Ok(());
+    };
+    Err(ApiError::conflict(anyhow!(
+        "Backfill {backfill_id:?} has had no eligible targets since {} (last pumped {}); \
+         pass force=true (CLI --force) to pump again",
+        format_time(dry_since),
+        format_time(record.last_pumped_at),
+    )))
+}
+
+/// Record this pump's observation in one atomic upsert.
+///
+/// A dry pump starts a streak if none is recorded and preserves the original
+/// start otherwise; a non-dry pump clears it, so a forced pump that finds work
+/// re-opens the backfill. Returns the recorded `(pumped_at, dry_since)`.
+const RECORD_PUMP_SQL: &str = "\
+INSERT INTO backfills (backfill_id, last_pumped_at, dry_since) \
+VALUES ($1, now(), CASE WHEN $2 THEN now() END) \
+ON CONFLICT (backfill_id) DO UPDATE SET \
+    last_pumped_at = now(), \
+    dry_since = CASE WHEN $2 THEN COALESCE(backfills.dry_since, now()) ELSE NULL END \
+RETURNING last_pumped_at, dry_since";
+
+async fn record_pump(
+    db: &database::DbHandle,
+    backfill_id: &str,
+    dry: bool,
+) -> Result<(DateTime<Utc>, Option<DateTime<Utc>>), ApiError> {
+    let row = db
+        .conn
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            RECORD_PUMP_SQL,
+            [backfill_id.into(), dry.into()],
+        ))
+        .await?
+        .ok_or_else(|| {
+            ApiError::internal(anyhow!("Backfill pump record upsert returned no row"))
+        })?;
+    Ok((
+        row.try_get_by("last_pumped_at")?,
+        row.try_get_by("dry_since")?,
+    ))
+}
+
+fn format_time(time: DateTime<Utc>) -> String {
+    time.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
 #[derive(FromQueryResult)]
@@ -165,6 +244,9 @@ pub async fn status(
     backfill_id: &str,
 ) -> Result<BackfillStatusResponse, ApiError> {
     let definition = definition(backfill_id)?;
+    let record = model::backfill::Entity::find_by_id(definition.id().to_owned())
+        .one(&db.conn)
+        .await?;
     let rows = model::task_run::Entity::find()
         .select_only()
         .column(model::task_run::Column::TaskType)
@@ -191,6 +273,8 @@ pub async fn status(
         .collect::<Result<Vec<_>, ApiError>>()?;
     Ok(BackfillStatusResponse {
         backfill_id: definition.id().to_owned(),
+        last_pumped_at: record.as_ref().map(|record| record.last_pumped_at),
+        dry_since: record.and_then(|record| record.dry_since),
         counts,
     })
 }

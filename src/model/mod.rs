@@ -1,4 +1,5 @@
 pub mod annotation;
+pub mod backfill;
 pub mod capture;
 pub mod illumination;
 pub mod illumination_raw;

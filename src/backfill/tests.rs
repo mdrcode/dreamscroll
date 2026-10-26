@@ -46,7 +46,25 @@ fn request() -> BackfillPumpRequest {
     BackfillPumpRequest {
         backfill_id: ILLUMINATE_V2_BACKFILL_ID.into(),
         limit: None,
+        force: false,
     }
+}
+
+fn forced_request() -> BackfillPumpRequest {
+    BackfillPumpRequest {
+        force: true,
+        ..request()
+    }
+}
+
+#[test]
+fn pump_requests_that_omit_force_deserialize_and_force_is_opt_in() {
+    let omitted: BackfillPumpRequest =
+        serde_json::from_str(r#"{"backfill_id":"x","limit":null}"#).unwrap();
+    assert!(!omitted.force);
+    let forced: BackfillPumpRequest =
+        serde_json::from_str(r#"{"backfill_id":"x","force":true}"#).unwrap();
+    assert!(forced.force);
 }
 
 async fn settle(db: &database::DbHandle, run_id: &str, status: task::TaskRunStatus) {
@@ -306,6 +324,7 @@ async fn backfill_operations_require_admin_and_a_registered_definition() {
                 BackfillPumpRequest {
                     backfill_id: "unknown".into(),
                     limit: None,
+                    force: false,
                 }
             )
             .await
@@ -524,4 +543,74 @@ async fn a_zero_candidate_limit_is_rejected_without_consuming_a_target() {
         .await
         .unwrap();
     assert_eq!((next.selected_count, next.enqueued_count), (1, 1));
+}
+
+#[tokio::test]
+async fn a_dry_pump_latches_and_force_reopens_only_when_it_finds_work() {
+    let Some(test_db) = crate::test_support::test_db::test_db().await else {
+        return;
+    };
+    let db = test_db.handle();
+    let master = Arc::new(task::TaskMaster::builder().db(db.clone()).build().unwrap());
+    let client = api::AdminApiClient::new(db.clone(), master);
+    let context = admin_context();
+
+    let dry = client.backfill_pump(&context, request()).await.unwrap();
+    assert_eq!(dry.selected_count, 0);
+    let dry_since = dry.dry_since.expect("a dry pump records the latch");
+
+    let refused = client.backfill_pump(&context, request()).await.unwrap_err();
+    assert_eq!(refused.status_code, axum::http::StatusCode::CONFLICT);
+    assert!(
+        refused.message().contains("--force"),
+        "refusal names the override: {}",
+        refused.message()
+    );
+    let status = client
+        .backfill_status(&context, ILLUMINATE_V2_BACKFILL_ID)
+        .await
+        .unwrap();
+    assert_eq!(status.dry_since, Some(dry_since));
+    assert_eq!(
+        status.last_pumped_at,
+        Some(dry.pumped_at),
+        "a refused pump writes nothing"
+    );
+
+    let forced_dry = client
+        .backfill_pump(&context, forced_request())
+        .await
+        .unwrap();
+    assert_eq!(forced_dry.selected_count, 0);
+    assert_eq!(
+        forced_dry.dry_since,
+        Some(dry_since),
+        "a forced dry pump preserves the streak start"
+    );
+    assert_eq!(
+        client
+            .backfill_status(&context, ILLUMINATE_V2_BACKFILL_ID)
+            .await
+            .unwrap()
+            .last_pumped_at,
+        Some(forced_dry.pumped_at),
+        "the forced dry pump is recorded without moving the streak start"
+    );
+
+    captures(&db, 1).await;
+    let reopened = client
+        .backfill_pump(&context, forced_request())
+        .await
+        .unwrap();
+    assert_eq!((reopened.selected_count, reopened.enqueued_count), (1, 1));
+    assert_eq!(reopened.dry_since, None, "finding work clears the latch");
+    assert_eq!(
+        client
+            .backfill_pump(&context, request())
+            .await
+            .unwrap()
+            .selected_count,
+        0,
+        "the default pump runs again after the latch clears"
+    );
 }

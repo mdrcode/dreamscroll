@@ -121,7 +121,7 @@ async fn backfill_supports_a_filtered_noncapture_relation_and_excludes_before_li
         .await
         .unwrap();
 
-    let first = pump_definition(&db, &definition, 100, |task, id| {
+    let first = pump_definition(&db, &definition, 100, false, |task, id| {
         master.submit_spark(&context, task, Some(id))
     })
     .await
@@ -149,7 +149,7 @@ async fn backfill_supports_a_filtered_noncapture_relation_and_excludes_before_li
     );
     assert_eq!(first_runs[0].run_number, 2);
 
-    let second = pump_definition(&db, &definition, 100, |task, id| {
+    let second = pump_definition(&db, &definition, 100, false, |task, id| {
         master.submit_spark(&context, task, Some(id))
     })
     .await
@@ -164,7 +164,7 @@ async fn backfill_supports_a_filtered_noncapture_relation_and_excludes_before_li
         .unwrap()
         .unwrap();
     assert_eq!(last.entity_owner_id, owner.id);
-    let exhausted = pump_definition(&db, &definition, 100, |task, id| {
+    let exhausted = pump_definition(&db, &definition, 100, false, |task, id| {
         master.submit_spark(&context, task, Some(id))
     })
     .await

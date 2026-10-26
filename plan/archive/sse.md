@@ -992,7 +992,7 @@ into this comparison.
   or another targeted partial load.
 - **Backfill / bulk tasks (deferred):** status events from backfill currently
   reach the user's stream like any other event. Suppressing or distinguishing
-  them is out of scope; create a separate `plan/archive/backfill.md` and feature branch
+  them is out of scope; create a separate `plan/backfill.md` and feature branch
   when that work starts. A `background` annotation may be considered then.
 - **Capture lifecycle publishing:** the `AvailabilityEvent` wire type already
   models `available`/`deleted` operations for any entity type. Publishing these

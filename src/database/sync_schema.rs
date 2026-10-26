@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 7;
+const REQUIRED_SCHEMA_VERSION: i32 = 8;
 
 /// Reconcile the model schema, manual indexes, and applied version atomically.
 pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {

@@ -1,4 +1,5 @@
 use argh::FromArgs;
+use chrono::{DateTime, SecondsFormat, Utc};
 
 use crate::backfill;
 
@@ -31,6 +32,12 @@ struct BackfillPumpArgs {
     #[argh(option)]
     #[argh(description = "maximum candidates to attempt in this pump (default: 100)")]
     limit: Option<u64>,
+
+    #[argh(switch)]
+    #[argh(
+        description = "pump despite a recorded dry state; required after the pump found nothing"
+    )]
+    force: bool,
 }
 
 #[derive(FromArgs)]
@@ -57,8 +64,20 @@ pub async fn run(state: ApiCmdState, args: BackfillArgs) -> anyhow::Result<()> {
             let request = backfill::BackfillPumpRequest {
                 backfill_id: args.backfill_id,
                 limit: args.limit,
+                force: args.force,
             };
-            let response = state.rest_client.admin_backfill_pump(&request).await?;
+            let response = match state.rest_client.admin_backfill_pump(&request).await {
+                Ok(response) => response,
+                // A dry pump is refused with 409 and an opaque body (status +
+                // report_id); the status code is the contract.
+                Err(error) if error.to_string().contains("409 Conflict") => anyhow::bail!(
+                    "Pump refused: {} is dry. Run `backfill status {}` for the dry \
+                     timestamp, or pass --force to pump again. ({error})",
+                    request.backfill_id,
+                    request.backfill_id,
+                ),
+                Err(error) => return Err(error),
+            };
             println!("Backfill: {}", response.backfill_id);
             println!("Pump results (this invocation only):");
             println!("- Candidates attempted: {}", response.selected_count);
@@ -75,6 +94,14 @@ pub async fn run(state: ApiCmdState, args: BackfillArgs) -> anyhow::Result<()> {
             for error in response.errors {
                 println!("  - Entity {}: {}", error.entity_id, error.error);
             }
+            println!("- Recorded at: {}", format_time(response.pumped_at));
+            match response.dry_since {
+                Some(dry_since) => println!(
+                    "- Dry since {}: no eligible targets; later pumps refuse unless --force is passed",
+                    format_time(dry_since)
+                ),
+                None => println!("- Still open: this pump selected eligible targets"),
+            }
             println!(
                 "For overall progress, use: backfill status {}",
                 response.backfill_id
@@ -85,6 +112,12 @@ pub async fn run(state: ApiCmdState, args: BackfillArgs) -> anyhow::Result<()> {
                 .rest_client
                 .admin_backfill_status(&args.backfill_id)
                 .await?;
+            if let Some(dry_since) = response.dry_since {
+                println!(
+                    "Dry since {}: pumps refuse unless --force is passed.",
+                    format_time(dry_since)
+                );
+            }
             println!("{}", serde_json::to_string_pretty(&response)?);
         }
         BackfillCommand::Failures(args) => {
@@ -128,6 +161,10 @@ fn describe_error(code: Option<i32>, message: Option<&str>) -> String {
         (None, Some(message)) if !message.is_empty() => message,
         (None, _) => "no error recorded".to_string(),
     }
+}
+
+fn format_time(time: DateTime<Utc>) -> String {
+    time.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
 #[cfg(test)]

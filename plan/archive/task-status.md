@@ -73,7 +73,7 @@ Upload (webui/v2/r_upload.rs)
 - **Backfill correlation is invocation metadata.** Tagged roots and Beacon
   descendants share `backfill_id`. A unique `(backfill_id, logical_id)` index
   permits only one invocation per logical task within that backfill, including
-  settled/failed runs; ordinary null-tagged runs can still rerun. See `plan/archive/backfill.md`.
+  settled/failed runs; ordinary null-tagged runs can still rerun. See `plan/backfill.md`.
 - **Task-owned raw/partial output is keyed by `TaskRun.run_id`.** An output
   table stores one row per TaskRun and retries upsert the same row, replacing
   the prior attempt's output. The task status row carries no output reference.
@@ -459,7 +459,7 @@ must always see the **most recent** illumination, so:
   task-type/status aggregation are implemented. The first definition re-runs
   illumination v2 for every capture, attributed to the capture owner; Beacon
   descendants retain the same backfill ID. The old approximate search-index
-  candidate query and ad-hoc enqueue flow were removed. See `plan/archive/backfill.md` for
+  candidate query and ad-hoc enqueue flow were removed. See `plan/backfill.md` for
   commands and accepted live-contention starvation.
 - **`/_wh/cloudtask/illuminate` is shared:** live capture creation, explicit
   reruns, and the backfill pump all use the same worker execution path.
@@ -528,7 +528,7 @@ Deliberate properties:
 
 Exposed through `TaskRunInfo` (`error_code`, `error_message`), which serves
 `/tasks/{run_id}` and the backfill failure listing; the SSE task-status payload is
-unchanged. `dreamscroll_api backfill failures` (see `plan/archive/backfill.md`
+unchanged. `dreamscroll_api backfill failures` (see `plan/backfill.md`
 §Failure detail) serializes the same `TaskRunInfo` rows through the backfill
 engine.
 

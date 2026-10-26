@@ -23,6 +23,7 @@ inside it (never rewrite history), and update the row below.
 | --- | --- | --- |
 | [backlog.md](backlog.md) | Living — queue | Ordered next tasks, including pointers to the deferred plans below. |
 | [pragmatism.md](pragmatism.md) | Living — ledger | Tolerated trade-offs, each with a revisit trigger. The default answer to "should we fix this now?" |
+| [backfill.md](backfill.md) | Living — implemented | Typed backfills: bounded pumping, TaskRun correlation, dry-pump latch, status reporting. |
 | [testing.md](testing.md) | Living | Two-tier test model, and what deliberately goes untested. |
 | [smoke.md](smoke.md) | Living | Manual smoke procedure against the persistent local instance (`smoke-agent` account). |
 | [devlog.md](devlog.md) | Living — historical | Reverse-chronological daily log. Last entry 2026-04-05; open items were triaged into `plan/backlog.md`. |
@@ -50,7 +51,6 @@ inside it (never rewrite history), and update the row below.
 | [sse.md](archive/sse.md) | Authenticated SSE delivery: one stream per page, heartbeat, reconnect, catch-up. |
 | [task-status.md](archive/task-status.md) | Task framework: identity, queues, retry/exhaustion policy, run dimension, query API. |
 | [task-status-timing-progress-bar.md](archive/task-status-timing-progress-bar.md) | Persisted timing facts, update-in-place aggregates, estimated progress. |
-| [backfill.md](archive/backfill.md) | Typed backfills: bounded pumping, TaskRun correlation, status reporting. |
 | [illuminate-v2.md](archive/illuminate-v2.md) | Unified entity capture, relational projection, and the raw-only v1 legacy path. |
 | [inference-metadata.md](archive/inference-metadata.md) | One `InferenceMeta` for illumination, Spark, and embedding requests. |
 | [rest-task-submission.md](archive/rest-task-submission.md) | Authenticated REST task submission plus CLI wait/eval. |
