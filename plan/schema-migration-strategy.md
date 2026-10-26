@@ -5,7 +5,7 @@
 ## Decision
 
 Move application-model schema changes out of normal service startup and into an
-explicit `dreamscroll_admin sync_schema` operation. Keep the first implementation
+explicit `dreamscroll_db sync_schema` operation. Keep the first implementation
 model-driven with SeaORM's schema registry and put its orchestration and manual
 index ownership under `src/database/`. Do not add a migration dependency for
 this first step.
@@ -68,7 +68,7 @@ PostgreSQL transaction:
 The application requires a minimum schema version. `database::connect` checks
 the marker before migrating the Tower Sessions store or starting the web app.
 Missing or stale markers fail with an instruction to run
-`dreamscroll_admin sync_schema`; a newer marker is accepted for compatible
+`dreamscroll_db sync_schema`; a newer marker is accepted for compatible
 rolling deployments. Bump `REQUIRED_SCHEMA_VERSION` with every model or manual
 index change that requires a schema sync. The marker is an operator/version
 contract, not a catalog diff; untracked manual DB edits are not detected.
@@ -118,7 +118,7 @@ to service startup. Revisit this workaround when SeaORM's custom table-level
 index support is released (see PR #3231 below), or move to explicit index
 migrations if rebuild cost becomes material.
 
-`dreamscroll_admin sync_schema` runs the explicit transaction above and exits
+`dreamscroll_db sync_schema` runs the explicit transaction above and exits
 non-zero on error. On success, the version marker is committed atomically with
 the model schema and manual indexes.
 
@@ -167,10 +167,10 @@ No cloud resources or database contents were changed during this inspection.
 
 Production plan:
 
-1. The root `Dockerfile` now builds and packages `dreamscroll_admin` alongside
+1. The root `Dockerfile` now builds and packages `dreamscroll_db` alongside
    `dreamscroll_web`; Cloud Run Job configuration and execution are deferred.
 2. Create a single-task Cloud Run Job with command
-   `/app/dreamscroll_admin` and argument `sync_schema`. Attach the same Cloud SQL
+   `/app/dreamscroll_db` and argument `sync_schema`. Attach the same Cloud SQL
    instance and networking required by the production service. Configure the
    DB password as a Secret Manager reference; never pass it as a CLI argument or
    plain build substitution.
@@ -189,9 +189,9 @@ Production plan:
    verify the schema job before the service deployment. Do not auto-execute the
    schema job on every image build.
 
-`dreamscroll_admin` builds a `PostgresConfig` from only the `POSTGRES_*`
-environment variables for database-backed commands. `enums` and `hash_password`
-do not construct a config or connect to Postgres. The Cloud Run schema job needs
+`dreamscroll_db` builds a `PostgresConfig` from only the `POSTGRES_*`
+environment variables for database-backed commands. `hash_password` does not
+construct a config or connect to Postgres. The Cloud Run schema job needs
 no Gemini, storage, or task-queue credentials; supply only the required Postgres
 settings, with the password from Secret Manager.
 
@@ -209,7 +209,7 @@ production backup/restore procedure before the first production run.
    before the first production run.
 3. [x] Remove application model sync from normal connections and centralize
    explicit schema synchronization and manual index ownership.
-4. [x] Add `dreamscroll_admin sync_schema`, Postgres regression tests for
+4. [x] Add `dreamscroll_db sync_schema`, Postgres regression tests for
    repeated sync/index uniqueness, and startup rejection of missing/stale
    markers while accepting a newer compatible marker.
 5. [ ] Measure index rebuild/lock duration on a representative production-sized

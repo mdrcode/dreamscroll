@@ -2,7 +2,11 @@
 
 > **Archived:** shipped design record. For current status see [plan/README.md](../README.md).
 
-**Status:** Implemented 2026-09-21.
+**Status:** Implemented 2026-09-21. The direct-access binary was renamed from
+`dreamscroll_admin` to `dreamscroll_db` (command module `util_cmds::db`) on
+2026-10-26, because its scope is only the operations needing raw DB access. Its
+`enums` command, which only printed compile-time enum values, was removed the
+same day.
 
 ## Goal
 
@@ -10,11 +14,11 @@ Replace the catch-all `dreamscroll_util` binary with two utilities that make
 transport and dependency boundaries explicit:
 
 - `dreamscroll_api` always talks to a configured Dreamscroll host through REST.
-- `dreamscroll_admin` connects directly to the database and local services, as
-  an administrative/server-side tool.
+- `dreamscroll_db` connects directly to the database, for operations that are
+  raw DB access and nothing else.
 
 The long-term direction is for `dreamscroll_api` to grow as supported REST
-operations are added, while `dreamscroll_admin` shrinks toward only the small
+operations are added, while `dreamscroll_db` shrinks toward only the small
 set of operations that genuinely require direct access.
 
 ## Why
@@ -46,7 +50,7 @@ Commands:
 - `illumination_text`
 - `spark`
 
-### `dreamscroll_admin`
+### `dreamscroll_db`
 
 Direct database/service access. It does not accept or initialize REST host
 configuration.
@@ -54,7 +58,6 @@ configuration.
 Commands:
 
 - `create_user`
-- `enums`
 - `first_user`
 - `hash_password`
 
@@ -68,27 +71,27 @@ The old `dreamscroll_util` binary was removed.
 - REST host and optional username
 - REST client
 
-Admin commands have no shared state wrapper. Database-backed command handlers
-receive `&database::DbHandle` directly; `enums` and `hash_password` require only
-their CLI arguments.
+Database commands have no shared state wrapper. Database-backed command handlers
+receive `&database::DbHandle` directly; `hash_password` requires only its CLI
+arguments.
 
 ## Related changes
 
 - `Dockerfile` builds and packages `dreamscroll_web`, `dreamscroll_api`, and
-  `dreamscroll_admin`; the runtime image includes all three.
+  `dreamscroll_db`; the runtime image includes all three.
 - The manual image build/push helper and Cloud Build config now live under
   `gcloud/`. `gcloud/docker-build-push.sh` resolves the repository root from
   its own location, explicitly selects the root `Dockerfile`, and uses the root
   as the Docker build context, so it can still be invoked from the repository
   root (or another working directory).
 - Database startup guidance now recommends
-  `dreamscroll_admin first_user`.
-- Direct admin user creation calls the database-backed admin operation without
-  constructing a `TaskMaster`.
+  `dreamscroll_db first_user`.
+- Direct user creation calls the database operation without constructing a
+  `TaskMaster`.
 
 ## Remaining follow-up
 
-The direct admin command set no longer constructs a `UserApiClient` or an
+The direct database command set no longer constructs a `UserApiClient` or an
 empty `TaskMaster`. User-facing search commands use REST through
 `dreamscroll_api`; synchronous illumination and indexing utilities were
 removed rather than preserving a second execution path.

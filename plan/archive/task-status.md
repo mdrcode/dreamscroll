@@ -149,7 +149,7 @@ CREATE INDEX "idx-task_runs-backfill_status"
 ```
 
 > **Schema management:** the table is defined by the SeaORM model
-> (`src/model/task_run.rs`) and applied by `dreamscroll_admin sync_schema`, which
+> (`src/model/task_run.rs`) and applied by `dreamscroll_db sync_schema`, which
 > runs the model registry sync and `database::indexes::task_run` index setup.
 > Normal startup checks the schema version marker; it does not sync application
 > models. The isolated test harness performs explicit sync. There is no
@@ -532,8 +532,8 @@ unchanged. `dreamscroll_api backfill failures` (see `plan/backfill.md`
 §Failure detail) serializes the same `TaskRunInfo` rows through the backfill
 engine.
 
-Upgrading an existing database: schema version 7 makes the app and admin binaries
-refuse to start until `dreamscroll_admin sync_schema` runs; the registry sync only
-adds the two nullable columns, so nothing existing is rewritten. Ask the owner
-before touching the local dev database (`AGENTS.md`). Tests are unaffected — the
-harness syncs a throwaway schema per test.
+Upgrading an existing database: schema version 7 makes the `dreamscroll_web` and
+`dreamscroll_db` binaries refuse to start until `dreamscroll_db sync_schema` runs;
+the registry sync only adds the two nullable columns, so nothing existing is
+rewritten. Ask the owner before touching the local dev database (`AGENTS.md`).
+Tests are unaffected — the harness syncs a throwaway schema per test.

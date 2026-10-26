@@ -57,7 +57,7 @@ fn default_max_upload_bytes() -> usize {
     5 * 1024 * 1024
 }
 
-// Useful for dreamscroll_admin which only needs DB access and nothing else.
+// Useful for dreamscroll_db which only needs DB access and nothing else.
 // Yes, this means duplication of the PostgresConfig struct, but worth it
 #[derive(Deserialize)]
 pub struct PostgresConfig {

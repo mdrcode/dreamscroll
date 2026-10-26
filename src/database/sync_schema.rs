@@ -84,7 +84,7 @@ pub async fn check_schema_version(conn: &DatabaseConnection) -> anyhow::Result<(
         .expect("to_regclass always returns one row");
     let table_name: Option<String> = table.try_get_by_index(0)?;
     if table_name.is_none() {
-        anyhow::bail!("database schema version is missing; run `dreamscroll_admin sync_schema`");
+        anyhow::bail!("database schema version is missing; run `dreamscroll_db sync_schema`");
     }
 
     let row = conn
@@ -95,13 +95,13 @@ pub async fn check_schema_version(conn: &DatabaseConnection) -> anyhow::Result<(
         .await?
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "database schema version row is missing; run `dreamscroll_admin sync_schema`"
+                "database schema version row is missing; run `dreamscroll_db sync_schema`"
             )
         })?;
     let applied_version: i32 = row.try_get_by_index(0)?;
     if applied_version < REQUIRED_SCHEMA_VERSION {
         anyhow::bail!(
-            "database schema version {applied_version} is below required version {REQUIRED_SCHEMA_VERSION}; run `dreamscroll_admin sync_schema`"
+            "database schema version {applied_version} is below required version {REQUIRED_SCHEMA_VERSION}; run `dreamscroll_db sync_schema`"
         );
     }
 
@@ -201,7 +201,7 @@ mod tests {
         assert!(
             stale_error
                 .to_string()
-                .contains("dreamscroll_admin sync_schema")
+                .contains("dreamscroll_db sync_schema")
         );
 
         conn.execute_unprepared("DROP TABLE dreamscroll_schema_version")
@@ -218,7 +218,7 @@ mod tests {
         assert!(
             missing_error
                 .to_string()
-                .contains("dreamscroll_admin sync_schema")
+                .contains("dreamscroll_db sync_schema")
         );
     }
 

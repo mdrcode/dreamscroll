@@ -30,7 +30,7 @@ The dedicated non-admin account is `smoke-agent`. Create it once with the normal
 admin command:
 
 ```bash
-cargo run --bin dreamscroll_admin -- create_user
+cargo run --bin dreamscroll_db -- create_user
 ```
 
 Credentials live in the gitignored root `smoke.env`:
