@@ -407,6 +407,21 @@ expected to be sub-second; measure it on the clone (below).
    SELECT version FROM dreamscroll_schema_version;         -- expect 8
    SELECT pg_size_pretty(pg_database_size(current_database()));
    ```
+Ownership is the likeliest snag for the first sync (flagged 2026-10-27). The
+sync transaction needs `CREATE` on schema `public` plus ownership of the tables
+and indexes it drops and recreates, and `dreamscroll-web` must satisfy both.
+Inspect on the clone, then fix the same way on production if needed:
+
+```sql
+-- transfer ownership of everything the sync touches
+ALTER TABLE public.<name> OWNER TO "dreamscroll-web";
+-- or keep the current owner and let the migrator act as it
+GRANT <owner_role> TO "dreamscroll-web";
+```
+
+Re-run the preflight query afterwards, and record any ownership shortcut in
+`plan/pragmatism.md`.
+
 3. Rehearse on a clone, never on production first:
    ```bash
    gcloud sql instances clone dreamscroll-prod-db4 dreamscroll-prod-db4-sync-test
