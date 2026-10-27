@@ -50,6 +50,7 @@ REQUIRED_DB_ENV=(
 MODE=check
 TARGETS=()
 OPT_IMAGE=""
+NO_EXECUTE=0
 WORKDIR=""
 
 usage() {
@@ -70,6 +71,8 @@ Targets (--apply requires exactly one; --check defaults to both):
 Options:
   --image REF          Apply an explicit image tag or @sha256 digest instead of
                        the current commit. The rollback lever.
+  --no-execute         With --apply --db only: configure the job but do not run
+                       the schema sync. For bootstrapping before a one-off reset.
   -h, --help           This text.
 
 Exit codes: 0 clean/success, 1 drift, 2 precondition/usage, 3 apply/verify failure.
@@ -409,6 +412,11 @@ apply_db() {
   assert_db_invariants "$dir/db.yaml"
   log "applying $JOB"
   gcloud run jobs replace "$dir/db.yaml" --region "$REGION" >/dev/null
+  if ((NO_EXECUTE == 1)); then
+    log "configured only; schema sync not executed (--no-execute)"
+    check_db || fail "post-apply drift for $JOB"
+    return 0
+  fi
   log "executing $JOB (schema sync)"
   gcloud run jobs execute "$JOB" --region "$REGION" --wait || rc=$?
   exec_name="$(gcloud run jobs executions list --job "$JOB" --region "$REGION" \
@@ -448,6 +456,7 @@ parse_args() {
         [[ -n "$OPT_IMAGE" ]] || die "--image requires a value"
         shift
         ;;
+      --no-execute) NO_EXECUTE=1 ;;
       -h | --help) usage; exit 0 ;;
       *) usage >&2; die "unknown argument: $1" ;;
     esac
@@ -467,6 +476,10 @@ parse_args() {
   fi
   if [[ "$MODE" == apply ]]; then
     ((${#TARGETS[@]} == 1)) || die "--apply takes exactly one target (--web or --db)"
+  fi
+  if ((NO_EXECUTE == 1)); then
+    [[ "$MODE" == apply && "${TARGETS[0]}" == --db ]] ||
+      die "--no-execute is only valid with --apply --db"
   fi
 }
 

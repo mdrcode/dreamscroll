@@ -277,7 +277,7 @@ flowchart LR
 ```
 prod-apply.sh                          # --check for both targets (read-only)
 prod-apply.sh --check [--web|--db|--all]
-prod-apply.sh --apply (--web|--db) [--image REF]
+prod-apply.sh --apply (--web|--db) [--image REF] [--no-execute]
 prod-apply.sh --lint                   # offline: render + invariants, no gcloud
 ```
 
@@ -294,6 +294,8 @@ pass. There is no dirty-tree escape hatch: an image must correspond to a commit.
 3. `gcloud run jobs replace` — creates the job on first use, configures it after.
    (`jobs replace` has no `--dry-run`.)
 4. `gcloud run jobs execute dreamscroll-db-sync --region us-central1 --wait`.
+   With `--no-execute` this step is skipped: the job is configured and checked,
+   nothing touches the database.
 5. Print the execution name plus a `gcloud beta run jobs executions logs read`
    hint (the stable `gcloud run` track has no `executions logs`), then require
    `--check --db` to come back empty.
@@ -422,7 +424,20 @@ GRANT <owner_role> TO "dreamscroll-web";
 Re-run the preflight query afterwards, and record any ownership shortcut in
 `plan/pragmatism.md`.
 
-3. Rehearse on a clone, never on production first:
+3. One-off legacy table reset (2026-10-27). Production still carries
+   old-schema tables (for example `illuminations`). `sync_schema` is additive —
+   it never drops tables — so the intended path is: configure the job with
+   `--apply --db --no-execute`, drop the stale tables in Cloud SQL Studio, then
+   execute the job so SeaORM recreates them from the current entities. Data loss
+   is accepted. Do not skip the clone: the first real sync is a reset, and the
+   clone is where its failure list (NOT NULL adds without defaults, FK
+   re-creation against orphaned rows, type reconciliation) becomes visible
+   before production. Drop dependent tables together: `CASCADE` removes
+   constraints but leaves child rows, and the recreated FKs then fail on
+   orphans. No `REQUIRED_SCHEMA_VERSION` bump is needed — the entities are not
+   changing, only the database being stale.
+
+4. Rehearse on a clone, never on production first:
    ```bash
    gcloud sql instances clone dreamscroll-prod-db4 dreamscroll-prod-db4-sync-test
    # create a second job (dreamscroll-db-sync-test) whose
@@ -430,7 +445,7 @@ Re-run the preflight query afterwards, and record any ownership shortcut in
    # confirm the marker moves to 8 and record the duration.
    gcloud sql instances delete dreamscroll-prod-db4-sync-test
    ```
-4. First production execution at a quiet moment, watching Cloud Logging. Only
+5. First production execution at a quiet moment, watching Cloud Logging. Only
    then deploy the revision that requires the new schema.
 
 ## Deferred
@@ -515,8 +530,10 @@ Implementation details already settled, listed so they are not rediscovered:
    rehearsals?
 3. When `--check --db` runs before the job exists, is that drift (exit 1) or a
    distinct "target absent" state with its own exit code and message?
-4. Is the first `--apply --db` allowed to be the first production sync (after the
-   clone rehearsal), or do we want a config-only bootstrap that does not execute?
+4. ~~Is the first `--apply --db` allowed to be the first production sync?~~
+   Resolved 2026-10-27: no. The first sync is a one-off table reset against a
+   stale schema, so `--apply --db --no-execute` configures the job first and the
+   sync runs after the drop.
 5. Should `--check` distinguish "manifest ahead of prod" (uncommitted intent)
    from "prod ahead of manifest" (out-of-band change), or is one diff enough?
 
