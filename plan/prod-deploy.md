@@ -1,8 +1,9 @@
 # Production deploy
 
 **Status:** shipped and exercised against production — one-off schema reset, first
-`jobs execute`, first `--apply --web`, and an ingress/queue stop-and-restore.
-**Updated:** 2026-10-27.
+`jobs execute`, first `--apply --web`, an ingress/queue stop-and-restore, and a
+cost-ceiling change. Operating runbook, reset procedure, and schema audits are
+included below. **Updated:** 2026-10-27.
 
 ## Scope
 
@@ -55,8 +56,9 @@ manifests structurally.
 | --- | --- |
 | Project / region | `mdrcode` / `us-central1` |
 | Service | `dreamscroll-webui-api`, `https://dreamscroll-webui-api-xdrchnynaq-uc.a.run.app` (also `…-783246871160.us-central1.run.app`) |
-| Current image | `us-central1-docker.pkg.dev/mdrcode/dreamscroll-repo/dreamscroll-web@sha256:058cd4db546364b8c1f27af03ec99e59754f094adae3c26e01e9a2bf0a821137` |
-| Cloud Run Jobs | none configured (`jobs list` empty) |
+| Current image | `…/dreamscroll-web@sha256:e3a7fc9473287213d01b72e6055e938fba797731c3c9996b166c9f97dc131fb5` (tag `7f14d91a…`), revision `00107-vjk` |
+| Custom domain | `dreamscroll.ai` (serves the same service) |
+| Cloud Run Jobs | `dreamscroll-db-sync` exists; successful executions `7cnbm` (post-rename) and `f42cv` (post-drop) |
 | Cloud SQL | `mdrcode:us-central1:dreamscroll-prod-db4`, PostgreSQL 18, tier `db-f1-micro`, **public IP** (`ipv4Enabled: true`), `GOOGLE_MANAGED_INTERNAL_CA` |
 | DB access path | unix socket: `POSTGRES_CONNECTION_PARAMS=host=/cloudsql/mdrcode:us-central1:dreamscroll-prod-db4`, `POSTGRES_HOST_PORT=localhost` |
 | DB name / users | `dreamscroll-prod`; `dreamscroll-web` (built-in), `mike.repass@gmail.com` (IAM), `postgres` |
@@ -113,23 +115,19 @@ secret.
 Consequence: `prod-apply.sh` cannot make prod exist from nothing. It reconciles
 an existing service and an existing-or-created job.
 
-## Current vs target workflow
+## Current state (end of 2026-10-27)
 
-| | Today | Target |
-| --- | --- | --- |
-| Config source of truth | live Cloud Run service; `config_prod.env` is gitignored | two checked-in manifests |
-| Deploy command | Cloud Run UI | `prod-apply.sh --apply --web` (UI stays read-only) |
-| Schema changes | no mechanism: no job exists and `sync_schema` has never run in production | `prod-apply.sh --apply --db`, executed and waited on |
-| Drift visibility | none until something breaks | `prod-apply.sh --check` |
-| Image reference | UI picks the tag | resolved from the commit being released, verified in Artifact Registry |
-| Rollback | pick an older revision in the UI | re-apply the previous manifest at the previous digest |
+The cutover is done: the checked-in manifests, not the console, are the source of
+truth, and `prod-apply.sh` is the only writer. The Cloud Run console is read-only
+for configuration. Schema sync runs as the job, never at service startup. The one
+remaining manual surface is Cloud Tasks queue settings (see below).
 
 ## Configuration as code
 
 | File | Holds |
 | --- | --- |
 | `gcloud/prod-dreamscroll-web.yaml` | Full Service spec, captured from the live export, minus `image` |
-| `gcloud/prod-dreamscroll-db.yaml` | Full Job spec (authored from the settings table below; no job exists yet) |
+| `gcloud/prod-dreamscroll-db.yaml` | Full Job spec; also the job's bootstrap (`jobs replace` creates it) |
 | `gcloud/prod-apply.sh` | Render, `services`/`jobs replace`, execute the sync for `--db`, verify, drift check |
 | `gcloud/prod-canonical.jq` | Canonical projection used for drift comparison (shared with the local tests) |
 | `gcloud/prod-config.sh` | Shared constants: project, region, Artifact Registry repo, image name, service, job, Cloud SQL instance |
@@ -441,57 +439,153 @@ The known cost: every `sync_schema` run drops and recreates
 `idx-task_runs-backfill_task` (SeaORM 2.0.4 workaround). That is an exclusive
 lock on `task_runs` for the duration of the rebuild, which is why the run is
 explicit rather than a startup side effect. At `db-f1-micro` scale this is
-expected to be sub-second; measure it on the clone (below).
+expected to be sub-second (the 2026-10-27 reset completed in ~4 s end to end,
+including pool setup). If it ever grows, measure on a restored backup copy — not
+a clone; clone provisioning stalled on 2026-10-27.
 
-## Preflight before the first production run
+## Reset procedure (executed 2026-10-27)
 
-1. On-demand backup: `gcloud sql backups create --instance=dreamscroll-prod-db4`.
-2. Confirm the DB user owns the objects that sync must alter:
-   ```sql
-   SELECT current_user;
-   SELECT tableowner, count(*) FROM pg_tables
-     WHERE schemaname = 'public' GROUP BY 1;
-   SELECT version FROM dreamscroll_schema_version;         -- expect 8
-   SELECT pg_size_pretty(pg_database_size(current_database()));
-   ```
-Ownership is the likeliest snag for the first sync (flagged 2026-10-27). The
-sync transaction needs `CREATE` on schema `public` plus ownership of the tables
-and indexes it drops and recreates, and `dreamscroll-web` must satisfy both.
-Inspect on the clone, then fix the same way on production if needed:
+For a one-off schema reset — dropping stale tables so the registry recreates them
+in the current shape. Data loss is accepted; keep what matters.
+
+1. Backup and record the ID:
+   `gcloud sql backups create --instance=dreamscroll-prod-db4 --description=…`,
+   then `gcloud sql backups list --instance=dreamscroll-prod-db4 --limit=3`.
+2. Stop traffic and workers (see the runbook): ingress `internal`, pause the three
+   queues.
+3. Decide what survives. On 2026-10-27 that was `users`, `captures`, `medias`,
+   `annotations` (plus `tower_sessions`); everything else is derived and was
+   dropped. Kept tables still carry their original columns, so audit them (next
+   section) before trusting inserts.
+4. Drop the derived tables in Cloud SQL Studio. None of the kept tables has an FK
+   into the dropped ones, so `CASCADE` is safe. Include
+   `dreamscroll_schema_version` so the sync recreates the marker.
+5. Configure the job without executing (`--apply --db --no-execute`), then run it
+   (`gcloud run jobs execute dreamscroll-db-sync --region us-central1 --wait`).
+   The transaction either recreates everything and writes the marker, or rolls
+   back entirely.
+6. Verify: sync log says `Synchronized Postgres schema schema_version=8`;
+   `--check` is clean; restore ingress and queues (service first).
+7. Regenerate derived content: existing captures now have no illumination. Use the
+   all-captures backfill (`illuminate-v2-all-captures-2026-10-16`) for bulk, or
+   `dreamscroll_api illuminate <capture_id>` for one capture.
+
+Ownership check (the sync needs `CREATE` on schema `public` plus table
+ownership; `dreamscroll-web` satisfied both on 2026-10-27):
 
 ```sql
--- transfer ownership of everything the sync touches
-ALTER TABLE public.<name> OWNER TO "dreamscroll-web";
--- or keep the current owner and let the migrator act as it
-GRANT <owner_role> TO "dreamscroll-web";
+SELECT current_user;
+SELECT tableowner, count(*) FROM pg_tables WHERE schemaname = 'public' GROUP BY 1;
+SELECT version FROM dreamscroll_schema_version;   -- expect 8
 ```
 
-Re-run the preflight query afterwards, and record any ownership shortcut in
-`plan/pragmatism.md`.
+If ownership is missing, either `ALTER TABLE … OWNER TO "dreamscroll-web"` or
+`GRANT <owner_role> TO "dreamscroll-web"`, then re-run the query. Record any
+shortcut in `plan/pragmatism.md`.
 
-3. One-off legacy table reset (2026-10-27). Production still carries
-   old-schema tables (for example `illuminations`). `sync_schema` is additive —
-   it never drops tables — so the intended path is: configure the job with
-   `--apply --db --no-execute`, drop the stale tables in Cloud SQL Studio, then
-   execute the job so SeaORM recreates them from the current entities. Data loss
-   is accepted. Do not skip the clone: the first real sync is a reset, and the
-   clone is where its failure list (NOT NULL adds without defaults, FK
-   re-creation against orphaned rows, type reconciliation) becomes visible
-   before production. Drop dependent tables together: `CASCADE` removes
-   constraints but leaves child rows, and the recreated FKs then fail on
-   orphans. No `REQUIRED_SCHEMA_VERSION` bump is needed — the entities are not
-   changing, only the database being stale.
+Do **not** plan a Cloud SQL clone rehearsal: on 2026-10-27 `gcloud sql instances
+clone` sat in `PENDING_CREATE` for over 20 minutes (COPY operation, uncancellable)
+and had to be deleted. The transactional sync is the safer rehearsal — a failure
+rolls back with no partial schema.
 
-4. Rehearse on a clone, never on production first:
-   ```bash
-   gcloud sql instances clone dreamscroll-prod-db4 dreamscroll-prod-db4-sync-test
-   # create a second job (dreamscroll-db-sync-test) whose
-   # POSTGRES_CONNECTION_PARAMS points at the clone, execute it, read logs,
-   # confirm the marker moves to 8 and record the duration.
-   gcloud sql instances delete dreamscroll-prod-db4-sync-test
-   ```
-5. First production execution at a quiet moment, watching Cloud Logging. Only
-   then deploy the revision that requires the new schema.
+## Schema audits
+
+`sync_schema` is additive: it never drops or relaxes columns. So a table that
+survives a reset can keep **retired NOT NULL columns without defaults**, and every
+insert that omits them fails (2026-10-27: `task_runs.user_id` broke every
+illuminate enqueue while uploads still returned success).
+
+Derive the expected shape from `src/model/*.rs` — `#[sea_orm(table_name = "…")]`
+plus each `pub <field>: <Type>` in `struct Model`; `Option<…>` means nullable,
+`column_name = "…"` overrides the field name — then diff against
+`information_schema.columns`:
+
+- Expected column missing from an existing table → the next sync fails with
+  `column "…" of relation "…" contains null values` when it is NOT NULL.
+- Column present in the DB but absent from the model → harmless while nullable;
+  a blocker when `is_nullable = 'NO'` and `column_default IS NULL`.
+
+```sql
+WITH expected(tbl, cols) AS (
+  VALUES ('task_runs', ARRAY['id','logical_id', /* … */]::text[]) /* one row per model table */
+)
+SELECT c.table_name, c.column_name, c.is_nullable, c.column_default
+FROM information_schema.columns c
+JOIN expected e ON e.tbl = c.table_name
+WHERE c.table_schema = 'public' AND NOT (c.column_name = ANY(e.cols))
+ORDER BY 1, 2;
+```
+
+Flip the join condition to find missing columns instead. `plan/backlog.md` tracks
+a `dreamscroll_db` command that performs both without hand-built CTEs.
+
+## Operating runbook
+
+All commands from the repo root. Exit codes: `0` clean/success, `1` drift,
+`2` precondition/usage, `3` apply or verification failure.
+
+Routine release (code change):
+
+1. `./gcloud/prod-build-push.sh` — build at HEAD for `linux/amd64`, push, prints
+   the digest and the exact apply commands.
+2. `./gcloud/prod-apply.sh --check` — the only diff should be the change you are
+   releasing.
+3. Schema-changing release: `--apply --db` first, watch the execution, then
+   `--apply --web`.
+4. `./gcloud/prod-apply.sh --apply --web` — dry-run, replace, wait for the new
+   revision to be Ready at 100 % traffic, then re-check drift.
+
+Config-only change (no code change): skip the build and pin the deployed digest —
+`./gcloud/prod-apply.sh --apply --web --image <base>@sha256:…`. Any change to a
+*template* annotation (scaling, VPC, env, probe) still rolls a new revision.
+
+Stop / start the service:
+
+```bash
+gcloud run services update dreamscroll-webui-api --region us-central1 --ingress internal
+for q in illuminate spark search-index; do
+  gcloud tasks queues pause "$q" --location us-central1
+done
+# ... work ...
+gcloud run services update dreamscroll-webui-api --region us-central1 --ingress all
+for q in illuminate spark search-index; do
+  gcloud tasks queues resume "$q" --location us-central1
+done
+```
+
+`internal` ingress answers the public URL with 404. **Restore the service before
+resuming queues** — on 2026-10-27 we resumed first and every dispatch would have
+hit a failing revision (nothing was lost only because the queues were empty).
+
+Verification after any change:
+
+- `./gcloud/prod-apply.sh --check` — empty for both targets.
+- `curl -sL -o /dev/null -w '%{http_code}\n' https://dreamscroll.ai/` — 200 after
+  the `/login` redirect.
+- `gcloud logging read 'resource.type="cloud_run_revision" AND severity>=ERROR' --freshness=10m`
+  for the new revision.
+
+Troubleshooting:
+
+- Revision fails startup with `constraint "idx-task_runs-backfill_task" … does not
+  exist`: the image predates the explicit-sync refactor. Deploy current code;
+  traffic rollback to such a revision does not recover.
+- Uploads succeed but nothing illuminates: look for
+  `null value in column … violates not-null constraint` — a retired NOT NULL
+  column on a surviving table. Audit (above) and drop/relax it.
+- `--check --db` exits 2 with "does not exist yet": the job is not created;
+  `--apply --db --no-execute` configures it without touching the database.
+- `--apply` refuses with "worktree is dirty": commit first; an image must
+  correspond to a commit.
+
+## Cloud Tasks queues
+
+Queues are deliberately outside the manifests and `--check`, so they can drift
+silently. Names must match the webhook route suffixes: `illuminate`, `spark`,
+`search-index`. All three are RUNNING with `maxAttempts 3`,
+`maxDispatchesPerSecond 2`, burst 10; `illuminate` is pinned to **one** concurrent
+dispatch since 2026-10-27 so Gemini inference is serialized. Commands and
+rationale: `gcloud/cloud_task_queue.md`.
 
 ## Deferred
 
