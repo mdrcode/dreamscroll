@@ -22,6 +22,13 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   Both Google backends pass a full-prompt/schema live smoke locally; the Vertex
   path under the deployed service account is unverified. See
   `plan/archive/google-ai-interactions-api.md`.
+- [ ] **Remove or clearly demote `gcloud/cloudbuild.yaml`.** Nothing in the
+  release path uses it any more (`prod-build-push.sh` + `prod-apply.sh`), it
+  duplicates the identifiers that now live in `prod-config.sh`, and its deploy
+  step bypasses the drift and invariant checks. Delete it — the archived
+  research records what it was — or mark it unsupported and align its
+  substitutions. Fix the two docs that still call it the build path:
+  `plan/static-serving-cdn.md`, `plan/upgrade_3rd_party_crates.md`.
 
 ## Deferred — already scoped
 
