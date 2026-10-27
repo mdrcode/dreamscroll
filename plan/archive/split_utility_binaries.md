@@ -80,7 +80,7 @@ arguments.
 - `Dockerfile` builds and packages `dreamscroll_web`, `dreamscroll_api`, and
   `dreamscroll_db`; the runtime image includes all three.
 - The manual image build/push helper and Cloud Build config now live under
-  `gcloud/`. `gcloud/docker-build-push.sh` resolves the repository root from
+  `gcloud/`. `gcloud/prod-build-push.sh` resolves the repository root from
   its own location, explicitly selects the root `Dockerfile`, and uses the root
   as the Docker build context, so it can still be invoked from the repository
   root (or another working directory).

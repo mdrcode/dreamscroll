@@ -36,10 +36,10 @@ inside it (never rewrite history), and update the row below.
 | [knowledge-wikidata-recommender.md](knowledge-wikidata-recommender.md) | Research | Wikipedia/Wikidata embeddings, SPARQL traversal, and disambiguation for entity linking. |
 | [screenshot_3rd_party.md](screenshot_3rd_party.md) | Research | Screenshot provider comparison and selection criteria (Urlbox, ScreenshotOne). |
 | [api_token_hardening.md](api_token_hardening.md) | Proposed | `iss`/`aud` claims, fallible config validation, and token-lifetime policy. |
-| [cloud_build_release_deployment.md](cloud_build_release_deployment.md) | Research / proposed | Tagged-release Cloud Build pipeline. No Google Cloud resources changed. |
 | [static-serving-cdn.md](static-serving-cdn.md) | Recommendation | Why not to add an ALB or CDN for the small static bundle. |
 | [media-serving.md](media-serving.md) | Partly implemented | Immutable-object cache policy shipped; private URL delivery waits on load-balancer/CDN work. |
-| [schema-migration-strategy.md](schema-migration-strategy.md) | Partly implemented | Explicit `dreamscroll_db sync_schema` shipped; Cloud Run Job deferred. |
+| [schema-migration-strategy.md](schema-migration-strategy.md) | Partly implemented | Explicit `dreamscroll_db sync_schema` shipped; sync semantics and version marker. |
+| [prod-deploy.md](prod-deploy.md) | Implemented; drift-clean — approved | Whole production release path: build/push, checked-in Cloud Run manifests, `prod-apply.sh` drift/apply/lint, `dreamscroll-db-sync` schema job, rollback. Service drift is clean; nothing applied, no job created. |
 | [topology_and_throughput.md](topology_and_throughput.md) | Reference | Cloud Run / Cloud SQL connection and concurrency budgets. |
 | [upgrade_3rd_party_crates.md](upgrade_3rd_party_crates.md) | Proposed process | Repeatable dependency-upgrade procedure. |
 | [event-streaming-optimization.md](event-streaming-optimization.md) | Exploratory | Reducing per-connection task-status catch-up queries on `/events`. |
@@ -61,3 +61,4 @@ inside it (never rewrite history), and update the row below.
 | [webui-v2-audit.md](archive/webui-v2-audit.md) | Full audit of `web/v2`; all findings fixed or accepted. |
 | [feed-route-rename.md](archive/feed-route-rename.md) | Feed fragment route renamed `/cards` → `/feed`; what moved and what deliberately did not. |
 | [webui-capture-route.md](archive/webui-capture-route.md) | Capture page routes moved from `/detail` to `/capture`; upload field renamed with them. |
+| [cloud_build_release_deployment.md](archive/cloud_build_release_deployment.md) | Cloud Build tagged-release research: trigger flow, build identity, pricing, caching. Not pursued; local release tooling instead. |

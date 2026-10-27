@@ -110,13 +110,16 @@ From the Cloud Run container contract — long-lived connections are **treated a
 
 ## 5. Current repo state
 
-- **No concurrency / max-instances / min-instances set** in
-	`gcloud/cloudbuild.yaml`, `gcloud/docker-build-push.sh`, or deploy scripts →
-	Dreamscroll runs on Cloud Run defaults. These files build and publish the
-	image; deployment configuration remains separate.
-- Cloud SQL connection: **private IP + Direct VPC egress** (`config_prod.env` → `10.128.0.10:5432`; see `_project/gcloud/cloudsql_postgres.md`).
-- SeaORM pool: currently uses SeaORM's default pool settings in
-	`src/database/postgres.rs` (no configured `max_connections`).
+- **Cloud Run capacity is set, not defaulted:** concurrency 80, max instances
+	20, min instances 0. It is checked in at
+	`gcloud/prod-dreamscroll-web.yaml` and drift-checked by
+	`gcloud/prod-apply.sh --check`; the build scripts only publish images.
+- Cloud SQL connection: **public IP reached through the `/cloudsql` unix
+	socket** (`POSTGRES_CONNECTION_PARAMS=host=/cloudsql/mdrcode:us-central1:dreamscroll-prod-db4`,
+	`POSTGRES_HOST_PORT=localhost`, no private IP). The service's Direct VPC
+	egress (`private-ranges-only`) is unrelated to the database path.
+- SeaORM pool: `max_connections(5)` / `min_connections(0)` in
+	`src/database/postgres.rs` (marked TODO: make configurable).
 - Session-store pool: `max_connections(5)` in `src/database/postgres.rs`.
 - Temporary SQLx split: SeaORM uses SQLx 0.9 while
 	`tower-sessions-sqlx-store` uses SQLx 0.8, so the service currently has two

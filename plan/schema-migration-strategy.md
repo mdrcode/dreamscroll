@@ -1,6 +1,8 @@
 # Schema synchronization and migration plan
 
-**Status:** application code implemented; Cloud Run Job deferred. **Updated:** 2026-10-16.
+**Status:** application code implemented. Production execution is designed in
+[prod-deploy.md](prod-deploy.md); the Cloud Run Job is not created
+yet. **Updated:** 2026-10-27.
 
 ## Decision
 
@@ -63,7 +65,7 @@ PostgreSQL transaction:
    model-declared constraints.
 3. Run the additive SeaORM model registry sync.
 4. Recreate/ensure every registered application-managed index, including the non-unique inference run/attempt index.
-5. Upsert `dreamscroll_schema_version` with `REQUIRED_SCHEMA_VERSION` (currently 6).
+5. Upsert `dreamscroll_schema_version` with `REQUIRED_SCHEMA_VERSION` (currently 8).
 
 The application requires a minimum schema version. `database::connect` checks
 the marker before migrating the Tower Sessions store or starting the web app.
@@ -96,6 +98,11 @@ Schema version 6 adds nullable BIGINT `inference_metas.tokens_thought` for
 provider-reported thinking/reasoning usage. Existing rows retain NULL; counts are
 not inferred or backfilled from historical usage JSON. Run explicit schema sync
 before starting the updated application.
+
+Schema version 7 adds nullable `task_runs.last_error_code` and
+`last_error_message` (see `plan/archive/task-status.md`); version 8 adds the
+one-row-per-backfill latch table `backfills` (see `plan/backfill.md`). Both are
+additive.
 
 The transaction prevents other sessions from observing the temporary absence of
 the custom unique index and rolls back partial DDL on failure. It still holds
@@ -165,29 +172,16 @@ and gets `POSTGRES_PASSWORD` from Secret Manager. Its Cloud Run configuration
 also has Direct VPC networking. No Cloud Run Job was listed in that region.
 No cloud resources or database contents were changed during this inspection.
 
-Production plan:
+The root `Dockerfile` packages `dreamscroll_db` alongside `dreamscroll_web`.
+Execution is now specified in [prod-deploy.md](prod-deploy.md):
+a single-task Cloud Run Job named `dreamscroll-db-sync`, run manually before the
+service deploy through `gcloud/prod-apply.sh --apply --db`, with the same image
+tag, the `/cloudsql` socket, `POSTGRES_PASSWORD` from Secret Manager, no
+retries, a bounded task timeout, and a clone rehearsal before the first
+production run.
 
-1. The root `Dockerfile` now builds and packages `dreamscroll_db` alongside
-   `dreamscroll_web`; Cloud Run Job configuration and execution are deferred.
-2. Create a single-task Cloud Run Job with command
-   `/app/dreamscroll_db` and argument `sync_schema`. Attach the same Cloud SQL
-   instance and networking required by the production service. Configure the
-   DB password as a Secret Manager reference; never pass it as a CLI argument or
-   plain build substitution.
-3. Give the job identity only the needed Secret Manager access and Cloud SQL
-   connection permissions; confirm the database user itself has the required
-   DDL privileges. The current service uses the default Compute Engine service
-   account; evaluate a dedicated migration identity rather than inheriting
-   unrelated service permissions by default.
-4. Run one task with no automatic retry and a bounded timeout. Execute manually
-   with `gcloud run jobs execute <job> --region=us-central1 --wait`, then check
-   Cloud Run execution status and Cloud Logging before deploying application
-   code that depends on the schema change.
-5. Use the same immutable commit-tagged image for the schema job and web
-   service. The current `gcloud/cloudbuild.yaml` deploys the service as part of
-   its build/push flow; split or gate that flow so an operator can run and
-   verify the schema job before the service deployment. Do not auto-execute the
-   schema job on every image build.
+That document also records the verified IAM/identity facts and the deferred
+automation options.
 
 `dreamscroll_db` builds a `PostgresConfig` from only the `POSTGRES_*`
 environment variables for database-backed commands. `hash_password` does not
@@ -212,12 +206,15 @@ production backup/restore procedure before the first production run.
 4. [x] Add `dreamscroll_db sync_schema`, Postgres regression tests for
    repeated sync/index uniqueness, and startup rejection of missing/stale
    markers while accepting a newer compatible marker.
-5. [ ] Measure index rebuild/lock duration on a representative production-sized
-   table. Verify rollback behavior on a deliberate sync failure.
-6. [ ] Verify the Docker image and admin command in a non-production Cloud Run
-   Job. Cloud Run Job configuration is intentionally deferred for now.
-7. [ ] Split or gate the release sequence so production schema sync succeeds
-   before deploying application code that depends on the change.
+5. [ ] Measure index rebuild/lock duration on a clone. Verify rollback behavior
+   on a deliberate sync failure. Procedure in
+   [prod-deploy.md](prod-deploy.md) §Preflight.
+6. [ ] Create the `dreamscroll-db-sync` Cloud Run Job, rehearse it against a
+   Cloud SQL clone, then run it against production.
+7. [ ] Gate the release sequence so production schema sync succeeds before
+   deploying application code that depends on the change: separate manual
+   `prod-apply.sh --apply --db` then `--apply --web` steps, automated gate
+   later.
 8. [ ] Record production backup and rollback steps. `SchemaBuilder::sync` is not
    a reversible migration; reverting the app image does not restore schema.
 

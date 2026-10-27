@@ -8,6 +8,11 @@ _project/
 localdev/
 target/
 
+# Not needed by the image build; keeps ops config and docs out of the context.
+gcloud/
+plan/
+issues/
+
 .env
 *.env*
 *secret*

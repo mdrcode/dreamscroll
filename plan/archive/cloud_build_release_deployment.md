@@ -1,6 +1,12 @@
 # Cloud Build tagged-release deployment plan
 
-**Status:** research / proposed; no Google Cloud resources changed.
+> **Archived:** research record, not pending work. Production releases run from
+> the laptop through [plan/prod-deploy.md](../prod-deploy.md); this material is
+> kept because it is what a CI pipeline would need if that decision changes.
+
+**Status:** not pursued. Researched 2026-09/10; superseded 2026-10-27 by the
+checked-in local release tooling (`gcloud/prod-build-push.sh`,
+`gcloud/prod-apply.sh`, and the manifests under `gcloud/`).
 
 ## Goal
 
@@ -14,14 +20,16 @@ trigger builds. Local macOS development and Docker development remain unchanged.
 
 - `Dockerfile` builds the three Rust binaries and packages the active
   `web/v2` assets; Cloud Build can use this as-is.
-- `gcloud/cloudbuild.yaml` currently builds and publishes `latest` plus a
-  caller-supplied `_IMAGE_TAG`. It does not deploy to Cloud Run.
-- `gcloud/docker-build-push.sh` is the laptop-side Docker build/push route.
-- Production config identifies project `mdrcode`, region `us-central1`, and
-  task/webhook URLs on the existing `dreamscroll-webui-api` Cloud Run service.
-  This service name should be verified in the console before wiring deployment.
-- `plan/static-serving-cdn.md` describes the current deployment as separate
-  from image publishing; this plan proposes the first automated deploy path.
+- `gcloud/cloudbuild.yaml` builds and pushes a caller-supplied `_IMAGE_TAG` and
+  then runs `gcloud run deploy`. It is not the release path: releases go through
+  the laptop tooling below, and the Cloud Build config is currently unused.
+- `gcloud/prod-build-push.sh` is the laptop build/push route; it pushes a
+  `linux/amd64` image and prints the digest.
+- Production is project `mdrcode`, region `us-central1`, service
+  `dreamscroll-webui-api` — all verified from the live configuration on
+  2026-10-27.
+- `plan/static-serving-cdn.md` keeps deployment separate from image publishing;
+  that remains true and is unrelated to this pipeline.
 
 ## Proposed production tag flow
 
@@ -237,7 +245,7 @@ release builds.
 - [ ] Document rollback: redeploy a known image digest/commit or shift Cloud Run
       traffic to a previous healthy revision. Do not rely on `latest` as the
       rollback identifier.
-- [ ] Retain `gcloud/docker-build-push.sh` and the manual build config until
+- [ ] Retain `gcloud/prod-build-push.sh` and the manual build config until
       the automated path has had a successful production release.
 
 ## Decisions still open

@@ -1,0 +1,48 @@
+# Production schema-sync job. Hand-authored from the v1 Job shape
+# (https://docs.cloud.google.com/run/docs/reference/yaml/v1) and the settings in
+# plan/prod-deploy.md; no job exists yet, so `jobs replace` is also the
+# bootstrap path (it creates the job).
+#
+# `image` is deliberately absent: gcloud/prod-apply.sh injects it from the
+# commit being released. `serviceAccountName` is absent too: Cloud Run defaults
+# it to the project's default compute service account, which prod-apply.sh
+# derives and asserts.
+apiVersion: run.googleapis.com/v1
+kind: Job
+metadata:
+  name: dreamscroll-db-sync
+spec:
+  template:
+    metadata:
+      annotations:
+        run.googleapis.com/cloudsql-instances: mdrcode:us-central1:dreamscroll-prod-db4
+    spec:
+      parallelism: 1
+      taskCount: 1
+      template:
+        spec:
+          maxRetries: 0
+          timeoutSeconds: 900
+          containers:
+          - command:
+            - /app/dreamscroll_db
+            args:
+            - sync_schema
+            env:
+            - name: NO_LOCAL_CONFIG_FILES
+              value: 'true'
+            - name: RUST_LOG
+              value: info
+            - name: POSTGRES_HOST_PORT
+              value: localhost
+            - name: POSTGRES_USER
+              value: dreamscroll-web
+            - name: POSTGRES_DB
+              value: dreamscroll-prod
+            - name: POSTGRES_CONNECTION_PARAMS
+              value: host=/cloudsql/mdrcode:us-central1:dreamscroll-prod-db4
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: latest
+                  name: DREAMSCROLL_PROD_POSTGRES_PASSWORD

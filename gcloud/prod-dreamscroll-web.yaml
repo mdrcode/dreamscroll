@@ -1,0 +1,131 @@
+# Production Cloud Run service, captured from the live export on 2026-10-26
+# (`gcloud run services describe dreamscroll-webui-api --region us-central1
+# --format export`) and scrubbed of server-managed fields:
+#
+#   status, metadata.namespace, metadata.labels (location),
+#   metadata.annotations.{urls,ingress-status,operation-id,client-name},
+#   metadata.annotations.serving.knative.dev/*,
+#   spec.template.metadata.labels.client.knative.dev/nonce,
+#   spec.template.metadata.annotations.run.googleapis.com/client-name,
+#   `image` (injected by gcloud/prod-apply.sh at apply time), and
+#   `serviceAccountName` (Cloud Run defaults to the project's default compute
+#   service account; prod-apply.sh derives and asserts it).
+#
+# NOTE: both max-instance annotations read '20' as of 2026-10-27. They used to
+# disagree (service-level '4' vs template '20'); clearing the stale value in the
+# console rewrote the service-level annotation to '20', and the v2 API reports
+# template.scaling.maxInstanceCount = 20. Both are kept because the console
+# maintains both.
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  annotations:
+    run.googleapis.com/ingress: all
+    run.googleapis.com/invoker-iam-disabled: 'true'
+    run.googleapis.com/maxScale: '20'
+  name: dreamscroll-webui-api
+spec:
+  template:
+    metadata:
+      annotations:
+        autoscaling.knative.dev/maxScale: '20'
+        autoscaling.knative.dev/minScale: '0'
+        run.googleapis.com/cloudsql-instances: mdrcode:us-central1:dreamscroll-prod-db4
+        run.googleapis.com/cpu-throttling: 'true'
+        run.googleapis.com/network-interfaces: '[{"network":"default","subnetwork":"default"}]'
+        run.googleapis.com/sessionAffinity: 'false'
+        run.googleapis.com/startup-cpu-boost: 'true'
+        run.googleapis.com/vpc-access-egress: private-ranges-only
+      labels:
+        run.googleapis.com/startupProbeType: Default
+    spec:
+      containerConcurrency: 80
+      containers:
+      - env:
+        - name: NO_LOCAL_CONFIG_FILES
+          value: 'true'
+        - name: RUST_LOG
+          value: info
+        - name: SERVICES
+          value: webui,api,webhook
+        - name: GCLOUD_PROJECT_ID
+          value: mdrcode
+        - name: GCLOUD_REGION
+          value: us-central1
+        - name: SESSION_ALWAYS_SAVE
+          value: 'true'
+        - name: COOKIE_SECURE
+          value: 'true'
+        - name: POSTGRES_USER
+          value: dreamscroll-web
+        - name: POSTGRES_CONNECTION_PARAMS
+          value: host=/cloudsql/mdrcode:us-central1:dreamscroll-prod-db4
+        - name: POSTGRES_DB
+          value: dreamscroll-prod
+        - name: STORAGE_BACKEND
+          value: gcloud
+        - name: STORAGE_GCLOUD_BUCKET_NAME
+          value: dreamscroll-prod-media1
+        - name: GEMINI_BACKEND
+          value: vertex
+        - name: FIRESTARTER
+          value: grok
+        - name: TASK_BACKEND
+          value: gcloudtasks
+        - name: TASK_QUEUE_NAME_ILLUMINATE
+          value: illuminate
+        - name: TASK_QUEUE_NAME_SPARK
+          value: spark
+        - name: TASK_QUEUE_NAME_SEARCH_INDEX
+          value: search-index
+        - name: SEARCH_EMBED_COLLECTION_ID
+          value: dreamscroll-prod-collection1
+        - name: SEARCH_EMBED_VECTOR_FIELD
+          value: geminiv2
+        - name: SEARCH_EMBED_VECTOR_DIMS
+          value: '768'
+        - name: POSTGRES_HOST_PORT
+          value: localhost
+        - name: TASK_MAX_ATTEMPTS
+          value: '3'
+        - name: GEMINI_MODEL_ID
+          value: gemini-3.8-flash
+        - name: TASK_WEBHOOK_BASE_URL
+          value: https://dreamscroll-webui-api-xdrchnynaq-uc.a.run.app
+        - name: TASK_OIDC_AUDIENCE
+          value: https://dreamscroll-webui-api-xdrchnynaq-uc.a.run.app
+        - name: TASK_OIDC_SERVICE_ACCOUNT_EMAIL
+          value: cloud-tasks-invoker@mdrcode.iam.gserviceaccount.com
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: DREAMSCROLL_PROD_JWT_SECRET
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: DREAMSCROLL_PROD_POSTGRES_PASSWORD
+        - name: XAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              key: latest
+              name: DREAMSCROLL_PROD_XAI_API_KEY
+        name: dreamscroll-web-1
+        ports:
+        - containerPort: 8080
+          name: http1
+        resources:
+          limits:
+            cpu: 1000m
+            memory: 512Mi
+        startupProbe:
+          failureThreshold: 1
+          periodSeconds: 240
+          tcpSocket:
+            port: 8080
+          timeoutSeconds: 240
+      timeoutSeconds: 300
+  traffic:
+  - latestRevision: true
+    percent: 100

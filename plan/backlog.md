@@ -34,8 +34,7 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Browser tests for SSE/refresh/upload               | [testing-js-and-browser.md](testing-js-and-browser.md)                 | First client bug that unit tests miss                         |
 | Coverage strategy beyond the two tiers             | [testing-coverage.md](testing-coverage.md)                             | Coverage discussions block a change                           |
 | Private media URLs                                 | [media-serving.md](media-serving.md)                                   | Multi-user access or CDN/LB work starts                       |
-| Schema sync as a Cloud Run Job                     | [schema-migration-strategy.md](schema-migration-strategy.md)           | Deployments must run migrations unattended                    |
-| Tagged-release Cloud Build pipeline                | [cloud_build_release_deployment.md](cloud_build_release_deployment.md) | Manual deploys become error-prone                             |
+| Provisioning the schema-sync Cloud Run Job         | [prod-deploy.md](prod-deploy.md)                                       | First production schema change                                |
 | API token hardening                                | [api_token_hardening.md](api_token_hardening.md)                       | API usage grows beyond first-party clients                    |
 | Entity taxonomy pass                               | [knowledge-entity-types.md](knowledge-entity-types.md)                 | Environment fully backfilled with v2                          |
 | htmx 4.0 migration                                 | [htmx4.md](htmx4.md)                                                   | 4.x becomes `latest`, or 2.x breaks a behavior we rely on     |
