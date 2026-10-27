@@ -84,12 +84,21 @@ build_push() {
 }
 
 # A wrong-architecture push deploys fine and dies at runtime with "exec format
-# error". This is the one property the manifest cannot show.
+# error". A single-manifest push exposes the platform in the image config; an
+# index (which provenance or multiple platforms would produce) lists it per
+# manifest instead, so fall back to the rendered inspect output in that case.
 assert_platform() {
-  local inspect
-  inspect="$(docker buildx imagetools inspect "$REF" 2>/dev/null || true)"
-  grep -q 'Platform: *linux/amd64' <<<"$inspect" ||
-    fail "pushed image is not linux/amd64; inspect output: $inspect"
+  local actual rendered
+  actual="$(docker buildx imagetools inspect "$REF" \
+    --format '{{.Image.OS}}/{{.Image.Architecture}}' 2>/dev/null || true)"
+  if [[ -z "$actual" || "$actual" == *"<no value>"* ]]; then
+    rendered="$(docker buildx imagetools inspect "$REF" 2>/dev/null || true)"
+    grep -q 'Platform: *linux/amd64' <<<"$rendered" ||
+      fail "pushed image is not linux/amd64; inspect output: $rendered"
+    return 0
+  fi
+  [[ "$actual" == "linux/amd64" ]] ||
+    fail "pushed image platform is '$actual', expected linux/amd64"
 }
 
 resolve_digest() {
