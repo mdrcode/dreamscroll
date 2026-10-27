@@ -16,6 +16,7 @@ spec:
     metadata:
       annotations:
         run.googleapis.com/cloudsql-instances: mdrcode:us-central1:dreamscroll-prod-db4
+        run.googleapis.com/execution-environment: gen2
     spec:
       parallelism: 1
       taskCount: 1
@@ -24,7 +25,11 @@ spec:
           maxRetries: 0
           timeoutSeconds: 900
           containers:
-          - command:
+          - resources:
+              limits:
+                cpu: 1000m
+                memory: 512Mi
+            command:
             - /app/dreamscroll_db
             args:
             - sync_schema

@@ -31,6 +31,11 @@ def server_paths:
   , ["metadata", "annotations", "serving.knative.dev/lastModifier"]
   , ["spec", "template", "metadata", "labels", "client.knative.dev/nonce"]
   , ["spec", "template", "metadata", "annotations", "run.googleapis.com/client-name"]
+  , ["metadata", "annotations", "run.googleapis.com/client-version"]
+  , ["metadata", "annotations", "run.googleapis.com/creator"]
+  , ["metadata", "annotations", "run.googleapis.com/lastModifier"]
+  , ["metadata", "labels", "run.googleapis.com/lastUpdatedTime"]
+  , ["spec", "template", "metadata", "annotations", "run.googleapis.com/client-version"]
   , ["spec", "template", "spec", "serviceAccountName"]
   , ["spec", "template", "spec", "template", "spec", "serviceAccountName"];
 

@@ -259,7 +259,9 @@ gcloud run jobs describe dreamscroll-db-sync --region us-central1 --format expor
 | `--tasks` / `--parallelism` | `1` / `1` | One schema writer; the advisory lock would serialize overlap anyway. |
 | `--max-retries` | `0` | Default is **3**; silent re-runs hide failures and the operation is already atomic. The script is the retry. |
 | `--task-timeout` | `15m` | Default is **10m**, maximum **168h**. A timeout kills the connection, so PostgreSQL rolls the transaction back and releases the advisory lock. |
-| service account | default Compute Engine SA | Same identity the service already uses against this database and secret. A dedicated least-privilege SA is deferred. |
+| service account | default Compute Engine SA | Absent from the manifest; Cloud Run fills it in, and `prod-apply.sh` derives and asserts it. Confirmed on the live job 2026-10-27. |
+| execution environment | `gen2` | API default; recorded explicitly so drift comparison is exact. |
+| resources | 1 vCPU / 512 MiB | API default; explicit so it can be tuned without inventing a difference. |
 
 ## Release sequence
 
@@ -350,14 +352,18 @@ Live, read-only:
   `--check` still reporting clean confirms the canonicalizer masks the
   server-managed fields a deploy injects: nonce, operation-id,
   creator/lastModifier, client-name, namespace.
-- `--check --db` reports `dreamscroll-db-sync does not exist yet` and exits 2.
+- Job creation (2026-10-27) surfaced exactly the API-injected fields the design
+  anticipated: `execution-environment: gen2` and `resources.limits` (now captured
+  in the manifest) plus client/audit markers (`client-version`, `creator`,
+  `lastModifier`, `lastUpdatedTime`, now masked). The job reports the derived
+  runtime identity, confirming that omitting `serviceAccountName` defaults to the
+  project's compute SA. After both fixes, `--check --db` is clean.
 - Identity: `--check --web` derives `783246871160-compute@…` from the project and
   confirms the live service uses it. Stubbing `compute project-info` with a
   different address produces a drift line and exit 1; pinning
   `serviceAccountName` in a manifest fails `--lint` with exit 2.
-- Not yet exercised: `--apply`, job creation, `jobs replace` round-trip, and
-  the job's omitted `serviceAccountName` defaulting (`jobs replace` has no
-  dry run, so the first `--apply --db` proves it).
+- Not yet exercised: `--apply --web`, `jobs execute` (the schema sync itself and
+  its failure reporting), and the one-off legacy table reset.
 
 ## Drift policy
 
