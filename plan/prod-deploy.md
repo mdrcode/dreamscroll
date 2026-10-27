@@ -322,14 +322,21 @@ pass. There is no dirty-tree escape hatch: an image must correspond to a commit.
 - Negative tests: removed `POSTGRES_PASSWORD`, a literal password value, a
   missing Cloud SQL annotation, and a committed `image:` each fail `--lint` with
   the expected message and exit 2.
-- `prod-build-push.sh --check` passes its preflight (verified with
-  `ALLOW_DIRTY=1` while this work is still uncommitted) and refuses a dirty
-  worktree otherwise.
+- `prod-build-push.sh --check` passes its preflight and refuses a dirty
+  worktree; the first real run came from a clean tree.
 - Both scripts refuse a `gcloud` project other than `mdrcode` (verified with a
   stubbed `gcloud`).
-- Not yet exercised: an actual build and push — it writes to Artifact Registry —
-  so `buildx --push`, the platform assertion, and the digest readback are
-  code-reviewed and syntax-checked but unrun.
+- First real build and push (2026-10-27, commit `7da7378`): tag
+  `…/dreamscroll-web:7da7378be2f8…`, digest `sha256:39d5fd29…`, platform
+  `linux/amd64`, revision label set, `User=appuser`,
+  `Cmd=["/app/dreamscroll_web"]`. The cached rebuild plus push took ~9s.
+  **Not deployed**: the service still runs `sha256:058cd4db…`, and `--check`
+  stayed clean afterwards.
+- That first push caught a bug in the platform assertion: with
+  `--provenance=false` the reference is a plain image manifest, so
+  `imagetools inspect` prints no `Platform:` line and the assertion rejected a
+  correct push. It now reads the platform from the image config and falls back
+  to the rendered output for indexes.
 
 Live, read-only:
 
