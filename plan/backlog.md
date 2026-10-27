@@ -22,6 +22,14 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   Both Google backends pass a full-prompt/schema live smoke locally; the Vertex
   path under the deployed service account is unverified. See
   `plan/archive/google-ai-interactions-api.md`.
+- [ ] **Add a schema audit to `dreamscroll_db`.** Compare the model registry
+  against the live catalog (missing columns *and* retired columns), so a reset
+  cannot leave the app unable to insert. The 2026-10-27 reset left
+  `task_runs.user_id NOT NULL` behind and every illuminate enqueue failed on it.
+- [ ] **Fail uploads when the illumination enqueue fails.** `Beacon::new_capture`
+  errors are logged at `warn!` and swallowed, so the upload returns success with
+  no illumination queued. Log at `error!` at minimum; consider failing the
+  request.
 - [ ] **Dispose of the renamed legacy tables** left in `public` by the
   2026-10-27 schema reset (old `illuminations` and friends). They are inert for
   SeaORM but clutter the schema; either drop them once the reset is trusted or

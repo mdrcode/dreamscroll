@@ -383,6 +383,12 @@ Production reset (2026-10-27):
   `run.invoker`) and `invoker-iam-disabled` survived.
 - **Lesson:** a schema reset is not finished until the service runs code that no
   longer syncs at startup. Deploy the new image inside the same window.
+- **Second lesson (found 2026-10-27 17:41):** renaming stale tables is not enough
+  to make the working set match the entities. Tables that survive keep retired
+  columns, and sync never drops or relaxes them. `task_runs.user_id` was still
+  `NOT NULL` with no default, so every TaskRun insert failed and captures were
+  stored without an illumination task — the enqueue error was swallowed at
+  `warn!`. Audit *retired* columns after a reset, not just missing ones.
 
 ## Drift policy
 
