@@ -11,24 +11,23 @@
 #   `serviceAccountName` (Cloud Run defaults to the project's default compute
 #   service account; prod-apply.sh derives and asserts it).
 #
-# NOTE: both max-instance annotations read '20' as of 2026-10-27. They used to
-# disagree (service-level '4' vs template '20'); clearing the stale value in the
-# console rewrote the service-level annotation to '20', and the v2 API reports
-# template.scaling.maxInstanceCount = 20. Both are kept because the console
-# maintains both.
+# NOTE: both max-instance annotations are pinned to '4' deliberately (2026-10-27)
+# as a cost ceiling: 4 instances x 80 concurrency bounds worst-case spend if the
+# public URL is flooded. The console writes both annotations, so both are kept;
+# the v2 API reports template.scaling.maxInstanceCount, which follows them.
 apiVersion: serving.knative.dev/v1
 kind: Service
 metadata:
   annotations:
     run.googleapis.com/ingress: all
     run.googleapis.com/invoker-iam-disabled: 'true'
-    run.googleapis.com/maxScale: '20'
+    run.googleapis.com/maxScale: '4'
   name: dreamscroll-webui-api
 spec:
   template:
     metadata:
       annotations:
-        autoscaling.knative.dev/maxScale: '20'
+        autoscaling.knative.dev/maxScale: '4'
         autoscaling.knative.dev/minScale: '0'
         run.googleapis.com/cloudsql-instances: mdrcode:us-central1:dreamscroll-prod-db4
         run.googleapis.com/cpu-throttling: 'true'

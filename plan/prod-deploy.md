@@ -64,7 +64,7 @@ manifests structurally.
 | Service identity | Compute Engine default service account (derived at check/apply time from the project, not committed) |
 | Service networking | Direct VPC egress `private-ranges-only`, network/subnet `default` |
 | Service shape | 30 env vars, 3 secret refs, 1 vCPU / 512 MiB, concurrency 80, port 8080, `timeoutSeconds 300`, startup probe `tcpSocket 8080` with `periodSeconds 240` |
-| Max instances | 20, declared by both `run.googleapis.com/maxScale` (service) and `autoscaling.knative.dev/maxScale` (template) after the 2026-10-27 console edit |
+| Max instances | 4, declared by both `run.googleapis.com/maxScale` (service) and `autoscaling.knative.dev/maxScale` (template). Deliberate cost ceiling set 2026-10-27 through the manifest (was 20). |
 | Public access | annotation `run.googleapis.com/invoker-iam-disabled: 'true'` (no `allUsers` binding) |
 | Schema marker | `dreamscroll_schema_version`, `REQUIRED_SCHEMA_VERSION = 8` in the current binary |
 
