@@ -383,6 +383,13 @@ Production reset (2026-10-27):
   `run.invoker`) and `invoker-iam-disabled` survived.
 - **Lesson:** a schema reset is not finished until the service runs code that no
   longer syncs at startup. Deploy the new image inside the same window.
+- **Follow-up reset (2026-10-27 17:50):** keeping `users`, `captures`,
+  `medias`, and `annotations`, the derived tables were dropped and recreated
+  from the registry (`dreamscroll-db-sync-f42cv`, `schema_version=8`, ~4 s,
+  no drift afterwards). The kept tables therefore still carry whatever columns
+  they had; audit them for retired NOT NULL columns before trusting inserts,
+  and re-illuminate existing captures with the backfill
+  `illuminate-v2-all-captures-2026-10-16`.
 - **Second lesson (found 2026-10-27 17:41):** renaming stale tables is not enough
   to make the working set match the entities. Tables that survive keep retired
   columns, and sync never drops or relaxes them. `task_runs.user_id` was still
