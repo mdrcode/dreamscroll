@@ -22,6 +22,10 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   Both Google backends pass a full-prompt/schema live smoke locally; the Vertex
   path under the deployed service account is unverified. See
   `plan/archive/google-ai-interactions-api.md`.
+- [ ] **Dispose of the renamed legacy tables** left in `public` by the
+  2026-10-27 schema reset (old `illuminations` and friends). They are inert for
+  SeaORM but clutter the schema; either drop them once the reset is trusted or
+  move them to a `legacy` schema.
 - [ ] **Remove or clearly demote `gcloud/cloudbuild.yaml`.** Nothing in the
   release path uses it any more (`prod-build-push.sh` + `prod-apply.sh`), it
   duplicates the identifiers that now live in `prod-config.sh`, and its deploy

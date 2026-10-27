@@ -1,8 +1,7 @@
 # Production deploy
 
-**Status:** manifests, `prod-apply.sh`, and the build guard are written; offline
-checks pass and the first read-only `--check` against production is clean for the
-service. Nothing has been applied and no cloud resources were created.
+**Status:** shipped and exercised against production — one-off schema reset, first
+`jobs execute`, first `--apply --web`, and an ingress/queue stop-and-restore.
 **Updated:** 2026-10-27.
 
 ## Scope
@@ -362,8 +361,28 @@ Live, read-only:
   confirms the live service uses it. Stubbing `compute project-info` with a
   different address produces a drift line and exit 1; pinning
   `serviceAccountName` in a manifest fails `--lint` with exit 2.
-- Not yet exercised: `--apply --web`, `jobs execute` (the schema sync itself and
-  its failure reporting), and the one-off legacy table reset.
+- Every mode has now run against production (see the reset log below).
+
+Production reset (2026-10-27):
+
+- Backup `1793119914259` (`ON_DEMAND`, SUCCESSFUL) taken before any change.
+- Ingress set to `internal` and all three Cloud Tasks queues paused for the
+  window; both restored afterwards.
+- First sync attempt failed with `column "task_run_id" of relation
+  "illuminations" contains null values` — one stale table had not been renamed.
+  The transaction rolled back: no partial schema, marker unchanged.
+- After the rename the sync ran clean (`dreamscroll-db-sync-7cnbm`, ~0.5 s):
+  `Synchronized Postgres schema schema_version=8`.
+- Restoring ingress exposed that the deployed image (`058cd4db…`, built before
+  the explicit-sync refactor) still ran model sync at startup and died on
+  `constraint "idx-task_runs-backfill_task" of relation "task_runs" does not
+  exist`. Deploying the current image fixed it: the first real
+  `--apply --web` produced revision `00106-mzb` (ready, 100 % traffic,
+  `/login` 200, no warnings), and its post-apply `--check` was clean.
+- IAM is unchanged after `replace` (only `cloud-tasks-invoker` holds
+  `run.invoker`) and `invoker-iam-disabled` survived.
+- **Lesson:** a schema reset is not finished until the service runs code that no
+  longer syncs at startup. Deploy the new image inside the same window.
 
 ## Drift policy
 
@@ -488,30 +507,21 @@ Re-run the preflight query afterwards, and record any ownership shortcut in
   must stay in the annotation anyway). Revisit as a consistency fix: it would
   make the instance name appear exactly once per manifest.
 
-## Biggest uncertainties (2026-10-27)
+## Uncertainties — resolved 2026-10-27
 
-Ordered by how much they could invalidate the plan.
+All four are answered:
 
-| # | Uncertainty | Why it matters | Cheapest resolution |
-| --- | --- | --- | --- |
-| 1 | **`replace` round-trip fidelity.** `services replace` has `--dry-run` (validation only) and `jobs replace` has none; we have never applied a captured manifest back. | If Cloud Run injects or reorders fields on write, `--check` can never be clean and "manifest is the source of truth" weakens to a projection comparison. | Create one throwaway service and one throwaway job from the captured shape, round-trip them, then `--check`. Requires approval: creates two resources in `mdrcode`. |
-| 2 | **DB user DDL privileges.** `dreamscroll-web` must own the tables sync alters; never verified. | If it does not, the first production sync fails after the backup and clone work. | Query `pg_tables.tableowner` against the clone (same credentials) during rehearsal. |
-| 3 | **Clone rehearsal mechanics.** Cloud SQL clone needs Enterprise edition and disk headroom, and we assume the clone accepts the same DB credentials and secret. | The rehearsal is the gate for the first production run; if it cannot be stood up, the first run is production itself. | Attempt the clone; record whether users/passwords carry over. |
-| 4 | **IAM-managed public access.** Public access is currently the `run.googleapis.com/invoker-iam-disabled` annotation, not an `allUsers` binding. | If `replace` drops it, prod goes private; if a later console/CLI action writes an `allUsers` binding instead, IAM state lives outside the manifest. | Invariant asserts the annotation; after the first apply, re-read the service IAM policy and confirm it is unchanged. |
+1. **`replace` round-trip**: both `--apply --db` and `--apply --web` left
+   `--check` clean afterwards, so the manifests round-trip and the masks cover
+   what the API injects on create and update.
+2. **DB privileges**: the sync completed against production, so
+   `dreamscroll-web` can create and alter the objects it owns.
+3. **Clone rehearsal**: not needed. `gcloud sql instances clone` sat at
+   `PENDING_CREATE` for over 20 minutes (COPY operation, uncancellable) and was
+   deleted; the transactional sync itself was the safer rehearsal.
+4. **IAM / public access**: unchanged after `replace`.
 
-Resolved 2026-10-27 — `maxScale`: the service-level annotation read `4` while
-the template read `20` and the v2 API reported 20. Clearing it in the console
-rewrote the service-level annotation to `20`, so both agree and the effective
-cap never changed. The console maintains both annotations, so both stay in the
-manifest.
-
-Resolved on 2026-10-27: the old ordering hazard ("config apply is also a deploy")
-is gone by construction — `--apply` accepts exactly one target, so there is no
-combined invocation that could ship code before a schema update. Running `--db`
-does mean the sync always executes when the job is applied; accepted, since the
-operation is idempotent and sub-second at this data size.
-
-Implementation details already settled, listed so they are not rediscovered:
+Implementation details worth not rediscovering:
 
 - `yq` path joins are display-only: annotation keys contain dots
   (`run.googleapis.com/ingress`), so a projection line is a label, not a
@@ -527,21 +537,19 @@ Implementation details already settled, listed so they are not rediscovered:
   (`command[0] == ...`) plus `length` instead.
 - `yq -e` exits 1 for false and >1 for an evaluation error; the invariant helper
   distinguishes the two so a broken expression cannot look like a manifest bug.
+- `buildx` with `--provenance=false` pushes a single image manifest, whose
+  platform has to be read from the image config (`{{.Image.OS}}/{{.Image.Architecture}}`),
+  not from the rendered `inspect` output.
 
 ## Open questions
 
-1. Should the clone rehearsal become a permanent step in the script
-   (`--instance` override) or stay a documented manual procedure?
-2. Is a second, non-production Cloud Run job worth keeping permanently for
-   rehearsals?
-3. When `--check --db` runs before the job exists, is that drift (exit 1) or a
-   distinct "target absent" state with its own exit code and message?
-4. ~~Is the first `--apply --db` allowed to be the first production sync?~~
-   Resolved 2026-10-27: no. The first sync is a one-off table reset against a
-   stale schema, so `--apply --db --no-execute` configures the job first and the
-   sync runs after the drop.
-5. Should `--check` distinguish "manifest ahead of prod" (uncommitted intent)
-   from "prod ahead of manifest" (out-of-band change), or is one diff enough?
+1. Should `--check` distinguish "manifest ahead of prod" (uncommitted intent)
+   from "prod ahead of manifest" (out-of-band change)? Today both are one diff.
+2. When should the renamed legacy tables be dropped or moved to a `legacy`
+   schema? They are inert for sync but still occupy `public`.
+3. Fold the sync into the web release automatically, or keep the explicit
+   `--apply --db` then `--apply --web` step? Deferred until sync stops
+   rebuilding the hand-written index.
 
 ## Research sources
 
