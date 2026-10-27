@@ -10,7 +10,7 @@ application:
 | Queue | Webhook route |
 | --- | --- |
 | `illuminate` | `/_wh/cloudtask/illuminate` |
-| `search_index` | `/_wh/cloudtask/search_index` |
+| `search-index` | `/_wh/cloudtask/search-index` |
 | `spark` | `/_wh/cloudtask/spark` |
 
 Use the same dedicated service account configured as
@@ -27,6 +27,20 @@ gcloud tasks queues create illuminate \
   --max-backoff=600s \
   --max-doublings=16
 ```
+
+Concurrency differs by queue (2026-10-27): `illuminate` runs **one** dispatch at
+a time so Gemini inference is serialized (bounded spend, no quota spikes);
+`spark` and `search-index` remain at 5. Set it with:
+
+```bash
+gcloud tasks queues update illuminate \
+  --location=us-central1 \
+  --max-concurrent-dispatches=1
+```
+
+`max-dispatches-per-second` (2) governs how fast attempts start and is unchanged;
+with concurrency 1 the throughput ceiling becomes one illumination per task
+duration, so the all-captures backfill takes roughly that long per capture.
 
 Verify:
 
