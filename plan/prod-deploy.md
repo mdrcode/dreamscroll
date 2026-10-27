@@ -404,6 +404,13 @@ Production reset (2026-10-27):
 | Noisy but working revision | Shift traffic back to the previous revision in the console; the manifest then needs re-capturing to match reality. |
 | Bad schema change | **No automatic rollback.** `SchemaBuilder::sync` is not reversible. Restore from the pre-change Cloud SQL backup or apply a forward fix. Use expand/contract for anything non-additive. |
 
+Revision caveat after the 2026-10-27 reset: images built before the explicit-sync
+refactor (`058cd4db…` and older) still synchronize models at startup, so they
+cannot boot against the reset schema — they try to drop
+`idx-task_runs-backfill_task` as a constraint and exit. Traffic rollback to
+`00105` therefore fails; recovery is forward (a new image) or a database restore
+from backup.
+
 ## Failure modes and safety nets
 
 | Scenario | Behaviour |
