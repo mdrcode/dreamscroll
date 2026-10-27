@@ -5,6 +5,11 @@
 cost-ceiling change. Operating runbook, reset procedure, and schema audits are
 included below. **Updated:** 2026-10-27.
 
+**Start here (fresh session):** read this doc, then run
+`./gcloud/prod-apply.sh --check` to see whether production still matches the repo,
+then read `plan/backlog.md` for open work. Verify anything date-specific in the
+environment table — it is a snapshot, not a live query.
+
 ## Scope
 
 This doc owns the production release path for everything that runs on Cloud Run:
@@ -466,9 +471,23 @@ in the current shape. Data loss is accepted; keep what matters.
    back entirely.
 6. Verify: sync log says `Synchronized Postgres schema schema_version=8`;
    `--check` is clean; restore ingress and queues (service first).
-7. Regenerate derived content: existing captures now have no illumination. Use the
-   all-captures backfill (`illuminate-v2-all-captures-2026-10-16`) for bulk, or
-   `dreamscroll_api illuminate <capture_id>` for one capture.
+7. Regenerate derived content: existing captures now have no illumination. Both
+   paths go through the REST API and need a cached token (prompted once per
+   host+user pair on first use):
+
+   ```bash
+   API='cargo run --release --bin dreamscroll_api -- --host dreamscroll.ai --user <operator>'
+   # one capture, with the projection and search indexing
+   $API illuminate <capture_id> --wait-seconds 180
+   # bulk: enqueue up to N candidates, then watch the queue
+   $API backfill pump illuminate-v2-all-captures-2026-10-16 --limit 10
+   $API backfill status illuminate-v2-all-captures-2026-10-16
+   $API backfill failures illuminate-v2-all-captures-2026-10-16
+   ```
+
+   The backfill targets **all** captures (including archived and already
+   illuminated ones); it is not per-capture. `--force` re-pumps after the latch
+   records a dry state (409 otherwise).
 
 Ownership check (the sync needs `CREATE` on schema `public` plus table
 ownership; `dreamscroll-web` satisfied both on 2026-10-27):
