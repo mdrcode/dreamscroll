@@ -183,7 +183,11 @@ fn parse_gemini_response(
         })
     })();
 
-    InferenceOutcome { output, metadata }
+    InferenceOutcome {
+        output,
+        metadata,
+        http_status_code: Some(status.as_u16()),
+    }
 }
 
 fn spark_output_schema_gemini() -> serde_json::Value {

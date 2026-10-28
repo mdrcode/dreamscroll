@@ -150,8 +150,13 @@ async fn initialize()
             .with_leeway(cfg.jwt_validation_leeway_secs);
 
         let admin_api = api::AdminApiClient::new(db.clone(), task_master.clone());
-        let api_router =
-            rest::make_api_router(user_api.clone(), admin_api, jwt, cfg.max_upload_bytes);
+        let api_router = rest::make_api_router(
+            user_api.clone(),
+            admin_api,
+            jwt,
+            cfg.max_upload_bytes,
+            cfg.task_backend,
+        );
 
         router = router.nest("/api", api_router);
 

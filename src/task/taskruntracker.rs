@@ -306,7 +306,7 @@ fn with_error_columns(
     update
         .col_expr(
             model::task_run::Column::LastErrorCode,
-            Expr::value(i32::from(error.status_code.as_u16())),
+            Expr::value(error.inner_status_code()),
         )
         .col_expr(
             model::task_run::Column::LastErrorMessage,
@@ -604,6 +604,32 @@ mod tests {
             completed.last_error_message.as_deref(),
             Some("vertex request: quota exceeded")
         );
+    }
+
+    #[tokio::test]
+    async fn failed_attempt_prefers_the_more_specific_error_code() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        let env = task_run(1, 60, 1);
+        assert!(tracker.insert_run(&env).await.unwrap());
+        tracker.mark_in_progress(&env, 1).await.unwrap();
+
+        let error = api::ApiError::internal(anyhow::anyhow!("quota exceeded"))
+            .with_inner_status_code(Some(429));
+        tracker
+            .record_outcome(&env, TaskRunStatus::CompleteFailure, 1, Some(&error))
+            .await
+            .unwrap();
+
+        let stored = tracker
+            .query_run_status(&env.logical_id, Some(env.run_number), None)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(stored.last_error_code, Some(429));
+        assert_eq!(stored.last_error_message.as_deref(), Some("quota exceeded"));
     }
 
     #[test]

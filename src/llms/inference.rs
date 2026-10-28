@@ -27,6 +27,9 @@ pub struct InferenceRequest<'a> {
 pub struct InferenceOutcome<T> {
     pub output: anyhow::Result<T>,
     pub metadata: InferenceMetadata,
+    /// Provider HTTP status for this request, when the provider is HTTP-based.
+    /// Retained on failure so callers can record the most specific status.
+    pub http_status_code: Option<u16>,
 }
 
 /// Provider-neutral boundary for model inference.

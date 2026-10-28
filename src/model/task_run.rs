@@ -66,10 +66,11 @@ pub struct Model {
     /// When the most recent attempt entered `InProgress`.
     pub processing_started_at: Option<DateTime<Utc>>,
 
-    /// HTTP status reported by the layer that failed, stored verbatim.
+    /// Most specific HTTP status known for the failure, stored verbatim.
     ///
-    /// Deliberately not a taxonomy: a 500 may originate in our code or in an
-    /// upstream dependency, and the column records only what was reported. See
+    /// When the failure originated in an upstream provider response, this is the
+    /// provider's status (for example 429), even though the failing route returns
+    /// 500 to its caller. Deliberately not a taxonomy. See
     /// `plan/archive/task-status.md` §10.
     pub last_error_code: Option<i32>,
 

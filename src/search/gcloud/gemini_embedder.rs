@@ -180,7 +180,11 @@ fn embedding_response(
     metadata
         .params
         .insert("output_dimensions".to_owned(), json!(dims));
-    llms::InferenceOutcome { output, metadata }
+    llms::InferenceOutcome {
+        output,
+        metadata,
+        http_status_code: Some(status.as_u16()),
+    }
 }
 
 fn parse_gemini_v2_embedding_json(response: &Value) -> anyhow::Result<Vec<f32>> {

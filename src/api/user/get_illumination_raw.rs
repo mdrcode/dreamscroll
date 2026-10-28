@@ -109,7 +109,7 @@ mod tests {
         let error = get_illumination_raw(&db, &other_user, second_task_run_id)
             .await
             .unwrap_err();
-        assert_eq!(error.status_code, axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(error.http_status_code, axum::http::StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]

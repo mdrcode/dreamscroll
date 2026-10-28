@@ -12,6 +12,10 @@ pub struct SearchSimilarArgs {
     #[argh(option, default = "20")]
     #[argh(description = "maximum number of results to return")]
     limit: u64,
+
+    #[argh(switch)]
+    #[argh(description = "print the raw JSON response instead of the report")]
+    raw_json: bool,
 }
 
 pub async fn run(state: ApiCmdState, args: SearchSimilarArgs) -> anyhow::Result<()> {
@@ -19,6 +23,9 @@ pub async fn run(state: ApiCmdState, args: SearchSimilarArgs) -> anyhow::Result<
         .rest_client
         .search_similar(args.capture_id, Some(args.limit))
         .await?;
+    if args.raw_json {
+        return print_json(&capture_infos);
+    }
 
     println!(
         "Found {} similar capture(s) for capture_id={}",

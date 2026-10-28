@@ -69,6 +69,7 @@ pub async fn illuminate(
             })
         }),
         metadata: inference.metadata,
+        http_status_code: inference.http_status_code,
     })
 }
 

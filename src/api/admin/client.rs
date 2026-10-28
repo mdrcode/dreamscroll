@@ -1,7 +1,7 @@
 use anyhow::anyhow;
 use std::sync::Arc;
 
-use crate::{api::*, auth, backfill, database, task};
+use crate::{api::*, auth, backfill, config, database, stats, task};
 
 pub struct AdminApiClient {
     db: database::DbHandle,
@@ -49,6 +49,42 @@ impl AdminApiClient {
     ) -> Result<backfill::BackfillFailuresResponse, ApiError> {
         ensure_admin(context)?;
         backfill::failures(&self.db, backfill_id).await
+    }
+
+    pub async fn queue_stats(
+        &self,
+        context: &auth::Context,
+        windows: &[i64],
+        task_backend: config::TaskQueueBackend,
+    ) -> Result<stats::QueueStatsResponse, ApiError> {
+        ensure_admin(context)?;
+        stats::queue_stats(&self.db, windows, task_backend)
+            .await
+            .map_err(ApiError::internal)
+    }
+
+    pub async fn queue_failures(
+        &self,
+        context: &auth::Context,
+        hours: i64,
+        limit: i64,
+        include_retrying: bool,
+    ) -> Result<stats::QueueFailuresResponse, ApiError> {
+        ensure_admin(context)?;
+        stats::queue_failures(&self.db, hours, limit, include_retrying)
+            .await
+            .map_err(ApiError::internal)
+    }
+
+    pub async fn inference_stats(
+        &self,
+        context: &auth::Context,
+        windows: &[i64],
+    ) -> Result<stats::InferenceStatsResponse, ApiError> {
+        ensure_admin(context)?;
+        stats::inference_stats(&self.db, windows)
+            .await
+            .map_err(ApiError::internal)
     }
 }
 

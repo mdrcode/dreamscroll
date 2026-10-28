@@ -70,6 +70,7 @@ pub async fn exec(
         .spark(captures.clone())
         .await
         .map_err(api::ApiError::internal)?;
+    let provider_status = spark_result.http_status_code;
     let inference_meta_id = state
         .service_api
         .record_inference(
@@ -80,7 +81,9 @@ pub async fn exec(
             spark_result.metadata,
         )
         .await;
-    let spark = spark_result.output.map_err(api::ApiError::internal)?;
+    let spark = spark_result.output.map_err(|error| {
+        api::ApiError::internal(error).with_inner_status_code(provider_status.map(i32::from))
+    })?;
 
     let referenced_ids = spark
         .clusters

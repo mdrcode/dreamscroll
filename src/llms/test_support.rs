@@ -51,6 +51,7 @@ impl InferenceClient for TestInferenceClient {
                 )]),
                 ..Default::default()
             },
+            http_status_code: None,
         })
     }
 }

@@ -6,7 +6,7 @@ use axum::{
     routing::{delete, get, post},
 };
 
-use crate::{api, auth, telemetry};
+use crate::{api, auth, config, telemetry};
 
 use super::*;
 
@@ -14,6 +14,7 @@ pub struct RestState {
     pub user_api: api::UserApiClient,
     pub admin_api: api::AdminApiClient,
     pub jwt_config: auth::JwtConfig,
+    pub task_backend: config::TaskQueueBackend,
 }
 
 /// Creates the API router with all REST endpoints.
@@ -32,11 +33,13 @@ pub fn make_api_router(
     admin_api: api::AdminApiClient,
     jwt_config: auth::JwtConfig,
     max_upload_bytes: usize,
+    task_backend: config::TaskQueueBackend,
 ) -> Router {
     let state = Arc::new(RestState {
         user_api,
         admin_api,
         jwt_config: jwt_config.clone(),
+        task_backend,
     });
 
     let routes_open = Router::new().route("/token", post(r_token::post));
@@ -51,6 +54,9 @@ pub fn make_api_router(
             "/admin/backfill/{backfill_id}/failures",
             get(r_backfill::failures),
         )
+        .route("/admin/queue/stats", get(r_queue::stats))
+        .route("/admin/queue/failures", get(r_queue::failures))
+        .route("/admin/inference/stats", get(r_inference::stats))
         .route("/admin/users", post(r_create_user::post))
         .route("/account/password", post(r_change_password::post))
         .route("/captures", get(r_capture::get))
@@ -75,8 +81,8 @@ pub fn make_api_router(
         .route("/timeline", get(r_timeline::get))
         .route("/search", get(r_search::get))
         .route("/search/similar/{capture_id}", get(r_search_similar::get))
-        .route("/queues/illuminate", post(r_task::post_illuminate))
-        .route("/queues/search_index", post(r_task::post_search_index))
+        .route("/queues/illuminate", post(r_queue::post_illuminate))
+        .route("/queues/search_index", post(r_queue::post_search_index))
         .route("/tasks/{run_id}", get(r_task::get_run))
         .layer(auth::JwtAxumLayer::new(jwt_config));
 

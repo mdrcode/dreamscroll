@@ -41,6 +41,7 @@ inside it (never rewrite history), and update the row below.
 | [schema-migration-strategy.md](schema-migration-strategy.md) | Partly implemented | Explicit `dreamscroll_db sync_schema` shipped; sync semantics and version marker. |
 | [prod-deploy.md](prod-deploy.md) | Implemented; drift-clean — approved | Whole production release path: build/push, checked-in Cloud Run manifests, `prod-apply.sh` drift/apply/lint, `dreamscroll-db-sync` schema job, rollback. Service drift is clean; nothing applied, no job created. |
 | [topology_and_throughput.md](topology_and_throughput.md) | Reference | Cloud Run / Cloud SQL connection and concurrency budgets. |
+| [vertex-throughput.md](vertex-throughput.md) | Research — active | Vertex Gemini tail latency: evidence, hypotheses, experiments, mitigations. |
 | [upgrade_3rd_party_crates.md](upgrade_3rd_party_crates.md) | Proposed process | Repeatable dependency-upgrade procedure. |
 | [event-streaming-optimization.md](event-streaming-optimization.md) | Exploratory | Reducing per-connection task-status catch-up queries on `/events`. |
 

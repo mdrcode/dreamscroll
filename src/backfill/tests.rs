@@ -298,7 +298,7 @@ async fn backfill_operations_require_admin_and_a_registered_definition() {
             .backfill_pump(&user, request())
             .await
             .unwrap_err()
-            .status_code,
+            .http_status_code,
         axum::http::StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -306,7 +306,7 @@ async fn backfill_operations_require_admin_and_a_registered_definition() {
             .backfill_status(&user, ILLUMINATE_V2_BACKFILL_ID)
             .await
             .unwrap_err()
-            .status_code,
+            .http_status_code,
         axum::http::StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -314,7 +314,7 @@ async fn backfill_operations_require_admin_and_a_registered_definition() {
             .backfill_failures(&user, ILLUMINATE_V2_BACKFILL_ID)
             .await
             .unwrap_err()
-            .status_code,
+            .http_status_code,
         axum::http::StatusCode::FORBIDDEN
     );
     assert_eq!(
@@ -329,7 +329,7 @@ async fn backfill_operations_require_admin_and_a_registered_definition() {
             )
             .await
             .unwrap_err()
-            .status_code,
+            .http_status_code,
         axum::http::StatusCode::NOT_FOUND
     );
     assert_eq!(
@@ -337,7 +337,7 @@ async fn backfill_operations_require_admin_and_a_registered_definition() {
             .backfill_status(&admin_context(), "unknown")
             .await
             .unwrap_err()
-            .status_code,
+            .http_status_code,
         axum::http::StatusCode::NOT_FOUND
     );
     assert_eq!(
@@ -345,7 +345,7 @@ async fn backfill_operations_require_admin_and_a_registered_definition() {
             .backfill_failures(&admin_context(), "unknown")
             .await
             .unwrap_err()
-            .status_code,
+            .http_status_code,
         axum::http::StatusCode::NOT_FOUND
     );
 }
@@ -531,7 +531,7 @@ async fn a_zero_candidate_limit_is_rejected_without_consuming_a_target() {
         )
         .await
         .unwrap_err();
-    assert_eq!(error.status_code, axum::http::StatusCode::BAD_REQUEST);
+    assert_eq!(error.http_status_code, axum::http::StatusCode::BAD_REQUEST);
     let next = client
         .backfill_pump(
             &admin_context(),
@@ -560,7 +560,7 @@ async fn a_dry_pump_latches_and_force_reopens_only_when_it_finds_work() {
     let dry_since = dry.dry_since.expect("a dry pump records the latch");
 
     let refused = client.backfill_pump(&context, request()).await.unwrap_err();
-    assert_eq!(refused.status_code, axum::http::StatusCode::CONFLICT);
+    assert_eq!(refused.http_status_code, axum::http::StatusCode::CONFLICT);
     assert!(
         refused.message().contains("--force"),
         "refusal names the override: {}",

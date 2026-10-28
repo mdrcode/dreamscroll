@@ -38,6 +38,9 @@ struct BackfillPumpArgs {
         description = "pump despite a recorded dry state; required after the pump found nothing"
     )]
     force: bool,
+    #[argh(switch)]
+    #[argh(description = "print the raw JSON response instead of the report")]
+    raw_json: bool,
 }
 
 #[derive(FromArgs)]
@@ -47,6 +50,9 @@ struct BackfillStatusArgs {
     #[argh(positional)]
     #[argh(description = "stable string ID of the backfill")]
     backfill_id: String,
+    #[argh(switch)]
+    #[argh(description = "print the raw JSON response instead of the report")]
+    raw_json: bool,
 }
 
 #[derive(FromArgs)]
@@ -56,6 +62,9 @@ struct BackfillFailuresArgs {
     #[argh(positional)]
     #[argh(description = "stable string ID of the backfill")]
     backfill_id: String,
+    #[argh(switch)]
+    #[argh(description = "print the raw JSON response instead of the report")]
+    raw_json: bool,
 }
 
 pub async fn run(state: ApiCmdState, args: BackfillArgs) -> anyhow::Result<()> {
@@ -78,6 +87,9 @@ pub async fn run(state: ApiCmdState, args: BackfillArgs) -> anyhow::Result<()> {
                 ),
                 Err(error) => return Err(error),
             };
+            if args.raw_json {
+                return print_json(&response);
+            }
             println!("Backfill: {}", response.backfill_id);
             println!("Pump results (this invocation only):");
             println!("- Candidates attempted: {}", response.selected_count);
@@ -112,19 +124,47 @@ pub async fn run(state: ApiCmdState, args: BackfillArgs) -> anyhow::Result<()> {
                 .rest_client
                 .admin_backfill_status(&args.backfill_id)
                 .await?;
-            if let Some(dry_since) = response.dry_since {
-                println!(
+            if args.raw_json {
+                return print_json(&response);
+            }
+            println!("Backfill: {}", response.backfill_id);
+            println!(
+                "Last pumped: {}",
+                response
+                    .last_pumped_at
+                    .map(format_time)
+                    .unwrap_or_else(|| "never".to_string())
+            );
+            match response.dry_since {
+                Some(dry_since) => println!(
                     "Dry since {}: pumps refuse unless --force is passed.",
                     format_time(dry_since)
-                );
+                ),
+                None => println!("Still open: no recorded dry streak."),
             }
-            println!("{}", serde_json::to_string_pretty(&response)?);
+            if response.counts.is_empty() {
+                println!("No tagged task runs yet.");
+            } else {
+                println!("Runs (includes descendants):");
+                println!("  {:<20} {:<20} {:>6}", "task_type", "status", "count");
+                for count in &response.counts {
+                    println!(
+                        "  {:<20} {:<20} {:>6}",
+                        count.task_type,
+                        count.status.as_str(),
+                        count.count
+                    );
+                }
+            }
         }
         BackfillCommand::Failures(args) => {
             let response = state
                 .rest_client
                 .admin_backfill_failures(&args.backfill_id)
                 .await?;
+            if args.raw_json {
+                return print_json(&response);
+            }
             println!("Backfill: {}", response.backfill_id);
             if response.failures.is_empty() {
                 println!("No terminally unsuccessful runs.");

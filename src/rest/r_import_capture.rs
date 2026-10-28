@@ -50,7 +50,7 @@ pub async fn post(
     match result {
         Ok(cap) => Ok(Json(cap).into_response()),
         Err(e) => {
-            if e.status_code == StatusCode::CONFLICT {
+            if e.http_status_code == StatusCode::CONFLICT {
                 Ok(StatusCode::CONFLICT.into_response())
             } else {
                 tracing::error!(error = ?e, "Import capture failed");

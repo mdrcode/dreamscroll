@@ -972,7 +972,7 @@ mod tests {
             .submit_illuminate(&test_context(2), illumination_task(42), None)
             .await
             .expect_err("a non-owner non-admin must be rejected");
-        assert_eq!(denied.status_code.as_u16(), 403);
+        assert_eq!(denied.http_status_code.as_u16(), 403);
 
         service
             .submit_illuminate(&admin_context(), illumination_task(43), None)

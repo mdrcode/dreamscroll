@@ -103,6 +103,7 @@ pub async fn exec(
             .await
             .map_err(api::ApiError::internal)?;
 
+            let provider_status = illumination.http_status_code;
             let inference_meta_id = state
                 .service_api
                 .record_inference(
@@ -113,7 +114,10 @@ pub async fn exec(
                     illumination.metadata,
                 )
                 .await;
-            let illumination = illumination.output.map_err(api::ApiError::internal)?;
+            let illumination = illumination.output.map_err(|error| {
+                api::ApiError::internal(error)
+                    .with_inner_status_code(provider_status.map(i32::from))
+            })?;
             state
                 .service_api
                 .insert_illumination_raw(
@@ -135,6 +139,7 @@ pub async fn exec(
             .await
             .map_err(api::ApiError::internal)?;
 
+            let provider_status = illumination.http_status_code;
             let inference_meta_id = state
                 .service_api
                 .record_inference(
@@ -145,7 +150,10 @@ pub async fn exec(
                     illumination.metadata,
                 )
                 .await;
-            let illumination = illumination.output.map_err(api::ApiError::internal)?;
+            let illumination = illumination.output.map_err(|error| {
+                api::ApiError::internal(error)
+                    .with_inner_status_code(provider_status.map(i32::from))
+            })?;
             state
                 .service_api
                 .insert_illumination_raw(

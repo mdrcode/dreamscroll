@@ -5,6 +5,8 @@
 **Purpose:** A single place to look up the per-instance connection and concurrency budgets that shape how Dreamscroll scales on Cloud Run + Cloud SQL. Written to inform the SSE design (`plan/archive/sse.md`) and future scaling decisions.
 
 > **TL;DR:** The binding constraint for long-lived SSE connections is **Cloud Run's per-instance HTTP concurrency budget**, not the Cloud SQL connection limit. The DB budget is generous; the HTTP concurrency budget is what you'll actually hit.
+>
+> Provider-side inference latency is a separate budget: see `plan/vertex-throughput.md`.
 
 ---
 

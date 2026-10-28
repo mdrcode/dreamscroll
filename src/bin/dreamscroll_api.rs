@@ -31,6 +31,8 @@ enum Command {
     SearchSimilar(util_cmds::api::search_similar::SearchSimilarArgs),
     Spark(util_cmds::api::spark::SparkArgs),
     Illuminate(util_cmds::api::illuminate::IlluminateArgs),
+    Inference(util_cmds::api::throughput::InferenceArgs),
+    Queue(util_cmds::api::throughput::QueueArgs),
     UnknownEntities(util_cmds::api::entities::UnknownEntitiesArgs),
 }
 
@@ -61,6 +63,8 @@ async fn main() -> anyhow::Result<()> {
         Command::Search(args) => util_cmds::api::search::run(state, args).await,
         Command::SearchSimilar(args) => util_cmds::api::search_similar::run(state, args).await,
         Command::Illuminate(args) => util_cmds::api::illuminate::run(state, args).await,
+        Command::Inference(args) => util_cmds::api::throughput::run_inference(state, args).await,
+        Command::Queue(args) => util_cmds::api::throughput::run_queue(state, args).await,
         Command::UnknownEntities(args) => util_cmds::api::entities::run(state, args).await,
     }
 }

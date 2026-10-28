@@ -9,7 +9,7 @@ use crate::{
     task::{self, TaskRunStatus},
 };
 
-use super::ApiCmdState;
+use super::{ApiCmdState, print_json};
 
 #[derive(FromArgs)]
 #[argh(
@@ -40,6 +40,10 @@ pub struct IlluminateArgs {
     #[argh(option, long = "wait-seconds", default = "60")]
     #[argh(description = "maximum seconds to wait for task completion (default: 60)")]
     wait_seconds: u64,
+
+    #[argh(switch)]
+    #[argh(description = "print the raw JSON result instead of the rendered markdown")]
+    raw_json: bool,
 }
 
 pub async fn run(state: ApiCmdState, args: IlluminateArgs) -> anyhow::Result<()> {
@@ -72,6 +76,9 @@ pub async fn run(state: ApiCmdState, args: IlluminateArgs) -> anyhow::Result<()>
 
     eprintln!("Fetching raw illumination result by TaskRun ID...");
     let raw = state.rest_client.get_illumination_raw(&run_id).await?;
+    if args.raw_json {
+        return print_json(&raw);
+    }
     let markdown = render_illumination(prompt_version, raw)?;
     println!("{markdown}");
     Ok(())

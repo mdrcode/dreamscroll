@@ -67,6 +67,7 @@ pub async fn exec(
         .embed_object(embed_input)
         .await
         .map_err(api::ApiError::internal)?;
+    let provider_status = inference.http_status_code;
     state
         .service_api
         .record_inference(
@@ -77,7 +78,9 @@ pub async fn exec(
             inference.metadata,
         )
         .await;
-    let embedding = inference.output.map_err(api::ApiError::internal)?;
+    let embedding = inference.output.map_err(|error| {
+        api::ApiError::internal(error).with_inner_status_code(provider_status.map(i32::from))
+    })?;
     let upsert_result = state
         .vector_store
         .upsert_object_embedding(&capture, &embedding)

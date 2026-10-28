@@ -185,6 +185,6 @@ mod tests {
         let archived = get_knowledge_entity(&db, &context, entity_ids[1])
             .await
             .unwrap_err();
-        assert_eq!(archived.status_code, axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(archived.http_status_code, axum::http::StatusCode::NOT_FOUND);
     }
 }

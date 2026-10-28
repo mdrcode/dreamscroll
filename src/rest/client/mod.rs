@@ -3,7 +3,7 @@ use chrono::{DateTime, Utc};
 use reqwest;
 use serde::{Deserialize, Serialize};
 
-use crate::{api, backfill, illumination, llms};
+use crate::{api, backfill, illumination, llms, stats};
 
 // TODO move this client impl into its own file so it's not hiding in mod.rs
 
@@ -449,6 +449,13 @@ impl Client {
     }
 }
 
+fn admin_stats_url(base_url: &str, stats_kind: &str, hours: Option<&str>) -> String {
+    match hours {
+        Some(hours) => format!("{base_url}/admin/{stats_kind}/stats?hours={hours}"),
+        None => format!("{base_url}/admin/{stats_kind}/stats"),
+    }
+}
+
 fn normalize_base_url(host: &str) -> String {
     let trimmed = host.trim().trim_end_matches('/');
     if trimmed.contains("://") {
@@ -472,6 +479,69 @@ async fn read_error_body(response: reqwest::Response) -> String {
 }
 
 impl Client {
+    pub async fn admin_queue_stats(
+        &self,
+        hours: Option<&str>,
+    ) -> anyhow::Result<stats::QueueStatsResponse> {
+        let response = self
+            .reqwest_client
+            .get(admin_stats_url(&self.base_url, "queue", hours))
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .context("failed to call admin queue stats endpoint")?;
+
+        Self::parse_json_response(response).await
+    }
+
+    pub async fn admin_queue_failures(
+        &self,
+        hours: Option<&str>,
+        limit: Option<i64>,
+        include_retrying: bool,
+    ) -> anyhow::Result<stats::QueueFailuresResponse> {
+        let mut url = format!("{}/admin/queue/failures", self.base_url);
+        let mut params = Vec::new();
+        if let Some(hours) = hours {
+            params.push(format!("hours={hours}"));
+        }
+        if let Some(limit) = limit {
+            params.push(format!("limit={limit}"));
+        }
+        if include_retrying {
+            params.push("include_retrying=true".to_string());
+        }
+        if !params.is_empty() {
+            url.push('?');
+            url.push_str(&params.join("&"));
+        }
+
+        let response = self
+            .reqwest_client
+            .get(url)
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .context("failed to call admin queue failures endpoint")?;
+
+        Self::parse_json_response(response).await
+    }
+
+    pub async fn admin_inference_stats(
+        &self,
+        hours: Option<&str>,
+    ) -> anyhow::Result<stats::InferenceStatsResponse> {
+        let response = self
+            .reqwest_client
+            .get(admin_stats_url(&self.base_url, "inference", hours))
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .context("failed to call admin inference stats endpoint")?;
+
+        Self::parse_json_response(response).await
+    }
+
     async fn parse_json_response<T: serde::de::DeserializeOwned>(
         response: reqwest::Response,
     ) -> anyhow::Result<T> {

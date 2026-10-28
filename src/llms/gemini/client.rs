@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{Context, bail};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use google_cloud_auth::credentials::{AccessTokenCredentials, Builder};
 use reqwest::Client;
@@ -289,15 +289,34 @@ fn inference_response(
                     .context("Gemini model output is not valid structured JSON")
             })
     } else {
-        Err(anyhow!(
+        Err(anyhow::anyhow!(
             "Gemini Interactions API returned {status}: {response}"
         ))
     };
-    InferenceOutcome { output, metadata }
+    InferenceOutcome {
+        output,
+        metadata,
+        http_status_code: Some(status.as_u16()),
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn provider_error_carries_http_status() {
+        let outcome = inference_response(
+            serde_json::json!({"error": "resource exhausted"}),
+            reqwest::StatusCode::TOO_MANY_REQUESTS,
+            "vertex",
+            "test-model",
+            1,
+            serde_json::json!({}),
+        );
+        assert_eq!(outcome.http_status_code, Some(429));
+        let error = outcome.output.expect_err("provider error");
+        assert!(format!("{error:#}").contains("429"));
+    }
+
     use super::*;
     use crate::{illumination::IlluminationVersion, logic::illuminate::IlluminationTask};
 

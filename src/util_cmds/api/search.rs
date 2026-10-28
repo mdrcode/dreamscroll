@@ -12,6 +12,10 @@ pub struct SearchArgs {
     #[argh(option, default = "20")]
     #[argh(description = "maximum number of results to return")]
     limit: u32,
+
+    #[argh(switch)]
+    #[argh(description = "print the raw JSON response instead of the report")]
+    raw_json: bool,
 }
 
 pub async fn run(state: ApiCmdState, args: SearchArgs) -> anyhow::Result<()> {
@@ -19,6 +23,9 @@ pub async fn run(state: ApiCmdState, args: SearchArgs) -> anyhow::Result<()> {
         .rest_client
         .search(&args.query, Some(args.limit as u64))
         .await?;
+    if args.raw_json {
+        return print_json(&captures);
+    }
     println!(
         "Found {} capture(s) for query: {}",
         captures.len(),
