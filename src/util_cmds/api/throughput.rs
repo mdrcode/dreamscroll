@@ -1,6 +1,6 @@
 use argh::FromArgs;
 
-use crate::stats;
+use crate::{api, stats};
 
 use super::*;
 
@@ -65,6 +65,20 @@ pub struct InferenceArgs {
 #[argh(subcommand)]
 enum InferenceCommand {
     Throughput(InferenceThroughputArgs),
+    Meta(InferenceMetaArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "meta")]
+#[argh(description = "Show full inference metadata for a task run")]
+struct InferenceMetaArgs {
+    #[argh(positional)]
+    #[argh(description = "task-run run_id (UUID)")]
+    task_run_id: String,
+
+    #[argh(switch)]
+    #[argh(description = "print the raw JSON response instead of the report")]
+    raw_json: bool,
 }
 
 #[derive(FromArgs)]
@@ -109,19 +123,84 @@ pub async fn run_queue(state: ApiCmdState, args: QueueArgs) -> anyhow::Result<()
 }
 
 pub async fn run_inference(state: ApiCmdState, args: InferenceArgs) -> anyhow::Result<()> {
-    let (hours, raw_json) = match args.command {
-        InferenceCommand::Throughput(args) => (args.hours, args.raw_json),
-    };
-    let response = state
-        .rest_client
-        .admin_inference_stats(hours.as_deref())
-        .await?;
-    if raw_json {
-        print_json(&response)?;
-    } else {
-        print!("{}", render_inference(&response));
+    match args.command {
+        InferenceCommand::Throughput(args) => {
+            let response = state
+                .rest_client
+                .admin_inference_stats(args.hours.as_deref())
+                .await?;
+            if args.raw_json {
+                print_json(&response)?;
+            } else {
+                print!("{}", render_inference(&response));
+            }
+        }
+        InferenceCommand::Meta(args) => {
+            let metas = state
+                .rest_client
+                .admin_inference_meta(&args.task_run_id)
+                .await?;
+            if args.raw_json {
+                print_json(&metas)?;
+            } else {
+                print!("{}", render_inference_meta(&args.task_run_id, &metas));
+            }
+        }
     }
     Ok(())
+}
+
+fn render_inference_meta(task_run_id: &str, metas: &[api::InferenceMetaInfo]) -> String {
+    let mut out = format!("Inference meta for {task_run_id}\n");
+    if metas.is_empty() {
+        out.push_str("  (no inference metadata recorded)\n");
+        return out;
+    }
+
+    for meta in metas {
+        let attempt = meta
+            .attempt
+            .map(|attempt| attempt.to_string())
+            .unwrap_or_else(|| "?".to_string());
+        out.push_str(&format!("\nattempt {attempt}\n"));
+        out.push_str(&format!(
+            "  {}/{}/{}  duration {}\n",
+            meta.provider,
+            meta.backend,
+            meta.model,
+            fmt_ms(Some(meta.duration_ms as f64))
+        ));
+        out.push_str(&format!(
+            "  tokens  in={} cached={} out={} thought={}\n",
+            fmt_token(meta.tokens_in),
+            fmt_token(meta.tokens_in_cached),
+            fmt_token(meta.tokens_out),
+            fmt_token(meta.tokens_thought),
+        ));
+        for (label, value) in [
+            ("params", &meta.params),
+            ("provider_metadata", &meta.provider_metadata),
+        ] {
+            out.push_str(&format!("  {label}\n"));
+            match serde_json::to_string_pretty(value) {
+                Ok(pretty) => {
+                    for line in pretty.lines() {
+                        out.push_str("    ");
+                        out.push_str(line);
+                        out.push('\n');
+                    }
+                }
+                Err(_) => out.push_str("    <unserializable>\n"),
+            }
+        }
+    }
+    out
+}
+
+fn fmt_token(value: Option<i64>) -> String {
+    value
+        .map(|value| value.to_string())
+        .unwrap_or_else(|| "—".to_string())
 }
 
 const QUEUE_STAT_HEADERS: [&str; 8] = ["n", "Queue", "State", "avg", "p50", "p75", "p90", "p99"];
@@ -579,6 +658,33 @@ mod tests {
             .expect("metric header");
         assert_block_aligned(&lines, header, 6);
         assert!(text.contains("gemini-3.8-flash"));
+    }
+
+    #[test]
+    fn renders_inference_meta() {
+        let meta = api::InferenceMetaInfo {
+            id: 7,
+            task_run_id: Some("run-7".into()),
+            attempt: Some(1),
+            task_type: Some("illuminate".into()),
+            provider: "gemini".into(),
+            backend: "vertex".into(),
+            model: "test-model".into(),
+            duration_ms: 21_000,
+            tokens_in: Some(3_200),
+            tokens_in_cached: None,
+            tokens_out: Some(600),
+            tokens_thought: Some(850),
+            params: serde_json::json!({"prompt_version": "v2"}),
+            provider_metadata: serde_json::json!({"provider_request_id": "req_123"}),
+            created_at: chrono::Utc::now(),
+        };
+        let text = render_inference_meta("run-7", &[meta]);
+        assert!(text.contains("attempt 1"));
+        assert!(text.contains("21.0s"));
+        assert!(text.contains("in=3200"));
+        assert!(text.contains("req_123"));
+        assert!(render_inference_meta("run-7", &[]).contains("no inference metadata"));
     }
 
     #[test]

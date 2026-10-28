@@ -527,6 +527,21 @@ impl Client {
         Self::parse_json_response(response).await
     }
 
+    pub async fn admin_inference_meta(
+        &self,
+        task_run_id: &str,
+    ) -> anyhow::Result<Vec<api::InferenceMetaInfo>> {
+        let response = self
+            .reqwest_client
+            .get(format!("{}/admin/inference/{}", self.base_url, task_run_id))
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .context("failed to call admin inference meta endpoint")?;
+
+        Self::parse_json_response(response).await
+    }
+
     pub async fn admin_inference_stats(
         &self,
         hours: Option<&str>,

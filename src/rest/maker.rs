@@ -57,6 +57,7 @@ pub fn make_api_router(
         .route("/admin/queue/stats", get(r_queue::stats))
         .route("/admin/queue/failures", get(r_queue::failures))
         .route("/admin/inference/stats", get(r_inference::stats))
+        .route("/admin/inference/{task_run_id}", get(r_inference::meta))
         .route("/admin/users", post(r_create_user::post))
         .route("/account/password", post(r_change_password::post))
         .route("/captures", get(r_capture::get))

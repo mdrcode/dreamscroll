@@ -3,3 +3,5 @@ pub use client::AdminApiClient;
 
 mod create_user;
 pub use create_user::*;
+
+mod inference_meta;

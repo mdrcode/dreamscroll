@@ -63,6 +63,15 @@ impl AdminApiClient {
             .map_err(ApiError::internal)
     }
 
+    pub async fn inference_meta(
+        &self,
+        context: &auth::Context,
+        task_run_id: &str,
+    ) -> Result<Vec<InferenceMetaInfo>, ApiError> {
+        ensure_admin(context)?;
+        super::inference_meta::get_inference_meta(&self.db, task_run_id).await
+    }
+
     pub async fn queue_failures(
         &self,
         context: &auth::Context,
