@@ -11,7 +11,9 @@ Be simple, idiomatic, robust, and flexible (in that order).
   thoughtfully.
 - **Log Technical Debt:** Document all shortcuts and tradeoffs in `plan/pragmatism.md`.
 - **Strive for Coherent Commits:** Git is our journal and source of truth.
-  Ensure that each commit is a coherent unit of work.
+  Group related changes into one coherent unit of work. A whole discovery
+  journey, feature slice, or migration is one commit—not one per file, phase,
+  or edit.
 - **Confirm Big Changes:** Do not go down deep refactoring or architectural
   rabbit holes without first seeking confirmation.
 - **Confirm New Dependencies:** If a new third-party crate might be helpful,
