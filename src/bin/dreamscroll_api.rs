@@ -23,6 +23,7 @@ struct Args {
 #[argh(subcommand)]
 enum Command {
     Backfill(util_cmds::api::backfill::BackfillArgs),
+    Captures(util_cmds::api::captures::CapturesArgs),
     ChangePassword(util_cmds::api::change_password::ChangePasswordArgs),
     ClearToken(util_cmds::api::clear_token::ClearTokenArgs),
     ExportDigest(util_cmds::api::export_digest::ExportDigestArgs),
@@ -55,6 +56,7 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Backfill(args) => util_cmds::api::backfill::run(state, args).await,
+        Command::Captures(args) => util_cmds::api::captures::run(state, args).await,
         Command::ChangePassword(args) => util_cmds::api::change_password::run(state, args).await,
         Command::ClearToken(args) => util_cmds::api::clear_token::run(state, args).await,
         Command::ExportDigest(args) => util_cmds::api::export_digest::run(state, args).await,
