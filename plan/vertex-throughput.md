@@ -107,6 +107,7 @@ Both read `task_runs`/`inference_metas` through admin-only REST endpoints
 | Pin `thinking_level = minimal` for backfill tasks | small code change | possible quality loss on entity extraction; A/B one capture first |
 | Cap queue concurrency (e.g. 3) until variance is understood | queue config | backlog drains slower, but bounded in-flight retries |
 | Batch API for the backfill | medium (new submission path) | ~50% cheaper, async, no latency SLA; good fit for 400 historical captures |
+| Split interactive and bulk queues | medium (queue config + submission routing) | isolates user latency from backfill, but not from provider tail |
 | Provisioned Throughput | money/month commitment | only if volume and PT eligibility justify it |
 | Model/region failover | config + code | splits traffic; needs a second measurement baseline |
 

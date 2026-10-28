@@ -42,6 +42,13 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   substitutions. Fix the two docs that still call it the build path:
   `plan/static-serving-cdn.md`, `plan/upgrade_3rd_party_crates.md`.
 
+- [ ] **Separate interactive captures from bulk/backfill work in the task
+  queues.** The illuminate queue runs `maxConcurrentDispatches: 1`, so a user
+  upload waits behind every queued backfill task; during the 2026-10-27 backfill
+  interactive captures sat behind hundreds of bulk runs. Decide between a
+  dedicated interactive queue (higher concurrency, throttled bulk queue) or
+  moving bulk work to Batch. See `plan/vertex-throughput.md` §5.
+
 ## Deferred — already scoped
 
 Promote an item into **Next** when its trigger fires or it becomes the focus.
