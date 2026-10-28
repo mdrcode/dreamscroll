@@ -126,7 +126,7 @@ pub async fn run_inference(state: ApiCmdState, args: InferenceArgs) -> anyhow::R
 
 const QUEUE_STAT_HEADERS: [&str; 8] = ["n", "Queue", "State", "avg", "p50", "p75", "p90", "p99"];
 const QUEUE_STAT_ALIGN: [bool; 8] = [true, false, false, true, true, true, true, true];
-const PHASE_STAT_HEADERS: [&str; 8] = ["n", "Phase", "Outcome", "avg", "p50", "p75", "p90", "p99"];
+const PHASE_STAT_HEADERS: [&str; 8] = ["n", "Outcome", "Phase", "avg", "p50", "p75", "p90", "p99"];
 const PHASE_STAT_ALIGN: [bool; 8] = [true, false, false, true, true, true, true, true];
 const FAILURE_HEADERS: [&str; 7] = [
     "when", "queue", "entity", "att", "code", "duration", "message",
@@ -174,14 +174,14 @@ fn render_queue(response: &stats::QueueStatsResponse) -> String {
             out.push('\n');
             out.push_str(&format!("{}  (queue: {})\n", queue.task_type, queue.queue));
             let mut rows = Vec::with_capacity(4);
-            for (phase, outcome, stats) in [
-                ("queued", "success", &queue.queued_success),
-                ("queued", "failure", &queue.queued_failure),
-                ("processing", "success", &queue.processing_success),
-                ("processing", "failure", &queue.processing_failure),
+            for (outcome, phase, stats) in [
+                ("success", "queued", &queue.queued_success),
+                ("success", "processing", &queue.processing_success),
+                ("failure", "queued", &queue.queued_failure),
+                ("failure", "processing", &queue.processing_failure),
             ] {
                 if stats.n > 0 {
-                    rows.push(stats_row(&[phase, outcome], stats, fmt_ms));
+                    rows.push(stats_row(&[outcome, phase], stats, fmt_ms));
                 }
             }
             if rows.is_empty() {
@@ -435,8 +435,8 @@ mod tests {
 
         let phase_header = lines
             .iter()
-            .position(|line| line.trim_start().starts_with("n  Phase"))
-            .expect("phase header");
+            .position(|line| line.trim_start().starts_with("n  Outcome"))
+            .expect("outcome header");
         assert_block_aligned(&lines, phase_header, 5);
 
         assert!(text.contains("Current snapshot (Queued + InProgress + ErrorWillRetry)"));
@@ -542,7 +542,7 @@ mod tests {
         assert!(!text.contains("failure"));
         assert!(!text.contains("in_progress"));
         assert!(!text.contains("error_will_retry"));
-        assert!(text.contains("queued  success"));
+        assert!(text.contains("success  queued"));
     }
 
     #[test]
