@@ -38,6 +38,17 @@ struct GeminiInteractionResponse {
     steps: Vec<Value>,
 }
 
+/// Capture the provider request id. Vertex often omits the body `id` when
+/// `store` is false, so the response header is the only trace id.
+fn capture_response_headers(
+    headers: &reqwest::header::HeaderMap,
+    metadata: &mut serde_json::Map<String, Value>,
+) {
+    if let Some(value) = headers.get("x-request-id").and_then(|v| v.to_str().ok()) {
+        metadata.insert("provider_request_id".to_string(), json!(value));
+    }
+}
+
 impl GeminiInferenceClient {
     pub fn from_config(cfg: &config::Config) -> anyhow::Result<Self> {
         let backend = match cfg
@@ -167,22 +178,24 @@ impl GeminiInferenceClient {
             let token = credentials.access_token().await?.token;
             request = request.bearer_auth(token);
         }
-
         let started = Instant::now();
         let response = request.send().await?;
+        let response_headers = response.headers().clone();
         let status = response.status();
         let response_text = response.text().await?;
         let duration_ms = started.elapsed().as_millis() as i64;
         let response_json: Value = serde_json::from_str(&response_text)
             .context("Failed to parse Gemini Interactions response")?;
-        Ok(inference_response(
+        let mut outcome = inference_response(
             response_json,
             status,
             self.backend_name(),
             model_id,
             duration_ms,
             body,
-        ))
+        );
+        capture_response_headers(&response_headers, &mut outcome.metadata.provider_metadata);
+        Ok(outcome)
     }
 }
 #[async_trait::async_trait]
@@ -267,6 +280,13 @@ fn inference_response(
             .provider_metadata
             .insert("provider_request_id".to_string(), id);
     }
+    for key in ["created", "updated"] {
+        if let Some(value) = response.get(key).cloned().filter(|value| !value.is_null()) {
+            metadata
+                .provider_metadata
+                .insert(format!("provider_{key}"), value);
+        }
+    }
     if let Some(usage) = response
         .get_mut("usage")
         .map(Value::take)
@@ -302,6 +322,17 @@ fn inference_response(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn response_headers_capture_request_id() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        headers.insert("x-request-id", "req_123".parse().unwrap());
+        let mut metadata = serde_json::Map::new();
+
+        capture_response_headers(&headers, &mut metadata);
+
+        assert_eq!(metadata["provider_request_id"], "req_123");
+    }
+
     #[test]
     fn provider_error_carries_http_status() {
         let outcome = inference_response(
@@ -427,6 +458,8 @@ mod tests {
             json!({
                 "id": "interaction-123",
                 "status": "completed",
+                "created": "2026-10-28T04:24:06Z",
+                "updated": "2026-10-28T04:24:08Z",
                 "usage": usage,
                 "steps": [{"type": "model_output", "content": [
                     {"type": "text", "text": "{\"summary\":\"Ada\"}"}
@@ -453,6 +486,14 @@ mod tests {
         assert_eq!(
             response.metadata.provider_metadata["provider_request_id"],
             json!("interaction-123")
+        );
+        assert_eq!(
+            response.metadata.provider_metadata["provider_created"],
+            json!("2026-10-28T04:24:06Z")
+        );
+        assert_eq!(
+            response.metadata.provider_metadata["provider_updated"],
+            json!("2026-10-28T04:24:08Z")
         );
         assert_eq!(response.metadata.provider_metadata["provider_usage"], usage);
         assert_eq!(
