@@ -2,9 +2,8 @@
 
 > **Identity note (2026-10-29):** keying every node by Wikidata QID is still the long-term direction,
 > but a QID is now an optional link to a shared public entity rather than the private identity key.
-> See [knowledge-public-entities.md](knowledge-public-entities.md) for the two-layer model and
-> [knowledge-canonical-entities.md](knowledge-canonical-entities.md) for the private merge design this
-> research feeds into.
+> See [knowledge-canonical-entities.md](knowledge-canonical-entities.md) for the private merge design
+> and the shared layer this research feeds into.
 
 ## 1. Executive Summary & Core Philosophy
 

@@ -92,8 +92,7 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Entity taxonomy pass                               | [knowledge-entity-types.md](knowledge-entity-types.md)                 | Environment fully backfilled with v2                          |
 | htmx 4.0 migration                                 | [htmx4.md](htmx4.md)                                                   | 4.x becomes `latest`, or 2.x breaks a behavior we rely on     |
 | Wikidata entity linking                            | [knowledge-wikidata-recommender.md](knowledge-wikidata-recommender.md) | Entity identity across captures becomes a product requirement |
-| Entity canonicalization and similarity             | [knowledge-canonical-entities.md](knowledge-canonical-entities.md)     | None — phase 1 is startable; see the doc's phases table       |
-| Public entity foundation and enrichment            | [knowledge-public-entities.md](knowledge-public-entities.md)           | Enrichment cost or cross-user consistency becomes user-visible |
+| Entity canonicalization and similarity             | [knowledge-canonical-entities.md](knowledge-canonical-entities.md)     | None — phase 1 is startable; public phases P-a…P-d follow it  |
 | Screenshot provider selection                      | [screenshot_3rd_party.md](screenshot_3rd_party.md)                     | Link-preview latency or fidelity is measured                  |
 | Static/CDN serving decision                        | [static-serving-cdn.md](static-serving-cdn.md)                         | Static bundle cost or latency justifies a network layer       |
 | `/events` catch-up query reduction                 | [event-streaming-optimization.md](event-streaming-optimization.md)     | Connection count or DB load becomes material                  |

@@ -2,8 +2,8 @@
 
 **Status:** Complete for the local corpus (2,518 mentions, 2026-10-29). Data and scripts are local
 only; this doc holds the method and the aggregate findings.
-**Feeds:** [knowledge-public-entities.md](knowledge-public-entities.md) (promotion gate, phases
-P-a…P-d).
+**Feeds:** [knowledge-canonical-entities.md](knowledge-canonical-entities.md) (promotion gate,
+phases P-a…P-d).
 
 ## Method
 
