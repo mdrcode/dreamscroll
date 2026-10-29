@@ -45,7 +45,7 @@ inside it (never rewrite history), and update the row below.
 | [upgrade_3rd_party_crates.md](upgrade_3rd_party_crates.md) | Proposed process | Repeatable dependency-upgrade procedure. |
 | [event-streaming-optimization.md](event-streaming-optimization.md) | Exploratory | Reducing per-connection task-status catch-up queries on `/events`. |
 | [upload-attempts.md](upload-attempts.md) | Proposed | Structured upload-outcome logging and an `upload_attempts` table for failure triage and measurement. Nothing implemented; deferred to CLIENT_PULSE. |
-| [upload-formats.md](upload-formats.md) | Proposed decision | Accept HEIC and normalize server-side, or defer to the client? Evidence, browser support, and the recommended whitelist-with-contract policy. |
+| [upload-formats.md](upload-formats.md) | Partly implemented | Upload format policy: blocklist at the single ingest point, 415s, client `accept` steering shipped 2026-10-29. Client re-encode and server HEIC normalize deferred. |
 
 ## archive/ — shipped design records
 

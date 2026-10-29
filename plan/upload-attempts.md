@@ -56,28 +56,33 @@ format). Structured outcomes add filtering without prose, and the per-attempt
 detail (`image_bytes`, `max_bytes`) — worth building as one framework, not
 piecemeal.
 
-`client_disconnected` is separated from `rejected_bad_multipart` on purpose: a
-phone losing signal mid-upload and a body the server could not parse look
-identical in the HTTP log (both a 400), and only the first explains why a
-request body arrived short. Classification walks the error source chain for a
-socket error kind, falling back to `multer`'s two stream-level messages —
-`axum_extra` does not expose the inner error, so the fallback costs at most a
-mislabelled line.
+`client_disconnected` and `rejected_bad_multipart` would be separated on purpose:
+a phone losing signal mid-upload and a body the server could not parse look
+identical in the HTTP log (both a 400), and only the first explains why a request
+body arrived short. Classification walks the error source chain for a socket error
+kind, falling back to `multer`'s two stream-level messages — `axum_extra` does not
+expose the inner error, so the fallback costs at most a mislabelled line. It is
+also the fiddliest part of the slice: the prototype was written and pulled back
+out with the rest, so re-derive it with tests attached.
 
-Canonical queries:
+What the events would buy:
+
+- **One query for triage** instead of grepping prose:
+  `jsonPayload.event="upload_attempt" AND jsonPayload.outcome!="accepted"`.
+- **Counts by outcome**, from `value(jsonPayload.outcome) | sort | uniq -c` — how
+  `plan/upload-formats.md` intends to measure the HEIC refusal rate.
+- **Sizes on rejection** (`image_bytes / max_bytes`), the only honest way to size
+  the cap: 12 MiB is a tuned guess today.
+
+What answers the question today: `ApiError` logs `status_code` as a structured
+field, so a refusal class is countable with no new code.
 
 ```bash
-# All recent failures, newest first.
+# Format refusals, which became an explicit 415 on 2026-10-29.
 gcloud logging read 'resource.type="cloud_run_revision"
   AND resource.labels.service_name="dreamscroll-webui-api"
-  AND jsonPayload.event="upload_attempt"
-  AND jsonPayload.outcome!="accepted"' \
-  --project mdrcode --freshness=7d --format=json
-
-# Failure counts by outcome, last 24h.
-gcloud logging read '… AND jsonPayload.event="upload_attempt"
-  AND jsonPayload.outcome!="accepted"' --freshness=24h \
-  --format="value(jsonPayload.outcome)" | sort | uniq -c
+  AND jsonPayload.status_code=415' --project mdrcode --freshness=7d \
+  --format="value(timestamp,jsonPayload.message)"
 ```
 
 The rejection's *reason* lives in the `ApiError` log line, not the response: the

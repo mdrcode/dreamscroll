@@ -1,6 +1,7 @@
 # Upload image formats
 
-**Status:** decision made, FIX_TONIGHT slice in review. Media transcode deferred.
+**Status:** policy implemented and deployed 2026-10-29 (blocklist, 415s, client
+`accept` steering). Media transcode and client-side re-encode deferred.
 **Last updated:** 2026-10-29.
 
 > **See also:**
@@ -190,7 +191,7 @@ here, not started:
   5–7 MB PNG, which removes cap pressure rather than tuning it. Deferred
   2026-10-29; costs fidelity on text-heavy screenshots.
 - **Server-side HEIC/HEIF decode** (option C above), triggered by
-  `rejected_format` counts. Design constraints are in "If and when HEIC is
+  `status_code=415` counts. Design constraints are in "If and when HEIC is
   accepted".
 - **Cap sizing from measurement**, not guessing: `upload_attempts` records
   `declared_bytes` and `image_bytes`, and their ratio is the expansion factor.
@@ -213,7 +214,7 @@ here, not started:
    body limit enforces, and an oversize import now returns 413 instead of "No
    image data found." (the old `while let Ok(Some(..))` loop swallowed the
    multipart error).
-6. If HEIC refusals start appearing in `outcome="rejected_format"`, is the demand
+6. If HEIC refusals start appearing (`jsonPayload.status_code=415`), is the demand
    real (a user blocked) or theoretical (a one-off)? That count is the trigger
    for option C.
 
