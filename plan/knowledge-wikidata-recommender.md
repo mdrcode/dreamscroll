@@ -1,5 +1,11 @@
 # Architecture & Implementation Plan: Screenshot-to-Knowledge-Graph Engine
 
+> **Identity note (2026-10-29):** keying every node by Wikidata QID is still the long-term direction,
+> but a QID is now an optional link to a shared public entity rather than the private identity key.
+> See [knowledge-public-entities.md](knowledge-public-entities.md) for the two-layer model and
+> [knowledge-canonical-entities.md](knowledge-canonical-entities.md) for the private merge design this
+> research feeds into.
+
 ## 1. Executive Summary & Core Philosophy
 
 This document outlines the system architecture and design principles for an application that enables users to construct a personal knowledge graph from captured screenshots.
@@ -243,7 +249,6 @@ The LLM introduced the word *"Pioneers"* because it recognized that the cluster 
 | **Embedding Search** | Pre-computed Vectors (Wikipedia2Vec) | $0.00 | Instant 1-hop & multi-vector candidate expansion |
 | **Ontology Discovery** | Wikidata SPARQL Service | $0.00 | Identify structural parents, classes, and shared locations |
 | **Macro Labeling** | Mini-LLM (e.g. Gemini Flash / Haiku) | Ultra-Low (<$0.0005) | Re-rank candidates and craft polished collection names |
-```
 
 ***
 
