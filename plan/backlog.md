@@ -96,7 +96,7 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 
 ## Product direction — not yet scoped
 
-Carried forward from `plan/devlog.md`; each needs a design pass before it becomes a task.
+Carried forward from `plan/archive/devlog.md`; each needs a design pass before it becomes a task.
 
 - **Bifurcate the app loop** into `LearnMoreAbout`, `MoreLikeThis`, and `GoBeyond`.
 - **Mind Map** view over the knowledge graph.

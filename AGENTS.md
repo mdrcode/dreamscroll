@@ -26,6 +26,13 @@ Be simple, idiomatic, robust, and flexible (in that order).
 - **Document Along The Way:** Update the various plan files as you go. Start at
   `plan/README.md` for what is live, deferred, and archived. If
   you are informed by useful third-party docs/websites, link to them.
+- **Archive Means Inactive, Not Finished:** `plan/archive/` holds docs no longer
+  receiving active attention — shipped, abandoned, or superseded — kept out of the
+  default read path to save context. Do not read or cite one unless the task names
+  it or you need the rationale behind existing behavior, and never treat its
+  contents as pending work. Shipping something does not by itself archive its doc:
+  one with live open questions stays at top level. Restore a doc from `archive/`
+  when its questions become active again.
 - **Validate Intelligently:** Do not run unit tests for small naming or plumbing
   changes. We will always do a full test pass before merging to main. Do not run
   smoke tests without asking for approval first.

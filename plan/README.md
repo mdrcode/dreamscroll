@@ -8,11 +8,14 @@ Where things stand, and where to look. Every doc states its status on line 3.
 | --- | --- |
 | `plan/backlog.md` | The queue. Self-contained tasks, ordered, each one startable without this index. |
 | `plan/pragmatism.md` | The ledger of accepted shortcuts. Check here before deciding to fix something. |
-| top level | Live process docs, deferred decisions, and research. Nothing here is silently abandoned; each doc's status says what remains. |
-| `archive/` | Design records for shipped work. Read for rationale; **do not treat as pending work**. |
+| top level | Docs receiving active attention: live process, deferred decisions, open research. Nothing here is silently abandoned; each doc's status says what remains. |
+| `archive/` | Docs **no longer receiving active attention** — shipped, abandoned, or superseded. Inert by default: do not read one unless a task names it or you need the rationale behind existing behavior. Unarchive it (and restore its row below) if its questions become live again. |
 
-**When work ships:** move its design doc to `archive/`, keep appending dated sections
-inside it (never rewrite history), and update the row below.
+**When a doc stops receiving active attention** — shipped, abandoned, or superseded —
+move it to `archive/` and update the rows below. Shipping alone is not the trigger:
+a doc with live open questions stays at top level even if most of it is implemented
+(`media-serving.md` is the example). Keep appending dated sections to an archived doc
+rather than rewriting it; history is the point.
 
 **Referencing docs:** use repo-root paths (`plan/pragmatism.md`,
 `plan/archive/sse.md`) so a reference is unambiguous from any directory.
@@ -26,7 +29,6 @@ inside it (never rewrite history), and update the row below.
 | [backfill.md](backfill.md) | Living — implemented | Typed backfills: bounded pumping, TaskRun correlation, dry-pump latch, status reporting. |
 | [testing.md](testing.md) | Living | Two-tier test model, and what deliberately goes untested. |
 | [smoke.md](smoke.md) | Living | Manual smoke procedure against the persistent local instance (`smoke-agent` account). |
-| [devlog.md](devlog.md) | Living — historical | Reverse-chronological daily log. Last entry 2026-04-05; open items were triaged into `plan/backlog.md`. |
 | [htmx4.md](htmx4.md) | Deferred decision | 2.0.11 pinned with SRI. 4.0 migration points and risks mapped; no timeline. |
 | [feed-view-incremental-updates.md](feed-view-incremental-updates.md) | Planned follow-up | Replace the full `/feed` refetch after upload with server-defined membership updates. |
 | [testing-auth-routes.md](testing-auth-routes.md) | Planned follow-up | Exercise protected routes through real Axum auth middleware on an isolated Postgres schema. |
@@ -47,7 +49,7 @@ inside it (never rewrite history), and update the row below.
 | [upload-attempts.md](upload-attempts.md) | Proposed | Structured upload-outcome logging and an `upload_attempts` table for failure triage and measurement. Nothing implemented; deferred to CLIENT_PULSE. |
 | [upload-formats.md](upload-formats.md) | Partly implemented | Upload format policy: blocklist at the single ingest point, 415s, client `accept` steering shipped 2026-10-29. Client re-encode and server HEIC normalize deferred. |
 
-## archive/ — shipped design records
+## archive/ — inactive records (default: ignore)
 
 | Doc | Scope |
 | --- | --- |
@@ -65,3 +67,4 @@ inside it (never rewrite history), and update the row below.
 | [feed-route-rename.md](archive/feed-route-rename.md) | Feed fragment route renamed `/cards` → `/feed`; what moved and what deliberately did not. |
 | [webui-capture-route.md](archive/webui-capture-route.md) | Capture page routes moved from `/detail` to `/capture`; upload field renamed with them. |
 | [cloud_build_release_deployment.md](archive/cloud_build_release_deployment.md) | Cloud Build tagged-release research: trigger flow, build identity, pricing, caching. Not pursued; local release tooling instead. |
+| [devlog.md](archive/devlog.md) | Reverse-chronological daily log, retired 2026-04-05 when open items were triaged into `plan/backlog.md`. Read only for what the project was thinking on a given day. |
