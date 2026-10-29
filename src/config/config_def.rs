@@ -53,8 +53,10 @@ fn default_jwt_validation_leeway_secs() -> u64 {
     0
 }
 
+/// The ceiling is bounded from above: Cloud Run caps request bodies at 32 MiB,
+/// and Vertex accepts ~20 MB inline after base64 inflates the image by 4/3.
 fn default_max_upload_bytes() -> usize {
-    5 * 1024 * 1024
+    12 * 1024 * 1024
 }
 
 // Useful for dreamscroll_db which only needs DB access and nothing else.
@@ -266,7 +268,7 @@ mod tests {
         assert_eq!(default_task_max_attempts(), 3);
         assert_eq!(default_jwt_user_expiration_secs(), 86400);
         assert_eq!(default_jwt_validation_leeway_secs(), 0);
-        assert_eq!(default_max_upload_bytes(), 5 * 1024 * 1024);
+        assert_eq!(default_max_upload_bytes(), 12 * 1024 * 1024);
     }
 
     #[test]
@@ -357,6 +359,17 @@ mod tests {
     }
 
     #[test]
+    fn max_upload_bytes_comes_from_the_environment() {
+        let mut vars = required_vars("gcloud");
+        vars.push(("STORAGE_GCLOUD_BUCKET_NAME".into(), "bucket".into()));
+        vars.push(("MAX_UPLOAD_BYTES".into(), "12582912".into()));
+
+        let config = make_from_envy_iter(vars).expect("config should be valid");
+
+        assert_eq!(config.max_upload_bytes, 12 * 1024 * 1024);
+    }
+
+    #[test]
     fn make_accepts_gcloud_storage_and_applies_defaults() {
         let mut vars = required_vars("gcloud");
         vars.push(("STORAGE_GCLOUD_BUCKET_NAME".into(), "bucket".into()));
@@ -368,7 +381,7 @@ mod tests {
         assert_eq!(config.task_webhook_base_url, "http://localhost:8080");
         assert_eq!(config.jwt_user_expiration_secs, 86400);
         assert_eq!(config.jwt_validation_leeway_secs, 0);
-        assert_eq!(config.max_upload_bytes, 5 * 1024 * 1024);
+        assert_eq!(config.max_upload_bytes, default_max_upload_bytes());
         assert!(config.cookie_secure);
         assert!(config.session_always_save);
     }

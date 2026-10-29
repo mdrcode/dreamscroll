@@ -5,6 +5,7 @@ use axum::{
     extract::State,
     http::HeaderMap,
     http::StatusCode,
+    http::header,
     response::{IntoResponse, Redirect, Response},
 };
 use axum_extra::extract::Multipart;
@@ -28,7 +29,17 @@ pub async fn post(
     multipart: Multipart,
 ) -> Result<Response, api::ApiError> {
     let user = auth.user.unwrap();
-    let context_user = user.into();
+    let context_user: auth::Context = user.into();
+
+    // Reject before the stream is polled: the body limit knows the cap, not the size.
+    if let Some(body_bytes) = content_length(&headers)
+        && body_bytes > state.max_upload_bytes as u64
+    {
+        return Err(api::ApiError::upload_too_large(
+            state.max_upload_bytes,
+            Some(body_bytes),
+        ));
+    }
 
     let cap = crate::webui::upload::insert_capture_from_multipart(
         &state.user_api,
@@ -37,7 +48,6 @@ pub async fn post(
         state.max_upload_bytes,
     )
     .await?;
-    tracing::info!("Capture {} inserted via v2 upload", cap.id);
 
     let is_htmx = headers
         .get("HX-Request")
@@ -55,4 +65,15 @@ pub async fn post(
     };
 
     Ok((StatusCode::CREATED, Json(payload)).into_response())
+}
+
+/// Declared body size, when the client sent one. Browsers always set it for
+/// `FormData`; a chunked or absent header falls through to the body limit.
+fn content_length(headers: &HeaderMap) -> Option<u64> {
+    headers
+        .get(header::CONTENT_LENGTH)?
+        .to_str()
+        .ok()?
+        .parse()
+        .ok()
 }

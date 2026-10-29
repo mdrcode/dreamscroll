@@ -55,6 +55,10 @@ spec:
           value: 'true'
         - name: COOKIE_SECURE
           value: 'true'
+        # 12 MiB. Cloud Run caps request bodies at 32 MiB and Vertex inline
+        # image requests at ~20 MB after base64, so this cannot go much higher.
+        - name: MAX_UPLOAD_BYTES
+          value: '12582912'
         - name: POSTGRES_USER
           value: dreamscroll-web
         - name: POSTGRES_CONNECTION_PARAMS

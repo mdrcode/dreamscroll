@@ -5,6 +5,9 @@ use crate::telemetry;
 
 use super::*;
 
+/// One Cloud Tasks delivery — not an upload (Cloud Tasks caps a task at 10 MB).
+const TASK_PAYLOAD_LIMIT: usize = 5 * 1024 * 1024;
+
 pub fn make_webhook_router(
     state: WebhookState,
     oidc: Option<Arc<google_cloud_auth::credentials::idtoken::verifier::Verifier>>,
@@ -23,7 +26,7 @@ pub fn make_webhook_router(
         .route("/cloudtask/spark", post(r_spark::post))
         .with_state(state);
 
-    router = router.layer(DefaultBodyLimit::max(5 * 1024 * 1024));
+    router = router.layer(DefaultBodyLimit::max(TASK_PAYLOAD_LIMIT));
     // Local queues omit this layer; Cloud Tasks always supplies it.
     if let Some(oidc_verifier) = oidc {
         router = router.layer(middleware::from_fn(move |request, next| {

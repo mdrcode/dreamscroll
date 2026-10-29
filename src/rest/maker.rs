@@ -15,6 +15,7 @@ pub struct RestState {
     pub admin_api: api::AdminApiClient,
     pub jwt_config: auth::JwtConfig,
     pub task_backend: config::TaskQueueBackend,
+    pub max_upload_bytes: usize,
 }
 
 /// Creates the API router with all REST endpoints.
@@ -40,6 +41,7 @@ pub fn make_api_router(
         admin_api,
         jwt_config: jwt_config.clone(),
         task_backend,
+        max_upload_bytes,
     });
 
     let routes_open = Router::new().route("/token", post(r_token::post));

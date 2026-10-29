@@ -49,6 +49,28 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   dedicated interactive queue (higher concurrency, throttled bulk queue) or
   moving bulk work to Batch. See `plan/vertex-throughput.md` §5.
 
+- [ ] **Re-evaluate sending Vertex a `gs://` file reference instead of inline
+  base64.** Every image is base64-encoded into the request today
+  (`InferenceInput::Image` in `src/llms/gemini/client.rs`), and the embedding path
+  builds `inlineData` (`src/search/capture_data_object.rs`). Base64 adds ~33%, so a
+  7 MB PNG ships as ~9.3 MB of request — and `MAX_UPLOAD_BYTES` is now 12 MiB,
+  putting a single upload within reach of Vertex's ~20 MB inline request ceiling.
+
+  We had this before: `GeminiPayloadMethod::{FileUri, Inline}` (default `Inline`)
+  built `FileData { file_uri: gs://… }` through `StorageProvider::make_prod_uri`,
+  and `eefdd8b` ("Unify Gemini inference through Interactions API") removed it.
+  `make_prod_uri` still exists on every storage provider, so the URI half is intact.
+
+  The real unknown is the API, not our code: the old path predates the unification,
+  so confirm the **Interactions API** on Vertex accepts a GCS file reference at all.
+  Also settle whether the Cloud Run service account already has `objectViewer` on
+  `dreamscroll-prod-media1` (it writes objects there, so likely), whether the lever
+  applies to embeddings as well as illumination/spark, and the latency delta — a
+  provider-side GCS read replaces local encoding rather than being free.
+
+  Moot if the Interactions API has no file-reference input; then the lever is
+  shrinking uploads instead. See MEDIA_TRANSCODE in `plan/upload-formats.md`.
+
 ## Deferred — already scoped
 
 Promote an item into **Next** when its trigger fires or it becomes the focus.
@@ -69,6 +91,8 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Static/CDN serving decision                        | [static-serving-cdn.md](static-serving-cdn.md)                         | Static bundle cost or latency justifies a network layer       |
 | `/events` catch-up query reduction                 | [event-streaming-optimization.md](event-streaming-optimization.md)     | Connection count or DB load becomes material                  |
 | Crate upgrade sweep                                | [upgrade_3rd_party_crates.md](upgrade_3rd_party_crates.md)             | Scheduled maintenance window                                  |
+| Client pulse + `upload_attempts`                   | [upload-attempts.md](upload-attempts.md)                               | A client-side upload failure goes unexplained for a second time |
+| Media transcode and format policy                  | [upload-formats.md](upload-formats.md)                                 | `rejected_format` fires for a real user, uploads stay multi-MB on cellular, or a non-browser ingestion path carries originals |
 
 ## Product direction — not yet scoped
 
@@ -78,4 +102,18 @@ Carried forward from `plan/devlog.md`; each needs a design pass before it become
 - **Mind Map** view over the knowledge graph.
 - **Derived media resolutions.** `thumbnail_url` points at the original asset, not a
   separately generated thumbnail; large screenshots are served at full size.
+- **USER_FACING_LOGGING.** Decide how an actionable failure reaches the user.
+  `ApiError` currently returns an opaque body (`Request failed. status=… report_id=…`),
+  so every rejection reads as "something broke". Needs a design pass covering: what
+  a safe-to-surface message is, how it travels (the `message=` body field prototyped
+  then reverted), where the client renders it, and the known silent-failure bug where
+  a session that expires mid-upload yields 307 → login → 200 HTML and the client
+  treats it as success.
+- **CLIENT_PULSE.** A quiet, low-impact channel for the browser to report telemetry
+  the server cannot observe: an attempt beginning, and an attempt failing before any
+  request leaves the device. Design questions: authentication (an expired session is
+  itself a reported failure), ordering (pulse vs. completion), volume (what stops a
+  loop from spamming it), and the `localStorage` queue that survives being offline.
+  The prototype in `webui-v2.js` + `/upload/failed` answered these by accident and is
+  deliberately unshipped; treat it as evidence, not a design.
 

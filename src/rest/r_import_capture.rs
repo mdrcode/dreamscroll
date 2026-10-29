@@ -27,16 +27,8 @@ pub async fn post(
     State(state): State<Arc<RestState>>,
     multipart: Multipart,
 ) -> Result<Response, api::ApiError> {
-    let import_form = extract_import_form(multipart)
-        .await
-        .map_err(api::ApiError::bad_request)?;
-
-    // Limit to 5MB. TODO currently this is already limited by axum body limit layer?
-    if import_form.media_bytes.len() > 5 * 1024 * 1024 {
-        return Err(api::ApiError::payload_too_large(anyhow!(
-            "Payload too large."
-        )));
-    }
+    // The body limit enforces `MAX_UPLOAD_BYTES`; this only explains it.
+    let import_form = extract_import_form(multipart, state.max_upload_bytes).await?;
 
     let result = state
         .user_api
@@ -65,28 +57,60 @@ struct ImportForm {
     created_at: DateTime<Utc>,
 }
 
-async fn extract_import_form(mut mp: Multipart) -> anyhow::Result<ImportForm> {
+/// A body over `MAX_UPLOAD_BYTES` is a 413 that names the limit; anything else
+/// is a malformed request.
+fn multipart_error(
+    error: axum_extra::extract::multipart::MultipartError,
+    max_upload_bytes: usize,
+) -> api::ApiError {
+    if error.status() == StatusCode::PAYLOAD_TOO_LARGE {
+        return api::ApiError::upload_too_large(max_upload_bytes, None);
+    }
+    api::ApiError::bad_request(anyhow!(error))
+}
+
+async fn extract_import_form(
+    mut mp: Multipart,
+    max_upload_bytes: usize,
+) -> Result<ImportForm, api::ApiError> {
     let mut media_bytes: Option<body::Bytes> = None;
     let mut created_at: Option<DateTime<Utc>> = None;
 
-    while let Ok(Some(field)) = mp.next_field().await {
+    loop {
+        let field = match mp.next_field().await {
+            Ok(Some(field)) => field,
+            Ok(None) => break,
+            // The old `while let Ok(..)` swallowed this, reporting "No image data found."
+            Err(error) => return Err(multipart_error(error, max_upload_bytes)),
+        };
+
         match field.name().unwrap_or("") {
             "image" => {
-                media_bytes = Some(field.bytes().await?);
+                media_bytes = Some(
+                    field
+                        .bytes()
+                        .await
+                        .map_err(|error| multipart_error(error, max_upload_bytes))?,
+                );
             }
             "created_at" => {
-                let value = field.text().await?;
-                let parsed = DateTime::parse_from_rfc3339(&value)
-                    .map_err(|e| anyhow!("Invalid created_at '{}': {e}", value))?
-                    .with_timezone(&Utc);
-                created_at = Some(parsed);
+                let value = field
+                    .text()
+                    .await
+                    .map_err(|error| multipart_error(error, max_upload_bytes))?;
+                let parsed = DateTime::parse_from_rfc3339(&value).map_err(|e| {
+                    api::ApiError::bad_request(anyhow!("Invalid created_at '{}': {e}", value))
+                })?;
+                created_at = Some(parsed.with_timezone(&Utc));
             }
             _ => {}
         }
     }
 
-    let media_bytes = media_bytes.ok_or_else(|| anyhow!("No image data found."))?;
-    let created_at = created_at.ok_or_else(|| anyhow!("Missing created_at field."))?;
+    let media_bytes =
+        media_bytes.ok_or_else(|| api::ApiError::bad_request(anyhow!("No image data found.")))?;
+    let created_at = created_at
+        .ok_or_else(|| api::ApiError::bad_request(anyhow!("Missing created_at field.")))?;
 
     Ok(ImportForm {
         media_bytes,

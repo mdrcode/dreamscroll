@@ -77,24 +77,46 @@ impl provider::StorageProvider for GCloudStorageProvider {
         // BUG currently if the GCS client cannot connect to the emulator
         // endpoint, it will hang indefinitely rather than timeout :-/
         let write_start = std::time::Instant::now();
-        let upload = self
-            .gcloud_client
-            .write_object(&self.bucket_path, &object_key, bytes)
-            .set_cache_control(MEDIA_CACHE_CONTROL);
-        let upload = if let Some(mime_type) = mime_type {
-            upload.set_content_type(mime_type)
-        } else {
-            upload
-        };
-        // `Bytes` is not seekable; the GCS client uses buffered uploads for non-seekable sources.
-        upload
-            //.with_resumable_upload_threshold(5 * 1024 * 1024_usize) // TODO investigate this?
-            .send_buffered()
-            .await
-            .map_err(|e| {
-                tracing::error!("Failed to store object in GCS: {:?}", e);
-                anyhow::anyhow!("Failed to store object in GCS: {}", e)
-            })?;
+
+        // One retry: a transient timeout here costs the user a capture after
+        // their upload already succeeded, and the fixed key makes it idempotent.
+        const STORE_ATTEMPTS: u32 = 2;
+        let mut last_error = None;
+        for attempt in 1..=STORE_ATTEMPTS {
+            let upload = self
+                .gcloud_client
+                .write_object(&self.bucket_path, &object_key, bytes.clone())
+                .set_cache_control(MEDIA_CACHE_CONTROL);
+            let upload = if let Some(mime_type) = mime_type {
+                upload.set_content_type(mime_type)
+            } else {
+                upload
+            };
+
+            // `Bytes` is not seekable; the GCS client uses buffered uploads for non-seekable sources.
+            match upload.send_buffered().await {
+                Ok(_) => {
+                    last_error = None;
+                    break;
+                }
+                Err(error) => {
+                    tracing::warn!(
+                        attempt,
+                        attempts = STORE_ATTEMPTS,
+                        object_key,
+                        bytes = n_bytes,
+                        error = ?error,
+                        "Failed to store object in GCS"
+                    );
+                    last_error = Some(error);
+                }
+            }
+        }
+        if let Some(error) = last_error {
+            tracing::error!("Failed to store object in GCS: {:?}", error);
+            return Err(anyhow::anyhow!("Failed to store object in GCS: {}", error));
+        }
+
         let write_duration = write_start.elapsed();
 
         tracing::info!(

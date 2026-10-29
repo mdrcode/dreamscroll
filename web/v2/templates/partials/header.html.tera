@@ -6,7 +6,7 @@
         action="/upload"
         method="post"
         enctype="multipart/form-data">
-        <input id="file-picker" type="file" name="image" accept="image/*" style="display: none;" required>
+        <input id="file-picker" type="file" name="image" accept="image/jpeg,image/png" style="display: none;" required>
         <label id="file-picker-label" for="file-picker">
             <span class="file-picker-text">Upload</span>
             <svg class="file-picker-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3L4 13h5v8h6v-8h5z"/></svg>

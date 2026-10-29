@@ -80,6 +80,27 @@ impl ApiError {
         Self::new(StatusCode::PAYLOAD_TOO_LARGE, error.into())
     }
 
+    pub fn unsupported_media_type(error: impl Into<anyhow::Error>) -> Self {
+        Self::new(StatusCode::UNSUPPORTED_MEDIA_TYPE, error.into())
+    }
+
+    /// 413 for an upload over `max_bytes`, naming both sizes so the log says
+    /// which upload was too big and by how much.
+    ///
+    /// Shared by every upload path so the limit is described the same way
+    /// wherever it is enforced.
+    pub fn upload_too_large(max_bytes: usize, actual_bytes: Option<u64>) -> Self {
+        let detail = match actual_bytes {
+            Some(actual) => format!(
+                "Upload is {}; the limit is {} ({max_bytes} bytes)",
+                human_mb(actual),
+                human_mb(max_bytes as u64)
+            ),
+            None => format!("Upload exceeds the {max_bytes} byte limit"),
+        };
+        Self::payload_too_large(anyhow::anyhow!(detail))
+    }
+
     pub fn unauthorized(error: impl Into<anyhow::Error>) -> Self {
         Self::new(StatusCode::UNAUTHORIZED, error.into())
     }
@@ -133,6 +154,12 @@ impl IntoResponse for ApiError {
 
         (self.http_status_code, body).into_response()
     }
+}
+
+/// Binary megabytes, one decimal: only for messages a user reads.
+/// TODO this should live in src/common with the other human-readability functions
+fn human_mb(bytes: u64) -> String {
+    format!("{:.1} MB", bytes as f64 / (1024.0 * 1024.0))
 }
 
 // Allow AppError to be converted back to anyhow::Error
