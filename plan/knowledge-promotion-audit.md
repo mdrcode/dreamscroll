@@ -4,6 +4,9 @@
 only; this doc holds the method and the aggregate findings.
 **Feeds:** [knowledge-canonical-entities.md](knowledge-canonical-entities.md) (promotion gate,
 phases P-a…P-d).
+**Second investigation:** [knowledge-promotion-audit-prod.md](knowledge-promotion-audit-prod.md) re-runs
+this classifier over the prod corpus (5,185 mentions) and compares the two; this document remains the
+local-corpus record and is not superseded by it.
 
 ## Method
 
