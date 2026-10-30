@@ -191,13 +191,17 @@ Full per-row detail lives in the local review queue
 2. **Ship `organism` + `concept` + `referent_form`** and re-run this audit; the
    `unknown` bucket should fall under 0.2% and the dahlia cluster should type
    cleanly.
-3. **Fix the analyser's `name_is_handle` flag** — it normalizes away spaces, so
+3. **Use `search_query` in entity resolution** — it is populated on 52% of rows
+   and currently read by nothing; it carries exactly the disambiguation context
+   ("Cure 1997 film") that label search cannot reach. See
+   [knowledge-promotion-frontier.md](knowledge-promotion-frontier.md).
+4. **Fix the analyser's `name_is_handle` flag** — it normalizes away spaces, so
    "First Last" matches the handle `firstlast`; 167 of 348 prod hits are human
    names. It inflates the account-shaped count by roughly half.
-4. **Score duplicates on `(name, type)`**, not name alone: 8 same-illumination
+5. **Score duplicates on `(name, type)`**, not name alone: 8 same-illumination
    pairs and 32 cross-capture groups are homonyms, and counting them as
    duplicates overstates extraction noise.
-5. **Disambiguate before merging.** The merge path needs a similarity signal
+6. **Disambiguate before merging.** The merge path needs a similarity signal
    (description, co-mentioned entities, platform link) in addition to the
    normalized name — finding 4 is the evidence.
 

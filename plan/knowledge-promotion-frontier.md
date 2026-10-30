@@ -53,13 +53,36 @@ source URL if present, the capture's own summary, and whether the name recurs
 across captures with the same co-mentions. This is free and underused — our
 current classifier looks only at the single row.
 
-**E2 — external authority records.** Wikidata or a domain authority. Sampled 30
-non-promoted rows: **20 resolved to an exact-label item, 3 to a near match, 7 to
-nothing (67% exact)**. But *exact label ≠ correct referent*: Carhartt resolved to
-"family name", Odyssey to an instrumental recording, Kirby to a given name, and
-(earlier) Chiaroscuro to a live album. Search is a candidate generator; identity
-needs verification — type-compatible `P31`, description similarity, or a second
-signal.
+**E2 — external authority records.** Wikidata or a domain authority.
+
+An earlier draft of this section claimed that authority records were unreliable
+because exact-label matches were often the wrong referent (Carhartt → "family
+name", Odyssey → an instrumental). **That was a defect in the probe, not in the
+records.** The probe searched the name alone, took the single top hit, and never
+used `search_query`. Re-measured with a real strategy, 22 of the same 30 rows
+(73%) resolve — and the records everyone assumed were missing exist: Carhartt's
+brand is `Q527877` ("American brand of sturdy work clothing"), Homer's epic is
+`Q35160`, the 1997 film is `Q1144476`.
+
+Three modes are needed, in this order:
+
+1. **Label search, then rank the candidate set.** `wbsearchentities` matches
+   labels and aliases only — it is *not* full-text: `"Carhartt brand"` returns
+   zero hits while `"Carhartt"` returns the company second. Reading only hit #1
+   is what produced the false "unreliable records" conclusion.
+2. **Full-text search** (`list=search`, CirrusSearch) for the cases where the
+   label is qualified or absent: `search_query` values like "Cure 1997 film" and
+   "Kirby Nintendo character" resolve exactly, and no label search can reach them.
+3. **Verify the candidate** — type-compatible `P31`/description against our own
+   type and description. This step is still required: the scripted run picked
+   Kirby (a character from another franchise) and a Netflix duplicate item,
+   because full-text returns a ranked list and the first line is not always the
+   right one.
+
+`KnowledgeEntity.search_query` is exactly the input mode 2 needs, it is populated
+on **52% of prod rows** (2,691 of 5,185, differing from the name on 2,237), and
+the analyser currently **ignores it entirely** — it is selected by the SQL and
+never read. That is the single cheapest fix in the resolution path.
 
 **E3 — reverse identity from the identifier.** Instead of searching a name, ask
 which item *owns* the handle. Wikidata `haswbstatement:P2002=<handle>`:
@@ -91,7 +114,7 @@ kind that can never be derived from public data.
 | Split collisions into referents, promote each | 112 → ~2× nodes | High |
 | Re-describe empty rows | 5 (+ raises description quality generally) | High |
 | Handle-first identity (E3) | 97, roughly half resolving | Medium — 3/6 sampled |
-| Authority resolution with verification (E2) | most of what remains | Medium — 67% exact, but needs type checks |
+| Authority resolution with verification (E2) | ~73% of a 30-row sample, 3 needing full-text | Medium — measured; still needs candidate verification |
 | User confirmation (E5) | the residual (~2%) | Certain, but human |
 
 That puts an achievable steady state around **97% identified**, versus 84%
@@ -135,9 +158,10 @@ Two consequences worth stating now, because they shape the schema:
 
 ## Risks
 
-- **Authority lookup can introduce false identity.** Carhartt → "family name" is
-  the failure mode; without verification, E2 would *lower* graph quality while
-  raising coverage.
+- **Unverified top-1 selection introduces false identity.** The failure mode is
+  not missing records — they exist — but accepting the first search hit (Kirby
+  from the wrong franchise, a duplicate Netflix item). Verification is the
+  difference between E2 raising coverage and E2 lowering quality.
 - **Identity must not imply publishability.** A well-known person's handle is
   public; their contact details are not. The publishability rules in the design
   doc (S1–S3) still gate every field independently of identity.
