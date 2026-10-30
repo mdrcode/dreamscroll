@@ -6,6 +6,11 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
+- [ ] **Add `concept` and `organism` entity types, plus `referent_form` and
+  `wikidata_class`.** Settled by the 2026-10-29 audit in `plan/knowledge-entity-types.md`:
+  `unknown` splits into six Wikidata classes, 3 of them taxa, and named plant cultivars are
+  currently typed `product`. Touches the v2 prompt, the type enum, and the P31 → type mapping.
+  Unblocks 15 of the 17 `unknown` rows and the dahlia/cultivar corpus.
 - [ ] Change the formatting pattern of the "commands" for both dreamscroll_api
   to use consistent - or _. Currently we use a mix.
 - [ ] Expose the archived feed navigationally and paginate it. `/archived` works
@@ -87,6 +92,7 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Entity taxonomy pass                               | [knowledge-entity-types.md](knowledge-entity-types.md)                 | Environment fully backfilled with v2                          |
 | htmx 4.0 migration                                 | [htmx4.md](htmx4.md)                                                   | 4.x becomes `latest`, or 2.x breaks a behavior we rely on     |
 | Wikidata entity linking                            | [knowledge-wikidata-recommender.md](knowledge-wikidata-recommender.md) | Entity identity across captures becomes a product requirement |
+| Entity canonicalization and similarity             | [knowledge-canonical-entities.md](knowledge-canonical-entities.md)     | None — phase 1 is startable; public phases P-a…P-d follow it  |
 | Screenshot provider selection                      | [screenshot_3rd_party.md](screenshot_3rd_party.md)                     | Link-preview latency or fidelity is measured                  |
 | Static/CDN serving decision                        | [static-serving-cdn.md](static-serving-cdn.md)                         | Static bundle cost or latency justifies a network layer       |
 | `/events` catch-up query reduction                 | [event-streaming-optimization.md](event-streaming-optimization.md)     | Connection count or DB load becomes material                  |

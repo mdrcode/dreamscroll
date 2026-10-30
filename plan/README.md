@@ -36,6 +36,8 @@ rather than rewriting it; history is the point.
 | [testing-coverage.md](testing-coverage.md) | Planned — initial | Strategy for coverage beyond the current two tiers. |
 | [knowledge-entity-types.md](knowledge-entity-types.md) | Open questions | Current v2 entity shape; next taxonomy pass deferred until the environment is fully v2-backfilled. |
 | [knowledge-wikidata-recommender.md](knowledge-wikidata-recommender.md) | Research | Wikipedia/Wikidata embeddings, SPARQL traversal, and disambiguation for entity linking. |
+| [knowledge-canonical-entities.md](knowledge-canonical-entities.md) | Design — private phases 1–4 startable; shared P-a…P-d deferred | Mentions → canonical nodes with reversible merges, per-user similarity, and the shared public base (publishability, promotion, universal descriptions). Nothing implemented. |
+| [knowledge-promotion-audit.md](knowledge-promotion-audit.md) | Complete — local corpus (2026-10-29) | Measured promotion candidates and risks across 2,518 local mentions, with the gate each bucket needs. Data lives under `localdev/analysis/entity-promotion/`. |
 | [screenshot_3rd_party.md](screenshot_3rd_party.md) | Research | Screenshot provider comparison and selection criteria (Urlbox, ScreenshotOne). |
 | [api_token_hardening.md](api_token_hardening.md) | Proposed | `iss`/`aud` claims, fallible config validation, and token-lifetime policy. |
 | [static-serving-cdn.md](static-serving-cdn.md) | Recommendation | Why not to add an ALB or CDN for the small static bundle. |
