@@ -56,22 +56,46 @@ Promotion candidates (`promote` + `promote_linked`): **4,353 rows, 84.0%**.
 | — re-illumination | 22 (3.2%) |
 | — same illumination | 8 (1.2%) |
 
-## Types in use
+## Types, and what each row needs
 
-Twenty types carry the corpus; people and accounts dominate.
+Column meanings: **today** = `promote` + `promote_linked`; **gate** = held only for
+name shape (+ 5 empty descriptions), so recoverable by replacing the shape test;
+**enum** = needs `organism`/`concept`; **split** = a colliding string that becomes
+two or more nodes; **ident** = has a platform handle but no description.
 
-| Type | Rows | | Type | Rows |
-|---|---|---|---|---|
-| `real_person` | 1,829 | | `brand` | 131 |
-| `organization` | 455 | | `event` | 120 |
-| `book` | 442 | | `art_work` | 107 |
-| `place` | 409 | | `television_show` | 92 |
-| `social_media_account` | 333 | | `music` | 74 |
-| `software` | 285 | | `meme` | 49 |
-| `movie` | 235 | | `unknown` | 40 |
-| `fictional_character` | 208 | | `online_community` | 32 |
-| `publication` | 158 | | `religious_figure` | 23 |
-| `product` | 151 | | `financial` | 12 |
+| Type | Rows | Today | Gate fix | Enum | Split | Ident |
+|---|---:|---:|---:|---:|---:|---:|
+| `real_person` | 1,829 | 1,753 | 18 | — | 4 | 54 |
+| `organization` | 455 | 373 | 61 | — | 21 | — |
+| `book` | 442 | 403 | 32 | — | 7 | — |
+| `place` | 409 | 327 | 81 | — | 1 | — |
+| `social_media_account` | 333 | 285 | — | — | — | 48 |
+| `software` | 285 | 129 | 128 | — | 28 | — |
+| `movie` | 235 | 183 | 45 | — | 7 | — |
+| `fictional_character` | 208 | 149 | 55 | — | 4 | — |
+| `publication` | 158 | 124 | 28 | — | 6 | — |
+| `product` | 151 | 114 | 27 | — | 10 | — |
+| `brand` | 131 | 77 | 40 | — | 14 | — |
+| `event` | 120 | 112 | 7 | — | 1 | — |
+| `art_work` | 107 | 98 | 7 | — | 2 | — |
+| `television_show` | 92 | 81 | 8 | — | 3 | — |
+| `music` | 74 | 62 | 12 | — | — | — |
+| `meme` | 49 | 39 | 10 | — | — | — |
+| `unknown` | 40 | — | — | 36 | 4 | — |
+| `online_community` | 32 | 24 | 8 | — | — | — |
+| `religious_figure` | 23 | 10 | 13 | — | — | — |
+| `financial` | 12 | 10 | 2 | — | — | — |
+| **Total** | **5,185** | **4,353** | **582** | **36** | **112** | **102** |
+
+Read as a progression: **84.0%** promotable today → **95.2%** after the shape test
+is replaced and empty descriptions are re-asked → **95.9%** once the enum covers
+kinds. The 112 collision rows are not lost either; they become ≥2 nodes each. What
+remains is the 102 identifier-only rows, about half of which resolve by handle
+lookup.
+
+Where the gate bites is structural, not random: `software` (128), `place` (81),
+`organization` (61), `fictional_character` (55) — all types whose names are
+frequently single short tokens (Zoom, Git, Rust, Ardennes, Ghent, Elsevier).
 
 ## Local vs prod
 
