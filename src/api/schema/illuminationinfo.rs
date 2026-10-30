@@ -80,6 +80,8 @@ mod tests {
             knowledge_entities: vec![KnowledgeEntityInfo {
                 id: 1,
                 capture_id: 9,
+                illumination_id: 10,
+                capture_archived_at: None,
                 name: "Ada Lovelace".to_string(),
                 entity_type: "real_person".to_string(),
                 description: Some("Pioneer of computing".to_string()),

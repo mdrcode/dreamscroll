@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::model;
@@ -14,6 +15,13 @@ pub struct PlatformLinkInfo {
 pub struct KnowledgeEntityInfo {
     pub id: i32,
     pub capture_id: i32,
+    /// The illumination that produced this occurrence. A capture can be
+    /// re-illuminated, so this is what distinguishes a superseded occurrence
+    /// from a current one.
+    pub illumination_id: i32,
+    /// Archived captures stay readable; only the feeds hide them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub capture_archived_at: Option<DateTime<Utc>>,
     pub name: String,
     #[serde(rename = "type")]
     pub entity_type: String,
@@ -25,8 +33,16 @@ pub struct KnowledgeEntityInfo {
     pub platform_link: Option<PlatformLinkInfo>,
 }
 
-impl From<model::knowledge_entity::ModelEx> for KnowledgeEntityInfo {
-    fn from(entity: model::knowledge_entity::ModelEx) -> Self {
+impl KnowledgeEntityInfo {
+    /// Build the wire form of one occurrence.
+    ///
+    /// `capture_archived_at` is a capture fact, so it is passed in rather than
+    /// read from the entity model; callers that filter archived captures pass
+    /// `None` because they would not return the row otherwise.
+    pub fn new(
+        entity: model::knowledge_entity::ModelEx,
+        capture_archived_at: Option<DateTime<Utc>>,
+    ) -> Self {
         let platform_link = match (entity.platform, entity.platform_handle) {
             (Some(platform), Some(handle)) => Some(PlatformLinkInfo {
                 platform,
@@ -39,6 +55,8 @@ impl From<model::knowledge_entity::ModelEx> for KnowledgeEntityInfo {
         Self {
             id: entity.id,
             capture_id: entity.capture_id,
+            illumination_id: entity.illumination_id,
+            capture_archived_at,
             name: entity.name,
             entity_type: entity.entity_type,
             description: entity.description,

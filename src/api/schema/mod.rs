@@ -12,6 +12,9 @@ pub use captureinfo::*;
 mod capturepreviewinfo;
 pub use capturepreviewinfo::*;
 
+mod export;
+pub use export::*;
+
 mod illuminationinfo;
 pub use illuminationinfo::*;
 

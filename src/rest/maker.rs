@@ -60,10 +60,12 @@ pub fn make_api_router(
         .route("/admin/queue/failures", get(r_queue::failures))
         .route("/admin/inference/stats", get(r_inference::stats))
         .route("/admin/inference/{task_run_id}", get(r_inference::meta))
+        .route("/admin/export/{kind}", get(r_export::get))
         .route("/admin/users", post(r_create_user::post))
         .route("/account/password", post(r_change_password::post))
         .route("/captures", get(r_capture::get))
         .route("/entity", get(r_entity::get))
+        .route("/entity/{entity_id}", get(r_entity::get_by_id))
         .route(
             "/illuminations/raw/{task_run_id}",
             get(r_illumination_raw::get),

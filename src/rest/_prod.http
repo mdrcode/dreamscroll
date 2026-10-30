@@ -80,3 +80,20 @@ Content-Type: application/json
     "password": ,
     "email": 
 }
+
+###
+# One of your own knowledge entities, by occurrence id.
+GET https://dreamscroll.ai/api/entity/1
+Authorization: Bearer {{token}}
+
+###
+# Admin: user export as JSONL (one {user_id, row} per line).
+GET https://dreamscroll.ai/api/admin/export/users
+Authorization: Bearer {{token}}
+
+###
+# Admin: one page of the entity export as JSONL (1..5000 rows per page).
+# The cursor for the next page comes back in the `x-next-after-id` header;
+# omit `user_id` to stream every user in one pass.
+GET https://dreamscroll.ai/api/admin/export/entities?user_id=1&limit=1000&after_id=0
+Authorization: Bearer {{token}}

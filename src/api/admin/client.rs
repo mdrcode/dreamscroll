@@ -95,9 +95,27 @@ impl AdminApiClient {
             .await
             .map_err(ApiError::internal)
     }
+
+    #[tracing::instrument(skip(self, context))]
+    pub async fn export_entities(
+        &self,
+        context: &auth::Context,
+        req: ExportEntitiesRequest,
+    ) -> Result<(Vec<ExportRow<KnowledgeEntityInfo>>, Option<i32>), ApiError> {
+        super::entities::export_entities(&self.db, context, req).await
+    }
+
+    #[tracing::instrument(skip(self, context))]
+    pub async fn export_users(
+        &self,
+        context: &auth::Context,
+        user_id: Option<i32>,
+    ) -> Result<Vec<ExportRow<UserInfo>>, ApiError> {
+        super::users::export_users(&self.db, context, user_id).await
+    }
 }
 
-fn ensure_admin(context: &auth::Context) -> Result<(), ApiError> {
+pub(super) fn ensure_admin(context: &auth::Context) -> Result<(), ApiError> {
     if !context.is_admin() {
         return Err(ApiError::forbidden(anyhow!(
             "Only admin users can perform this operation"

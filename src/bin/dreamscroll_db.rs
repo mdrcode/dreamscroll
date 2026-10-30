@@ -15,6 +15,7 @@ enum Command {
     CreateUser(util_cmds::db::create_user::CreateUserArgs),
     FirstUser(util_cmds::db::first_user::FirstUserArgs),
     HashPassword(util_cmds::db::hash_password::HashPasswordArgs),
+    SetAdmin(util_cmds::db::set_admin::SetAdminArgs),
     SyncSchema(util_cmds::db::sync_schema::SyncSchemaArgs),
 }
 
@@ -38,6 +39,7 @@ async fn run_database_command(command: Command) -> anyhow::Result<()> {
     match command {
         Command::CreateUser(args) => util_cmds::db::create_user::run(&db, args).await,
         Command::FirstUser(args) => util_cmds::db::first_user::run(&db, args).await,
+        Command::SetAdmin(args) => util_cmds::db::set_admin::run(&db, args).await,
         Command::SyncSchema(args) => util_cmds::db::sync_schema::run(&db, args).await,
         Command::HashPassword(_) => {
             unreachable!("non-database commands are dispatched before database setup")

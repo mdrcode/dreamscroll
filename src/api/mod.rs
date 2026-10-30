@@ -5,7 +5,9 @@ mod schema;
 pub use schema::*;
 
 mod admin;
-pub use admin::{AdminApiClient, create_user};
+pub use admin::{
+    AdminApiClient, EXPORT_DEFAULT_LIMIT, EXPORT_MAX_LIMIT, ExportEntitiesRequest, create_user,
+};
 
 mod service;
 pub use service::client::ServiceApiClient;

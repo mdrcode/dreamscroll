@@ -26,11 +26,13 @@ docker compose up -d db fake-gcs
 cargo run --bin dreamscroll_web
 ```
 
-The dedicated non-admin account is `smoke-agent`. Create it once with the normal
-admin command:
+The dedicated account is `smoke-agent`. Create it once with the normal admin
+command, then grant it admin so UI *and* admin REST checks can run as the same
+account (local database only):
 
 ```bash
 cargo run --bin dreamscroll_db -- create_user
+cargo run --bin dreamscroll_db -- set_admin smoke-agent
 ```
 
 Credentials live in the gitignored root `smoke.env`:
@@ -66,45 +68,53 @@ Do not bypass authentication or inject session cookies.
 
 ## Admin commands via `dreamscroll_api`
 
-`dreamscroll_api` does not read `smoke.env`. It authenticates with a JWT cached in
-the OS keychain, keyed by host + username, so the credential is specific to
-`localhost:8080` and the account that minted it. Only an admin account can call
-`/api/admin/*`; `smoke-agent` cannot.
+`smoke-agent` is an admin in the local database, so admin REST commands run as
+`smoke-agent` rather than as the owner. The flag is granted explicitly, once per
+database (local only; prod accounts keep their own flags):
 
-An agent cannot type the owner's password, so the flow is:
+```bash
+cargo run --bin dreamscroll_db -- set_admin smoke-agent          # --revoke undoes it
+```
 
-1. Build the binaries the run needs:
-   ```bash
-   cargo build --bin dreamscroll_api --bin dreamscroll_web
-   ```
-2. Start the local server (see Setup) and leave it running — the token is cached
-   against a reachable host.
-3. Ask the user to cache the token themselves, by running one authenticated
-   command and entering their password at the `Enter password:` prompt:
-   ```bash
-   ./target/debug/dreamscroll_api --host localhost:8080 --user <admin> \
-     backfill status <backfill-id>
-   ```
-   Take their confirmation that it succeeded; do not inspect the keychain.
-4. Run the admin command. The cached token is reused without a prompt:
-   ```bash
-   ./target/debug/dreamscroll_api --host localhost:8080 --user <admin> \
-     backfill failures <backfill-id>
-   ```
+`set_admin` is a direct-database tool like `sync_schema`: the DB credentials are
+the gate, not an admin login, so it also works to recover admin access.
 
-Never mint, inject, or seed a token into the keychain to skip the prompt; the
-cached credential must be the user's own. Prefer read-only admin commands
-(`status`, `errors`) for verification, and follow the usual ask-first rule for
-anything that mutates state.
+`dreamscroll_api` does not read `smoke.env`, but it does read
+`DREAMSCROLL_API_TOKEN`. With that set it never touches the OS keychain — no
+read, no write — so runs do not trigger a keychain permission prompt, and
+`--user` is optional (the name is taken from the token for display):
 
----
+```bash
+set -a; . smoke.env; set +a
+TOKEN=$(curl -s -X POST "$SMOKE_BASE_URL/api/token" -H 'Content-Type: application/json' \
+  -d "{\"username\":\"$SMOKE_USERNAME\",\"password\":\"$SMOKE_PASSWORD\"}" \
+  | python3 -c 'import sys,json;print(json.load(sys.stdin)["access_token"])')
+
+DREAMSCROLL_API_TOKEN="$TOKEN" ./target/debug/dreamscroll_api --host localhost:8080 \
+  export-entities --out /tmp/entities.jsonl
+```
+
+`--user` is optional here and does not select the account: passing it anyway
+prints a warning naming who the token actually belongs to. A rejected token is
+an error, not a prompt: unset the variable to authenticate interactively.
+
+Without the variable the CLI falls back to a JWT cached in the OS keychain,
+keyed by host + username, and logs in at the `Enter password:` prompt (rpassword
+reads the tty, so piping the password does not work). macOS asks for keychain
+permission on first use of each binary, which is why the environment variable is
+the default in this runbook.
+
+Never mint, inject, or seed a token into the keychain to skip the prompt. A
+hand-built JWT bypasses credential verification, which is the one property the
+auth layer exists to guarantee; the cached token must be one the server issued
+for credentials somebody actually presented.
 
 ## Boundaries
 
 - Use only the local host (`127.0.0.1` / `localhost`).
-- Use the `smoke-agent` account, not the owner's account, for UI and HTTP checks.
-  Admin REST commands are the exception: they need an admin account whose token
-  only the owner can cache (see Admin commands above).
+- Use the `smoke-agent` account, not the owner's account, for UI and HTTP checks,
+  admin REST commands included. Prod admin commands still need an account whose
+  token only its owner can cache.
 - Search, uploads, illumination, annotation edits and deletes, and capture
   archive/delete can mutate data or call paid providers; ask before using them.
 - The account and its data are persistent. There is no automatic cleanup.

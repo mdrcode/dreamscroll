@@ -207,6 +207,71 @@ impl Client {
         Self::parse_json_response(response).await
     }
 
+    pub async fn get_entity(&self, entity_id: i32) -> anyhow::Result<api::KnowledgeEntityInfo> {
+        let response = self
+            .reqwest_client
+            .get(format!("{}/entity/{}", self.base_url, entity_id))
+            .bearer_auth(&self.access_token)
+            .send()
+            .await
+            .context("failed to call entity endpoint")?;
+
+        Self::parse_json_response(response).await
+    }
+
+    /// Fetch one page of the admin entity export.
+    ///
+    /// The body is JSONL (`ExportRow` per line); the cursor for the next page
+    /// arrives in the `x-next-after-id` header. `user_id` is optional — without
+    /// it one stream carries every user.
+    pub async fn export_entities(
+        &self,
+        user_id: Option<i32>,
+        after_id: i32,
+        limit: u64,
+    ) -> anyhow::Result<(Vec<api::ExportRow<api::KnowledgeEntityInfo>>, Option<i32>)> {
+        let mut request = self
+            .reqwest_client
+            .get(format!("{}/admin/export/entities", self.base_url))
+            .bearer_auth(&self.access_token)
+            .query(&[
+                ("after_id", after_id.to_string()),
+                ("limit", limit.to_string()),
+            ]);
+        if let Some(user_id) = user_id {
+            request = request.query(&[("user_id", user_id)]);
+        }
+
+        let response = request
+            .send()
+            .await
+            .context("failed to call entity export endpoint")?;
+
+        Self::parse_ndjson_response(response).await
+    }
+
+    /// Fetch the admin user export (unpaged; the user list is small).
+    pub async fn export_users(
+        &self,
+        user_id: Option<i32>,
+    ) -> anyhow::Result<Vec<api::ExportRow<api::UserInfo>>> {
+        let mut request = self
+            .reqwest_client
+            .get(format!("{}/admin/export/users", self.base_url))
+            .bearer_auth(&self.access_token);
+        if let Some(user_id) = user_id {
+            request = request.query(&[("user_id", user_id)]);
+        }
+
+        let response = request
+            .send()
+            .await
+            .context("failed to call user export endpoint")?;
+
+        let (rows, _) = Self::parse_ndjson_response(response).await?;
+        Ok(rows)
+    }
+
     pub async fn import_capture(
         &self,
         media_bytes: bytes::Bytes,
@@ -555,6 +620,35 @@ impl Client {
             .context("failed to call admin inference stats endpoint")?;
 
         Self::parse_json_response(response).await
+    }
+
+    async fn parse_ndjson_response<T: serde::de::DeserializeOwned>(
+        response: reqwest::Response,
+    ) -> anyhow::Result<(Vec<T>, Option<i32>)> {
+        let status = response.status();
+
+        if !status.is_success() {
+            let body = read_error_body(response).await;
+            return Err(anyhow!("request failed with status {status}: {body}"));
+        }
+
+        let next_after_id = response
+            .headers()
+            .get("x-next-after-id")
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.parse::<i32>().ok());
+
+        let body = response
+            .text()
+            .await
+            .context("failed to read export body")?;
+        let rows = body
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .map(|line| serde_json::from_str::<T>(line).context("failed to parse export line"))
+            .collect::<anyhow::Result<Vec<_>>>()?;
+
+        Ok((rows, next_after_id))
     }
 
     async fn parse_json_response<T: serde::de::DeserializeOwned>(

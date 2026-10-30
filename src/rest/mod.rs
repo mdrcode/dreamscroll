@@ -7,6 +7,7 @@ pub mod r_change_password;
 pub mod r_create_user;
 pub mod r_dummy;
 pub mod r_entity;
+pub mod r_export;
 pub mod r_illumination_raw;
 pub mod r_import_capture;
 pub mod r_inference;

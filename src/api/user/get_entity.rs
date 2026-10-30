@@ -41,68 +41,33 @@ pub async fn get_knowledge_entities_by_type(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
+    use crate::test_support::{fixtures, test_db};
+
+    /// One active and one archived capture, each with one entity named after
+    /// its capture's state.
+    async fn seed(db: &crate::database::DbHandle) -> (i32, Vec<i32>) {
+        let user = fixtures::user(db, "entity_get").await;
+        let active = fixtures::capture(db, user).await;
+        let archived = fixtures::archived_capture(db, user).await;
+
+        let mut ids = Vec::new();
+        for (capture_id, name) in [(active, "active entity"), (archived, "archived entity")] {
+            let illumination = fixtures::illumination(db, user, capture_id).await;
+            ids.push(fixtures::entity(db, user, capture_id, illumination, 0, name).await);
+        }
+
+        (user, ids)
+    }
 
     #[tokio::test]
     async fn entity_type_listing_excludes_archived_captures() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+        let Some(test_db) = test_db::test_db().await else {
             return;
         };
         let db = test_db.handle();
-        let user = model::user::ActiveModel::builder()
-            .set_username(format!("entity_list_{}", uuid::Uuid::new_v4().simple()))
-            .set_password_hash("test-password-hash")
-            .set_storage_shard(model::user::generate_storage_shard(8))
-            .insert(&db.conn)
-            .await
-            .unwrap();
+        let (user, _) = seed(&db).await;
 
-        let active_capture = model::capture::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_created_at(Utc::now())
-            .insert(&db.conn)
-            .await
-            .unwrap();
-        let archived_capture = model::capture::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_created_at(Utc::now())
-            .set_archived_at(Some(Utc::now()))
-            .insert(&db.conn)
-            .await
-            .unwrap();
-
-        for (capture_id, name) in [
-            (active_capture.id, "active entity"),
-            (archived_capture.id, "archived entity"),
-        ] {
-            let illumination = model::illumination::ActiveModel::builder()
-                .set_user_id(user.id)
-                .set_capture_id(capture_id)
-                .set_task_run_id(uuid::Uuid::new_v4().to_string())
-                .set_summary(name)
-                .set_details("")
-                .set_suggested_searches(Some(vec![]))
-                .insert(&db.conn)
-                .await
-                .unwrap();
-            model::knowledge_entity::ActiveModel::builder()
-                .set_user_id(user.id)
-                .set_capture_id(capture_id)
-                .set_illumination_id(illumination.id)
-                .set_position(0)
-                .set_name(name)
-                .set_entity_type("unknown")
-                .set_description(None)
-                .set_search_query(None)
-                .set_platform(None)
-                .set_platform_handle(None)
-                .set_platform_display_name(None)
-                .insert(&db.conn)
-                .await
-                .unwrap();
-        }
-
-        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user.id));
+        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
         let entities = get_knowledge_entities_by_type(&db, &context, "unknown")
             .await
             .unwrap();
@@ -117,66 +82,13 @@ mod tests {
 
     #[tokio::test]
     async fn entity_lookup_excludes_archived_captures() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+        let Some(test_db) = test_db::test_db().await else {
             return;
         };
         let db = test_db.handle();
-        let user = model::user::ActiveModel::builder()
-            .set_username(format!("entity_get_{}", uuid::Uuid::new_v4().simple()))
-            .set_password_hash("test-password-hash")
-            .set_storage_shard(model::user::generate_storage_shard(8))
-            .insert(&db.conn)
-            .await
-            .unwrap();
+        let (user, entity_ids) = seed(&db).await;
 
-        let active_capture = model::capture::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_created_at(Utc::now())
-            .insert(&db.conn)
-            .await
-            .unwrap();
-        let archived_capture = model::capture::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_created_at(Utc::now())
-            .set_archived_at(Some(Utc::now()))
-            .insert(&db.conn)
-            .await
-            .unwrap();
-
-        let mut entity_ids = Vec::new();
-        for (capture_id, name) in [
-            (active_capture.id, "active entity"),
-            (archived_capture.id, "archived entity"),
-        ] {
-            let illumination = model::illumination::ActiveModel::builder()
-                .set_user_id(user.id)
-                .set_capture_id(capture_id)
-                .set_task_run_id(uuid::Uuid::new_v4().to_string())
-                .set_summary(name)
-                .set_details("")
-                .set_suggested_searches(Some(vec![]))
-                .insert(&db.conn)
-                .await
-                .unwrap();
-            let entity = model::knowledge_entity::ActiveModel::builder()
-                .set_user_id(user.id)
-                .set_capture_id(capture_id)
-                .set_illumination_id(illumination.id)
-                .set_position(0)
-                .set_name(name)
-                .set_entity_type("unknown")
-                .set_description(None)
-                .set_search_query(None)
-                .set_platform(None)
-                .set_platform_handle(None)
-                .set_platform_display_name(None)
-                .insert(&db.conn)
-                .await
-                .unwrap();
-            entity_ids.push(entity.id);
-        }
-
-        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user.id));
+        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
         let active = get_knowledge_entity(&db, &context, entity_ids[0])
             .await
             .unwrap();

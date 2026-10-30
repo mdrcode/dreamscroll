@@ -14,6 +14,7 @@ pub async fn get_illuminations(
 
     let loader = loader
         .with(model::knowledge_entity::Entity)
+        .with(model::capture::Entity)
         .all(&db.conn)
         .await?;
 
