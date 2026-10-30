@@ -36,12 +36,13 @@ impl InfoMaker {
         //
         // "Most recent" is defined as max `id`. Illuminations are only ever
         // appended, so a higher id means a later run.
+        let archived_at = capture_model.archived_at;
         let illuminations = match capture_model.illuminations {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(models) => models
                 .into_iter()
                 .max_by_key(|m| m.id)
-                .map(|m| vec![self.make_illumination_info(m)])
+                .map(|m| vec![self.make_illumination_info(m, archived_at)])
                 .unwrap_or_default(),
         };
 
@@ -101,6 +102,7 @@ impl InfoMaker {
     pub fn make_illumination_info(
         &self,
         illumination_model: model::illumination::ModelEx,
+        capture_archived_at: Option<chrono::DateTime<chrono::Utc>>,
     ) -> IlluminationInfo {
         let suggested_searches = illumination_model.suggested_searches.unwrap_or_default();
 
@@ -108,7 +110,10 @@ impl InfoMaker {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(mut models) => {
                 models.sort_by_key(|entity| entity.position);
-                models.into_iter().map(KnowledgeEntityInfo::from).collect()
+                models
+                    .into_iter()
+                    .map(|entity| KnowledgeEntityInfo::new(entity, capture_archived_at))
+                    .collect()
             }
         };
 

@@ -3,6 +3,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::anyhow;
+use sea_orm::prelude::HasOne;
 
 use crate::{api::*, auth, database, illumination, llms, logic, search, storage, task};
 
@@ -76,7 +77,13 @@ impl UserApiClient {
 
         Ok(illuminations
             .into_iter()
-            .map(|m| self.info_maker.make_illumination_info(m))
+            .map(|m| {
+                let archived_at = match &m.capture {
+                    HasOne::Loaded(Some(capture)) => capture.archived_at,
+                    _ => None,
+                };
+                self.info_maker.make_illumination_info(m, archived_at)
+            })
             .collect())
     }
 
@@ -162,7 +169,8 @@ impl UserApiClient {
         id: i32,
     ) -> Result<schema::KnowledgeEntityInfo, ApiError> {
         let entity = super::get_knowledge_entity(&self.db, context, id).await?;
-        Ok(schema::KnowledgeEntityInfo::from(entity))
+        // The lookup filters archived captures, so there is no archived flag to report.
+        Ok(schema::KnowledgeEntityInfo::new(entity, None))
     }
 
     #[tracing::instrument(skip(self, context))]
@@ -177,7 +185,7 @@ impl UserApiClient {
                 .into_iter()
                 .map(|entity| {
                     let entity: crate::model::knowledge_entity::ModelEx = entity.into();
-                    schema::KnowledgeEntityInfo::from(entity)
+                    schema::KnowledgeEntityInfo::new(entity, None)
                 })
                 .collect(),
         )

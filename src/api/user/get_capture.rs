@@ -115,6 +115,7 @@ fn order_captures(
 mod tests {
     use super::*;
     use crate::api::user::get_captures_archived;
+    use crate::test_support::fixtures;
     use chrono::Utc;
 
     #[tokio::test]
@@ -123,41 +124,24 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let user = model::user::ActiveModel::builder()
-            .set_username(format!("archive_ui_{}", uuid::Uuid::new_v4().simple()))
-            .set_password_hash("test-password-hash")
-            .set_storage_shard(model::user::generate_storage_shard(8))
-            .insert(&db.conn)
-            .await
-            .unwrap();
-        let active = model::capture::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_created_at(Utc::now())
-            .insert(&db.conn)
-            .await
-            .unwrap();
-        let archived = model::capture::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_created_at(Utc::now())
-            .set_archived_at(Some(Utc::now()))
-            .insert(&db.conn)
-            .await
-            .unwrap();
+        let user = fixtures::user(&db, "archive_ui").await;
+        let active = fixtures::capture(&db, user).await;
+        let archived = fixtures::archived_capture(&db, user).await;
 
-        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user.id));
+        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
 
-        let bulk = get_captures(&db, &context, vec![active.id, archived.id])
+        let bulk = get_captures(&db, &context, vec![active, archived])
             .await
             .unwrap();
         assert_eq!(bulk.len(), 1);
-        assert_eq!(bulk[0].id, active.id);
+        assert_eq!(bulk[0].id, active);
 
-        let by_id = get_capture(&db, &context, archived.id).await.unwrap();
-        assert_eq!(by_id.id, archived.id);
+        let by_id = get_capture(&db, &context, archived).await.unwrap();
+        assert_eq!(by_id.id, archived);
 
         let archived_list = get_captures_archived(&db, &context, 50).await.unwrap();
         assert_eq!(archived_list.len(), 1);
-        assert_eq!(archived_list[0].id, archived.id);
+        assert_eq!(archived_list[0].id, archived);
     }
 
     #[tokio::test]
