@@ -72,11 +72,18 @@ Three tables answering three different questions:
 
 | Value | Publishable? | Where it lives |
 | --- | --- | --- |
-| Canonical label, aliases, authority description, identifier, type | yes | `core_knowledge_entities` — **including provisional rows** |
-| `"the documentary about him that I saved"` | no | `user_knowledge_entities.description` |
-| The user's spelling `"the Elon guy"` | no | `user_knowledge_entities.name` |
+| Canonical label, aliases (authority **and** observed surfaces), authority description, identifier, type | yes | `core_knowledge_entities` — **including provisional rows** |
+| The extracted entity name, as captured | yes | `core_knowledge_entities.aliases` (normalized) |
+| The model's reading of the capture | no | `user_knowledge_entities.description` |
 | Co-capture edges, related-entity ranking | no | derived from `user_knowledge_entities` |
 | "captured by 12 users" | publishable in isolation, but aggregate behaviour | separate decision, A5 |
+
+**Measured, not assumed.** The extractor emits third-person object names. Over 4,511 distinct prod
+names: **0** emails, phone numbers or URLs; 66 `@handles`, which are public identities; and 3
+caption-like fragments — `"To me, that's cinema"`, `"Me, an intellectual"`, `"I Hate to Be the One to
+Break It to You, Kid"` — two of which are meme or song titles. The description field was already
+audited at 0 private identifiers across 5,245 rows. The private half of an observation is therefore its
+**description**; the name is a label for an object.
 
 Mechanical consequence: **`core_knowledge_entities.description` is authority-derived only.** The
 model's reading stays on the observation where it was written. There is no field a private
@@ -177,7 +184,6 @@ user_knowledge_entities                    -- the observation; the only owned ro
   illumination_id i32 not null -> illuminations.id
   position       i32 not null
   name           text not null            -- verbatim, as the model wrote it
-  normalized_name text not null           -- blocking key; never copied into the core
   entity_type    text not null            -- as the model guessed it
   description    text null                -- the model's reading of this capture
   search_query   text null                -- disambiguation hint, often populated
@@ -188,14 +194,12 @@ user_knowledge_entities                    -- the observation; the only owned ro
   created_at
   unique (illumination_id, position)      -- replay-safe illumination
   index (user_id, core_id)
-  index (normalized_name)                 -- cross-user blocking without copying surfaces
-  index (lower(platform_display_name)) where platform_display_name is not null
   index (capture_id, core_id)             -- overlay + neighbourhood feature
 
 core_knowledge_entities                    -- the referent; owned by nobody
   id
-  normalized_name  text not null          -- blocking key; set once at creation
-  label            text not null          -- display surface
+  label            text not null          -- display surface (authority, else a canonical name);
+                                               -- its normalized form is always in `aliases`
   entity_type      text not null          -- authority-mapped, else modal
   description      text null              -- authority-derived ONLY
   wikidata_qid     text null
@@ -204,12 +208,11 @@ core_knowledge_entities                    -- the referent; owned by nobody
   status           text not null          -- provisional | identified | contested (projected)
   confidence       real null              -- best identity score behind the claim
   superseded_by_id i32 null -> core_knowledge_entities.id
-  aliases          text[] not null default '{}'   -- authority aliases only (publishable)
+  aliases          text[] not null default '{}'   -- normalized surfaces: authority + observed
   created_at, updated_at
   unique (wikidata_qid) where wikidata_qid is not null
   unique (platform, lower(platform_handle)) where platform_handle is not null
-  index  (normalized_name)
-  index  using gin (aliases)
+  index  using gin (aliases)             -- the only blocking index
   index  (status) where status = 'provisional'
 
 core_knowledge_evidence                    -- the justification; append-only
@@ -238,16 +241,14 @@ viewer's observations (decision 4), and every core column is publishable (S1), s
 owner column could express would change an answer. Two users' provisional cores converging (decision
 5) is intended behaviour, not a boundary to police.
 
-**Aliases are an index, not a display field.** `core_knowledge_entities.aliases` holds normalized
-authority surfaces purely for blocking; the casing, language and source of each alias live in the
-`ontology` evidence row that produced it, and the core page renders aliases from there. That keeps one
-copy of the truth (evidence), one index for lookup (the array), and nothing user-authored in the core.
+**Aliases are an index first.** `core_knowledge_entities.aliases` holds every normalized surface the
+core is known by: authority labels, sitelinks and aliases, plus each observation's name and platform
+display name. One GIN lookup is the whole blocking path, and it is also what lets a persona converge —
+a capture that says only `Tsoding` reaches the core built from `Alexey Kutepov`.
 
-**Why user surfaces never enter the core.** `core_knowledge_entities.aliases` holds authority aliases
-only, and `normalized_name` holds the canonical label. The observation keeps the verbatim surface, so
-blocking a new observation against every core seen with that surface is an index scan on
-`user_knowledge_entities.normalized_name` that returns core ids and no text. That single move is what
-lets S1 be unconditional: there is no field in the core a user's phrasing could be written into.
+Casing, language and provenance are **not** in the array; they stay in the `ontology` evidence row, and
+the core page renders aliases from there. The array is normalized, deduped and capped (~50), so it stays
+an index rather than a growing copy of every capture.
 
 **Why the dedupe key includes `md5(value)`.** Keyed on the query shape alone, a second candidate set
 from the same lookup would collide with the first and be dropped by `on conflict do nothing`, so a
@@ -315,19 +316,16 @@ flowchart TD
 
 ### Blocking
 
-Recall-oriented and deliberately over-generating, from four independent sources:
+Recall-oriented and deliberately over-generating, from three independent sources:
 
-- **the core's `normalized_name`** — the canonical label;
-- **the core's `aliases`** — authority surfaces the core knows but has never been observed under
-  (`J.R. Cash` → the Johnny Cash core), which is the only path that absorbs a surface without a merge
-  decision;
-- **`user_knowledge_entities.normalized_name`** — every surface any observation of a core used, which
-  finds provisional cores (they have no authority aliases) and returns core ids with no text;
-- **`user_knowledge_entities.platform_display_name`** — the account's own name, which is where a
-  persona lives (`Tsoding` beside `Alexey Kutepov`) and the only surface an observation carries that
-  is not the extracted entity name;
-- **`(platform, lower(handle))`** and a QID the observation already carries (from the resolution
-  cache); plus token-set equality over the resulting candidate set, in-app.
+- **`core.aliases @> array[$normalized]`** — one GIN lookup covering the canonical label, every
+  observed surface (including each capture's name and platform display name) and every authority
+  alias. This is the whole name path: a provisional core is reachable because its own captures put a
+  surface in `aliases`, and a surface the core was never observed under is reachable because authority
+  supplied it (`J.R. Cash` → the Johnny Cash core). A target and a persona converge the same way.
+- **`(platform, lower(handle))`** — identity for account-backed entities.
+- **a QID the observation already carries**, from the resolution cache; plus token-set equality over
+  the resulting candidate set, in-app, when the exact surface misses.
 
 Candidates are not filtered by owner. Another user's provisional core is a legitimate candidate, and
 that is precisely how two captures of the same thing converge (decision 5).
@@ -338,8 +336,7 @@ that is precisely how two captures of the same thing converge (decision 5).
 | --- | --- | --- | --- |
 | same `(platform, handle)` | identity | decisive | a handle is public identity |
 | QID equality | identity | decisive | |
-| `normalized_name` equal | strong + | high | the common case; still clears vetoes |
-| alias or observation surface match | strong + | high | the core already knows this surface form, from authority or from an earlier capture |
+| surface match (label or alias) | strong + | high | the core already knows this form — from authority, or from an earlier capture |
 | description overlap (IDF) | + | medium | `"web framework written in Python"` |
 | neighbourhood overlap | + | medium | shared co-entities in the capture |
 | type agreement | weak + | low | |
@@ -405,7 +402,7 @@ second resolution into a merge; until then the overlay shows two rows. Accepted,
 | `wikidata_qid` / `platform*` | the highest-confidence `ontology` / `platform_link` evidence |
 | `status` | `identified` if an identifier exists; `contested` if a `collision` row does; else `provisional` |
 | `confidence` | the max identity score behind the current claim |
-| `aliases` | authority aliases (labels, sitelinks, aliases), normalized; **never** an observation's surface |
+| `aliases` | normalized union of authority labels/sitelinks/aliases and every observation's `name` + `platform_display_name`, deduped and capped |
 | `superseded_by_id` | written by `merge` only |
 
 Every projected column has to pass S1. A projection that copies caption text, a possessive phrase or a
@@ -527,9 +524,10 @@ Publishability:
 - **S1.** Every column of **every** `core_knowledge_entities` row is safe to show to any user, knowing
   nothing about who captured it — provisional rows included. This is the invariant that makes
   cross-user merging safe: a merge can only combine data that was already publishable.
-- **S2.** An observation may *trigger* a shared core; it may never *populate* one. The mechanical
-  form: `description`, `label`, `aliases`, `entity_type` on a shared row come from authority evidence.
-  Test: regenerate the row from its evidence alone and it must match.
+- **S2.** An observation contributes **names**, never **text**. Labels, aliases and display names may
+  flow into the core; `description` may only come from authority evidence, and no other column is
+  derived from an observation's prose. Test: no core column is a function of
+  `user_knowledge_entities.description`.
 - **S2a.** Promotion of `real_person` / `social_media_account` requires an identifier — a platform
   handle (corroborated by display name or role when promoting under the person's name) or an external
   public source. Volume of mentions is never evidence.
@@ -545,9 +543,9 @@ Association:
   is the entire visibility model: no per-row ACL, no filter to remember.
 - **A3.** A shared core page renders the shared definition only: no counts, no ids, no "also captured
   by", no cross-user co-occurrence.
-- **A4.** A merge never moves an observation's private text into the core, and a core page never
-  renders another user's observations. Mixed-owner cores are normal; a core holding caption text is a
-  `project()` bug. Asserted in a test over the projection inputs.
+- **A4.** A merge never moves an observation's description into the core, and a core page never renders
+  another user's observations. Mixed-owner cores are normal; a core whose `description` traces to a
+  capture is a `project()` bug. Asserted in a test over the projection inputs.
 - **A5.** Aggregate statistics over shared rows are a separate product decision with k-anonymity.
 
 ## Backfill and measurement
@@ -593,11 +591,11 @@ Association:
 | **`owner_user_id` on the core** | Ownership describes the observation, not the referent; the property that matters is substantiation. It also drifts against the links that contradict it. |
 | **Forbid cross-user merges on provisional cores** (the previous revision) | Publishability already makes the merge safe, and the rule blocks the main value of a shared core: two independent captures agreeing. |
 | **A `core_knowledge_candidate` table** | A candidate is an undecided hypothesis, derivable from evidence plus the scorer. Persisting it gives a decision a second home and makes the table mutable. |
-| **Merge on `(normalized_name, type)` without scoring** | 111 of 179 collisions are type instability and 8 homonyms share a name inside one capture. |
+| **Merge on (normalized name, type) without scoring** | 111 of 179 collisions are type instability and 8 homonyms share a name inside one capture. |
 | **Resolve before merge, always** | Pays resolution per observation instead of per core, on the weakest possible input. |
 | **A stored confidence verdict per row** | Unre-derivable when the rule changes; the 577-row string-length failure is the proof. |
 | **Global entity table keyed by QID** ([recommender doc](knowledge-wikidata-recommender.md)) | The tail misses a clean QID, the write path gains a network dependency, per-user evidence is lost. QID stays an optional identifier. |
-| **Unique `(user, type, normalized_name)` and re-point** | Cheapest to write, not reversible, and cannot express aliases or "same name, different type". |
+| **Unique (user, type, normalized name) and re-point** | Cheapest to write, not reversible, and cannot express aliases or "same name, different type". |
 | **Mention↔core many-to-many** | One observation belongs to one referent in every case we can name. Ambiguity is a status, not a fan-out. |
 | **In-context LLM clustering per illumination** ([design space](https://arxiv.org/abs/2506.02509)) | Non-deterministic across runs; cost per capture rather than per ambiguity; no audit trail. |
 | **pgvector or a second Vertex index** | At ~2k cores per user, in-app work is the boring answer. |
