@@ -1,5 +1,8 @@
 //! Counts that tell us whether the graph is working.
 
+use std::collections::HashSet;
+
+use chrono::Utc;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
 use crate::{database, model};
@@ -12,6 +15,13 @@ pub struct Stats {
     pub provisional: u64,
     pub identified: u64,
     pub contested: u64,
+    /// Cores with a live authority claim — the number `resolve` moves.
+    pub with_ontology: u64,
+    pub cache_found: u64,
+    pub cache_empty: u64,
+    pub cache_failed: u64,
+    /// Rows past their expiry: not answers any more, and refetchable.
+    pub cache_expired: u64,
 }
 
 impl Stats {
@@ -45,6 +55,34 @@ pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
             "identified" => stats.identified += 1,
             "contested" => stats.contested += 1,
             _ => stats.provisional += 1,
+        }
+    }
+
+    let mut with_ontology: HashSet<i32> = HashSet::new();
+    for row in model::core_knowledge_evidence::Entity::find()
+        .filter(model::core_knowledge_evidence::Column::Kind.eq("ontology"))
+        .filter(model::core_knowledge_evidence::Column::RetractedAt.is_null())
+        .all(&db.conn)
+        .await?
+    {
+        with_ontology.insert(row.core_id);
+    }
+    stats.with_ontology = with_ontology.len() as u64;
+
+    let now = Utc::now();
+    for row in model::resolution_cache::Entity::find()
+        .all(&db.conn)
+        .await?
+    {
+        if row.expires_at <= now {
+            stats.cache_expired += 1;
+            continue;
+        }
+        match row.outcome.as_str() {
+            "found" => stats.cache_found += 1,
+            "empty" => stats.cache_empty += 1,
+            "failed" => stats.cache_failed += 1,
+            _ => {}
         }
     }
 

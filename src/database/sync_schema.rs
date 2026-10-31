@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 13;
+const REQUIRED_SCHEMA_VERSION: i32 = 14;
 
 /// DDL the model registry cannot express: `SchemaRegistry::sync` creates what is missing but never
 /// renames. `knowledge_entities` became `knowledge_user` in schema version 9, and the registry

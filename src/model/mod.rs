@@ -8,6 +8,7 @@ pub mod illumination_raw;
 pub mod inference_meta;
 pub mod knowledge_entity;
 pub mod media;
+pub mod resolution_cache;
 pub mod search_index;
 pub mod spark;
 pub mod spark_cluster;

@@ -17,6 +17,7 @@ enum Command {
     Stats(StatsArgs),
     ResetCore(ResetCoreArgs),
     Compare(CompareArgs),
+    Resolve(ResolveArgs),
 }
 
 #[derive(FromArgs)]
@@ -46,6 +47,27 @@ struct CompareArgs {
     before: String,
     #[argh(positional, description = "suffix of the later snapshot")]
     after: String,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "resolve")]
+#[argh(description = "ask evidence providers about cores with no authority claim (cache first)")]
+struct ResolveArgs {
+    #[argh(switch)]
+    #[argh(description = "plan and report without touching the network")]
+    dry_run: bool,
+    #[argh(option, default = "200")]
+    #[argh(description = "transport calls allowed in this run")]
+    max_requests: usize,
+    #[argh(option)]
+    #[argh(description = "consider at most this many cores")]
+    limit: Option<usize>,
+    #[argh(option)]
+    #[argh(description = "resolve only this core id")]
+    core: Option<i32>,
+    #[argh(option, default = "1000")]
+    #[argh(description = "minimum milliseconds between transport calls")]
+    min_interval_ms: u64,
 }
 
 #[derive(FromArgs)]
@@ -145,6 +167,41 @@ async fn main() -> anyhow::Result<()> {
                 println!("no differences");
             }
         }
+        Command::Resolve(args) => {
+            let engines: Vec<Box<dyn knowledge::resolve::Engine>> = vec![Box::new(
+                knowledge::resolve::wikidata::Wikidata::new()?,
+            )];
+            let options = knowledge::resolve::Options {
+                limit: args.limit,
+                max_requests: args.max_requests,
+                dry_run: args.dry_run,
+                only: args.core,
+                min_interval: std::time::Duration::from_millis(args.min_interval_ms),
+            };
+            let report = knowledge::resolve::resolve(&db, &engines, &options).await?;
+
+            if report.dry_run {
+                println!("dry run — nothing fetched");
+            }
+            println!(
+                "candidates {} · planned {} · cache hits {}",
+                report.candidates, report.planned, report.cache_hits
+            );
+            println!(
+                "fetched {} · failed {} · claims {} · cores resolved {} · conflicts {}",
+                report.fetched, report.failed, report.claims, report.cores_resolved, report.conflicts
+            );
+            if report.budget_exhausted {
+                println!("budget exhausted at {} requests", args.max_requests);
+            }
+            if let Some(seconds) = report.rate_limited_after {
+                // WDQS 429: honour Retry-After rather than risk a temporary ban.
+                println!(
+                    "rate limited by the provider — stopped; retry in {seconds}s \
+                     (or lower --min-interval-ms / --max-requests)"
+                );
+            }
+        }
         Command::Stats(_) => {
             let stats = knowledge::stats::stats(&db).await?;
             println!("observations        {:>7}", stats.observations);
@@ -154,6 +211,12 @@ async fn main() -> anyhow::Result<()> {
             println!("  identified        {:>7}", stats.identified);
             println!("  contested         {:>7}", stats.contested);
             println!("duplicate rate      {:>7.3}", stats.duplicate_rate());
+            println!("resolution");
+            println!("  with ontology claim {:>5}", stats.with_ontology);
+            println!(
+                "  cache {} with candidates · {} no match · {} failed · {} expired",
+                stats.cache_found, stats.cache_empty, stats.cache_failed, stats.cache_expired
+            );
         }
     }
 
