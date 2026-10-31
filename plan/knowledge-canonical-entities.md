@@ -1,811 +1,667 @@
-# Knowledge entities — private canonicalization and the shared base
+# Knowledge entities — occurrences, the core graph, and the evidence behind them
 
-**Status:** Design. Private phases 1–4 are startable; shared phases P-a…P-d are deferred behind them.
-Nothing implemented.
+**Status:** Design, revised 2026-10-31. Replaces the earlier seven-table proposal
+(`knowledge_nodes` / `knowledge_aliases` / `knowledge_merges` / `knowledge_candidates` /
+`public_entities` / `public_entity_aliases` / `public_entity_merges`) with **three tables**
+and a scored merge against a substantiated anchor. Nothing implemented.
 
 **See also:** [knowledge-entity-types.md](knowledge-entity-types.md) (taxonomy; settled by the
-2026-10-29 audit), [knowledge-promotion-audit.md](knowledge-promotion-audit.md) (the measured
-evidence this design is sized from), [knowledge-wikidata-recommender.md](knowledge-wikidata-recommender.md)
-(QID-keyed recommender research), [pragmatism.md](pragmatism.md) (ledger),
-[backfill.md](backfill.md) (typed backfills), `plan/archive/illuminate-v2.md` (the projection this
-builds on).
+2026-10-29 audit), [knowledge-evidence-prototype.md](knowledge-evidence-prototype.md) (the measured
+prototype this is sized from, including the failure catalogue),
+[knowledge-promotion-audit-prod.md](knowledge-promotion-audit-prod.md) (corpus numbers),
+[knowledge-wikidata-recommender.md](knowledge-wikidata-recommender.md) (QID-keyed recommender),
+[pragmatism.md](pragmatism.md) (ledger), [backfill.md](backfill.md) (typed backfills),
+`plan/archive/illuminate-v2.md` (the projection this builds on).
 
 ## The gap
 
-Illumination v2 gives us **mentions**, not **entities**. Every `knowledge_entities` row is one span of
-text a model reported for one capture: "Train Dreams", `movie`, in this capture. Nothing says the
+Illumination v2 gives us **mentions**, not **entities**. Every `knowledge_entities` row is one span
+of text a model reported for one capture: "Train Dreams", `movie`, in this capture. Nothing says the
 fourteen `Train Dreams` mentions are one work, nothing says which of them is the same work another
 user captured, and nothing lets us say how close two of them are.
 
-Four layers, only two of which exist:
-
 ```
-   capture ───────────────────────────────────────────────────────┐
-     │ media, url, annotation                                     │  the artifact (private)
-     ▼                                                            │
-   mention ("this capture said X")        knowledge_entities      │  exists today (private)
-     │ name, type, description, platform_link                     │
-     ▼                                                            │
-   node    ("X, as this user knows it")   knowledge_nodes         │  private layer, phase 1
-     │ label, type, aliases, embedding, optional public link      │
-     ▼                                                            │
-   public entity ("X, for everyone")      public_entities         │  shared layer, P-a…
-        label, type, universal description, image, QID or handle  │
+  capture ───────────────────────────────────────────────────────┐
+    │ media, url, annotation                                     │  private, immutable
+    ▼                                                            │
+  occurrence  ("this capture said X")       knowledge_entities    │  exists today
+    │ name, description, search_query, platform_link             │
+    │ core_id ────────────────────────────────┐                  │
+    ▼                                         │                  │
+  core        ("X, as we understand it")  knowledge_core         │  new
+    │ label, type, QID or handle, state      │                  │
+    │ owner_user_id: null = shared           │                  │
+    ▼                                        │                  │
+  evidence    ("why we believe that")    knowledge_evidence       │  new
+      dimension, value, source, method, confidence                 │
 ```
 
-Three properties drive the private layer:
+Three tables, three jobs:
 
-1. **Identity is an assertion, not a rewrite.** Merging must not move or destroy mentions, so
-   reverting a merge is one pointer write, not a data reconstruction.
-2. **Precision beats recall.** A missed merge is a duplicate row. A wrong merge silently fuses two
-   people, and through transitivity can swallow a neighbourhood.
-   ([ER in Practice, 2026](https://arxiv.org/abs/2607.26298) calls this out as its third lesson.)
-3. **Similarity is computed, not declared.** Store evidence (co-capture counts, embeddings, shared
-   handles); derive the score in one pure function so it can be re-tuned without touching data.
+| Table | Row means | Mutable? |
+| --- | --- | --- |
+| `knowledge_entities` | "this capture said this" | append-only per illumination |
+| `knowledge_core` | "this is an entity, and here is our current best account of it" | projected columns only |
+| `knowledge_evidence` | "here is a fact that bears on that account, and where it came from" | append-only (one exception, §Evidence) |
 
-One property drives the shared layer:
+## Properties that drive the design
 
+1. **The occurrence is evidence, never rewritten.** Merging never edits a mention row: the user's
+   description, spelling and handle stay exactly as captured. Everything an overlay displays as
+   "why is this in my graph" comes from the occurrence.
+2. **The core is a projection, not a verdict.** Columns on `knowledge_core` are recomputed from
+   evidence by one function. The earlier design's central failure was storing a judgement
+   (`promote` / `review_disambiguation` / …); 577 rows were held because their *name was short*,
+   and the rule could not be revisited without reclassifying everything. Store facts, derive
+   judgements. [knowledge-evidence-prototype.md](knowledge-evidence-prototype.md) §5 is the
+   catalogue of what happens otherwise.
+3. **Precision beats recall, asymmetrically.** A missed merge is a duplicate row. A wrong merge
+   silently fuses two referents, and through transitivity can swallow a neighbourhood
+   ([ER in Practice, 2026](https://arxiv.org/abs/2607.26298), third lesson). But the two sides of a
+   merge are not equally trustworthy: the new occurrence is one speculative assertion, the core is
+   N assertions plus, often, an authority identifier. The decision must be scored against the
+   anchor's weight, not as if both were peers.
 4. **The entity is public; the association is private.** *Elon Musk*, *Game of Thrones*, *C++* are
-   public factual referents; a record saying "this is Elon Musk, here is a definition, a link, an
-   image" carries no user information and should be shared, enriched once, and shown to anyone. What
-   is private is that **Bob captured him**, in **which screenshot**, with **what description**, next
-   to **which other entities**. That is the edge, not the node.
+   public referents; a record saying "this is Elon Musk, here is a definition, an image" carries no
+   user information. What is private is that **Bob captured him**, in **which screenshot**, with
+   **what description**, next to **which other entities**.
+5. **Resolution is promotion.** An entity becomes shared at the moment it acquires an identifier —
+   a QID or a platform handle. One state transition, one column: `owner_user_id` goes from the user
+   to `null`. There is no separate promotion pipeline and no draft shared rows.
 
 ### The publishability test
 
-> Every column of a shared entity record must be safe to show to **any** user, knowing **nothing**
-> about who captured it. If a value fails that test, it is not a shared attribute.
-
-This is better than "public sources only" because it says what the record *is* rather than where it
-came from, and it answers the cases immediately:
+> Every column of a shared core row must be safe to show to **any** user, knowing **nothing** about
+> who captured it. If a value fails that test, it is not a shared attribute.
 
 | Value | Publishable? | Where it lives |
 | --- | --- | --- |
-| Canonical label, aliases, universal description, image, QID, type | yes | shared |
-| `"the documentary about him that I saved"` | no — meaningless without the capture | private |
-| The user's spelling `"the Elon guy"` | no — it is the user's phrasing | private |
-| Co-capture edges, related-entity ranking | no — derived from one person's activity | private |
+| Canonical label, aliases, authority description, image, QID, type | yes | `knowledge_core` with `owner_user_id = null` |
+| `"the documentary about him that I saved"` | no — meaningless without the capture | `knowledge_entities.description` |
+| The user's spelling `"the Elon guy"` | no — it is the user's phrasing | `knowledge_entities.name` |
+| Co-capture edges, related-entity ranking | no — derived from one person's activity | derived, never stored on a shared row |
 | "captured by 12 users" | publishable in isolation, but aggregate behaviour | separate decision, A5 |
 
-## What the current data says
+The test has a mechanical consequence: **`knowledge_core.description` is authority-derived only**
+(§Descriptions). A private node has no `description` of its own; the model's reading stays on the
+occurrence where it was written. This makes S2 checkable by construction rather than by discipline —
+there is no field a private description could be copied into.
 
-Measured read-only against the local dev database (`dreamscroll_dev1`, 2026-10-29). Method,
-per-bucket tables, and scripts: [knowledge-promotion-audit.md](knowledge-promotion-audit.md). The
-audit is the home for detail; this document keeps the numbers that justify a decision.
+## What the data says
+
+Measured against the prod corpus (5,245 mentions, 1,360 captures, 3 users, 2026-10-31) and the
+local dev database. Method and per-bucket detail:
+[knowledge-promotion-audit-prod.md](knowledge-promotion-audit-prod.md) and
+[knowledge-evidence-prototype.md](knowledge-evidence-prototype.md).
 
 | Fact | Value |
 | --- | --- |
-| `knowledge_entities` rows | 2,518 (**2,369 current**; 149 superseded by re-illumination) |
-| captures / users with entities | 710 / 3 (one holds 2,486 rows) |
-| distinct `(user, type, normalized name)` keys | 2,134 |
-| excess mentions under exact normalized name + type | 384 — 293 across captures, 91 from re-illumination |
-| captures with ≥ 2 mentions | 579 (avg 4.02, max 18) |
-| co-occurrence pairs within a capture | 4,515 |
-| mentions with a description | 2,474 (92.7% are full definitions) |
-| Wikidata resolvable | ~60% of distinct names; 84.6% of rows are promotion candidates once a platform link counts |
-| platform links | 375 rows, 340 distinct accounts, 0 malformed, 92% of sampled handles live |
-| person links corroborated by display name | 168 of 184 |
+| mentions (prod, current) | 5,245 over 1,360 captures; 4,500 distinct names |
+| distribution | one user holds 5,113 rows; a second holds 48; a third 84 |
+| resolvable to an authority | 43.0% identified, 9.9% ranked, 11.9% ambiguous, 34.6% none |
+| identified **and** described | 2,116 (40.3%) — the natural first population of shared rows |
+| platform links | 785 mentions (15.0%); 107 (2.0%) resolve to a Wikidata item via `P2002` |
+| multi-source names | 75 mentions (1.4%) — cross-user overlap is rare *today* |
+| names repeating across captures | 408, of which **32 (7.8%) disagree on type** |
+| collision pairs | 179 over 74 name groups: **111 are type instability**, 68 genuine (62 distinct named participants, 6 conflicting years) |
+| homonyms inside one capture | 8 pairs — the model writes the same string twice, meaning two things |
+| descriptions | 97.9% publishable, 1.8% missing, 0 contain a private identifier |
+| per-user resolvability | 43.2% (primary), **14.6%** (aesthetic corpus), 42.9% (third) |
 
 Readings that shape the design:
 
-- **~15% of mentions are already exact duplicates under conservative normalization**, and most of the
-  excess is cross-capture — real canonicalization wins, not noise.
-- **The graph is small.** ~2k nodes per user and 4.5k co-capture pairs. Any design needing a service
-  to hold vectors at this scale is premature.
-- **Normalization must be conservative.** Stripping punctuation collapses `C`, `C#`, and `C++` into
-  one key (observed, three variants); `@handle` vs `handle` is a genuine variant worth folding. The
-  fix is type-aware rules plus a symbol veto, not a greedier key.
+- **A quarter of the corpus is already a duplicate under conservative normalization**, and most of it
+  is cross-capture. Canonicalization is a real win, not housekeeping.
+- **Type is unreliable as a veto.** 111 of 179 collision pairs are the same referent disagreeing with
+  itself (`brand` vs `organization`, `product` vs `software`). Type disagreement is a weak negative,
+  never a hard veto — the old design's veto table was wrong on this.
+- **Name is unreliable as a decision.** Label equality is ~75% precise (`Sunset Boulevard` → a
+  street, `Bacardi` → a family name), and eight pairs prove two different referents can share a name
+  *inside one capture*. Name is a blocking key, and only that.
+- **The graph is small.** ~2k core rows per user, 4.5k co-capture pairs. Anything that needs a
+  service to hold vectors is premature.
+- **Normalization must be conservative.** Stripping punctuation collapses `C`, `C#` and `C++` into
+  one key (observed, three variants); `@handle` vs `handle` is a genuine variant worth folding.
 - **Wikidata covers the head, not the tail.** `Wojak`, `Claude Code` and `Invesco QQQ` resolve;
   `The Graph Maker`, `Max Dembo` and `MUME` do not. Private-only nodes are a permanent population.
-- **An exact label match is not a correct match.** Measured wrong referents: `Sunset Boulevard` → a
-  street, `The Great Game` → a *Sherlock* episode, `Crime and Punishment` → a 1984 video game,
-  `Bobbie` → a given name, `Bacardi` → a family name, `Ditto` → a family name. Label equality alone
-  is roughly 75% precise; candidate validation is mandatory.
-- **Label equality is also too strict.** `China` → *People's Republic of China*, `Napoleon Bonaparte`
-  → *Napoleon*, `Federal Reserve` → *Federal Reserve System* — right answers, different labels.
+- **Genres differ.** The aesthetic corpus resolves at 14.6% versus 43.2% for the primary one.
+  Corpus-wide averages hide this entirely.
+- **Handles are a first-class identifier.** 785 mentions carry one, 92% of sampled handles resolve
+  to live accounts, and 375 mentions collapse to 340 distinct accounts. The handle merges pairs the
+  name never would.
 
 ## Decisions
 
-Private layer:
-
-1. **Canonicalize per user, not globally.** Not because sharing a referent is unsafe — public entities
-   are public — but because *interpretation* is context-dependent: the same string is a Pokémon in
-   one graph and a mood in another. Nodes carry `user_id`; the public referent is a separate layer
-   nodes may link to.
-2. **Every mention gets exactly one node at write time.** Merging is then purely node→node, and no
-   merge ever edits a mention row. This is what makes reversibility cheap.
-3. **Merges are forward pointers in a forest, not destructive folds.**
-   `knowledge_nodes.merged_into_id` is the authoritative edge; `knowledge_merges` is the audit log.
-   Unmerge = clear the pointer.
-4. **Automatic merges attach a leaf to a root.** Cluster-into-cluster merges require stronger evidence
-   (LLM adjudication with both member lists, or a user action). The damage from one bad automatic
-   merge is bounded to one node.
-5. **Reads resolve to the root lazily; we do not path-compress.** A few pointer hops beat a
-   denormalized root column that can drift and destroy per-edge reversibility.
-6. **Aliases are never copied during a merge.** Alias lookup considers the whole subtree, so a merge
-   writes nothing but the pointer. The display label is derived, not mutated.
-7. **The node is what gets embedded, and vectors live in Postgres.** Cosine over one user's ~2k nodes
-   is sub-millisecond; a second vector index with its own staleness story is not.
-8. **Similarity is a ranking, not a threshold.** Raw Gemini cosine has a high, model-dependent
-   baseline. Calibrate within a user before combining with structural signals.
-9. **Names decide automatic merges; embeddings break ties.** Embeddings conflate related entities
-   (Jobs ≈ Wozniak), so they are the weakest of the strong identity signals.
-
-Shared base:
-
-10. **The shared record is reference data, not a union of user graphs.** It is fed only from public
-    sources. A user action may *trigger* a row; it may never *populate* one. Otherwise the record
-    stops being self-contained and gets worse as the user base changes.
-11. **Two descriptions, one per layer.** The universal description is generated once from public
-    sources and is identical for everyone; the private one is the model's reading of that capture.
-    They answer different questions and neither overrides the other.
-12. **User text is never an input to a universal description.** Not summarized, not averaged, not
-    "used for coverage" — the private description is a dead end.
-13. **An identifier is required to promote.** A QID, a **platform link**, or a source-grounded public
-    reference. A bare name inside a screenshot is not enough.
-14. **No tentative base rows.** There is no draft public entity visible only to its promoter: that
-    state would require recording the triggering user on a shared row. Uncorroborated entities stay
-    private.
-15. **Wikidata QIDs are an optional link, not the identity key.** The
-    [recommender doc](knowledge-wikidata-recommender.md) keys every node by QID; that is right long
-    term and premature as the primary key (ambiguous matches, network dependency, taxonomy still
-    moving). A QID is a strong merge signal and the key for enrichment fetched once rather than per
-    user.
+1. **Three tables.** `knowledge_entities` (occurrence, exists), `knowledge_core`, `knowledge_evidence`.
+   No alias, merge-log, candidate or public-table family: aliases are an array, merges are a
+   self-reference plus an evidence row, candidates are evidence rows, and the shared layer is the
+   same table with `owner_user_id = null`.
+2. **`knowledge_entities` keeps its name.** It is the occurrence table and the model, the export and
+   the unique key `(illumination_id, position)` already mean that. One new nullable column,
+   `core_id`.
+3. **`knowledge_core.owner_user_id` is nullable: `null` means shared.** Private nodes are created by
+   private users; a node becomes shared by acquiring an identifier. The merge rules refuse to link
+   an occurrence across an owner boundary, which is what lets the overlay query carry **no
+   visibility predicate** — the invariant is enforced at write time, not at read time.
+4. **Merge is a scored decision, not a key match.** Blocking proposes candidates; a scorer decides,
+   comparing the occurrence *with its capture context* against a substantiated core row. §The write
+   path.
+5. **Two merge regimes with different thresholds.** speculative → substantiated is a strong claim and
+   gets a high bar; speculative → speculative is dedupe, gets a lower bar, stays private, and is
+   reversible by construction.
+6. **Same-capture is a veto, not a feature.** Two occurrences of the same name from one illumination
+   are different referents; the model wrote the same flat string twice (8 observed pairs).
+7. **Merges flatten.** On merge, occurrences are re-pointed at the winner and the loser keeps
+   `superseded_by_id` as a tombstone. Reads are one join, no recursive CTE. Supersession is 0.5% of
+   prod, so the write cost is negligible.
+8. **Evidence is append-only, with one mutable field.** `status` on an `identity` evidence row
+   (`pending | accepted | rejected`) is the single exception, logged in
+   [pragmatism.md](pragmatism.md). Near-misses are decisions-in-waiting, not facts.
+9. **Aliases are `text[]` of normalized surfaces, GIN-indexed.** Provenance needs nothing extra:
+   every surface the model ever wrote is still on its occurrence row, and merges never delete them.
+   A dedicated alias table is the upgrade path if blocking gets slow.
+10. **One scorer serves resolution and merge.** Both ask "is this candidate this referent?" from the
+    same feature vector. Two implementations would drift and their thresholds would stop meaning the
+    same thing.
+11. **The capture is an identity feature.** The sibling entities of an illumination are the best
+    disambiguation context we have: `Django` next to `Python` and `web framework` is the framework;
+    `Dito` next to `Pokémon` is the Pokémon. Context may rank and propose; it never auto-accepts.
+12. **No edge table yet.** Co-capture connectedness is a join over `knowledge_entities`. Add
+    `knowledge_edges` when we have non-derived edges — a persona relation, an LLM-asserted relation,
+    a user-drawn link. That is the trigger, not "we want a graph".
 
 ## Schema
 
-Seven new tables (four private, three shared), one nullable column on the mention table, and one
-partial index that carries an invariant. Bump `REQUIRED_SCHEMA_VERSION` (currently 8).
+Two new tables, one column on the occurrence table, and three partial indexes that carry invariants.
+Bump `REQUIRED_SCHEMA_VERSION` (currently 8).
 
 ```sql
--- Private layer: every row carries user_id.
-knowledge_nodes
-  id, user_id
-  name             text    -- the label this node was created with; merges never mutate it
-  entity_type      text
-  description      text    -- best description seen; a merge may only fill a null
-  merged_into_id   i32 null -> knowledge_nodes.id     -- union-find parent
-  embedding        real[] null
-  embedding_hash   text null                          -- sha256 of the embedded text
-  public_entity_qid text null                         -- link to the shared layer (QID string)
-  created_at, updated_at
+knowledge_entities                       -- existing occurrence table
+  + core_id i32 null -> knowledge_core.id
+  -- unchanged: user_id, capture_id, illumination_id, position, name, entity_type,
+  --            description, search_query, platform, platform_handle, platform_display_name
+  -- existing: unique (illumination_id, position)
+  index (user_id, core_id)
+  index (capture_id, core_id)            -- the overlay and the neighbourhood feature
 
-  -- at most one live root node per (user, public entity)
-  unique (user_id, public_entity_qid)
-    where merged_into_id is null and public_entity_qid is not null
-  index (user_id, public_entity_qid)
-
-knowledge_aliases
-  id, user_id, node_id -> knowledge_nodes.id
-  surface          text    -- exactly what the model wrote
-  normalized       text    -- conservative canonical key
-  from_mention     i32 null -> knowledge_entities.id
-  created_at
-  unique (node_id, normalized, surface)
-  index  (user_id, normalized)          -- blocking lookup
-
-knowledge_merges
-  id, user_id
-  child_id   i32 -> knowledge_nodes.id  -- the node that now forwards
-  parent_id  i32 -> knowledge_nodes.id  -- the node it forwards to
-  method     text   -- exact_key | token_set | embedding | llm | user | external | backfill
-  score      real null
-  evidence   jsonb null
-  created_at, reverted_at timestamptz null
-  check (child_id <> parent_id)
-  unique (child_id) where reverted_at is null
-  index  (parent_id, reverted_at)
-
-knowledge_candidates                   -- the ambiguous band, deferred decisions
-  id, user_id
-  node_a_id i32, node_b_id i32         -- always a < b, one row per unordered pair
-  score     real
-  features  jsonb                      -- name_sim, type_match, cosine, method
-  status    text                       -- pending | accepted | rejected
-  created_at, decided_at
-  unique (node_a_id, node_b_id)
-
--- Shared layer: no user_id anywhere.
-public_entities
+knowledge_core
   id
-  wikidata_qid        text null unique        -- null for promoted-from-source rows
-  label               text not null
-  description         text null               -- universal, generated
-  description_source  text null               -- wikidata | wikipedia | llm_grounded
-  description_model   text null
-  described_at        timestamptz null
-  entity_type         text not null           -- mapped from P31; 'unknown' default
-  image_url           text null               -- shared asset, fetched lazily
-  platform            text null               -- the identifier for account-backed entities
-  platform_handle     text null
-  platform_url        text null               -- canonical profile URL, the citable source
-  promotion_method    text not null           -- wikidata | platform_link | public_source | manual
-  promotion_sources   jsonb null              -- URLs/citations the row is reproducible from
-  promoted_at         timestamptz null
-  merged_into_id      i32 null -> public_entities.id   -- QID redirects and base merges
-  enriched_at         timestamptz null
+  owner_user_id     i32 null             -- null = shared; private otherwise
+  normalized_name   text not null        -- blocking key, set once at creation
+  label             text not null        -- display; the best surface we have
+  entity_type       text not null        -- 'unknown' until authority-mapped
+  description       text null            -- authority-derived ONLY (see publishability)
+  wikidata_qid      text null
+  platform          text null            -- primary identity when no QID
+  platform_handle   text null
+  resolution_state  text not null        -- pending | resolved | ambiguous | none | failed
+  confidence_status text not null        -- provisional | identified | contested
+  confidence        real null            -- best identity score behind the claim
+  superseded_by_id  i32 null -> knowledge_core.id   -- tombstone after a merge
+  aliases           text[] not null default '{}'    -- normalized surfaces
+  source_count      i32 not null default 1          -- distinct users behind it
   created_at, updated_at
 
+  unique (wikidata_qid) where wikidata_qid is not null
   unique (platform, lower(platform_handle)) where platform_handle is not null
+  index  (owner_user_id, normalized_name)
+  index using gin (aliases)
+  index  (resolution_state) where resolution_state in ('pending', 'failed')
 
-public_entity_aliases                  -- public surfaces only
-  id, public_entity_id -> public_entities.id
-  surface, normalized, lang
-  source      text                     -- label | alias | sitelink
-  unique (public_entity_id, normalized, surface, lang)
-  index  (normalized, lang)            -- the "second user costs nothing" path
+knowledge_evidence
+  id
+  core_id          i32 not null -> knowledge_core.id
+  dimension        text not null    -- ontology | platform_link | identity | collision
+                                    -- | description | merge
+  value            jsonb not null
+  source           text not null     -- wikidata | wikimedia | platform | model | user | manual
+  method           text null         -- exact_label | full_text | p2002 | description_rank
+                                     -- | neighbourhood | llm | manual
+  confidence       real null
+  related_core_id  i32 null -> knowledge_core.id   -- collisions, merge targets
+  source_user_id   i32 null          -- null for authority sources
+  status           text null         -- pending | accepted | rejected  (identity rows only)
+  observed_at      timestamptz not null default now()
 
-public_entity_merges                   -- audit for QID redirects and base merges
-  id, child_id, parent_id
-  method     text                      -- wikidata_redirect | resolved | manual
-  created_at, reverted_at
-  unique (child_id) where reverted_at is null
+  unique index (core_id, dimension, source, coalesce(method, ''),
+                coalesce(source_user_id, 0))          -- evidence is not duplicated
+  index (core_id, dimension)
+  index (related_core_id) where related_core_id is not null
 ```
 
-Plus `knowledge_entities.node_id i32 not null -> knowledge_nodes.id` (added nullable, backfilled,
-then tightened) with indexes on `(user_id, node_id)` and `(capture_id, node_id)`.
+**The `unique (wikidata_qid)` partial index is load-bearing.** Two workers resolving two occurrences
+of the same new name can both score below threshold, create a core row, and both come back with the
+same QID. The index turns that race into a merge (the second insert fails, the code re-reads and
+merges) instead of a duplicate. Same for the platform index.
 
-**Why the private row stores the QID string rather than `public_entities.id`:**
+**Why the core row carries the identifier instead of a link to another table:** the earlier design
+kept `public_entities` separate so it could be rebuilt independently. With `owner_user_id`, rebuilding
+the shared subset is `delete from knowledge_core where owner_user_id is null` — no separate table
+needed, and no text-vs-integer join. The decoupling the old design bought is now bought by a column.
 
-1. The layers decouple. The public table can be rebuilt, truncated, or re-ingested without touching a
-   private row, and without a cascade that could delete a user's identity.
-2. A QID that disappears from Wikidata leaves a dangling reference, not a broken graph: the read path
-   finds no public row and renders the private node unenriched.
-3. The boundary is legible in the schema: private rows reference a public identifier, never a row of
-   ours.
+**What is deliberately absent:**
 
-The cost is a text join instead of an integer one, which at ~2k nodes per user is irrelevant.
+- `knowledge_candidates` — the ambiguous band is an `identity` evidence row with `status = 'pending'`,
+  carrying the score and features. A table would add a second place where a decision lives.
+- an alias table — `aliases text[]` plus the occurrence rows.
+- `knowledge_merges` — a `merge` evidence row plus `superseded_by_id`.
+- an edge table — see decision 12.
 
-**The partial index is load-bearing.** "A user has one node per public entity" becomes a database
-invariant rather than a convention: linking a second node to an already-claimed QID *must* merge it
-into the existing root, so the merge machinery cannot be skipped by a path that forgets.
+Model files: `src/model/knowledge_core.rs`, `knowledge_evidence.rs`, and the existing
+`knowledge_entity.rs` (one new column); logic in `src/knowledge/` (`normalize.rs`, `resolve.rs`,
+`score.rs`, `merge.rs`, `project.rs`, `promotion.rs`) with a lean root.
 
-**No edge table yet.** Co-capture connectedness is a join over `knowledge_entities`. Add
-`knowledge_edges` when we have non-derived edges — a persona relation, an LLM-asserted relation, a
-user-drawn link. That is the trigger, not "we want a graph": the derived graph is already available.
+## The write path
 
-Model files: `src/model/knowledge_node.rs`, `knowledge_alias.rs`, `knowledge_merge.rs`,
-`knowledge_candidate.rs`, `public_entity.rs`, `public_entity_alias.rs`, `public_entity_merge.rs`;
-logic in `src/knowledge/` (`normalize.rs`, `resolve.rs`, `merge.rs`, `similarity.rs`,
-`promotion.rs`) with a lean root.
+`attempt_link(occurrence) -> core_id` is the single entry point, called at two moments: when an
+occurrence is written, and again after resolution returns an identifier. That is the whole flow.
 
-## Merge mechanics
-
-A forest, one outgoing edge per node, roots have none.
-
-```
-resolve(n):  while n.merged_into_id { n = merged_into_id }; return n
-
-merge(child, parent):
-    assert resolve(child) == child          -- only roots are attached
-    assert resolve(parent) != child         -- no cycles
-    child.merged_into_id = resolve(parent)
-    log(child, parent, method, score, evidence)     -- same tx
-
-unmerge(child):
-    assert child.merged_into_id is not null
-    child.merged_into_id = null
-    log.reverted_at = now()                          -- same tx
+```mermaid
+flowchart TD
+  O[occurrence written<br/>name, description, capture] --> B[block: candidate cores]
+  B --> S[score occurrence + capture context<br/>vs each candidate]
+  S --> D{decide}
+  D -->|strong hit| L[set core_id<br/>occurrence → core]
+  D -->|weak hit, provisional| C[identity evidence row<br/>status = pending]
+  D -->|miss| N[create core<br/>owner = user, state = pending]
+  N --> R[resolve: label → full-text → handle]
+  R -->|identifier claimed by another core| M[merge: re-point occurrences<br/>superseded_by, flatten]
+  R -->|new identifier| P[promote: owner = null<br/>confidence_status = identified]
+  R -->|several plausible| A[state = ambiguous<br/>candidates as evidence]
+  R -->|nothing| U[state = none<br/>stays private]
+  M --> F[attempt_link again<br/>the anchor is now substantiated]
+  P --> F
 ```
 
-- **Merging never touches mentions or aliases.** After `child → parent`, the cluster is
-  `{n : resolve(n) == parent}`; every mention and alias still points at its original node and is
-  reachable because reads resolve the node first.
-- **New mentions attach to the most specific node, never the flattened root.** If the best candidate
-  is itself forwarding (`M → R`), the mention points at `M`. That keeps the finer distinction
-  available for a later unmerge; flattening on write would make every unmerge restore a label rather
-  than a partition.
-- **Unmerge is exact.** Cutting `child → parent` re-roots the child's whole subtree and nothing else.
-  This is why only roots are attached: the edge you cut corresponds to the decision you made.
-- **The only field a merge may write outside the pointer is `description`**, and only to fill a null
-  on the parent. Labels, aliases and types stay on their own nodes; display is derived at read time.
-- **Depth stays ~1** for automatic merges (leaf into root). Cluster merges add a level. Depth above
-  ~8 is a signal to stop and re-verify, not to compress.
-- **No deletion.** A node with zero mentions is invisible to reads but retained, because the merge log
-  may still reference it.
-- **Archived captures** follow today's read filters: their mentions stay linked and still feed
-  alias/co-capture evidence, but are excluded from user-facing lists.
+### Blocking
 
-Reads use one recursive CTE, so callers never loop:
+Recall-oriented, cheap, and over-generating by design:
 
-```sql
--- cluster of any node: walk up to the root, then collect everything forwarding to it
-WITH RECURSIVE up AS (
-  SELECT id, merged_into_id FROM knowledge_nodes WHERE id = $1 AND user_id = $2
-  UNION ALL
-  SELECT n.id, n.merged_into_id
-  FROM knowledge_nodes n JOIN up u ON n.id = u.merged_into_id
-), root AS (
-  SELECT id FROM up WHERE merged_into_id IS NULL
-), down AS (
-  SELECT id FROM root
-  UNION ALL
-  SELECT n.id FROM knowledge_nodes n JOIN down d ON n.merged_into_id = d.id
-)
-SELECT id FROM down;
-```
-
-Upward answers "which canonical entity is this"; downward answers "which nodes belong to it". The
-upward walk is bounded by the forest depth, which is why depth matters.
-
-### Unmerge, unlink, and public merges are three different operations
-
-| Event | What changes | Reversible by |
-| --- | --- | --- |
-| **Private merge** (Bob's "Elon" node into Bob's "Elon Musk" node) | `knowledge_nodes.merged_into_id` in Bob's graph | clearing one pointer |
-| **Unlink** (the QID was wrong, or should not apply) | `knowledge_nodes.public_entity_qid = null` | re-linking |
-| **Public merge** (Wikidata redirects Q_old → Q_new) | `public_entities.merged_into_id`; every user node follows at read time | clearing one pointer; no user rows touched |
-
-The partial unique index makes the interaction explicit: if a child and its parent carry the *same*
-`public_entity_qid`, unmerging would violate "one root per QID" — and it is meaningless, because a QID
-link is deterministic identity. So `unmerge(child)` requires different (or null) public identities and
-is otherwise refused with "these are the same public entity"; `unlink(node)` is the operation for
-"that QID is wrong". A deleted or split QID is handled as `unlink`, never as a data repair.
-
-### The write path has to stop churning rows
-
-`insert_illumination_v2` currently deletes all `knowledge_entities` for an illumination and re-inserts
-them. On re-illumination that would silently discard every node assignment. Change it to upsert by
-the existing unique key `(illumination_id, position)`:
-
-- position present in both runs → same mention row, keep the node unless `(normalized name, type)`
-  changed;
-- new positions → insert, resolve;
-- vanished positions → delete the mention, keep the node.
-
-A mention whose normalized key or type changed is re-assigned; everything else is left alone.
-
-**A capture can have several illuminations, and only the latest is live.** Illuminations are
-append-only: 34 of 628 illuminated local captures carry two or three, and the read path already
-exposes only `max(id)`. The earlier runs' mention rows are still in the table (149 of 2,518), so
-anything that resolves or counts "all mentions" double-counts a capture. Therefore:
-
-- `entity_resolve` must scope to the latest illumination per capture, not to every mention row;
-- superseded runs' mentions should be marked (or deleted) when a new illumination lands, so a later
-  backfill cannot resurrect them;
-- every "mentions" metric needs the same filter, or the audit's numbers drift by ~6%.
-
-This is also the whole explanation for the apparent "duplicate inside one capture" groups: restricted
-to the latest illumination per capture, **zero** groups repeat a name inside one run. The model does
-not duplicate entities; re-running illumination does.
-
-## Ingestion: private graph first, then promotion
-
-Illumination writes the private graph. Canonicalization is a second stage that decides whether the
-entity also exists in the base graph.
-
-```
-upload
-  │
-  ▼
-illuminate ──────────► mentions + private nodes            (inline, no network, UI is live)
-  │
-  ▼
-entity_resolve (one queued task per illumination)
-  │
-  ├─ private stage (only if a mention changed since the last run)
-  │     normalize → block → score → direct attach | create-then-merge → new node
-  │
-  ├─ 1. shared alias lookup                          (no network)
-  │      hit → validate → LINK
-  ├─ 2. Wikidata lookup                              (queued, cached, backoff)
-  │      hit → validate → LINK, minting the base row on first use
-  ├─ 3. no public identity, but a citable source     → PROMOTE, minting a base row
-  └─ 4. otherwise                                    → PRIVATE ONLY
-```
-
-Properties this ordering buys:
-
-1. **The upload never waits on Wikidata.** The private graph is complete and correct before
-   canonicalization starts; a failure there costs enrichment, not the user's data.
-2. **One task per illumination, not per entity.** The sibling entities are the best disambiguation
-   context we have: `Ditto` next to `Pokémon` and `Game Freak` is the Pokémon; alone it is a mood.
-   Context may *propose and rank* candidates; it never auto-accepts one.
-3. **Cheap paths run first.** The alias lookup is free and covers the common case; the tail pays for
-   verification. New entities are rare once the base graph is warm, so cost decays with usage.
-4. **The private layer keeps its own merge forest.** Linking sets one column. The graphs are never
-   fused: the user's label, description, aliases and mentions stay private.
-
-### Normalization
-
-One pure function, `knowledge::normalize::key(surface) -> String`:
-
-1. Unicode NFKC; casefold.
-2. Collapse whitespace, trim.
-3. Fold diacritics (`Pokémon` → `pokemon`).
-4. Strip *leading* `@` / `#` and *surrounding* quotes; strip a trailing period. Nothing else.
-5. Keep inner punctuation (`C#`, `C++`, `U.S.`, `Spider-Man`).
-6. Token-set key for blocking: sorted tokens minus leading articles. Candidate generation only,
-   never an identity key.
-
-Rule 5 is deliberate: the observed `C / C# / C++` collision is what aggressive stripping buys. Rule 4
-is deliberate: `@bandy1803` and `bandy1803` are one account.
-
-### Candidates (blocking)
-
-Per incoming mention, over the *same user's* nodes only:
-
-- exact `normalized` match in `knowledge_aliases` (indexed);
-- token-set key equality (in-app, ~2k nodes — trivial; revisit above ~100k nodes/user);
-- same `platform` + `platform_handle` (deterministic for accounts);
-- phase 2: top-k cosine against node embeddings.
+- exact `normalized_name` on a core row, or `aliases @> array[$normalized]`;
+- same `(platform, lower(handle))`;
+- an identifier the occurrence already carries (a QID cached from a previous resolution of the same
+  name — the prototype's cache makes this free);
+- token-set key equality on names, in-app, over the candidate set only.
 
 ### Scoring
 
-```
-score = 0.55 * name_sim
-      + 0.20 * type_match
-      + 0.15 * cosine            (0 when unavailable)
-      + 0.10 * description_sim   (token Jaccard, 0 when absent)
-```
+The occurrence side is one assertion plus its capture. The core side is an entity plus everything
+that has accrued to it.
 
-Hard vetos apply after scoring, not as negative weights — a veto must not be tradeable:
+| Feature | Sign | Weight | Note |
+| --- | --- | --- | --- |
+| same `(platform, handle)` | identity | decisive | merge immediately; a handle is public identity |
+| occurrence QID == core QID | identity | decisive | ditto |
+| `normalized_name` equal | strong + | high | the common case; still must clear vetoes |
+| alias exact match | strong + | high | the core already knows this surface form |
+| description overlap (IDF) | + | medium | `"web framework written in Python"`; the prototype's ranking already does this |
+| neighbourhood overlap | + | medium | shared co-entities in the capture; needs the `capture_id` join |
+| type agreement | weak + | low | see below |
+| type disagreement | **weak −** | low | 111 of 179 collisions are our own type instability |
+| mutually exclusive markers | strong − | high | `film`/`video game` vs `framework`; conflicting years or nationalities |
+
+**Type is a weak signal in both directions.** When the core's type is authority-derived (mapped from
+`P31`) and incompatible with the occurrence's, that is a real negative. When both types are
+model-assigned, disagreement says more about our extractor than about the referent — the corpus
+proves it. Encode the distinction; do not collapse it into one weight.
+
+### Regimes and thresholds
+
+| Regime | Anchor | Bar | On merge |
+| --- | --- | --- | --- |
+| **speculative → substantiated** | core resolved, `confidence_status = identified` | high | flatten, record score; a strong claim |
+| **speculative → speculative** | core `provisional`, same owner | low | dedupe only, stays private, reversible |
+
+- **Decisive** (identity feature): link, no score needed.
+- **Merge**: regime bar cleared and no veto. Leaf into root only for automatic merges.
+- **Candidate**: within the band below the bar → `identity` evidence row, `status = 'pending'`.
+  Visible, reversible, not applied.
+- **New core**: everything else.
+
+Thresholds are constants in one module with a table test, and every merge writes the score and the
+feature vector it was computed from into its evidence row. Without that, re-tuning the weights means
+re-deriving the whole graph — the exact failure the prototype exists to avoid.
+
+### Vetoes
+
+Few, and only structural:
 
 | Veto | Rationale |
 | --- | --- |
-| types differ, both non-`unknown`, in the incompatibility set (`real_person`/`fictional_character`, `book`/`movie`, `organization`/`real_person`, …) | reusing a name is not the same entity |
-| names differ only by a symbol, both `software`/`product`/`financial` | `C` ≠ `C#` |
+| the candidate core already has an occurrence in **this capture** | 8 observed homonym pairs within one illumination |
 | `platform` set on both and differs | different accounts |
-| `platform` equal but handles differ | different accounts |
+| `platform` equal, handles differ | different accounts |
+| core's type is authority-derived and incompatible with the occurrence's | the only defensible type veto |
 
-Thresholds, as constants in one module with a table test:
+Everything else is a weight, because a veto cannot be traded against evidence and a weight can.
 
-- **direct attach**: veto-free and `name_sim = 1.0` (identical normalized key), or same
-  platform+handle. No node, no merge row.
-- **auto-merge**: veto-free and `0.97 <= name_sim < 1.0` (diacritic, article, minor punctuation). New
-  node, merged leaf → root.
-- **candidate link**: veto-free and `0.75 <= name_sim < 0.97`, or phase 2 `cosine >= p99` of the
-  user's distribution with `type_match = 1`. Stored, not merged.
-- **new node**: everything else.
+### The second call site
 
-`name_sim` = 1 − normalized Levenshtein over `normalized`, computed in-app (no `pg_trgm` dependency).
+After resolution returns a QID, `attempt_link` runs again against the now-substantiated core set. Two
+jobs: collapse the duplicate the unique index exposed, and catch the case where the new core's
+neighbourhood evidence now points at an existing node. Same function, no special-casing.
 
-### Direct attach vs. create-then-merge
+### Concurrency
 
-- **Direct attach** when the mention's normalized key is already an alias of a type-compatible node.
-  No node, no merge row: the same entity spelled the same way. All 14 `Train Dreams` mentions become
-  one node and one alias, not a 14-node chain.
-- **Create-then-merge** when the match is fuzzy. A node is created for the variant surface and
-  immediately merged into the matching root, producing exactly one revertible merge-log row.
+Two captures can create two cores for the same new entity. Accepted: the unique indexes convert the
+second resolution into a merge, and until then the overlay shows two rows. Record it in
+[pragmatism.md](pragmatism.md) when phase 1 lands.
 
-Exact-key matches still have to clear the type vetos: `Dune` the `book` and `Dune` the `movie` are
-different nodes with the same alias, and `knowledge_aliases` deliberately has no global uniqueness on
-`normalized`.
+## Evidence and the projection
 
-### Aliases are where personas live
+Dimensions the prototype validates:
 
-Illumination keeps one entity per person and hangs the account off it, so a persona name (`Tsoding`,
-`Meta-Nomad`, `clara`) exists only as `platform_display_name` or as prose ("known online as Tsoding").
-That is enough for display and useless for matching: a later capture showing only the persona produces
-a different node.
+| Dimension | `value` | Source | Example |
+| --- | --- | --- | --- |
+| `ontology` | `{qid, label, desc, classes, candidates[]}` | wikidata | `Q752937`, via `exact_label`, conf 1.0 |
+| `platform_link` | `{site, handle, url}` | platform | `instagram/cremieux` |
+| `identity` | `{candidate_core_id, score, features}` | model | near-miss, `status = pending` |
+| `collision` | `{reason, score}` + `related_core_id` | model | `type software vs organization` |
+| `description` | `{text, lang}` | wikidata / wikimedia | authority definition |
+| `merge` | `{child_core_id, occurrence_ids[], score, method}` | model / manual | audit + unmerge |
 
-The mention should therefore carry an **`aliases` array** — persona names, pseudonyms, alternate
-titles — and every alias becomes a `knowledge_aliases` row. Resolution then matches on the alias, and
-"Tsoding" and "Alexey Kutepov" converge without a `persona` entity type (see
-[knowledge-entity-types.md](knowledge-entity-types.md)). Because an alias is a *label*, a merge never
-has to invent a relation to express it.
+**The projection.** `project(core_id)` recomputes the mutable columns from evidence, in one function,
+after every evidence append:
 
-If a persona ever needs to be a node of its own, that is a relation (`pseudonym_of`, `operated_by`),
-not a second label on the same node — and it is the trigger for the deferred edge table. The local
-corpus has no capture where both appear, so it can wait.
+| Column | Derived from |
+| --- | --- |
+| `label` | best surface: authority label if shared, else the most frequent occurrence name |
+| `entity_type` | authority `P31` map when available, else the modal occurrence type |
+| `description` | `description` evidence with an authority source; **null if none** |
+| `wikidata_qid` | the highest-confidence `ontology` evidence |
+| `resolution_state` | presence and outcome of `ontology` / `platform_link` evidence |
+| `confidence_status` | `identified` if an identifier evidence row exists; `contested` if a `collision` row does; else `provisional` |
+| `confidence` | max identity score |
+| `source_count` | distinct `knowledge_entities.user_id` behind the core |
 
-### Cluster-level verification
+`confidence_status` is the mutable field the design asked for: it is rewritten whenever evidence about
+the node changes, never hand-set. `resolution_state` is the job lifecycle; `confidence_status` is the
+quality of the identity claim. They usually agree — a `resolved` node is `identified` — but they
+answer different questions, and a hand-resolved ambiguous node is both `resolved` and `provisional`.
 
-Before merging two *clusters*, score every cross pair (bounded: if either side exceeds ~20 members,
-fall back to root-vs-root plus a sample) and require the minimum pair score to clear the bar. This is
-the concrete defence against the transitivity failure in
-[ER in Practice](https://arxiv.org/abs/2607.26298): "A matches B" and "B matches C" must not imply
-"A matches C" without a direct check.
+**The one mutable evidence field.** `status` on `identity` rows (`pending | accepted | rejected`).
+A near-miss is a decision-in-waiting, not a fact; making it immutable would need a second table to
+hold the decision. Logged as a deliberate exception in [pragmatism.md](pragmatism.md). All other
+evidence is append-only, and `on conflict do nothing` against the unique index makes re-running safe.
 
-### Promotion versus linking
+**What a merge writes, in one transaction:**
 
-`link` attaches the private node to a base row that already exists; `promote` mints a new one. The
-asymmetry that matters: **a base row becomes a link target for every other user.** A wrong private
-merge is one user's nuisance; a wrong promotion is an identity the system imposes on everyone.
+1. `update knowledge_entities set core_id = winner where core_id = loser`;
+2. re-point the loser's evidence at the winner (`on conflict do nothing`);
+3. insert the `merge` evidence row on the winner, carrying the moved occurrence ids and the score;
+4. `loser.superseded_by_id = winner` and `loser.resolution_state = 'resolved'` (tombstone);
+5. `project(winner)`.
 
-| Outcome | Requires | Result |
-| --- | --- | --- |
-| **link** | an identifier already claimed by a base row (QID or platform handle) plus validation | attach to the existing row; deterministic |
-| **promote** | a citable identifier — a QID, a **platform link**, or a source-grounded public reference — type-compatible, content reproducible from that source | one new base row, `promotion_sources` recorded |
-| **private only** | nothing | the default for the tail |
+Unmerge reverses 1–4 from the `merge` row. The occurrence ids are in `value` because that is the only
+record of which rows moved; at a 0.5% merge rate the arrays stay small.
 
-**Promotion is an identity claim, not a content copy.** The trigger may be a private mention; the
-row's label, description, type and aliases must be reproducible from its cited public sources alone.
-That is the operational form of the publishability test, and it is checkable: regenerate the row from
-`promotion_sources` and compare.
+## Resolution
 
-**A platform link is a first-class identifier.** It is public, citable, and stable enough to key on:
-92% of sampled handles resolved to live accounts, 375 rows collapse to 340 distinct accounts, and the
-handle merges pairs the name never would (`cremieuxrecueil` appears as both a `real_person` and a
-`social_media_account`). An unverifiable handle is *not* an error — the corpus contains throwback
-posts, and 5 of 60 checked handles had already been renamed or deleted. A malformed handle would be
-the real signal, and there are none.
+Three candidate sources, merged rather than ordered:
 
-**Person-shaped entities need an identifier, not notoriety.** A person backed by a platform link is
-promotable; a bare name with no handle and no other source is not — and in the local corpus that is
-one row out of 2,518, because the extractor attaches a handle to essentially every person it pulls
-from a post. Two rules keep this honest:
+1. **Exact label, batched.** One SPARQL query per 50 names returns candidates *with* descriptions and
+   `P31` classes, so the type filter can run before any cap. Capping first is what resolved `Django`
+   to a 2021 video game.
+2. **Full-text on `search_query`.** Populated on ~52% of rows and previously read by nothing. It
+   carries exactly the disambiguation the label index cannot reach: `"Cure 1997 film"` → Q1144476.
+   Per-query API call, so only where no type-plausible candidate exists.
+3. **Handle → item** via `P2002`, batched. Identity with no text at all.
 
-- **The record is about the account, not the person.** "This account posts book reviews" is a
-  statement the account makes about itself; a biography ("a 34-year-old teacher in Ohio") is not, and
-  must never be written from a screenshot. The audit found zero biographical claims across 166
-  accounts — a property to preserve, not assume.
-- **Attribution is decided by the record's type, not by confidence.** The name kind is inferable with
-  no schema change (`mash(name) == mash(handle)` → the name is a handle). In order: (a) the display
-  name corroborates the entity name → promote under the person's name; (b) the description names the
-  persona → promote under the persona; (c) the entity name *is* the handle → promote as the account,
-  never as a `real_person`; (d) otherwise → promote as the account. Local data: 0 handles shared by
-  two people, 0 malformed handles, 168 of 184 person links corroborated, and 1 handle-named row typed
-  as a person — a stylisation, not a misattribution.
+Then **rank** the plausible candidates with the same scorer as merges, using description overlap,
+type plausibility, and capture neighbourhood. Only call one when it clears the runner-up by a margin;
+otherwise the node stays `ambiguous` with the candidates recorded as evidence.
 
-### Candidate validation
+Measured on prod: exact-label coverage 68% of names; full-text adds candidates for ~45% of the names
+that lack one; 107 of 785 handle-bearing mentions resolve through `P2002`.
 
-A `wbsearchentities` hit becomes a link only when:
+**Candidate validation.** A hit becomes an identifier only when the `P31` class is compatible with
+the occurrence's type, the description is consistent (token containment, or a scorer call in the
+ambiguous band), and the match is not a known-wrong shape (`family name`, `given name`,
+`Wikimedia disambiguation page`). Otherwise it becomes evidence with `status = 'pending'`.
 
-- the P31 class maps to a type compatible with the mention's type;
-- the description is consistent with the mention's description (token containment, or an LLM yes/no
-  in the ambiguous band);
-- the match is not a known-wrong shape (`family name`, `given name`, `human name`,
-  `Wikimedia disambiguation page`).
+**The ambiguous band is where neighbourhood earns its keep.** The prototype parked 11.9% of rows as
+`ambiguous`; re-ranking those candidates with the sibling entities of the capture is the cheapest
+precision available, and it uses the same feature vector as merge scoring.
 
-Otherwise the hit becomes a candidate on the private node — visible, reversible, not applied. The
-wrong referents measured above are exactly what this filter exists for.
+**Cache invariants** (from the prototype, worth preserving verbatim):
 
-**Cache rule.** `public_entity_aliases` may contain only surfaces that came from public data —
-labels, aliases, sitelinks. A user's phrasing is cached on the user's own `knowledge_aliases` row.
-This is the publishability test applied to an index, and it costs almost nothing: the common case is
-that a user wrote the public label, which is exactly the row that already exists.
+1. Cache facts keyed by item, not queries keyed by text.
+2. Tag cached lookups with the query shape that produced them, and expire negatives — a stale
+   negative must not outlive the fixed query that wrote it.
+3. After any change, re-running resolution must issue zero requests. That assertion is the test.
+4. Filter before cap.
 
-### Two entity-resolution problems, not one
+## Re-illumination
 
-Minting a base row raises the same question the private layer answers: is this the same thing as an
-existing base row? So there are two ER problems — private identity and base identity — sharing the
-normalization, scoring and forest code, but with different evidence and much higher precision
-requirements at the base. Do not assume one solves the other, and do not let private merges vote on
-base identity.
+`insert_illumination_v2` currently deletes all `knowledge_entities` for an illumination and re-inserts
+them. That would silently discard every `core_id`. Change it to upsert by the existing unique key
+`(illumination_id, position)`:
 
-### Promotion is a broadcast
+- position in both runs → same occurrence row, keep `core_id` unless `(normalized name, type)` changed;
+- new positions → insert, `attempt_link`;
+- vanished positions → delete the occurrence; the core survives, its projection recomputed.
 
-Linking is a point lookup; promotion fans out. When a base row is minted, every user's private nodes
-with a matching normalized name and type should be *offered* the link. That runs as a background
-re-match, not an inline write, and it is the real cost of promotion. The base graph therefore
-converges gradually: `MUME` promoted today links yesterday's captures tomorrow.
+**A capture can have several illuminations, and only the latest is live.** Illuminations are
+append-only: 34 of 628 illuminated local captures carry two or three, and the read path exposes only
+`max(id)`. Earlier runs' rows are still in the table (149 of 2,518), so anything that counts "all
+mentions" double-counts a capture. Therefore:
 
-### LLM adjudication (phase 3)
+- every consumer scopes to the latest illumination per capture;
+- superseded runs' occurrences are marked (or deleted) when a new illumination lands;
+- every "mentions" metric applies the same filter, or the audit drifts by ~6%.
 
-For candidate links, one pairwise call with both sides' evidence: label, type, description, up to
-three distinct mention descriptions, and the source capture titles. Ask for
-`{"same": true|false|"unsure", "reason": "..."}`. Cap at 5 candidates per mention so cost per
-illumination stays ≈ one call, and record through `record_inference` like every other billable call.
-Only `same: true` merges, and only leaf-into-root unless the call included both full member lists.
-
-## Similarity and connectedness
-
-Two orthogonal signals, reported together — never one opaque number in the UI:
-
-| Signal | Source | Meaning |
-| --- | --- | --- |
-| **semantic** | cosine of node embeddings | "these are about the same kind of thing" |
-| **structural** | co-capture counts over the cluster's mentions | "this user keeps encountering them together" |
-
-```
-semantic(a, b)   = cosine(emb(a), emb(b))                      -- calibrated per user
-structural(a, b) = |caps(a) ∩ caps(b)|                         -- raw familiarity
-strength(a, b)   = |caps(a) ∩ caps(b)| / |caps(a) ∪ caps(b)|   -- 0..1 association
-```
-
-Node embedding text: `"{display label} | {type} | {aliases} | {description}"`, dims from
-`SEARCH_EMBED_VECTOR_DIMS`, hashed into `embedding_hash` so a typed task recomputes only on change.
-Embedding is never used alone to merge; a high cosine across types is usually a *relation*, not an
-identity.
-
-Ranking for "related entities": z-score the cosine within the user, then
-`rank = 0.6 * z + 0.4 * strength`. Store nothing derived; recompute per request over ≤ a few thousand
-nodes.
+This is also the whole explanation for apparent "duplicate inside one capture" groups: restricted to
+the latest illumination, **zero** groups repeat a name inside one run. The model does not duplicate
+entities; re-running illumination does.
 
 ## Descriptions
 
-Two descriptions, one per layer:
+Two descriptions, one per table — which is the cleanest mapping this design gives us:
 
-- **Universal (shared).** Generated once per public entity from public sources, identical for
-  everyone. This is the "what is this" answer and the thing we refuse to compute N times.
-- **Private (per user).** The model's reading of that capture, or the user's own words. The "why is
-  this in my graph" answer — short, contextual, often more interesting than a definition.
+| | Lives on | Provenance | Rendered as |
+| --- | --- | --- | --- |
+| **"why is this in my graph"** | `knowledge_entities.description` | the model's reading of that capture, or the user's words | the occurrence block |
+| **"what is this"** | `knowledge_core.description` | Wikidata claims, the Wikipedia lead, cited web results for source-grounded entities — never a mention | the shared block |
 
-Generation is a first-class task, not a prompt smuggled into the enrichment fetch:
+The private description needs no machinery: it is produced per illumination, stored once, never
+promoted, and never copied. The shared description is generated once per core row and identical for
+everyone:
 
-- **Inputs:** Wikidata claims (P31, P106, P569/P570, P27, …), the Wikipedia lead, and for
-  source-grounded entities a small number of cited web results. Never a mention, a capture, or a
-  private description.
-- **Prompt contract:** entity-centric, timeless, no assumed context — describe what this is for
-  someone who has never heard of it, in one or two sentences, and name the claim being relied on.
-- **Provenance:** `description_source` and `description_model` are stored. A sourced description
-  outranks a generated one; generation fills gaps and rewrites awkward sourced text, it never invents
-  facts.
-- **Refresh:** regenerate when the model or the entity's claims change materially; cheap, because it
-  is once per public entity for all users.
-- **Verification:** sample-audit accuracy the way resolve thresholds are audited. A wrong universal
-  description is visible to everyone — a different failure class from a wrong private one.
+- **Inputs:** `P31`, `P106`, dates, the Wikipedia lead, and for source-grounded entities a small number
+  of cited results. Never a mention, a capture, or a private description.
+- **Prompt contract:** entity-centric, timeless, no assumed context — what this is for someone who has
+  never heard of it, in one or two sentences, naming the claim being relied on.
+- **Provenance:** `description` evidence records source, method and model. A sourced description
+  outranks a generated one; generation fills gaps, it never invents facts.
+- **Refresh:** regenerate when the model or the entity's claims change materially. Cheap, because it
+  is once per shared row for all users.
+- **Verification:** sample-audit accuracy. A wrong shared description is visible to everyone — a
+  different failure class from a wrong private one.
 
-The private description needs no such machinery: it is produced per illumination, stored on the
-mention and the node, displayed as context, and never promoted. Rendering both is the honest UI:
-*what it is* / *why it's here*.
+Rendering both is the honest UI: *what it is* / *why it's here*.
 
 ## Enrichment
 
 Lazy, not a Wikidata mirror:
 
-1. A mention links to a QID with no `public_entities` row → insert a stub from the search result.
-2. `public_entity_enrich` fetches `wbgetentities` (labels, descriptions, aliases, P31, P18 image,
-   sitelinks), maps the class to our type, stores the image in shared storage.
-3. `public_entity_describe` generates the universal description from the sourced material.
-4. `enriched_at` / `described_at` drive refresh — months, not minutes.
+1. Resolution returns a QID with no core row → the core row *is* the shared row; insert the identifier
+   evidence and promote.
+2. `core_enrich` fetches `wbgetentities` (labels, descriptions, aliases, `P31`, `P18`, sitelinks),
+   maps the class to our type, stores the image in shared storage.
+3. `core_describe` generates the shared description from sourced material.
+4. `description` evidence's `observed_at` drives refresh — months, not minutes.
 
-Cost is per public entity, once, for every user forever. The row carries no `user_id`, so the
-pipeline cannot accidentally depend on one. Images are the one place where "shared" means bytes and
-money: cache per QID, serve from one path for everyone, never re-fetch per user.
+Cost is per shared core row, once, for every user forever. Images are the one place where "shared"
+means bytes and money: cache per QID, serve from one path, never re-fetch per user.
 
 ## Read path and UI
 
-- `KnowledgeEntityInfo` stays the network mention shape. Add `node_id` and a `canonical` summary
-  (`id`, `label`, `type`, `mention_count`) so clients can group without a second call.
-- New `GET /api/node/{id}` → node + aliases + mentions grouped by capture + related entities (with
-  the signal breakdown) + merge children + the shared record when linked. Node-level access reuses
-  the `user_id` + non-archived-capture guard.
-- WebUI: `/entity/{id}` (mention) gains a "part of" header linking to `/node/{id}`; `/node/{id}` is
-  the canonical page. Unmerge is `POST /node/{id}/unmerge/{child_id}`; unlink is
-  `POST /node/{id}/unlink`.
-- A public entity page renders the shared definition only, never counts or "also captured by" (A3).
-- `/graph` (phase 4): force-directed over nodes and co-capture edges. Cytoscape.js is the boring
-  choice at this scale; sigma.js if it ever outgrows canvas. This is the "Mind Map view" carried in
+- **The overlay** is the query the design is built around:
+
+```sql
+select e.*, c.*
+from knowledge_entities e
+join knowledge_core c on c.id = e.core_id
+where e.user_id = $1
+  and c.superseded_by_id is null;
+```
+
+  One join, no aggregation, no visibility predicate — cross-owner links cannot exist (decision 3).
+  Add the latest-illumination and archived-capture filters at the same level as today's reads.
+- **Evidence is a detail view, not a read-path join.** `GET /api/core/{id}` returns the core, its
+  evidence grouped by dimension, its occurrences grouped by capture, its collisions, and its merge
+  children.
+- `KnowledgeEntityInfo` stays the mention shape. Add `core_id` and a compact core summary
+  (`label`, `entity_type`, `confidence_status`, `mention_count`) so clients group without a second
+  call.
+- WebUI: `/entity/{id}` becomes the core page — shared block, occurrence blocks, merge/collision
+  history. Mentions link to it; the old per-mention page folds in as a section.
+- A shared core page renders the shared definition only: no counts, no "also captured by" (A3).
+- `/graph` (later): force-directed over cores and co-capture edges. Cytoscape.js is the boring choice
+  at this scale; sigma.js if it outgrows canvas. The "Mind Map view" carried in
   [backlog.md](backlog.md).
 
 ## Invariants
 
-Publishability of the shared record:
+Publishability of the shared row:
 
-- **S1.** Every column of `public_entities` and `public_entity_aliases` is safe to show to any user,
-  knowing nothing about who captured anything.
-- **S2.** A private action may *trigger* a base row; it may never *populate* one. Labels, aliases,
-  descriptions, types and sources come from public material only. The test: regenerate the row from
-  `promotion_sources` alone and it should match, without reference to any user.
-- **S2a.** Promotion of `real_person` and `social_media_account` requires an identifier — a platform
+- **S1.** Every column of a `knowledge_core` row with `owner_user_id is null` is safe to show to any
+  user, knowing nothing about who captured anything.
+- **S2.** A private action may *trigger* a shared row; it may never *populate* one. The mechanical
+  form: `knowledge_core.description` is written only by the describe task from cited sources, and
+  `label`/`aliases`/`entity_type` come from authority data. The test: regenerate the row from its
+  evidence alone and it must match, without reference to any occurrence.
+- **S2a.** Promotion of `real_person` / `social_media_account` requires an identifier — a platform
   handle (with display-name or role corroboration when promoting under the person's name) or an
   external public source. Volume of mentions is never evidence.
-- **S3.** Deleting a user changes no `public_*` row. A shared entity that only one user ever linked
-  survives their deletion intact.
+- **S3.** Deleting a user changes no shared row. `owner_user_id` becomes null; occurrences cascade.
 
 Association:
 
-- **A1.** No table has a foreign key joining rows of two different users. `public_*` tables have no
-  `user_id`.
-- **A2.** No response to any user reveals another user's data: no counts, no ids, no "also captured
-  by", no cross-user co-occurrence.
-- **A3.** A public entity page renders the shared definition only; it does not reveal that anyone
-  captured the entity, or how many.
-- **A4.** The link is private: `knowledge_nodes.public_entity_qid` is user-scoped data.
-- **A5.** Aggregate public-entity statistics (if ever built) are a separate, explicit product
+- **A1.** No table joins rows of two different users. `knowledge_core` has exactly one owner column.
+- **A2.** No response reveals another user's data: no counts, no ids, no "also captured by", no
+  cross-user co-occurrence.
+- **A3.** A shared core page renders the shared definition only.
+- **A4.** `knowledge_entities.core_id` may point at another user's core **only** when that core is
+  shared (`owner_user_id is null`). Enforced where links are written, asserted in a test.
+- **A5.** Aggregate statistics over shared rows (if ever built) are a separate, explicit product
   decision with k-anonymity — not a side effect of this design.
 
-S2 is the invariant most at risk: the fastest way to write a good universal description is to read
-someone's private description, and the resulting record would still *look* publishable. Worth a test
-that asserts the describe task reads no private tables.
+A4 is the invariant that replaces the old design's schema-level separation, and it is the one a
+future path could break by forgetting a check. It is worth a database-level guard: links are written
+by one function, and a `before update` check on `knowledge_entities.core_id` (or a nightly assertion
+query) keeps it honest.
 
 ## Backfill and measurement
 
-- **Phase 1 backfill** is pure SQL and idempotent: resolve every *current* mention with
-  `node_id is null`, in `id` order, per user. Implement as a `dreamscroll_db entities resolve`
-  command (direct DB, like `sync_schema`) rather than a cloud Backfill — there is no inference, no
-  queue, and 2,369 rows take milliseconds. Re-running must be a no-op; that is the acceptance test.
-- **Phase 2/3 backfill** (embeddings, adjudication) is cloud work → typed `Backfill` definitions per
-  [backfill.md](backfill.md), with the node id as the target.
-- **P-a/P-c/P-d backfill** (linking, describing, promoting) is queued work per entity, resumable, and
-  must be idempotent by `(identifier, method)`.
-- `dreamscroll_db entities stats --user <id>`: current mentions, nodes, clusters, largest cluster,
-  aliases/node, candidates by status, merges by method, linked share, and the duplicate rate
-  `1 - distinct_keys / current_mentions`. This is the number that tells us whether the framework
+- **The first population is a data load, not a re-resolution.** The prototype's `resolved.jsonl`
+  already carries, per occurrence, the identifier, the method, the candidates and the confidence.
+  Phase 1 backfill maps it onto `knowledge_core` + `knowledge_evidence` with zero network calls.
+- **Idempotent by construction:** unique indexes on evidence, `unique (wikidata_qid)`, and
+  upsert-by-position. Re-running must change nothing; that is the acceptance test.
+- **`dreamscroll_db entities stats --user <id>`**: occurrences, core rows, clusters, shared rows,
+  coverage by `confidence_status`, collisions by reason, merges by method, duplicate rate
+  `1 - distinct_core / current_occurrences`. This is the number that tells us whether the framework
   works.
 
 ## Phases
 
 | Phase | Work | Acceptance |
 | --- | --- | --- |
-| **0 — Measure** | The queries above, turned into `entities stats`. | The summary table here and the audit's detail reproduce from the command. |
-| **1 — Identity** | 4 private tables + `node_id`; normalization; rule-based resolve; mention upsert-by-position + latest-illumination scoping; `/api/node/{id}`; `/node/{id}`; unmerge; DB backfill. | Re-running the backfill changes nothing; the cross-capture duplicate groups collapse to one cluster each (spot-audited); unmerge restores the prior cluster exactly; `/entity/{id}` links to its node. |
-| **2 — Similarity** | Node embeddings + hash; candidate links; related-entities UI; `entity_embed` task. | 20 hand-checked nodes show plausible neighbours; candidate-link precision ≥ 0.8 on a 30-pair sample. |
-| **3 — Adjudication** | `entity_resolve` task; pairwise LLM; cluster merges with min-pair verification. | ≤1 extra inference call per illumination; measured precision ≥ 0.95 on 30 adjudicated pairs; no cluster grows by transitivity alone. |
-| **4 — Graph** | `/graph` over private nodes and co-capture edges. | Renders 2k nodes with pan/zoom and click-through. |
-| **P-a — Link** | `public_entities`, aliases, merges; nullable `public_entity_qid`; shared alias lookup; queued lookup with backoff; candidate validation; unlink. | Link precision ≥ 0.9 on 50 labelled mentions; the measured wrong referents are rejected; a second user's `Elon Musk` costs zero network calls. |
-| **P-b — Enrich** | `wbgetentities` fetch, P31 → type mapping, labels/aliases, shared image cache, refresh. | One fetch per QID for all users; node page renders the shared definition; coverage reported per user. |
-| **P-c — Describe** | Universal description generation from sourced material, provenance, refresh, sample audit. | 20 sampled descriptions are accurate, context-free, and identical for all users; a test asserts the describe path reads no private tables. |
-| **P-d — Promote** | Source-backed promotion: platform-link identifier, attribution type decision, grounded source retrieval, `promotion_sources`, base-layer candidate/merge, background re-match. | Every promoted row is reproducible from its sources; zero rows whose name is a handle promoted as `real_person`; promotion precision ≥ 0.95 on a 40-entity audit; the re-match links prior captures without touching user-visible state. |
+| **0 — Measure** | `entities stats` over the current corpus; the tables above reproduce. | Numbers in this doc come out of the command. |
+| **1 — Link** | Two tables + `core_id`; normalization; blocking; `attempt_link` without resolution; mention upsert-by-position + latest-illumination scoping; overlay query; `/api/core/{id}`; backfill from `resolved.jsonl`. | Re-running the backfill changes nothing; the 408 cross-capture name groups collapse correctly on a spot audit; the overlay is one join. |
+| **2 — Resolve** | Label → full-text → handle; evidence rows; `project()`; `confidence_status`; the cache. | Zero requests on a second run; `confidence_status` matches the prototype's per-row verdicts on a sample; no occurrence points at an unshared foreign core. |
+| **3 — Score** | The scorer; two regimes; vetoes; the candidate band; neighbourhood feature; collision evidence. | Merge precision ≥ 0.95 on a 50-pair sample; the 8 intra-capture homonyms never merge; a re-tuned weight re-derives without a data change. |
+| **4 — Share** | Promotion on identifier; enrichment; shared descriptions; the background re-match. | Link precision ≥ 0.9 on 50 labelled mentions; the measured wrong referents are rejected; a second user's `Elon Musk` costs zero network calls; describe reads no private table (test). |
+| **5 — Graph** | `/graph` over cores and co-capture edges. | Renders 2k nodes with pan/zoom and click-through. |
 
-P-a needs phase 1 (there is nothing to link), and P-b…P-d need P-a. Within the private track, phases 2
-and 3 are independent of each other; phase 4 needs 2.
+Phase 2 needs 1. Phase 3 needs 2 (an anchor has to be substantiated before there are two regimes).
+Phase 4 needs 3. Phase 5 needs 2.
 
 ## Non-goals and limits
 
-- **Cross-user identity inside this design.** Per-user identity only. Shared *reference* identity is
-  the public layer, and user graphs never merge into it.
-- **Entities without public evidence stay private.** Promotion needs a citable source; a name that
-  only exists inside a screenshot does not get a base row. `Wojak` and `Claude Code` are in Wikidata;
-  `The Graph Maker` is not, and stays private.
+- **Cross-user identity for private rows.** Private cores never link across owners; the shared layer is
+  the only cross-user surface.
+- **Entities without public evidence.** A name that only exists inside a screenshot never becomes a
+  shared row. `Wojak` and `Claude Code` are in Wikidata; `The Graph Maker` is not, and stays private.
 - **No cross-user recommendations.** "People who captured X also captured Y" is aggregate behaviour,
   not an entity fact.
 - **No user-contributed commons.** If it ever becomes desirable it needs consent, moderation and a
-  curation path; it is the only way user-derived content becomes shared, and it must be explicit.
-- **Fine-tuned entity-linking models.** Rules + embeddings + targeted LLM calls.
+  curation path; it must be explicit.
+- **Fine-tuned entity-linking models.** Rules + one scorer + targeted LLM calls.
 - **A graph database.** Postgres adjacency is sufficient at personal-graph scale.
 - **Sentence-level coreference inside a capture** — the illumination prompt's job.
 - **Rewriting the taxonomy.** See [knowledge-entity-types.md](knowledge-entity-types.md).
-- **Promotion is not free and not instant.** Minting a base row costs a lookup, a verification, and a
+- **Promotion is not free and not instant.** A shared row costs a lookup, a verification and a
   background re-match across users.
 
 ## Alternatives considered
 
 | Alternative | Why not (now) |
 | --- | --- |
-| **Global entity table keyed by Wikidata QID** ([recommender doc](knowledge-wikidata-recommender.md)) | Coverage and ambiguity: most captures are niche enough to miss a clean QID; the write path gains a network dependency; per-user evidence ("what *I* mean by Ditto") is lost. Kept as an optional link. |
-| **Unique `(user, type, normalized_name)` and merge by re-pointing mentions** | Cheapest to write, but destructive: a wrong merge rewrites history and cannot be undone without a backup. Also cannot express aliases or "same name, different type". |
-| **Mention↔node many-to-many edge table** | One mention belongs to one entity in every case we can name. Ambiguous mentions are rare; the node tree already attaches at the most specific level. |
+| **Seven tables (nodes / aliases / merges / candidates / public_*)** | Correct but over-partitioned: the shared layer is a column, aliases are an array, candidates are evidence rows, merges are a self-reference. Less schema, same invariants. |
+| **Merge on `(normalized_name, type)` without scoring** | 111 of 179 collisions are type instability and 8 homonyms share a name inside one capture. A key match would fuse referents. |
+| **Resolve before merge, always** | Pays resolution per occurrence instead of per core, and the occurrence is the weakest possible input. Merge-then-resolve-then-merge-again is cheaper and no less correct. |
+| **A `confidence` verdict stored per row** | Unre-derivable when the rule changes; the 577-row string-length failure is the proof. |
+| **Global entity table keyed by QID** ([recommender doc](knowledge-wikidata-recommender.md)) | Coverage and ambiguity: the tail misses a clean QID, the write path gains a network dependency, and per-user evidence ("what *I* mean by Ditto") is lost. QID stays an optional identifier. |
+| **Unique `(user, type, normalized_name)` and re-point occurrences** | Cheap to write, not reversible: a wrong merge rewrites history. Also cannot express aliases or "same name, different type". |
+| **Mention↔core many-to-many** | One occurrence belongs to one referent in every case we can name. Ambiguity is expressed as `resolution_state`, not as fan-out. |
 | **In-context LLM clustering per illumination** ([design space](https://arxiv.org/abs/2506.02509)) | Non-deterministic across runs, so re-illumination reshuffles identity; cost per capture rather than per ambiguity; no per-decision audit trail. |
-| **pgvector or a second Vertex index for node similarity** | At ~2k nodes per user, in-app cosine is the boring answer; a vector index adds infrastructure and a second source of truth. |
-| **Per-user entities and per-user enrichment** | Correct and private by construction, but every user pays to describe Elon Musk and the definition drifts between users. This is phase 1; the shared layer is the upgrade. |
-| **Build the shared record from the union of user mentions** | The record stops being self-contained: its content depends on who captured what, so it fails the publishability test and degrades as the user base changes. |
-| **Shared identity but no shared description** | Half the win: identity converges, but everyone still generates their own definition, which is the expensive and inconsistent part. |
-| **Mirror Wikidata in bulk** | Hundreds of millions of items for a corpus that touches a few thousand. Lazy per-QID enrichment keeps storage and cost proportional to usage. |
-| **One description, shared, overridden per user** | An override model forces a loser: either the definition or the user's context is hidden. Two descriptions answer two different questions. |
-| **Promote on mention, without a citable source** | Maximum coverage and the shortest flow, but it turns the base graph into an unverifiable projection of user traffic: private individuals and model misreadings become link targets imposed on everyone, and the graph can never be audited or rebuilt. |
-| **Let the promoting user's description seed the base description** | The fastest route to coverage and the one that quietly breaks S2: the row would look publishable while depending on private context. |
-| **Separate global service or graph database** | A second source of truth and a network hop for data that fits in a few Postgres tables. Revisit only if enrichment volume exceeds the main database. |
+| **pgvector or a second Vertex index for similarity** | At ~2k cores per user, in-app token/cosine work is the boring answer. Revisit above ~100k. |
+| **Per-user enrichment** | Every user pays to describe Elon Musk and the definition drifts. The shared row is the upgrade; `owner_user_id` makes it a column, not a table. |
+| **Shared record built from the union of user mentions** | The record stops being self-contained: its content depends on who captured what, and it degrades as the user base changes. |
+| **Mirror Wikidata in bulk** | Hundreds of millions of items for a corpus that touches a few thousand. Lazy per-QID enrichment keeps storage proportional to usage. |
+| **One description, shared, overridden per user** | Forces a loser: either the definition or the user's context is hidden. Two descriptions, one per table, answer two questions. |
+| **Promote on mention without a citable source** | Turns the shared graph into an unverifiable projection of user traffic: private individuals and model misreadings become link targets imposed on everyone. |
+| **Separate service or graph database** | A second source of truth and a network hop for data that fits in a few Postgres tables. |
 
 ## Risks and open questions
 
 | Risk | Mitigation |
 | --- | --- |
-| Same-name distinct people auto-merge (e.g. `julius_caesar`). | Veto set + one-edge unmerge + precision-first thresholds; sample audit after phase 1. Record in [pragmatism.md](pragmatism.md). |
-| Transitive mega-cluster from one bad link. | Leaf-into-root only for automatic merges; min-pair verification for cluster merges. |
+| Same-name distinct people merge (`julius_caesar`). | Scorer + vetoes + precision-first bars; recorded score and features make every merge auditable and re-tunable. |
+| Transitive mega-cluster from one bad merge. | Leaf-into-root only for automatic merges; flattening bounds the blast radius to the occurrences moved; unmerge restores exactly those. |
+| The scorer drifts into a black box. | Feature weights are constants with a table test; every merge stores its feature vector. |
+| An occurrence points at a foreign private core through a bug. | A4 asserted in a test, and a single write path for `core_id`. |
 | Re-illumination orphans assignments. | Upsert-by-position + latest-illumination scoping; a prerequisite, not a follow-up. |
-| Embedding model/dims churn invalidates similarity. | `embedding_hash` + dims from config; rank within a user instead of thresholding absolute cosine. |
-| Type churn invalidates existing merges. | Never auto-unmerge on taxonomy change; the type is re-evaluated as a candidate, not rewritten. |
-| LLM pair costs on every capture. | Cap candidates per mention; only the ambiguous band. The model does not duplicate inside a run, so repeats reaching adjudication are genuine cross-capture cases. |
-| Two concurrent captures create a node for the same new entity. | Accepted: the next resolution pass emits a candidate link, and the cluster is recoverable with one merge. Record in [pragmatism.md](pragmatism.md) when phase 1 lands. |
-| A wrong promotion is imposed on every user. | Citable sources only, `promotion_sources` on every row, reversible base merges, sampled audit instead of a review queue. |
-| Promotion fan-out overwhelms the queue. | Re-match runs in the background per user, bounded per run; it is a backlog, not a promise of immediacy. |
+| Type churn invalidates merges. | Type is a weak weight, never a hard veto across model-assigned types. |
+| Resolution cost on a cold corpus. | Cache + batching + cheap-paths-first; steady state is free. |
+| Wikidata rate limits on a cold backfill. | Global concurrency cap and backoff; `maxlag` alarm; the cache makes a rerun free. |
+| A wrong shared row is imposed on every user. | Citable sources only, evidence on every row, reversible merges, sampled audit instead of a review queue. |
 
 Open, worth deciding before the phase that needs them:
 
-1. **Node display label** — most frequent alias vs. the highest-quality surface vs. the search query.
-   Derived labels are cheap to change; pick one and move on.
-2. **Do archived captures feed node evidence?** Current answer: yes for aliases/co-capture, no for
-   read surfaces.
-3. **Should a mention's type ever be corrected by its node's type?** Suggested: no. The mention
-   records what the model said; the node records what we concluded.
-4. **Where is the promotion bar, exactly?** Which sources count for a QID-less entity (Wikipedia, an
-   official site, two independent reports?), and how do we reject a private individual whose name
-   appears in a screenshot? Start strict, measure the promotion rate, loosen with evidence.
-5. **Type mapping ownership.** P31 → `KnowledgeEntityType` is a curated table; who maintains it, and
-   how does it interact with the taxonomy pass?
-6. **Display precedence.** Proposed: the user's label wins for the title; the universal description
-   and the private context are two labelled blocks, never merged into one paragraph.
-7. **Rate-limit budget.** Wikidata asks for polite usage and has no API key. A global concurrency cap
-   plus backoff is the minimum; do we also want a `maxlag` budget alarm?
+1. **Threshold values.** Start from the prototype's description-overlap bands and calibrate on the
+   labelled sheet; do not ship numbers picked from intuition.
+2. **Does an archived capture feed evidence?** Current answer: yes for aliases and neighbourhood, no
+   for read surfaces.
+3. **Should a core's type ever override an occurrence's type?** Suggested: no. The occurrence records
+   what the model said; the core records what we concluded.
+4. **Where is the promotion bar for a QID-less entity?** Which sources count (Wikipedia, an official
+   site, two independent reports), and how do we reject a private individual whose name appears in a
+   screenshot? Start strict, measure, loosen with evidence.
+5. **`P31` → type mapping ownership.** A curated table; who maintains it, and how does it interact
+   with the taxonomy pass?
+6. **Display precedence.** Proposed: the user's label is the title in their overlay; the shared
+   description and the occurrence description are two labelled blocks, never merged into a paragraph.
+7. **When does the mutable `status` become a table?** If the candidate band grows past a few hundred
+   pending rows, or if a second kind of decision appears, promote it. Until then it is one column.
 
 ## References
 
 - [Entity Resolution in Practice: Lessons from a Self-Serve Pipeline](https://arxiv.org/abs/2607.26298)
-  — bake-off thinking, precision vetos, and the transitive-closure failure mode.
+  — bake-off thinking, precision vetoes, and the transitive-closure failure mode.
+- [Almost all of entity resolution](https://www.science.org/doi/10.1126/sciadv.abi8021) — the canonical
+  blocking → comparison → clustering framing this design follows.
 - [In-context Clustering-based Entity Resolution with LLMs](https://arxiv.org/abs/2506.02509) —
-  pair-vs-cluster prompting tradeoffs; why pairwise judgments need explicit transitivity guards.
+  pair-vs-cluster prompting tradeoffs; why pairwise judgements need transitivity guards.
 - [Match, Compare, or Select? LLMs for Entity Matching](https://aclanthology.org/2025.coling-main.8.pdf)
-  — listwise prompting is stronger than pairwise at equal cost for small candidate lists.
+  — listwise prompting beats pairwise at equal cost for small candidate lists.
 - [Entity Resolution and Record Linkage, Explained Plainly](https://dedupe.dev/guides/entity-resolution)
   — normalize before matching; wrong merges are worse than missed ones.
-- [Almost all of entity resolution](https://www.science.org/doi/10.1126/sciadv.abi8021) — the
-  canonical framing (blocking → comparison → clustering).
 - [Wikidata `wbsearchentities`](https://www.wikidata.org/w/api.php?action=help&modules=wbsearchentities)
-  — the lookup used by P-a; QIDs are stable keys, Wikipedia URLs are not.
+  — the label lookup; QIDs are stable keys, Wikipedia URLs are not.
 - [Schema.org Person / Role / author](https://schema.org/Role) — the reference for the
   occurrence-vs-role distinction in the taxonomy doc.
-- [Cytoscape.js](https://js.cytoscape.org/) / [sigma.js](https://www.sigmajs.org/) — phase-4
+- [Cytoscape.js](https://js.cytoscape.org/) / [sigma.js](https://www.sigmajs.org/) — phase-5
   visualization candidates.

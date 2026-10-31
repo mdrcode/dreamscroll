@@ -188,3 +188,17 @@ work. Recorded here so the ledger is complete.
 | Reruns would have been served a stale illumination (`\| first` returned the *oldest*)      | `InfoMaker` collapses `illuminations` to the highest `id`, so `CaptureInfo.illuminations` is a single-element list by contract.                                |
 | `google-cloud-aiplatform-v1` was used only for Vertex illumination | Removed; both Interactions backends now use the shared `reqwest` client and existing `google-cloud-auth`. The dependency is absent from `Cargo.toml` and `Cargo.lock`. |
 | Task and TaskRun ownership was conflated with submitter identity | `Task` now carries `entity_owner_id`; `TaskRun` does not duplicate it, and `TaskRunTracker` persists it from the task. TaskMaster permits submission only by the target owner or an admin. Submitter tracking remains separate and is not implemented. |
+
+## Pending — design trade-offs, not yet implemented
+
+Recorded from `plan/knowledge-canonical-entities.md` so the choice is not rediscovered later. Each
+moves into the ledger above when its phase lands.
+
+| Trade-off | Why acceptable now | Revisit trigger |
+| --- | --- | --- |
+| `knowledge_evidence.status` is the one mutable column; everything else is append-only. | A near-miss is a decision-in-waiting, not a fact. The alternative is a second table for decisions. | More than a few hundred `pending` rows, or a second kind of decision appearing. |
+| Aliases live in `knowledge_core.aliases text[]`, with no provenance of their own. | Every surface the model wrote is still on its occurrence row, so provenance is recoverable by join. Blocking over ~2k cores per user is trivial. | Blocking slows above ~100k cores/user; or an alias needs to be audited on its own. |
+| A merge **flattens**: it rewrites `knowledge_entities.core_id` and keeps `superseded_by_id` as a tombstone. | Supersession is 0.5% of prod, so the write is negligible and reads stay a single join. Unmerge reads the moved ids from the `merge` evidence row. | Merge rate above a few percent, or merges moving thousands of occurrences. |
+| Two concurrent captures can create two cores for the same new entity. | The `unique (wikidata_qid)` / platform indexes convert the second resolution into a merge; until then the overlay shows two rows. | Duplicate rows become visible in the UI at scale. |
+| The identifier lives on `knowledge_core` rather than in a separate shared table. | The shared layer is `owner_user_id is null`, so rebuilding it is one `delete`; no cross-table join. | The shared layer needs its own lifecycle, retention, or operational isolation. |
+| Merge and score thresholds are constants, not yet calibrated. | The scoring model and feature set are settled; the numbers are pending the labelled measurement sheet. | Before phase 3 ships — thresholds must come from the sheet, not intuition. |
