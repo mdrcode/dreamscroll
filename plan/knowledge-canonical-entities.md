@@ -247,6 +247,20 @@ changed authority answer could never land. With the content hash an identical re
 different answer appends, and the projection reads the newest by `observed_at` with the old row kept
 as history.
 
+**Why the identifier is a column and not only evidence.** `wikidata_qid` is the same kind of thing
+as `label` and `description`: a materialized winner projected from evidence. It has to be a column for
+three reasons — the unique index is the concurrency guard (two workers resolving one name must collide
+into a merge, and that cannot be expressed over `value->>'qid'` in a row that does not exist yet), a
+QID match is *decisive* on the linker's hot path, and reads plus enrichment want it without
+aggregating evidence. Everything about *how* it was derived — source, method, confidence,
+`observed_at`, the candidates that lost — stays in the `ontology` evidence row, append-only, so a
+re-resolution appends rather than overwriting and `project()` moves the column.
+
+The rule this generalizes to: **columns on `core_knowledge_entities` are materialized winners, only
+`project()` writes them, every unique index on them is an invariant, and everything about their
+derivation is evidence.** `platform`/`platform_handle` and `description`/`description_source` are the
+same case; the identifier only looks different because it is the most obviously evidential field.
+
 **The unique indexes are load-bearing.** Two workers resolving the same new name can both create a
 core and both return the same QID; `unique (wikidata_qid)` turns that race into a merge instead of a
 duplicate. Same for the platform index.
