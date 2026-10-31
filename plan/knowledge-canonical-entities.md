@@ -284,6 +284,12 @@ pub enum EvidenceValue {                 // src/knowledge/evidence.rs
 with `TryFrom<Json>` / `Into<Json>`. If a dimension outgrows the enum, it becomes its own table — the
 trigger is a second kind of decision, not the row count.
 
+**No layer-prefixed aliases.** `UserKnowledgeEntity` / `CoreKnowledgeEntity` would be aliases —
+SeaORM's derive fixes the model struct name to `Model` — and they would give two things three names
+each (table, module, alias). The occurrence already owns the noun "knowledge entity" in this codebase
+(`knowledge_entity`, `KnowledgeEntityInfo`, `/entity/{id}`); the core owns "core". The distinction
+that matters at a call site is the id, not the name — hence the newtypes below.
+
 `CoreId` / `OccurrenceId` newtypes are optional and probably worth it once there are three tables of
 `i32` keys: `attempt_link(occurrence) -> core` is one swapped argument away from corrupting the
 graph. Use them in domain signatures and convert at the ORM boundary, where SeaORM wants `i32`.

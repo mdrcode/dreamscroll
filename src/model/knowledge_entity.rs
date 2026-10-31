@@ -3,6 +3,10 @@ use sea_orm::entity::prelude::*;
 
 use super::*;
 
+// One row per illuminated occurrence, keyed by user. The table is `knowledge_user` (the per-user
+// layer, see plan/knowledge-canonical-entities.md); the module keeps the noun `knowledge_entity`
+// because the rows are entity mentions (`KnowledgeEntityInfo`, `/entity/{id}`), and the relation
+// field reads `knowledge_entities`. The canonical entity is `knowledge_core`.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "knowledge_user")]
