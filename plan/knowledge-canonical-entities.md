@@ -237,6 +237,11 @@ viewer's observations (decision 4), and every core column is publishable (S1), s
 owner column could express would change an answer. Two users' provisional cores converging (decision
 5) is intended behaviour, not a boundary to police.
 
+**Aliases are an index, not a display field.** `core_knowledge_entities.aliases` holds normalized
+authority surfaces purely for blocking; the casing, language and source of each alias live in the
+`ontology` evidence row that produced it, and the core page renders aliases from there. That keeps one
+copy of the truth (evidence), one index for lookup (the array), and nothing user-authored in the core.
+
 **Why user surfaces never enter the core.** `core_knowledge_entities.aliases` holds authority aliases
 only, and `normalized_name` holds the canonical label. The observation keeps the verbatim surface, so
 blocking a new observation against every core seen with that surface is an index scan on
@@ -309,9 +314,16 @@ flowchart TD
 
 ### Blocking
 
-Recall-oriented and deliberately over-generating: exact `normalized_name` or `aliases @> array[$n]`;
-same `(platform, lower(handle))`; a QID the observation already carries (from the resolution cache);
-token-set equality over the candidate set, in-app.
+Recall-oriented and deliberately over-generating, from four independent sources:
+
+- **the core's `normalized_name`** — the canonical label;
+- **the core's `aliases`** — authority surfaces the core knows but has never been observed under
+  (`J.R. Cash` → the Johnny Cash core), which is the only path that absorbs a surface without a merge
+  decision;
+- **`user_knowledge_entities.normalized_name`** — every surface any observation of a core used, which
+  finds provisional cores (they have no authority aliases) and returns core ids with no text;
+- **`(platform, lower(handle))`** and a QID the observation already carries (from the resolution
+  cache); plus token-set equality over the resulting candidate set, in-app.
 
 Candidates are not filtered by owner. Another user's provisional core is a legitimate candidate, and
 that is precisely how two captures of the same thing converge (decision 5).
@@ -323,7 +335,7 @@ that is precisely how two captures of the same thing converge (decision 5).
 | same `(platform, handle)` | identity | decisive | a handle is public identity |
 | QID equality | identity | decisive | |
 | `normalized_name` equal | strong + | high | the common case; still clears vetoes |
-| alias exact match | strong + | high | the core already knows this surface |
+| alias or observation surface match | strong + | high | the core already knows this surface form, from authority or from an earlier capture |
 | description overlap (IDF) | + | medium | `"web framework written in Python"` |
 | neighbourhood overlap | + | medium | shared co-entities in the capture |
 | type agreement | weak + | low | |
@@ -389,7 +401,7 @@ second resolution into a merge; until then the overlay shows two rows. Accepted,
 | `wikidata_qid` / `platform*` | the highest-confidence `ontology` / `platform_link` evidence |
 | `status` | `identified` if an identifier exists; `contested` if a `collision` row does; else `provisional` |
 | `confidence` | the max identity score behind the current claim |
-| `aliases` | authority aliases plus every observation surface |
+| `aliases` | authority aliases (labels, sitelinks, aliases), normalized; **never** an observation's surface |
 | `superseded_by_id` | written by `merge` only |
 
 Every projected column has to pass S1. A projection that copies caption text, a possessive phrase or a
