@@ -5,7 +5,27 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 8;
+const REQUIRED_SCHEMA_VERSION: i32 = 9;
+
+/// DDL the model registry cannot express: `SchemaRegistry::sync` creates what is missing but never
+/// renames. `knowledge_entities` became `knowledge_user` in schema version 9, and the registry
+/// would otherwise create an empty replacement beside the populated old table.
+async fn rename_legacy_tables<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $$ BEGIN \
+           IF to_regclass('knowledge_entities') IS NOT NULL \
+              AND to_regclass('knowledge_user') IS NULL THEN \
+             ALTER TABLE knowledge_entities RENAME TO knowledge_user; \
+           END IF; \
+           IF to_regclass('knowledge_entity_position') IS NOT NULL \
+              AND to_regclass('knowledge_user_position') IS NULL THEN \
+             ALTER INDEX knowledge_entity_position RENAME TO knowledge_user_position; \
+           END IF; \
+         END $$",
+    )
+    .await?;
+    Ok(())
+}
 
 /// Reconcile the model schema, manual indexes, and applied version atomically.
 pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
@@ -41,6 +61,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
                 }
             }
 
+            rename_legacy_tables(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             registry.sync(transaction).await?;
             indexes::task_run::after_schema_sync(transaction).await?;
@@ -169,6 +190,58 @@ mod tests {
             database_error.constraint(),
             Some("idx-task_runs-backfill_task")
         );
+    }
+
+    /// `knowledge_entities` became `knowledge_user` in schema version 9. The registry would create
+    /// an empty replacement beside a populated old table, so the rename is explicit DDL and has to
+    /// carry the rows and the unique index across.
+    #[tokio::test]
+    async fn legacy_occurrence_table_is_renamed_with_its_data() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let conn = test_db.handle().conn;
+
+        conn.execute_unprepared("DROP TABLE knowledge_user")
+            .await
+            .expect("the synced table should be droppable to simulate the old schema");
+        conn.execute_unprepared(
+            "CREATE TABLE knowledge_entities (id integer primary key, name text not null)",
+        )
+        .await
+        .expect("the legacy table should be creatable");
+        conn.execute_unprepared("CREATE UNIQUE INDEX knowledge_entity_position ON knowledge_entities (id)")
+            .await
+            .expect("the legacy unique index should be creatable");
+        conn.execute_unprepared("INSERT INTO knowledge_entities (id, name) VALUES (1, 'Train Dreams')")
+            .await
+            .expect("the legacy row should insert");
+
+        super::rename_legacy_tables(&conn)
+            .await
+            .expect("renaming the legacy table should succeed");
+
+        let row = conn
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT to_regclass('knowledge_entities')::text, \
+                        to_regclass('knowledge_user')::text, \
+                        to_regclass('knowledge_user_position')::text, \
+                        (SELECT name FROM knowledge_user WHERE id = 1)",
+            ))
+            .await
+            .expect("inspecting the renamed schema should succeed")
+            .expect("the inspection query always returns one row");
+
+        let old_table: Option<String> = row.try_get_by_index(0).expect("old table name");
+        let new_table: Option<String> = row.try_get_by_index(1).expect("new table name");
+        let renamed_index: Option<String> = row.try_get_by_index(2).expect("renamed index name");
+        let preserved_name: Option<String> = row.try_get_by_index(3).expect("preserved row");
+
+        assert!(old_table.is_none(), "the legacy table should be gone");
+        assert!(new_table.is_some(), "the renamed table should exist");
+        assert!(renamed_index.is_some(), "the unique index should follow the table");
+        assert_eq!(preserved_name.as_deref(), Some("Train Dreams"), "rows must survive the rename");
     }
 
     #[tokio::test]

@@ -14,7 +14,7 @@ Three read-only scripts, no database writes, no product code:
 
 | Step | Script | What it does |
 | --- | --- | --- |
-| 1 | `classify.py` | Reads every `knowledge_entities` row and scores three axes: **publicness** (public / person-behind-account / unverifiable / unclear), **name safety** (distinctive / needs disambiguation / collides across types), **quality** (definition / behavioural profile / thin). Emits a per-entity CSV plus aggregate summaries. |
+| 1 | `classify.py` | Reads every `knowledge_user` row and scores three axes: **publicness** (public / person-behind-account / unverifiable / unclear), **name safety** (distinctive / needs disambiguation / collides across types), **quality** (definition / behavioural profile / thin). Emits a per-entity CSV plus aggregate summaries. |
 | 2 | `probe.py` | Samples up to 30 distinct names per verdict bucket, queries Wikidata `wbsearchentities`, retries `cirrussearch-too-busy-error` with backoff, and records the best candidate plus alternatives. |
 | 3 | `score.py` | Re-scores the probe offline with a *containment* metric (how much of Wikidata's short description appears in ours), replacing a Jaccard score that penalised correct matches for being terse. |
 | 4 | `handles.py` | Samples distinct X handles and asks X's unauthenticated oEmbed endpoint whether the account exists (JSON = live, 404 / HTML error page = not). Proves the link is real; says nothing about attribution. |
@@ -30,7 +30,7 @@ the P31 class mapping and an LLM yes/no, exactly as the design proposes.
 
 ## Data basis and known biases
 
-Every number here is computed over **all** `knowledge_entities` rows, 2,518. That includes **149
+Every number here is computed over **all** `knowledge_user` rows, 2,518. That includes **149
 superseded rows (5.9%)** left behind by re-illumination: 34 of 628 illuminated captures carry two or
 three illuminations, and the read path (correctly) exposes only the latest. Current-only mentions are
 **2,369**.

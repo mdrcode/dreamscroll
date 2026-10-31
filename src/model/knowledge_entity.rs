@@ -5,15 +5,15 @@ use super::*;
 
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
-#[sea_orm(table_name = "knowledge_entities")]
+#[sea_orm(table_name = "knowledge_user")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
     pub user_id: i32,
     pub capture_id: i32,
-    #[sea_orm(unique_key = "knowledge_entity_position")]
+    #[sea_orm(unique_key = "knowledge_user_position")]
     pub illumination_id: i32,
-    #[sea_orm(unique_key = "knowledge_entity_position")]
+    #[sea_orm(unique_key = "knowledge_user_position")]
     pub position: i32,
 
     #[sea_orm(default_expr = "Expr::current_timestamp()")]

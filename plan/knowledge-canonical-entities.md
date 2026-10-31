@@ -15,7 +15,7 @@ prototype this is sized from, including the failure catalogue),
 
 ## The gap
 
-Illumination v2 gives us **mentions**, not **entities**. Every `knowledge_entities` row is one span
+Illumination v2 gives us **mentions**, not **entities**. Every `knowledge_user` row is one span
 of text a model reported for one capture: "Train Dreams", `movie`, in this capture. Nothing says the
 fourteen `Train Dreams` mentions are one work, nothing says which of them is the same work another
 user captured, and nothing lets us say how close two of them are.
@@ -24,7 +24,7 @@ user captured, and nothing lets us say how close two of them are.
   capture ───────────────────────────────────────────────────────┐
     │ media, url, annotation                                     │  private, immutable
     ▼                                                            │
-  occurrence  ("this capture said X")       knowledge_entities    │  exists today
+  occurrence  ("this capture said X")       knowledge_user    │  exists today
     │ name, description, search_query, platform_link             │
     │ core_id ────────────────────────────────┐                  │
     ▼                                         │                  │
@@ -40,7 +40,7 @@ Three tables, three jobs:
 
 | Table | Row means | Mutable? |
 | --- | --- | --- |
-| `knowledge_entities` | "this capture said this" | append-only per illumination |
+| `knowledge_user` | "this capture said this" | append-only per illumination |
 | `knowledge_core` | "this is an entity, and here is our current best account of it" | projected columns only |
 | `knowledge_evidence` | "here is a fact that bears on that account, and where it came from" | append-only (one exception, §Evidence) |
 
@@ -77,8 +77,8 @@ Three tables, three jobs:
 | Value | Publishable? | Where it lives |
 | --- | --- | --- |
 | Canonical label, aliases, authority description, image, QID, type | yes | `knowledge_core` with `owner_user_id = null` |
-| `"the documentary about him that I saved"` | no — meaningless without the capture | `knowledge_entities.description` |
-| The user's spelling `"the Elon guy"` | no — it is the user's phrasing | `knowledge_entities.name` |
+| `"the documentary about him that I saved"` | no — meaningless without the capture | `knowledge_user.description` |
+| The user's spelling `"the Elon guy"` | no — it is the user's phrasing | `knowledge_user.name` |
 | Co-capture edges, related-entity ranking | no — derived from one person's activity | derived, never stored on a shared row |
 | "captured by 12 users" | publishable in isolation, but aggregate behaviour | separate decision, A5 |
 
@@ -132,13 +132,16 @@ Readings that shape the design:
 
 ## Decisions
 
-1. **Three tables.** `knowledge_entities` (occurrence, exists), `knowledge_core`, `knowledge_evidence`.
+1. **Three tables.** `knowledge_user` (occurrence, exists), `knowledge_core`, `knowledge_evidence`.
    No alias, merge-log, candidate or public-table family: aliases are an array, merges are a
    self-reference plus an evidence row, candidates are evidence rows, and the shared layer is the
    same table with `owner_user_id = null`.
-2. **`knowledge_entities` keeps its name.** It is the occurrence table and the model, the export and
-   the unique key `(illumination_id, position)` already mean that. One new nullable column,
-   `core_id`.
+2. **The occurrence table is `knowledge_user`.** Renamed from `knowledge_entities` in schema
+   version 9, because it is the per-user table of what a capture said. `SchemaRegistry::sync` creates
+   but never renames, so the rename is an explicit guarded DDL step in `sync_schema`; a registry-only
+   change would leave a populated old table beside an empty new one. The Rust module keeps the name
+   `knowledge_entity` — its rows are entity mentions, not users — and the unique key follows the
+   table as `knowledge_user_position`. One new nullable column, `core_id`.
 3. **`knowledge_core.owner_user_id` is nullable: `null` means shared.** Private nodes are created by
    private users; a node becomes shared by acquiring an identifier. The merge rules refuse to link
    an occurrence across an owner boundary, which is what lets the overlay query carry **no
@@ -166,7 +169,7 @@ Readings that shape the design:
 11. **The capture is an identity feature.** The sibling entities of an illumination are the best
     disambiguation context we have: `Django` next to `Python` and `web framework` is the framework;
     `Dito` next to `Pokémon` is the Pokémon. Context may rank and propose; it never auto-accepts.
-12. **No edge table yet.** Co-capture connectedness is a join over `knowledge_entities`. Add
+12. **No edge table yet.** Co-capture connectedness is a join over `knowledge_user`. Add
     `knowledge_edges` when we have non-derived edges — a persona relation, an LLM-asserted relation,
     a user-drawn link. That is the trigger, not "we want a graph".
 
@@ -176,7 +179,7 @@ Two new tables, one column on the occurrence table, and three partial indexes th
 Bump `REQUIRED_SCHEMA_VERSION` (currently 8).
 
 ```sql
-knowledge_entities                       -- existing occurrence table
+knowledge_user                       -- existing occurrence table
   + core_id i32 null -> knowledge_core.id
   -- unchanged: user_id, capture_id, illumination_id, position, name, entity_type,
   --            description, search_query, platform, platform_handle, platform_display_name
@@ -372,7 +375,7 @@ after every evidence append:
 | `resolution_state` | presence and outcome of `ontology` / `platform_link` evidence |
 | `confidence_status` | `identified` if an identifier evidence row exists; `contested` if a `collision` row does; else `provisional` |
 | `confidence` | max identity score |
-| `source_count` | distinct `knowledge_entities.user_id` behind the core |
+| `source_count` | distinct `knowledge_user.user_id` behind the core |
 
 `confidence_status` is the mutable field the design asked for: it is rewritten whenever evidence about
 the node changes, never hand-set. `resolution_state` is the job lifecycle; `confidence_status` is the
@@ -386,7 +389,7 @@ evidence is append-only, and `on conflict do nothing` against the unique index m
 
 **What a merge writes, in one transaction:**
 
-1. `update knowledge_entities set core_id = winner where core_id = loser`;
+1. `update knowledge_user set core_id = winner where core_id = loser`;
 2. re-point the loser's evidence at the winner (`on conflict do nothing`);
 3. insert the `merge` evidence row on the winner, carrying the moved occurrence ids and the score;
 4. `loser.superseded_by_id = winner` and `loser.resolution_state = 'resolved'` (tombstone);
@@ -433,7 +436,7 @@ precision available, and it uses the same feature vector as merge scoring.
 
 ## Re-illumination
 
-`insert_illumination_v2` currently deletes all `knowledge_entities` for an illumination and re-inserts
+`insert_illumination_v2` currently deletes all `knowledge_user` for an illumination and re-inserts
 them. That would silently discard every `core_id`. Change it to upsert by the existing unique key
 `(illumination_id, position)`:
 
@@ -460,7 +463,7 @@ Two descriptions, one per table — which is the cleanest mapping this design gi
 
 | | Lives on | Provenance | Rendered as |
 | --- | --- | --- | --- |
-| **"why is this in my graph"** | `knowledge_entities.description` | the model's reading of that capture, or the user's words | the occurrence block |
+| **"why is this in my graph"** | `knowledge_user.description` | the model's reading of that capture, or the user's words | the occurrence block |
 | **"what is this"** | `knowledge_core.description` | Wikidata claims, the Wikipedia lead, cited web results for source-grounded entities — never a mention | the shared block |
 
 The private description needs no machinery: it is produced per illumination, stored once, never
@@ -500,7 +503,7 @@ means bytes and money: cache per QID, serve from one path, never re-fetch per us
 
 ```sql
 select e.*, c.*
-from knowledge_entities e
+from knowledge_user e
 join knowledge_core c on c.id = e.core_id
 where e.user_id = $1
   and c.superseded_by_id is null;
@@ -542,14 +545,14 @@ Association:
 - **A2.** No response reveals another user's data: no counts, no ids, no "also captured by", no
   cross-user co-occurrence.
 - **A3.** A shared core page renders the shared definition only.
-- **A4.** `knowledge_entities.core_id` may point at another user's core **only** when that core is
+- **A4.** `knowledge_user.core_id` may point at another user's core **only** when that core is
   shared (`owner_user_id is null`). Enforced where links are written, asserted in a test.
 - **A5.** Aggregate statistics over shared rows (if ever built) are a separate, explicit product
   decision with k-anonymity — not a side effect of this design.
 
 A4 is the invariant that replaces the old design's schema-level separation, and it is the one a
 future path could break by forgetting a check. It is worth a database-level guard: links are written
-by one function, and a `before update` check on `knowledge_entities.core_id` (or a nightly assertion
+by one function, and a `before update` check on `knowledge_user.core_id` (or a nightly assertion
 query) keeps it honest.
 
 ## Backfill and measurement
