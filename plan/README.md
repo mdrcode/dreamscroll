@@ -40,6 +40,7 @@ rather than rewriting it; history is the point.
 | [knowledge-promotion-audit.md](knowledge-promotion-audit.md) | Complete — local corpus (2026-10-29) | Measured promotion candidates and risks across 2,518 local mentions, with the gate each bucket needs. Data lives under `localdev/analysis/entity-promotion/`. |
 | [knowledge-promotion-audit-prod.md](knowledge-promotion-audit-prod.md) | Complete — prod corpus (2026-10-30) | Second investigation: the same classifier over 5,185 prod mentions, with a local-vs-prod comparison and the type/kind recommendation. |
 | [knowledge-promotion-frontier.md](knowledge-promotion-frontier.md) | Analysis — design input | What the 16% non-promoted mentions are, and the evidence each kind needs: collisions split rather than held, handle-first identity, type-verified authority lookup. |
+| [knowledge-evidence-prototype.md](knowledge-evidence-prototype.md) | Prototype — assessed, not shipped | Multi-dimensional evidence model, resolution strategy, measured coverage on prod, and the failure catalogue. Supersedes the single-verdict classifier for prototyping. |
 | [screenshot_3rd_party.md](screenshot_3rd_party.md) | Research | Screenshot provider comparison and selection criteria (Urlbox, ScreenshotOne). |
 | [api_token_hardening.md](api_token_hardening.md) | Proposed | `iss`/`aud` claims, fallible config validation, and token-lifetime policy. |
 | [static-serving-cdn.md](static-serving-cdn.md) | Recommendation | Why not to add an ALB or CDN for the small static bundle. |

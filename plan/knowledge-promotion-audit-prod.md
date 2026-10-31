@@ -1,6 +1,12 @@
 # Promotion audit — prod corpus (second investigation)
 
 **Status:** Complete for the prod corpus (5,185 mentions, 1,342 captures, 2026-10-30).
+
+> **Superseded for prototyping.** The single-verdict classifier described here was
+> replaced by the multi-dimensional evidence model in
+> [knowledge-evidence-prototype.md](knowledge-evidence-prototype.md). This document
+> stays as the classifier-era record; do not use its verdict shares as the current
+> estimate.
 Standalone: this does **not** replace the local audit in
 [knowledge-promotion-audit.md](knowledge-promotion-audit.md); it is a second
 investigation at larger scale, and the comparison is in

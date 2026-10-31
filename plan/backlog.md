@@ -6,6 +6,17 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
+- [ ] **Score the entity-resolution precision sheet.** 100 labelled rows sit in
+  `localdev/analysis/entity-promotion/evidence/review/precision_sheet.csv`
+  (45 identified / 25 ranked / 15 ambiguous / 15 unidentified). Precision ≥ 0.90
+  lets the `identified` dimension drive promotion as-is; below 0.75 the
+  verification step needs rework. See `plan/knowledge-evidence-prototype.md` §8.
+- [ ] **Replace the keyword type-filter with `P31` class matching.** The filter
+  rejected 444 rows whose exact-label item existed, 247 of them with a single
+  candidate. A curated `type → {class QIDs}` map tested through
+  `wdt:P31/wdt:P279*` is the fix. Same doc, §9.
+- [ ] **Define `brand` vs `organization`, `product` vs `software`.** These two
+  undefined type pairs account for 111 of 179 collision pairs.
 - [ ] **Add `concept` and `organism` entity types, plus `referent_form` and
   `wikidata_class`.** Settled by the 2026-10-29 audit in `plan/knowledge-entity-types.md`:
   `unknown` splits into six Wikidata classes, 3 of them taxa, and named plant cultivars are
