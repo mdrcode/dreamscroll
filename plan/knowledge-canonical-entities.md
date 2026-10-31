@@ -557,7 +557,10 @@ Association:
   `unique (wikidata_qid)`, and upsert-by-position. Re-running changes nothing; that is the test.
 - **`dreamscroll_db entities stats --user <id>`**: observations, cores, provisional/identified/
   contested counts, collisions by reason, merges by method, duplicate rate
-  `1 - distinct_cores / observations`.
+  `1 - distinct_cores / observations`, and the **name-publishability scan** — count of core aliases
+  matching the private-identifier and caption patterns. S1 rests on the extractor continuing to emit
+  object names; that is a measured property, so the command measures it on every run instead of the
+  design assuming it.
 
 ## Phases
 
