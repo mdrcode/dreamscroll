@@ -189,6 +189,7 @@ user_knowledge_entities                    -- the observation; the only owned ro
   unique (illumination_id, position)      -- replay-safe illumination
   index (user_id, core_id)
   index (normalized_name)                 -- cross-user blocking without copying surfaces
+  index (lower(platform_display_name)) where platform_display_name is not null
   index (capture_id, core_id)             -- overlay + neighbourhood feature
 
 core_knowledge_entities                    -- the referent; owned by nobody
@@ -322,6 +323,9 @@ Recall-oriented and deliberately over-generating, from four independent sources:
   decision;
 - **`user_knowledge_entities.normalized_name`** — every surface any observation of a core used, which
   finds provisional cores (they have no authority aliases) and returns core ids with no text;
+- **`user_knowledge_entities.platform_display_name`** — the account's own name, which is where a
+  persona lives (`Tsoding` beside `Alexey Kutepov`) and the only surface an observation carries that
+  is not the extracted entity name;
 - **`(platform, lower(handle))`** and a QID the observation already carries (from the resolution
   cache); plus token-set equality over the resulting candidate set, in-app.
 
