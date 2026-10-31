@@ -1,12 +1,13 @@
 # Knowledge entities — observations, the core graph, and the evidence behind it
 
-**Status:** Design, second revision (2026-10-31). Three tables, named for their layers:
-**UserKnowledgeEntity**, **CoreKnowledgeEntity**, **CoreKnowledgeEvidence**.
+**Status:** Design, second revision (2026-10-31). Three tables, named for what they hold:
+**UserKnowledgeEntity** (observation), **CoreKnowledgeEntity** (referent) and
+**CoreKnowledgeEvidence** (justification — identity included).
 
-**Implemented so far** (schema version 10): the observation and core tables, `knowledge::normalize`
-and `knowledge::score`, and `dreamscroll_knowledge migrate | build_core | stats`. Linking is offline —
-no authority calls, no `core_knowledge_evidence`, no merges or candidate view yet. The application
-still writes `knowledge_user`; `migrate` copies into `user_knowledge_entities`.
+**Implemented so far** (schema version 12): the observation, core and evidence tables,
+`knowledge::normalize` and `knowledge::score`, and `dreamscroll_knowledge migrate | build_core | stats`.
+Linking is offline — no authority calls, no `core_knowledge_evidence`, no merges or candidate view yet.
+The application still writes `knowledge_user`; `migrate` copies into `user_knowledge_entities`.
 Raw illuminations are retained, so any schema here can be built from scratch rather than migrated —
 treat that as licence to choose the right model rather than the cheapest transition.
 
@@ -121,8 +122,8 @@ Readings that shape the design:
 ## Decisions
 
 1. **Three tables, named for their layers.** `UserKnowledgeEntity` (observation), `CoreKnowledgeEntity`
-   (referent), `CoreKnowledgeEvidence` (justification). The name of each type states its scope, so a
-   signature that mentions two of them is visibly a cross-layer operation.
+   (referent), `CoreKnowledgeEvidence` (justification). Identity is not a fourth kind of thing: it is
+   an evidence row like any other, which is why no authority needs a column or a table of its own.
 2. **The user entity is the observation and the only owned thing.** It carries the verbatim name,
    description, `search_query`, platform link and the illumination position. Merging never rewrites
    any of it; the only column that changes is `core_id`.
@@ -163,8 +164,8 @@ Readings that shape the design:
 
 ## Schema
 
-Three tables, one column on the observation table at seeding time, and four partial indexes that
-carry invariants. Naming: tables plural, except `core_knowledge_evidence` (mass noun).
+Four tables — three layers plus the referent's identities — one column added to the live observation
+table at seeding time, and the indexes that carry invariants. Naming: tables plural, except `core_knowledge_evidence` (mass noun).
 
 ```sql
 user_knowledge_entities                    -- the observation; the only owned row
@@ -193,20 +194,15 @@ core_knowledge_entities                    -- the referent; owned by nobody
   entity_type      text not null          -- authority-mapped, else modal
   description      text null              -- best available; `description_source` says from where
   description_source text null            -- wikidata | wikipedia | model | capture
-  wikidata_qid     text null
-  platform         text null              -- primary identifier when no QID
-  platform_handle  text null
   status           text not null          -- provisional | identified | contested (projected)
   confidence       real null              -- best identity score behind the claim
   superseded_by_id i32 null -> core_knowledge_entities.id
   aliases          text[] not null default '{}'   -- normalized surfaces: authority + observed
   created_at, updated_at
-  unique (wikidata_qid) where wikidata_qid is not null
-  unique (platform, lower(platform_handle)) where platform_handle is not null
   index  using gin (aliases)             -- the only blocking index
   index  (status) where status = 'provisional'
 
-core_knowledge_evidence                    -- the justification; append-only (lands with resolution)
+core_knowledge_evidence                    -- the justification; append-only
   id
   core_id              i32 not null -> core_knowledge_entities.id
   related_core_id      i32 null -> core_knowledge_entities.id   -- collision other / merge child
@@ -220,9 +216,13 @@ core_knowledge_evidence                    -- the justification; append-only (la
                                        -- | neighbourhood | llm | manual
   confidence           real null
   source_user_id       i32 null        -- who asserted it, when a person did
+  retracted_at         timestamptz null   -- we stopped believing it; frees its identity slot
   observed_at          timestamptz not null default now()
   unique index (core_id, kind, source, coalesce(method, ''),
                 coalesce(user_entity_id, 0), coalesce(related_core_id, 0), md5(value::text))
+  -- identity invariant, on the claims themselves:
+  unique index ((value->>'scheme'), (value->>'id'))
+    where kind in ('ontology', 'platform_link') and retracted_at is null
   index (core_id, kind)
   index (related_core_id) where related_core_id is not null
 ```
@@ -247,23 +247,51 @@ changed authority answer could never land. With the content hash an identical re
 different answer appends, and the projection reads the newest by `observed_at` with the old row kept
 as history.
 
-**Why the identifier is a column and not only evidence.** `wikidata_qid` is the same kind of thing
-as `label` and `description`: a materialized winner projected from evidence. It has to be a column for
-three reasons — the unique index is the concurrency guard (two workers resolving one name must collide
-into a merge, and that cannot be expressed over `value->>'qid'` in a row that does not exist yet), a
-QID match is *decisive* on the linker's hot path, and reads plus enrichment want it without
-aggregating evidence. Everything about *how* it was derived — source, method, confidence,
-`observed_at`, the candidates that lost — stays in the `ontology` evidence row, append-only, so a
-re-resolution appends rather than overwriting and `project()` moves the column.
+**An authority is a namespace, and identity is a claim like any other.** There is no
+`wikidata_qid`, no `imdb_id`, no `platform_handle` column anywhere: an identity is a
+`core_knowledge_evidence` row of kind `ontology` or `platform_link` with a payload of
+`{"scheme": "wikidata", "id": "Q104919"}`. Adding IMDb, TMDB, MusicBrainz or OpenLibrary is a row,
+not a migration, and a platform handle is the same shape as a QID — `('x','tsoding')` beside
+`('wikidata','Q104919')`.
 
-The rule this generalizes to: **columns on `core_knowledge_entities` are materialized winners, only
-`project()` writes them, every unique index on them is an invariant, and everything about their
-derivation is evidence.** `platform`/`platform_handle` and `description`/`description_source` are the
-same case; the identifier only looks different because it is the most obviously evidential field.
+**Identities are plural because agreement is evidence.** A film known to both Wikidata and IMDb is a
+stronger claim than either alone: two independent authorities asserting the same referent. Collapsing
+that to "the primary identity" would throw the corroboration away, and corroboration is what should
+move a core from `provisional` towards `identified`.
 
-**The unique indexes are load-bearing.** Two workers resolving the same new name can both create a
-core and both return the same QID; `unique (wikidata_qid)` turns that race into a merge instead of a
-duplicate. Same for the platform index.
+**The constraint lives where the claims live.** A partial unique index keeps two cores from ever
+holding a live claim to the same `(scheme, id)`:
+
+```sql
+CREATE UNIQUE INDEX "idx-core_evidence_identity"
+    ON core_knowledge_evidence ((value->>'scheme'), (value->>'id'))
+    WHERE kind IN ('ontology', 'platform_link') AND retracted_at IS NULL
+```
+
+That predicate is the whole trick. Append-only evidence cannot carry a plain unique constraint,
+because a *retracted* claim would keep occupying the slot; `retracted_at` says "we no longer believe
+this", the slot frees, and the history stays. Retraction is a fact with a timestamp, not a status, so
+evidence stays append-only in spirit and the one mutable column has a clear meaning.
+
+Two derived signals follow, both projections rather than columns:
+
+| Signal | Rule |
+| --- | --- |
+| **corroboration** | count of *distinct schemes* with a live claim on this core; `confidence` rises with each independent authority |
+| **conflict** | two schemes the authorities themselves disagree about (Wikidata's `P345` points at a different IMDb id than we hold) — a `collision` row, not a merge |
+
+Authority cross-references make corroboration cheap: `P345` (IMDb), `P4947` (TMDB), `P434`
+(MusicBrainz) let a QID *assert* an identifier without calling the other service. A confirmed
+cross-reference is two schemes agreeing for the price of one query.
+
+The rule this generalizes to: **the core holds the projection; every claim, identity included, is
+evidence; and an invariant is enforced by an index on the claims, not by a column that duplicates
+them.**
+
+**The identity index is load-bearing.** Two workers resolving the same new name can both create a core
+and both return the same `('wikidata', 'Q…')`; the index rejects the second claim, so the duplicate is
+caught at the moment it would become a second referent — and it does so for every authority at once
+rather than one column at a time.
 
 **No mutable decisions column.** A candidate is a row of a *view*; accepting it writes a `merge`
 evidence row plus the pointer, rejecting it writes `identity_rejection`. Nothing needs to be updated
@@ -439,7 +467,7 @@ shape of the fix decides which steps are load-bearing:
 - **Atomicity is user-visible.** Outside a transaction, the overlay renders observations with
   `core_id IS NULL` — entities that exist but have no referent. The commit is what stops that being
   observable.
-- **A targeted recompute is not a rebuild.** Earlier assignments are not re-evaluated, so a repair
+- **A targeted recompute is not a rebuild.** Earlier links are not re-evaluated, so a repair
   yields *a* valid partition, not *the* partition a full rebuild would produce. That is the price of
   preserving every prior decision, and it is the right price.
 
@@ -493,8 +521,8 @@ The seeding is the part a human supplies; everything else is mechanical, which i
 | `label` | authority label, else the most frequent observation name that passes a name-shape check (a proper name, not a possessive or a sentence fragment) |
 | `entity_type` | authority `P31` map, else the modal observation type |
 | `description` | highest-priority `description` evidence: authority outranks a model reading, which outranks a capture's own text |
-| `wikidata_qid` / `platform*` | the highest-confidence `ontology` / `platform_link` evidence |
-| `status` | `identified` if an identifier exists; `contested` if a `collision` row does; else `provisional` |
+| `confidence` | rises with the number of distinct schemes holding a live claim, plus the best identity score |
+| `status` | `identified` if any live identity claim exists; `contested` if a `collision` row does; else `provisional` |
 | `confidence` | the max identity score behind the current claim |
 | `aliases` | normalized union of authority labels/sitelinks/aliases and every observation's `name` + `platform_display_name`, deduped and capped |
 | `superseded_by_id` | written by `merge`, and by a repair that replaces a core |
@@ -661,10 +689,39 @@ Not a design constraint, and deliberately not in the schema. Recorded here so it
 ## Backfill and measurement
 
 - **The first population is a data load.** The prototype's `resolved.jsonl` already carries, per
-  observation, the identifier, method, candidates and confidence: map it onto the three tables with
+  observation, the identifier, method, candidates and confidence: map it onto the new tables with
   zero network calls. Raw illuminations make this a rebuild, not a migration.
 - **Idempotent by construction:** unique evidence `(kind, source, method, provenance, md5(value))`,
-  `unique (wikidata_qid)`, and upsert-by-position. Re-running changes nothing; that is the test.
+  `unique (scheme, value)` on identifiers, and upsert-by-position. Re-running changes nothing; that
+  is the test.
+- **`dreamscroll_knowledge reset_core --yes`** snapshots the projection, then empties it: it copies
+  the cores, the evidence and the membership (one row per observation, naming its core) to
+  `<name>__<timestamp>`,
+  then unlinks every observation and deletes the live rows. Observations are untouched.
+  Three things this buys:
+
+  - **Iterations are comparable.** The snapshot keeps *membership*, not just the cores: membership
+    lives on `user_knowledge_entities.core_id`, so snapshotting cores alone would keep the referents
+    and lose which observations were in them — and that grouping is the only thing a scorer change is
+    judged on. Two snapshots are diffed by observation id.
+  - **Rebuild must be deterministic.** Reset and rebuild yields the same partition, and the test
+    asserts exactly that — a projection you cannot recompute is not a projection.
+  - **The live schema is never touched.** Snapshotting *copies* rather than renames: renaming the
+    live tables would drag `user_knowledge_entities.core_id`'s foreign key along with them, leaving
+    the new empty core table unreferenced while the archive held the constraint — and the fixed
+    evidence index name would then collide with the copy. A frozen artifact needs no constraints.
+
+- **`dreamscroll_knowledge compare <before> <after>`** diffs two snapshots and reports unchanged
+  groups, splits, merges and moved observations, largest change first. The comparison is over
+  *groupings*, keyed by observation id — core ids are not comparable across runs because the
+  sequence keeps advancing. A clean rebuild reports `no differences`, which is what makes the tool
+  worth having: it turns "the rebuild looks the same" into a number.
+
+  The snapshots are **debug artifacts, not schema**: no model, no constraints, nothing in the
+  application reads them, and they can be dropped at any time. Live membership is
+  `user_knowledge_entities.core_id`; a snapshot is only a copy of it taken just before it was
+  nulled. Note that `reset_core` runs against whichever database the config points at — against prod
+  it would archive and empty the real graph, so the `--yes` flag is a speed bump, not a safety rail.
 - **`dreamscroll_db entities stats --user <id>`**: observations, cores, provisional/identified/
   contested counts, collisions by reason, merges by method, duplicate rate
   `1 - distinct_cores / observations`, and a **name and description scan** (private-identifier and
@@ -702,6 +759,9 @@ Not a design constraint, and deliberately not in the schema. Recorded here so it
 | **Seven tables (nodes / aliases / merges / candidates / public_*)** | Over-partitioned: the shared layer is a status, aliases are an array, candidates are a view, merges are evidence. Less schema, same invariants. |
 | **`owner_user_id` on the core** | Ownership describes the observation, not the referent; the property that matters is substantiation. It also drifts against the links that contradict it. |
 | **Forbid cross-user merges on provisional cores** (the previous revision) | Publishability already makes the merge safe, and the rule blocks the main value of a shared core: two independent captures agreeing. |
+| **One identity per core** (a single `(scheme, value)` pair) | Simplest to guard, but it discards corroboration: a film known to both Wikidata and IMDb would keep one identity and treat the other as a loose claim, losing the strongest signal we have. |
+| **One column per authority** (`wikidata_qid`, `imdb_id`, `platform_handle`, …) | Every new oracle is a migration, every decisive lookup is a different column, and "no two referents share an identifier" becomes N partial indexes instead of one. The namespace table costs one join and removes the whole class. |
+| **A separate `core_knowledge_identifiers` table** | A second home for the same fact: identity would be written twice (evidence for provenance, table for lookup) and kept in sync by hand. The partial unique index on evidence gives the same guarantee with one writer. |
 | **A `core_knowledge_candidate` table** | A candidate is an undecided hypothesis, derivable from evidence plus the scorer. Persisting it gives a decision a second home and makes the table mutable. |
 | **Merge on (normalized name, type) without scoring** | 111 of 179 collisions are type instability and 8 homonyms share a name inside one capture. |
 | **Resolve before merge, always** | Pays resolution per observation instead of per core, on the weakest possible input. |

@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 9;
+const REQUIRED_SCHEMA_VERSION: i32 = 13;
 
 /// DDL the model registry cannot express: `SchemaRegistry::sync` creates what is missing but never
 /// renames. `knowledge_entities` became `knowledge_user` in schema version 9, and the registry
@@ -20,6 +20,28 @@ async fn rename_legacy_tables<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr>
            IF to_regclass('knowledge_entity_position') IS NOT NULL \
               AND to_regclass('knowledge_user_position') IS NULL THEN \
              ALTER INDEX knowledge_entity_position RENAME TO knowledge_user_position; \
+           END IF; \
+         END $$",
+    )
+    .await?;
+    Ok(())
+}
+
+/// The registry adds missing columns and never changes a column's type, so a type correction has to
+/// be explicit. `core_knowledge_evidence.value` was created as `json` before the model asked for
+/// `jsonb`; containment queries (`@>`, GIN) need jsonb, and a fresh schema gets it from the model.
+async fn retype_evidence_value<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $$ BEGIN \
+           IF EXISTS ( \
+             SELECT 1 FROM information_schema.columns \
+             WHERE table_schema = current_schema() \
+               AND table_name = 'core_knowledge_evidence' \
+               AND column_name = 'value' \
+               AND data_type = 'json' \
+           ) THEN \
+             ALTER TABLE core_knowledge_evidence \
+               ALTER COLUMN value TYPE jsonb USING value::jsonb; \
            END IF; \
          END $$",
     )
@@ -62,10 +84,12 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             }
 
             rename_legacy_tables(transaction).await?;
+            retype_evidence_value(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             registry.sync(transaction).await?;
             indexes::task_run::after_schema_sync(transaction).await?;
             indexes::inference_meta::after_schema_sync(transaction).await?;
+            indexes::knowledge::after_schema_sync(transaction).await?;
             transaction
                 .execute_unprepared(
                     "CREATE TABLE IF NOT EXISTS dreamscroll_schema_version (\
@@ -195,6 +219,63 @@ mod tests {
     /// `knowledge_entities` became `knowledge_user` in schema version 9. The registry would create
     /// an empty replacement beside a populated old table, so the rename is explicit DDL and has to
     /// carry the rows and the unique index across.
+    /// A fresh schema gets the type from the model, and an existing `json` column is retyped with
+    /// its payloads intact — the registry adds columns but never changes a type.
+    #[tokio::test]
+    async fn evidence_payload_is_jsonb_and_a_legacy_json_column_is_retyped() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let conn = test_db.handle().conn;
+
+        let column_type = |conn: sea_orm::DatabaseConnection| async move {
+            let row = conn
+                .query_one_raw(Statement::from_string(
+                    DatabaseBackend::Postgres,
+                    "SELECT data_type FROM information_schema.columns \
+                     WHERE table_schema = current_schema() \
+                       AND table_name = 'core_knowledge_evidence' \
+                       AND column_name = 'value'",
+                ))
+                .await
+                .expect("the column should be queryable")
+                .expect("the column should exist");
+            row.try_get_by_index::<String>(0).expect("data_type is text")
+        };
+
+        assert_eq!(column_type(conn.clone()).await, "jsonb", "the model asks for jsonb");
+
+        // Simulate the earlier schema: a `json` column holding a payload.
+        conn.execute_unprepared("DROP TABLE core_knowledge_evidence")
+            .await
+            .expect("table should drop");
+        conn.execute_unprepared(
+            "CREATE TABLE core_knowledge_evidence (id integer primary key, value json)",
+        )
+        .await
+        .expect("legacy table should be creatable");
+        conn.execute_unprepared(
+            r#"INSERT INTO core_knowledge_evidence (id, value) VALUES (1, '{"scheme":"x","id":"tsoding"}')"#,
+        )
+        .await
+        .expect("legacy payload should insert");
+
+        super::retype_evidence_value(&conn)
+            .await
+            .expect("retype should succeed");
+
+        assert_eq!(column_type(conn.clone()).await, "jsonb");
+        let row = conn
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT value->>'id' FROM core_knowledge_evidence WHERE id = 1",
+            ))
+            .await
+            .expect("query should succeed")
+            .expect("the row should survive");
+        assert_eq!(row.try_get_by_index::<String>(0).expect("id is text"), "tsoding");
+    }
+
     #[tokio::test]
     async fn legacy_occurrence_table_is_renamed_with_its_data() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {

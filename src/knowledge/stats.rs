@@ -1,0 +1,83 @@
+//! Counts that tell us whether the graph is working.
+
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+
+use crate::{database, model};
+
+#[derive(Debug, Default)]
+pub struct Stats {
+    pub observations: u64,
+    pub linked: u64,
+    pub cores: u64,
+    pub provisional: u64,
+    pub identified: u64,
+    pub contested: u64,
+}
+
+impl Stats {
+    /// `1 - distinct_cores / observations`: the share of observations that share a referent.
+    pub fn duplicate_rate(&self) -> f64 {
+        if self.observations == 0 {
+            return 0.0;
+        }
+        1.0 - self.cores as f64 / self.observations as f64
+    }
+}
+
+pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
+    let observations = model::user_knowledge_entity::Entity::find()
+        .count(&db.conn)
+        .await?;
+    let linked = model::user_knowledge_entity::Entity::find()
+        .filter(model::user_knowledge_entity::Column::CoreId.is_not_null())
+        .count(&db.conn)
+        .await?;
+
+    let mut stats = Stats {
+        observations,
+        linked,
+        ..Default::default()
+    };
+
+    for core in model::core_knowledge_entity::Entity::find().all(&db.conn).await? {
+        stats.cores += 1;
+        match core.status.as_str() {
+            "identified" => stats.identified += 1,
+            "contested" => stats.contested += 1,
+            _ => stats.provisional += 1,
+        }
+    }
+
+    Ok(stats)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::knowledge::{link, migrate};
+    use crate::test_support::fixtures;
+
+    #[tokio::test]
+    async fn reports_linked_share_and_duplicate_rate() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+
+        let user_id = fixtures::user(&db, "stats").await;
+        for (index, capture_id) in [(0, fixtures::capture(&db, user_id).await),
+                                    (1, fixtures::capture(&db, user_id).await)] {
+            let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
+            fixtures::entity(&db, user_id, capture_id, illumination_id, index, "Train Dreams").await;
+        }
+
+        migrate::migrate(&db).await.expect("migrate should succeed");
+        link::build_core(&db).await.expect("build should succeed");
+        let stats = super::stats(&db).await.expect("stats should succeed");
+
+        assert_eq!(stats.observations, 2);
+        assert_eq!(stats.linked, 2);
+        assert_eq!(stats.cores, 1);
+        assert_eq!(stats.provisional, 1);
+        assert!((stats.duplicate_rate() - 0.5).abs() < 1e-9, "{stats:?}");
+    }
+}

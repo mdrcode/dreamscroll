@@ -1,6 +1,8 @@
 pub mod annotation;
 pub mod backfill;
 pub mod capture;
+pub mod core_knowledge_entity;
+pub mod core_knowledge_evidence;
 pub mod illumination;
 pub mod illumination_raw;
 pub mod inference_meta;
@@ -15,3 +17,4 @@ pub mod spark_output_ref;
 pub mod task_run;
 pub mod task_run_timing;
 pub mod user;
+pub mod user_knowledge_entity;
