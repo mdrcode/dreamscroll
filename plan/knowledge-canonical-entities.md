@@ -227,10 +227,20 @@ knowledge_evidence
   observed_at      timestamptz not null default now()
 
   unique index (core_id, dimension, source, coalesce(method, ''),
-                coalesce(source_user_id, 0))          -- evidence is not duplicated
+                coalesce(source_user_id, 0), md5(value::text))
+                                             -- idempotent re-runs collapse; a changed
+                                             -- answer (new candidates, revised
+                                             -- description) appends instead of vanishing
   index (core_id, dimension)
   index (related_core_id) where related_core_id is not null
 ```
+
+**The evidence dedupe key includes the content hash, not just the query shape.** Keyed on
+`(core, dimension, source, method, user)` alone, a second ontology candidate set from the same
+lookup would collide with the first and be dropped by `on conflict do nothing` — so a changed
+Wikidata answer would never land. With `md5(value::text)` an identical re-run collapses and a
+different answer appends; the projection reads the newest by `observed_at`, and the old row stays as
+history.
 
 **The `unique (wikidata_qid)` partial index is load-bearing.** Two workers resolving two occurrences
 of the same new name can both score below threshold, create a core row, and both come back with the
@@ -250,9 +260,36 @@ needed, and no text-vs-integer join. The decoupling the old design bought is now
 - `knowledge_merges` — a `merge` evidence row plus `superseded_by_id`.
 - an edge table — see decision 12.
 
-Model files: `src/model/knowledge_core.rs`, `knowledge_evidence.rs`, and the existing
-`knowledge_entity.rs` (one new column); logic in `src/knowledge/` (`normalize.rs`, `resolve.rs`,
-`score.rs`, `merge.rs`, `project.rs`, `promotion.rs`) with a lean root.
+### Rust shape: one model per table, typed views over the jsonb
+
+Three SeaORM models, one per table — `knowledge_user::Model` (existing module
+`knowledge_entity.rs`), `knowledge_core::Model`, `knowledge_evidence::Model`. There is no
+`Candidate` or `Node` entity: a SeaORM model implies a table, and neither concept is one. A
+candidate is a *state* of an `identity` evidence row; a node is the core row itself.
+
+What does deserve a type is the evidence payload, because `value jsonb` is a contract between the
+scorer, `project()` and the review UI, and a mistyped key fails silently:
+
+```rust
+pub enum EvidenceValue {                 // src/knowledge/evidence.rs
+    Ontology { qid, label, description, classes, candidates },
+    PlatformLink { site, handle, url },
+    Identity { candidate: CoreId, score: f32, features: Features },
+    Collision { reason, other: CoreId },
+    Description { text, lang },
+    Merge { child: CoreId, occurrences: Vec<OccurrenceId>, score: f32 },
+}
+```
+
+with `TryFrom<Json>` / `Into<Json>`. If a dimension outgrows the enum, it becomes its own table — the
+trigger is a second kind of decision, not the row count.
+
+`CoreId` / `OccurrenceId` newtypes are optional and probably worth it once there are three tables of
+`i32` keys: `attempt_link(occurrence) -> core` is one swapped argument away from corrupting the
+graph. Use them in domain signatures and convert at the ORM boundary, where SeaORM wants `i32`.
+
+Logic in `src/knowledge/` (`normalize.rs`, `resolve.rs`, `score.rs`, `merge.rs`, `project.rs`,
+`promotion.rs`) with a lean root.
 
 ## The write path
 
