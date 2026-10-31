@@ -114,6 +114,30 @@ Two rules make it safe, both learned by measuring:
    the case and the hint is never read.
 
 Claims from this path are capped at 0.85 confidence, and the method recorded is `search_hint`.
+At least **half** the disambiguating words must be accounted for: one of three cleared the old bar,
+which is how `Suspicion` (a Matsumoto novel) claimed a Dürrenmatt one on the word "novel" alone. The
+stricter floor costs one correct claim (`A Quiet Place`) and removes one wrong one.
+
+### Stage two is a lookup fallback, not a ranking step
+
+When the exact-label lookup produces no claim, the resolver searches for the **bare label**:
+
+```
+stage 1  exact label (SPARQL)         → claim
+stage 2  wbsearchentities(label)      → claim only on a surface match, corroborated by description
+```
+
+It exists because Wikidata labels `J. R. R. Tolkien` and `D. H. Lawrence` *with spaces* while our
+extraction writes `J.R.R.` and `D.H.` — the exact-label query returns nothing (or, worse, returns the
+paintings titled `D.H. Lawrence`). Surfaces are compared with punctuation, spacing and case removed.
+
+A search answer is accepted only when **exactly one** candidate matches the surface *and* its
+description clears the same `FIT_FLOOR` as the label path. Without the description check it claimed
+`Audi` (a car brand) as a *family name* and `A Pattern Language` as a 2011 master's thesis.
+
+Measured over 220 lookups: 126 returned candidates, 134 nothing; 16 claims before the description
+check, **11 after, all correct**. The search endpoint takes one query per call, so this stage is paced
+per query — 50-at-a-time bursts are what earned a 429.
 
 ## Confidence and status
 
@@ -185,6 +209,7 @@ on the next pass.
 | hint scored in the description (rejected) | 23 | **~61%** — a photograph, an album, a Quebec post office | 0 calls |
 | hint as a fallback, name tokens included (rejected) | 23 | ~61%, same failures | 0 calls |
 | hint as a fallback, name tokens subtracted | **64** | **~94%** | 0 calls |
+| search lookup for empty labels (stage two) | **11** | **100%** (of 220 lookups) | 220 calls |
 
 The two remaining errors were both *type* errors, not name errors: `Monster` (a brand) matched a
 Shawn Mendes audio track, and `Q` (a character) matched a Star Wars comic. Both were retracted through

@@ -13,10 +13,11 @@
 
 use serde_json::{json, Value};
 
-use super::{Claim, CoreView, Engine, FetchError, Raw, Request};
+use super::{Claim, CoreView, Engine, FetchError, Raw, Request, BATCH};
 use crate::knowledge::cache::Outcome;
 
 const SPARQL_ENDPOINT: &str = "https://query.wikidata.org/sparql";
+const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
 const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";
 const LANGUAGE: &str = "en";
 const SEARCH_LIMIT: usize = 10;
@@ -91,10 +92,86 @@ impl Wikidata {
         ranked.sort_by(|a, b| b.score.total_cmp(&a.score));
         let best = &ranked[0];
         let runner_up = ranked.get(1).map(|other| other.score).unwrap_or(0.0);
-        if best.score < CLAIM_BAR || best.score - runner_up < CLAIM_MARGIN {
+        // Half the disambiguating words, not a third. One of three cleared the old bar, which is how
+        // `Suspicion` (a Matsumoto novel) claimed a Dürrenmatt one on the word "novel" alone.
+        if best.fit < HINT_MIN_SUPPORT
+            || best.score < CLAIM_BAR
+            || best.score - runner_up < CLAIM_MARGIN
+        {
             return Vec::new();
         }
         vec![claim(best.candidate, "search_hint", confidence(best.score).min(0.85))]
+    }
+
+    async fn search(&self, query: &str) -> Result<Raw, FetchError> {
+        let response = self
+            .client
+            .get(SEARCH_ENDPOINT)
+            .query(&[
+                ("action", "wbsearchentities"),
+                ("format", "json"),
+                ("language", LANGUAGE),
+                ("uselang", LANGUAGE),
+                ("limit", "10"),
+                ("search", query),
+            ])
+            .send()
+            .await
+            .map_err(|error| FetchError::Failed(error.to_string()))?;
+        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(FetchError::RateLimited {
+                retry_after_secs: 60,
+            });
+        }
+        let status = response.status();
+        if !status.is_success() {
+            return Err(FetchError::Failed(format!("wikidata search returned {status}")));
+        }
+        let body: Value = response
+            .json()
+            .await
+            .map_err(|error| FetchError::Failed(error.to_string()))?;
+        let candidates: Vec<Candidate> = body
+            .get("search")
+            .and_then(Value::as_array)
+            .map(|rows| {
+                rows.iter()
+                    .filter_map(|row| {
+                        // `wbsearchentities` puts the text under `display.{label,description}.value`;
+                        // a top-level `label` does not exist, so reading it yields None for every
+                        // candidate and nothing can ever match.
+                        let display = |key: &str| {
+                            row.get("display")
+                                .and_then(|d| d.get(key))
+                                .and_then(|v| v.get("value"))
+                                .and_then(Value::as_str)
+                                .or_else(|| row.get(key).and_then(Value::as_str))
+                                .map(str::to_string)
+                        };
+                        Some(Candidate {
+                            id: row.get("id")?.as_str()?.to_string(),
+                            label: display("label"),
+                            description: display("description"),
+                            classes: Vec::new(),
+                        })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        Ok(if candidates.is_empty() {
+            Raw {
+                outcome: Outcome::Empty,
+                payload: None,
+            }
+        } else {
+            Raw {
+                outcome: Outcome::Found,
+                payload: Some(json!({
+                    "candidates": candidates.iter().map(Candidate::to_json).collect::<Vec<_>>()
+                })),
+            }
+        })
     }
 
     fn kind_for_handle(platform: &str) -> Option<String> {
@@ -110,6 +187,15 @@ impl Wikidata {
 impl Engine for Wikidata {
     fn id(&self) -> &'static str {
         "wikidata"
+    }
+
+    /// The search endpoint takes one query per call; only SPARQL batches.
+    fn batch_size(&self, kind: &str) -> usize {
+        if kind == "search" {
+            1
+        } else {
+            BATCH
+        }
     }
 
     fn plan(&self, core: &CoreView) -> Vec<Request> {
@@ -136,12 +222,23 @@ impl Engine for Wikidata {
         requests
     }
 
-    /// No second request. `search_query` is disambiguation *evidence* for ranking, not a lookup:
-    /// Wikidata's entity search is a label matcher, and a string like "Sunset Boulevard 1950 film"
-    /// returns nothing from it. Genuine full text would need `list=search` and a page→QID hop, which
-    /// is deferred until the label path has been measured over the corpus.
-    fn plan_fallback(&self, _core: &CoreView) -> Vec<Request> {
-        Vec::new()
+    /// Stage two: search for the **bare label** when the exact-label lookup produced no claim.
+    ///
+    /// This is a lookup fallback, not a ranking signal. Wikidata labels `J. R. R. Tolkien` and
+    /// `D. H. Lawrence` *with spaces*; our exact-label SPARQL sends `J.R.R. Tolkien` and gets nothing,
+    /// while search finds Q892 immediately. Measured on 20 random empty-label cores: 4 recoverable
+    /// this way.
+    fn plan_fallback(&self, core: &CoreView) -> Vec<Request> {
+        let label = core.label.trim();
+        if label.is_empty() {
+            return Vec::new();
+        }
+        vec![Request {
+            provider: "wikidata",
+            shape: Self::shape("search"),
+            kind: "search".to_string(),
+            query: label.to_string(),
+        }]
     }
 
     fn parse(&self, core: &CoreView, request: &Request, raw: &Raw) -> Vec<Claim> {
@@ -168,6 +265,35 @@ impl Engine for Wikidata {
                 .map(|candidate| claim(candidate, "p2002", 0.95))
                 .into_iter()
                 .collect();
+        }
+
+        // A search answer is weaker evidence: accept it only when a single candidate's label is the
+        // *same surface* once punctuation and spacing are ignored. Anything else goes to the ranker.
+        if request.kind == "search" {
+            let ours = surface_key(&core.label);
+            let same: Vec<&Candidate> = candidates
+                .iter()
+                .filter(|candidate| {
+                    candidate
+                        .label
+                        .as_deref()
+                        .is_some_and(|label| surface_key(label) == ours)
+                })
+                .collect();
+            if same.len() != 1 {
+                return Vec::new();
+            }
+            // A matching surface is not enough — the description has to corroborate it, exactly as on
+            // the label path. Without this, `Audi` (a car brand) claims a *family name* and
+            // `A Pattern Language` claims a 2011 master's thesis, both of which match the surface.
+            let weights = Weights::over(&candidates);
+            let theirs = content_tokens(same[0].description.as_deref().unwrap_or_default());
+            let ours = content_tokens(core.description.as_deref().unwrap_or_default());
+            return if weights.fit(&theirs, &ours) >= FIT_FLOOR {
+                vec![claim(same[0], "search_lookup", 0.85)]
+            } else {
+                Vec::new()
+            };
         }
 
         let mut ranked = rank(core, &candidates);
@@ -206,6 +332,14 @@ impl Engine for Wikidata {
         let Some(first) = requests.first() else {
             return Ok(Vec::new());
         };
+        if first.kind == "search" {
+            let mut answers = Vec::with_capacity(requests.len());
+            for request in requests {
+                answers.push((request.query.clone(), self.search(&request.query).await?));
+            }
+            return Ok(answers);
+        }
+
         let query = if let Some(property) = Self::property_of(&first.kind) {
             sparql_for_handles(requests, property)
         } else {
@@ -409,6 +543,8 @@ const FIT_MARGIN: f32 = 0.10;
 /// Weight of matched evidence at which a claim is half-convincing. A scale, not a threshold: two
 /// common words land well below it, two rare ones well above.
 const EVIDENCE_SCALE: f32 = 3.0;
+/// The hint is only trusted when at least half of its disambiguating words are accounted for.
+const HINT_MIN_SUPPORT: f32 = 0.50;
 /// The hint fallback is decided on the same margin.
 const CLAIM_BAR: f32 = 0.60;
 const CLAIM_MARGIN: f32 = 0.10;
@@ -509,6 +645,16 @@ fn hint_tokens(core: &CoreView) -> Option<Vec<String>> {
         .filter(|token| !named.contains(token))
         .collect();
     (!hint.is_empty()).then_some(hint)
+}
+
+/// A surface with punctuation, spacing and case removed: `J. R. R. Tolkien` and `J.R.R. Tolkien` are
+/// the same name, and Wikidata writes the first.
+fn surface_key(surface: &str) -> String {
+    surface
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 
 fn content_tokens(text: &str) -> Vec<String> {
@@ -729,7 +875,7 @@ mod tests {
                 "Sunset Boulevard",
                 Some("1950 American film noir directed by Billy Wilder about a faded silent-screen star"),
             ),
-            &request("search", "Sunset Boulevard 1950 film"),
+            &request("label", "Sunset Boulevard"),
             &found(candidates),
         );
         assert_eq!(claims.len(), 1, "{claims:?}");
@@ -857,7 +1003,40 @@ mod tests {
         assert_eq!(plans[0].kind, "handle:P2002");
         assert_eq!(plans[1].kind, "label");
 
-        assert!(engine().plan_fallback(&core).is_empty(), "no second request");
+        // Stage two searches for the bare label: that is the lookup blind spot it exists for.
+        let fallback = engine().plan_fallback(&core);
+        assert_eq!(fallback.len(), 1);
+        assert_eq!(fallback[0].kind, "search");
+        assert_eq!(fallback[0].query, "Alexey Kutepov");
+    }
+
+    /// Wikidata labels `J. R. R. Tolkien` with spaces; our label has none. Search finds it, and the
+    /// surface comparison ignores the difference.
+    #[test]
+    fn a_search_answer_is_accepted_on_a_punctuation_variant() {
+        let claims = engine().parse(
+            &core("J.R.R. Tolkien", Some("English author, philologist, and academic")),
+            &request("search", "J.R.R. Tolkien"),
+            &found(json!([
+                {"id": "Q892", "label": "J. R. R. Tolkien", "description": "English writer and philologist"},
+                {"id": "Q3805090", "label": "J.R.R. Tolkien's The Lord of the Rings, Vol. I", "description": "DOS game"}
+            ])),
+        );
+        assert_eq!(claims.len(), 1, "{claims:?}");
+        assert_eq!(claims[0].id, "Q892");
+        assert_eq!(claims[0].method, "search_lookup");
+    }
+
+    /// Anything that is not the same surface is left to the ranker, which the search stage does not
+    /// attempt — a weak lookup must not become a weak claim.
+    #[test]
+    fn a_search_answer_without_a_surface_match_claims_nothing() {
+        let claims = engine().parse(
+            &core("Clawdbot", Some("an open-source personal AI agent harness")),
+            &request("search", "Clawdbot"),
+            &found(json!([{"id": "Q1", "label": "Clawdbot Pro", "description": "something else"}])),
+        );
+        assert!(claims.is_empty(), "{claims:?}");
     }
 
     #[test]

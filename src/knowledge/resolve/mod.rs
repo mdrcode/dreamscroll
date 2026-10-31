@@ -19,12 +19,12 @@ use crate::{database, model};
 /// How many queries go into one transport call. Providers that cannot batch ignore the chunking and
 /// answer one request per query; the executor does not care.
 #[cfg(not(test))]
-const BATCH: usize = 50;
+pub(crate) const BATCH: usize = 50;
 
 /// Smaller under test, so a second transport call — where the rate limit is exercised — is reachable
 /// with a handful of cores.
 #[cfg(test)]
-const BATCH: usize = 2;
+pub(crate) const BATCH: usize = 2;
 
 /// What a provider is allowed to see about a core. Deliberately small: a provider gets the surface,
 /// the type, the text and its identifiers, and nothing about who captured it.
@@ -113,6 +113,13 @@ pub trait Engine: Send + Sync {
     /// Turn an answer into claims. Pure: same core plus same answer, same claims. The core is
     /// passed because deciding between ambiguous candidates needs its description and type.
     fn parse(&self, core: &CoreView, request: &Request, raw: &Raw) -> Vec<Claim>;
+
+    /// How many queries this kind can answer in one network call. The executor chunks by this and
+    /// paces each call, so a kind that cannot batch is throttled per query instead of fired as a
+    /// burst — which is how the search endpoint got us rate limited.
+    fn batch_size(&self, _kind: &str) -> usize {
+        BATCH
+    }
 
     /// The only network call in the system. `requests` are all the same kind and shape.
     async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError>;
@@ -299,7 +306,7 @@ async fn fetch_plans(
             continue;
         }
 
-        for chunk in misses.chunks(BATCH) {
+        for chunk in misses.chunks(engine.batch_size(&kind)) {
             if report.fetched >= options.max_requests {
                 report.budget_exhausted = true;
                 break;
