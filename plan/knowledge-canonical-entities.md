@@ -1,7 +1,12 @@
 # Knowledge entities — observations, the core graph, and the evidence behind it
 
 **Status:** Design, second revision (2026-10-31). Three tables, named for their layers:
-**UserKnowledgeEntity**, **CoreKnowledgeEntity**, **CoreKnowledgeEvidence**. Nothing implemented.
+**UserKnowledgeEntity**, **CoreKnowledgeEntity**, **CoreKnowledgeEvidence**.
+
+**Implemented so far** (schema version 10): the observation and core tables, `knowledge::normalize`
+and `knowledge::score`, and `dreamscroll_knowledge migrate | build_core | stats`. Linking is offline —
+no authority calls, no `core_knowledge_evidence`, no merges or candidate view yet. The application
+still writes `knowledge_user`; `migrate` copies into `user_knowledge_entities`.
 Raw illuminations are retained, so any schema here can be built from scratch rather than migrated —
 treat that as licence to choose the right model rather than the cheapest transition.
 
@@ -149,7 +154,10 @@ Readings that shape the design:
 13. **The capture is an identity feature.** Sibling entities are the best disambiguation context we
     have: `Django` beside `Python` and `web framework` is the framework. Context ranks; it never
     auto-accepts.
-14. **No edge table yet.** Co-capture connectedness is a join over `user_knowledge_entities`. Add
+14. **A bad core is repaired by recomputing, never by editing.** Retire, unlink, seed if the fix
+    needs it, relink — in one transaction. The observation table is untouched, which is what makes the
+    operation safe and repeatable. §Repair.
+15. **No edge table yet.** Co-capture connectedness is a join over `user_knowledge_entities`. Add
     `core_knowledge_edges` when we have non-derived edges — a persona relation, an LLM-asserted
     relation, a user-drawn link.
 
@@ -198,7 +206,7 @@ core_knowledge_entities                    -- the referent; owned by nobody
   index  using gin (aliases)             -- the only blocking index
   index  (status) where status = 'provisional'
 
-core_knowledge_evidence                    -- the justification; append-only
+core_knowledge_evidence                    -- the justification; append-only (lands with resolution)
   id
   core_id              i32 not null -> core_knowledge_entities.id
   related_core_id      i32 null -> core_knowledge_entities.id   -- collision other / merge child
@@ -363,6 +371,95 @@ Two captures can create two provisional cores for one new referent. The unique i
 second resolution into a merge; until then the overlay shows two rows. Accepted, recorded in
 [pragmatism.md](pragmatism.md).
 
+## Repair: (retire, unlink, seed?, relink)
+
+**Not implemented.** This is the mechanism every later correction runs through, so it is specified
+before the code that will need it.
+
+A bad core — two referents fused, one referent split across two cores, an observation pointing at the
+wrong thing — is not edited. It is **recomputed**, because the core graph is a projection over
+observations and evidence. The observation table is never rewritten, `core_id` is nullable, and
+nothing else about an observation depends on its referent. That is what makes repair cheap, local and
+repeatable.
+
+Every repair is **one transaction** with up to four steps:
+
+1. **Retire** the bad core. If a single replacement exists, `superseded_by_id = <replacement>`;
+   otherwise delete it — a split has no single replacement, and once its observations are unlinked and
+   its evidence moved to the seeds, nothing should point at it. `status` is a projection and stays
+   one: retirement is a pointer or a deletion, never a status value.
+   This is the step that is easy to forget and the one that decides whether the repair converges:
+   leave the core in the candidate set and the re-link finds it again and reproduces the exact
+   badness the repair was meant to fix.
+2. **Unlink** its observations: `core_id = NULL … RETURNING id`. Nothing else on those rows changes —
+   not the name, not the description, not the capture.
+3. **Seed**, only when the fix depends on information no live core carries. Seed the cores that
+   address the badness *with the evidence that separates the observations* — an identifier, a type, a
+   description — not merely new labels.
+4. **Relink** exactly the unlinked ids, in observation-id order, against every live core.
+
+### Why re-linking is not just "run it again"
+
+The scorer is deterministic. Given the same anchors it returns the same answer, so a repair only
+works if the anchor set changed — a core retired, a core seeded with distinguishing evidence. The
+shape of the fix decides which steps are load-bearing:
+
+| Badness | Retire | Unlink | Seed | What makes the relink succeed |
+| --- | --- | --- | --- | --- |
+| **Wrong merge** — two referents, one core | the fused core | its observations | no, if the two correct cores already exist | the fused core is gone, so each observation chooses between real referents |
+| **Wrong split** — one referent, two cores | the loser | its observations | no | the survivor's aliases and token keys already cover the surfaces |
+| **Wrong referent** — points at the wrong thing | no | the observation | yes, a core with the right identifier | an identifier is decisive (G4) |
+| **Collision** — one name, two referents, one core | the core | its observations | yes, one seed per referent | the seeds differ in something the scorer can see: type, description, identifier |
+
+### Mechanics
+
+- **The veto set is pre-populated, not rebuilt.** The same-capture veto is a set of `(core, capture)`
+  pairs. During a normal build it accumulates as the linker runs; during a repair most pairs already
+  exist, so the set must be seeded from `user_knowledge_entities` first. Otherwise the repair can fold
+  a capture's second observation into a core that already holds one of that capture's rows.
+- **Scope is the retired core's observations**, plus any core the repair names. Not a full rebuild.
+- **Deterministic order.** Process by observation id, exactly as `build_core` does, or a repair and a
+  rebuild disagree about the same input.
+- **Isolation.** `SELECT … FOR UPDATE` on the affected observations, or the `pg_advisory_xact_lock`
+  pattern `sync_schema` already uses. Two repairs touching neighbouring cores otherwise interleave.
+- **Atomicity is user-visible.** Outside a transaction, the overlay renders observations with
+  `core_id IS NULL` — entities that exist but have no referent. The commit is what stops that being
+  observable.
+- **A targeted recompute is not a rebuild.** Earlier assignments are not re-evaluated, so a repair
+  yields *a* valid partition, not *the* partition a full rebuild would produce. That is the price of
+  preserving every prior decision, and it is the right price.
+
+### The line between pointers and evidence
+
+`core_id` records an outcome. Anything a future rebuild must respect — a forced link, "these two are
+not the same" — has to be an **evidence row** (`identity_claim` / `identity_rejection`, `source =
+user`), because a rebuild reads evidence and discards pointers. Without that, the graph has two
+classes of decision: those it can replay, and those that live only in a column.
+
+### Convergence property
+
+> Applying the same repair twice yields the same partition, and the second run creates no cores and
+> links nothing.
+
+That is the acceptance test for the machinery, and it is cheap: run it twice in a test and compare the
+`(observation → core)` mapping.
+
+### Why this is the test of the model
+
+If a wrong merge can be undone in one transaction without touching a single observation, the
+projection framing holds: the graph is derived, disagreements are about derivation, and history stays
+intact. If a repair ever needs to rewrite an observation, the model has failed somewhere upstream.
+
+### Command shape (future)
+
+```sh
+dreamscroll_knowledge repair --core 812 --retire --into 914
+dreamscroll_knowledge repair --core 812 --split \
+    --seed "Dune|book|Q219559" --seed "Dune|movie|Q21100355"
+```
+
+The seeding is the part a human supplies; everything else is mechanical, which is the point.
+
 ## Evidence and the projection
 
 | kind | `value` | source | purpose |
@@ -386,7 +483,7 @@ second resolution into a merge; until then the overlay shows two rows. Accepted,
 | `status` | `identified` if an identifier exists; `contested` if a `collision` row does; else `provisional` |
 | `confidence` | the max identity score behind the current claim |
 | `aliases` | normalized union of authority labels/sitelinks/aliases and every observation's `name` + `platform_display_name`, deduped and capped |
-| `superseded_by_id` | written by `merge` only |
+| `superseded_by_id` | written by `merge`, and by a repair that replaces a core |
 
 Every projected column records its source (`description_source`, the evidence row, the observation), so
 any later question about an attribute can be answered without re-deriving it. Whether a given attribute
@@ -520,6 +617,8 @@ Graph:
   external public source; volume of mentions is never evidence.
 - **G6.** A core with no observation and no identifier is garbage: deleting a capture leaves it
   unreachable, and it is collected.
+- **G7.** A repair is a single transaction. At commit no observation points at a retired core, and no
+  observation is left unlinked.
 
 Association:
 
@@ -565,7 +664,7 @@ Not a design constraint, and deliberately not in the schema. Recorded here so it
 | **0 — Measure** | `entities stats`; the tables above reproduce. | Numbers in this doc come from the command. |
 | **1 — Link** | Three tables; normalization; blocking; `link()` without resolution; upsert-by-position; overlay query; `/api/core/{id}`; backfill from `resolved.jsonl`. | Re-running the backfill changes nothing; the 408 cross-capture name groups collapse correctly on a spot audit; the overlay is one join. |
 | **2 — Resolve** | Label → full-text → handle; evidence; `project()`; status; the cache. | Zero requests on a second run; statuses match the prototype's per-row verdicts on a sample; no core column holds text that came from an observation's description. |
-| **3 — Score** | The scorer; two regimes; vetoes; the review view; neighbourhood; collisions. | Merge precision ≥ 0.95 on 50 pairs; the 8 intra-capture homonyms never merge; re-tuning a weight re-derives without a data change. |
+| **3 — Score** | The scorer; two regimes; vetoes; the review view; neighbourhood; collisions; `retire`/`unlink`/`relink` and the `repair` command. | Merge precision ≥ 0.95 on 50 pairs; the 8 intra-capture homonyms never merge; re-tuning a weight re-derives without a data change; a repair run twice yields the same partition. |
 | **4 — Share** | Promotion on identifier; enrichment; shared descriptions; background re-link. | Link precision ≥ 0.9 on 50 labelled mentions; the measured wrong referents are rejected; a second user's `Elon Musk` costs zero network calls; describe reads no private table (test). |
 | **5 — Graph** | `/graph` over cores and co-capture edges. | Renders 2k nodes with pan/zoom. |
 
@@ -609,6 +708,7 @@ Not a design constraint, and deliberately not in the schema. Recorded here so it
 | Risk | Mitigation |
 | --- | --- |
 | Same-name distinct people merge. | Scorer + vetoes + precision-first bars; every merge stores its feature vector. |
+| A repair re-derives the same badness. | Retire before unlinking (step 1), and seed with the evidence that separates the observations — a label alone changes nothing the scorer can see. |
 | Transitive mega-cluster. | Leaf-into-root for automatic merges; flattening bounds the blast radius; unmerge restores exactly the moved ids. |
 | Two unverified hypotheses merge across users, so one mistake lands in two graphs. | Scored and reversible, the merge row keeps the feature vector, and the result stays provisional — nothing is published on the strength of it. |
 | Provisional cores accumulate and never resolve. | They are a permanent population (34.6% of prod); the review view is their only exit. Measure the share over time. |
