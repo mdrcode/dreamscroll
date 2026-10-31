@@ -32,7 +32,7 @@ person and the persona appear as separate entities.
 What is actually missing is that the persona name is a **label, not a node**. `Tsoding`, `Meta-Nomad`
 and `clara` live in `display_name` or in prose ("known online as Tsoding"), so a later capture that
 shows only the persona cannot match the person. The fix is an `aliases` array on the entity (persona
-names, pseudonyms, work subtitles), which flows into `knowledge_core.aliases` and lets the two
+names, pseudonyms, work subtitles), which flows into `core_knowledge_entities.aliases` and lets the two
 match without splitting the node (see [knowledge-canonical-entities.md](knowledge-canonical-entities.md)).
 
 If a persona ever needs to be a node of its own — the user keeps the persona's work separate from the
