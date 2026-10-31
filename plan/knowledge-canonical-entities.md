@@ -72,7 +72,7 @@ Three tables answering three different questions:
 
 | Value | Publishable? | Where it lives |
 | --- | --- | --- |
-| Canonical label, aliases, authority description, identifier, type | yes | `core_knowledge_entities` |
+| Canonical label, aliases, authority description, identifier, type | yes | `core_knowledge_entities` — **including provisional rows** |
 | `"the documentary about him that I saved"` | no | `user_knowledge_entities.description` |
 | The user's spelling `"the Elon guy"` | no | `user_knowledge_entities.name` |
 | Co-capture edges, related-entity ranking | no | derived from `user_knowledge_entities` |
@@ -128,19 +128,19 @@ Readings that shape the design:
 2. **The user entity is the observation and the only owned thing.** It carries the verbatim name,
    description, `search_query`, platform link and the illumination position. Merging never rewrites
    any of it; the only column that changes is `core_id`.
-3. **The core has no owner column.** A referent is not owned. What varies between cores is how well
-   substantiated they are, which is a projected `status` — `provisional`, `identified`, `contested`.
+3. **The core has no owner column, because every column in it is publishable.** A referent is not
+   owned, and nothing in the row depends on who noticed it. What varies between cores is how well
+   substantiated they are — a projected `status` of `provisional`, `identified` or `contested`.
 4. **Every read starts at the observation.** `user_knowledge_entities where user_id = :me` left
    joined to the core: a user reaches a core only through one of their own observations, so the
    privacy guarantee is the *shape of the query* — no owner column, no visibility predicate on the
-   join, no cross-user join to get wrong.
-5. **Cross-user linking requires an identified core.** Separately from privacy, the linker refuses to
-   attach an observation to another user's *provisional* core:
-   `status = 'identified' OR NOT EXISTS (select 1 from user_knowledge_entities e
-   where e.core_id = c.id and e.user_id <> :me)`. A provisional core is an unverified hypothesis, and
-   fusing two users' unverified claims propagates one person's mistake into the other's graph. Its
-   projected `label` and `aliases` are derived from observations, so a mixed-owner core would either
-   leak a surface or force the projection to become viewer-dependent.
+   join, no cross-user join to get wrong. Direct access by id needs no gate either, because the row
+   itself is publishable (S1).
+5. **A merge is scored over publishable attributes and may cross users at any status.** Alice's
+   provisional core and Bob's nearby observation are one referent if the scorer says so; the result is
+   a provisional core supported by two users' captures, which is *better* evidence than either alone.
+   What makes this safe is not an ownership rule but S1: a merge combines only data that was already
+   publishable, so it copies no one's private text, and a mistake is one pointer away from undone.
 6. **Merge is a scored decision.** Blocking proposes; a scorer compares the observation *with its
    capture context* against the anchor. §The write path.
 7. **Two regimes.** speculative → substantiated is a strong claim with a high bar; speculative →
@@ -177,6 +177,7 @@ user_knowledge_entities                    -- the observation; the only owned ro
   illumination_id i32 not null -> illuminations.id
   position       i32 not null
   name           text not null            -- verbatim, as the model wrote it
+  normalized_name text not null           -- blocking key; never copied into the core
   entity_type    text not null            -- as the model guessed it
   description    text null                -- the model's reading of this capture
   search_query   text null                -- disambiguation hint, often populated
@@ -187,6 +188,7 @@ user_knowledge_entities                    -- the observation; the only owned ro
   created_at
   unique (illumination_id, position)      -- replay-safe illumination
   index (user_id, core_id)
+  index (normalized_name)                 -- cross-user blocking without copying surfaces
   index (capture_id, core_id)             -- overlay + neighbourhood feature
 
 core_knowledge_entities                    -- the referent; owned by nobody
@@ -201,7 +203,7 @@ core_knowledge_entities                    -- the referent; owned by nobody
   status           text not null          -- provisional | identified | contested (projected)
   confidence       real null              -- best identity score behind the claim
   superseded_by_id i32 null -> core_knowledge_entities.id
-  aliases          text[] not null default '{}'   -- normalized surfaces
+  aliases          text[] not null default '{}'   -- authority aliases only (publishable)
   created_at, updated_at
   unique (wikidata_qid) where wikidata_qid is not null
   unique (platform, lower(platform_handle)) where platform_handle is not null
@@ -229,12 +231,17 @@ core_knowledge_evidence                    -- the justification; append-only
   index (related_core_id) where related_core_id is not null
 ```
 
-**Why there is no `owner_user_id` on the core.** Ownership describes the observation, not the
-referent; a core row that says "this is Kyle Chandler" is not Bob's. Reads never need it either: they
-begin at the viewer's observations (decision 4), so a core with none of yours is simply not in the
-result set. What the linker needs to know is narrower — whether a provisional core is *already someone
-else's hypothesis* — and decision 5 asks that of the links themselves: one `NOT EXISTS` per
-observation, and no column that can drift away from the rows that contradict it.
+**Why there is no `owner_user_id` on the core.** Ownership describes the observation, not the referent;
+a core row that says "this is Kyle Chandler" is not Bob's. It is also unnecessary: reads begin at the
+viewer's observations (decision 4), and every core column is publishable (S1), so no access rule an
+owner column could express would change an answer. Two users' provisional cores converging (decision
+5) is intended behaviour, not a boundary to police.
+
+**Why user surfaces never enter the core.** `core_knowledge_entities.aliases` holds authority aliases
+only, and `normalized_name` holds the canonical label. The observation keeps the verbatim surface, so
+blocking a new observation against every core seen with that surface is an index scan on
+`user_knowledge_entities.normalized_name` that returns core ids and no text. That single move is what
+lets S1 be unconditional: there is no field in the core a user's phrasing could be written into.
 
 **Why the dedupe key includes `md5(value)`.** Keyed on the query shape alone, a second candidate set
 from the same lookup would collide with the first and be dropped by `on conflict do nothing`, so a
@@ -306,8 +313,8 @@ Recall-oriented and deliberately over-generating: exact `normalized_name` or `al
 same `(platform, lower(handle))`; a QID the observation already carries (from the resolution cache);
 token-set equality over the candidate set, in-app.
 
-Cross-user candidates are filtered by decision 5's condition before scoring, so a foreign provisional
-core never becomes a candidate.
+Candidates are not filtered by owner. Another user's provisional core is a legitimate candidate, and
+that is precisely how two captures of the same thing converge (decision 5).
 
 ### Scoring
 
@@ -328,10 +335,17 @@ real negative; when both are model-assigned, disagreement is evidence about the 
 
 ### Regimes
 
-| Regime | Anchor | Bar | Effect |
+The bar follows what the anchor can verify, not who owns it:
+
+| Regime | Anchor | Evidence available | Bar |
 | --- | --- | --- | --- |
-| speculative → substantiated | `status = identified` | high | strong claim; flatten and record |
-| speculative → speculative | `status = provisional`, same user | low | dedupe only, private, reversible |
+| speculative → substantiated | `status = identified` | an identifier, so identity is decidable | decisive on a QID or handle match; high otherwise |
+| speculative → speculative | `status = provisional` (either user) | name, description, capture neighbourhood | the normal scored bar; reversible |
+
+A provisional→provisional merge across users is the point of a shared core: two independent captures
+are better evidence than one, and the row stays provisional until an identifier arrives. The asymmetry
+that survives is the contradiction rule — one dissenting feature blocks a merge into a thin anchor and
+cannot overturn a substantiated one.
 
 Thresholds are constants in one module with a table test, and every merge stores the score and the
 feature vector it was computed from. Without that, re-tuning the weights means re-deriving the graph.
@@ -369,7 +383,7 @@ second resolution into a merge; until then the overlay shows two rows. Accepted,
 
 | Column | Derived from |
 | --- | --- |
-| `label` | authority label, else the most frequent observation name |
+| `label` | authority label, else the most frequent observation name that passes a name-shape check (a proper name, not a possessive or a sentence fragment) |
 | `entity_type` | authority `P31` map, else the modal observation type |
 | `description` | `description` evidence with an authority source; **null if none** |
 | `wikidata_qid` / `platform*` | the highest-confidence `ontology` / `platform_link` evidence |
@@ -377,6 +391,10 @@ second resolution into a merge; until then the overlay shows two rows. Accepted,
 | `confidence` | the max identity score behind the current claim |
 | `aliases` | authority aliases plus every observation surface |
 | `superseded_by_id` | written by `merge` only |
+
+Every projected column has to pass S1. A projection that copies caption text, a possessive phrase or a
+user's commentary into the core is a **bug in `project()`**, never a reason to restrict merging — which
+is the division of responsibility that keeps the merge model simple.
 
 `mention_count` and `distinct_users` are **not** columns: they are `count(*)` / `count(distinct
 user_id)` over the overlay, and a stored copy would be one more thing that can disagree with the rows.
@@ -473,14 +491,10 @@ observations is not in the result set. There is no visibility predicate to forge
 to keep honest. Add the latest-illumination and archived-capture filters with the existing read
 guards.
 
-Direct access needs one check that the overlay gets for free:
-
-```sql
--- a core page or a search hit
-where c.status = 'identified'
-   or exists (select 1 from user_knowledge_entities e
-              where e.core_id = c.id and e.user_id = $1);
-```
+Direct access by id needs no gate: every core column is publishable (S1), so `/api/core/{id}` reveals
+nothing private. What stays private is the observation list attached to a core — a core page renders
+**only the viewer's own observations**, grouped by capture. Serving another user's observation rows
+there would be the leak, and it is a join predicate, not a policy.
 
 - `GET /api/core/{id}` returns the core, its evidence grouped by kind, its observations grouped by
   capture, its collisions, and its merge children.
@@ -494,8 +508,9 @@ where c.status = 'identified'
 
 Publishability:
 
-- **S1.** Every column of a `core_knowledge_entities` row with `status <> 'provisional'` is safe to
-  show to any user, knowing nothing about who captured anything.
+- **S1.** Every column of **every** `core_knowledge_entities` row is safe to show to any user, knowing
+  nothing about who captured it — provisional rows included. This is the invariant that makes
+  cross-user merging safe: a merge can only combine data that was already publishable.
 - **S2.** An observation may *trigger* a shared core; it may never *populate* one. The mechanical
   form: `description`, `label`, `aliases`, `entity_type` on a shared row come from authority evidence.
   Test: regenerate the row from its evidence alone and it must match.
@@ -514,10 +529,9 @@ Association:
   is the entire visibility model: no per-row ACL, no filter to remember.
 - **A3.** A shared core page renders the shared definition only: no counts, no ids, no "also captured
   by", no cross-user co-occurrence.
-- **A4.** A provisional core's observations all belong to one user. This is not a privacy rule (A2
-  covers that) but a correctness and projection rule: unverified hypotheses must not fuse across
-  users, and `label`/`aliases` derive from observations, so a mixed-owner core would either leak a
-  surface or need a viewer-dependent projection. Enforced in the linker, asserted in a test.
+- **A4.** A merge never moves an observation's private text into the core, and a core page never
+  renders another user's observations. Mixed-owner cores are normal; a core holding caption text is a
+  `project()` bug. Asserted in a test over the projection inputs.
 - **A5.** Aggregate statistics over shared rows are a separate product decision with k-anonymity.
 
 ## Backfill and measurement
@@ -537,7 +551,7 @@ Association:
 | --- | --- | --- |
 | **0 — Measure** | `entities stats`; the tables above reproduce. | Numbers in this doc come from the command. |
 | **1 — Link** | Three tables; normalization; blocking; `link()` without resolution; upsert-by-position; overlay query; `/api/core/{id}`; backfill from `resolved.jsonl`. | Re-running the backfill changes nothing; the 408 cross-capture name groups collapse correctly on a spot audit; the overlay is one join. |
-| **2 — Resolve** | Label → full-text → handle; evidence; `project()`; status; the cache. | Zero requests on a second run; statuses match the prototype's per-row verdicts on a sample; no observation points at a foreign provisional core. |
+| **2 — Resolve** | Label → full-text → handle; evidence; `project()`; status; the cache. | Zero requests on a second run; statuses match the prototype's per-row verdicts on a sample; no core column holds text that came from an observation's description. |
 | **3 — Score** | The scorer; two regimes; vetoes; the review view; neighbourhood; collisions. | Merge precision ≥ 0.95 on 50 pairs; the 8 intra-capture homonyms never merge; re-tuning a weight re-derives without a data change. |
 | **4 — Share** | Promotion on identifier; enrichment; shared descriptions; background re-link. | Link precision ≥ 0.9 on 50 labelled mentions; the measured wrong referents are rejected; a second user's `Elon Musk` costs zero network calls; describe reads no private table (test). |
 | **5 — Graph** | `/graph` over cores and co-capture edges. | Renders 2k nodes with pan/zoom. |
@@ -561,6 +575,7 @@ Association:
 | --- | --- |
 | **Seven tables (nodes / aliases / merges / candidates / public_*)** | Over-partitioned: the shared layer is a status, aliases are an array, candidates are a view, merges are evidence. Less schema, same invariants. |
 | **`owner_user_id` on the core** | Ownership describes the observation, not the referent; the property that matters is substantiation. It also drifts against the links that contradict it. |
+| **Forbid cross-user merges on provisional cores** (the previous revision) | Publishability already makes the merge safe, and the rule blocks the main value of a shared core: two independent captures agreeing. |
 | **A `core_knowledge_candidate` table** | A candidate is an undecided hypothesis, derivable from evidence plus the scorer. Persisting it gives a decision a second home and makes the table mutable. |
 | **Merge on `(normalized_name, type)` without scoring** | 111 of 179 collisions are type instability and 8 homonyms share a name inside one capture. |
 | **Resolve before merge, always** | Pays resolution per observation instead of per core, on the weakest possible input. |
@@ -582,7 +597,7 @@ Association:
 | --- | --- |
 | Same-name distinct people merge. | Scorer + vetoes + precision-first bars; every merge stores its feature vector. |
 | Transitive mega-cluster. | Leaf-into-root for automatic merges; flattening bounds the blast radius; unmerge restores exactly the moved ids. |
-| An observation points at a foreign provisional core. | A4 asserted in a test; one write path for `core_id`. |
+| Two unverified hypotheses merge across users, so one mistake lands in two graphs. | Scored and reversible, the merge row keeps the feature vector, and the result stays provisional — nothing is published on the strength of it. |
 | Provisional cores accumulate and never resolve. | They are a permanent population (34.6% of prod); the review view is their only exit. Measure the share over time. |
 | Type churn invalidates merges. | Type is a weak weight across model-assigned types. |
 | Resolution cost on a cold corpus. | Cache + batching + cheap paths first; steady state is free. |
