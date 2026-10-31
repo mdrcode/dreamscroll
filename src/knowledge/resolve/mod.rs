@@ -469,15 +469,21 @@ pub async fn project(conn: &sea_orm::DatabaseConnection, core_id: i32) -> anyhow
 
     // Corroboration: each additional *independent scheme* agreeing raises confidence. Two authorities
     // asserting the same referent is a stronger claim than either alone.
-    let mut schemes: HashSet<String> = HashSet::new();
+    // Corroboration counts independent *inputs*, not scheme labels. A `p2002` claim is derived from
+    // the handle — the resolver asked Wikidata which item owns that account — so counting it beside
+    // the handle's own `platform_link` row treated one chain as two and gave every handle-resolved
+    // core the maximum confidence.
+    let from_text = claims
+        .iter()
+        .any(|claim| claim.kind == "ontology" && claim.method.as_deref() != Some("p2002"));
+    let from_handle = claims.iter().any(|claim| claim.kind == "platform_link");
+    let inputs = usize::from(from_text) + usize::from(from_handle);
+
     let mut best = 0.0f32;
     for claim in &claims {
-        if let Some(scheme) = claim.value.get("scheme").and_then(Value::as_str) {
-            schemes.insert(scheme.to_lowercase());
-        }
         best = best.max(claim.confidence.unwrap_or(0.0));
     }
-    let corroboration = schemes.len().saturating_sub(1) as f32 * 0.1;
+    let corroboration = inputs.saturating_sub(1) as f32 * 0.1;
     let confidence = if claims.is_empty() {
         None
     } else {
@@ -743,22 +749,73 @@ mod tests {
         assert_eq!(core.status, "provisional");
     }
 
+    /// Two *independent inputs* — a text match and an account link — raise confidence.
     #[tokio::test]
-    async fn corroboration_raises_confidence() {
+    async fn corroboration_counts_independent_inputs() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
         let db = test_db.handle();
         let core_id = seed(&db, "Nintendo").await;
 
-        for (scheme, id) in [("fake", "Q1"), ("second", "Q2")] {
+        model::core_knowledge_evidence::Entity::insert(
+            model::core_knowledge_evidence::ActiveModel {
+                core_id: Set(core_id),
+                kind: Set("ontology".to_string()),
+                value: Set(json!({"scheme": "wikidata", "id": "Q8093"})),
+                source: Set("wikidata".to_string()),
+                method: Set(Some("exact_label".to_string())),
+                confidence: Set(Some(0.8)),
+                ..Default::default()
+            },
+        )
+        .exec(&db.conn)
+        .await
+        .unwrap();
+        model::core_knowledge_evidence::Entity::insert(
+            model::core_knowledge_evidence::ActiveModel {
+                core_id: Set(core_id),
+                kind: Set("platform_link".to_string()),
+                value: Set(json!({"scheme": "x_twitter", "id": "nintendo"})),
+                source: Set("platform".to_string()),
+                ..Default::default()
+            },
+        )
+        .exec(&db.conn)
+        .await
+        .unwrap();
+
+        project(&db.conn, core_id).await.unwrap();
+
+        let core = model::core_knowledge_entity::Entity::find_by_id(core_id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!((core.confidence.unwrap() - 0.9).abs() < 1e-6, "{core:?}");
+    }
+
+    /// A `p2002` claim *is* the handle — it must not count as a second input beside it.
+    #[tokio::test]
+    async fn a_handle_derived_claim_is_not_corroboration() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let core_id = seed(&db, "Tsoding").await;
+
+        for (kind, method, value, confidence) in [
+            ("platform_link", None, json!({"scheme": "x_twitter", "id": "tsoding"}), None),
+            ("ontology", Some("p2002"), json!({"scheme": "wikidata", "id": "Q123737256"}), Some(0.95)),
+        ] {
             model::core_knowledge_evidence::Entity::insert(
                 model::core_knowledge_evidence::ActiveModel {
                     core_id: Set(core_id),
-                    kind: Set("ontology".to_string()),
-                    value: Set(json!({"scheme": scheme, "id": id})),
+                    kind: Set(kind.to_string()),
+                    value: Set(value),
                     source: Set("test".to_string()),
-                    confidence: Set(Some(0.8)),
+                    method: Set(method.map(str::to_string)),
+                    confidence: Set(confidence),
                     ..Default::default()
                 },
             )
@@ -774,9 +831,10 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(core.status, "identified");
-        // 0.8 base + 0.1 for a second independent scheme.
-        assert!((core.confidence.unwrap() - 0.9).abs() < 1e-6, "{core:?}");
+        assert!(
+            (core.confidence.unwrap() - 0.95).abs() < 1e-6,
+            "one chain must not be paid twice: {core:?}"
+        );
     }
 
     /// A 429 is an instruction, not a fact: stop, cache nothing, and report the Retry-After.

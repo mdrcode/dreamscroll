@@ -120,8 +120,13 @@ Claims from this path are capped at 0.85 confidence, and the method recorded is 
 `status` and `confidence` are written by `project()`, and by nothing else:
 
 - `identified` when any live identity claim exists, `contested` when a live collision does.
-- `confidence` = the best claim's confidence **+ 0.1 for each additional independent scheme**, capped
-  at 1.0, where a claim's own confidence is `0.50 + 0.45 · score` (0.75 for a lone exact label).
+- `confidence` = the best claim's confidence **+ 0.1 for a second independent *input***, capped at
+  1.0, where a claim's own confidence is `0.50 + 0.45 · score` (0.75 for a lone exact label).
+
+  Inputs, not scheme labels. A `p2002` claim is derived *from* the handle — the resolver asked
+  Wikidata which item owns that account — so pairing it with the handle's own `platform_link` row is
+  one chain, not two, and must not earn a bonus. Counting labels gave all 26 handle-resolved cores
+  the maximum confidence for no extra evidence.
   Two authorities asserting the same referent is a stronger claim than either alone — this is why
   identities are plural and why a core identified only by a handle is still worth resolving.
 
