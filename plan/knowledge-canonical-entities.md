@@ -48,10 +48,10 @@ Three tables answering three different questions:
    wrote this" belongs to Bob. "This is Kyle Chandler (Q359604)" belongs to nobody — it is a claim
    about the world, and it is the same claim whoever noticed it. Ownership is therefore a property of
    the *user entity* and never of the core row.
-2. **Substantiation, not ownership, decides what is shared.** A core row is shared when it carries an
-   identifier — a QID or a platform handle — because then anyone can check it. Before that it is one
-   user's hypothesis and must not be visible to anyone else. That is a *status*, derivable from
-   evidence, not an owner column.
+2. **Substantiation, not ownership, describes a core.** A core becomes `identified` when it carries an
+   identifier — a QID or a platform handle — because then it is checkable by anyone. Before that it is
+   a hypothesis, recorded as such and not yet a referent other work should lean on. That is a *status*,
+   derived from evidence, not an owner column.
 3. **The core is a projection.** Its label, type, identifier, description and status are recomputed
    from evidence by one function. The earlier design's central failure was storing a judgement
    (`promote` / `review_disambiguation` / …): 577 rows were held because their *name was short*, and
@@ -65,29 +65,15 @@ Three tables answering three different questions:
 6. **Evidence is append-only.** A hypothesis that has not been decided is *derived*, not stored — so
    there is no mutable decisions column anywhere in the schema.
 
-### The publishability test
+### Provenance, not policy
 
-> Every column of a shared core row must be safe to show to **any** user, knowing **nothing** about
-> who captured it.
+Every core attribute records where it came from: `description_source` for the text, the evidence row
+for identifiers and aliases, the observation for a captured name. That is a graph requirement — an
+attribute you cannot attribute cannot be trusted, re-derived or audited — and it is also the only thing
+needed to answer disclosure questions later, at the read boundary, without changing the model.
 
-| Value | Publishable? | Where it lives |
-| --- | --- | --- |
-| Canonical label, aliases (authority **and** observed surfaces), authority description, identifier, type | yes | `core_knowledge_entities` — **including provisional rows** |
-| The extracted entity name, as captured | yes | `core_knowledge_entities.aliases` (normalized) |
-| The model's reading of the capture | no | `user_knowledge_entities.description` |
-| Co-capture edges, related-entity ranking | no | derived from `user_knowledge_entities` |
-| "captured by 12 users" | publishable in isolation, but aggregate behaviour | separate decision, A5 |
-
-**Measured, not assumed.** The extractor emits third-person object names. Over 4,511 distinct prod
-names: **0** emails, phone numbers or URLs; 66 `@handles`, which are public identities; and 3
-caption-like fragments — `"To me, that's cinema"`, `"Me, an intellectual"`, `"I Hate to Be the One to
-Break It to You, Kid"` — two of which are meme or song titles. The description field was already
-audited at 0 private identifiers across 5,245 rows. The private half of an observation is therefore its
-**description**; the name is a label for an object.
-
-Mechanical consequence: **`core_knowledge_entities.description` is authority-derived only.** The
-model's reading stays on the observation where it was written. There is no field a private
-description could be copied into, so the invariant is structural rather than disciplinary.
+Whether a given attribute should be **served** to someone who did not capture it is deliberately not a
+schema constraint. See §Deferred.
 
 ## What the data says
 
@@ -135,19 +121,15 @@ Readings that shape the design:
 2. **The user entity is the observation and the only owned thing.** It carries the verbatim name,
    description, `search_query`, platform link and the illumination position. Merging never rewrites
    any of it; the only column that changes is `core_id`.
-3. **The core has no owner column, because every column in it is publishable.** A referent is not
-   owned, and nothing in the row depends on who noticed it. What varies between cores is how well
-   substantiated they are — a projected `status` of `provisional`, `identified` or `contested`.
-4. **Every read starts at the observation.** `user_knowledge_entities where user_id = :me` left
-   joined to the core: a user reaches a core only through one of their own observations, so the
-   privacy guarantee is the *shape of the query* — no owner column, no visibility predicate on the
-   join, no cross-user join to get wrong. Direct access by id needs no gate either, because the row
-   itself is publishable (S1).
-5. **A merge is scored over publishable attributes and may cross users at any status.** Alice's
-   provisional core and Bob's nearby observation are one referent if the scorer says so; the result is
-   a provisional core supported by two users' captures, which is *better* evidence than either alone.
-   What makes this safe is not an ownership rule but S1: a merge combines only data that was already
-   publishable, so it copies no one's private text, and a mistake is one pointer away from undone.
+3. **The core has no owner column.** A referent is not owned: "this is Kyle Chandler (Q359604)" is the
+   same statement whoever noticed it. What varies between cores is how well substantiated they are — a
+   projected `status` of `provisional`, `identified` or `contested`.
+4. **A user's graph is their observations, joined.** Every graph read is
+   `user_knowledge_entities where user_id = :me` left joined to the core, because that is what the
+   user's graph *is*. No owner column, no visibility predicate on the join.
+5. **A merge may cross users at any status.** Alice's provisional core and Bob's nearby observation are
+   one referent if the scorer says so; the result is a core supported by two independent captures,
+   which is better evidence than either alone. The merge is scored, recorded and reversible.
 6. **Merge is a scored decision.** Blocking proposes; a scorer compares the observation *with its
    capture context* against the anchor. §The write path.
 7. **Two regimes.** speculative → substantiated is a strong claim with a high bar; speculative →
@@ -201,7 +183,8 @@ core_knowledge_entities                    -- the referent; owned by nobody
   label            text not null          -- display surface (authority, else a canonical name);
                                                -- its normalized form is always in `aliases`
   entity_type      text not null          -- authority-mapped, else modal
-  description      text null              -- authority-derived ONLY
+  description      text null              -- best available; `description_source` says from where
+  description_source text null            -- wikidata | wikipedia | model | capture
   wikidata_qid     text null
   platform         text null              -- primary identifier when no QID
   platform_handle  text null
@@ -223,7 +206,8 @@ core_knowledge_evidence                    -- the justification; append-only
   kind                 text not null   -- ontology | platform_link | description | collision
                                        -- | identity_claim | identity_rejection | merge
   value                jsonb not null
-  source               text not null   -- wikidata | wikimedia | platform | model | user | manual
+  source               text not null   -- wikidata | wikimedia | platform | capture | model
+                                       -- | user | manual
   method               text null       -- exact_label | full_text | p2002 | description_overlap
                                        -- | neighbourhood | llm | manual
   confidence           real null
@@ -235,11 +219,10 @@ core_knowledge_evidence                    -- the justification; append-only
   index (related_core_id) where related_core_id is not null
 ```
 
-**Why there is no `owner_user_id` on the core.** Ownership describes the observation, not the referent;
-a core row that says "this is Kyle Chandler" is not Bob's. It is also unnecessary: reads begin at the
-viewer's observations (decision 4), and every core column is publishable (S1), so no access rule an
-owner column could express would change an answer. Two users' provisional cores converging (decision
-5) is intended behaviour, not a boundary to police.
+**Why there is no `owner_user_id` on the core.** Ownership describes the observation, not the referent.
+A core row that says "this is Kyle Chandler" is not Bob's, and a column recording otherwise would
+contradict the merges the graph is supposed to make. Two users' provisional cores converging (decision
+5) is intended behaviour.
 
 **Aliases are an index first.** `core_knowledge_entities.aliases` holds every normalized surface the
 core is known by: authority labels, sitelinks and aliases, plus each observation's name and platform
@@ -398,16 +381,16 @@ second resolution into a merge; until then the overlay shows two rows. Accepted,
 | --- | --- |
 | `label` | authority label, else the most frequent observation name that passes a name-shape check (a proper name, not a possessive or a sentence fragment) |
 | `entity_type` | authority `P31` map, else the modal observation type |
-| `description` | `description` evidence with an authority source; **null if none** |
+| `description` | highest-priority `description` evidence: authority outranks a model reading, which outranks a capture's own text |
 | `wikidata_qid` / `platform*` | the highest-confidence `ontology` / `platform_link` evidence |
 | `status` | `identified` if an identifier exists; `contested` if a `collision` row does; else `provisional` |
 | `confidence` | the max identity score behind the current claim |
 | `aliases` | normalized union of authority labels/sitelinks/aliases and every observation's `name` + `platform_display_name`, deduped and capped |
 | `superseded_by_id` | written by `merge` only |
 
-Every projected column has to pass S1. A projection that copies caption text, a possessive phrase or a
-user's commentary into the core is a **bug in `project()`**, never a reason to restrict merging — which
-is the division of responsibility that keeps the merge model simple.
+Every projected column records its source (`description_source`, the evidence row, the observation), so
+any later question about an attribute can be answered without re-deriving it. Whether a given attribute
+should be *served* to a non-capturer is a read-boundary decision, deferred (see §Deferred).
 
 `mention_count` and `distinct_users` are **not** columns: they are `count(*)` / `count(distinct
 user_id)` over the overlay, and a stored copy would be one more thing that can disagree with the rows.
@@ -461,21 +444,26 @@ not duplicate entities, re-running illumination does.
 
 ## Descriptions
 
-Two descriptions, one per table — the cleanest mapping this design gives us:
+Two descriptions, one per table. They answer different questions and neither overrides the other:
 
 | | Lives on | Provenance | Rendered as |
 | --- | --- | --- | --- |
 | "why is this in my graph" | `user_knowledge_entities.description` | the model's reading of that capture | the observation block |
-| "what is this" | `core_knowledge_entities.description` | Wikidata claims, the Wikipedia lead, cited results | the shared block |
+| "what is this" | `core_knowledge_entities.description` | best available, source recorded: `wikidata` → `wikipedia` → `model` → `capture` | the node block |
 
-- **Inputs:** `P31`, `P106`, dates, the Wikipedia lead, cited web results for source-grounded rows.
-  Never an observation, a capture, or a private description.
+The core's description is an **attribute with provenance**, not a different kind of object. Authority
+text outranks a generated one, which outranks a capture's own reading — so a provisional entity still
+has something to show, and an authority description displaces it the moment enrichment lands. Nothing
+is lost: `description_source` and the evidence row record what was replaced.
+
+- **Generation inputs:** `P31`, `P106`, dates, the Wikipedia lead, cited web results for
+  source-grounded rows.
 - **Contract:** entity-centric, timeless, no assumed context, one or two sentences, naming the claim
   relied on.
-- **Provenance:** the `description` evidence row records source, method and model. Sourced outranks
-  generated; generation fills gaps and never invents facts.
+- **Provenance:** every description row records source, method and model. A sourced description
+  outranks a generated one; generation fills gaps and never invents facts.
 - **Refresh:** on material change to the model or the entity's claims. Cheap — once per core row.
-- **Verification:** sample audit. A wrong shared description is visible to everyone.
+- **Verification:** sample audit; a wrong shared description is visible to everyone.
 
 Rendering both is the honest UI: *what it is* / *why it's here*.
 
@@ -504,10 +492,9 @@ observations is not in the result set. There is no visibility predicate to forge
 to keep honest. Add the latest-illumination and archived-capture filters with the existing read
 guards.
 
-Direct access by id needs no gate: every core column is publishable (S1), so `/api/core/{id}` reveals
-nothing private. What stays private is the observation list attached to a core — a core page renders
-**only the viewer's own observations**, grouped by capture. Serving another user's observation rows
-there would be the leak, and it is a join predicate, not a policy.
+`/api/core/{id}` returns the node. It carries the viewer's own observations and no one else's (A3);
+anything stricter about which *attributes* are served is the deferred disclosure policy, not a
+structural decision.
 
 - `GET /api/core/{id}` returns the core, its evidence grouped by kind, its observations grouped by
   capture, its collisions, and its merge children.
@@ -519,34 +506,44 @@ there would be the leak, and it is a join predicate, not a policy.
 
 ## Invariants
 
-Publishability:
+Graph:
 
-- **S1.** Every column of **every** `core_knowledge_entities` row is safe to show to any user, knowing
-  nothing about who captured it — provisional rows included. This is the invariant that makes
-  cross-user merging safe: a merge can only combine data that was already publishable.
-- **S2.** An observation contributes **names**, never **text**. Labels, aliases and display names may
-  flow into the core; `description` may only come from authority evidence, and no other column is
-  derived from an observation's prose. Test: no core column is a function of
-  `user_knowledge_entities.description`.
-- **S2a.** Promotion of `real_person` / `social_media_account` requires an identifier — a platform
-  handle (corroborated by display name or role when promoting under the person's name) or an external
-  public source. Volume of mentions is never evidence.
-- **S3.** Deleting a user changes no shared row; their provisional cores become unreachable and are
-  garbage-collected when they have no observations and no identifier.
+- **G1.** One core per referent. A merge is a pointer (`superseded_by_id`) plus re-pointed observations;
+  nothing is deleted, and every attribute keeps its provenance.
+- **G2.** Every core attribute is attributable — `description_source`, the evidence row, or the
+  observation it came from. Nothing on a core row is an orphan.
+- **G3.** An observation points at exactly one core, and a merge changes nothing on it but `core_id`.
+- **G4.** Identity is decided by evidence, never by a name: a QID or handle match is decisive, a name is
+  a blocking key.
+- **G5.** `identified` requires an identifier. For `real_person` and `social_media_account` that is a
+  platform handle (corroborated by display name or role when promoting under the person's name) or an
+  external public source; volume of mentions is never evidence.
+- **G6.** A core with no observation and no identifier is garbage: deleting a capture leaves it
+  unreachable, and it is collected.
 
 Association:
 
-- **A1.** No table holds a column joining rows of two different users, and `core_knowledge_entities`
-  has no user column at all.
-- **A2.** Every read path starts at `user_knowledge_entities where user_id = :me`. A core is reachable
-  only through one of the viewer's own observations, or — by direct id — when it is `identified`. That
-  is the entire visibility model: no per-row ACL, no filter to remember.
-- **A3.** A shared core page renders the shared definition only: no counts, no ids, no "also captured
-  by", no cross-user co-occurrence.
-- **A4.** A merge never moves an observation's description into the core, and a core page never renders
-  another user's observations. Mixed-owner cores are normal; a core whose `description` traces to a
-  capture is a `project()` bug. Asserted in a test over the projection inputs.
-- **A5.** Aggregate statistics over shared rows are a separate product decision with k-anonymity.
+- **A1.** No table holds a column joining rows of two different users, and `core_knowledge_entities` has
+  no user column at all.
+- **A2.** Every graph read starts at `user_knowledge_entities where user_id = :me`, left joined to the
+  core, because that is what a user's graph is. No per-row ACL to consult.
+- **A3.** A core page renders the node and the viewer's own observations. Other users' observation rows
+  are never in the response.
+
+## Deferred: disclosure
+
+Not a design constraint, and deliberately not in the schema. Recorded here so it is not lost.
+
+- **The yardstick, for later:** an attribute of a core should be safe to show to any user knowing
+  nothing about who captured it. That is a test to apply at the read boundary, not a rule for what the
+  graph may store.
+- **Where policy will attach:** `description_source`, and evidence `source` + `source_user_id`. A filter
+  can hide capture-derived attributes from non-capturers without touching a single write path.
+- **What is already measured** (2026-10-31): names — 0 emails, phone numbers or URLs across 4,511
+  distinct prod names; 66 `@handles`, which are public identities; 3 caption-like fragments, two of
+  them meme or song titles. Descriptions — 0 private identifiers across 5,245 rows.
+- **Also deferred:** whether a core page shows other users' observations, and any aggregate counts
+  ("captured by N users"), which need k-anonymity if they ever leave the operator CLI.
 
 ## Backfill and measurement
 
@@ -557,10 +554,9 @@ Association:
   `unique (wikidata_qid)`, and upsert-by-position. Re-running changes nothing; that is the test.
 - **`dreamscroll_db entities stats --user <id>`**: observations, cores, provisional/identified/
   contested counts, collisions by reason, merges by method, duplicate rate
-  `1 - distinct_cores / observations`, and the **name-publishability scan** — count of core aliases
-  matching the private-identifier and caption patterns. S1 rests on the extractor continuing to emit
-  object names; that is a measured property, so the command measures it on every run instead of the
-  design assuming it.
+  `1 - distinct_cores / observations`, and a **name and description scan** (private-identifier and
+  caption patterns) so the deferred disclosure question has numbers attached to it rather than a
+  hunch. The command measures; the design does not assume.
 
 ## Phases
 
