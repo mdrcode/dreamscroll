@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Duration, Utc};
-use sea_orm::sea_query::OnConflict;
+use sea_orm::sea_query::{Expr, OnConflict};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 
 use crate::model::resolution_cache as cached;
@@ -20,6 +20,16 @@ pub const DEFAULT_TTL: Duration = Duration::days(7);
 /// caching "the provider was down" for a week would poison that part of the corpus.
 pub const FAILED_TTL: Duration = Duration::minutes(10);
 
+/// Longer than `FAILED_TTL` because a degraded answer is usually still true — it is just not the
+/// answer we would have got from a healthy backend. Wikidata's search silently served prefix-only
+/// results when Elasticsearch was unavailable, with HTTP 200 and `success: 1`; a week of that would
+/// quarantine a core behind a bad answer nobody could see was bad.
+pub const DEGRADED_TTL: Duration = Duration::minutes(60);
+
+/// An answer that produced no claim is a guess, not a fact. Re-asking it costs nothing when the
+/// query is cached and the answer was wrong.
+pub const UNPRODUCTIVE_TTL: Duration = Duration::hours(6);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// The provider answered **with candidates**. Not a claim: whether one of them is the referent
@@ -29,6 +39,10 @@ pub enum Outcome {
     Empty,
     /// The provider did not answer.
     Failed,
+    /// The provider answered, but not in a way worth trusting — a search that never reached the
+    /// backend, a body carrying an error alongside a 200. The payload is still parsed, because it may
+    /// hold something useful, but the answer expires quickly instead of standing for a week.
+    Degraded,
 }
 
 impl Outcome {
@@ -37,6 +51,7 @@ impl Outcome {
             Outcome::Found => "found",
             Outcome::Empty => "empty",
             Outcome::Failed => "failed",
+            Outcome::Degraded => "degraded",
         }
     }
 
@@ -45,6 +60,7 @@ impl Outcome {
             "found" => Some(Outcome::Found),
             "empty" => Some(Outcome::Empty),
             "failed" => Some(Outcome::Failed),
+            "degraded" => Some(Outcome::Degraded),
             _ => None,
         }
     }
@@ -52,8 +68,14 @@ impl Outcome {
     fn ttl(self) -> Duration {
         match self {
             Outcome::Failed => FAILED_TTL,
+            Outcome::Degraded => DEGRADED_TTL,
             Outcome::Found | Outcome::Empty => DEFAULT_TTL,
         }
+    }
+
+    /// Whether the answer is worth parsing. A degraded answer still carries candidates.
+    pub fn answered(self) -> bool {
+        matches!(self, Outcome::Found | Outcome::Degraded)
     }
 }
 
@@ -106,6 +128,30 @@ impl<'a> Cache<'a> {
 
     /// Record an answer. One row per logical request: an expired or re-fetched answer replaces the
     /// old one rather than accumulating history, because the payload is a cache, not evidence.
+    /// Bring an existing answer's expiry forward, never back. Called once a stage has finished with an
+    /// answer that produced no claim: the answer may be correct and merely unhelpful, or it may be
+    /// degraded, and either way it should be re-asked sooner than the default week.
+    pub async fn shorten(
+        &self,
+        provider: &str,
+        kind: &str,
+        shape: &str,
+        query: &str,
+        ttl: Duration,
+    ) -> anyhow::Result<()> {
+        let horizon = Utc::now() + ttl;
+        cached::Entity::update_many()
+            .col_expr(cached::Column::ExpiresAt, Expr::value(horizon))
+            .filter(cached::Column::Provider.eq(provider))
+            .filter(cached::Column::Kind.eq(kind))
+            .filter(cached::Column::Shape.eq(shape))
+            .filter(cached::Column::Query.eq(query))
+            .filter(cached::Column::ExpiresAt.gt(horizon))
+            .exec(self.conn)
+            .await?;
+        Ok(())
+    }
+
     pub async fn put(
         &self,
         provider: &str,
@@ -151,6 +197,18 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+
+    /// A degraded answer is still parsed — it may be right — but it must not stand for a week.
+    #[test]
+    fn a_degraded_answer_expires_sooner_than_a_found_one() {
+        assert!(Outcome::Degraded.answered());
+        assert!(Outcome::Found.answered());
+        assert!(!Outcome::Empty.answered());
+        assert!(!Outcome::Failed.answered());
+        assert!(Outcome::Degraded.ttl() < Outcome::Found.ttl());
+        assert!(Outcome::Degraded.ttl() > Outcome::Failed.ttl());
+        assert_eq!(Outcome::parse("degraded"), Some(Outcome::Degraded));
+    }
 
     fn answer(outcome: Outcome, payload: Option<serde_json::Value>) -> Answer {
         Answer { outcome, payload }

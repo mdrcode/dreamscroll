@@ -116,7 +116,7 @@ async fn main() -> anyhow::Result<()> {
             label: label.clone(),
             entity_type: row.try_get_by_index(1)?,
             description: Some(row.try_get_by_index::<String>(2)?).filter(|d| !d.is_empty()),
-            aliases: Vec::new(),
+            alt_descriptions: Vec::new(),
             search_query: None,
             handle: None,
         };

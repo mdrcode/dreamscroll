@@ -34,32 +34,47 @@ pub struct Report {
 
 struct CoreState {
     scored: score::Core,
-    aliases: Vec<String>,
+    /// Verbatim surfaces; `scored.alt_label_keys` holds the normalized forms derived from them.
+    alt_labels: Vec<String>,
+    /// Types other members asserted. Kept in step with `scored.entity_types`, which is what the
+    /// scorer consults — a core that has seen `brand` must accept `brand` for the rest of the run.
+    alt_types: Vec<String>,
 }
 
 impl CoreState {
     fn from_model(row: model::core_knowledge_entity::Model) -> Self {
+        let mut descriptions: Vec<&str> = row.description.iter().map(String::as_str).collect();
+        descriptions.extend(row.alt_descriptions.iter().map(String::as_str));
+        let mut entity_types = vec![row.entity_type.clone()];
+        entity_types.extend(row.alt_types.clone());
         Self {
-            scored: score::Core::new(
-                row.id,
-                &row.aliases,
-                row.description.as_deref(),
-                &row.entity_type,
-            ),
-            aliases: row.aliases,
+            scored: score::Core::new(row.id, &row.alt_labels, &descriptions, &entity_types),
+            alt_labels: row.alt_labels,
+            alt_types: row.alt_types,
         }
     }
 
-    /// Add a normalized surface. Returns whether anything changed, so a caller can skip the write.
-    fn add_alias(&mut self, surface: &str) -> bool {
-        let key = normalize::key(surface);
-        if key.is_empty() || self.aliases.contains(&key) {
+    /// Add an observed type. Returns whether anything changed; the scorer accepts agreement with
+    /// any asserted type, so this widens the gate for later observations in the same run.
+    fn add_type(&mut self, entity_type: &str) -> bool {
+        if entity_type.is_empty() || self.scored.entity_types.iter().any(|t| t == entity_type) {
             return false;
         }
-        self.aliases.push(key.clone());
-        self.scored.alias_keys.push(key);
+        self.alt_types.push(entity_type.to_string());
+        self.scored.entity_types.push(entity_type.to_string());
+        true
+    }
+
+    /// Add a surface. Returns whether anything changed, so a caller can skip the write.
+    fn add_label(&mut self, surface: &str) -> bool {
+        let key = normalize::key(surface);
+        if key.is_empty() || self.scored.alt_label_keys.contains(&key) {
+            return false;
+        }
+        self.alt_labels.push(surface.trim().to_string());
+        self.scored.alt_label_keys.push(key);
         self.scored
-            .alias_token_keys
+            .alt_label_token_keys
             .push(normalize::token_key(surface));
         true
     }
@@ -158,7 +173,7 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
             let position = positions[&core_id];
             link(&db.conn, entity.id, core_id).await?;
             seen.insert((core_id, entity.capture_id));
-            if absorb_aliases(&db.conn, &mut cores[position], &entity).await? {
+            if absorb_labels(&db.conn, &mut cores[position], &entity).await? {
                 index_core(&mut index, position, &cores[position]);
             }
             report.linked_by_identifier += 1;
@@ -192,7 +207,7 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
                 let core_id = cores[position].scored.id;
                 link(&db.conn, entity.id, core_id).await?;
                 seen.insert((core_id, entity.capture_id));
-                if absorb_aliases(&db.conn, &mut cores[position], &entity).await? {
+                if absorb_labels(&db.conn, &mut cores[position], &entity).await? {
                     index_core(&mut index, position, &cores[position]);
                 }
                 let claimed = identifier_of(&entity).is_some();
@@ -226,7 +241,7 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
                         .await?;
                     seen.insert((owner, entity.capture_id));
                     if let Some(&position) = positions.get(&owner)
-                        && absorb_aliases(&db.conn, &mut cores[position], &entity).await?
+                        && absorb_labels(&db.conn, &mut cores[position], &entity).await?
                     {
                         index_core(&mut index, position, &cores[position]);
                     }
@@ -234,15 +249,16 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
                     continue;
                 }
 
-                let aliases = aliases_for(&entity);
+                let alt_labels = labels_for(&entity);
                 cores.push(CoreState {
                     scored: score::Core::new(
                         core_id,
-                        &aliases,
-                        entity.description.as_deref(),
-                        &entity.entity_type,
+                        &alt_labels,
+                        &entity.description.iter().map(String::as_str).collect::<Vec<_>>(),
+                        std::slice::from_ref(&entity.entity_type),
                     ),
-                    aliases,
+                    alt_labels,
+                    alt_types: Vec::new(),
                 });
                 let position = cores.len() - 1;
                 positions.insert(core_id, position);
@@ -254,19 +270,30 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
         }
     }
 
+    // A core is a function of its members, not of whichever observation happened to create it.
+    // Projecting once at the end keeps the accumulated descriptions, status and confidence current,
+    // and repairs rows written before projection covered those columns.
+    for core in model::core_knowledge_entity::Entity::find()
+        .filter(model::core_knowledge_entity::Column::SupersededById.is_null())
+        .all(&db.conn)
+        .await?
+    {
+        crate::knowledge::resolve::project(&db.conn, core.id).await?;
+    }
+
     Ok(report)
 }
 
 fn index_core(index: &mut HashMap<String, BTreeSet<usize>>, position: usize, core: &CoreState) {
-    for key in &core.scored.alias_keys {
+    for key in &core.scored.alt_label_keys {
         index.entry(key.clone()).or_default().insert(position);
     }
-    for key in &core.scored.alias_token_keys {
+    for key in &core.scored.alt_label_token_keys {
         index.entry(key.clone()).or_default().insert(position);
     }
 }
 
-fn surfaces(
+pub(crate) fn surfaces(
     entity: &model::user_knowledge_entity::Model,
 ) -> impl Iterator<Item = &str> {
     [
@@ -278,15 +305,19 @@ fn surfaces(
     .flatten()
 }
 
-fn aliases_for(entity: &model::user_knowledge_entity::Model) -> Vec<String> {
-    let mut aliases = Vec::new();
+fn labels_for(entity: &model::user_knowledge_entity::Model) -> Vec<String> {
+    let mut labels: Vec<String> = Vec::new();
+    let mut keys: Vec<String> = Vec::new();
     for surface in surfaces(entity) {
-        let key = normalize::key(surface);
-        if !key.is_empty() && !aliases.contains(&key) {
-            aliases.push(key);
+        let label = surface.trim();
+        let key = normalize::key(label);
+        if key.is_empty() || keys.contains(&key) {
+            continue;
         }
+        keys.push(key);
+        labels.push(label.to_string());
     }
-    aliases
+    labels
 }
 
 /// `identified` is a claim about evidence, so it is true the moment an identity exists — including
@@ -323,22 +354,23 @@ async fn link(
     Ok(())
 }
 
-/// Fold this observation's surfaces into the core it was linked to. This is the whole of `project`
-/// for now: no authority evidence exists yet, so `label`, `entity_type` and `description` keep the
-/// values the core was created with.
-async fn absorb_aliases(
+/// Fold this observation's surfaces into the core it was linked to. Descriptions accumulate in
+/// `project`, which runs once at the end of a build rather than per observation.
+async fn absorb_labels(
     conn: &sea_orm::DatabaseConnection,
     core: &mut CoreState,
     entity: &model::user_knowledge_entity::Model,
 ) -> anyhow::Result<bool> {
     let mut changed = false;
     for surface in surfaces(entity) {
-        changed |= core.add_alias(surface);
+        changed |= core.add_label(surface);
     }
+    changed |= core.add_type(&entity.entity_type);
     if changed {
         model::core_knowledge_entity::ActiveModel {
             id: Set(core.scored.id),
-            aliases: Set(core.aliases.clone()),
+            alt_labels: Set(core.alt_labels.clone()),
+            alt_types: Set(core.alt_types.clone()),
             ..Default::default()
         }
         .update(conn)
@@ -426,7 +458,7 @@ fn is_unique_violation(err: &DbErr) -> bool {
     }
 }
 
-async fn identity_owner(
+pub(crate) async fn identity_owner(
     conn: &sea_orm::DatabaseConnection,
     scheme: &str,
     value: &str,
@@ -462,13 +494,13 @@ async fn create(
     let model = model::core_knowledge_entity::ActiveModel {
         label: Set(entity.name.trim().to_string()),
         entity_type: Set(entity.entity_type.clone()),
-        // The capture's own reading, recorded as such: authority text displaces it later.
-        description_source: Set(description.as_ref().map(|_| "capture".to_string())),
+        alt_types: Set(Vec::new()),
         description: Set(description),
+        alt_descriptions: Set(Vec::new()),
         status: Set(status.to_string()),
         confidence: Set(None),
         superseded_by_id: Set(None),
-        aliases: Set(aliases_for(entity)),
+        alt_labels: Set(labels_for(entity)),
         ..Default::default()
     };
     let inserted = model::core_knowledge_entity::Entity::insert(model)
@@ -681,7 +713,7 @@ mod tests {
             label: Set("Tsoding".to_string()),
             entity_type: Set("real_person".to_string()),
             status: Set(STATUS_PROVISIONAL.to_string()),
-            aliases: Set(vec!["tsoding".to_string()]),
+            alt_labels: Set(vec!["tsoding".to_string()]),
             ..Default::default()
         })
         .exec(&db.conn)

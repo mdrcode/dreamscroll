@@ -6,6 +6,7 @@
 pub mod cache;
 pub mod compare;
 pub mod link;
+pub mod merge;
 pub mod migrate;
 pub mod normalize;
 pub mod reset;

@@ -10,7 +10,9 @@ pub mod wikidata;
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
+};
 use serde_json::{json, Value};
 
 use super::cache::{Answer, Cache, Outcome};
@@ -34,11 +36,22 @@ pub struct CoreView {
     pub label: String,
     pub entity_type: String,
     pub description: Option<String>,
-    pub aliases: Vec<String>,
+    /// Descriptions other members contributed. A provider may fit a candidate against any of them.
+    pub alt_descriptions: Vec<String>,
     /// The best disambiguation hint an observation carried, if any.
     pub search_query: Option<String>,
     /// `(platform, handle)` when one of the core's observations carried an account.
     pub handle: Option<(String, String)>,
+}
+
+impl CoreView {
+    /// The selected description first, then the alternates accumulated from other members.
+    pub fn descriptions(&self) -> impl Iterator<Item = &str> {
+        self.description
+            .iter()
+            .map(String::as_str)
+            .chain(self.alt_descriptions.iter().map(String::as_str))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -125,6 +138,10 @@ pub trait Engine: Send + Sync {
     async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError>;
 }
 
+/// Transport calls a plain `resolve` is allowed to make. Exists so that omitting the budget does
+/// real work instead of quietly resolving nothing.
+pub const DEFAULT_MAX_REQUESTS: usize = 200;
+
 #[derive(Debug, Clone)]
 pub struct Options {
     /// How many candidate cores to consider.
@@ -143,7 +160,7 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             limit: None,
-            max_requests: 200,
+            max_requests: DEFAULT_MAX_REQUESTS,
             min_interval: std::time::Duration::from_secs(1),
             dry_run: false,
             only: None,
@@ -162,8 +179,11 @@ pub struct Report {
     pub claims: usize,
     /// Cores that gained at least one claim.
     pub cores_resolved: usize,
-    /// Cores whose identity is already claimed by another core — a merge the graph has not made.
-    pub conflicts: usize,
+    /// Cores folded into the core that already held their identity.
+    pub merges: usize,
+    /// Identity conflicts that survived the same-capture veto — real contradictions, kept as
+    /// collisions for adjudication rather than folded.
+    pub collisions: usize,
     pub budget_exhausted: bool,
     /// Set when the provider asked us to back off: the run stopped instead of risking a ban.
     pub rate_limited_after: Option<u64>,
@@ -190,8 +210,9 @@ pub async fn resolve(
         }
         run_stage(db, &cache, engine.as_ref(), &cores, &mut resolved, Stage::Identity, options, &mut report).await?;
     }
-    // Stage two exists for providers whose second request is worth making. Wikidata's is not: its
-    // entity search is a label matcher, so `plan_fallback` returns nothing.
+    // Stage two is the search fallback: an exact-label lookup misses when Wikidata spells the name
+    // differently (`J.R.R. Tolkien` vs `J. R. R. Tolkien`), and search recovers it. It only runs for
+    // cores the identity stage left unresolved.
     if !options.dry_run {
         for engine in engines {
             if report.rate_limited_after.is_some() {
@@ -241,7 +262,13 @@ async fn run_stage(
     let answers = fetch_plans(cache, engine, &plans, options, report).await?;
 
     for (index, request) in plans {
-        let Some(raw) = answers.get(&request.query) else {
+        // One core, one identity. A core gets several plans (handle, title, label) and the first to
+        // claim wins: the title route is ordered ahead of the label route because a title is unique
+        // where a label is not.
+        if resolved.contains(&cores[index].id) {
+            continue;
+        }
+        let Some(raw) = answers.get(&(request.kind.clone(), request.query.clone())) else {
             continue;
         };
         let claims = engine.parse(&cores[index], &request, raw);
@@ -257,6 +284,22 @@ async fn run_stage(
         }
         if accepted > 0 {
             resolved.insert(core_id);
+        } else {
+            // The answer was not wrong, or at least we cannot show it was — only unhelpful. Re-ask it
+            // sooner than the default week: a stale negative is indistinguishable from a fact, and a
+            // degraded answer looks exactly like a real one.
+            if let Err(error) = cache
+                .shorten(
+                    engine.id(),
+                    &request.kind,
+                    &request.shape,
+                    &request.query,
+                    crate::knowledge::cache::UNPRODUCTIVE_TTL,
+                )
+                .await
+            {
+                tracing::warn!(%error, query = %request.query, "could not shorten an unproductive answer");
+            }
         }
     }
     Ok(())
@@ -269,7 +312,7 @@ async fn fetch_plans(
     plans: &[(usize, Request)],
     options: &Options,
     report: &mut Report,
-) -> anyhow::Result<HashMap<String, Raw>> {
+) -> anyhow::Result<HashMap<(String, String), Raw>> {
     let mut groups: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     for (_, request) in plans {
         groups
@@ -282,7 +325,10 @@ async fn fetch_plans(
         queries.dedup();
     }
 
-    let mut answers: HashMap<String, Raw> = HashMap::new();
+    // Keyed by (kind, query), not by query: `title` and `label` ask about the same string and the
+    // answers are different things. Keyed by query alone, the label group shadowed the title group
+    // and the title requests were never sent.
+    let mut answers: HashMap<(String, String), Raw> = HashMap::new();
     let mut last_call: Option<std::time::Instant> = None;
 
     for ((kind, shape), queries) in groups {
@@ -290,7 +336,7 @@ async fn fetch_plans(
         report.cache_hits += hits.len();
         for (query, answer) in hits {
             answers.insert(
-                query,
+                (kind.clone(), query),
                 Raw {
                     outcome: answer.outcome,
                     payload: answer.payload,
@@ -300,7 +346,7 @@ async fn fetch_plans(
 
         let misses: Vec<String> = queries
             .into_iter()
-            .filter(|query| !answers.contains_key(query))
+            .filter(|query| !answers.contains_key(&(kind.clone(), query.clone())))
             .collect();
         if misses.is_empty() || options.dry_run {
             continue;
@@ -347,7 +393,7 @@ async fn fetch_plans(
                                 },
                             )
                             .await?;
-                        answers.insert(query, raw);
+                        answers.insert((kind.clone(), query), raw);
                     }
                 }
                 Err(FetchError::RateLimited { retry_after_secs }) => {
@@ -373,7 +419,7 @@ async fn fetch_plans(
                             )
                             .await?;
                         answers.insert(
-                            query.clone(),
+                            (kind.clone(), query.clone()),
                             Raw {
                                 outcome: Outcome::Failed,
                                 payload: None,
@@ -398,6 +444,7 @@ async fn store_claim(
     claim: Claim,
     report: &mut Report,
 ) -> anyhow::Result<bool> {
+    let (scheme, identity) = (claim.scheme.clone(), claim.id.clone());
     let value = json!({
         "scheme": claim.scheme,
         "id": claim.id,
@@ -425,8 +472,45 @@ async fn store_claim(
             Ok(true)
         }
         Err(error) => match unique_violation(&error) {
+            // Another core already holds this identity, which means the two cores are the same
+            // referent: the graph was told so by the authority. Fold ours into the one that holds it
+            // rather than leaving a duplicate behind.
             Some("idx-core_evidence_identity") => {
-                report.conflicts += 1;
+                if let Some(owner) = crate::knowledge::link::identity_owner(conn, &scheme, &identity).await?
+                    && owner != core_id
+                {
+                    match crate::knowledge::merge::merge_core(conn, core_id, owner).await? {
+                        crate::knowledge::merge::Outcome::Merged => report.merges += 1,
+                        crate::knowledge::merge::Outcome::AlreadyMerged => {}
+                        // The veto says these two cannot be one referent, so the authority is
+                        // contradicting something we already know. Record it; do not fold.
+                        crate::knowledge::merge::Outcome::RefusedSharedCapture => {
+                            // Recorded once per pair. A resolve run retries every core without a
+                            // claim, so re-asserting the same contradiction would otherwise append
+                            // a row per run and turn "3 collisions" into noise.
+                            if !collision_recorded(conn, owner, core_id, &identity).await? {
+                                report.collisions += 1;
+                                model::core_knowledge_evidence::Entity::insert(
+                                    model::core_knowledge_evidence::ActiveModel {
+                                        core_id: Set(owner),
+                                        kind: Set("collision".to_string()),
+                                        value: Set(json!({
+                                            "reason": "shared capture",
+                                            "other": core_id,
+                                            "scheme": scheme,
+                                            "id": identity,
+                                        })),
+                                        source: Set("model".to_string()),
+                                        related_core_id: Set(Some(core_id)),
+                                        ..Default::default()
+                                    },
+                                )
+                                .exec(conn)
+                                .await?;
+                            }
+                        }
+                    }
+                }
                 Ok(false)
             }
             // The same fact already recorded for this core: nothing to do.
@@ -448,9 +532,120 @@ fn unique_violation(error: &sea_orm::DbErr) -> Option<&str> {
     }
 }
 
-/// Recompute the columns that are a function of evidence. `status` is not written anywhere else.
+/// Whether this pair already carries a live collision for the same identity.
+async fn collision_recorded(
+    conn: &sea_orm::DatabaseConnection,
+    owner: i32,
+    other: i32,
+    identity: &str,
+) -> anyhow::Result<bool> {
+    let row = conn
+        .query_one_raw(sea_orm::Statement::from_sql_and_values(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT count(*) FROM core_knowledge_evidence WHERE kind = 'collision' \
+             AND retracted_at IS NULL AND core_id = $1 AND related_core_id = $2 \
+             AND value->>'id' = $3",
+            [owner.into(), other.into(), identity.into()],
+        ))
+        .await?;
+    let count: i64 = row.map(|row| row.try_get_by_index(0)).transpose()?.unwrap_or(0);
+    Ok(count > 0)
+}
+
+/// Recompute the columns that are a function of the members and of the evidence. Nothing else writes
+/// `label`, `alt_labels`, `description`, `alt_descriptions`, `status` or `confidence`.
+///
+/// Deriving the surface and text here rather than at write time is what makes a merge safe: a merge
+/// re-points observations and projects the winner, so the loser's names and descriptions are picked
+/// up from the members that moved rather than being lost with the deleted row.
 pub async fn project(conn: &sea_orm::DatabaseConnection, core_id: i32) -> anyhow::Result<()> {
     use model::core_knowledge_evidence as evidence;
+
+    // Ordered by member id, so the result never depends on the order members arrived in.
+    let members = model::user_knowledge_entity::Entity::find()
+        .filter(model::user_knowledge_entity::Column::CoreId.eq(core_id))
+        .order_by_asc(model::user_knowledge_entity::Column::Id)
+        .all(conn)
+        .await?;
+    let mut label_keys = HashSet::new();
+    let mut labels: Vec<String> = Vec::new();
+    let mut seen_descriptions = HashSet::new();
+    let mut descriptions: Vec<String> = Vec::new();
+    let mut types: Vec<String> = Vec::new();
+    for member in &members {
+        if !types.contains(&member.entity_type) {
+            types.push(member.entity_type.clone());
+        }
+        for surface in crate::knowledge::link::surfaces(member) {
+            let text = surface.trim();
+            if !text.is_empty() && label_keys.insert(super::normalize::key(text)) {
+                labels.push(text.to_string());
+            }
+        }
+        if let Some(text) = member
+            .description
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            && seen_descriptions.insert(text.to_string())
+        {
+            descriptions.push(text.to_string());
+        }
+    }
+
+    let current = model::core_knowledge_entity::Entity::find_by_id(core_id)
+        .one(conn)
+        .await?;
+    let (existing_label, existing_type, existing_description, existing_alt_descriptions) =
+        match &current {
+            Some(row) => (
+                row.label.clone(),
+                row.entity_type.clone(),
+                row.description.clone(),
+                row.alt_descriptions.clone(),
+            ),
+            None => (String::new(), String::new(), None, Vec::new()),
+        };
+
+    // The selected surface survives a merge as long as a member still carries it.
+    let label = if labels.is_empty() || labels.contains(&existing_label) {
+        existing_label
+    } else {
+        labels[0].clone()
+    };
+    let alt_labels = labels
+        .iter()
+        .filter(|candidate| candidate.as_str() != label)
+        .cloned()
+        .collect();
+
+    let entity_type = if types.is_empty() || types.contains(&existing_type) {
+        existing_type
+    } else {
+        types[0].clone()
+    };
+    let alt_types = types
+        .iter()
+        .filter(|candidate| *candidate != &entity_type)
+        .cloned()
+        .collect();
+
+    // Same rule for the text, and the existing description is preserved when no member has any —
+    // an authority-sourced description must not be wiped by a member list that says nothing.
+    let (description, alt_descriptions) = if descriptions.is_empty() {
+        (existing_description, existing_alt_descriptions)
+    } else {
+        let selected = match existing_description {
+            Some(text) if descriptions.contains(&text) => Some(text),
+            _ => descriptions.first().cloned(),
+        };
+        let alt = descriptions
+            .iter()
+            .filter(|text| Some(text.as_str()) != selected.as_deref())
+            .cloned()
+            .collect();
+        (selected, alt)
+    };
 
     let claims = evidence::Entity::find()
         .filter(evidence::Column::CoreId.eq(core_id))
@@ -509,6 +704,18 @@ pub async fn project(conn: &sea_orm::DatabaseConnection, core_id: i32) -> anyhow
         .filter(model::core_knowledge_entity::Column::Id.eq(core_id))
         .exec(conn)
         .await?;
+    model::core_knowledge_entity::Entity::update(model::core_knowledge_entity::ActiveModel {
+        id: Set(core_id),
+        label: Set(label),
+        alt_labels: Set(alt_labels),
+        entity_type: Set(entity_type),
+        alt_types: Set(alt_types),
+        description: Set(description),
+        alt_descriptions: Set(alt_descriptions),
+        ..Default::default()
+    })
+    .exec(conn)
+    .await?;
     Ok(())
 }
 
@@ -577,7 +784,7 @@ async fn candidates(
             label: row.label,
             entity_type: row.entity_type,
             description: row.description,
-            aliases: row.aliases,
+            alt_descriptions: row.alt_descriptions,
         })
         .collect())
 }
@@ -972,6 +1179,64 @@ mod tests {
             0,
             "a rate limit must not be recorded as an answer"
         );
+    }
+
+    /// Two different cores resolving to the same QID are the same referent. The second must fold
+    /// into the first rather than leaving a duplicate behind.
+    #[tokio::test]
+    async fn cores_that_resolve_to_the_same_identity_are_merged() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        seed(&db, "Alpha One").await;
+        seed(&db, "Beta Two").await;
+        let before = model::core_knowledge_entity::Entity::find()
+            .count(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(before, 2);
+
+        let claim = Raw {
+            outcome: Outcome::Found,
+            payload: Some(json!({"claim": "Q42"})),
+        };
+        let engines = fake(
+            HashMap::from([
+                ("Alpha One".to_string(), claim.clone()),
+                ("Beta Two".to_string(), claim),
+            ]),
+            Arc::new(AtomicUsize::new(0)),
+        );
+
+        let report = resolve(&db, &engines, &Options::default()).await.expect("resolve");
+
+        assert_eq!(report.merges, 1, "{report:?}");
+        let live = model::core_knowledge_entity::Entity::find()
+            .filter(model::core_knowledge_entity::Column::SupersededById.is_null())
+            .count(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(live, 1, "one core survives");
+        let tombstoned = model::core_knowledge_entity::Entity::find()
+            .filter(model::core_knowledge_entity::Column::SupersededById.is_not_null())
+            .count(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(tombstoned, 1, "the loser is a tombstone, not a deletion");
+
+        let survivor = model::core_knowledge_entity::Entity::find()
+            .filter(model::core_knowledge_entity::Column::SupersededById.is_null())
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        let pointing = model::user_knowledge_entity::Entity::find()
+            .filter(model::user_knowledge_entity::Column::CoreId.eq(survivor.id))
+            .count(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(pointing, 2, "both observations follow the survivor");
     }
 
     #[tokio::test]

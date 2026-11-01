@@ -18,6 +18,11 @@ use crate::knowledge::cache::Outcome;
 
 const SPARQL_ENDPOINT: &str = "https://query.wikidata.org/sparql";
 const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
+/// Article-title reconciliation. A Wikipedia title is unique where a Wikidata label is not: 213 items
+/// are labelled `Paris`, but only one page is titled `Paris`.
+const WIKIPEDIA_ENDPOINT: &str = "https://en.wikipedia.org/w/api.php";
+/// `Wikimedia disambiguation page`. A title that resolves here has no referent, only a menu.
+const DISAMBIGUATION: &str = "Q4167410";
 const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";
 const LANGUAGE: &str = "en";
 const SEARCH_LIMIT: usize = 10;
@@ -56,9 +61,15 @@ impl Wikidata {
     /// Part of the cache key: how the request is built. Change a parameter and the key changes, so a
     /// stale answer cannot be served against a different question.
     fn shape(kind: &str) -> String {
+        // The version is per kind, so a transport change invalidates exactly the answers it changes.
+        // v3 for `search`: MediaWiki full-text instead of `wbsearchentities`.
+        let version = match kind {
+            "search" => "wikidata/v3-search",
+            _ => "wikidata/v2",
+        };
         let mut hasher = blake3::Hasher::new();
         hasher.update(
-            format!("wikidata/v2|{kind}|lang={LANGUAGE}|limit={SEARCH_LIMIT}").as_bytes(),
+            format!("{version}|{kind}|lang={LANGUAGE}|limit={SEARCH_LIMIT}").as_bytes(),
         );
         let hex = hasher.finalize().to_hex();
         hex.as_str()[..12].to_string()
@@ -103,17 +114,24 @@ impl Wikidata {
         vec![claim(best.candidate, "search_hint", confidence(best.score).min(0.85))]
     }
 
+    /// Full-text search over items, through MediaWiki's own search (CirrusSearch).
+    ///
+    /// Deliberately not `wbsearchentities`: that is a *prefix* matcher over labels and aliases, so it
+    /// returns nothing for a punctuation difference (`J.R.R.` for `J. R. R.`) and ranks a
+    /// disambiguation page above the novel for `A Christmas Carol`. MediaWiki's search tokenises on
+    /// punctuation and ranks by relevance — and on wikidata.org the page titles *are* QIDs, so the
+    /// hit list is already a candidate set.
     async fn search(&self, query: &str) -> Result<Raw, FetchError> {
         let response = self
             .client
             .get(SEARCH_ENDPOINT)
             .query(&[
-                ("action", "wbsearchentities"),
+                ("action", "query"),
                 ("format", "json"),
-                ("language", LANGUAGE),
-                ("uselang", LANGUAGE),
-                ("limit", "10"),
-                ("search", query),
+                ("list", "search"),
+                ("srsearch", query),
+                ("srnamespace", "0"),
+                ("srlimit", "10"),
             ])
             .send()
             .await
@@ -127,51 +145,271 @@ impl Wikidata {
         if !status.is_success() {
             return Err(FetchError::Failed(format!("wikidata search returned {status}")));
         }
+        // CirrusSearch sets this header only when it actually queried Elasticsearch. Its absence is
+        // the documented signature of a silently degraded search (Phabricator T284478): HTTP 200,
+        // `success: 1`, and a short prefix-only result set that looks exactly like a real answer.
+        let reached_backend = response.headers().contains_key("x-search-id");
         let body: Value = response
             .json()
             .await
             .map_err(|error| FetchError::Failed(error.to_string()))?;
-        let candidates: Vec<Candidate> = body
-            .get("search")
+        if let Some(error) = body.get("error") {
+            return Err(FetchError::Failed(format!("search error: {error}")));
+        }
+        let outcome = if reached_backend {
+            Outcome::Found
+        } else {
+            Outcome::Degraded
+        };
+        let ids: Vec<String> = body
+            .get("query")
+            .and_then(|query| query.get("search"))
             .and_then(Value::as_array)
             .map(|rows| {
                 rows.iter()
-                    .filter_map(|row| {
-                        // `wbsearchentities` puts the text under `display.{label,description}.value`;
-                        // a top-level `label` does not exist, so reading it yields None for every
-                        // candidate and nothing can ever match.
-                        let display = |key: &str| {
-                            row.get("display")
-                                .and_then(|d| d.get(key))
-                                .and_then(|v| v.get("value"))
-                                .and_then(Value::as_str)
-                                .or_else(|| row.get(key).and_then(Value::as_str))
-                                .map(str::to_string)
-                        };
-                        Some(Candidate {
-                            id: row.get("id")?.as_str()?.to_string(),
-                            label: display("label"),
-                            description: display("description"),
-                            classes: Vec::new(),
+                    .filter_map(|row| row.get("title").and_then(Value::as_str))
+                    .filter(|title| {
+                        title.strip_prefix('Q').is_some_and(|rest| {
+                            !rest.is_empty() && rest.chars().all(|c| c.is_ascii_digit())
                         })
                     })
+                    .map(str::to_string)
                     .collect()
             })
             .unwrap_or_default();
-
-        Ok(if candidates.is_empty() {
-            Raw {
-                outcome: Outcome::Empty,
+        if ids.is_empty() {
+            // Zero results is exactly what a degraded backend returns. If CirrusSearch never saw the
+            // query, "nothing found" is not a fact about the corpus — it is a failed request wearing
+            // a 200. Only a search that actually reached the backend may cache a negative.
+            return Ok(Raw {
+                outcome: if reached_backend {
+                    Outcome::Empty
+                } else {
+                    Outcome::Degraded
+                },
                 payload: None,
-            }
-        } else {
-            Raw {
-                outcome: Outcome::Found,
-                payload: Some(json!({
-                    "candidates": candidates.iter().map(Candidate::to_json).collect::<Vec<_>>()
-                })),
-            }
+            });
+        }
+
+        let items = self.items(&ids).await?;
+        let candidates: Vec<Value> = ids.iter().filter_map(|id| items.get(id).cloned()).collect();
+        if candidates.is_empty() {
+            return Ok(Raw {
+                outcome: if reached_backend {
+                    Outcome::Empty
+                } else {
+                    Outcome::Degraded
+                },
+                payload: None,
+            });
+        }
+        Ok(Raw {
+            outcome,
+            payload: Some(json!({"candidates": candidates})),
         })
+    }
+
+    /// Labels, descriptions and types for a set of items, 50 per call.
+    async fn items(
+        &self,
+        ids: &[String],
+    ) -> Result<std::collections::HashMap<String, Value>, FetchError> {
+        use std::collections::HashMap;
+
+        let mut details: HashMap<String, Value> = HashMap::new();
+        for chunk in ids.chunks(50) {
+            let response = self
+                .client
+                .get(SEARCH_ENDPOINT)
+                .query(&[
+                    ("action", "wbgetentities"),
+                    ("format", "json"),
+                    ("ids", chunk.join("|").as_str()),
+                    ("props", "labels|descriptions|claims"),
+                    ("languages", LANGUAGE),
+                ])
+                .send()
+                .await
+                .map_err(|error| FetchError::Failed(error.to_string()))?;
+            if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                return Err(FetchError::RateLimited { retry_after_secs: 60 });
+            }
+            let status = response.status();
+            if !status.is_success() {
+                return Err(FetchError::Failed(format!("wikidata entities returned {status}")));
+            }
+            let body: Value = response
+                .json()
+                .await
+                .map_err(|error| FetchError::Failed(error.to_string()))?;
+            for (qid, entity) in body
+                .get("entities")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+            {
+                let label = entity
+                    .get("labels")
+                    .and_then(|labels| labels.get(LANGUAGE))
+                    .and_then(|label| label.get("value"))
+                    .and_then(Value::as_str);
+                let description = entity
+                    .get("descriptions")
+                    .and_then(|descriptions| descriptions.get(LANGUAGE))
+                    .and_then(|description| description.get("value"))
+                    .and_then(Value::as_str);
+                let classes: Vec<Value> = entity
+                    .get("claims")
+                    .and_then(|claims| claims.get("P31"))
+                    .and_then(Value::as_array)
+                    .map(|claims| {
+                        claims
+                            .iter()
+                            .filter_map(|claim| {
+                                claim
+                                    .get("mainsnak")
+                                    .and_then(|snak| snak.get("datavalue"))
+                                    .and_then(|value| value.get("value"))
+                                    .and_then(|value| value.get("id"))
+                                    .and_then(Value::as_str)
+                                    .map(|id| Value::String(id.to_string()))
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                details.insert(
+                    qid.clone(),
+                    json!({"id": qid, "label": label, "description": description, "classes": classes}),
+                );
+            }
+        }
+        Ok(details)
+    }
+
+    /// `enwiki title -> item`, following normalisation and redirects, then one batched read for the
+    /// labels, descriptions and types the caller needs.
+    ///
+    /// This is the only route that reaches an item whose Wikidata label differs from the surface a
+    /// capture used: `Symphony No. 7 (Sibelius)` is an article title, and the item is labelled
+    /// `Symphony No. 7`. It also follows redirects, so `Saint-Quentin Canal` reaches
+    /// `Canal de Saint-Quentin` — a word-order variant no label search finds.
+    async fn titles(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
+        use std::collections::HashMap;
+
+        let titles: Vec<String> = requests
+            .iter()
+            .map(|request| request.query.trim().to_string())
+            .filter(|title| !title.is_empty())
+            .collect();
+        if titles.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let response = self
+            .client
+            .get(WIKIPEDIA_ENDPOINT)
+            .query(&[
+                ("action", "query"),
+                ("format", "json"),
+                ("redirects", "1"),
+                ("prop", "pageprops"),
+                ("ppprop", "wikibase_item"),
+                ("titles", titles.join("|").as_str()),
+            ])
+            .send()
+            .await
+            .map_err(|error| FetchError::Failed(error.to_string()))?;
+        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            return Err(FetchError::RateLimited { retry_after_secs: 60 });
+        }
+        let status = response.status();
+        if !status.is_success() {
+            return Err(FetchError::Failed(format!("wikipedia search returned {status}")));
+        }
+        let body: Value = response
+            .json()
+            .await
+            .map_err(|error| FetchError::Failed(error.to_string()))?;
+        let query = body.get("query");
+
+        let mut by_title: HashMap<String, String> = HashMap::new();
+        if let Some(pages) = query.and_then(|query| query.get("pages")).and_then(Value::as_object) {
+            for page in pages.values() {
+                if page.get("missing").is_some() {
+                    continue;
+                }
+                let Some(title) = page.get("title").and_then(Value::as_str) else {
+                    continue;
+                };
+                let Some(qid) = page
+                    .get("pageprops")
+                    .and_then(|props| props.get("wikibase_item"))
+                    .and_then(Value::as_str)
+                else {
+                    continue;
+                };
+                by_title.insert(title.to_string(), qid.to_string());
+            }
+        }
+
+        // `normalized` then `redirects`, each `{from, to}`; following both gives the article title.
+        let mut renamed: HashMap<String, String> = HashMap::new();
+        for key in ["normalized", "redirects"] {
+            if let Some(entries) = query.and_then(|query| query.get(key)).and_then(Value::as_array) {
+                for entry in entries {
+                    if let (Some(from), Some(to)) = (
+                        entry.get("from").and_then(Value::as_str),
+                        entry.get("to").and_then(Value::as_str),
+                    ) {
+                        renamed.insert(from.to_string(), to.to_string());
+                    }
+                }
+            }
+        }
+
+        let mut reached: HashMap<String, String> = HashMap::new();
+        let mut ids: Vec<String> = Vec::new();
+        for title in &titles {
+            let mut current = title.clone();
+            for _ in 0..4 {
+                match renamed.get(&current) {
+                    Some(next) if next != &current => current = next.clone(),
+                    _ => break,
+                }
+            }
+            if let Some(qid) = by_title.get(&current) {
+                reached.insert(title.clone(), qid.clone());
+                ids.push(qid.clone());
+            }
+        }
+        ids.sort();
+        ids.dedup();
+
+        let details = self.items(&ids).await?;
+
+        let mut answers = Vec::with_capacity(requests.len());
+        for request in requests {
+            let candidate = reached
+                .get(request.query.trim())
+                .and_then(|qid| details.get(qid));
+            answers.push(match candidate {
+                Some(candidate) => (
+                    request.query.clone(),
+                    Raw {
+                        outcome: Outcome::Found,
+                        payload: Some(json!({"candidates": [candidate]})),
+                    },
+                ),
+                None => (
+                    request.query.clone(),
+                    Raw {
+                        outcome: Outcome::Empty,
+                        payload: None,
+                    },
+                ),
+            });
+        }
+        Ok(answers)
     }
 
     fn kind_for_handle(platform: &str) -> Option<String> {
@@ -180,6 +418,47 @@ impl Wikidata {
 
     fn property_of(kind: &str) -> Option<&str> {
         kind.strip_prefix("handle:")
+    }
+
+    /// Choose a referent from the candidates, or none. Shared by the label path and the search
+    /// fallback — the only difference between them is which candidates are admitted.
+    fn decide(&self, core: &CoreView, candidates: &[Candidate], request: &Request) -> Vec<Claim> {
+        let mut ranked = rank(core, candidates);
+        if ranked.is_empty() {
+            return Vec::new();
+        }
+
+        // One exact label and nothing else claiming it: that is identity, even with no text to
+        // corroborate it.
+        if ranked.len() == 1 && ranked[0].exact_label {
+            return vec![claim(ranked[0].candidate, "exact_label", 0.75)];
+        }
+
+        let best = ranked.remove(0);
+        let runner_up = ranked.first().map(|other| other.fit).unwrap_or(0.0);
+
+        // Otherwise a claim must clear the bar *and* beat the runner-up. Ambiguity is not a reason to
+        // give up — `Sunset Boulevard` has eleven candidates and the description picks the film — but
+        // a near-tie is.
+        // The decision is on the *evidence*, not the blend. The name is why this candidate is here at
+        // all, so requiring a blended score quietly demanded a fixed amount of text overlap — which
+        // real, terse Wikidata descriptions cannot supply ("German-born theoretical physicist" vs a
+        // capture's six-word reading of Einstein).
+        if best.fit < FIT_FLOOR {
+            return self.by_hint(core, &candidates);
+        }
+        // Two candidates fit and neither wins: genuine ambiguity. The hint must not break this tie.
+        if best.fit - runner_up < FIT_MARGIN {
+            return Vec::new();
+        }
+        let method = match (request.kind.as_str(), best.exact_label) {
+            ("title", _) => "wikipedia_title",
+            ("search", true) => "search_lookup",
+            ("search", false) => "search_ranked",
+            (_, true) => "exact_label",
+            (_, false) => "ranked",
+        };
+        vec![claim(best.candidate, method, confidence(best.score))]
     }
 }
 
@@ -193,6 +472,8 @@ impl Engine for Wikidata {
     fn batch_size(&self, kind: &str) -> usize {
         if kind == "search" {
             1
+        } else if kind == "title" {
+            50
         } else {
             BATCH
         }
@@ -212,6 +493,15 @@ impl Engine for Wikidata {
         }
         let label = core.label.trim();
         if !label.is_empty() {
+            // Title before label: a capture's name is often the *article* title
+            // (`Symphony No. 7 (Sibelius)`), and the item is labelled `Symphony No. 7`. The label
+            // lookup cannot see that; the title can.
+            requests.push(Request {
+                provider: "wikidata",
+                shape: Self::shape("title"),
+                kind: "title".to_string(),
+                query: label.to_string(),
+            });
             requests.push(Request {
                 provider: "wikidata",
                 shape: Self::shape("label"),
@@ -242,7 +532,8 @@ impl Engine for Wikidata {
     }
 
     fn parse(&self, core: &CoreView, request: &Request, raw: &Raw) -> Vec<Claim> {
-        if raw.outcome != Outcome::Found {
+        // A degraded answer still carries candidates; it is only cached for a shorter time.
+        if !raw.outcome.answered() {
             return Vec::new();
         }
         let Some(payload) = &raw.payload else {
@@ -269,6 +560,18 @@ impl Engine for Wikidata {
 
         // A search answer is weaker evidence: accept it only when a single candidate's label is the
         // *same surface* once punctuation and spacing are ignored. Anything else goes to the ranker.
+        // A title maps to one article. A disambiguation page maps to none: it is a menu, and claiming
+        // it is the trap that produced `Royal Navy` → an aircraft-carrier fleet.
+        if request.kind == "title" {
+            if candidates
+                .iter()
+                .any(|candidate| candidate.classes.iter().any(|class| class == DISAMBIGUATION))
+            {
+                return Vec::new();
+            }
+            return self.decide(core, &candidates, request);
+        }
+
         if request.kind == "search" {
             let ours = surface_key(&core.label);
             let same: Vec<&Candidate> = candidates
@@ -280,58 +583,57 @@ impl Engine for Wikidata {
                         .is_some_and(|label| surface_key(label) == ours)
                 })
                 .collect();
-            if same.len() != 1 {
-                return Vec::new();
-            }
             // A matching surface is not enough — the description has to corroborate it, exactly as on
             // the label path. Without this, `Audi` (a car brand) claims a *family name* and
             // `A Pattern Language` claims a 2011 master's thesis, both of which match the surface.
-            let weights = Weights::over(&candidates);
-            let theirs = content_tokens(same[0].description.as_deref().unwrap_or_default());
-            let ours = content_tokens(core.description.as_deref().unwrap_or_default());
-            return if weights.fit(&theirs, &ours) >= FIT_FLOOR {
-                vec![claim(same[0], "search_lookup", 0.85)]
-            } else {
-                Vec::new()
-            };
+            //
+            // Anything short of one corroborated surface falls through to the ranker, which is what
+            // the comment above always claimed. Both non-unique cases are ranker questions, not
+            // reasons to give up: *zero* is the spelling difference (`J.R.R.` vs `J. R. R.`, or
+            // `Dostoevsky` vs `Dostoyevsky`), and *several* is a shared title where only the
+            // description can pick the referent.
+            if let [candidate] = same.as_slice() {
+                let weights = Weights::over(&candidates);
+                let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
+                let ours = our_tokens(core);
+                let fit = ours
+                    .iter()
+                    .map(|tokens| weights.fit(&theirs, tokens))
+                    .fold(0.0f32, f32::max);
+                if fit >= FIT_FLOOR {
+                    return vec![claim(candidate, "search_lookup", 0.85)];
+                }
+            }
+            // Zero or several same-surface candidates: a spelling difference, or a shared title.
+            // Either way only candidates that *are* our name — the same surface, or a trivial
+            // respelling — may be considered. An item that merely mentions the name in its label
+            // (`Royal Navy fleet aircraft carrier fleet` for `Royal Navy`) is a different referent,
+            // and its description overlap is exactly what would fool the fit score.
+            let admitted: Vec<Candidate> = candidates
+                .into_iter()
+                .filter(|candidate| {
+                    candidate
+                        .label
+                        .as_deref()
+                        .is_some_and(|label| near_surface(&surface_key(label), &ours))
+                })
+                .collect();
+            if admitted.is_empty() {
+                return Vec::new();
+            }
+            return self.decide(core, &admitted, request);
         }
 
-        let mut ranked = rank(core, &candidates);
-        if ranked.is_empty() {
-            return Vec::new();
-        }
-
-        // One exact label and nothing else claiming it: that is identity, even with no text to
-        // corroborate it.
-        if ranked.len() == 1 && ranked[0].exact_label {
-            return vec![claim(ranked[0].candidate, "exact_label", 0.75)];
-        }
-
-        let best = ranked.remove(0);
-        let runner_up = ranked.first().map(|other| other.fit).unwrap_or(0.0);
-
-        // Otherwise a claim must clear the bar *and* beat the runner-up. Ambiguity is not a reason to
-        // give up — `Sunset Boulevard` has eleven candidates and the description picks the film — but
-        // a near-tie is.
-        // The decision is on the *evidence*, not the blend. The name is why this candidate is here at
-        // all, so requiring a blended score quietly demanded a fixed amount of text overlap — which
-        // real, terse Wikidata descriptions cannot supply ("German-born theoretical physicist" vs a
-        // capture's six-word reading of Einstein).
-        if best.fit < FIT_FLOOR {
-            return self.by_hint(core, &candidates);
-        }
-        // Two candidates fit and neither wins: genuine ambiguity. The hint must not break this tie.
-        if best.fit - runner_up < FIT_MARGIN {
-            return Vec::new();
-        }
-        let method = if best.exact_label { "exact_label" } else { "ranked" };
-        vec![claim(best.candidate, method, confidence(best.score))]
+        self.decide(core, &candidates, request)
     }
 
     async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
         let Some(first) = requests.first() else {
             return Ok(Vec::new());
         };
+        if first.kind == "title" {
+            return self.titles(requests).await;
+        }
         if first.kind == "search" {
             let mut answers = Vec::with_capacity(requests.len());
             for request in requests {
@@ -535,6 +837,44 @@ fn same_surface(a: &str, b: &str) -> bool {
             .to_lowercase()
 }
 
+/// Whether two surface keys are the same name spelled differently: `dostoyevsky`/`dostoevsky`,
+/// `jrr tolkien`/`jrrtolkien`. Measured on the two cases that motivated the fallback: a one-letter
+/// transliteration and an initials/spacing difference.
+///
+/// Deliberately tight. A candidate whose label merely *contains* our name — `Royal Navy fleet
+/// aircraft carrier fleet` for `Royal Navy` — is a different referent that describes ours, and its
+/// text overlap is precisely what would fool the fit score.
+fn near_surface(theirs: &str, ours: &str) -> bool {
+    if theirs == ours {
+        return true;
+    }
+    let (a, b) = (theirs.chars().count(), ours.chars().count());
+    let longest = a.max(b);
+    if longest < 6 {
+        return false;
+    }
+    // One edit per eight characters, and never more than two: enough for `Dostoevsky`, far too
+    // little for a title that embeds ours.
+    let allowance = (longest / 8).clamp(1, 2);
+    edit_distance(theirs, ours) <= allowance
+}
+
+fn edit_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let mut previous: Vec<usize> = (0..=b.len()).collect();
+    let mut current = vec![0usize; b.len() + 1];
+    for (i, ca) in a.iter().enumerate() {
+        current[0] = i + 1;
+        for (j, cb) in b.iter().enumerate() {
+            let cost = usize::from(ca != cb);
+            current[j + 1] = (previous[j] + cost).min(previous[j + 1] + 1).min(current[j] + 1);
+        }
+        std::mem::swap(&mut previous, &mut current);
+    }
+    previous[b.len()]
+}
+
 /// How much of the candidate's description must be accounted for by ours before a claim is worth
 /// making. Two shared content words usually clears it; one never does.
 const FIT_FLOOR: f32 = 0.20;
@@ -580,7 +920,7 @@ struct Ranked<'a> {
 /// description literally contains the hint's words. A hint drawn from what we saw is not independent
 /// evidence about which candidate we meant.
 fn rank<'a>(core: &CoreView, candidates: &'a [Candidate]) -> Vec<Ranked<'a>> {
-    let ours = content_tokens(core.description.as_deref().unwrap_or_default());
+    let ours = our_tokens(core);
     let weights = Weights::over(candidates);
 
     let mut scored: Vec<Ranked<'a>> = candidates
@@ -599,7 +939,10 @@ fn rank<'a>(core: &CoreView, candidates: &'a [Candidate]) -> Vec<Ranked<'a>> {
                 )
             };
             let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
-            let fit = weights.fit(&theirs, &ours);
+            let fit = ours
+                .iter()
+                .map(|tokens| weights.fit(&theirs, tokens))
+                .fold(0.0f32, f32::max);
             Ranked {
                 candidate,
                 score: NAME_WEIGHT * name + SUPPORT_WEIGHT * fit,
@@ -655,6 +998,12 @@ fn surface_key(surface: &str) -> String {
         .filter(|c| c.is_alphanumeric())
         .flat_map(char::to_lowercase)
         .collect()
+}
+
+/// Every description the core has accumulated, tokenized. A candidate only has to fit one of them:
+/// taking the union instead would dilute a good match with text from unrelated captures.
+fn our_tokens(core: &CoreView) -> Vec<Vec<String>> {
+    core.descriptions().map(content_tokens).collect()
 }
 
 fn content_tokens(text: &str) -> Vec<String> {
@@ -794,7 +1143,7 @@ mod tests {
             label: label.to_string(),
             entity_type: "unknown".to_string(),
             description: description.map(str::to_string),
-            aliases: Vec::new(),
+            alt_descriptions: Vec::new(),
             search_query: None,
             handle: None,
         }
@@ -988,20 +1337,22 @@ mod tests {
     }
 
     #[test]
-    fn planning_prefers_the_handle_and_always_asks_the_label() {
+    fn planning_prefers_the_handle_then_a_title_then_the_label() {
         let core = CoreView {
             id: 1,
             label: "Alexey Kutepov".to_string(),
             entity_type: "real_person".to_string(),
             description: None,
-            aliases: Vec::new(),
+            alt_descriptions: Vec::new(),
             search_query: Some("Tsoding".to_string()),
             handle: Some(("x".to_string(), "tsoding".to_string())),
         };
         let plans = engine().plan(&core);
-        assert_eq!(plans.len(), 2);
+        assert_eq!(plans.len(), 3);
         assert_eq!(plans[0].kind, "handle:P2002");
-        assert_eq!(plans[1].kind, "label");
+        // A title is unique where a label is not, so it is asked first and wins the claim.
+        assert_eq!(plans[1].kind, "title");
+        assert_eq!(plans[2].kind, "label");
 
         // Stage two searches for the bare label: that is the lookup blind spot it exists for.
         let fallback = engine().plan_fallback(&core);
@@ -1027,6 +1378,41 @@ mod tests {
         assert_eq!(claims[0].method, "search_lookup");
     }
 
+    /// A transliteration difference is a spelling of the same name, not a different name:
+    /// `Dostoyevsky` is how Wikidata spells him, `Dostoevsky` is how the capture did.
+    #[test]
+    fn a_search_answer_with_a_misspelt_label_is_ranked() {
+        let claims = engine().parse(
+            &core(
+                "Fyodor Dostoevsky",
+                Some("19th-century Russian novelist and philosopher renowned for psychological mastery"),
+            ),
+            &request("search", "Fyodor Dostoevsky"),
+            &found(json!([
+                {"id": "Q991", "label": "Fyodor Dostoyevsky", "description": "Russian novelist and philosopher (1821–1881)"},
+                {"id": "Q136199557", "label": "Fyodor Dostoevsky–Darkness and Dawn", "description": "book, 2024"}
+            ])),
+        );
+        assert_eq!(claims.len(), 1, "{claims:?}");
+        assert_eq!(claims[0].id, "Q991");
+    }
+
+    /// The trap: an item whose *label* contains our name is a different referent, and its description
+    /// overlaps ours precisely because it is about ours. `Royal Navy` must not become the fleet.
+    #[test]
+    fn a_search_answer_that_only_mentions_our_name_is_refused() {
+        let claims = engine().parse(
+            &core("Royal Navy", Some("the United Kingdom's naval warfare force")),
+            &request("search", "Royal Navy"),
+            &found(json!([{
+                "id": "Q63751162",
+                "label": "Royal Navy fleet aircraft carrier fleet",
+                "description": "all fleet aircraft carriers in service with the United Kingdom's Royal Navy"
+            }])),
+        );
+        assert!(claims.is_empty(), "{claims:?}");
+    }
+
     /// Anything that is not the same surface is left to the ranker, which the search stage does not
     /// attempt — a weak lookup must not become a weak claim.
     #[test]
@@ -1035,6 +1421,44 @@ mod tests {
             &core("Clawdbot", Some("an open-source personal AI agent harness")),
             &request("search", "Clawdbot"),
             &found(json!([{"id": "Q1", "label": "Clawdbot Pro", "description": "something else"}])),
+        );
+        assert!(claims.is_empty(), "{claims:?}");
+    }
+
+    /// A Wikipedia title reaches an item whose Wikidata label is different: the item is
+    /// `Symphony No. 7`, the article is `Symphony No. 7 (Sibelius)`.
+    #[test]
+    fn a_title_reaches_an_item_whose_label_differs() {
+        let claims = engine().parse(
+            &core(
+                "Symphony No. 7 (Sibelius)",
+                Some("The final published symphony by Finnish composer Jean Sibelius"),
+            ),
+            &request("title", "Symphony No. 7 (Sibelius)"),
+            &found(json!([{
+                "id": "Q261122",
+                "label": "Symphony No. 7",
+                "description": "symphony by Jean Sibelius",
+                "classes": ["Q97363528"]
+            }])),
+        );
+        assert_eq!(claims.len(), 1, "{claims:?}");
+        assert_eq!(claims[0].id, "Q261122");
+        assert_eq!(claims[0].method, "wikipedia_title");
+    }
+
+    /// A title that lands on a disambiguation page is a menu, not a referent.
+    #[test]
+    fn a_title_that_is_a_disambiguation_page_is_refused() {
+        let claims = engine().parse(
+            &core("John Grant", Some("American singer-songwriter")),
+            &request("title", "John Grant"),
+            &found(json!([{
+                "id": "Q632837",
+                "label": "John Grant",
+                "description": "Wikimedia disambiguation page",
+                "classes": ["Q4167410"]
+            }])),
         );
         assert!(claims.is_empty(), "{claims:?}");
     }

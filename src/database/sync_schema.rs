@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 14;
+const REQUIRED_SCHEMA_VERSION: i32 = 15;
 
 /// DDL the model registry cannot express: `SchemaRegistry::sync` creates what is missing but never
 /// renames. `knowledge_entities` became `knowledge_user` in schema version 9, and the registry
@@ -20,6 +20,54 @@ async fn rename_legacy_tables<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr>
            IF to_regclass('knowledge_entity_position') IS NOT NULL \
               AND to_regclass('knowledge_user_position') IS NULL THEN \
              ALTER INDEX knowledge_entity_position RENAME TO knowledge_user_position; \
+           END IF; \
+         END $$",
+    )
+    .await?;
+    Ok(())
+}
+
+/// The registry adds columns but never renames or drops one, so the accumulated-text columns need
+/// their history spelled out: `aliases` becomes `alt_labels`, `description_source` (which only ever
+/// held the literal `"capture"`) goes, and `alt_descriptions` arrives with a default for old rows.
+async fn accumulated_text<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $$ BEGIN \
+           IF EXISTS ( \
+             SELECT 1 FROM information_schema.columns \
+             WHERE table_schema = current_schema() \
+               AND table_name = 'core_knowledge_entities' \
+               AND column_name = 'aliases' \
+           ) AND NOT EXISTS ( \
+             SELECT 1 FROM information_schema.columns \
+             WHERE table_schema = current_schema() \
+               AND table_name = 'core_knowledge_entities' \
+               AND column_name = 'alt_labels' \
+           ) THEN \
+             ALTER TABLE core_knowledge_entities RENAME COLUMN aliases TO alt_labels; \
+           END IF; \
+         END $$",
+    )
+    .await?;
+    conn.execute_unprepared(
+        "ALTER TABLE core_knowledge_entities \
+           ADD COLUMN IF NOT EXISTS alt_descriptions text[] NOT NULL DEFAULT '{}'",
+    )
+    .await?;
+    conn.execute_unprepared(
+        "ALTER TABLE core_knowledge_entities \
+           ADD COLUMN IF NOT EXISTS alt_types text[] NOT NULL DEFAULT '{}'",
+    )
+    .await?;
+    conn.execute_unprepared(
+        "DO $$ BEGIN \
+           IF EXISTS ( \
+             SELECT 1 FROM information_schema.columns \
+             WHERE table_schema = current_schema() \
+               AND table_name = 'core_knowledge_entities' \
+               AND column_name = 'description_source' \
+           ) THEN \
+             ALTER TABLE core_knowledge_entities DROP COLUMN description_source; \
            END IF; \
          END $$",
     )
@@ -84,6 +132,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             }
 
             rename_legacy_tables(transaction).await?;
+            accumulated_text(transaction).await?;
             retype_evidence_value(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             registry.sync(transaction).await?;

@@ -28,7 +28,7 @@ Be simple, idiomatic, robust, and flexible (in that order).
   you are informed by useful third-party docs/websites, link to them.
 - **Archive Means Inactive, Not Finished:** `plan/archive/` holds docs no longer
   receiving active attention — shipped, abandoned, or superseded — kept out of the
-  default read path to save context. Do not read or cite one unless the task names
+  default read path to save context tokens. Do not read or cite one unless the task names
   it or you need the rationale behind existing behavior, and never treat its
   contents as pending work. Shipping something does not by itself archive its doc:
   one with live open questions stays at top level. Restore a doc from `archive/`
@@ -36,6 +36,9 @@ Be simple, idiomatic, robust, and flexible (in that order).
 - **Validate Intelligently:** Do not run unit tests for small naming or plumbing
   changes. We will always do a full test pass before merging to main. Do not run
   smoke tests without asking for approval first.
+- **Stand On the Shoulders of Giants:** Research best practices and existing
+  solutions before reinventing the wheel. When you find excellent blogs, guides,
+  or technical documentation, share that knowledge.
 
 # Module & File Conventions
 - **Module Layout:** Follow the existing clean folder structure under `src/`.

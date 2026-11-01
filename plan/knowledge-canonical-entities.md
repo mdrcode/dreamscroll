@@ -73,8 +73,8 @@ Three tables answering three different questions:
 
 ### Provenance, not policy
 
-Every core attribute records where it came from: `description_source` for the text, the evidence row
-for identifiers and aliases, the observation for a captured name. That is a graph requirement — an
+Every core attribute records where it came from: the observation for a captured name or reading, the
+evidence row for an identifier or an authority label. That is a graph requirement — an
 attribute you cannot attribute cannot be trusted, re-derived or audited — and it is also the only thing
 needed to answer disclosure questions later, at the read boundary, without changing the model.
 
@@ -148,8 +148,8 @@ Readings that shape the design:
 10. **No stored candidates and no mutable status.** An undecided near-miss is a *view* over unresolved
     cores; the two decisions worth persisting — accept (a merge) and reject (`identity_rejection`) —
     are ordinary append-only evidence.
-11. **Aliases are `text[]` of normalized surfaces, GIN-indexed.** Provenance is free: every surface the
-    model wrote is still on its observation row.
+11. **Alternates are `text[]` of verbatim surfaces; the keys are derived.** Provenance is free: every
+    surface the model wrote is still on its observation row.
 12. **One scorer serves resolution and merge.** Both ask "is this candidate this referent?" from one
     feature vector; two implementations would drift and their thresholds would stop meaning the same.
 13. **The capture is an identity feature.** Sibling entities are the best disambiguation context we
@@ -189,18 +189,18 @@ user_knowledge_entities                    -- the observation; the only owned ro
 
 core_knowledge_entities                    -- the referent; owned by nobody
   id
-  label            text not null          -- display surface (authority, else a canonical name);
-                                               -- its normalized form is always in `aliases`
-  entity_type      text not null          -- authority-mapped, else modal
-  description      text null              -- best available; `description_source` says from where
-  description_source text null            -- wikidata | wikipedia | model | capture
+  label            text not null          -- selected surface; survives a merge if a member has it
+  alt_labels       text[] not null default '{}'   -- every other surface, verbatim (keys derived)
+  entity_type      text not null          -- selected type
+  alt_types        text[] not null default '{}'   -- other types members asserted; agreement with any counts
+  description      text null              -- selected text
+  alt_descriptions text[] not null default '{}'   -- every other member description, verbatim
   status           text not null          -- provisional | identified | contested (projected)
   confidence       real null              -- best identity score behind the claim
   superseded_by_id i32 null -> core_knowledge_entities.id
-  aliases          text[] not null default '{}'   -- normalized surfaces: authority + observed
   created_at, updated_at
-  index  using gin (aliases)             -- the only blocking index
   index  (status) where status = 'provisional'
+  -- planned, not built: gin (alt_labels) with normalized keys alongside the verbatim surfaces
 
 core_knowledge_evidence                    -- the justification; append-only
   id
@@ -232,14 +232,14 @@ A core row that says "this is Kyle Chandler" is not Bob's, and a column recordin
 contradict the merges the graph is supposed to make. Two users' provisional cores converging (decision
 5) is intended behaviour.
 
-**Aliases are an index first.** `core_knowledge_entities.aliases` holds every normalized surface the
-core is known by: authority labels, sitelinks and aliases, plus each observation's name and platform
-display name. One GIN lookup is the whole blocking path, and it is also what lets a persona converge —
-a capture that says only `Tsoding` reaches the core built from `Alexey Kutepov`.
+**Alternates are verbatim; keys are derived.** `alt_labels` holds every surface the core is known by —
+each observation's name, platform display name and handle — as the capture spelled it. The linker
+normalizes on load (`normalize::key`) to get its blocking keys, so nothing is lost to the index and a
+display surface keeps its accents and capitalisation. Today the blocking path is an in-process key map
+built during `build_core`; the GIN index below is planned, not built.
 
-Casing, language and provenance are **not** in the array; they stay in the `ontology` evidence row, and
-the core page renders aliases from there. The array is normalized, deduped and capped (~50), so it stays
-an index rather than a growing copy of every capture.
+The selected `label` is kept separate on purpose: it is a *decision*, while the array is *evidence*.
+The same split applies to `description`/`alt_descriptions`, and to `entity_type`/`alt_types`.
 
 **Why the dedupe key includes `md5(value)`.** Keyed on the query shape alone, a second candidate set
 from the same lookup would collide with the first and be dropped by `on conflict do nothing`, so a
@@ -351,10 +351,10 @@ flowchart TD
 
 Recall-oriented and deliberately over-generating, from three independent sources:
 
-- **`core.aliases @> array[$normalized]`** — one GIN lookup covering the canonical label, every
-  observed surface (including each capture's name and platform display name) and every authority
-  alias. This is the whole name path: a provisional core is reachable because its own captures put a
-  surface in `aliases`, and a surface the core was never observed under is reachable because authority
+- **`normalize::key(surface)` membership in `alt_labels`** (planned: `core.alt_labels @> array[$verbatim]`
+  over a GIN index on normalized keys) — covering the canonical label, every observed surface
+  (including each capture's name and platform display name) and every authority alias. This is the whole name path: a provisional core is reachable because its own captures put a
+  surface in `alt_labels`, and a surface the core was never observed under is reachable because authority
   supplied it (`J.R. Cash` → the Johnny Cash core). A target and a persona converge the same way.
 - **`(platform, lower(handle))`** — identity for account-backed entities.
 - **a QID the observation already carries**, from the resolution cache; plus token-set equality over
@@ -415,8 +415,11 @@ second resolution into a merge; until then the overlay shows two rows. Accepted,
 
 ## Repair: (retire, unlink, seed?, relink)
 
-**Not implemented.** This is the mechanism every later correction runs through, so it is specified
-before the code that will need it.
+**Partly implemented.** `knowledge::merge::merge_core(loser, winner)` is the primitive: it re-points
+observations, moves evidence (dropping duplicates of the winner's), records a `merge` evidence row,
+tombstones the loser and re-projects the winner. It is wired to the one trigger that needs no human —
+resolution discovering that two cores claim the same identity — and folded seven real duplicates on
+its first run. The `repair` command, `seed` and unmerge are still to come.
 
 A bad core — two referents fused, one referent split across two cores, an observation pointing at the
 wrong thing — is not edited. It is **recomputed**, because the core graph is a projection over
@@ -449,7 +452,7 @@ shape of the fix decides which steps are load-bearing:
 | Badness | Retire | Unlink | Seed | What makes the relink succeed |
 | --- | --- | --- | --- | --- |
 | **Wrong merge** — two referents, one core | the fused core | its observations | no, if the two correct cores already exist | the fused core is gone, so each observation chooses between real referents |
-| **Wrong split** — one referent, two cores | the loser | its observations | no | the survivor's aliases and token keys already cover the surfaces |
+| **Wrong split** — one referent, two cores | the loser | its observations | no | the survivor's `alt_labels` and derived keys already cover the surfaces |
 | **Wrong referent** — points at the wrong thing | no | the observation | yes, a core with the right identifier | an identifier is decisive (G4) |
 | **Collision** — one name, two referents, one core | the core | its observations | yes, one seed per referent | the seeds differ in something the scorer can see: type, description, identifier |
 
@@ -518,16 +521,20 @@ The seeding is the part a human supplies; everything else is mechanical, which i
 
 | Column | Derived from |
 | --- | --- |
-| `label` | authority label, else the most frequent observation name that passes a name-shape check (a proper name, not a possessive or a sentence fragment) |
-| `entity_type` | authority `P31` map, else the modal observation type |
-| `description` | highest-priority `description` evidence: authority outranks a model reading, which outranks a capture's own text |
+| `label` | the selected surface: the current one while a member still carries it, else the earliest member's |
+| `alt_labels` | every other member surface (name, platform display name, handle), verbatim, ordered by member id |
+| `entity_type` | the selected type, same rule; `alt_types` collects the rest |
+| `description` | the current text while a member still carries it, else the earliest member's; preserved when no member has one |
+| `alt_descriptions` | every other member description, verbatim, ordered by member id |
 | `confidence` | rises with the number of distinct schemes holding a live claim, plus the best identity score |
 | `status` | `identified` if any live identity claim exists; `contested` if a `collision` row does; else `provisional` |
-| `confidence` | the max identity score behind the current claim |
-| `aliases` | normalized union of authority labels/sitelinks/aliases and every observation's `name` + `platform_display_name`, deduped and capped |
 | `superseded_by_id` | written by `merge`, and by a repair that replaces a core |
 
-Every projected column records its source (`description_source`, the evidence row, the observation), so
+Projection runs at the end of `build_core` and after every evidence append, so a core is a function of
+its members and its evidence — never of whichever observation happened to create it. That is what makes
+a merge safe: the loser's surfaces and text are recovered from the observations that moved.
+
+Every projected column is derived from the members or the evidence, so
 any later question about an attribute can be answered without re-deriving it. Whether a given attribute
 should be *served* to a non-capturer is a read-boundary decision, deferred (see §Deferred).
 
@@ -597,7 +604,8 @@ Two descriptions, one per table. They answer different questions and neither ove
 The core's description is an **attribute with provenance**, not a different kind of object. Authority
 text outranks a generated one, which outranks a capture's own reading — so a provisional entity still
 has something to show, and an authority description displaces it the moment enrichment lands. Nothing
-is lost: `description_source` and the evidence row record what was replaced.
+is lost: the displaced capture text stays in `alt_descriptions`, and the evidence row records the
+authority's own wording.
 
 - **Generation inputs:** `P31`, `P106`, dates, the Wikipedia lead, cited web results for
   source-grounded rows.
@@ -653,8 +661,8 @@ Graph:
 
 - **G1.** One core per referent. A merge is a pointer (`superseded_by_id`) plus re-pointed observations;
   nothing is deleted, and every attribute keeps its provenance.
-- **G2.** Every core attribute is attributable — `description_source`, the evidence row, or the
-  observation it came from. Nothing on a core row is an orphan.
+- **G2.** Every core attribute is attributable — the evidence row, or the observation it came from.
+  Nothing on a core row is an orphan.
 - **G3.** An observation points at exactly one core, and a merge changes nothing on it but `core_id`.
 - **G4.** Identity is decided by evidence, never by a name: a QID or handle match is decisive, a name is
   a blocking key.
@@ -682,7 +690,7 @@ Not a design constraint, and deliberately not in the schema. Recorded here so it
 - **The yardstick, for later:** an attribute of a core should be safe to show to any user knowing
   nothing about who captured it. That is a test to apply at the read boundary, not a rule for what the
   graph may store.
-- **Where policy will attach:** `description_source`, and evidence `source` + `source_user_id`. A filter
+- **Where policy will attach:** the member observation, and evidence `source` + `source_user_id`. A filter
   can hide capture-derived attributes from non-capturers without touching a single write path.
 - **What is already measured** (2026-10-31): names — 0 emails, phone numbers or URLs across 4,511
   distinct prod names; 66 `@handles`, which are public identities; 3 caption-like fragments, two of
@@ -798,8 +806,9 @@ Not a design constraint, and deliberately not in the schema. Recorded here so it
 Open, to decide before the phase that needs them:
 
 1. **Threshold values.** Calibrate on the labelled sheet; do not ship numbers picked from intuition.
-2. **Does an archived capture feed evidence?** Suggested: yes for aliases and neighbourhood, no for
-   read surfaces.
+2. **Does an archived capture feed evidence?** **Decided 2026-10-31: yes, without restriction.** There
+   is no privacy risk in an archived capture's observations reaching the graph, so nothing filters on
+   `archived_at` — and today nothing does. (Archiving stays a user-facing concept, not a graph rule.)
 3. **Does a core's type override an observation's?** Suggested: no.
 4. **The promotion bar for a QID-less entity.** Which sources count, and how do we reject a private
    individual whose name appears in a screenshot? Start strict, measure, loosen.

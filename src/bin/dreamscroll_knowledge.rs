@@ -15,6 +15,7 @@ enum Command {
     Migrate(MigrateArgs),
     BuildCore(BuildCoreArgs),
     Stats(StatsArgs),
+    MergeCoreEntities(MergeCoreEntitiesArgs),
     ResetCore(ResetCoreArgs),
     Compare(CompareArgs),
     Resolve(ResolveArgs),
@@ -29,6 +30,19 @@ struct MigrateArgs {}
 #[argh(subcommand, name = "build_core")]
 #[argh(description = "link every unlinked observation to a core, creating cores as needed")]
 struct BuildCoreArgs {}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "merge_core_entities")]
+#[argh(description = "fold one core into another; refuses when they share a capture")]
+struct MergeCoreEntitiesArgs {
+    #[argh(positional, description = "core id that will be tombstoned")]
+    loser: i32,
+    #[argh(positional, description = "core id that survives")]
+    winner: i32,
+    #[argh(switch, short = 'y')]
+    #[argh(description = "apply the merge (otherwise it is a dry run)")]
+    yes: bool,
+}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "reset_core")]
@@ -56,9 +70,12 @@ struct ResolveArgs {
     #[argh(switch)]
     #[argh(description = "plan and report without touching the network")]
     dry_run: bool,
-    #[argh(option, default = "200")]
-    #[argh(description = "transport calls allowed in this run")]
-    max_requests: usize,
+    #[argh(option)]
+    #[argh(description = "transport calls allowed in this run (default 200)")]
+    max_requests: Option<usize>,
+    #[argh(switch)]
+    #[argh(description = "serve from the cache only; makes no transport calls")]
+    offline: bool,
     #[argh(option)]
     #[argh(description = "consider at most this many cores")]
     limit: Option<usize>,
@@ -103,6 +120,39 @@ async fn main() -> anyhow::Result<()> {
                 report.linked,
                 report.created
             );
+        }
+        Command::MergeCoreEntities(args) => {
+            let preview = knowledge::merge::preview(&db.conn, args.loser, args.winner).await?;
+            println!(
+                "merge {} -> {} · observations {} · evidence {} · shared captures {}",
+                args.loser,
+                args.winner,
+                preview.observations,
+                preview.evidence,
+                preview.shared_captures
+            );
+            if preview.shared_captures > 0 {
+                println!(
+                    "refused: both cores have observations in the same capture, and the linker \
+                     already decided those mentions are different referents"
+                );
+                return Ok(());
+            }
+            if !args.yes {
+                println!("dry run; pass --yes to apply");
+                return Ok(());
+            }
+            match knowledge::merge::merge_core(&db.conn, args.loser, args.winner).await? {
+                knowledge::merge::Outcome::Merged => {
+                    println!("merged; {} is now a tombstone", args.loser)
+                }
+                knowledge::merge::Outcome::AlreadyMerged => {
+                    println!("already merged; nothing to do")
+                }
+                knowledge::merge::Outcome::RefusedSharedCapture => {
+                    println!("refused at merge time — the cores changed under us")
+                }
+            }
         }
         Command::ResetCore(args) => {
             if !args.yes {
@@ -171,9 +221,24 @@ async fn main() -> anyhow::Result<()> {
             let engines: Vec<Box<dyn knowledge::resolve::Engine>> = vec![Box::new(
                 knowledge::resolve::wikidata::Wikidata::new()?,
             )];
+            // A budget of zero makes no transport calls, which reads like a successful run that
+            // resolved nothing. That is a mode, not a number.
+            if args.offline && args.max_requests.is_some() {
+                anyhow::bail!("--offline and --max-requests are mutually exclusive");
+            }
+            if args.max_requests == Some(0) {
+                anyhow::bail!(
+                    "--max-requests 0 makes no transport calls; pass --offline to ask for that"
+                );
+            }
+            let max_requests = match (args.offline, args.max_requests) {
+                (true, _) => 0,
+                (false, Some(n)) => n,
+                (false, None) => knowledge::resolve::DEFAULT_MAX_REQUESTS,
+            };
             let options = knowledge::resolve::Options {
                 limit: args.limit,
-                max_requests: args.max_requests,
+                max_requests,
                 dry_run: args.dry_run,
                 only: args.core,
                 min_interval: std::time::Duration::from_millis(args.min_interval_ms),
@@ -182,17 +247,21 @@ async fn main() -> anyhow::Result<()> {
 
             if report.dry_run {
                 println!("dry run — nothing fetched");
+            } else if args.offline {
+                println!("offline — cache only, no transport calls");
+            } else {
+                println!("budget {} requests", max_requests);
             }
             println!(
                 "candidates {} · planned {} · cache hits {}",
                 report.candidates, report.planned, report.cache_hits
             );
             println!(
-                "fetched {} · failed {} · claims {} · cores resolved {} · conflicts {}",
-                report.fetched, report.failed, report.claims, report.cores_resolved, report.conflicts
+                "fetched {} · failed {} · claims {} · cores resolved {} · merges {} · collisions {}",
+                report.fetched, report.failed, report.claims, report.cores_resolved, report.merges, report.collisions
             );
             if report.budget_exhausted {
-                println!("budget exhausted at {} requests", args.max_requests);
+                println!("budget exhausted at {max_requests} requests");
             }
             if let Some(seconds) = report.rate_limited_after {
                 // WDQS 429: honour Retry-After rather than risk a temporary ban.

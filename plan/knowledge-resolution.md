@@ -76,9 +76,9 @@ Wikidata implements three request kinds:
 | `handle:P2002` (also P2003, P2037, P2397, P4033) | SPARQL `VALUES` over handles | yes | 0.95 |
 | `label` | SPARQL `VALUES` over labels, `P31` and descriptions alongside | yes | ranked |
 
-One request per batch. There is **no** second request: Wikidata's `wbsearchentities` is a label
-matcher, so a disambiguating string like `"Sunset Boulevard 1950 film"` returns nothing. Genuine full
-text would need `list=search` plus a page→QID hop, which is deferred.
+One request per batch. A disambiguating string like `"Sunset Boulevard 1950 film"` returns nothing to
+a label query; that case belongs to the full-text stage below, which runs MediaWiki's own search
+(`list=search`) plus a page→QID hop.
 
 **A claim is a ranking decision over the candidates the label returned**, not a yes/no on the label.
 Each candidate is scored on two signals from text we already hold:
@@ -118,26 +118,99 @@ At least **half** the disambiguating words must be accounted for: one of three c
 which is how `Suspicion` (a Matsumoto novel) claimed a Dürrenmatt one on the word "novel" alone. The
 stricter floor costs one correct claim (`A Quiet Place`) and removes one wrong one.
 
-### Stage two is a lookup fallback, not a ranking step
+### Stage zero is the article title
 
-When the exact-label lookup produces no claim, the resolver searches for the **bare label**:
+A capture's name is often not a Wikidata label at all — it is a **Wikipedia article title**, complete
+with the parenthetical disambiguator. `Symphony No. 7 (Sibelius)` is the article; the item is labelled
+`Symphony No. 7`. Label search returns **zero** hits for it, and no amount of ranking fixes a query
+that found nothing.
+
+So the first request is a title lookup:
 
 ```
-stage 1  exact label (SPARQL)         → claim
-stage 2  wbsearchentities(label)      → claim only on a surface match, corroborated by description
+stage 0  enwiki title → pageprops.wikibase_item   → item, corroborated by description
+stage 1  exact label (SPARQL)                     → claim
+stage 2  list=search (CirrusSearch)               → ranked, corroborated
 ```
 
-It exists because Wikidata labels `J. R. R. Tolkien` and `D. H. Lawrence` *with spaces* while our
-extraction writes `J.R.R.` and `D.H.` — the exact-label query returns nothing (or, worse, returns the
-paintings titled `D.H. Lawrence`). Surfaces are compared with punctuation, spacing and case removed.
+A title is unique where a label is not: 213 items are labelled `Paris`, but exactly one page is titled
+`Paris`. The lookup follows `normalized` and `redirects`, which is how `Saint-Quentin Canal` reaches
+`Canal de Saint-Quentin` — a word-order variant no label search finds. Titles that resolve to a
+`Q4167410` disambiguation page are refused: a menu is not a referent.
 
-A search answer is accepted only when **exactly one** candidate matches the surface *and* its
-description clears the same `FIT_FLOOR` as the label path. Without the description check it claimed
-`Audi` (a car brand) as a *family name* and `A Pattern Language` as a 2011 master's thesis.
+Measured on the 502 provisional cores (2026-11-01): **171 (34%) resolve by title**, of which 30 are
+disambiguation pages, leaving **141 (28%) usable**. It batches 50 titles per call — the cheapest
+request in the system — and its claim wins over the label stage because a title that matches is
+stronger evidence than a label that matches.
 
-Measured over 220 lookups: 126 returned candidates, 134 nothing; 16 claims before the description
-check, **11 after, all correct**. The search endpoint takes one query per call, so this stage is paced
-per query — 50-at-a-time bursts are what earned a 429.
+### The search endpoint lies, sometimes — measured 2026-11-01
+
+Wikidata's search can answer **HTTP 200, `success: 1`** with nothing useful in it. This is a known,
+documented failure ([Phabricator T284478](https://phabricator.wikimedia.org/T284478), "wbsearchentities
+randomly not returning search results"): when the search backend fails, the API used to swallow the
+error and return an empty list. The upstream fix was titled *"throw exception on backend failure"*,
+and the diagnostic tell, identified by a Wikimedia search engineer, is the response header:
+
+> *"X-Search-Id is attached to responses whenever CirrusSearch has made a request to elasticsearch.
+> That suggests that somehow these requests are getting a response without ever hitting the backend."*
+
+Measured on the live API — 20 queries × 5 repeats, 100 requests:
+
+| observation | count |
+| --- | --- |
+| responses with **no `x-search-id`** and zero results | **4 / 100** |
+| queries that produced *different result sets* across repeats | 12 / 20 |
+
+Four responses in a hundred were silently empty. Those are indistinguishable from a genuine "no such
+thing", and the cache would have held each for a week.
+
+The second row is a different problem: the result *sets* move between identical requests even when ten
+come back, so search is not deterministic. The cache is what stabilises it — but only if the cached
+answer is a real one.
+
+**How the pipeline treats an answer now.**
+
+| signal | outcome | TTL |
+| --- | --- | --- |
+| transport error, or `{"error": …}` in a 200 body | `Failed` | 10 minutes |
+| no `x-search-id` (search never reached the backend) | `Degraded` — parsed, but distrusted | 60 minutes |
+| answered, but produced no claim | demoted after the stage | 6 hours |
+| answered and produced a claim | `Found` | 7 days |
+
+The third row is the general lesson: **a cached answer that produced no claim is a guess, not a fact.**
+It may be honest and merely unhelpful, or it may be degraded, and either way re-asking costs nothing
+when the query is already on disk.
+
+One consequence worth stating: 690 cached search negatives were deleted and re-asked to measure how
+many were lies. An `empty` search answer is the least trustworthy thing in the cache.
+
+### Stage two is full-text search, and it is the last resort
+
+When the title and the exact label both fail, the resolver asks MediaWiki's own search:
+
+```
+stage 1  exact label (SPARQL)             → claim
+stage 2  list=search, namespace 0         → candidates, ranked by the same `decide`
+```
+
+`list=search` on wikidata.org runs **CirrusSearch**, whose analyser tokenises on punctuation and ranks
+by relevance. Two things follow: `A Christmas Carol` ranks the 1843 novella first where a prefix
+matcher puts a musical on top, and `J.R.R. Tolkien` matches the item labelled `J. R. R. Tolkien`
+because both tokenise to `j r r tolkien`. Page titles in namespace 0 *are* QIDs, so a hit list is
+already a candidate set — one `wbgetentities` call then supplies labels, descriptions and `P31`.
+
+**Not `wbsearchentities`.** That endpoint is a prefix matcher over labels and aliases, which is the
+wrong instrument for a string that is a spelling of a name rather than a prefix of a label. The
+Wikidata developers say so directly: *"wbsearchentities is prefix-only for performance reasons and
+there is no way around it. Try to use MediaWikis regular search API."*
+
+An answer only becomes a claim when the winner's label is **our name** — the same surface, or a
+trivial respelling (`dostoyevsky`/`dostoevsky`). Measured earlier: without that guard the best-fitting
+candidate for `Royal Navy` was *Royal Navy fleet aircraft carrier fleet*, whose description contains
+our words verbatim.
+
+Search takes one query per call, so this stage is paced per query — 50-at-a-time bursts are what
+earned a 429.
 
 ## Confidence and status
 
@@ -173,6 +246,8 @@ On top of the published rules:
 - **`--min-interval-ms`** (default 1000) puts a floor between transport calls, so a walk stays under
   60 requests a minute regardless of how fast the queries return.
 - **`--max-requests`** (default 200) caps calls per run. A bug cannot turn into a flood.
+- **`--offline`** is the only way to make zero calls. `--max-requests 0` is rejected: a budget of zero
+  used to read as a successful run that resolved nothing, because every answer came from the cache.
 - **Cache first**: a warm query costs no request at all, which is the cheapest possible compliance.
 - **Failures are cached for 10 minutes** so a sick provider is not hammered — but a 429 is not a
   failure and is not cached.
@@ -183,9 +258,11 @@ reruns it; with the cache warm, the rerun costs only the requests that had not b
 ## Running it
 
 ```sh
-dreamscroll_knowledge resolve --dry-run --limit 20   # what would be asked
+dreamscroll_knowledge resolve                          # default budget of 200 calls
+dreamscroll_knowledge resolve --dry-run --limit 20     # what would be asked
 dreamscroll_knowledge resolve --limit 20 --max-requests 5
-dreamscroll_knowledge resolve --core 20190           # one case, for debugging
+dreamscroll_knowledge resolve --offline                # cache only, no transport calls
+dreamscroll_knowledge resolve --core 20190             # one case, for debugging
 ```
 
 `--max-requests` caps transport calls (not queries) per run; `--core <id>` resolves a single case. The run
@@ -200,7 +277,147 @@ on the next pass.
 - **Type validation.** `P31` classes are stored on the claim but never checked against the core's type.
   With ranking in place this is now the remaining wrong-referent risk: descriptions separate a novel
   from a film, but not two films, and `entity_type` is the signal that would.
-- **Genuine full text.** Deferred, per the note above on `wbsearchentities`.
+- **Genuine full text.** Implemented 2026-11-01: `list=search` (CirrusSearch), see *Stage two*.
+
+### The fallback, measured (2026-10-31)
+
+| step | claims | precision | network |
+| --- | --- | --- | --- |
+| hint scored in the description (rejected) | 23 | **~61%** — a photograph, an album, a Quebec post office | 0 calls |
+| hint as a fallback, name tokens included (rejected) | 23 | ~61%, same failures | 0 calls |
+| hint as a fallback, name tokens subtracted | **64** | **~94%** | 0 calls |
+| search lookup for empty labels (stage two) | **11** | **100%** (of 220 lookups) | 220 calls |
+
+The two remaining errors were both *type* errors, not name errors: `Monster` (a brand) matched a
+Shawn Mendes audio track, and `Q` (a character) matched a Star Wars comic. Both were retracted through
+`retracted_at`. That is exactly what `P31` validation would have rejected outright, and it is the
+strongest argument for building the type map next.
+
+Every number in that table came from re-ranking cached payloads: the whole experiment cost nothing.
+
+## The tuning loop
+
+Scoring cannot be tuned case by case — one failing entity is an anecdote, and the fix that makes it
+pass may break ten others. So there is a small gold set of entities that should be impossible to miss:
+
+```sh
+cargo run --example eval_resolve -- localdev/analysis/entity-promotion/evidence/resolve-gold.tsv
+```
+
+Each row is `label <TAB> qid <TAB> keyword`. **The gold is verified against Wikidata first** — the
+item's label must equal ours and its description must contain the keyword — so a mistaken gold QID is
+dropped rather than counted against the scorer. Of the 25 rows written from memory, 12 were dropped
+that way.
+
+### What each change bought
+
+| change | gold |
+| --- | --- |
+| starting point (`score = 0.4·name + 0.6·fit` against a 0.60 bar) | **0 / 13** |
+| decide on `fit`, not the blended score (the name is why the candidate exists) | **8 / 13** |
+| weight terms by rarity within the candidate set (IDF) | 8 / 13 |
+| score matched evidence saturating instead of dividing by the candidate's length | 8 / 13 |
+| light suffix stripping (`painter` / `painting` / `paint`) | **9 / 13** |
+| adjacent bigrams, weighted double (`"first president"`) | 9 / 13, +3 corpus claims (HBO, Bach, Armani — all correct) |
+
+The corpus effect of the last three steps together: **+97 claims at ~96% precision**, 0 requests
+(cached payloads), measured by reading all 97.
+
+### What is left, and why it is not a scoring problem
+
+| failure | reason |
+| --- | --- |
+| `Fritz Lang`, `Ridley Scott` | our "film director" vs Wikidata's "filmmaker" — a *synonym*, not a word form |
+| `Lake Sevan` | our "body of water" vs "lake" — same |
+| `George Washington` | with bigrams: the president scores **0.858** sharing `[first, president, "first president"]`; two statues score **0.847** sharing `[unit, stat, "unit stat"]` — both share a phrase, because "United States" is the subject's country in ours and the sculpture's *location* in theirs. Bag-of-words cannot see the difference in role, so the margin is 0.011. |
+
+And the recurring false positives in the corpus are the same shape: `Q` (a character) claimed a Star
+Wars *comic*, `Monster` (a brand) claimed a Shawn Mendes *audio track*, `Kerala` (a state) claimed a
+*village in Gujarat*.
+
+Every one of those is a **type** question, not a wording question. Lexical scoring has a ceiling
+around 9/13 here, and `P31` → `entity_type` compatibility is what lifts it.
+
+## First measurements (2026-10-31)
+
+| case | result |
+| --- | --- |
+| `Dune` + "1965 science fiction novel by Frank Herbert" | `Q190192` at 0.95 — runner-up was the *series*, 0.898 |
+| `Sunset Boulevard` + the capture's description | `Q193570` (1950 film) at 0.86 — 11 candidates |
+| `Nintendo` + "Japanese video game company founded in 1889" | `Q8093` at 0.82 |
+| 30 real cores, one SPARQL batch | 12 claims (40%) — previously 3 of 10, and only where the label was unique |
+
+The last row is the point of ranking: the ambiguous majority used to be a dead end, and now it is where
+most of the yield comes from.
+- **Merges.** A claim for a QID another core already holds is counted as a `conflict` and skipped —
+  that is a merge the graph has not made (§Repair).
+- **Scheduling.** Manual runs only.
+## Confidence and status
+
+`status` and `confidence` are written by `project()`, and by nothing else:
+
+- `identified` when any live identity claim exists, `contested` when a live collision does.
+- `confidence` = the best claim's confidence **+ 0.1 for a second independent *input***, capped at
+  1.0, where a claim's own confidence is `0.50 + 0.45 · score` (0.75 for a lone exact label).
+
+  Inputs, not scheme labels. A `p2002` claim is derived *from* the handle — the resolver asked
+  Wikidata which item owns that account — so pairing it with the handle's own `platform_link` row is
+  one chain, not two, and must not earn a bonus. Counting labels gave all 26 handle-resolved cores
+  the maximum confidence for no extra evidence.
+  Two authorities asserting the same referent is a stronger claim than either alone — this is why
+  identities are plural and why a core identified only by a handle is still worth resolving.
+
+## Throttling and provider etiquette
+
+WDQS publishes its limits in the
+[User Manual](https://www.mediawiki.org/wiki/Wikidata_Query_Service/User_Manual#Query_limits):
+
+| Rule | What we do |
+| --- | --- |
+| A good `User-Agent`; non-compliance can mean a full block | `dreamscroll-knowledge/0.1 (https://dreamscroll.ai)` on the client |
+| 5 parallel queries per IP | one request in flight; the executor is sequential |
+| 60 s of processing time per 60 s per client | 50 labels per query, so a batch is milliseconds of processing |
+| 30 error queries per minute | a run stops at the first transport failure that is not a rate limit, rather than retrying into it |
+| 429 with `Retry-After`, and a temporary ban for ignoring it | **the run stops**, caches nothing, and reports the interval. A 429 is never recorded as an answer — it is an instruction |
+| 60 s query deadline | queries are bounded by the `VALUES` list |
+
+On top of the published rules:
+
+- **`--min-interval-ms`** (default 1000) puts a floor between transport calls, so a walk stays under
+  60 requests a minute regardless of how fast the queries return.
+- **`--max-requests`** (default 200) caps calls per run. A bug cannot turn into a flood.
+- **`--offline`** is the only way to make zero calls. `--max-requests 0` is rejected: a budget of zero
+  used to read as a successful run that resolved nothing, because every answer came from the cache.
+- **Cache first**: a warm query costs no request at all, which is the cheapest possible compliance.
+- **Failures are cached for 10 minutes** so a sick provider is not hammered — but a 429 is not a
+  failure and is not cached.
+
+What is *not* done: resuming automatically after a `Retry-After`. The run stops and the operator
+reruns it; with the cache warm, the rerun costs only the requests that had not been answered.
+
+## Running it
+
+```sh
+dreamscroll_knowledge resolve                          # default budget of 200 calls
+dreamscroll_knowledge resolve --dry-run --limit 20     # what would be asked
+dreamscroll_knowledge resolve --limit 20 --max-requests 5
+dreamscroll_knowledge resolve --offline                # cache only, no transport calls
+dreamscroll_knowledge resolve --core 20190             # one case, for debugging
+```
+
+`--max-requests` caps transport calls (not queries) per run; `--core <id>` resolves a single case. The run
+is idempotent: resolved cores leave the candidate set, and unresolved ones are answered from the cache
+on the next pass.
+
+`stats` reports the number that matters — cores with a live ontology claim — plus cache rows by outcome.
+
+## What is not here
+
+- **Enrichment.** No `entity` kind, so labels/descriptions/images are not fetched by QID yet.
+- **Type validation.** `P31` classes are stored on the claim but never checked against the core's type.
+  With ranking in place this is now the remaining wrong-referent risk: descriptions separate a novel
+  from a film, but not two films, and `entity_type` is the signal that would.
+- **Genuine full text.** Implemented 2026-11-01: `list=search` (CirrusSearch), see *Stage two*.
 
 ### The fallback, measured (2026-10-31)
 

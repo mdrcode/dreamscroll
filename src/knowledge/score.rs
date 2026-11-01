@@ -55,29 +55,35 @@ impl Observation {
     }
 }
 
-/// A candidate core, with the alias work precomputed so scoring is cheap in a loop.
+/// A candidate core, with the label work precomputed so scoring is cheap in a loop.
 #[derive(Debug, Clone)]
 pub struct Core {
     pub id: i32,
-    pub alias_keys: Vec<String>,
-    pub alias_token_keys: Vec<String>,
-    pub description_tokens: Vec<String>,
-    pub entity_type: String,
+    pub alt_label_keys: Vec<String>,
+    pub alt_label_token_keys: Vec<String>,
+    /// One token set per accumulated description; a candidate has to fit only one of them.
+    pub description_tokens: Vec<Vec<String>>,
+    /// Every type this core's members asserted. Agreement with any one of them counts.
+    pub entity_types: Vec<String>,
 }
 
 impl Core {
     pub fn new(
         id: i32,
-        aliases: &[String],
-        description: Option<&str>,
-        entity_type: &str,
+        alt_labels: &[String],
+        descriptions: &[&str],
+        entity_types: &[String],
     ) -> Self {
         Self {
             id,
-            alias_keys: aliases.iter().map(|a| normalize::key(a)).collect(),
-            alias_token_keys: aliases.iter().map(|a| normalize::token_key(a)).collect(),
-            description_tokens: description.map(normalize::tokens).unwrap_or_default(),
-            entity_type: entity_type.to_string(),
+            alt_label_keys: alt_labels.iter().map(|a| normalize::key(a)).collect(),
+            alt_label_token_keys: alt_labels.iter().map(|a| normalize::token_key(a)).collect(),
+            description_tokens: descriptions
+                .iter()
+                .map(|description| normalize::tokens(description))
+                .filter(|tokens| !tokens.is_empty())
+                .collect(),
+            entity_types: entity_types.to_vec(),
         }
     }
 }
@@ -93,8 +99,20 @@ pub fn worth_merging(features: &Features) -> bool {
 
 pub fn score(observation: &Observation, core: &Core) -> Features {
     let name = name_similarity(observation, core);
-    let description = jaccard(&observation.description_tokens, &core.description_tokens);
-    let type_match = type_similarity(&observation.entity_type, &core.entity_type);
+    // Best fit across every description the core has accumulated, never their union: a union would
+    // dilute a good match with text from captures that had nothing to do with this observation.
+    let description = core
+        .description_tokens
+        .iter()
+        .map(|tokens| jaccard(&observation.description_tokens, tokens))
+        .fold(0.0f32, f32::max);
+    // Any agreement counts. A core whose members were called both `brand` and `organization` must
+    // accept either, or half its own members could not have joined it.
+    let type_match = core
+        .entity_types
+        .iter()
+        .map(|entity_type| type_similarity(&observation.entity_type, entity_type))
+        .fold(0.0f32, f32::max);
     let total = W_NAME * name + W_DESCRIPTION * description + W_TYPE * type_match;
     Features {
         name,
@@ -107,10 +125,10 @@ pub fn score(observation: &Observation, core: &Core) -> Features {
 /// 1.0 on the same normalized surface, 0.9 when only word order or an article differs, else the
 /// best token overlap. A name never decides on its own — see the vetoes in `link`.
 fn name_similarity(observation: &Observation, core: &Core) -> f32 {
-    if core.alias_keys.contains(&observation.name_key) {
+    if core.alt_label_keys.contains(&observation.name_key) {
         return 1.0;
     }
-    if core.alias_token_keys.contains(&observation.token_key) {
+    if core.alt_label_token_keys.contains(&observation.token_key) {
         return 0.9;
     }
     0.0
@@ -145,7 +163,24 @@ mod tests {
     }
 
     fn core(name: &str, description: Option<&str>, ty: &str) -> Core {
-        Core::new(1, &[normalize::key(name)], description, ty)
+        let descriptions: Vec<&str> = description.into_iter().collect();
+        Core::new(1, &[normalize::key(name)], &descriptions, &[ty.to_string()])
+    }
+
+    /// `brand` and `organization` are the same referent described twice — the taxonomy does not have
+    /// to choose for a member to agree.
+    #[test]
+    fn any_asserted_type_counts_as_agreement() {
+        let core = Core::new(
+            1,
+            &[normalize::key("Nintendo")],
+            &[],
+            &["organization".to_string(), "brand".to_string()],
+        );
+        let typed = |ty: &str| score(&observation("Nintendo", None, ty), &core).type_match;
+        assert_eq!(typed("brand"), 1.0);
+        assert_eq!(typed("organization"), 1.0);
+        assert_eq!(typed("movie"), 0.0);
     }
 
     #[test]
