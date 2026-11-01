@@ -13,7 +13,7 @@ pub async fn get_illuminations(
         .filter(model::illumination::Column::Id.is_in(illumination_ids.clone()));
 
     let loader = loader
-        .with(model::knowledge_entity::Entity)
+        .with(model::user_observed_entity::Entity)
         .with(model::capture::Entity)
         .all(&db.conn)
         .await?;

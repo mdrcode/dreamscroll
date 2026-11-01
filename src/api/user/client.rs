@@ -167,10 +167,10 @@ impl UserApiClient {
         &self,
         context: &auth::Context,
         id: i32,
-    ) -> Result<schema::KnowledgeEntityInfo, ApiError> {
+    ) -> Result<schema::ObservedEntityInfo, ApiError> {
         let entity = super::get_knowledge_entity(&self.db, context, id).await?;
         // The lookup filters archived captures, so there is no archived flag to report.
-        Ok(schema::KnowledgeEntityInfo::new(entity, None))
+        Ok(schema::ObservedEntityInfo::new(entity, None))
     }
 
     #[tracing::instrument(skip(self, context))]
@@ -178,14 +178,14 @@ impl UserApiClient {
         &self,
         context: &auth::Context,
         entity_type: &str,
-    ) -> Result<Vec<schema::KnowledgeEntityInfo>, ApiError> {
+    ) -> Result<Vec<schema::ObservedEntityInfo>, ApiError> {
         Ok(
             super::get_knowledge_entities_by_type(&self.db, context, entity_type)
                 .await?
                 .into_iter()
                 .map(|entity| {
-                    let entity: crate::model::knowledge_entity::ModelEx = entity.into();
-                    schema::KnowledgeEntityInfo::new(entity, None)
+                    let entity: crate::model::user_observed_entity::ModelEx = entity.into();
+                    schema::ObservedEntityInfo::new(entity, None)
                 })
                 .collect(),
         )

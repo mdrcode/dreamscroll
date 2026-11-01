@@ -1,13 +1,13 @@
-//! The knowledge graph: observations, the cores they resolve to, and the evidence behind them.
+//! The knowledge graph: observations, the knowledge entities they link to, and the evidence.
 //!
-//! Design: `plan/knowledge-canonical-entities.md`. Nothing here calls an external service yet;
-//! resolution lands next, and it will fill `core_knowledge_evidence`.
+//! Design: `plan/knowledge-canonical-entities.md`; vocabulary: `plan/lexicon.md`.
+//! `illuminate` writes observations, `link` clusters them, `resolve` asks the authorities.
 
 pub mod cache;
 pub mod compare;
+pub mod current;
 pub mod link;
 pub mod merge;
-pub mod migrate;
 pub mod normalize;
 pub mod reset;
 pub mod resolve;

@@ -16,8 +16,8 @@ use sea_orm::{
 
 use crate::knowledge::resolve;
 use crate::model::{
-    core_knowledge_entity as core, core_knowledge_evidence as evidence,
-    user_knowledge_entity as observation,
+    knowledge_entity as entity, knowledge_evidence as evidence,
+    user_observed_entity as observation,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -30,7 +30,7 @@ pub enum Outcome {
     /// The two cores have observations in the same capture. The linker's same-capture veto already
     /// decided that those mentions are different referents, so folding them would contradict a fact
     /// the graph already holds.
-    RefusedSharedCapture,
+    RefusedSharedIllumination,
 }
 
 /// What a merge would do, without doing it.
@@ -40,7 +40,7 @@ pub struct Preview {
     pub evidence: u64,
     /// Observations the two cores have in the same capture. Nonzero means the merge is refused: the
     /// linker already decided those mentions are different referents.
-    pub shared_captures: i64,
+    pub shared_illuminations: i64,
 }
 
 pub async fn preview(
@@ -49,30 +49,30 @@ pub async fn preview(
     winner: i32,
 ) -> anyhow::Result<Preview> {
     let observations = observation::Entity::find()
-        .filter(observation::Column::CoreId.eq(loser))
+        .filter(observation::Column::KnowledgeEntityId.eq(loser))
         .count(conn)
         .await?;
     let evidence_count = evidence::Entity::find()
-        .filter(evidence::Column::CoreId.eq(loser))
+        .filter(evidence::Column::KnowledgeEntityId.eq(loser))
         .count(conn)
         .await?;
     let row = conn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT count(*) FROM user_knowledge_entities l \
-             JOIN user_knowledge_entities w ON w.capture_id = l.capture_id \
-             WHERE l.core_id = $1 AND w.core_id = $2",
+            "SELECT count(*) FROM user_observed_entities l \
+             JOIN user_observed_entities w ON w.illumination_id = l.illumination_id \
+             WHERE l.knowledge_entity_id = $1 AND w.knowledge_entity_id = $2",
             [loser.into(), winner.into()],
         ))
         .await?;
-    let shared_captures = row
+    let shared_illuminations = row
         .map(|row| row.try_get_by_index::<i64>(0))
         .transpose()?
         .unwrap_or(0);
     Ok(Preview {
         observations,
         evidence: evidence_count,
-        shared_captures,
+        shared_illuminations,
     })
 }
 
@@ -81,12 +81,15 @@ pub async fn preview(
 /// The winner should be the better-substantiated core — in practice the one that already holds the
 /// identity which caused the conflict. Both must be live; merging a tombstone is a no-op.
 ///
-/// **The same-capture veto applies here too.** Two cores that both have an observation in capture *C*
-/// cannot be one referent: the linker refused to fold those mentions for exactly that reason, and one
-/// extractor writing the same string twice in one screenshot means two things. A merge that ignored it
-/// produced four observations on one core, two of them from the same capture — the state the veto
-/// exists to prevent. In that case the conflict is real and needs adjudication, so it is reported
-/// rather than resolved.
+/// **The same-illumination veto applies here too.** Two cores that both appear in one *illumination*
+/// cannot be one referent: one extractor writing the same string twice in one screenshot means two
+/// things, and the linker refused to fold those observations for exactly that reason. A merge that
+/// ignored it produced four observations on one core, two of them from the same capture — the state
+/// the veto exists to prevent. In that case the conflict is real and needs adjudication, so it is
+/// reported rather than resolved.
+///
+/// The unit is the illumination, not the capture: re-reading an image is a separate reading, and
+/// its names may legitimately join the same entity. See `plan/knowledge-illumination-history.md`.
 pub async fn merge_core(
     conn: &DatabaseConnection,
     loser: i32,
@@ -95,31 +98,31 @@ pub async fn merge_core(
     if loser == winner {
         return Ok(Outcome::AlreadyMerged);
     }
-    if core::Entity::find_by_id(loser)
+    if entity::Entity::find_by_id(loser)
         .one(conn)
         .await?
-        .is_some_and(|row| row.superseded_by_id.is_some())
+        .is_some_and(|row| row.merged_into_id.is_some())
     {
         return Ok(Outcome::AlreadyMerged);
     }
 
-    if preview(conn, loser, winner).await?.shared_captures > 0 {
-        return Ok(Outcome::RefusedSharedCapture);
+    if preview(conn, loser, winner).await?.shared_illuminations > 0 {
+        return Ok(Outcome::RefusedSharedIllumination);
     }
 
     // Observations follow the winner. This is the only column a merge touches on them.
     observation::Entity::update_many()
-        .col_expr(observation::Column::CoreId, Expr::value(Some(winner)))
-        .filter(observation::Column::CoreId.eq(loser))
+        .col_expr(observation::Column::KnowledgeEntityId, Expr::value(Some(winner)))
+        .filter(observation::Column::KnowledgeEntityId.eq(loser))
         .exec(conn)
         .await?;
 
     // Evidence that duplicates the winner's would violate the identity index on the way over, so it
     // is dropped first. It is the same fact stated twice, and the winner's copy is the one kept.
     conn.execute_unprepared(&format!(
-        "DELETE FROM core_knowledge_evidence l USING core_knowledge_evidence w \
-         WHERE l.core_id = {loser} AND w.core_id = {winner} \
-           AND l.kind IN ('ontology', 'platform_link') AND w.kind = l.kind \
+        "DELETE FROM knowledge_evidence l USING knowledge_evidence w \
+         WHERE l.knowledge_entity_id = {loser} AND w.knowledge_entity_id = {winner} \
+           AND l.kind = 'claim' AND w.kind = 'claim' \
            AND w.retracted_at IS NULL \
            AND l.value->>'scheme' IS NOT DISTINCT FROM w.value->>'scheme' \
            AND l.value->>'id' IS NOT DISTINCT FROM w.value->>'id'"
@@ -127,30 +130,29 @@ pub async fn merge_core(
     .await?;
 
     evidence::Entity::update_many()
-        .col_expr(evidence::Column::CoreId, Expr::value(Some(winner)))
-        .filter(evidence::Column::CoreId.eq(loser))
+        .col_expr(evidence::Column::KnowledgeEntityId, Expr::value(Some(winner)))
+        .filter(evidence::Column::KnowledgeEntityId.eq(loser))
         .exec(conn)
         .await?;
 
     // The audit trail: which core was folded into which, and why.
     evidence::Entity::insert(evidence::ActiveModel {
-        core_id: Set(winner),
+        knowledge_entity_id: Set(winner),
         kind: Set("merge".to_string()),
         value: Set(serde_json::json!({ "child": loser, "method": "identity_conflict" })),
         source: Set("model".to_string()),
-        related_core_id: Set(Some(loser)),
         ..Default::default()
     })
     .exec(conn)
     .await?;
 
     // Tombstone, never delete: a stale pointer still resolves.
-    core::Entity::update_many()
+    entity::Entity::update_many()
         .col_expr(
-            core::Column::SupersededById,
+            entity::Column::MergedIntoId,
             Expr::value(Some(winner)),
         )
-        .filter(core::Column::Id.eq(loser))
+        .filter(entity::Column::Id.eq(loser))
         .exec(conn)
         .await?;
 
@@ -163,15 +165,15 @@ mod tests {
     use sea_orm::{PaginatorTrait, Set};
 
     use super::*;
-    use crate::model::user_knowledge_entity as obs;
+    use crate::model::user_observed_entity as obs;
     use crate::test_support::fixtures;
 
     async fn core_with(db: &crate::database::DbHandle, label: &str) -> i32 {
-        core::Entity::insert(core::ActiveModel {
-            label: Set(label.to_string()),
+        entity::Entity::insert(entity::ActiveModel {
+            name: Set(label.to_string()),
             entity_type: Set("real_person".to_string()),
             status: Set("provisional".to_string()),
-            alt_labels: Set(vec![label.to_string()]),
+            alt_names: Set(vec![label.to_string()]),
             ..Default::default()
         })
         .exec(&db.conn)
@@ -222,6 +224,25 @@ mod tests {
         let loser = core_with(&db, "Elon").await;
 
         let user_id = fixtures::user(&db, "merge_surfaces").await;
+
+        // Each core needs its own observation: a merge is refused when both sides appear in one
+        // capture, so the winner's surface has to come from somewhere real.
+        let winner_capture = fixtures::capture(&db, user_id).await;
+        let winner_illumination = fixtures::illumination(&db, user_id, winner_capture).await;
+        obs::Entity::insert(obs::ActiveModel {
+            user_id: Set(user_id),
+            capture_id: Set(winner_capture),
+            illumination_id: Set(winner_illumination),
+            position: Set(0),
+            name: Set("Elon Musk".to_string()),
+            entity_type: Set("real_person".to_string()),
+            knowledge_entity_id: Set(Some(winner)),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap();
+
         let capture_id = fixtures::capture(&db, user_id).await;
         let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
         obs::Entity::insert(obs::ActiveModel {
@@ -232,7 +253,7 @@ mod tests {
             name: Set("Elon".to_string()),
             entity_type: Set("real_person".to_string()),
             description: Set(Some("the CEO of Tesla".to_string())),
-            core_id: Set(Some(loser)),
+            knowledge_entity_id: Set(Some(loser)),
             ..Default::default()
         })
         .exec(&db.conn)
@@ -244,16 +265,16 @@ mod tests {
             Outcome::Merged
         );
 
-        let survivor = core::Entity::find_by_id(winner)
+        let survivor = entity::Entity::find_by_id(winner)
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(survivor.label, "Elon Musk", "the winner keeps its surface");
+        assert_eq!(survivor.name, "Elon Musk", "the winner keeps its surface");
         assert!(
-            survivor.alt_labels.iter().any(|label| label == "Elon"),
+            survivor.alt_names.iter().any(|label| label == "Elon"),
             "the loser's surface is picked up from the member that moved: {:?}",
-            survivor.alt_labels
+            survivor.alt_names
         );
         assert_eq!(
             survivor.description.as_deref(),
@@ -276,7 +297,7 @@ mod tests {
         let user_id = fixtures::user(&db, "merge_veto").await;
         let capture_id = fixtures::capture(&db, user_id).await;
         let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
-        for (position, core_id, name) in [(0, book, "Corduroy"), (1, character, "Corduroy")] {
+        for (position, knowledge_entity_id, name) in [(0, book, "Corduroy"), (1, character, "Corduroy")] {
             obs::Entity::insert(obs::ActiveModel {
                 user_id: Set(user_id),
                 capture_id: Set(capture_id),
@@ -284,7 +305,7 @@ mod tests {
                 position: Set(position),
                 name: Set(name.to_string()),
                 entity_type: Set("book".to_string()),
-                core_id: Set(Some(core_id)),
+                knowledge_entity_id: Set(Some(knowledge_entity_id)),
                 ..Default::default()
             })
             .exec(&db.conn)
@@ -294,22 +315,22 @@ mod tests {
 
         let outcome = merge_core(&db.conn, character, book).await.expect("merge");
 
-        assert_eq!(outcome, Outcome::RefusedSharedCapture);
+        assert_eq!(outcome, Outcome::RefusedSharedIllumination);
         assert_eq!(
             obs::Entity::find()
-                .filter(obs::Column::CoreId.eq(character))
+                .filter(obs::Column::KnowledgeEntityId.eq(character))
                 .count(&db.conn)
                 .await
                 .unwrap(),
             1,
             "nothing moved"
         );
-        let survivor = core::Entity::find_by_id(book)
+        let survivor = entity::Entity::find_by_id(book)
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(survivor.superseded_by_id, None, "and nobody was tombstoned");
+        assert_eq!(survivor.merged_into_id, None, "and nobody was tombstoned");
     }
 
     #[tokio::test]
@@ -331,7 +352,7 @@ mod tests {
             position: Set(0),
             name: Set("Elon".to_string()),
             entity_type: Set("real_person".to_string()),
-            core_id: Set(Some(loser)),
+            knowledge_entity_id: Set(Some(loser)),
             ..Default::default()
         })
         .exec(&db.conn)
@@ -339,8 +360,8 @@ mod tests {
         .unwrap();
 
         evidence::Entity::insert(evidence::ActiveModel {
-            core_id: Set(loser),
-            kind: Set("ontology".to_string()),
+            knowledge_entity_id: Set(loser),
+            kind: Set("claim".to_string()),
             value: Set(serde_json::json!({"scheme": "wikidata", "id": "Q317521"})),
             source: Set("wikidata".to_string()),
             method: Set(Some("exact_label".to_string())),
@@ -356,7 +377,7 @@ mod tests {
 
         assert_eq!(
             obs::Entity::find()
-                .filter(obs::Column::CoreId.eq(winner))
+                .filter(obs::Column::KnowledgeEntityId.eq(winner))
                 .count(&db.conn)
                 .await
                 .unwrap(),
@@ -365,8 +386,8 @@ mod tests {
         );
         assert_eq!(
             evidence::Entity::find()
-                .filter(evidence::Column::CoreId.eq(winner))
-                .filter(evidence::Column::Kind.eq("ontology"))
+                .filter(evidence::Column::KnowledgeEntityId.eq(winner))
+                .filter(evidence::Column::Kind.eq("claim"))
                 .count(&db.conn)
                 .await
                 .unwrap(),
@@ -375,7 +396,7 @@ mod tests {
         );
         assert_eq!(
             evidence::Entity::find()
-                .filter(evidence::Column::CoreId.eq(winner))
+                .filter(evidence::Column::KnowledgeEntityId.eq(winner))
                 .filter(evidence::Column::Kind.eq("merge"))
                 .count(&db.conn)
                 .await
@@ -383,13 +404,13 @@ mod tests {
             1,
             "the merge is recorded"
         );
-        let tombstone = core::Entity::find_by_id(loser)
+        let tombstone = entity::Entity::find_by_id(loser)
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(tombstone.superseded_by_id, Some(winner));
-        let survivor = core::Entity::find_by_id(winner)
+        assert_eq!(tombstone.merged_into_id, Some(winner));
+        let survivor = entity::Entity::find_by_id(winner)
             .one(&db.conn)
             .await
             .unwrap()

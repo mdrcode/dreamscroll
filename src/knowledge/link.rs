@@ -3,7 +3,7 @@
 //! No network. Blocking is an in-memory index over the cores (`~2k` rows per user, so a scan is
 //! cheaper than a query plan), identifiers are a decisive lookup, the decision is [`score`], and
 //! every write is idempotent: a second run finds nothing to do because every observation already has
-//! a `core_id`.
+//! a `knowledge_entity_id`.
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
@@ -24,8 +24,9 @@ pub struct Report {
     pub considered: usize,
     /// Observations that already had a core.
     pub already_linked: usize,
-    /// Observations from a superseded illumination of their capture.
-    pub superseded: usize,
+    /// Observations linked from a superseded illumination of their capture. Counted, not skipped:
+    /// the graph holds every reading, and the view decides which one a capture currently shows.
+    pub stale: usize,
     /// Linked by an identifier rather than by similarity.
     pub linked_by_identifier: usize,
     pub linked: usize,
@@ -34,22 +35,22 @@ pub struct Report {
 
 struct CoreState {
     scored: score::Core,
-    /// Verbatim surfaces; `scored.alt_label_keys` holds the normalized forms derived from them.
-    alt_labels: Vec<String>,
+    /// Verbatim surfaces; `scored.alt_name_keys` holds the normalized forms derived from them.
+    alt_names: Vec<String>,
     /// Types other members asserted. Kept in step with `scored.entity_types`, which is what the
     /// scorer consults — a core that has seen `brand` must accept `brand` for the rest of the run.
     alt_types: Vec<String>,
 }
 
 impl CoreState {
-    fn from_model(row: model::core_knowledge_entity::Model) -> Self {
+    fn from_model(row: model::knowledge_entity::Model) -> Self {
         let mut descriptions: Vec<&str> = row.description.iter().map(String::as_str).collect();
         descriptions.extend(row.alt_descriptions.iter().map(String::as_str));
         let mut entity_types = vec![row.entity_type.clone()];
         entity_types.extend(row.alt_types.clone());
         Self {
-            scored: score::Core::new(row.id, &row.alt_labels, &descriptions, &entity_types),
-            alt_labels: row.alt_labels,
+            scored: score::Core::new(row.id, &row.name, &row.alt_names, &descriptions, &entity_types),
+            alt_names: row.alt_names,
             alt_types: row.alt_types,
         }
     }
@@ -66,15 +67,15 @@ impl CoreState {
     }
 
     /// Add a surface. Returns whether anything changed, so a caller can skip the write.
-    fn add_label(&mut self, surface: &str) -> bool {
+    fn add_name(&mut self, surface: &str) -> bool {
         let key = normalize::key(surface);
-        if key.is_empty() || self.scored.alt_label_keys.contains(&key) {
+        if key.is_empty() || self.scored.alt_name_keys.contains(&key) {
             return false;
         }
-        self.alt_labels.push(surface.trim().to_string());
-        self.scored.alt_label_keys.push(key);
+        self.alt_names.push(surface.trim().to_string());
+        self.scored.alt_name_keys.push(key);
         self.scored
-            .alt_label_token_keys
+            .alt_name_token_keys
             .push(normalize::token_key(surface));
         true
     }
@@ -90,19 +91,21 @@ fn identity_key_of(value: &serde_json::Value) -> Option<(String, String)> {
 
 /// The `(scheme, value)` an observation carries, if it carries one. `scheme` is the platform; the
 /// same shape covers `wikidata` → `Q…`, `imdb` → `tt…`, and every authority after them.
-fn identifier_of(entity: &model::user_knowledge_entity::Model) -> Option<(String, String)> {
+fn identifier_of(entity: &model::user_observed_entity::Model) -> Option<(String, String)> {
     let platform = entity.platform.as_deref()?;
     let handle = entity.platform_handle.as_deref()?;
     Some((platform.to_lowercase(), normalize::key(handle)))
 }
 
-pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
-    let entities = model::user_knowledge_entity::Entity::find()
-        .order_by_asc(model::user_knowledge_entity::Column::Id)
+pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
+    let entities = model::user_observed_entity::Entity::find()
+        .order_by_asc(model::user_observed_entity::Column::Id)
         .all(&db.conn)
         .await?;
 
-    // Only the latest illumination of a capture is live; earlier runs are still rows.
+    // Which illumination is current, for the report only. Earlier readings are linked too: an
+    // illumination can be wrong (a re-read of one image once described a different film), and the
+    // graph should hold what every reading said. Currency is a view concern, not a linking one.
     let mut latest: HashMap<i32, i32> = HashMap::new();
     for entity in &entities {
         let current = latest
@@ -111,12 +114,12 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
         *current = (*current).max(entity.illumination_id);
     }
 
-    let mut cores: Vec<CoreState> = model::core_knowledge_entity::Entity::find()
-        .order_by_asc(model::core_knowledge_entity::Column::Id)
+    let mut cores: Vec<CoreState> = model::knowledge_entity::Entity::find()
+        .order_by_asc(model::knowledge_entity::Column::Id)
         .all(&db.conn)
         .await?
         .into_iter()
-        .filter(|row| row.superseded_by_id.is_none())
+        .filter(|row| row.merged_into_id.is_none())
         .map(CoreState::from_model)
         .collect();
 
@@ -134,20 +137,22 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
     // Any authority, one lookup. Identity is a claim like any other, so it is read from evidence:
     // `(scheme, id)` over every live identity row, whatever the authority.
     let mut identifiers: HashMap<(String, String), i32> = HashMap::new();
-    for row in model::core_knowledge_evidence::Entity::find()
-        .filter(model::core_knowledge_evidence::Column::Kind.is_in(["ontology", "platform_link"]))
-        .filter(model::core_knowledge_evidence::Column::RetractedAt.is_null())
+    for row in model::knowledge_evidence::Entity::find()
+        .filter(model::knowledge_evidence::Column::Kind.eq("claim"))
+        .filter(model::knowledge_evidence::Column::RetractedAt.is_null())
         .all(&db.conn)
         .await?
     {
         if let Some(key) = identity_key_of(&row.value) {
-            identifiers.insert(key, row.core_id);
+            identifiers.insert(key, row.knowledge_entity_id);
         }
     }
 
-    // (core, capture) pairs already linked, so one capture never folds two of its own observations
-    // into the same core: eight prod pairs prove the same string can mean two things in one capture.
-    // A shared identifier overrides this — the same account is the same referent.
+    // (core, illumination) pairs already linked: one *extraction* never folds two of its own
+    // observations into one core, because a single read emitting the same string twice means two
+    // things. The unit is the illumination, not the capture — re-reading an image is a separate
+    // reading, and its names may legitimately join the same entity. A shared identifier overrides
+    // this anyway: the same account is the same referent.
     let mut seen: HashSet<(i32, i32)> = HashSet::new();
 
     let mut report = Report {
@@ -156,24 +161,23 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
     };
 
     for entity in entities {
-        if entity.core_id.is_some() {
+        if entity.knowledge_entity_id.is_some() {
             report.already_linked += 1;
             continue;
         }
         if latest.get(&entity.capture_id) != Some(&entity.illumination_id) {
-            report.superseded += 1;
-            continue;
+            report.stale += 1;
         }
 
         // Identity first: an identifier is decisive and needs no scoring.
-        if let Some(core_id) = identifier_of(&entity)
+        if let Some(knowledge_entity_id) = identifier_of(&entity)
             .and_then(|key| identifiers.get(&key).copied())
-            .filter(|core_id| positions.contains_key(core_id))
+            .filter(|knowledge_entity_id| positions.contains_key(knowledge_entity_id))
         {
-            let position = positions[&core_id];
-            link(&db.conn, entity.id, core_id).await?;
-            seen.insert((core_id, entity.capture_id));
-            if absorb_labels(&db.conn, &mut cores[position], &entity).await? {
+            let position = positions[&knowledge_entity_id];
+            attach(&db.conn, entity.id, knowledge_entity_id).await?;
+            seen.insert((knowledge_entity_id, entity.illumination_id));
+            if absorb_names(&db.conn, &mut cores[position], &entity).await? {
                 index_core(&mut index, position, &cores[position]);
             }
             report.linked_by_identifier += 1;
@@ -196,7 +200,7 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
         let best = candidates
             .into_iter()
             .filter(|position| {
-                !seen.contains(&(cores[*position].scored.id, entity.capture_id))
+                !seen.contains(&(cores[*position].scored.id, entity.illumination_id))
             })
             .map(|position| (position, score::score(&observation, &cores[position].scored)))
             .max_by(|a, b| a.1.total.total_cmp(&b.1.total))
@@ -204,44 +208,44 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
 
         match best {
             Some((position, _)) => {
-                let core_id = cores[position].scored.id;
-                link(&db.conn, entity.id, core_id).await?;
-                seen.insert((core_id, entity.capture_id));
-                if absorb_labels(&db.conn, &mut cores[position], &entity).await? {
+                let knowledge_entity_id = cores[position].scored.id;
+                attach(&db.conn, entity.id, knowledge_entity_id).await?;
+                seen.insert((knowledge_entity_id, entity.illumination_id));
+                if absorb_names(&db.conn, &mut cores[position], &entity).await? {
                     index_core(&mut index, position, &cores[position]);
                 }
                 let claimed = identifier_of(&entity).is_some();
                 if let Some(owner) =
-                    remember_identifier(&db.conn, &mut identifiers, core_id, &entity).await?
+                    remember_identifier(&db.conn, &mut identifiers, knowledge_entity_id, &entity).await?
                 {
                     anyhow::bail!(
-                        "cores {core_id} and {owner} both claim the same identifier; \
+                        "cores {knowledge_entity_id} and {owner} both claim the same identifier; \
                          merging is not implemented yet (plan/knowledge-canonical-entities.md §Repair)"
                     );
                 }
                 if claimed {
                     // The core may have been created without an identity and is only now acquiring
                     // one. `status` is a projection of evidence, so it moves with it.
-                    mark_identified(&db.conn, core_id).await?;
+                    mark_identified(&db.conn, knowledge_entity_id).await?;
                 }
                 report.linked += 1;
             }
             None => {
-                let core_id = create(&db.conn, &entity).await?;
+                let knowledge_entity_id = create(&db.conn, &entity).await?;
 
                 // A concurrent worker may have claimed this identifier since the map was read.
                 // The new core is then a duplicate that owns nothing yet: link to the real owner
                 // and forget it.
                 if let Some(owner) =
-                    remember_identifier(&db.conn, &mut identifiers, core_id, &entity).await?
+                    remember_identifier(&db.conn, &mut identifiers, knowledge_entity_id, &entity).await?
                 {
-                    link(&db.conn, entity.id, owner).await?;
-                    model::core_knowledge_entity::Entity::delete_by_id(core_id)
+                    attach(&db.conn, entity.id, owner).await?;
+                    model::knowledge_entity::Entity::delete_by_id(knowledge_entity_id)
                         .exec(&db.conn)
                         .await?;
-                    seen.insert((owner, entity.capture_id));
+                    seen.insert((owner, entity.illumination_id));
                     if let Some(&position) = positions.get(&owner)
-                        && absorb_labels(&db.conn, &mut cores[position], &entity).await?
+                        && absorb_names(&db.conn, &mut cores[position], &entity).await?
                     {
                         index_core(&mut index, position, &cores[position]);
                     }
@@ -249,22 +253,23 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
                     continue;
                 }
 
-                let alt_labels = labels_for(&entity);
+                let alt_names = names_for(&entity);
                 cores.push(CoreState {
                     scored: score::Core::new(
-                        core_id,
-                        &alt_labels,
+                        knowledge_entity_id,
+                        &entity.name,
+                        &alt_names,
                         &entity.description.iter().map(String::as_str).collect::<Vec<_>>(),
                         std::slice::from_ref(&entity.entity_type),
                     ),
-                    alt_labels,
+                    alt_names,
                     alt_types: Vec::new(),
                 });
                 let position = cores.len() - 1;
-                positions.insert(core_id, position);
+                positions.insert(knowledge_entity_id, position);
                 index_core(&mut index, position, cores.last().expect("just pushed"));
-                link(&db.conn, entity.id, core_id).await?;
-                seen.insert((core_id, entity.capture_id));
+                attach(&db.conn, entity.id, knowledge_entity_id).await?;
+                seen.insert((knowledge_entity_id, entity.illumination_id));
                 report.created += 1;
             }
         }
@@ -273,8 +278,8 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
     // A core is a function of its members, not of whichever observation happened to create it.
     // Projecting once at the end keeps the accumulated descriptions, status and confidence current,
     // and repairs rows written before projection covered those columns.
-    for core in model::core_knowledge_entity::Entity::find()
-        .filter(model::core_knowledge_entity::Column::SupersededById.is_null())
+    for core in model::knowledge_entity::Entity::find()
+        .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
         .all(&db.conn)
         .await?
     {
@@ -285,16 +290,16 @@ pub async fn build_core(db: &database::DbHandle) -> anyhow::Result<Report> {
 }
 
 fn index_core(index: &mut HashMap<String, BTreeSet<usize>>, position: usize, core: &CoreState) {
-    for key in &core.scored.alt_label_keys {
+    for key in &core.scored.alt_name_keys {
         index.entry(key.clone()).or_default().insert(position);
     }
-    for key in &core.scored.alt_label_token_keys {
+    for key in &core.scored.alt_name_token_keys {
         index.entry(key.clone()).or_default().insert(position);
     }
 }
 
 pub(crate) fn surfaces(
-    entity: &model::user_knowledge_entity::Model,
+    entity: &model::user_observed_entity::Model,
 ) -> impl Iterator<Item = &str> {
     [
         Some(entity.name.as_str()),
@@ -305,7 +310,7 @@ pub(crate) fn surfaces(
     .flatten()
 }
 
-fn labels_for(entity: &model::user_knowledge_entity::Model) -> Vec<String> {
+fn names_for(entity: &model::user_observed_entity::Model) -> Vec<String> {
     let mut labels: Vec<String> = Vec::new();
     let mut keys: Vec<String> = Vec::new();
     for surface in surfaces(entity) {
@@ -324,31 +329,31 @@ fn labels_for(entity: &model::user_knowledge_entity::Model) -> Vec<String> {
 /// when a provisional core absorbs an observation that carries one. A no-op when already set.
 async fn mark_identified(
     conn: &sea_orm::DatabaseConnection,
-    core_id: i32,
+    knowledge_entity_id: i32,
 ) -> anyhow::Result<()> {
-    model::core_knowledge_entity::Entity::update_many()
+    model::knowledge_entity::Entity::update_many()
         .col_expr(
-            model::core_knowledge_entity::Column::Status,
+            model::knowledge_entity::Column::Status,
             Expr::value(STATUS_IDENTIFIED),
         )
-        .filter(model::core_knowledge_entity::Column::Id.eq(core_id))
-        .filter(model::core_knowledge_entity::Column::Status.ne(STATUS_IDENTIFIED))
+        .filter(model::knowledge_entity::Column::Id.eq(knowledge_entity_id))
+        .filter(model::knowledge_entity::Column::Status.ne(STATUS_IDENTIFIED))
         .exec(conn)
         .await?;
     Ok(())
 }
 
-async fn link(
+async fn attach(
     conn: &sea_orm::DatabaseConnection,
     entity_id: i32,
-    core_id: i32,
+    knowledge_entity_id: i32,
 ) -> anyhow::Result<()> {
-    model::user_knowledge_entity::Entity::update_many()
+    model::user_observed_entity::Entity::update_many()
         .col_expr(
-            model::user_knowledge_entity::Column::CoreId,
-            Expr::value(Some(core_id)),
+            model::user_observed_entity::Column::KnowledgeEntityId,
+            Expr::value(Some(knowledge_entity_id)),
         )
-        .filter(model::user_knowledge_entity::Column::Id.eq(entity_id))
+        .filter(model::user_observed_entity::Column::Id.eq(entity_id))
         .exec(conn)
         .await?;
     Ok(())
@@ -356,20 +361,20 @@ async fn link(
 
 /// Fold this observation's surfaces into the core it was linked to. Descriptions accumulate in
 /// `project`, which runs once at the end of a build rather than per observation.
-async fn absorb_labels(
+async fn absorb_names(
     conn: &sea_orm::DatabaseConnection,
     core: &mut CoreState,
-    entity: &model::user_knowledge_entity::Model,
+    entity: &model::user_observed_entity::Model,
 ) -> anyhow::Result<bool> {
     let mut changed = false;
     for surface in surfaces(entity) {
-        changed |= core.add_label(surface);
+        changed |= core.add_name(surface);
     }
     changed |= core.add_type(&entity.entity_type);
     if changed {
-        model::core_knowledge_entity::ActiveModel {
+        model::knowledge_entity::ActiveModel {
             id: Set(core.scored.id),
-            alt_labels: Set(core.alt_labels.clone()),
+            alt_names: Set(core.alt_names.clone()),
             alt_types: Set(core.alt_types.clone()),
             ..Default::default()
         }
@@ -389,23 +394,23 @@ async fn absorb_labels(
 async fn remember_identifier(
     conn: &sea_orm::DatabaseConnection,
     known: &mut HashMap<(String, String), i32>,
-    core_id: i32,
-    entity: &model::user_knowledge_entity::Model,
+    knowledge_entity_id: i32,
+    entity: &model::user_observed_entity::Model,
 ) -> anyhow::Result<Option<i32>> {
     let Some((scheme, value)) = identifier_of(entity) else {
         return Ok(None);
     };
     if let Some(&existing) = known.get(&(scheme.clone(), value.clone())) {
-        return Ok((existing != core_id).then_some(existing));
+        return Ok((existing != knowledge_entity_id).then_some(existing));
     }
 
     // The partial unique index refuses a second live claim to the same (scheme, id). Under a
     // concurrent writer that surfaces as a unique violation, so the run stops rather than leaving
     // two cores for one referent; turning it into a merge is phase 3 (§Repair).
-    let insert = model::core_knowledge_evidence::Entity::insert(
-        model::core_knowledge_evidence::ActiveModel {
-            core_id: Set(core_id),
-            kind: Set("platform_link".to_string()),
+    let insert = model::knowledge_evidence::Entity::insert(
+        model::knowledge_evidence::ActiveModel {
+            knowledge_entity_id: Set(knowledge_entity_id),
+            kind: Set("claim".to_string()),
             value: Set(serde_json::json!({
                 "scheme": scheme,
                 "id": value,
@@ -413,7 +418,7 @@ async fn remember_identifier(
             })),
             source: Set("platform".to_string()),
             method: Set(Some("capture".to_string())),
-            user_entity_id: Set(Some(entity.id)),
+            user_observed_entity_id: Set(Some(entity.id)),
             source_user_id: Set(Some(entity.user_id)),
             ..Default::default()
         },
@@ -423,7 +428,7 @@ async fn remember_identifier(
 
     match insert {
         Ok(_) => {
-            known.insert((scheme, value), core_id);
+            known.insert((scheme, value), knowledge_entity_id);
             Ok(None)
         }
         // Another core claimed this identity between the map read and the insert. The index said so;
@@ -431,12 +436,12 @@ async fn remember_identifier(
         Err(err) if is_unique_violation(&err) => {
             let owner = identity_owner(conn, &scheme, &value).await?;
             match owner {
-                Some(owner) if owner != core_id => {
+                Some(owner) if owner != knowledge_entity_id => {
                     known.insert((scheme, value), owner);
                     Ok(Some(owner))
                 }
                 Some(_) => {
-                    known.insert((scheme, value), core_id);
+                    known.insert((scheme, value), knowledge_entity_id);
                     Ok(None)
                 }
                 None => Err(err.into()),
@@ -466,8 +471,8 @@ pub(crate) async fn identity_owner(
     let row = conn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT core_id FROM core_knowledge_evidence \
-             WHERE kind IN ('ontology', 'platform_link') AND retracted_at IS NULL \
+            "SELECT knowledge_entity_id FROM knowledge_evidence \
+             WHERE kind = 'claim' AND retracted_at IS NULL \
                AND value->>'scheme' = $1 AND value->>'id' = $2 \
              LIMIT 1",
             [scheme.into(), value.into()],
@@ -481,7 +486,7 @@ pub(crate) async fn identity_owner(
 
 async fn create(
     conn: &sea_orm::DatabaseConnection,
-    entity: &model::user_knowledge_entity::Model,
+    entity: &model::user_observed_entity::Model,
 ) -> anyhow::Result<i32> {
     let description = entity.description.clone();
     // A handle is an identifier, so the row is identified from the start; anything else is a
@@ -491,19 +496,19 @@ async fn create(
     } else {
         STATUS_PROVISIONAL
     };
-    let model = model::core_knowledge_entity::ActiveModel {
-        label: Set(entity.name.trim().to_string()),
+    let model = model::knowledge_entity::ActiveModel {
+        name: Set(entity.name.trim().to_string()),
         entity_type: Set(entity.entity_type.clone()),
         alt_types: Set(Vec::new()),
         description: Set(description),
         alt_descriptions: Set(Vec::new()),
         status: Set(status.to_string()),
         confidence: Set(None),
-        superseded_by_id: Set(None),
-        alt_labels: Set(labels_for(entity)),
+        merged_into_id: Set(None),
+        alt_names: Set(names_for(entity)),
         ..Default::default()
     };
-    let inserted = model::core_knowledge_entity::Entity::insert(model)
+    let inserted = model::knowledge_entity::Entity::insert(model)
         .exec(conn)
         .await?;
     Ok(inserted.last_insert_id as i32)
@@ -515,8 +520,8 @@ mod tests {
 
     use super::*;
     use crate::model::{
-        core_knowledge_entity as core, core_knowledge_evidence as evidence,
-        user_knowledge_entity as observation,
+        knowledge_entity as core, knowledge_evidence as evidence,
+        user_observed_entity as observation,
     };
     use crate::test_support::fixtures;
 
@@ -581,7 +586,7 @@ mod tests {
         observe(&db, &first, 0, "Train Dreams", Some("a novella by Denis Johnson"), "book", None, None).await;
         observe(&db, &second, 0, "train dreams", Some("a novella by Denis Johnson"), "book", None, None).await;
 
-        let report = build_core(&db).await.expect("build should succeed");
+        let report = link(&db).await.expect("build should succeed");
 
         assert_eq!(report.created, 1, "{report:?}");
         assert_eq!(report.linked, 1, "{report:?}");
@@ -598,7 +603,7 @@ mod tests {
         observe(&db, &same, 0, "Dune", Some("a 1965 novel by Frank Herbert"), "book", None, None).await;
         observe(&db, &same, 1, "Dune", Some("a 1965 novel by Frank Herbert"), "book", None, None).await;
 
-        let report = build_core(&db).await.expect("build should succeed");
+        let report = link(&db).await.expect("build should succeed");
 
         assert_eq!(report.created, 2, "{report:?}");
         assert_eq!(core_count(&db).await, 2);
@@ -615,7 +620,7 @@ mod tests {
         observe(&db, &first, 0, "Train Dreams", None, "book", None, None).await;
         observe(&db, &second, 0, "Gravity's Rainbow", None, "book", None, None).await;
 
-        let report = build_core(&db).await.expect("build should succeed");
+        let report = link(&db).await.expect("build should succeed");
 
         assert_eq!(report.created, 2, "{report:?}");
         assert_eq!(core_count(&db).await, 2);
@@ -630,8 +635,8 @@ mod tests {
         let first = capture(&db, "link_idempotent").await;
         observe(&db, &first, 0, "Train Dreams", Some("a novella"), "book", None, None).await;
 
-        let first_run = build_core(&db).await.expect("build should succeed");
-        let second_run = build_core(&db).await.expect("second build should succeed");
+        let first_run = link(&db).await.expect("build should succeed");
+        let second_run = link(&db).await.expect("second build should succeed");
 
         assert_eq!(first_run.created, 1, "{first_run:?}");
         assert_eq!(second_run.created, 0, "{second_run:?}");
@@ -639,8 +644,11 @@ mod tests {
         assert_eq!(second_run.already_linked, 1, "{second_run:?}");
     }
 
+    /// Every reading is linked. An illumination can be wrong and the correct reading is often the
+    /// older one, so the graph keeps them all — currency is decided at the view boundary
+    /// (`knowledge::current`), not here.
     #[tokio::test]
-    async fn superseded_illuminations_are_skipped() {
+    async fn a_superseded_illumination_is_linked_too() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -665,10 +673,64 @@ mod tests {
             .unwrap();
         }
 
-        let report = build_core(&db).await.expect("build should succeed");
+        let report = link(&db).await.expect("build should succeed");
 
-        assert_eq!(report.superseded, 1, "{report:?}");
-        assert_eq!(report.created, 1, "{report:?}");
+        assert_eq!(report.stale, 1, "the older reading is counted: {report:?}");
+        assert_eq!(report.created, 2, "both readings reach the graph: {report:?}");
+
+        let unlinked = observation::Entity::find()
+            .filter(observation::Column::KnowledgeEntityId.is_null())
+            .count(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(unlinked, 0, "history is linked, not discarded");
+    }
+
+    /// `project` keeps the selected name out of `alt_names`, so an entity is only findable on a
+    /// later run if its own name is indexed as well. Without that, every capture that repeated a
+    /// name created a duplicate — the local corpus had ten such pairs.
+    #[tokio::test]
+    async fn a_later_run_finds_an_entity_by_its_own_name() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+
+        let first = capture(&db, "link_name_first").await;
+        observe(
+            &db,
+            &first,
+            0,
+            "Francis Ford Coppola",
+            Some("An American film director, producer and screenwriter"),
+            "real_person",
+            None,
+            None,
+        )
+        .await;
+        let first_run = link(&db).await.expect("first link");
+        assert_eq!(first_run.created, 1, "{first_run:?}");
+
+        let second = capture(&db, "link_name_second").await;
+        observe(
+            &db,
+            &second,
+            0,
+            "Francis Ford Coppola",
+            Some("An American film director, producer and screenwriter"),
+            "real_person",
+            None,
+            None,
+        )
+        .await;
+        let second_run = link(&db).await.expect("second link");
+
+        assert_eq!(
+            second_run.created, 0,
+            "a repeated name must attach, not duplicate: {second_run:?}"
+        );
+        assert_eq!(second_run.linked, 1, "{second_run:?}");
+        assert_eq!(core::Entity::find().count(&db.conn).await.unwrap(), 1);
     }
 
     /// The persona case: an account's own name is the identity, so two captures that name the same
@@ -685,7 +747,7 @@ mod tests {
         observe(&db, &first, 0, "Alexey Kutepov", None, "real_person", Some("x"), Some("tsoding")).await;
         observe(&db, &second, 0, "Tsoding", None, "social_media_account", Some("x"), Some("Tsoding")).await;
 
-        let report = build_core(&db).await.expect("build should succeed");
+        let report = link(&db).await.expect("build should succeed");
 
         assert_eq!(report.created, 1, "{report:?}");
         assert_eq!(report.linked_by_identifier, 1, "{report:?}");
@@ -706,14 +768,14 @@ mod tests {
         let db = test_db.handle();
         let first = capture(&db, "link_claim").await;
         observe(&db, &first, 0, "Tsoding", None, "real_person", Some("x"), Some("tsoding")).await;
-        build_core(&db).await.expect("build should succeed");
+        link(&db).await.expect("build should succeed");
 
         let owner_core = core::Entity::find().one(&db.conn).await.unwrap().unwrap();
         let duplicate = core::Entity::insert(core::ActiveModel {
-            label: Set("Tsoding".to_string()),
+            name: Set("Tsoding".to_string()),
             entity_type: Set("real_person".to_string()),
             status: Set(STATUS_PROVISIONAL.to_string()),
-            alt_labels: Set(vec!["tsoding".to_string()]),
+            alt_names: Set(vec!["tsoding".to_string()]),
             ..Default::default()
         })
         .exec(&db.conn)
@@ -744,7 +806,7 @@ mod tests {
         let first = capture(&db, "link_status").await;
         observe(&db, &first, 0, "Tsoding", None, "real_person", Some("x"), Some("tsoding")).await;
 
-        build_core(&db).await.expect("build should succeed");
+        link(&db).await.expect("build should succeed");
 
         let core = core::Entity::find().one(&db.conn).await.unwrap().unwrap();
         assert_eq!(core.status, STATUS_IDENTIFIED);

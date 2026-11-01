@@ -5,7 +5,7 @@
 //! to still be queryable after the rebuild.
 //!
 //! Snapshotting copies rather than renames. Renaming the live tables would drag the foreign key from
-//! `user_knowledge_entities.core_id` along with them — Postgres keeps a constraint pointing at the
+//! `user_observed_entities.knowledge_entity_id` along with them — Postgres keeps a constraint pointing at the
 //! same table — so the new empty core table would have nothing referencing it while the archive did,
 //! and the fixed index name on the evidence table would then collide when it was recreated.
 //! `CREATE TABLE AS SELECT` sidesteps all of it: a frozen artifact needs no constraints, and the live
@@ -20,13 +20,13 @@ use sea_orm::{
 
 use crate::database;
 use crate::model::{
-    core_knowledge_entity as core, core_knowledge_evidence as evidence,
-    user_knowledge_entity as observation,
+    knowledge_entity as entity, knowledge_evidence as evidence,
+    user_observed_entity as observation,
 };
 
-const CORE_TABLE: &str = "core_knowledge_entities";
-const EVIDENCE_TABLE: &str = "core_knowledge_evidence";
-const OBSERVATION_TABLE: &str = "user_knowledge_entities";
+const CORE_TABLE: &str = "knowledge_entities";
+const EVIDENCE_TABLE: &str = "knowledge_evidence";
+const OBSERVATION_TABLE: &str = "user_observed_entities";
 
 /// A frozen copy of one run, named by the moment it was taken so two runs sort chronologically.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -41,7 +41,7 @@ impl Snapshot {
         }
     }
 
-    pub fn cores(&self) -> String {
+    pub fn entities(&self) -> String {
         format!("{CORE_TABLE}__{}", self.suffix)
     }
 
@@ -50,34 +50,34 @@ impl Snapshot {
     }
 
     /// Which observations belonged to which core — the only record of that is
-    /// `user_knowledge_entities.core_id`, so snapshotting the cores alone would keep the referents
+    /// `user_observed_entities.knowledge_entity_id`, so snapshotting the entities alone would keep the referents
     /// and lose the membership. One row per linked observation.
     pub fn membership(&self) -> String {
-        format!("core_knowledge_membership__{}", self.suffix)
+        format!("knowledge_entity_membership__{}", self.suffix)
     }
 }
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Report {
-    /// Observations whose `core_id` was cleared.
+    /// Observations whose `knowledge_entity_id` was cleared.
     pub unlinked: u64,
     pub evidence: u64,
-    pub cores: u64,
+    pub entities: u64,
     /// `None` when there was nothing to snapshot.
     pub snapshot: Option<Snapshot>,
-    pub snapshot_cores: u64,
+    pub snapshot_entities: u64,
     pub snapshot_evidence: u64,
     pub snapshot_members: u64,
 }
 
-pub async fn reset_core(db: &database::DbHandle) -> anyhow::Result<Report> {
+pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
     let snapshot = Snapshot::now();
     let report = db
         .conn
         .transaction::<_, Report, anyhow::Error>(|txn| {
             let snapshot = snapshot.clone();
             Box::pin(async move {
-                if core::Entity::find().count(txn).await? == 0 {
+                if entity::Entity::find().count(txn).await? == 0 {
                     // Nothing to preserve: do not leave empty archive tables behind.
                     return Ok(Report {
                         unlinked: unlink(txn).await?,
@@ -85,21 +85,21 @@ pub async fn reset_core(db: &database::DbHandle) -> anyhow::Result<Report> {
                     });
                 }
 
-                let snapshot_cores = copy(txn, &snapshot.cores(), CORE_TABLE).await?;
+                let snapshot_entities = copy(txn, &snapshot.entities(), CORE_TABLE).await?;
                 let snapshot_evidence = copy(txn, &snapshot.evidence(), EVIDENCE_TABLE).await?;
                 let snapshot_members = copy_membership(txn, &snapshot.membership()).await?;
 
-                // Order follows the foreign keys: observations first, then evidence, then cores.
+                // Order follows the foreign keys: observations first, then evidence, then entities.
                 let unlinked = unlink(txn).await?;
                 let evidence = remove_evidence(txn).await?;
-                let cores = remove_cores(txn).await?;
+                let entities = remove_entities(txn).await?;
 
                 Ok(Report {
                     unlinked,
                     evidence,
-                    cores,
+                    entities,
                     snapshot: Some(snapshot),
-                    snapshot_cores,
+                    snapshot_entities,
                     snapshot_evidence,
                     snapshot_members,
                 })
@@ -126,7 +126,7 @@ async fn copy<C: ConnectionTrait>(
 async fn copy_membership<C: ConnectionTrait>(conn: &C, snapshot: &str) -> anyhow::Result<u64> {
     conn.execute_unprepared(&format!(
         "CREATE TABLE \"{snapshot}\" AS \
-         SELECT id AS observation_id, core_id FROM \"{OBSERVATION_TABLE}\" WHERE core_id IS NOT NULL"
+         SELECT id AS observation_id, knowledge_entity_id FROM \"{OBSERVATION_TABLE}\" WHERE knowledge_entity_id IS NOT NULL"
     ))
     .await?;
     count(conn, snapshot).await
@@ -145,8 +145,8 @@ async fn count<C: ConnectionTrait>(conn: &C, table: &str) -> anyhow::Result<u64>
 
 async fn unlink<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
     let result = observation::Entity::update_many()
-        .col_expr(observation::Column::CoreId, Expr::value(Option::<i32>::None))
-        .filter(observation::Column::CoreId.is_not_null())
+        .col_expr(observation::Column::KnowledgeEntityId, Expr::value(Option::<i32>::None))
+        .filter(observation::Column::KnowledgeEntityId.is_not_null())
         .exec(conn)
         .await?;
     Ok(result.rows_affected)
@@ -159,8 +159,8 @@ async fn remove_evidence<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
         .rows_affected)
 }
 
-async fn remove_cores<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
-    Ok(core::Entity::delete_many().exec(conn).await?.rows_affected)
+async fn remove_entities<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
+    Ok(entity::Entity::delete_many().exec(conn).await?.rows_affected)
 }
 
 #[cfg(test)]
@@ -173,12 +173,12 @@ mod tests {
     use crate::knowledge::link;
     use crate::test_support::fixtures;
 
-    /// Observation ids grouped by core, ids of the cores ignored, so two runs can be compared even
+    /// Observation ids grouped by core, ids of the entities ignored, so two runs can be compared even
     /// though their core ids differ.
     fn group(rows: Vec<(i32, i32)>) -> Vec<Vec<i32>> {
         let mut groups: BTreeMap<i32, Vec<i32>> = BTreeMap::new();
-        for (observation_id, core_id) in rows {
-            groups.entry(core_id).or_default().push(observation_id);
+        for (observation_id, knowledge_entity_id) in rows {
+            groups.entry(knowledge_entity_id).or_default().push(observation_id);
         }
         let mut partition: Vec<Vec<i32>> = groups.into_values().collect();
         for group in &mut partition {
@@ -190,12 +190,12 @@ mod tests {
 
     async fn live_partition(db: &database::DbHandle) -> Vec<Vec<i32>> {
         let rows = observation::Entity::find()
-            .filter(observation::Column::CoreId.is_not_null())
+            .filter(observation::Column::KnowledgeEntityId.is_not_null())
             .all(&db.conn)
             .await
             .unwrap()
             .into_iter()
-            .map(|row| (row.id, row.core_id.unwrap()))
+            .map(|row| (row.id, row.knowledge_entity_id.unwrap()))
             .collect();
         group(rows)
     }
@@ -205,7 +205,7 @@ mod tests {
             .conn
             .query_all_raw(Statement::from_string(
                 DatabaseBackend::Postgres,
-                format!("SELECT observation_id, core_id FROM \"{table}\""),
+                format!("SELECT observation_id, knowledge_entity_id FROM \"{table}\""),
             ))
             .await
             .unwrap()
@@ -247,22 +247,22 @@ mod tests {
         };
         let db = test_db.handle();
         seed(&db).await;
-        link::build_core(&db).await.expect("build should succeed");
+        link::link(&db).await.expect("build should succeed");
         let before = live_partition(&db).await;
         assert_eq!(before, vec![vec![1, 2], vec![3]], "{before:?}");
 
-        let report = reset_core(&db).await.expect("reset should succeed");
+        let report = reset(&db).await.expect("reset should succeed");
 
         assert_eq!(report.unlinked, 3, "{report:?}");
-        assert_eq!(report.cores, 2, "{report:?}");
-        assert_eq!(report.snapshot_cores, 2, "{report:?}");
+        assert_eq!(report.entities, 2, "{report:?}");
+        assert_eq!(report.snapshot_entities, 2, "{report:?}");
         assert_eq!(report.snapshot_members, 3, "{report:?}");
         assert_eq!(
             observation::Entity::find().count(&db.conn).await.unwrap(),
             3,
             "observations must survive a reset"
         );
-        assert_eq!(core::Entity::find().count(&db.conn).await.unwrap(), 0);
+        assert_eq!(entity::Entity::find().count(&db.conn).await.unwrap(), 0);
         assert_eq!(evidence::Entity::find().count(&db.conn).await.unwrap(), 0);
 
         let snapshot = report.snapshot.expect("a snapshot should have been taken");
@@ -272,7 +272,7 @@ mod tests {
             "the snapshot must reproduce the partition it replaced"
         );
 
-        link::build_core(&db).await.expect("rebuild should succeed");
+        link::link(&db).await.expect("rebuild should succeed");
         assert_eq!(live_partition(&db).await, before, "rebuild must be deterministic");
     }
 
@@ -284,10 +284,10 @@ mod tests {
         let db = test_db.handle();
         seed(&db).await;
 
-        link::build_core(&db).await.expect("build should succeed");
-        let first = reset_core(&db).await.expect("reset should succeed");
-        link::build_core(&db).await.expect("rebuild should succeed");
-        let second = reset_core(&db).await.expect("second reset should succeed");
+        link::link(&db).await.expect("build should succeed");
+        let first = reset(&db).await.expect("reset should succeed");
+        link::link(&db).await.expect("rebuild should succeed");
+        let second = reset(&db).await.expect("second reset should succeed");
 
         let (first, second) = (
             first.snapshot.expect("first snapshot"),
@@ -305,7 +305,7 @@ mod tests {
         };
         let db = test_db.handle();
 
-        let report = reset_core(&db).await.expect("reset should succeed");
+        let report = reset(&db).await.expect("reset should succeed");
 
         assert_eq!(report, Report::default());
         assert!(report.snapshot.is_none());

@@ -25,12 +25,12 @@ pub async fn get(
         .get_capture(&context_user, entity.capture_id)
         .await?;
 
-    let siblings: Vec<api::KnowledgeEntityInfo> = capture
+    let siblings: Vec<api::ObservedEntityInfo> = capture
         .illuminations
         .first()
         .map(|illumination| {
             illumination
-                .knowledge_entities
+                .observed_entities
                 .iter()
                 .filter(|sibling| sibling.id != entity.id)
                 .cloned()

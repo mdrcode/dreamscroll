@@ -106,13 +106,13 @@ impl InfoMaker {
     ) -> IlluminationInfo {
         let suggested_searches = illumination_model.suggested_searches.unwrap_or_default();
 
-        let knowledge_entities = match illumination_model.knowledge_entities {
+        let observed_entities = match illumination_model.observations {
             HasMany::Unloaded => vec![],
             HasMany::Loaded(mut models) => {
                 models.sort_by_key(|entity| entity.position);
                 models
                     .into_iter()
-                    .map(|entity| KnowledgeEntityInfo::new(entity, capture_archived_at))
+                    .map(|entity| ObservedEntityInfo::new(entity, capture_archived_at))
                     .collect()
             }
         };
@@ -123,7 +123,7 @@ impl InfoMaker {
             summary: illumination_model.summary,
             details: illumination_model.details,
             suggested_searches,
-            knowledge_entities,
+            observed_entities,
         }
     }
 

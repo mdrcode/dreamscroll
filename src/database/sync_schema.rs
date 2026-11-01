@@ -5,97 +5,49 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 15;
+const REQUIRED_SCHEMA_VERSION: i32 = 16;
 
-/// DDL the model registry cannot express: `SchemaRegistry::sync` creates what is missing but never
-/// renames. `knowledge_entities` became `knowledge_user` in schema version 9, and the registry
-/// would otherwise create an empty replacement beside the populated old table.
-async fn rename_legacy_tables<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+/// Schema 16 retires the staging observation table.
+///
+/// The application wrote `knowledge_user` while `migrate` copied into `user_knowledge_entities`, and
+/// the graph read the copy — so the copy lagged every new capture and nothing wrote it automatically.
+/// There is one table now, and the observations move across before the old ones go: they are the only
+/// irreplaceable data here. The entities and evidence are dropped outright because `link` rebuilds
+/// them from the observations.
+///
+/// Runs after the registry has created the new tables. Idempotent: with `knowledge_user` gone it only
+/// repeats the drops.
+async fn retire_legacy_observation_tables<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(
         "DO $$ BEGIN \
-           IF to_regclass('knowledge_entities') IS NOT NULL \
-              AND to_regclass('knowledge_user') IS NULL THEN \
-             ALTER TABLE knowledge_entities RENAME TO knowledge_user; \
+           IF to_regclass('knowledge_user') IS NOT NULL THEN \
+             INSERT INTO user_observed_entities \
+               (id, user_id, capture_id, illumination_id, position, created_at, name, \
+                entity_type, description, search_query, platform, platform_handle, \
+                platform_display_name) \
+             SELECT id, user_id, capture_id, illumination_id, position, created_at, name, \
+                    entity_type, description, search_query, platform, platform_handle, \
+                    platform_display_name \
+             FROM knowledge_user \
+             ON CONFLICT (id) DO NOTHING; \
+             IF pg_get_serial_sequence('user_observed_entities', 'id') IS NOT NULL THEN \
+               PERFORM setval( \
+                 pg_get_serial_sequence('user_observed_entities', 'id'), \
+                 (SELECT COALESCE(MAX(id), 1) FROM user_observed_entities) \
+               ); \
+             END IF; \
+             DROP TABLE knowledge_user; \
            END IF; \
-           IF to_regclass('knowledge_entity_position') IS NOT NULL \
-              AND to_regclass('knowledge_user_position') IS NULL THEN \
-             ALTER INDEX knowledge_entity_position RENAME TO knowledge_user_position; \
-           END IF; \
+           DROP TABLE IF EXISTS core_knowledge_evidence; \
+           DROP TABLE IF EXISTS user_knowledge_entities; \
+           DROP TABLE IF EXISTS core_knowledge_entities; \
          END $$",
     )
     .await?;
     Ok(())
 }
 
-/// The registry adds columns but never renames or drops one, so the accumulated-text columns need
-/// their history spelled out: `aliases` becomes `alt_labels`, `description_source` (which only ever
-/// held the literal `"capture"`) goes, and `alt_descriptions` arrives with a default for old rows.
-async fn accumulated_text<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
-    conn.execute_unprepared(
-        "DO $$ BEGIN \
-           IF EXISTS ( \
-             SELECT 1 FROM information_schema.columns \
-             WHERE table_schema = current_schema() \
-               AND table_name = 'core_knowledge_entities' \
-               AND column_name = 'aliases' \
-           ) AND NOT EXISTS ( \
-             SELECT 1 FROM information_schema.columns \
-             WHERE table_schema = current_schema() \
-               AND table_name = 'core_knowledge_entities' \
-               AND column_name = 'alt_labels' \
-           ) THEN \
-             ALTER TABLE core_knowledge_entities RENAME COLUMN aliases TO alt_labels; \
-           END IF; \
-         END $$",
-    )
-    .await?;
-    conn.execute_unprepared(
-        "ALTER TABLE core_knowledge_entities \
-           ADD COLUMN IF NOT EXISTS alt_descriptions text[] NOT NULL DEFAULT '{}'",
-    )
-    .await?;
-    conn.execute_unprepared(
-        "ALTER TABLE core_knowledge_entities \
-           ADD COLUMN IF NOT EXISTS alt_types text[] NOT NULL DEFAULT '{}'",
-    )
-    .await?;
-    conn.execute_unprepared(
-        "DO $$ BEGIN \
-           IF EXISTS ( \
-             SELECT 1 FROM information_schema.columns \
-             WHERE table_schema = current_schema() \
-               AND table_name = 'core_knowledge_entities' \
-               AND column_name = 'description_source' \
-           ) THEN \
-             ALTER TABLE core_knowledge_entities DROP COLUMN description_source; \
-           END IF; \
-         END $$",
-    )
-    .await?;
-    Ok(())
-}
 
-/// The registry adds missing columns and never changes a column's type, so a type correction has to
-/// be explicit. `core_knowledge_evidence.value` was created as `json` before the model asked for
-/// `jsonb`; containment queries (`@>`, GIN) need jsonb, and a fresh schema gets it from the model.
-async fn retype_evidence_value<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
-    conn.execute_unprepared(
-        "DO $$ BEGIN \
-           IF EXISTS ( \
-             SELECT 1 FROM information_schema.columns \
-             WHERE table_schema = current_schema() \
-               AND table_name = 'core_knowledge_evidence' \
-               AND column_name = 'value' \
-               AND data_type = 'json' \
-           ) THEN \
-             ALTER TABLE core_knowledge_evidence \
-               ALTER COLUMN value TYPE jsonb USING value::jsonb; \
-           END IF; \
-         END $$",
-    )
-    .await?;
-    Ok(())
-}
 
 /// Reconcile the model schema, manual indexes, and applied version atomically.
 pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
@@ -131,11 +83,11 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
                 }
             }
 
-            rename_legacy_tables(transaction).await?;
-            accumulated_text(transaction).await?;
-            retype_evidence_value(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             registry.sync(transaction).await?;
+            // After the registry has created the new tables: the observations move across before the
+            // old ones are dropped. `link` rebuilds the entities from them.
+            retire_legacy_observation_tables(transaction).await?;
             indexes::task_run::after_schema_sync(transaction).await?;
             indexes::inference_meta::after_schema_sync(transaction).await?;
             indexes::knowledge::after_schema_sync(transaction).await?;
@@ -265,13 +217,11 @@ mod tests {
         );
     }
 
-    /// `knowledge_entities` became `knowledge_user` in schema version 9. The registry would create
-    /// an empty replacement beside a populated old table, so the rename is explicit DDL and has to
-    /// carry the rows and the unique index across.
-    /// A fresh schema gets the type from the model, and an existing `json` column is retyped with
-    /// its payloads intact — the registry adds columns but never changes a type.
+    /// The model asks for `jsonb`, not `json`: the identity index and any future adjudication query
+    /// the payload by containment (`@>`), and `->>` alone would keep both types working until the
+    /// first containment query silently did not.
     #[tokio::test]
-    async fn evidence_payload_is_jsonb_and_a_legacy_json_column_is_retyped() {
+    async fn evidence_payload_is_jsonb() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -283,7 +233,7 @@ mod tests {
                     DatabaseBackend::Postgres,
                     "SELECT data_type FROM information_schema.columns \
                      WHERE table_schema = current_schema() \
-                       AND table_name = 'core_knowledge_evidence' \
+                       AND table_name = 'knowledge_evidence' \
                        AND column_name = 'value'",
                 ))
                 .await
@@ -293,85 +243,63 @@ mod tests {
         };
 
         assert_eq!(column_type(conn.clone()).await, "jsonb", "the model asks for jsonb");
-
-        // Simulate the earlier schema: a `json` column holding a payload.
-        conn.execute_unprepared("DROP TABLE core_knowledge_evidence")
-            .await
-            .expect("table should drop");
-        conn.execute_unprepared(
-            "CREATE TABLE core_knowledge_evidence (id integer primary key, value json)",
-        )
-        .await
-        .expect("legacy table should be creatable");
-        conn.execute_unprepared(
-            r#"INSERT INTO core_knowledge_evidence (id, value) VALUES (1, '{"scheme":"x","id":"tsoding"}')"#,
-        )
-        .await
-        .expect("legacy payload should insert");
-
-        super::retype_evidence_value(&conn)
-            .await
-            .expect("retype should succeed");
-
-        assert_eq!(column_type(conn.clone()).await, "jsonb");
-        let row = conn
-            .query_one_raw(Statement::from_string(
-                DatabaseBackend::Postgres,
-                "SELECT value->>'id' FROM core_knowledge_evidence WHERE id = 1",
-            ))
-            .await
-            .expect("query should succeed")
-            .expect("the row should survive");
-        assert_eq!(row.try_get_by_index::<String>(0).expect("id is text"), "tsoding");
     }
 
+    /// Schema 16 retires the staging table. The observations are the only irreplaceable data here,
+    /// so they move across before `knowledge_user` goes; the entities are rebuilt by `link`.
     #[tokio::test]
-    async fn legacy_occurrence_table_is_renamed_with_its_data() {
+    async fn legacy_observations_move_into_the_single_table() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
-        let conn = test_db.handle().conn;
+        let db = test_db.handle();
+        let conn = db.conn.clone();
 
-        conn.execute_unprepared("DROP TABLE knowledge_user")
-            .await
-            .expect("the synced table should be droppable to simulate the old schema");
+        let user_id = crate::test_support::fixtures::user(&db, "retire").await;
+        let capture_id = crate::test_support::fixtures::capture(&db, user_id).await;
+        let illumination_id =
+            crate::test_support::fixtures::illumination(&db, user_id, capture_id).await;
+
         conn.execute_unprepared(
-            "CREATE TABLE knowledge_entities (id integer primary key, name text not null)",
+            "CREATE TABLE knowledge_user ( \
+               id integer PRIMARY KEY, user_id integer NOT NULL, capture_id integer NOT NULL, \
+               illumination_id integer NOT NULL, position integer NOT NULL, \
+               created_at timestamptz NOT NULL DEFAULT now(), name text NOT NULL, \
+               entity_type text NOT NULL, description text, search_query text, platform text, \
+               platform_handle text, platform_display_name text)",
         )
         .await
         .expect("the legacy table should be creatable");
-        conn.execute_unprepared("CREATE UNIQUE INDEX knowledge_entity_position ON knowledge_entities (id)")
-            .await
-            .expect("the legacy unique index should be creatable");
-        conn.execute_unprepared("INSERT INTO knowledge_entities (id, name) VALUES (1, 'Train Dreams')")
-            .await
-            .expect("the legacy row should insert");
+        conn.execute_unprepared(&format!(
+            "INSERT INTO knowledge_user \
+               (id, user_id, capture_id, illumination_id, position, name, entity_type) \
+             VALUES (7, {user_id}, {capture_id}, {illumination_id}, 0, 'Train Dreams', 'book')"
+        ))
+        .await
+        .expect("the legacy row should insert");
 
-        super::rename_legacy_tables(&conn)
+        super::retire_legacy_observation_tables(&conn)
             .await
-            .expect("renaming the legacy table should succeed");
+            .expect("retirement should succeed");
 
         let row = conn
             .query_one_raw(Statement::from_string(
                 DatabaseBackend::Postgres,
-                "SELECT to_regclass('knowledge_entities')::text, \
-                        to_regclass('knowledge_user')::text, \
-                        to_regclass('knowledge_user_position')::text, \
-                        (SELECT name FROM knowledge_user WHERE id = 1)",
+                "SELECT to_regclass('knowledge_user')::text, \
+                        (SELECT name FROM user_observed_entities WHERE id = 7)",
             ))
             .await
-            .expect("inspecting the renamed schema should succeed")
+            .expect("inspecting the retired schema should succeed")
             .expect("the inspection query always returns one row");
 
-        let old_table: Option<String> = row.try_get_by_index(0).expect("old table name");
-        let new_table: Option<String> = row.try_get_by_index(1).expect("new table name");
-        let renamed_index: Option<String> = row.try_get_by_index(2).expect("renamed index name");
-        let preserved_name: Option<String> = row.try_get_by_index(3).expect("preserved row");
+        let legacy: Option<String> = row.try_get_by_index(0).expect("legacy table name");
+        let carried: Option<String> = row.try_get_by_index(1).expect("carried observation");
+        assert!(legacy.is_none(), "the legacy table should be gone");
+        assert_eq!(carried.as_deref(), Some("Train Dreams"), "observations must survive");
 
-        assert!(old_table.is_none(), "the legacy table should be gone");
-        assert!(new_table.is_some(), "the renamed table should exist");
-        assert!(renamed_index.is_some(), "the unique index should follow the table");
-        assert_eq!(preserved_name.as_deref(), Some("Train Dreams"), "rows must survive the rename");
+        super::retire_legacy_observation_tables(&conn)
+            .await
+            .expect("retirement should be repeatable");
     }
 
     #[tokio::test]

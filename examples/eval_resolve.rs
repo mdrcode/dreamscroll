@@ -113,7 +113,7 @@ async fn main() -> anyhow::Result<()> {
         };
         let view = CoreView {
             id: row.try_get_by_index(0)?,
-            label: label.clone(),
+            name: label.clone(),
             entity_type: row.try_get_by_index(1)?,
             description: Some(row.try_get_by_index::<String>(2)?).filter(|d| !d.is_empty()),
             alt_descriptions: Vec::new(),

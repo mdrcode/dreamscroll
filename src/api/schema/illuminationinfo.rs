@@ -9,7 +9,7 @@ pub struct IlluminationInfo {
     pub summary: String,
     pub details: String,
     pub suggested_searches: Vec<String>,
-    pub knowledge_entities: Vec<KnowledgeEntityInfo>,
+    pub observed_entities: Vec<ObservedEntityInfo>,
 }
 
 impl IlluminationInfo {
@@ -19,7 +19,7 @@ impl IlluminationInfo {
         push_section(&mut sections, "Details", &self.details);
 
         let entity_lines = self
-            .knowledge_entities
+            .observed_entities
             .iter()
             .map(|entity| {
                 let mut parts = vec![entity.name.clone(), format!("type: {}", entity.entity_type)];
@@ -77,7 +77,7 @@ mod tests {
             summary: "summary".to_string(),
             details: "details".to_string(),
             suggested_searches: vec!["related topic".to_string()],
-            knowledge_entities: vec![KnowledgeEntityInfo {
+            observed_entities: vec![ObservedEntityInfo {
                 id: 1,
                 capture_id: 9,
                 illumination_id: 10,
@@ -119,7 +119,7 @@ mod tests {
             summary: "summary".to_string(),
             details: "  ".to_string(),
             suggested_searches: vec![],
-            knowledge_entities: vec![],
+            observed_entities: vec![],
         };
 
         let text = info.make_text();

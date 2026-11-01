@@ -12,7 +12,7 @@ pub struct PlatformLinkInfo {
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct KnowledgeEntityInfo {
+pub struct ObservedEntityInfo {
     pub id: i32,
     pub capture_id: i32,
     /// The illumination that produced this occurrence. A capture can be
@@ -33,14 +33,14 @@ pub struct KnowledgeEntityInfo {
     pub platform_link: Option<PlatformLinkInfo>,
 }
 
-impl KnowledgeEntityInfo {
+impl ObservedEntityInfo {
     /// Build the wire form of one occurrence.
     ///
     /// `capture_archived_at` is a capture fact, so it is passed in rather than
     /// read from the entity model; callers that filter archived captures pass
     /// `None` because they would not return the row otherwise.
     pub fn new(
-        entity: model::knowledge_entity::ModelEx,
+        entity: model::user_observed_entity::ModelEx,
         capture_archived_at: Option<DateTime<Utc>>,
     ) -> Self {
         let platform_link = match (entity.platform, entity.platform_handle) {

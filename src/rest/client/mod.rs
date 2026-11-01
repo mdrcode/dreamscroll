@@ -194,7 +194,7 @@ impl Client {
     pub async fn get_entities_by_type(
         &self,
         entity_type: &str,
-    ) -> anyhow::Result<Vec<api::KnowledgeEntityInfo>> {
+    ) -> anyhow::Result<Vec<api::ObservedEntityInfo>> {
         let response = self
             .reqwest_client
             .get(format!("{}/entity", self.base_url))
@@ -207,7 +207,7 @@ impl Client {
         Self::parse_json_response(response).await
     }
 
-    pub async fn get_entity(&self, entity_id: i32) -> anyhow::Result<api::KnowledgeEntityInfo> {
+    pub async fn get_entity(&self, entity_id: i32) -> anyhow::Result<api::ObservedEntityInfo> {
         let response = self
             .reqwest_client
             .get(format!("{}/entity/{}", self.base_url, entity_id))
@@ -229,7 +229,7 @@ impl Client {
         user_id: Option<i32>,
         after_id: i32,
         limit: u64,
-    ) -> anyhow::Result<(Vec<api::ExportRow<api::KnowledgeEntityInfo>>, Option<i32>)> {
+    ) -> anyhow::Result<(Vec<api::ExportRow<api::ObservedEntityInfo>>, Option<i32>)> {
         let mut request = self
             .reqwest_client
             .get(format!("{}/admin/export/entities", self.base_url))

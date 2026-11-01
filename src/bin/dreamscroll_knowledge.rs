@@ -3,7 +3,7 @@ use argh::FromArgs;
 use dreamscroll::{config, database, knowledge, telemetry};
 
 #[derive(FromArgs)]
-#[argh(description = "offline knowledge-graph tooling: observations, cores, evidence")]
+#[argh(description = "offline knowledge-graph tooling: observations, knowledge entities, evidence")]
 struct Args {
     #[argh(subcommand)]
     command: Command,
@@ -12,32 +12,26 @@ struct Args {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 enum Command {
-    Migrate(MigrateArgs),
-    BuildCore(BuildCoreArgs),
+    Link(LinkArgs),
     Stats(StatsArgs),
-    MergeCoreEntities(MergeCoreEntitiesArgs),
-    ResetCore(ResetCoreArgs),
+    Merge(MergeArgs),
+    Reset(ResetArgs),
     Compare(CompareArgs),
     Resolve(ResolveArgs),
 }
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "migrate")]
-#[argh(description = "copy observations from knowledge_user into user_knowledge_entities (idempotent)")]
-struct MigrateArgs {}
+#[argh(subcommand, name = "link")]
+#[argh(description = "link every unlinked observation to a knowledge entity, creating one as needed")]
+struct LinkArgs {}
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "build_core")]
-#[argh(description = "link every unlinked observation to a core, creating cores as needed")]
-struct BuildCoreArgs {}
-
-#[derive(FromArgs)]
-#[argh(subcommand, name = "merge_core_entities")]
-#[argh(description = "fold one core into another; refuses when they share a capture")]
-struct MergeCoreEntitiesArgs {
-    #[argh(positional, description = "core id that will be tombstoned")]
+#[argh(subcommand, name = "merge")]
+#[argh(description = "fold one knowledge entity into another; refuses when they share a capture")]
+struct MergeArgs {
+    #[argh(positional, description = "knowledge entity that will be tombstoned")]
     loser: i32,
-    #[argh(positional, description = "core id that survives")]
+    #[argh(positional, description = "knowledge entity that survives")]
     winner: i32,
     #[argh(switch, short = 'y')]
     #[argh(description = "apply the merge (otherwise it is a dry run)")]
@@ -45,9 +39,9 @@ struct MergeCoreEntitiesArgs {
 }
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "reset_core")]
+#[argh(subcommand, name = "reset")]
 #[argh(description = "snapshot the cores, evidence and membership, then empty them; needs --yes")]
-struct ResetCoreArgs {
+struct ResetArgs {
     #[argh(switch, short = 'y')]
     #[argh(description = "confirm resetting the projected graph")]
     yes: bool,
@@ -103,35 +97,28 @@ async fn main() -> anyhow::Result<()> {
     let db = database::DbHandle::new(connection);
 
     match args.command {
-        Command::Migrate(_) => {
-            let report = knowledge::migrate::migrate(&db).await?;
+        Command::Link(_) => {
+            let report = knowledge::link::link(&db).await?;
             println!(
-                "source rows {} · already present {} · copied {}",
-                report.source, report.already_present, report.copied
-            );
-        }
-        Command::BuildCore(_) => {
-            let report = knowledge::link::build_core(&db).await?;
-            println!(
-                "considered {} · already linked {} · superseded {} · linked {} · created {}",
+                "considered {} · already linked {} · from stale readings {} · linked {} · created {}",
                 report.considered,
                 report.already_linked,
-                report.superseded,
+                report.stale,
                 report.linked,
                 report.created
             );
         }
-        Command::MergeCoreEntities(args) => {
+        Command::Merge(args) => {
             let preview = knowledge::merge::preview(&db.conn, args.loser, args.winner).await?;
             println!(
-                "merge {} -> {} · observations {} · evidence {} · shared captures {}",
+                "merge {} -> {} · observations {} · evidence {} · shared illuminations {}",
                 args.loser,
                 args.winner,
                 preview.observations,
                 preview.evidence,
-                preview.shared_captures
+                preview.shared_illuminations
             );
-            if preview.shared_captures > 0 {
+            if preview.shared_illuminations > 0 {
                 println!(
                     "refused: both cores have observations in the same capture, and the linker \
                      already decided those mentions are different referents"
@@ -149,23 +136,23 @@ async fn main() -> anyhow::Result<()> {
                 knowledge::merge::Outcome::AlreadyMerged => {
                     println!("already merged; nothing to do")
                 }
-                knowledge::merge::Outcome::RefusedSharedCapture => {
+                knowledge::merge::Outcome::RefusedSharedIllumination => {
                     println!("refused at merge time — the cores changed under us")
                 }
             }
         }
-        Command::ResetCore(args) => {
+        Command::Reset(args) => {
             if !args.yes {
                 anyhow::bail!(
-                    "reset_core empties the projected graph; pass --yes to confirm"
+                    "reset empties the projected graph; pass --yes to confirm"
                 );
             }
-            let report = knowledge::reset::reset_core(&db).await?;
+            let report = knowledge::reset::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
                     "snapshot {} · cores {} · evidence {} · members {}",
                     snapshot.suffix,
-                    report.snapshot_cores,
+                    report.snapshot_entities,
                     report.snapshot_evidence,
                     report.snapshot_members
                 ),
@@ -173,7 +160,7 @@ async fn main() -> anyhow::Result<()> {
             }
             println!(
                 "unlinked {} observations · deleted {} evidence rows · deleted {} cores",
-                report.unlinked, report.evidence, report.cores
+                report.unlinked, report.evidence, report.entities
             );
         }
         Command::Compare(args) => {
@@ -191,7 +178,7 @@ async fn main() -> anyhow::Result<()> {
                 report.observations, report.only_in_before, report.only_in_after
             );
             println!(
-                "cores        {:>7}  before {} · after {}",
+                "entities     {:>7}  before {} · after {}",
                 report.cores_before.max(report.cores_after),
                 report.cores_before,
                 report.cores_after
@@ -275,13 +262,13 @@ async fn main() -> anyhow::Result<()> {
             let stats = knowledge::stats::stats(&db).await?;
             println!("observations        {:>7}", stats.observations);
             println!("  linked            {:>7}", stats.linked);
-            println!("cores               {:>7}", stats.cores);
+            println!("knowledge entities  {:>7}", stats.entities);
             println!("  provisional       {:>7}", stats.provisional);
             println!("  identified        {:>7}", stats.identified);
             println!("  contested         {:>7}", stats.contested);
             println!("duplicate rate      {:>7.3}", stats.duplicate_rate());
             println!("resolution");
-            println!("  with ontology claim {:>5}", stats.with_ontology);
+            println!("  with authority claim {:>5}", stats.with_claim);
             println!(
                 "  cache {} with candidates · {} no match · {} failed · {} expired",
                 stats.cache_found, stats.cache_empty, stats.cache_failed, stats.cache_expired

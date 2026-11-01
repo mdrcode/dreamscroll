@@ -181,7 +181,7 @@ mod tests {
                 "illuminations": [{
                     "summary": "Summary text",
                     "details": "Details text",
-                    "knowledge_entities": [{
+                    "observed_entities": [{
                         "id": 11,
                         "type": "real_person",
                         "name": "Ada Lovelace",

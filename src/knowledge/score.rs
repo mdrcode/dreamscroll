@@ -59,8 +59,8 @@ impl Observation {
 #[derive(Debug, Clone)]
 pub struct Core {
     pub id: i32,
-    pub alt_label_keys: Vec<String>,
-    pub alt_label_token_keys: Vec<String>,
+    pub alt_name_keys: Vec<String>,
+    pub alt_name_token_keys: Vec<String>,
     /// One token set per accumulated description; a candidate has to fit only one of them.
     pub description_tokens: Vec<Vec<String>>,
     /// Every type this core's members asserted. Agreement with any one of them counts.
@@ -68,16 +68,32 @@ pub struct Core {
 }
 
 impl Core {
+    /// `name` is the entity's selected surface and must be indexed alongside the alternatives.
+    /// `project` deliberately excludes it from `alt_names`, so indexing `alt_names` alone leaves a
+    /// persisted entity invisible to blocking on its own name — every later observation that names
+    /// it then creates a duplicate instead of attaching.
     pub fn new(
         id: i32,
-        alt_labels: &[String],
+        name: &str,
+        alt_names: &[String],
         descriptions: &[&str],
         entity_types: &[String],
     ) -> Self {
+        let mut names: Vec<String> = Vec::with_capacity(alt_names.len() + 1);
+        names.push(name.to_string());
+        names.extend_from_slice(alt_names);
         Self {
             id,
-            alt_label_keys: alt_labels.iter().map(|a| normalize::key(a)).collect(),
-            alt_label_token_keys: alt_labels.iter().map(|a| normalize::token_key(a)).collect(),
+            alt_name_keys: names
+                .iter()
+                .map(|a| normalize::key(a))
+                .filter(|key| !key.is_empty())
+                .collect(),
+            alt_name_token_keys: names
+                .iter()
+                .map(|a| normalize::token_key(a))
+                .filter(|key| !key.is_empty())
+                .collect(),
             description_tokens: descriptions
                 .iter()
                 .map(|description| normalize::tokens(description))
@@ -125,10 +141,10 @@ pub fn score(observation: &Observation, core: &Core) -> Features {
 /// 1.0 on the same normalized surface, 0.9 when only word order or an article differs, else the
 /// best token overlap. A name never decides on its own — see the vetoes in `link`.
 fn name_similarity(observation: &Observation, core: &Core) -> f32 {
-    if core.alt_label_keys.contains(&observation.name_key) {
+    if core.alt_name_keys.contains(&observation.name_key) {
         return 1.0;
     }
-    if core.alt_label_token_keys.contains(&observation.token_key) {
+    if core.alt_name_token_keys.contains(&observation.token_key) {
         return 0.9;
     }
     0.0
@@ -164,7 +180,7 @@ mod tests {
 
     fn core(name: &str, description: Option<&str>, ty: &str) -> Core {
         let descriptions: Vec<&str> = description.into_iter().collect();
-        Core::new(1, &[normalize::key(name)], &descriptions, &[ty.to_string()])
+        Core::new(1, name, &[], &descriptions, &[ty.to_string()])
     }
 
     /// `brand` and `organization` are the same referent described twice — the taxonomy does not have
@@ -173,7 +189,8 @@ mod tests {
     fn any_asserted_type_counts_as_agreement() {
         let core = Core::new(
             1,
-            &[normalize::key("Nintendo")],
+            "Nintendo",
+            &[],
             &[],
             &["organization".to_string(), "brand".to_string()],
         );

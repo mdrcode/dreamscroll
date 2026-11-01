@@ -33,7 +33,7 @@ pub(crate) const BATCH: usize = 2;
 #[derive(Debug, Clone)]
 pub struct CoreView {
     pub id: i32,
-    pub label: String,
+    pub name: String,
     pub entity_type: String,
     pub description: Option<String>,
     /// Descriptions other members contributed. A provider may fit a candidate against any of them.
@@ -222,8 +222,8 @@ pub async fn resolve(
         }
     }
 
-    for core_id in &resolved {
-        project(&db.conn, *core_id).await?;
+    for knowledge_entity_id in &resolved {
+        project(&db.conn, *knowledge_entity_id).await?;
     }
     report.cores_resolved = resolved.len();
     Ok(report)
@@ -275,15 +275,15 @@ async fn run_stage(
         if claims.is_empty() {
             continue;
         }
-        let core_id = cores[index].id;
+        let knowledge_entity_id = cores[index].id;
         let mut accepted = 0;
         for claim in claims {
-            if store_claim(&db.conn, engine.id(), core_id, claim, report).await? {
+            if store_claim(&db.conn, engine.id(), knowledge_entity_id, claim, report).await? {
                 accepted += 1;
             }
         }
         if accepted > 0 {
-            resolved.insert(core_id);
+            resolved.insert(knowledge_entity_id);
         } else {
             // The answer was not wrong, or at least we cannot show it was — only unhelpful. Re-ask it
             // sooner than the default week: a stale negative is indistinguishable from a fact, and a
@@ -440,7 +440,7 @@ async fn fetch_plans(
 async fn store_claim(
     conn: &sea_orm::DatabaseConnection,
     source: &str,
-    core_id: i32,
+    knowledge_entity_id: i32,
     claim: Claim,
     report: &mut Report,
 ) -> anyhow::Result<bool> {
@@ -452,10 +452,10 @@ async fn store_claim(
         "description": claim.description,
         "classes": claim.classes,
     });
-    let insert = model::core_knowledge_evidence::Entity::insert(
-        model::core_knowledge_evidence::ActiveModel {
-            core_id: Set(core_id),
-            kind: Set("ontology".to_string()),
+    let insert = model::knowledge_evidence::Entity::insert(
+        model::knowledge_evidence::ActiveModel {
+            knowledge_entity_id: Set(knowledge_entity_id),
+            kind: Set("claim".to_string()),
             value: Set(value),
             source: Set(source.to_string()),
             method: Set(Some(claim.method)),
@@ -475,33 +475,32 @@ async fn store_claim(
             // Another core already holds this identity, which means the two cores are the same
             // referent: the graph was told so by the authority. Fold ours into the one that holds it
             // rather than leaving a duplicate behind.
-            Some("idx-core_evidence_identity") => {
+            Some("idx-knowledge_evidence_identity") => {
                 if let Some(owner) = crate::knowledge::link::identity_owner(conn, &scheme, &identity).await?
-                    && owner != core_id
+                    && owner != knowledge_entity_id
                 {
-                    match crate::knowledge::merge::merge_core(conn, core_id, owner).await? {
+                    match crate::knowledge::merge::merge_core(conn, knowledge_entity_id, owner).await? {
                         crate::knowledge::merge::Outcome::Merged => report.merges += 1,
                         crate::knowledge::merge::Outcome::AlreadyMerged => {}
                         // The veto says these two cannot be one referent, so the authority is
                         // contradicting something we already know. Record it; do not fold.
-                        crate::knowledge::merge::Outcome::RefusedSharedCapture => {
+                        crate::knowledge::merge::Outcome::RefusedSharedIllumination => {
                             // Recorded once per pair. A resolve run retries every core without a
                             // claim, so re-asserting the same contradiction would otherwise append
                             // a row per run and turn "3 collisions" into noise.
-                            if !collision_recorded(conn, owner, core_id, &identity).await? {
+                            if !collision_recorded(conn, owner, knowledge_entity_id, &identity).await? {
                                 report.collisions += 1;
-                                model::core_knowledge_evidence::Entity::insert(
-                                    model::core_knowledge_evidence::ActiveModel {
-                                        core_id: Set(owner),
+                                model::knowledge_evidence::Entity::insert(
+                                    model::knowledge_evidence::ActiveModel {
+                                        knowledge_entity_id: Set(owner),
                                         kind: Set("collision".to_string()),
                                         value: Set(json!({
-                                            "reason": "shared capture",
-                                            "other": core_id,
+                                            "reason": "shared illumination",
+                                            "claimant": knowledge_entity_id,
                                             "scheme": scheme,
                                             "id": identity,
                                         })),
                                         source: Set("model".to_string()),
-                                        related_core_id: Set(Some(core_id)),
                                         ..Default::default()
                                     },
                                 )
@@ -542,8 +541,8 @@ async fn collision_recorded(
     let row = conn
         .query_one_raw(sea_orm::Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
-            "SELECT count(*) FROM core_knowledge_evidence WHERE kind = 'collision' \
-             AND retracted_at IS NULL AND core_id = $1 AND related_core_id = $2 \
+            "SELECT count(*) FROM knowledge_evidence WHERE kind = 'collision' \
+             AND retracted_at IS NULL AND knowledge_entity_id = $1 AND (value->>'claimant')::int = $2 \
              AND value->>'id' = $3",
             [owner.into(), other.into(), identity.into()],
         ))
@@ -553,18 +552,18 @@ async fn collision_recorded(
 }
 
 /// Recompute the columns that are a function of the members and of the evidence. Nothing else writes
-/// `label`, `alt_labels`, `description`, `alt_descriptions`, `status` or `confidence`.
+/// `name`, `alt_names`, `description`, `alt_descriptions`, `status` or `confidence`.
 ///
 /// Deriving the surface and text here rather than at write time is what makes a merge safe: a merge
 /// re-points observations and projects the winner, so the loser's names and descriptions are picked
 /// up from the members that moved rather than being lost with the deleted row.
-pub async fn project(conn: &sea_orm::DatabaseConnection, core_id: i32) -> anyhow::Result<()> {
-    use model::core_knowledge_evidence as evidence;
+pub async fn project(conn: &sea_orm::DatabaseConnection, knowledge_entity_id: i32) -> anyhow::Result<()> {
+    use model::knowledge_evidence as evidence;
 
     // Ordered by member id, so the result never depends on the order members arrived in.
-    let members = model::user_knowledge_entity::Entity::find()
-        .filter(model::user_knowledge_entity::Column::CoreId.eq(core_id))
-        .order_by_asc(model::user_knowledge_entity::Column::Id)
+    let members = model::user_observed_entity::Entity::find()
+        .filter(model::user_observed_entity::Column::KnowledgeEntityId.eq(knowledge_entity_id))
+        .order_by_asc(model::user_observed_entity::Column::Id)
         .all(conn)
         .await?;
     let mut label_keys = HashSet::new();
@@ -593,13 +592,13 @@ pub async fn project(conn: &sea_orm::DatabaseConnection, core_id: i32) -> anyhow
         }
     }
 
-    let current = model::core_knowledge_entity::Entity::find_by_id(core_id)
+    let current = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
         .one(conn)
         .await?;
-    let (existing_label, existing_type, existing_description, existing_alt_descriptions) =
+    let (existing_name, existing_type, existing_description, existing_alt_descriptions) =
         match &current {
             Some(row) => (
-                row.label.clone(),
+                row.name.clone(),
                 row.entity_type.clone(),
                 row.description.clone(),
                 row.alt_descriptions.clone(),
@@ -608,14 +607,14 @@ pub async fn project(conn: &sea_orm::DatabaseConnection, core_id: i32) -> anyhow
         };
 
     // The selected surface survives a merge as long as a member still carries it.
-    let label = if labels.is_empty() || labels.contains(&existing_label) {
-        existing_label
+    let name = if labels.is_empty() || labels.contains(&existing_name) {
+        existing_name
     } else {
         labels[0].clone()
     };
     let alt_labels = labels
         .iter()
-        .filter(|candidate| candidate.as_str() != label)
+        .filter(|candidate| candidate.as_str() != name)
         .cloned()
         .collect();
 
@@ -648,13 +647,13 @@ pub async fn project(conn: &sea_orm::DatabaseConnection, core_id: i32) -> anyhow
     };
 
     let claims = evidence::Entity::find()
-        .filter(evidence::Column::CoreId.eq(core_id))
-        .filter(evidence::Column::Kind.is_in(["ontology", "platform_link"]))
+        .filter(evidence::Column::KnowledgeEntityId.eq(knowledge_entity_id))
+        .filter(evidence::Column::Kind.eq("claim"))
         .filter(evidence::Column::RetractedAt.is_null())
         .all(conn)
         .await?;
     let contested = evidence::Entity::find()
-        .filter(evidence::Column::CoreId.eq(core_id))
+        .filter(evidence::Column::KnowledgeEntityId.eq(knowledge_entity_id))
         .filter(evidence::Column::Kind.eq("collision"))
         .filter(evidence::Column::RetractedAt.is_null())
         .count(conn)
@@ -677,8 +676,8 @@ pub async fn project(conn: &sea_orm::DatabaseConnection, core_id: i32) -> anyhow
     // core the maximum confidence.
     let from_text = claims
         .iter()
-        .any(|claim| claim.kind == "ontology" && claim.method.as_deref() != Some("p2002"));
-    let from_handle = claims.iter().any(|claim| claim.kind == "platform_link");
+        .any(|claim| claim.source == "wikidata" && claim.method.as_deref() != Some("p2002"));
+    let from_handle = claims.iter().any(|claim| claim.source == "platform");
     let inputs = usize::from(from_text) + usize::from(from_handle);
 
     let mut best = 0.0f32;
@@ -692,22 +691,22 @@ pub async fn project(conn: &sea_orm::DatabaseConnection, core_id: i32) -> anyhow
         Some((best + corroboration).min(1.0))
     };
 
-    model::core_knowledge_entity::Entity::update_many()
+    model::knowledge_entity::Entity::update_many()
         .col_expr(
-            model::core_knowledge_entity::Column::Status,
+            model::knowledge_entity::Column::Status,
             Expr::value(status),
         )
         .col_expr(
-            model::core_knowledge_entity::Column::Confidence,
+            model::knowledge_entity::Column::Confidence,
             Expr::value(confidence),
         )
-        .filter(model::core_knowledge_entity::Column::Id.eq(core_id))
+        .filter(model::knowledge_entity::Column::Id.eq(knowledge_entity_id))
         .exec(conn)
         .await?;
-    model::core_knowledge_entity::Entity::update(model::core_knowledge_entity::ActiveModel {
-        id: Set(core_id),
-        label: Set(label),
-        alt_labels: Set(alt_labels),
+    model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
+        id: Set(knowledge_entity_id),
+        name: Set(name),
+        alt_names: Set(alt_labels),
         entity_type: Set(entity_type),
         alt_types: Set(alt_types),
         description: Set(description),
@@ -727,51 +726,52 @@ async fn candidates(
     limit: Option<usize>,
     only: Option<i32>,
 ) -> anyhow::Result<Vec<CoreView>> {
-    use model::core_knowledge_entity as core;
-    use model::core_knowledge_evidence as evidence;
-    use model::user_knowledge_entity as observation;
+    use model::knowledge_entity as core;
+    use model::knowledge_evidence as evidence;
+    use model::user_observed_entity as observation;
 
     let already: HashSet<i32> = evidence::Entity::find()
-        .filter(evidence::Column::Kind.eq("ontology"))
+        .filter(evidence::Column::Kind.eq("claim"))
+        .filter(evidence::Column::Source.ne("platform"))
         .filter(evidence::Column::RetractedAt.is_null())
         .all(conn)
         .await?
         .into_iter()
-        .map(|row| row.core_id)
+        .map(|row| row.knowledge_entity_id)
         .collect();
 
     let mut cores = core::Entity::find()
-        .filter(core::Column::SupersededById.is_null())
+        .filter(core::Column::MergedIntoId.is_null())
         .order_by_asc(core::Column::Id)
         .all(conn)
         .await?;
     cores.retain(|row| !already.contains(&row.id));
-    if let Some(core_id) = only {
-        cores.retain(|row| row.id == core_id);
+    if let Some(knowledge_entity_id) = only {
+        cores.retain(|row| row.id == knowledge_entity_id);
     }
     if let Some(limit) = limit {
         cores.truncate(limit);
     }
 
     let observations = observation::Entity::find()
-        .filter(observation::Column::CoreId.is_not_null())
+        .filter(observation::Column::KnowledgeEntityId.is_not_null())
         .all(conn)
         .await?;
     let mut search: HashMap<i32, String> = HashMap::new();
     let mut handles: HashMap<i32, (String, String)> = HashMap::new();
     for row in observations {
-        let Some(core_id) = row.core_id else { continue };
+        let Some(knowledge_entity_id) = row.knowledge_entity_id else { continue };
         if let Some(query) = row.search_query {
             let query = query.trim().to_string();
             if !query.is_empty() {
-                let entry = search.entry(core_id).or_default();
+                let entry = search.entry(knowledge_entity_id).or_default();
                 if query.len() > entry.len() {
                     *entry = query;
                 }
             }
         }
         if let (Some(platform), Some(handle)) = (row.platform, row.platform_handle) {
-            handles.entry(core_id).or_insert((platform, handle));
+            handles.entry(knowledge_entity_id).or_insert((platform, handle));
         }
     }
 
@@ -781,7 +781,7 @@ async fn candidates(
             search_query: search.get(&row.id).cloned(),
             handle: handles.get(&row.id).cloned(),
             id: row.id,
-            label: row.label,
+            name: row.name,
             entity_type: row.entity_type,
             description: row.description,
             alt_descriptions: row.alt_descriptions,
@@ -813,7 +813,7 @@ mod tests {
                 provider: "fake",
                 kind: "label".to_string(),
                 shape: "v1".to_string(),
-                query: core.label.clone(),
+                query: core.name.clone(),
             }]
         }
 
@@ -863,8 +863,8 @@ mod tests {
         let user_id = fixtures::user(db, "resolve").await;
         let capture_id = fixtures::capture(db, user_id).await;
         let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-        let entity_id = model::user_knowledge_entity::Entity::insert(
-            model::user_knowledge_entity::ActiveModel {
+        let entity_id = model::user_observed_entity::Entity::insert(
+            model::user_observed_entity::ActiveModel {
                 user_id: Set(user_id),
                 capture_id: Set(capture_id),
                 illumination_id: Set(illumination_id),
@@ -879,14 +879,14 @@ mod tests {
         .unwrap()
         .last_insert_id as i32;
 
-        crate::knowledge::link::build_core(db).await.unwrap();
+        crate::knowledge::link::link(db).await.unwrap();
 
-        model::user_knowledge_entity::Entity::find_by_id(entity_id)
+        model::user_observed_entity::Entity::find_by_id(entity_id)
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap()
-            .core_id
+            .knowledge_entity_id
             .expect("build_core should have linked the observation")
     }
 
@@ -900,7 +900,7 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let core_id = seed(&db, "Train Dreams").await;
+        let knowledge_entity_id = seed(&db, "Train Dreams").await;
 
         let calls = Arc::new(AtomicUsize::new(0));
         let engines = fake(
@@ -919,7 +919,7 @@ mod tests {
         assert_eq!(first.fetched, 1, "{first:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
 
-        let core = model::core_knowledge_entity::Entity::find_by_id(core_id)
+        let core = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
             .await
             .unwrap()
@@ -939,7 +939,7 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let core_id = seed(&db, "MUME").await;
+        let knowledge_entity_id = seed(&db, "MUME").await;
 
         let calls = Arc::new(AtomicUsize::new(0));
         let engines = fake(HashMap::new(), calls.clone());
@@ -955,7 +955,7 @@ mod tests {
         assert_eq!(second.cache_hits, 1, "{second:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 1, "the negative was not re-fetched");
 
-        let core = model::core_knowledge_entity::Entity::find_by_id(core_id)
+        let core = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
             .await
             .unwrap()
@@ -970,12 +970,12 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let core_id = seed(&db, "Nintendo").await;
+        let knowledge_entity_id = seed(&db, "Nintendo").await;
 
-        model::core_knowledge_evidence::Entity::insert(
-            model::core_knowledge_evidence::ActiveModel {
-                core_id: Set(core_id),
-                kind: Set("ontology".to_string()),
+        model::knowledge_evidence::Entity::insert(
+            model::knowledge_evidence::ActiveModel {
+                knowledge_entity_id: Set(knowledge_entity_id),
+                kind: Set("claim".to_string()),
                 value: Set(json!({"scheme": "wikidata", "id": "Q8093"})),
                 source: Set("wikidata".to_string()),
                 method: Set(Some("exact_label".to_string())),
@@ -986,10 +986,10 @@ mod tests {
         .exec(&db.conn)
         .await
         .unwrap();
-        model::core_knowledge_evidence::Entity::insert(
-            model::core_knowledge_evidence::ActiveModel {
-                core_id: Set(core_id),
-                kind: Set("platform_link".to_string()),
+        model::knowledge_evidence::Entity::insert(
+            model::knowledge_evidence::ActiveModel {
+                knowledge_entity_id: Set(knowledge_entity_id),
+                kind: Set("claim".to_string()),
                 value: Set(json!({"scheme": "x_twitter", "id": "nintendo"})),
                 source: Set("platform".to_string()),
                 ..Default::default()
@@ -999,9 +999,9 @@ mod tests {
         .await
         .unwrap();
 
-        project(&db.conn, core_id).await.unwrap();
+        project(&db.conn, knowledge_entity_id).await.unwrap();
 
-        let core = model::core_knowledge_entity::Entity::find_by_id(core_id)
+        let core = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
             .await
             .unwrap()
@@ -1016,18 +1016,18 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let core_id = seed(&db, "Tsoding").await;
+        let knowledge_entity_id = seed(&db, "Tsoding").await;
 
-        for (kind, method, value, confidence) in [
-            ("platform_link", None, json!({"scheme": "x_twitter", "id": "tsoding"}), None),
-            ("ontology", Some("p2002"), json!({"scheme": "wikidata", "id": "Q123737256"}), Some(0.95)),
+        for (source, method, value, confidence) in [
+            ("platform", None, json!({"scheme": "x_twitter", "id": "tsoding"}), None),
+            ("wikidata", Some("p2002"), json!({"scheme": "wikidata", "id": "Q123737256"}), Some(0.95)),
         ] {
-            model::core_knowledge_evidence::Entity::insert(
-                model::core_knowledge_evidence::ActiveModel {
-                    core_id: Set(core_id),
-                    kind: Set(kind.to_string()),
+            model::knowledge_evidence::Entity::insert(
+                model::knowledge_evidence::ActiveModel {
+                    knowledge_entity_id: Set(knowledge_entity_id),
+                    kind: Set("claim".to_string()),
                     value: Set(value),
-                    source: Set("test".to_string()),
+                    source: Set(source.to_string()),
                     method: Set(method.map(str::to_string)),
                     confidence: Set(confidence),
                     ..Default::default()
@@ -1038,9 +1038,9 @@ mod tests {
             .unwrap();
         }
 
-        project(&db.conn, core_id).await.unwrap();
+        project(&db.conn, knowledge_entity_id).await.unwrap();
 
-        let core = model::core_knowledge_entity::Entity::find_by_id(core_id)
+        let core = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
             .await
             .unwrap()
@@ -1065,7 +1065,7 @@ mod tests {
                 provider: "limited",
                 kind: "label".to_string(),
                 shape: "v1".to_string(),
-                query: core.label.clone(),
+                query: core.name.clone(),
             }]
         }
 
@@ -1097,7 +1097,7 @@ mod tests {
                 provider: "flaky",
                 kind: "label".to_string(),
                 shape: "v1".to_string(),
-                query: core.label.clone(),
+                query: core.name.clone(),
             }]
         }
 
@@ -1191,7 +1191,7 @@ mod tests {
         let db = test_db.handle();
         seed(&db, "Alpha One").await;
         seed(&db, "Beta Two").await;
-        let before = model::core_knowledge_entity::Entity::find()
+        let before = model::knowledge_entity::Entity::find()
             .count(&db.conn)
             .await
             .unwrap();
@@ -1212,27 +1212,27 @@ mod tests {
         let report = resolve(&db, &engines, &Options::default()).await.expect("resolve");
 
         assert_eq!(report.merges, 1, "{report:?}");
-        let live = model::core_knowledge_entity::Entity::find()
-            .filter(model::core_knowledge_entity::Column::SupersededById.is_null())
+        let live = model::knowledge_entity::Entity::find()
+            .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
             .count(&db.conn)
             .await
             .unwrap();
         assert_eq!(live, 1, "one core survives");
-        let tombstoned = model::core_knowledge_entity::Entity::find()
-            .filter(model::core_knowledge_entity::Column::SupersededById.is_not_null())
+        let tombstoned = model::knowledge_entity::Entity::find()
+            .filter(model::knowledge_entity::Column::MergedIntoId.is_not_null())
             .count(&db.conn)
             .await
             .unwrap();
         assert_eq!(tombstoned, 1, "the loser is a tombstone, not a deletion");
 
-        let survivor = model::core_knowledge_entity::Entity::find()
-            .filter(model::core_knowledge_entity::Column::SupersededById.is_null())
+        let survivor = model::knowledge_entity::Entity::find()
+            .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
-        let pointing = model::user_knowledge_entity::Entity::find()
-            .filter(model::user_knowledge_entity::Column::CoreId.eq(survivor.id))
+        let pointing = model::user_observed_entity::Entity::find()
+            .filter(model::user_observed_entity::Column::KnowledgeEntityId.eq(survivor.id))
             .count(&db.conn)
             .await
             .unwrap();

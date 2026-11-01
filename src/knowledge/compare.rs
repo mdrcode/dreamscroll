@@ -62,8 +62,8 @@ pub async fn compare(
 ) -> anyhow::Result<Report> {
     let before_map = membership(db, &before.membership()).await?;
     let after_map = membership(db, &after.membership()).await?;
-    let before_labels = labels(db, &before.cores()).await?;
-    let after_labels = labels(db, &after.cores()).await?;
+    let before_labels = labels(db, &before.entities()).await?;
+    let after_labels = labels(db, &after.entities()).await?;
 
     let before_groups = groups(&before_map);
     let after_groups = groups(&after_map);
@@ -161,7 +161,7 @@ async fn membership(db: &database::DbHandle, table: &str) -> anyhow::Result<Hash
         .conn
         .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
-            format!("SELECT observation_id, core_id FROM \"{table}\""),
+            format!("SELECT observation_id, knowledge_entity_id FROM \"{table}\""),
         ))
         .await
         .map_err(|error| anyhow::anyhow!("cannot read snapshot table {table}: {error}"))?;
@@ -224,14 +224,14 @@ mod tests {
         };
 
         // Before: {1,2} · {3} · {4} · {5}
-        table(&db, &before.membership(), "observation_id int, core_id int",
+        table(&db, &before.membership(), "observation_id int, knowledge_entity_id int",
               "(1,10),(2,10),(3,20),(4,30),(5,40)").await;
-        table(&db, &before.cores(), "id int, label text",
+        table(&db, &before.entities(), "id int, label text",
               r#"(10,'Train Dreams'),(20,'Dune'),(30,'Dune'),(40,'Wojak')"#).await;
         // After: {1} · {2} · {3,4} · {5} — the first group split, the middle two merged.
-        table(&db, &after.membership(), "observation_id int, core_id int",
+        table(&db, &after.membership(), "observation_id int, knowledge_entity_id int",
               "(1,11),(2,12),(3,21),(4,21),(5,40)").await;
-        table(&db, &after.cores(), "id int, label text",
+        table(&db, &after.entities(), "id int, label text",
               r#"(11,'Train Dreams'),(12,'Train Dreams'),(21,'Dune'),(40,'Wojak')"#).await;
 
         let report = compare(&db, &before, &after).await.expect("compare should succeed");
@@ -260,13 +260,13 @@ mod tests {
             suffix: "same_after".to_string(),
         };
 
-        table(&db, &before.membership(), "observation_id int, core_id int",
+        table(&db, &before.membership(), "observation_id int, knowledge_entity_id int",
               "(1,10),(2,10),(3,20)").await;
-        table(&db, &before.cores(), "id int, label text", r#"(10,'A'),(20,'B')"#).await;
+        table(&db, &before.entities(), "id int, label text", r#"(10,'A'),(20,'B')"#).await;
         // Different core ids, same grouping — which is what a rebuild of the same corpus produces.
-        table(&db, &after.membership(), "observation_id int, core_id int",
+        table(&db, &after.membership(), "observation_id int, knowledge_entity_id int",
               "(1,71),(2,71),(3,82)").await;
-        table(&db, &after.cores(), "id int, label text", r#"(71,'A'),(82,'B')"#).await;
+        table(&db, &after.entities(), "id int, label text", r#"(71,'A'),(82,'B')"#).await;
 
         let report = compare(&db, &before, &after).await.expect("compare should succeed");
 
@@ -290,7 +290,7 @@ mod tests {
             .expect_err("a missing snapshot should fail");
 
         assert!(
-            error.to_string().contains("core_knowledge_membership__cmp_missing"),
+            error.to_string().contains("knowledge_entity_membership__cmp_missing"),
             "{error}"
         );
     }

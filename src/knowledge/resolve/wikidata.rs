@@ -491,7 +491,7 @@ impl Engine for Wikidata {
                 query: handle.trim().to_string(),
             });
         }
-        let label = core.label.trim();
+        let label = core.name.trim();
         if !label.is_empty() {
             // Title before label: a capture's name is often the *article* title
             // (`Symphony No. 7 (Sibelius)`), and the item is labelled `Symphony No. 7`. The label
@@ -519,7 +519,7 @@ impl Engine for Wikidata {
     /// while search finds Q892 immediately. Measured on 20 random empty-label cores: 4 recoverable
     /// this way.
     fn plan_fallback(&self, core: &CoreView) -> Vec<Request> {
-        let label = core.label.trim();
+        let label = core.name.trim();
         if label.is_empty() {
             return Vec::new();
         }
@@ -573,7 +573,7 @@ impl Engine for Wikidata {
         }
 
         if request.kind == "search" {
-            let ours = surface_key(&core.label);
+            let ours = surface_key(&core.name);
             let same: Vec<&Candidate> = candidates
                 .iter()
                 .filter(|candidate| {
@@ -929,13 +929,13 @@ fn rank<'a>(core: &CoreView, candidates: &'a [Candidate]) -> Vec<Ranked<'a>> {
             let exact_label = candidate
                 .label
                 .as_deref()
-                .is_some_and(|label| same_surface(label, &core.label));
+                .is_some_and(|label| same_surface(label, &core.name));
             let name = if exact_label {
                 1.0
             } else {
                 overlap(
                     &content_tokens(candidate.label.as_deref().unwrap_or_default()),
-                    &content_tokens(&core.label),
+                    &content_tokens(&core.name),
                 )
             };
             let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
@@ -979,10 +979,10 @@ fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Claim {
 /// fallback is allowed to weigh.
 fn hint_tokens(core: &CoreView) -> Option<Vec<String>> {
     let raw = core.search_query.as_deref()?.trim();
-    if raw.is_empty() || same_surface(raw, &core.label) {
+    if raw.is_empty() || same_surface(raw, &core.name) {
         return None;
     }
-    let named: std::collections::BTreeSet<String> = content_tokens(&core.label).into_iter().collect();
+    let named: std::collections::BTreeSet<String> = content_tokens(&core.name).into_iter().collect();
     let hint: Vec<String> = content_tokens(raw)
         .into_iter()
         .filter(|token| !named.contains(token))
@@ -1140,7 +1140,7 @@ mod tests {
     fn core(label: &str, description: Option<&str>) -> CoreView {
         CoreView {
             id: 1,
-            label: label.to_string(),
+            name: label.to_string(),
             entity_type: "unknown".to_string(),
             description: description.map(str::to_string),
             alt_descriptions: Vec::new(),
@@ -1340,7 +1340,7 @@ mod tests {
     fn planning_prefers_the_handle_then_a_title_then_the_label() {
         let core = CoreView {
             id: 1,
-            label: "Alexey Kutepov".to_string(),
+            name: "Alexey Kutepov".to_string(),
             entity_type: "real_person".to_string(),
             description: None,
             alt_descriptions: Vec::new(),

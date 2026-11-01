@@ -54,8 +54,8 @@ pub async fn insert_illumination_v2(
             ApiError::internal(anyhow::anyhow!("Illumination upsert returned no row"))
         })?;
 
-    model::knowledge_entity::Entity::delete_many()
-        .filter(model::knowledge_entity::Column::IlluminationId.eq(illumination_row.id))
+    model::user_observed_entity::Entity::delete_many()
+        .filter(model::user_observed_entity::Column::IlluminationId.eq(illumination_row.id))
         .exec(&tx)
         .await?;
     model::search_index::Entity::delete_many()
@@ -72,7 +72,7 @@ pub async fn insert_illumination_v2(
             ),
             None => (None, None, None),
         };
-        model::knowledge_entity::ActiveModel::builder()
+        model::user_observed_entity::ActiveModel::builder()
             .set_user_id(capture.user_id)
             .set_capture_id(capture.id)
             .set_illumination_id(illumination_row.id)
@@ -280,8 +280,8 @@ mod tests {
             .await
             .unwrap();
         assert!(v1_parent_rows.is_empty());
-        let v1_entities = model::knowledge_entity::Entity::find()
-            .filter(model::knowledge_entity::Column::UserId.eq(user.id))
+        let v1_entities = model::user_observed_entity::Entity::find()
+            .filter(model::user_observed_entity::Column::UserId.eq(user.id))
             .all(&db.conn)
             .await
             .unwrap();
@@ -357,9 +357,9 @@ mod tests {
                 "Arizona Cardinals meme history".to_string(),
             ])
         );
-        let v2_entities = model::knowledge_entity::Entity::find()
-            .filter(model::knowledge_entity::Column::IlluminationId.eq(stored_v2_illumination.id))
-            .order_by_asc(model::knowledge_entity::Column::Position)
+        let v2_entities = model::user_observed_entity::Entity::find()
+            .filter(model::user_observed_entity::Column::IlluminationId.eq(stored_v2_illumination.id))
+            .order_by_asc(model::user_observed_entity::Column::Position)
             .all(&db.conn)
             .await
             .unwrap();
@@ -457,8 +457,8 @@ mod tests {
             illumination_rows[0].summary,
             "retry replaces the previous result"
         );
-        let retry_entities = model::knowledge_entity::Entity::find()
-            .filter(model::knowledge_entity::Column::IlluminationId.eq(illumination_rows[0].id))
+        let retry_entities = model::user_observed_entity::Entity::find()
+            .filter(model::user_observed_entity::Column::IlluminationId.eq(illumination_rows[0].id))
             .all(&db.conn)
             .await
             .unwrap();

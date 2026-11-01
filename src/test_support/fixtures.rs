@@ -64,7 +64,7 @@ pub async fn entity(
     position: i32,
     name: &str,
 ) -> i32 {
-    model::knowledge_entity::ActiveModel::builder()
+    model::user_observed_entity::ActiveModel::builder()
         .set_user_id(user_id)
         .set_capture_id(capture_id)
         .set_illumination_id(illumination_id)

@@ -11,12 +11,12 @@ use crate::{database, model};
 pub struct Stats {
     pub observations: u64,
     pub linked: u64,
-    pub cores: u64,
+    pub entities: u64,
     pub provisional: u64,
     pub identified: u64,
     pub contested: u64,
     /// Cores with a live authority claim — the number `resolve` moves.
-    pub with_ontology: u64,
+    pub with_claim: u64,
     pub cache_found: u64,
     pub cache_empty: u64,
     pub cache_failed: u64,
@@ -25,21 +25,21 @@ pub struct Stats {
 }
 
 impl Stats {
-    /// `1 - distinct_cores / observations`: the share of observations that share a referent.
+    /// `1 - distinct_entities / observations`: the share of observations that share a referent.
     pub fn duplicate_rate(&self) -> f64 {
         if self.observations == 0 {
             return 0.0;
         }
-        1.0 - self.cores as f64 / self.observations as f64
+        1.0 - self.entities as f64 / self.observations as f64
     }
 }
 
 pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
-    let observations = model::user_knowledge_entity::Entity::find()
+    let observations = model::user_observed_entity::Entity::find()
         .count(&db.conn)
         .await?;
-    let linked = model::user_knowledge_entity::Entity::find()
-        .filter(model::user_knowledge_entity::Column::CoreId.is_not_null())
+    let linked = model::user_observed_entity::Entity::find()
+        .filter(model::user_observed_entity::Column::KnowledgeEntityId.is_not_null())
         .count(&db.conn)
         .await?;
 
@@ -49,8 +49,8 @@ pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
         ..Default::default()
     };
 
-    for core in model::core_knowledge_entity::Entity::find().all(&db.conn).await? {
-        stats.cores += 1;
+    for core in model::knowledge_entity::Entity::find().all(&db.conn).await? {
+        stats.entities += 1;
         match core.status.as_str() {
             "identified" => stats.identified += 1,
             "contested" => stats.contested += 1,
@@ -58,16 +58,17 @@ pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
         }
     }
 
-    let mut with_ontology: HashSet<i32> = HashSet::new();
-    for row in model::core_knowledge_evidence::Entity::find()
-        .filter(model::core_knowledge_evidence::Column::Kind.eq("ontology"))
-        .filter(model::core_knowledge_evidence::Column::RetractedAt.is_null())
+    let mut with_claim: HashSet<i32> = HashSet::new();
+    for row in model::knowledge_evidence::Entity::find()
+        .filter(model::knowledge_evidence::Column::Kind.eq("claim"))
+        .filter(model::knowledge_evidence::Column::Source.ne("platform"))
+        .filter(model::knowledge_evidence::Column::RetractedAt.is_null())
         .all(&db.conn)
         .await?
     {
-        with_ontology.insert(row.core_id);
+        with_claim.insert(row.knowledge_entity_id);
     }
-    stats.with_ontology = with_ontology.len() as u64;
+    stats.with_claim = with_claim.len() as u64;
 
     let now = Utc::now();
     for row in model::resolution_cache::Entity::find()
@@ -91,7 +92,7 @@ pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
 
 #[cfg(test)]
 mod tests {
-    use crate::knowledge::{link, migrate};
+    use crate::knowledge::link;
     use crate::test_support::fixtures;
 
     #[tokio::test]
@@ -107,14 +108,12 @@ mod tests {
             let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
             fixtures::entity(&db, user_id, capture_id, illumination_id, index, "Train Dreams").await;
         }
-
-        migrate::migrate(&db).await.expect("migrate should succeed");
-        link::build_core(&db).await.expect("build should succeed");
+        link::link(&db).await.expect("build should succeed");
         let stats = super::stats(&db).await.expect("stats should succeed");
 
         assert_eq!(stats.observations, 2);
         assert_eq!(stats.linked, 2);
-        assert_eq!(stats.cores, 1);
+        assert_eq!(stats.entities, 1);
         assert_eq!(stats.provisional, 1);
         assert!((stats.duplicate_rate() - 0.5).abs() < 1e-9, "{stats:?}");
     }

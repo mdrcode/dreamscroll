@@ -357,8 +357,8 @@ mod tests {
             .unwrap();
         assert_eq!(previous_projections.len(), 1);
         assert_eq!(previous_projections[0].task_run_id, first_task_run.run_id);
-        let previous_entities = model::knowledge_entity::Entity::find()
-            .filter(model::knowledge_entity::Column::CaptureId.eq(capture.id))
+        let previous_entities = model::user_observed_entity::Entity::find()
+            .filter(model::user_observed_entity::Column::CaptureId.eq(capture.id))
             .all(&db.conn)
             .await
             .unwrap();
@@ -451,8 +451,8 @@ mod tests {
             "raw-only rerun must neither add nor replace older projections"
         );
         assert_eq!(
-            model::knowledge_entity::Entity::find()
-                .filter(model::knowledge_entity::Column::CaptureId.eq(capture.id))
+            model::user_observed_entity::Entity::find()
+                .filter(model::user_observed_entity::Column::CaptureId.eq(capture.id))
                 .all(&db.conn)
                 .await
                 .unwrap(),

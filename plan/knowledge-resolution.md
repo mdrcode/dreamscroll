@@ -1,6 +1,6 @@
 # Resolution — cache first, providers second
 
-**Status:** Implemented (schema version 14). `dreamscroll_knowledge resolve` runs manually; there is no
+**Status:** Implemented (schema version 16). `dreamscroll_knowledge resolve` runs manually; there is no
 scheduled trigger and no enrichment yet. Wikidata is the first provider.
 
 **See also:** [knowledge-canonical-entities.md](knowledge-canonical-entities.md) (the graph this feeds),
@@ -16,8 +16,8 @@ the cache, because there is no other door to the network.
 ```rust
 trait Engine {
     fn id(&self) -> &'static str;
-    fn plan(&self, core: &CoreView) -> Vec<Request>;          // stage 1: identifiers, exact labels
-    fn plan_fallback(&self, core: &CoreView) -> Vec<Request>; // stage 2: full text
+    fn plan(&self, knowledge entity: &CoreView) -> Vec<Request>;          // stage 1: identifiers, exact labels
+    fn plan_fallback(&self, knowledge entity: &CoreView) -> Vec<Request>; // stage 2: full text
     fn parse(&self, request: &Request, raw: &Raw) -> Vec<Claim>;  // pure
     async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>>; // the only I/O
 }
@@ -40,12 +40,12 @@ Four decisions worth naming:
 
 - **`empty` is a cached answer.** A third of the corpus will never resolve; re-asking a question we
   have already answered is exactly the spam this table prevents. The tests assert a second run of an
-  unresolved core makes zero calls.
+  unresolved knowledge entity makes zero calls.
 - **`shape` is in the key.** It hashes *how* the request is built (endpoint, language, limit,
   properties). Change the construction and every old answer — including negatives — is bypassed rather
   than silently wrong. The prototype's stale-negative bug, made structurally impossible.
 - **`provider` is `text`, not an enum.** Adding an authority must not be a migration, for the same
-  reason the core has no `imdb_id` column.
+  reason the knowledge entity has no `imdb_id` column.
 - **Expiry is stored, not computed.** One comparison at read time, and each row records the policy it
   was fetched under.
 
@@ -67,7 +67,7 @@ warm query costs nothing.
 
 An authority is a namespace, so a provider is a trait implementation, not a schema change. `applies` is
 not even needed yet — but `plan` returns nothing when a provider has nothing to ask, which is the same
-seam: TMDB will simply refuse cores that are not films.
+seam: TMDB will simply refuse knowledge entities that are not films.
 
 Wikidata implements three request kinds:
 
@@ -138,7 +138,7 @@ A title is unique where a label is not: 213 items are labelled `Paris`, but exac
 `Canal de Saint-Quentin` — a word-order variant no label search finds. Titles that resolve to a
 `Q4167410` disambiguation page are refused: a menu is not a referent.
 
-Measured on the 502 provisional cores (2026-11-01): **171 (34%) resolve by title**, of which 30 are
+Measured on the 502 provisional knowledge entities (2026-11-01): **171 (34%) resolve by title**, of which 30 are
 disambiguation pages, leaving **141 (28%) usable**. It batches 50 titles per call — the cheapest
 request in the system — and its claim wins over the label stage because a title that matches is
 stronger evidence than a label that matches.
@@ -254,7 +254,7 @@ problem is called.
   discrepancy was written down as "another option" instead of as evidence that our strings were not
   labels.
 - **Name the field for what it holds.** The column was called `label` from the first schema, and the
-  name settled the question it should have kept open. It is now `alt_labels` alongside `label`, and the
+  name settled the question it should have kept open. It is now `alt_names` alongside `label`, and the
   honest framing is *surface* — the vocabulary of the source, which may be a Wikipedia title, a shop
   page or a journal, never a promise about Wikidata.
 
@@ -286,7 +286,7 @@ an input rather than a tiebreak — map `entity_type` to a `P31` set, constrain 
 `haswbstatement:P31=Q…`, and let type agreement corroborate on its own instead of being added to
 lexical overlap.
 
-The measured case for doing it: of 50 randomly sampled provisional cores, 23 had search candidates and
+The measured case for doing it: of 50 randomly sampled provisional knowledge entities, 23 had search candidates and
 no claim, and the dominant rejection was `fit == 0` — the description must share **two** content tokens,
 and real descriptions paraphrase. `Odessa` is the cleanest example: the title stage found `Q1874`, the
 correct city, and the claim was refused because "major historic port city on the Black Sea" and "city in
@@ -301,11 +301,11 @@ Odesa Oblast, Ukraine" share one token. Type would settle it with no overlap at 
   1.0, where a claim's own confidence is `0.50 + 0.45 · score` (0.75 for a lone exact label).
 
   Inputs, not scheme labels. A `p2002` claim is derived *from* the handle — the resolver asked
-  Wikidata which item owns that account — so pairing it with the handle's own `platform_link` row is
-  one chain, not two, and must not earn a bonus. Counting labels gave all 26 handle-resolved cores
+  Wikidata which item owns that account — so pairing it with the handle's own `claim` row is
+  one chain, not two, and must not earn a bonus. Counting labels gave all 26 handle-resolved knowledge entities
   the maximum confidence for no extra evidence.
   Two authorities asserting the same referent is a stronger claim than either alone — this is why
-  identities are plural and why a core identified only by a handle is still worth resolving.
+  identities are plural and why a knowledge entity identified only by a handle is still worth resolving.
 
 ## Throttling and provider etiquette
 
@@ -342,19 +342,19 @@ dreamscroll_knowledge resolve                          # default budget of 200 c
 dreamscroll_knowledge resolve --dry-run --limit 20     # what would be asked
 dreamscroll_knowledge resolve --limit 20 --max-requests 5
 dreamscroll_knowledge resolve --offline                # cache only, no transport calls
-dreamscroll_knowledge resolve --core 20190             # one case, for debugging
+dreamscroll_knowledge resolve --knowledge entity 20190             # one case, for debugging
 ```
 
-`--max-requests` caps transport calls (not queries) per run; `--core <id>` resolves a single case. The run
-is idempotent: resolved cores leave the candidate set, and unresolved ones are answered from the cache
+`--max-requests` caps transport calls (not queries) per run; `--knowledge entity <id>` resolves a single case. The run
+is idempotent: resolved knowledge entities leave the candidate set, and unresolved ones are answered from the cache
 on the next pass.
 
-`stats` reports the number that matters — cores with a live ontology claim — plus cache rows by outcome.
+`stats` reports the number that matters — knowledge entities with a live authority claim — plus cache rows by outcome.
 
 ## What is not here
 
 - **Enrichment.** No `entity` kind, so labels/descriptions/images are not fetched by QID yet.
-- **Type validation.** `P31` classes are stored on the claim but never checked against the core's type.
+- **Type validation.** `P31` classes are stored on the claim but never checked against the knowledge entity's type.
   With ranking in place this is now the remaining wrong-referent risk: descriptions separate a novel
   from a film, but not two films, and `entity_type` is the signal that would.
 - **Genuine full text.** Implemented 2026-11-01: `list=search` (CirrusSearch), see *Stage two*.
@@ -425,10 +425,10 @@ around 9/13 here, and `P31` → `entity_type` compatibility is what lifts it.
 | `Dune` + "1965 science fiction novel by Frank Herbert" | `Q190192` at 0.95 — runner-up was the *series*, 0.898 |
 | `Sunset Boulevard` + the capture's description | `Q193570` (1950 film) at 0.86 — 11 candidates |
 | `Nintendo` + "Japanese video game company founded in 1889" | `Q8093` at 0.82 |
-| 30 real cores, one SPARQL batch | 12 claims (40%) — previously 3 of 10, and only where the label was unique |
+| 30 real knowledge entities, one SPARQL batch | 12 claims (40%) — previously 3 of 10, and only where the label was unique |
 
 The last row is the point of ranking: the ambiguous majority used to be a dead end, and now it is where
 most of the yield comes from.
-- **Merges.** A claim for a QID another core already holds is counted as a `conflict` and skipped —
+- **Merges.** A claim for a QID another knowledge entity already holds is counted as a `conflict` and skipped —
   that is a merge the graph has not made (§Repair).
 - **Scheduling.** Manual runs only.

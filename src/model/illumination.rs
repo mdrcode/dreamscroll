@@ -35,7 +35,7 @@ pub struct Model {
     pub suggested_searches: Option<Vec<String>>,
 
     #[sea_orm(has_many)]
-    pub knowledge_entities: HasMany<knowledge_entity::Entity>,
+    pub observations: HasMany<user_observed_entity::Entity>,
 
     #[sea_orm(has_one)]
     pub search_index: HasOne<search_index::Entity>,
