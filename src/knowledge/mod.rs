@@ -13,6 +13,6 @@ pub mod merge;
 pub mod normalize;
 pub mod reset;
 pub mod resolve;
-pub mod score;
+pub mod heuristic;
 pub mod stats;
 pub mod view;

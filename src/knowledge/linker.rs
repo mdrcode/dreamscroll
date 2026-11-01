@@ -1,51 +1,30 @@
 //! Linking: the one place a decision is made.
 //!
-//! Everything upstream is recall (a blocker proposed candidates) or measurement (the scorer filled
-//! in features). This trait turns those into a decision, and it is pure: same candidates, same
-//! decision, no IO, no database.
+//! Everything upstream is recall (a blocker proposed candidates). Everything downstream is effect
+//! (the executor writes). This trait turns an observation and its candidates into a decision, and
+//! it is pure: same inputs, same decision, no IO.
+//!
+//! Note what is *not* here: no features, no score components, no thresholds. Those belong to a
+//! particular heuristic, and the only thing the core asks for is a decision and the number that
+//! justified it. The one implementation is [`crate::knowledge::heuristic::ScorerLinker`].
 
-use crate::knowledge::{score, view};
+use crate::knowledge::view;
 
-/// A candidate entity and how well it fits the observation.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Candidate {
-    pub entity: i32,
-    pub features: score::Features,
-}
-
-/// What to do with one observation. The metadata is carried so a caller can report *why* without
-/// re-deriving it — a decision that cannot explain itself is the one we would have to debug.
+/// What to do with one observation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Decision {
-    /// Attach the observation to this entity.
-    Attach { candidate: Candidate },
+    /// Attach the observation to this entity, with the score that decided it.
+    Attach { entity: i32, score: f32 },
     /// Start a new entity. `best` is the closest rejected candidate, kept for diagnosis.
-    Create { best: Option<Candidate> },
+    Create { best: Option<(i32, f32)> },
 }
 
 pub trait Linker {
-    fn decide(&self, observation: &view::ObservationView, candidates: &[Candidate]) -> Decision;
-}
-
-/// The current policy: take the highest-scoring candidate that clears the bar, else create.
-///
-/// A name alone never decides — `score::worth_merging` requires corroboration — so this is a thin
-/// shell over pure functions. It exists so that "what to do" has exactly one home.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct ScorerLinker;
-
-impl Linker for ScorerLinker {
-    fn decide(&self, _observation: &view::ObservationView, candidates: &[Candidate]) -> Decision {
-        let best = candidates
-            .iter()
-            .max_by(|a, b| a.features.total.total_cmp(&b.features.total))
-            .cloned();
-
-        match best {
-            Some(candidate) if score::worth_merging(&candidate.features) => {
-                Decision::Attach { candidate }
-            }
-            best => Decision::Create { best },
-        }
-    }
+    /// Decide what an observation is, given the entities a blocker proposed. The linker receives
+    /// views rather than scores, because measuring is part of the policy, not part of the contract.
+    fn decide(
+        &self,
+        observation: &view::ObservationView,
+        candidates: &[&view::EntityView],
+    ) -> Decision;
 }

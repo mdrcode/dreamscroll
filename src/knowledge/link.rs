@@ -14,9 +14,10 @@ use sea_orm::{
 };
 
 use super::{
-    blocking::{self, Blocker},
+    blocking::Blocker,
+    heuristic::{NameBlocker, ScorerLinker},
     linker::{self, Linker},
-    normalize, score, view,
+    normalize, view,
 };
 use crate::{database, model};
 
@@ -37,45 +38,24 @@ pub struct Report {
     pub created: usize,
 }
 
-struct EntityState {
-    /// What the blocker and the scorer see. The raw strings, exactly as projected.
-    view: view::EntityView,
-    /// Derived from `view`: normalized keys and token sets, so scoring a candidate is cheap in a
-    /// loop. Kept in step by `add_name` and `add_type`.
-    scored: score::Scored,
+/// Add an observed type. Returns whether anything changed: an entity that has accepted `brand`
+/// must accept it for the rest of the run.
+fn absorb_type(entity: &mut view::EntityView, entity_type: &str) -> bool {
+    if entity_type.is_empty() || entity.alt_types.iter().any(|t| t == entity_type) {
+        return false;
+    }
+    entity.alt_types.push(entity_type.to_string());
+    true
 }
 
-impl EntityState {
-    fn from_model(row: model::knowledge_entity::Model) -> Self {
-        let view = view::EntityView::from_model(row);
-        let scored = score::Scored::from(&view);
-        Self { view, scored }
+/// Add a surface. Returns whether anything changed, so a caller can skip the write.
+fn absorb_surface(entity: &mut view::EntityView, surface: &str) -> bool {
+    let key = normalize::key(surface);
+    if key.is_empty() || entity.surfaces().any(|seen| normalize::key(seen) == key) {
+        return false;
     }
-
-    /// Add an observed type. Returns whether anything changed; the scorer accepts agreement with
-    /// any asserted type, so this widens the gate for later observations in the same run.
-    fn add_type(&mut self, entity_type: &str) -> bool {
-        if entity_type.is_empty() || self.scored.entity_types.iter().any(|t| t == entity_type) {
-            return false;
-        }
-        self.view.alt_types.push(entity_type.to_string());
-        self.scored.entity_types.push(entity_type.to_string());
-        true
-    }
-
-    /// Add a surface. Returns whether anything changed, so a caller can skip the write.
-    fn add_name(&mut self, surface: &str) -> bool {
-        let key = normalize::key(surface);
-        if key.is_empty() || self.scored.alt_name_keys.contains(&key) {
-            return false;
-        }
-        self.view.alt_names.push(surface.trim().to_string());
-        self.scored.alt_name_keys.push(key);
-        self.scored
-            .alt_name_token_keys
-            .push(normalize::token_key(surface));
-        true
-    }
+    entity.alt_names.push(surface.trim().to_string());
+    true
 }
 
 /// `(scheme, id)` out of an identity evidence payload. The keys are a contract with the partial
@@ -111,24 +91,24 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
         *current = (*current).max(observation.illumination_id);
     }
 
-    let mut entities: Vec<EntityState> = model::knowledge_entity::Entity::find()
+    let mut entities: Vec<view::EntityView> = model::knowledge_entity::Entity::find()
         .order_by_asc(model::knowledge_entity::Column::Id)
         .all(&db.conn)
         .await?
         .into_iter()
         .filter(|row| row.merged_into_id.is_none())
-        .map(EntityState::from_model)
+        .map(view::EntityView::from_model)
         .collect();
 
     let mut positions: HashMap<i32, usize> = entities
         .iter()
         .enumerate()
-        .map(|(position, entity)| (entity.scored.id, position))
+        .map(|(position, entity)| (entity.id, position))
         .collect();
 
-    let mut blocker = blocking::NameBlocker::new();
+    let mut blocker = NameBlocker::new();
     for entity in &entities {
-        blocker.index(&entity.view);
+        blocker.index(entity);
     }
 
     // Any authority, one lookup. Identity is a claim like any other, so it is read from evidence:
@@ -175,39 +155,31 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
             attach(&db.conn, observation.id, knowledge_entity_id).await?;
             seen.insert((knowledge_entity_id, observation.illumination_id));
             if absorb_names(&db.conn, &mut entities[position], &observation).await? {
-                blocker.index(&entities[position].view);
+                blocker.index(&entities[position]);
             }
             report.linked_by_identifier += 1;
             continue;
         }
 
-        let view = score::Observation::new(
-            &observation.name,
-            observation.description.as_deref(),
-            &observation.entity_type,
-        );
-
         let observation_view = view::ObservationView::from_model(&observation);
-        let candidates: Vec<linker::Candidate> = blocker
+        // The linker scores; the executor only supplies views. One extraction cannot fold two of
+        // its own observations into one entity, so those candidates never reach the decision.
+        let candidates: Vec<&view::EntityView> = blocker
             .candidates(&observation_view)
             .into_iter()
-            // One extraction cannot fold two of its own observations into one entity.
             .filter(|id| !seen.contains(&(*id, observation.illumination_id)))
             .filter_map(|id| positions.get(&id).copied())
-            .map(|position| linker::Candidate {
-                entity: entities[position].view.id,
-                features: score::score(&view, &entities[position].scored),
-            })
+            .map(|position| &entities[position])
             .collect();
 
-        match linker::ScorerLinker.decide(&observation_view, &candidates) {
-            linker::Decision::Attach { candidate } => {
-                let position = positions[&candidate.entity];
-                let knowledge_entity_id = candidate.entity;
+        match ScorerLinker.decide(&observation_view, &candidates) {
+            linker::Decision::Attach { entity, .. } => {
+                let position = positions[&entity];
+                let knowledge_entity_id = entity;
                 attach(&db.conn, observation.id, knowledge_entity_id).await?;
                 seen.insert((knowledge_entity_id, observation.illumination_id));
                 if absorb_names(&db.conn, &mut entities[position], &observation).await? {
-                    blocker.index(&entities[position].view);
+                    blocker.index(&entities[position]);
                 }
                 let claimed = identifier_of(&observation).is_some();
                 if let Some(owner) =
@@ -242,7 +214,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
                     if let Some(&position) = positions.get(&owner)
                         && absorb_names(&db.conn, &mut entities[position], &observation).await?
                     {
-                        blocker.index(&entities[position].view);
+                        blocker.index(&entities[position]);
                     }
                     report.linked_by_identifier += 1;
                     continue;
@@ -260,11 +232,10 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
                     search_query: observation.search_query.clone(),
                     account: None,
                 };
-                let scored = score::Scored::from(&view);
-                entities.push(EntityState { view, scored });
+                entities.push(view);
                 let position = entities.len() - 1;
                 positions.insert(knowledge_entity_id, position);
-                blocker.index(&entities.last().expect("just pushed").view);
+                blocker.index(entities.last().expect("just pushed"));
                 attach(&db.conn, observation.id, knowledge_entity_id).await?;
                 seen.insert((knowledge_entity_id, observation.illumination_id));
                 report.created += 1;
@@ -352,19 +323,19 @@ async fn attach(
 /// `project`, which runs once at the end of a build rather than per observation.
 async fn absorb_names(
     conn: &sea_orm::DatabaseConnection,
-    entity: &mut EntityState,
+    entity: &mut view::EntityView,
     observation: &model::user_observed_entity::Model,
 ) -> anyhow::Result<bool> {
     let mut changed = false;
     for surface in surfaces(observation) {
-        changed |= entity.add_name(surface);
+        changed |= absorb_surface(entity, surface);
     }
-    changed |= entity.add_type(&observation.entity_type);
+    changed |= absorb_type(entity, &observation.entity_type);
     if changed {
         model::knowledge_entity::ActiveModel {
-            id: Set(entity.view.id),
-            alt_names: Set(entity.view.alt_names.clone()),
-            alt_types: Set(entity.view.alt_types.clone()),
+            id: Set(entity.id),
+            alt_names: Set(entity.alt_names.clone()),
+            alt_types: Set(entity.alt_types.clone()),
             ..Default::default()
         }
         .update(conn)

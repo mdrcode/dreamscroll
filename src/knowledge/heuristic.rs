@@ -1,13 +1,23 @@
-//! The merge decision, as a pure function.
+//! The heuristic: everything we guess, in one file.
 //!
-//! Two questions share this code: "is this candidate this referent?" (merge) and, later, "is this
-//! authority item what the capture meant?" (resolution). Keeping one implementation means one set
-//! of weights and one meaning for a threshold.
+//! This module is the *entire* ad hoc policy that turns observations into links. Nothing outside it
+//! knows what a name similarity is, which weights apply, or where a bar sits — the core exposes
+//! `Blocker`, `Linker` and the views, and this file is one implementation of both traits. Delete it
+//! and the graph has no linking policy at all, which is the point: the guess is replaceable, the
+//! contracts are not.
 //!
-//! Weights and bars are provisional. They must be calibrated against the labelled sheet before
-//! anything leans on them (see `plan/knowledge-canonical-entities.md`).
+//! Three parts, in the order the executor runs them:
+//!
+//! - [`NameBlocker`] — normalized names and account handles. Recall-oriented, over-generates.
+//! - [`score`] — pure features: name, description, type, weighted into a total.
+//! - [`ScorerLinker`] — take the best candidate that clears the bar, else create.
 
+use std::collections::{BTreeSet, HashMap};
+
+use super::blocking::Blocker;
+use super::linker::{Decision, Linker};
 use super::{normalize, view};
+
 
 pub const W_NAME: f32 = 0.60;
 pub const W_DESCRIPTION: f32 = 0.30;
@@ -273,5 +283,85 @@ mod tests {
             &entity("Wojak", None, "concept"),
         );
         assert_eq!(features.type_match, 0.5);
+    }
+}
+
+/// Blocks on normalized names and the account a capture showed.
+///
+/// Both keys are cheap and generous: a shared word-order-insensitive name, or a `(scheme, handle)`
+/// an observation carries, puts an entity in front of the linker. Nothing here knows about identity
+/// or type — those narrow, they do not find.
+#[derive(Debug, Default)]
+pub struct NameBlocker {
+    /// Block key -> entity ids. `BTreeSet` so candidates come back in a stable order.
+    blocks: HashMap<String, BTreeSet<i32>>,
+}
+
+impl NameBlocker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn keys_of(entity: &view::EntityView) -> Vec<String> {
+        let mut keys: Vec<String> = entity
+            .surfaces()
+            .flat_map(|surface| [normalize::key(surface), normalize::token_key(surface)])
+            .filter(|key| !key.is_empty())
+            .collect();
+        if let Some((scheme, handle)) = &entity.account {
+            keys.push(format!("{scheme}:{}", handle.to_lowercase()));
+        }
+        keys
+    }
+}
+
+impl Blocker for NameBlocker {
+    fn index(&mut self, entity: &view::EntityView) {
+        for key in Self::keys_of(entity) {
+            self.blocks.entry(key).or_default().insert(entity.id);
+        }
+    }
+
+    fn candidates(&self, observation: &view::ObservationView) -> Vec<i32> {
+        let observation = Observation::from(observation);
+        let mut found: BTreeSet<i32> = BTreeSet::new();
+        for block in [&observation.name_key, &observation.token_key] {
+            if let Some(hits) = self.blocks.get(block) {
+                found.extend(hits.iter().copied());
+            }
+        }
+        found.into_iter().collect()
+    }
+}
+
+/// Take the highest-scoring candidate that clears the bar; otherwise start a new entity.
+///
+/// A name alone never decides — [`worth_merging`] requires corroboration — so this is a thin shell
+/// over pure functions. It exists so that "what to do" has exactly one home.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ScorerLinker;
+
+impl Linker for ScorerLinker {
+    fn decide(
+        &self,
+        observation: &view::ObservationView,
+        candidates: &[&view::EntityView],
+    ) -> Decision {
+        let observation = Observation::from(observation);
+        let best = candidates
+            .iter()
+            .map(|entity| (*entity, score(&observation, &Scored::from(*entity))))
+            .max_by(|a, b| a.1.total.total_cmp(&b.1.total));
+
+        match best {
+            Some((entity, features)) if worth_merging(&features) => Decision::Attach {
+                entity: entity.id,
+                score: features.total,
+            },
+            Some((entity, features)) => Decision::Create {
+                best: Some((entity.id, features.total)),
+            },
+            None => Decision::Create { best: None },
+        }
     }
 }
