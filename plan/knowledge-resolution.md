@@ -181,8 +181,15 @@ The third row is the general lesson: **a cached answer that produced no claim is
 It may be honest and merely unhelpful, or it may be degraded, and either way re-asking costs nothing
 when the query is already on disk.
 
-One consequence worth stating: 690 cached search negatives were deleted and re-asked to measure how
-many were lies. An `empty` search answer is the least trustworthy thing in the cache.
+The failure that actually bit us is the second one: **`cirrussearch-too-busy-error`**
+([T297319](https://phabricator.wikimedia.org/T297319)), returned as an `error` body. Twenty-three of our
+queries hit it in one pass, and before this change every one of them would have been cached as an empty
+result for a week. Retrying those 23 produced **no claims** — the queries are genuinely absent — so what
+the fix buys is not recall but honesty: a transient overload can no longer be recorded as a fact.
+
+690 cached search negatives were then deleted and 250 of them re-asked, which produced **one** claim
+(0.4%). So stale caching is a real but small effect in claim terms. The least trustworthy thing in the
+cache is an `empty` search answer, and the cheapest thing to do about it is re-ask it.
 
 ### Stage two is full-text search, and it is the last resort
 
@@ -212,146 +219,79 @@ our words verbatim.
 Search takes one query per call, so this stage is paced per query — 50-at-a-time bursts are what
 earned a 429.
 
-## Confidence and status
+### The margin gets stricter as the evidence improves — measured 2026-11-01
 
-`status` and `confidence` are written by `project()`, and by nothing else:
+`fit` saturates: `matched_weight / (matched_weight + EVIDENCE_SCALE)`. The ambiguity test then demands an
+**absolute** gap of `FIT_MARGIN` in that saturated space, so the bar rises as the evidence gets better:
 
-- `identified` when any live identity claim exists, `contested` when a live collision does.
-- `confidence` = the best claim's confidence **+ 0.1 for a second independent *input***, capped at
-  1.0, where a claim's own confidence is `0.50 + 0.45 · score` (0.75 for a lone exact label).
+| case | best fit | runner-up | margin | verdict |
+| --- | --- | --- | --- | --- |
+| `A Christmas Carol` | 0.856 | 0.831 | 0.024 | refused — the evidence differs by ~20%, the gap is unattainable at this height |
+| `The Lowdown` | 0.530 | 0.530 | 0.000 | refused — a genuine tie |
+| `Generation Kill` | 0.687 | 0.647 | 0.040 | refused |
 
-  Inputs, not scheme labels. A `p2002` claim is derived *from* the handle — the resolver asked
-  Wikidata which item owns that account — so pairing it with the handle's own `platform_link` row is
-  one chain, not two, and must not earn a bonus. Counting labels gave all 26 handle-resolved cores
-  the maximum confidence for no extra evidence.
-  Two authorities asserting the same referent is a stronger claim than either alone — this is why
-  identities are plural and why a core identified only by a handle is still worth resolving.
+At `best = 0.856` the runner-up must fall below `0.756` — 45% less evidence — for the claim to stand. As
+fits approach 1.0 the achievable margin collapses toward `1 − runner_up`, so the rule tightens exactly
+where the evidence is strongest. The margin belongs on the unsaturated weight, or as a ratio
+(`best ≥ 1.2 × runner`), not on the saturated score.
 
-## Throttling and provider etiquette
+Two things sampling the provisional set showed: short descriptions let homographs through corroboration
+(`xAI` → `Q109778862`, *"Xai, a person identified in the Museu da Pessoa collection"*), and a near-tie is
+often a **type** question the fit cannot see at all (`Train Dreams`, the 2011 novella versus the 2025
+film).
 
-WDQS publishes its limits in the
-[User Manual](https://www.mediawiki.org/wiki/Wikidata_Query_Service/User_Manual#Query_limits):
+## Lessons this cost us
 
-| Rule | What we do |
-| --- | --- |
-| A good `User-Agent`; non-compliance can mean a full block | `dreamscroll-knowledge/0.1 (https://dreamscroll.ai)` on the client |
-| 5 parallel queries per IP | one request in flight; the executor is sequential |
-| 60 s of processing time per 60 s per client | 50 labels per query, so a batch is milliseconds of processing |
-| 30 error queries per minute | a run stops at the first transport failure that is not a rate limit, rather than retrying into it |
-| 429 with `Retry-After`, and a temporary ban for ignoring it | **the run stops**, caches nothing, and reports the interval. A 429 is never recorded as an answer — it is an instruction |
-| 60 s query deadline | queries are bounded by the `VALUES` list |
+Three misses, all of the same shape: we searched our own code for a fix instead of asking what the
+problem is called.
 
-On top of the published rules:
+- **Characterise the input before tuning the matcher.** A five-minute query — how many capture labels
+  contain `(`, `:`, `.`? — would have revealed that a large share are Wikipedia article titles, not
+  Wikidata labels. 18 of 502 provisional labels carry a parenthetical disambiguator. We tuned a
+  matcher for weeks without ever describing the strings they carry.
+- **A probe that works where the pipeline fails is the finding.** `wbgetentities&sites=enwiki&titles=`
+  resolved `J. R. R. Tolkien` to `Q892` in a session where the label lookup returned nothing. That
+  discrepancy was written down as "another option" instead of as evidence that our strings were not
+  labels.
+- **Name the field for what it holds.** The column was called `label` from the first schema, and the
+  name settled the question it should have kept open. It is now `alt_labels` alongside `label`, and the
+  honest framing is *surface* — the vocabulary of the source, which may be a Wikipedia title, a shop
+  page or a journal, never a promise about Wikidata.
 
-- **`--min-interval-ms`** (default 1000) puts a floor between transport calls, so a walk stays under
-  60 requests a minute regardless of how fast the queries return.
-- **`--max-requests`** (default 200) caps calls per run. A bug cannot turn into a flood.
-- **`--offline`** is the only way to make zero calls. `--max-requests 0` is rejected: a budget of zero
-  used to read as a successful run that resolved nothing, because every answer came from the cache.
-- **Cache first**: a warm query costs no request at all, which is the cheapest possible compliance.
-- **Failures are cached for 10 minutes** so a sick provider is not hammered — but a 429 is not a
-  failure and is not cached.
+## The shape this should take
 
-What is *not* done: resuming automatically after a `Retry-After`. The run stops and the operator
-reruns it; with the cache warm, the rerun costs only the requests that had not been answered.
+Entity reconciliation has a published contract: the [W3C Entity Reconciliation Community Group
+specification](https://www.w3.org/community/reports/reconciliation/CG-FINAL-specs-0.2-20230410/),
+documented by [OpenRefine](https://openrefine.org/docs/technical-reference/reconciliation-api). The
+request is *a string, optionally a type, optionally a list of properties*; the response is a **ranked
+list of candidates**, explicitly not a decision.
 
-## Running it
+We implemented the string and dropped the other two inputs. That is why every rung of this ladder has
+needed its own acceptance rule: with a single signal — lexical overlap — each new data shape demands a
+new heuristic, and the resolver now has four stages carrying three different notions of "close enough".
 
-```sh
-dreamscroll_knowledge resolve                          # default budget of 200 calls
-dreamscroll_knowledge resolve --dry-run --limit 20     # what would be asked
-dreamscroll_knowledge resolve --limit 20 --max-requests 5
-dreamscroll_knowledge resolve --offline                # cache only, no transport calls
-dreamscroll_knowledge resolve --core 20190             # one case, for debugging
+```
+input: { surface, type?, descriptors[], identifiers[] }
+
+  identifier   handle → item            exact, no scoring
+  title        enwiki title → item      exact, unique (redirects followed)
+  label        exact label → items      all share the label; only the text can separate them
+  search       full text                ranked
+        ↓
+  one decide(): name, type agreement, description fit, hint
 ```
 
-`--max-requests` caps transport calls (not queries) per run; `--core <id>` resolves a single case. The run
-is idempotent: resolved cores leave the candidate set, and unresolved ones are answered from the cache
-on the next pass.
+Every rung feeds the same `decide`; they differ only in *which candidates are admitted*. `type` becomes
+an input rather than a tiebreak — map `entity_type` to a `P31` set, constrain the search stage with
+`haswbstatement:P31=Q…`, and let type agreement corroborate on its own instead of being added to
+lexical overlap.
 
-`stats` reports the number that matters — cores with a live ontology claim — plus cache rows by outcome.
+The measured case for doing it: of 50 randomly sampled provisional cores, 23 had search candidates and
+no claim, and the dominant rejection was `fit == 0` — the description must share **two** content tokens,
+and real descriptions paraphrase. `Odessa` is the cleanest example: the title stage found `Q1874`, the
+correct city, and the claim was refused because "major historic port city on the Black Sea" and "city in
+Odesa Oblast, Ukraine" share one token. Type would settle it with no overlap at all.
 
-## What is not here
-
-- **Enrichment.** No `entity` kind, so labels/descriptions/images are not fetched by QID yet.
-- **Type validation.** `P31` classes are stored on the claim but never checked against the core's type.
-  With ranking in place this is now the remaining wrong-referent risk: descriptions separate a novel
-  from a film, but not two films, and `entity_type` is the signal that would.
-- **Genuine full text.** Implemented 2026-11-01: `list=search` (CirrusSearch), see *Stage two*.
-
-### The fallback, measured (2026-10-31)
-
-| step | claims | precision | network |
-| --- | --- | --- | --- |
-| hint scored in the description (rejected) | 23 | **~61%** — a photograph, an album, a Quebec post office | 0 calls |
-| hint as a fallback, name tokens included (rejected) | 23 | ~61%, same failures | 0 calls |
-| hint as a fallback, name tokens subtracted | **64** | **~94%** | 0 calls |
-| search lookup for empty labels (stage two) | **11** | **100%** (of 220 lookups) | 220 calls |
-
-The two remaining errors were both *type* errors, not name errors: `Monster` (a brand) matched a
-Shawn Mendes audio track, and `Q` (a character) matched a Star Wars comic. Both were retracted through
-`retracted_at`. That is exactly what `P31` validation would have rejected outright, and it is the
-strongest argument for building the type map next.
-
-Every number in that table came from re-ranking cached payloads: the whole experiment cost nothing.
-
-## The tuning loop
-
-Scoring cannot be tuned case by case — one failing entity is an anecdote, and the fix that makes it
-pass may break ten others. So there is a small gold set of entities that should be impossible to miss:
-
-```sh
-cargo run --example eval_resolve -- localdev/analysis/entity-promotion/evidence/resolve-gold.tsv
-```
-
-Each row is `label <TAB> qid <TAB> keyword`. **The gold is verified against Wikidata first** — the
-item's label must equal ours and its description must contain the keyword — so a mistaken gold QID is
-dropped rather than counted against the scorer. Of the 25 rows written from memory, 12 were dropped
-that way.
-
-### What each change bought
-
-| change | gold |
-| --- | --- |
-| starting point (`score = 0.4·name + 0.6·fit` against a 0.60 bar) | **0 / 13** |
-| decide on `fit`, not the blended score (the name is why the candidate exists) | **8 / 13** |
-| weight terms by rarity within the candidate set (IDF) | 8 / 13 |
-| score matched evidence saturating instead of dividing by the candidate's length | 8 / 13 |
-| light suffix stripping (`painter` / `painting` / `paint`) | **9 / 13** |
-| adjacent bigrams, weighted double (`"first president"`) | 9 / 13, +3 corpus claims (HBO, Bach, Armani — all correct) |
-
-The corpus effect of the last three steps together: **+97 claims at ~96% precision**, 0 requests
-(cached payloads), measured by reading all 97.
-
-### What is left, and why it is not a scoring problem
-
-| failure | reason |
-| --- | --- |
-| `Fritz Lang`, `Ridley Scott` | our "film director" vs Wikidata's "filmmaker" — a *synonym*, not a word form |
-| `Lake Sevan` | our "body of water" vs "lake" — same |
-| `George Washington` | with bigrams: the president scores **0.858** sharing `[first, president, "first president"]`; two statues score **0.847** sharing `[unit, stat, "unit stat"]` — both share a phrase, because "United States" is the subject's country in ours and the sculpture's *location* in theirs. Bag-of-words cannot see the difference in role, so the margin is 0.011. |
-
-And the recurring false positives in the corpus are the same shape: `Q` (a character) claimed a Star
-Wars *comic*, `Monster` (a brand) claimed a Shawn Mendes *audio track*, `Kerala` (a state) claimed a
-*village in Gujarat*.
-
-Every one of those is a **type** question, not a wording question. Lexical scoring has a ceiling
-around 9/13 here, and `P31` → `entity_type` compatibility is what lifts it.
-
-## First measurements (2026-10-31)
-
-| case | result |
-| --- | --- |
-| `Dune` + "1965 science fiction novel by Frank Herbert" | `Q190192` at 0.95 — runner-up was the *series*, 0.898 |
-| `Sunset Boulevard` + the capture's description | `Q193570` (1950 film) at 0.86 — 11 candidates |
-| `Nintendo` + "Japanese video game company founded in 1889" | `Q8093` at 0.82 |
-| 30 real cores, one SPARQL batch | 12 claims (40%) — previously 3 of 10, and only where the label was unique |
-
-The last row is the point of ranking: the ambiguous majority used to be a dead end, and now it is where
-most of the yield comes from.
-- **Merges.** A claim for a QID another core already holds is counted as a `conflict` and skipped —
-  that is a merge the graph has not made (§Repair).
-- **Scheduling.** Manual runs only.
 ## Confidence and status
 
 `status` and `confidence` are written by `project()`, and by nothing else:

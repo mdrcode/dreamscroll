@@ -278,6 +278,7 @@ Two derived signals follow, both projections rather than columns:
 | Signal | Rule |
 | --- | --- |
 | **corroboration** | count of *distinct schemes* with a live claim on this core; `confidence` rises with each independent authority |
+| **wrong incumbent** | the core holding an identity is the wrong referent, and the right one is refused by the veto. Measured 2026-11-01: `Q85810391` (*Train Dreams, 2011 novella*) is held by the **movie** core and the **book** core — the correct referent — cannot claim it. The holder is flagged `contested`, but nothing adjudicates, so the right core is locked out permanently |
 | **conflict** | two schemes the authorities themselves disagree about (Wikidata's `P345` points at a different IMDb id than we hold) — a `collision` row, not a merge |
 
 Authority cross-references make corroboration cheap: `P345` (IMDb), `P4947` (TMDB), `P434`
@@ -682,6 +683,62 @@ Association:
   core, because that is what a user's graph is. No per-row ACL to consult.
 - **A3.** A core page renders the node and the viewer's own observations. Other users' observation rows
   are never in the response.
+
+### Veto variants considered and rejected — 2026-11-01
+
+The same-capture veto refuses a merge when both cores have observations in one capture. Two extensions
+were proposed and rejected after measurement:
+
+- **Position** (same image *and* different position ⇒ conflict). Rejected: position is an artefact of one
+  extraction run. Two users can upload the same image and the model can emit its entities in any order,
+  so a position mismatch is not evidence of two referents — it would block correct merges.
+- **Image hash** (`medias.hash_blake3` instead of `capture_id`). Rejected: it refuses the *right* merge.
+  If the linker misses a join between two captures of the same image, merging is the only repair, and a
+  hash-keyed veto would forbid it — trading a rare wrong merge for a permanent duplicate.
+
+The unit that survives is one **extraction** (`illumination_id`), because that is the only reading in
+which "the extractor emitted two of these" is evidence of two things. `capture_id` happens to equal it
+today (626 captures, 626 illuminations among linked observations); `illumination_id` is the honest
+expression and the two diverge if more than one illumination of a capture is ever linked.
+
+## Linking and merging converge
+
+A pair the linker keeps apart is usually folded later by the identity-conflict merge, so the two
+mechanisms are not competing answers. Measured 2026-11-01: a narrow gate and a wider one produced
+**identical membership** — `compare` reported 0 split, 0 merged, 0 moved — differing only in whether the
+join happened at link time or after resolution. That is why the linker can afford to be conservative: a
+missed join is recoverable.
+
+The exception matters more than the rule. A pair where **neither core ever resolves** produces no
+identity conflict, so no merge is ever attempted and the duplicate stands forever. That is why the
+provisional tail (339 cores on 2026-11-01) is where the real linking debt sits, and why resolution
+coverage, not a looser gate, is the lever.
+
+## Next: the linker seam
+
+Linking is one function with no contract, while resolution already has `Engine` (`plan`/`parse`/`fetch`)
+plus an executor that owns the cache. That asymmetry blocks a second linker — an LLM one — because
+there is nothing to plug into.
+
+```
+Blocker   surface → candidate cores      recall-oriented; the in-memory key map today
+Linker    candidates → Decision          heuristics here; an LLM would be plan/parse/fetch + cache
+Executor  applies decisions, owns writes and invariants (the same-capture veto stays here)
+```
+
+```rust
+enum Decision { Link { core, confidence, rationale }, New, Abstain { reason } }
+```
+
+`Abstain` is the state the graph cannot express today: "probably this, not enough evidence". The
+executor records decisions in an append-only `link_assignments` log (`observation_id`, `core_id`,
+`linker`, `confidence`, `rationale`, `superseded_at`), and `user_knowledge_entities.core_id` becomes a
+projection of the live assignment — the same selected-versus-accumulated shape as
+`label`/`alt_labels`. That is what makes re-linking, selective A/B, splits and "why is this here?"
+answerable at all.
+
+**Do this before the LLM linker, not after.** The refactor is mechanical and behaviour-preserving, and
+it is the part that constrains the future.
 
 ## Deferred: disclosure
 
