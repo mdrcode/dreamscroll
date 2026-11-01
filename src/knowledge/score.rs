@@ -7,7 +7,7 @@
 //! Weights and bars are provisional. They must be calibrated against the labelled sheet before
 //! anything leans on them (see `plan/knowledge-canonical-entities.md`).
 
-use super::normalize;
+use super::{normalize, view};
 
 pub const W_NAME: f32 = 0.60;
 pub const W_DESCRIPTION: f32 = 0.30;
@@ -41,6 +41,29 @@ pub struct Observation {
     pub token_key: String,
     pub description_tokens: Vec<String>,
     pub entity_type: String,
+}
+
+impl From<&view::ObservationView> for Observation {
+    fn from(observation: &view::ObservationView) -> Self {
+        Self::new(
+            &observation.name,
+            observation.description.as_deref(),
+            &observation.entity_type,
+        )
+    }
+}
+
+impl From<&view::EntityView> for Scored {
+    fn from(entity: &view::EntityView) -> Self {
+        let descriptions: Vec<&str> = entity
+            .description
+            .iter()
+            .map(String::as_str)
+            .chain(entity.alt_descriptions.iter().map(String::as_str))
+            .collect();
+        let types: Vec<String> = entity.types().map(str::to_string).collect();
+        Self::new(entity.id, &entity.name, &entity.alt_names, &descriptions, &types)
+    }
 }
 
 impl Observation {

@@ -13,7 +13,7 @@
 
 use serde_json::{json, Value};
 
-use super::{Claim, EntityView, Engine, FetchError, Raw, Request, BATCH};
+use super::{Claim, EntityView, Resolver, FetchError, Raw, Request, BATCH};
 use crate::knowledge::cache::Outcome;
 
 const SPARQL_ENDPOINT: &str = "https://query.wikidata.org/sparql";
@@ -463,7 +463,7 @@ impl Wikidata {
 }
 
 #[async_trait::async_trait]
-impl Engine for Wikidata {
+impl Resolver for Wikidata {
     fn id(&self) -> &'static str {
         "wikidata"
     }
@@ -481,7 +481,7 @@ impl Engine for Wikidata {
 
     fn plan(&self, entity: &EntityView) -> Vec<Request> {
         let mut requests = Vec::new();
-        if let Some((platform, handle)) = &entity.handle
+        if let Some((platform, handle)) = &entity.account
             && let Some(kind) = Self::kind_for_handle(platform)
         {
             requests.push(Request {
@@ -1141,11 +1141,13 @@ mod tests {
         EntityView {
             id: 1,
             name: label.to_string(),
+            alt_names: Vec::new(),
             entity_type: "unknown".to_string(),
+            alt_types: Vec::new(),
             description: description.map(str::to_string),
             alt_descriptions: Vec::new(),
             search_query: None,
-            handle: None,
+            account: None,
         }
     }
 
@@ -1341,11 +1343,13 @@ mod tests {
         let entity = EntityView {
             id: 1,
             name: "Alexey Kutepov".to_string(),
+            alt_names: Vec::new(),
             entity_type: "real_person".to_string(),
+            alt_types: Vec::new(),
             description: None,
             alt_descriptions: Vec::new(),
             search_query: Some("Tsoding".to_string()),
-            handle: Some(("x".to_string(), "tsoding".to_string())),
+            account: Some(("x".to_string(), "tsoding".to_string())),
         };
         let plans = engine().plan(&entity);
         assert_eq!(plans.len(), 3);

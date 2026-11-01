@@ -3,7 +3,7 @@
 //! The rule this module enforces structurally: **only the executor calls an engine's `fetch`**. A
 //! provider may say what it would ask (`plan`) and interpret an answer (`parse`), but it cannot
 //! reach the network on its own — every request goes through the cache first. Adding IMDb means
-//! adding one `Engine`; it cannot forget the cache, because there is no other door.
+//! adding one `Resolver`; it cannot forget the cache, because there is no other door.
 
 pub mod wikidata;
 
@@ -28,31 +28,7 @@ pub(crate) const BATCH: usize = 50;
 #[cfg(test)]
 pub(crate) const BATCH: usize = 2;
 
-/// What a provider is allowed to see about an entity. Deliberately small: a provider gets the surface,
-/// the type, the text and its identifiers, and nothing about who captured it.
-#[derive(Debug, Clone)]
-pub struct EntityView {
-    pub id: i32,
-    pub name: String,
-    pub entity_type: String,
-    pub description: Option<String>,
-    /// Descriptions other members contributed. A provider may fit a candidate against any of them.
-    pub alt_descriptions: Vec<String>,
-    /// The best disambiguation hint an observation carried, if any.
-    pub search_query: Option<String>,
-    /// `(platform, handle)` when one of the entity's observations carried an account.
-    pub handle: Option<(String, String)>,
-}
-
-impl EntityView {
-    /// The selected description first, then the alternates accumulated from other members.
-    pub fn descriptions(&self) -> impl Iterator<Item = &str> {
-        self.description
-            .iter()
-            .map(String::as_str)
-            .chain(self.alt_descriptions.iter().map(String::as_str))
-    }
-}
+pub use super::view::EntityView;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
@@ -112,7 +88,7 @@ pub enum Stage {
 }
 
 #[async_trait::async_trait]
-pub trait Engine: Send + Sync {
+pub trait Resolver: Send + Sync {
     fn id(&self) -> &'static str;
 
     /// What this engine would ask about an entity. Empty when it has nothing to offer.
@@ -192,7 +168,7 @@ pub struct Report {
 
 pub async fn resolve(
     db: &database::DbHandle,
-    engines: &[Box<dyn Engine>],
+    engines: &[Box<dyn Resolver>],
     options: &Options,
 ) -> anyhow::Result<Report> {
     let entities = candidates(&db.conn, options.limit, options.only).await?;
@@ -233,7 +209,7 @@ pub async fn resolve(
 async fn run_stage(
     db: &database::DbHandle,
     cache: &Cache<'_>,
-    engine: &dyn Engine,
+    engine: &dyn Resolver,
     entities: &[EntityView],
     resolved: &mut HashSet<i32>,
     stage: Stage,
@@ -308,7 +284,7 @@ async fn run_stage(
 /// Look every planned query up in the cache, then fetch only what is missing, in batches.
 async fn fetch_plans(
     cache: &Cache<'_>,
-    engine: &dyn Engine,
+    engine: &dyn Resolver,
     plans: &[(usize, Request)],
     options: &Options,
     report: &mut Report,
@@ -779,12 +755,8 @@ async fn candidates(
         .into_iter()
         .map(|row| EntityView {
             search_query: search.get(&row.id).cloned(),
-            handle: handles.get(&row.id).cloned(),
-            id: row.id,
-            name: row.name,
-            entity_type: row.entity_type,
-            description: row.description,
-            alt_descriptions: row.alt_descriptions,
+            account: handles.get(&row.id).cloned(),
+            ..EntityView::from_model(row)
         })
         .collect())
 }
@@ -803,7 +775,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl Engine for Fake {
+    impl Resolver for Fake {
         fn id(&self) -> &'static str {
             "fake"
         }
@@ -890,7 +862,7 @@ mod tests {
             .expect("build_core should have linked the observation")
     }
 
-    fn fake(answers: HashMap<String, Raw>, calls: Arc<AtomicUsize>) -> Vec<Box<dyn Engine>> {
+    fn fake(answers: HashMap<String, Raw>, calls: Arc<AtomicUsize>) -> Vec<Box<dyn Resolver>> {
         vec![Box::new(Fake { answers, calls })]
     }
 
@@ -1055,7 +1027,7 @@ mod tests {
     struct Limited;
 
     #[async_trait::async_trait]
-    impl Engine for Limited {
+    impl Resolver for Limited {
         fn id(&self) -> &'static str {
             "limited"
         }
@@ -1087,7 +1059,7 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl Engine for Flaky {
+    impl Resolver for Flaky {
         fn id(&self) -> &'static str {
             "flaky"
         }
@@ -1147,7 +1119,7 @@ mod tests {
             seed(&db, name).await;
         }
 
-        let engines: Vec<Box<dyn Engine>> = vec![Box::new(Flaky {
+        let engines: Vec<Box<dyn Resolver>> = vec![Box::new(Flaky {
             calls: Arc::new(AtomicUsize::new(0)),
         })];
         let report = resolve(&db, &engines, &Options::default()).await.expect("resolve");
@@ -1165,7 +1137,7 @@ mod tests {
         let db = test_db.handle();
         seed(&db, "Train Dreams").await;
 
-        let engines: Vec<Box<dyn Engine>> = vec![Box::new(Limited)];
+        let engines: Vec<Box<dyn Resolver>> = vec![Box::new(Limited)];
         let report = resolve(&db, &engines, &Options::default()).await.expect("resolve");
 
         assert_eq!(report.rate_limited_after, Some(30), "{report:?}");

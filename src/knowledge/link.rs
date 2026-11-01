@@ -5,7 +5,7 @@
 //! every write is idempotent: a second run finds nothing to do because every observation already has
 //! a `knowledge_entity_id`.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use sea_orm::sea_query::Expr;
 use sea_orm::{
@@ -13,7 +13,11 @@ use sea_orm::{
     QueryFilter, QueryOrder, RuntimeErr, Set, Statement,
 };
 
-use super::{normalize, score};
+use super::{
+    blocking::{self, Blocker},
+    linker::{self, Linker},
+    normalize, score, view,
+};
 use crate::{database, model};
 
 pub const STATUS_PROVISIONAL: &str = "provisional";
@@ -34,25 +38,18 @@ pub struct Report {
 }
 
 struct EntityState {
+    /// What the blocker and the scorer see. The raw strings, exactly as projected.
+    view: view::EntityView,
+    /// Derived from `view`: normalized keys and token sets, so scoring a candidate is cheap in a
+    /// loop. Kept in step by `add_name` and `add_type`.
     scored: score::Scored,
-    /// Verbatim surfaces; `scored.alt_name_keys` holds the normalized forms derived from them.
-    alt_names: Vec<String>,
-    /// Types other members asserted. Kept in step with `scored.entity_types`, which is what the
-    /// scorer consults — an entity that has seen `brand` must accept `brand` for the rest of the run.
-    alt_types: Vec<String>,
 }
 
 impl EntityState {
     fn from_model(row: model::knowledge_entity::Model) -> Self {
-        let mut descriptions: Vec<&str> = row.description.iter().map(String::as_str).collect();
-        descriptions.extend(row.alt_descriptions.iter().map(String::as_str));
-        let mut entity_types = vec![row.entity_type.clone()];
-        entity_types.extend(row.alt_types.clone());
-        Self {
-            scored: score::Scored::new(row.id, &row.name, &row.alt_names, &descriptions, &entity_types),
-            alt_names: row.alt_names,
-            alt_types: row.alt_types,
-        }
+        let view = view::EntityView::from_model(row);
+        let scored = score::Scored::from(&view);
+        Self { view, scored }
     }
 
     /// Add an observed type. Returns whether anything changed; the scorer accepts agreement with
@@ -61,7 +58,7 @@ impl EntityState {
         if entity_type.is_empty() || self.scored.entity_types.iter().any(|t| t == entity_type) {
             return false;
         }
-        self.alt_types.push(entity_type.to_string());
+        self.view.alt_types.push(entity_type.to_string());
         self.scored.entity_types.push(entity_type.to_string());
         true
     }
@@ -72,7 +69,7 @@ impl EntityState {
         if key.is_empty() || self.scored.alt_name_keys.contains(&key) {
             return false;
         }
-        self.alt_names.push(surface.trim().to_string());
+        self.view.alt_names.push(surface.trim().to_string());
         self.scored.alt_name_keys.push(key);
         self.scored
             .alt_name_token_keys
@@ -129,9 +126,9 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
         .map(|(position, entity)| (entity.scored.id, position))
         .collect();
 
-    let mut index: HashMap<String, BTreeSet<usize>> = HashMap::new();
-    for (position, entity) in entities.iter().enumerate() {
-        index_core(&mut index, position, entity);
+    let mut blocker = blocking::NameBlocker::new();
+    for entity in &entities {
+        blocker.index(&entity.view);
     }
 
     // Any authority, one lookup. Identity is a claim like any other, so it is read from evidence:
@@ -178,7 +175,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
             attach(&db.conn, observation.id, knowledge_entity_id).await?;
             seen.insert((knowledge_entity_id, observation.illumination_id));
             if absorb_names(&db.conn, &mut entities[position], &observation).await? {
-                index_core(&mut index, position, &entities[position]);
+                blocker.index(&entities[position].view);
             }
             report.linked_by_identifier += 1;
             continue;
@@ -190,29 +187,27 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
             &observation.entity_type,
         );
 
-        let mut candidates: BTreeSet<usize> = BTreeSet::new();
-        for block in [&view.name_key, &view.token_key] {
-            if let Some(hits) = index.get(block) {
-                candidates.extend(hits.iter().copied());
-            }
-        }
-
-        let best = candidates
+        let observation_view = view::ObservationView::from_model(&observation);
+        let candidates: Vec<linker::Candidate> = blocker
+            .candidates(&observation_view)
             .into_iter()
-            .filter(|position| {
-                !seen.contains(&(entities[*position].scored.id, observation.illumination_id))
+            // One extraction cannot fold two of its own observations into one entity.
+            .filter(|id| !seen.contains(&(*id, observation.illumination_id)))
+            .filter_map(|id| positions.get(&id).copied())
+            .map(|position| linker::Candidate {
+                entity: entities[position].view.id,
+                features: score::score(&view, &entities[position].scored),
             })
-            .map(|position| (position, score::score(&view, &entities[position].scored)))
-            .max_by(|a, b| a.1.total.total_cmp(&b.1.total))
-            .filter(|(_, features)| score::worth_merging(features));
+            .collect();
 
-        match best {
-            Some((position, _)) => {
-                let knowledge_entity_id = entities[position].scored.id;
+        match linker::ScorerLinker.decide(&observation_view, &candidates) {
+            linker::Decision::Attach { candidate } => {
+                let position = positions[&candidate.entity];
+                let knowledge_entity_id = candidate.entity;
                 attach(&db.conn, observation.id, knowledge_entity_id).await?;
                 seen.insert((knowledge_entity_id, observation.illumination_id));
                 if absorb_names(&db.conn, &mut entities[position], &observation).await? {
-                    index_core(&mut index, position, &entities[position]);
+                    blocker.index(&entities[position].view);
                 }
                 let claimed = identifier_of(&observation).is_some();
                 if let Some(owner) =
@@ -230,7 +225,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
                 }
                 report.linked += 1;
             }
-            None => {
+            linker::Decision::Create { .. } => {
                 let knowledge_entity_id = create(&db.conn, &observation).await?;
 
                 // A concurrent worker may have claimed this identifier since the map was read.
@@ -247,27 +242,29 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
                     if let Some(&position) = positions.get(&owner)
                         && absorb_names(&db.conn, &mut entities[position], &observation).await?
                     {
-                        index_core(&mut index, position, &entities[position]);
+                        blocker.index(&entities[position].view);
                     }
                     report.linked_by_identifier += 1;
                     continue;
                 }
 
                 let alt_names = names_for(&observation);
-                entities.push(EntityState {
-                    scored: score::Scored::new(
-                        knowledge_entity_id,
-                        &observation.name,
-                        &alt_names,
-                        &observation.description.iter().map(String::as_str).collect::<Vec<_>>(),
-                        std::slice::from_ref(&observation.entity_type),
-                    ),
+                let view = view::EntityView {
+                    id: knowledge_entity_id,
+                    name: observation.name.clone(),
                     alt_names,
+                    entity_type: observation.entity_type.clone(),
                     alt_types: Vec::new(),
-                });
+                    description: observation.description.clone(),
+                    alt_descriptions: Vec::new(),
+                    search_query: observation.search_query.clone(),
+                    account: None,
+                };
+                let scored = score::Scored::from(&view);
+                entities.push(EntityState { view, scored });
                 let position = entities.len() - 1;
                 positions.insert(knowledge_entity_id, position);
-                index_core(&mut index, position, entities.last().expect("just pushed"));
+                blocker.index(&entities.last().expect("just pushed").view);
                 attach(&db.conn, observation.id, knowledge_entity_id).await?;
                 seen.insert((knowledge_entity_id, observation.illumination_id));
                 report.created += 1;
@@ -289,14 +286,6 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
     Ok(report)
 }
 
-fn index_core(index: &mut HashMap<String, BTreeSet<usize>>, position: usize, entity: &EntityState) {
-    for key in &entity.scored.alt_name_keys {
-        index.entry(key.clone()).or_default().insert(position);
-    }
-    for key in &entity.scored.alt_name_token_keys {
-        index.entry(key.clone()).or_default().insert(position);
-    }
-}
 
 pub(crate) fn surfaces(
     observation: &model::user_observed_entity::Model,
@@ -373,9 +362,9 @@ async fn absorb_names(
     changed |= entity.add_type(&observation.entity_type);
     if changed {
         model::knowledge_entity::ActiveModel {
-            id: Set(entity.scored.id),
-            alt_names: Set(entity.alt_names.clone()),
-            alt_types: Set(entity.alt_types.clone()),
+            id: Set(entity.view.id),
+            alt_names: Set(entity.view.alt_names.clone()),
+            alt_types: Set(entity.view.alt_types.clone()),
             ..Default::default()
         }
         .update(conn)

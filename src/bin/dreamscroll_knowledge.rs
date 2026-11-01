@@ -205,7 +205,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Command::Resolve(args) => {
-            let engines: Vec<Box<dyn knowledge::resolve::Engine>> = vec![Box::new(
+            let engines: Vec<Box<dyn knowledge::resolve::Resolver>> = vec![Box::new(
                 knowledge::resolve::wikidata::Wikidata::new()?,
             )];
             // A budget of zero makes no transport calls, which reads like a successful run that

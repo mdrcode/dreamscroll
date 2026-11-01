@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use dreamscroll::knowledge::cache::Outcome;
 use dreamscroll::knowledge::resolve::wikidata::Wikidata;
-use dreamscroll::knowledge::resolve::{EntityView, Engine, Raw};
+use dreamscroll::knowledge::resolve::{EntityView, Resolver, Raw};
 use dreamscroll::{config, database};
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::Value;
@@ -114,11 +114,13 @@ async fn main() -> anyhow::Result<()> {
         let view = EntityView {
             id: row.try_get_by_index(0)?,
             name: label.clone(),
+            alt_names: Vec::new(),
             entity_type: row.try_get_by_index(1)?,
+            alt_types: Vec::new(),
             description: Some(row.try_get_by_index::<String>(2)?).filter(|d| !d.is_empty()),
             alt_descriptions: Vec::new(),
             search_query: None,
-            handle: None,
+            account: None,
         };
         let request = engine.plan(&view).into_iter().next().expect("a plan");
         let raw = Raw {
