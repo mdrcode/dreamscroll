@@ -115,25 +115,6 @@ impl Wikidata {
         }
         vec![claim(best.candidate, "search_hint", confidence(best.score).min(0.85))]
     }
-
-    /// Full-text search over items, through MediaWiki's own search (CirrusSearch).
-    ///
-    /// Deliberately not `wbsearchentities`: that is a *prefix* matcher over labels and aliases, so it
-    /// returns nothing for a punctuation difference (`J.R.R.` for `J. R. R.`) and ranks a
-    /// disambiguation page above the novel for `A Christmas Carol`. MediaWiki's search tokenises on
-    /// punctuation and ranks by relevance — and on wikidata.org the page titles *are* QIDs, so the
-    /// hit list is already a candidate set.
-
-    /// Labels, descriptions and types for a set of items, 50 per call.
-
-    /// `enwiki title -> item`, following normalisation and redirects, then one batched read for the
-    /// labels, descriptions and types the caller needs.
-    ///
-    /// This is the only route that reaches an item whose Wikidata label differs from the surface a
-    /// capture used: `Symphony No. 7 (Sibelius)` is an article title, and the item is labelled
-    /// `Symphony No. 7`. It also follows redirects, so `Saint-Quentin Canal` reaches
-    /// `Canal de Saint-Quentin` — a word-order variant no label search finds.
-
     fn kind_for_handle(platform: &str) -> Option<String> {
         handle_property(platform).map(|property| format!("handle:{property}"))
     }

@@ -10,6 +10,12 @@ use super::{Wikidata, LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT};
 use crate::knowledge::cache::Outcome;
 
 impl Wikidata {
+    /// Full-text search over items, through MediaWiki's own search (CirrusSearch).
+    ///
+    /// Deliberately not `wbsearchentities`: that is a *prefix* matcher over labels and aliases, so
+    /// it returns nothing for a punctuation difference (`J.R.R.` for `J. R. R.`) and ranks a
+    /// disambiguation page above the novel for `A Christmas Carol`. On wikidata.org the page titles
+    /// *are* QIDs, so the hit list is already a candidate set.
     pub(super) async fn search(&self, query: &str) -> Result<Raw, FetchError> {
         let response = self
             .client
@@ -98,6 +104,7 @@ impl Wikidata {
         })
     }
 
+    /// Labels, descriptions and types for a set of items, 50 per call.
     pub(super) async fn items(
         &self,
         ids: &[String],
@@ -174,6 +181,8 @@ impl Wikidata {
         Ok(details)
     }
 
+    /// `enwiki title -> item`, following normalisation and redirects, then one batched read for
+    /// the labels, descriptions and types the caller needs.
     pub(super) async fn titles(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
         use std::collections::HashMap;
 
