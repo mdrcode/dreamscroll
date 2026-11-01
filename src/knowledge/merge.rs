@@ -1,4 +1,4 @@
-//! Merging one core into another.
+//! Merging one entity into another.
 //!
 //! A merge is the operation the whole model is built to make cheap: the loser's observations are
 //! re-pointed, its evidence moves, and the loser becomes a tombstone. Nothing is edited and nothing is
@@ -24,10 +24,10 @@ use crate::model::{
 pub enum Outcome {
     Merged,
     /// Nothing to do: the same pair has already been folded. The resolution loop can reach one
-    /// conflict twice — the loser stays in the run's core list after it has been merged — so a
+    /// conflict twice — the loser stays in the run's entity list after it has been merged — so a
     /// repeat must not move anything again or record a second merge event.
     AlreadyMerged,
-    /// The two cores have observations in the same capture. The linker's same-capture veto already
+    /// The two entities have observations in the same capture. The linker's same-capture veto already
     /// decided that those mentions are different referents, so folding them would contradict a fact
     /// the graph already holds.
     RefusedSharedIllumination,
@@ -38,7 +38,7 @@ pub enum Outcome {
 pub struct Preview {
     pub observations: u64,
     pub evidence: u64,
-    /// Observations the two cores have in the same capture. Nonzero means the merge is refused: the
+    /// Observations the two entities have in the same capture. Nonzero means the merge is refused: the
     /// linker already decided those mentions are different referents.
     pub shared_illuminations: i64,
 }
@@ -78,19 +78,19 @@ pub async fn preview(
 
 /// Fold `loser` into `winner`.
 ///
-/// The winner should be the better-substantiated core — in practice the one that already holds the
+/// The winner should be the better-substantiated entity — in practice the one that already holds the
 /// identity which caused the conflict. Both must be live; merging a tombstone is a no-op.
 ///
-/// **The same-illumination veto applies here too.** Two cores that both appear in one *illumination*
+/// **The same-illumination veto applies here too.** Two entities that both appear in one *illumination*
 /// cannot be one referent: one extractor writing the same string twice in one screenshot means two
 /// things, and the linker refused to fold those observations for exactly that reason. A merge that
-/// ignored it produced four observations on one core, two of them from the same capture — the state
+/// ignored it produced four observations on one entity, two of them from the same capture — the state
 /// the veto exists to prevent. In that case the conflict is real and needs adjudication, so it is
 /// reported rather than resolved.
 ///
 /// The unit is the illumination, not the capture: re-reading an image is a separate reading, and
 /// its names may legitimately join the same entity. See `plan/knowledge-illumination-history.md`.
-pub async fn merge_core(
+pub async fn merge(
     conn: &DatabaseConnection,
     loser: i32,
     winner: i32,
@@ -135,7 +135,7 @@ pub async fn merge_core(
         .exec(conn)
         .await?;
 
-    // The audit trail: which core was folded into which, and why.
+    // The audit trail: which entity was folded into which, and why.
     evidence::Entity::insert(evidence::ActiveModel {
         knowledge_entity_id: Set(winner),
         kind: Set("merge".to_string()),
@@ -168,7 +168,7 @@ mod tests {
     use crate::model::user_observed_entity as obs;
     use crate::test_support::fixtures;
 
-    async fn core_with(db: &crate::database::DbHandle, label: &str) -> i32 {
+    async fn entity_with(db: &crate::database::DbHandle, label: &str) -> i32 {
         entity::Entity::insert(entity::ActiveModel {
             name: Set(label.to_string()),
             entity_type: Set("real_person".to_string()),
@@ -183,22 +183,22 @@ mod tests {
     }
 
     /// The resolution loop can reach one conflict twice, because the loser is still in the run's
-    /// core list after it has been folded. A repeat must be a no-op, not a second merge event.
+    /// entity list after it has been folded. A repeat must be a no-op, not a second merge event.
     #[tokio::test]
     async fn merging_the_same_pair_twice_records_one_event() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
         let db = test_db.handle();
-        let winner = core_with(&db, "Elon Musk").await;
-        let loser = core_with(&db, "Elon").await;
+        let winner = entity_with(&db, "Elon Musk").await;
+        let loser = entity_with(&db, "Elon").await;
 
         assert_eq!(
-            merge_core(&db.conn, loser, winner).await.expect("first"),
+            merge(&db.conn, loser, winner).await.expect("first"),
             Outcome::Merged
         );
         assert_eq!(
-            merge_core(&db.conn, loser, winner).await.expect("second"),
+            merge(&db.conn, loser, winner).await.expect("second"),
             Outcome::AlreadyMerged
         );
         assert_eq!(
@@ -220,12 +220,12 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let winner = core_with(&db, "Elon Musk").await;
-        let loser = core_with(&db, "Elon").await;
+        let winner = entity_with(&db, "Elon Musk").await;
+        let loser = entity_with(&db, "Elon").await;
 
         let user_id = fixtures::user(&db, "merge_surfaces").await;
 
-        // Each core needs its own observation: a merge is refused when both sides appear in one
+        // Each entity needs its own observation: a merge is refused when both sides appear in one
         // capture, so the winner's surface has to come from somewhere real.
         let winner_capture = fixtures::capture(&db, user_id).await;
         let winner_illumination = fixtures::illumination(&db, user_id, winner_capture).await;
@@ -261,7 +261,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            merge_core(&db.conn, loser, winner).await.expect("merge"),
+            merge(&db.conn, loser, winner).await.expect("merge"),
             Outcome::Merged
         );
 
@@ -283,7 +283,7 @@ mod tests {
         );
     }
 
-    /// Two cores that both have an observation in one capture cannot be one referent. The veto
+    /// Two entities that both have an observation in one capture cannot be one referent. The veto
     /// decided that at link time; a merge must not contradict it.
     #[tokio::test]
     async fn a_shared_capture_blocks_the_merge() {
@@ -291,8 +291,8 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let book = core_with(&db, "Corduroy").await;
-        let character = core_with(&db, "Corduroy").await;
+        let book = entity_with(&db, "Corduroy").await;
+        let character = entity_with(&db, "Corduroy").await;
 
         let user_id = fixtures::user(&db, "merge_veto").await;
         let capture_id = fixtures::capture(&db, user_id).await;
@@ -313,7 +313,7 @@ mod tests {
             .unwrap();
         }
 
-        let outcome = merge_core(&db.conn, character, book).await.expect("merge");
+        let outcome = merge(&db.conn, character, book).await.expect("merge");
 
         assert_eq!(outcome, Outcome::RefusedSharedIllumination);
         assert_eq!(
@@ -339,8 +339,8 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let winner = core_with(&db, "Elon Musk").await;
-        let loser = core_with(&db, "Elon").await;
+        let winner = entity_with(&db, "Elon Musk").await;
+        let loser = entity_with(&db, "Elon").await;
 
         let user_id = fixtures::user(&db, "merge").await;
         let capture_id = fixtures::capture(&db, user_id).await;
@@ -372,7 +372,7 @@ mod tests {
         .await
         .unwrap();
 
-        let outcome = merge_core(&db.conn, loser, winner).await.expect("merge");
+        let outcome = merge(&db.conn, loser, winner).await.expect("merge");
         assert_eq!(outcome, Outcome::Merged);
 
         assert_eq!(

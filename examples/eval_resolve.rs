@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use dreamscroll::knowledge::cache::Outcome;
 use dreamscroll::knowledge::resolve::wikidata::Wikidata;
-use dreamscroll::knowledge::resolve::{CoreView, Engine, Raw};
+use dreamscroll::knowledge::resolve::{EntityView, Engine, Raw};
 use dreamscroll::{config, database};
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::Value;
@@ -94,7 +94,7 @@ async fn main() -> anyhow::Result<()> {
             ))
             .await?;
         let Some(row) = row else {
-            println!("{label:<30} {qid:<10} {:<10} no core", "-");
+            println!("{label:<30} {qid:<10} {:<10} no entity", "-");
             missing += 1;
             continue;
         };
@@ -111,7 +111,7 @@ async fn main() -> anyhow::Result<()> {
             missing += 1;
             continue;
         };
-        let view = CoreView {
+        let view = EntityView {
             id: row.try_get_by_index(0)?,
             name: label.clone(),
             entity_type: row.try_get_by_index(1)?,

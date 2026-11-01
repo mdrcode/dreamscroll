@@ -1,7 +1,7 @@
 //! Diff two snapshots' membership: what the last change to the linker actually did.
 //!
-//! Core ids are not comparable across runs — they come from a sequence that keeps advancing — so the
-//! comparison is over *groupings*: which observations ended up in the same core, expressed by
+//! Scored ids are not comparable across runs — they come from a sequence that keeps advancing — so the
+//! comparison is over *groupings*: which observations ended up in the same entity, expressed by
 //! observation id, which is stable because reset never touches observations.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -22,7 +22,7 @@ pub enum Kind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Example {
     pub kind: Kind,
-    /// Label of the earlier core (split) or the later core (merged).
+    /// Label of the earlier entity (split) or the later entity (merged).
     pub label: String,
     /// Members in the earlier run for a split, in the later run for a merge.
     pub members: usize,
@@ -37,8 +37,8 @@ pub struct Report {
     /// observations, so a non-zero count means the corpus changed between runs.
     pub only_in_before: usize,
     pub only_in_after: usize,
-    pub cores_before: usize,
-    pub cores_after: usize,
+    pub entities_before: usize,
+    pub entities_after: usize,
     /// Groups whose membership is identical in both runs.
     pub unchanged: usize,
     pub split: usize,
@@ -72,8 +72,8 @@ pub async fn compare(
         observations: before_map.len().max(after_map.len()),
         only_in_before: before_map.keys().filter(|id| !after_map.contains_key(id)).count(),
         only_in_after: after_map.keys().filter(|id| !before_map.contains_key(id)).count(),
-        cores_before: before_groups.len(),
-        cores_after: after_groups.len(),
+        entities_before: before_groups.len(),
+        entities_after: after_groups.len(),
         ..Default::default()
     };
 
@@ -92,7 +92,7 @@ pub async fn compare(
         .count();
 
     let mut examples = Vec::new();
-    for (core, members) in &before_groups {
+    for (entity, members) in &before_groups {
         let into: BTreeSet<i32> = members
             .iter()
             .filter_map(|id| after_map.get(id))
@@ -102,13 +102,13 @@ pub async fn compare(
             report.split += 1;
             examples.push(Example {
                 kind: Kind::Split,
-                label: before_labels.get(core).cloned().unwrap_or_default(),
+                label: before_labels.get(entity).cloned().unwrap_or_default(),
                 members: members.len(),
                 into: into.len(),
             });
         }
     }
-    for (core, members) in &after_groups {
+    for (entity, members) in &after_groups {
         let from: BTreeSet<i32> = members
             .iter()
             .filter_map(|id| before_map.get(id))
@@ -118,7 +118,7 @@ pub async fn compare(
             report.merged += 1;
             examples.push(Example {
                 kind: Kind::Merged,
-                label: after_labels.get(core).cloned().unwrap_or_default(),
+                label: after_labels.get(entity).cloned().unwrap_or_default(),
                 members: members.len(),
                 into: from.len(),
             });
@@ -133,11 +133,11 @@ pub async fn compare(
     Ok(report)
 }
 
-/// `core → sorted members`.
+/// `entity → sorted members`.
 fn groups(map: &HashMap<i32, i32>) -> BTreeMap<i32, Vec<i32>> {
     let mut groups: BTreeMap<i32, Vec<i32>> = BTreeMap::new();
-    for (observation, core) in map {
-        groups.entry(*core).or_default().push(*observation);
+    for (observation, entity) in map {
+        groups.entry(*entity).or_default().push(*observation);
     }
     for members in groups.values_mut() {
         members.sort_unstable();
@@ -241,8 +241,8 @@ mod tests {
         assert_eq!(report.merged, 1, "{report:?}");
         assert_eq!(report.unchanged, 1, "the {{5}} group is identical: {report:?}");
         assert_eq!(report.moved, 4, "{report:?}");
-        assert_eq!(report.cores_before, 4);
-        assert_eq!(report.cores_after, 4);
+        assert_eq!(report.entities_before, 4);
+        assert_eq!(report.entities_after, 4);
         assert!(!report.identical());
         assert_eq!(report.examples.len(), 2, "{report:?}");
     }
@@ -263,7 +263,7 @@ mod tests {
         table(&db, &before.membership(), "observation_id int, knowledge_entity_id int",
               "(1,10),(2,10),(3,20)").await;
         table(&db, &before.entities(), "id int, label text", r#"(10,'A'),(20,'B')"#).await;
-        // Different core ids, same grouping — which is what a rebuild of the same corpus produces.
+        // Different entity ids, same grouping — which is what a rebuild of the same corpus produces.
         table(&db, &after.membership(), "observation_id int, knowledge_entity_id int",
               "(1,71),(2,71),(3,82)").await;
         table(&db, &after.entities(), "id int, label text", r#"(71,'A'),(82,'B')"#).await;

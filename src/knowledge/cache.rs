@@ -23,7 +23,7 @@ pub const FAILED_TTL: Duration = Duration::minutes(10);
 /// Longer than `FAILED_TTL` because a degraded answer is usually still true — it is just not the
 /// answer we would have got from a healthy backend. Wikidata's search silently served prefix-only
 /// results when Elasticsearch was unavailable, with HTTP 200 and `success: 1`; a week of that would
-/// quarantine a core behind a bad answer nobody could see was bad.
+/// quarantine an entity behind a bad answer nobody could see was bad.
 pub const DEGRADED_TTL: Duration = Duration::minutes(60);
 
 /// An answer that produced no claim is a guess, not a fact. Re-asking it costs nothing when the

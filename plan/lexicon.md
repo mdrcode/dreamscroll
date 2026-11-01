@@ -16,6 +16,17 @@ that were considered and rejected — read that before proposing a rename.
 Everything the graph does is a clause of that sentence. A verb that is not in it is an implementation
 detail and should not be named after one.
 
+## Scope
+
+These names govern **every** identifier in the graph — public types, private types, locals, fields
+— not just the schema. `core` is retired everywhere; the surviving uses are historical DDL naming
+tables being dropped (`core_knowledge_*` in the retirement step) and unrelated English.
+
+The schema-16 cutover renamed tables, columns, exported types, CLI verbs and docs, but left the
+internal vocabulary (`score::Core`, `CoreView`, `CoreState`, `merge_core`, `cores_resolved`) in place.
+The compiler cannot see a name that is merely wrong, so the gap surfaced only when a design
+discussion repeated the old word. Treat "no internal identifiers either" as part of any rename.
+
 ## Two layers
 
 | Layer | Noun | Belongs to | Rewritten? |

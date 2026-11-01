@@ -6,14 +6,14 @@
 //! | --- | --- | --- | --- |
 //! | `label` | SPARQL `VALUES` over the labels | yes | exact label → item, with descriptions and `P31` |
 //! | `handle:P…` | SPARQL `VALUES` over the handles | yes | a platform account *is* an identity (`P2002`, `P2003`, …) |
-//! | `search` | `wbsearchentities` | no | full-text fallback, only for cores the first stage missed |
+//! | `search` | `wbsearchentities` | no | full-text fallback, only for entities the first stage missed |
 //!
 //! `plan` and `parse` are pure, so the whole decision can be tested from a fixture and re-run over
 //! cached payloads for free. Only `fetch` touches the network, and only the executor calls it.
 
 use serde_json::{json, Value};
 
-use super::{Claim, CoreView, Engine, FetchError, Raw, Request, BATCH};
+use super::{Claim, EntityView, Engine, FetchError, Raw, Request, BATCH};
 use crate::knowledge::cache::Outcome;
 
 const SPARQL_ENDPOINT: &str = "https://query.wikidata.org/sparql";
@@ -32,7 +32,7 @@ const SEARCH_LIMIT: usize = 10;
 ///
 /// Every property here was verified against Wikidata on 2026-10-31. Unmapped platforms (`threads`,
 /// `reddit`, `other`) are deliberate: a wrong property would produce confident, fabricated
-/// identities, which is worse than leaving the core unresolved.
+/// identities, which is worse than leaving the entity unresolved.
 fn handle_property(platform: &str) -> Option<&'static str> {
     match platform.to_ascii_lowercase().as_str() {
         "x" | "twitter" | "x_twitter" => Some("P2002"),
@@ -80,8 +80,8 @@ impl Wikidata {
     /// lower, and it can never overrule a description that resolved the case — which is what keeps
     /// the `Sunset Boulevard` failure (the hint lifting the musical adaptation above the film) from
     /// recurring, because there the description decides first.
-    fn by_hint(&self, core: &CoreView, candidates: &[Candidate]) -> Vec<Claim> {
-        let Some(hint) = hint_tokens(core) else {
+    fn by_hint(&self, entity: &EntityView, candidates: &[Candidate]) -> Vec<Claim> {
+        let Some(hint) = hint_tokens(entity) else {
             return Vec::new();
         };
         let mut ranked: Vec<Ranked> = candidates
@@ -242,23 +242,23 @@ impl Wikidata {
                 .json()
                 .await
                 .map_err(|error| FetchError::Failed(error.to_string()))?;
-            for (qid, entity) in body
+            for (qid, item) in body
                 .get("entities")
                 .and_then(Value::as_object)
                 .into_iter()
                 .flatten()
             {
-                let label = entity
+                let label = item
                     .get("labels")
                     .and_then(|labels| labels.get(LANGUAGE))
                     .and_then(|label| label.get("value"))
                     .and_then(Value::as_str);
-                let description = entity
+                let description = item
                     .get("descriptions")
                     .and_then(|descriptions| descriptions.get(LANGUAGE))
                     .and_then(|description| description.get("value"))
                     .and_then(Value::as_str);
-                let classes: Vec<Value> = entity
+                let classes: Vec<Value> = item
                     .get("claims")
                     .and_then(|claims| claims.get("P31"))
                     .and_then(Value::as_array)
@@ -422,8 +422,8 @@ impl Wikidata {
 
     /// Choose a referent from the candidates, or none. Shared by the label path and the search
     /// fallback — the only difference between them is which candidates are admitted.
-    fn decide(&self, core: &CoreView, candidates: &[Candidate], request: &Request) -> Vec<Claim> {
-        let mut ranked = rank(core, candidates);
+    fn decide(&self, entity: &EntityView, candidates: &[Candidate], request: &Request) -> Vec<Claim> {
+        let mut ranked = rank(entity, candidates);
         if ranked.is_empty() {
             return Vec::new();
         }
@@ -445,7 +445,7 @@ impl Wikidata {
         // real, terse Wikidata descriptions cannot supply ("German-born theoretical physicist" vs a
         // capture's six-word reading of Einstein).
         if best.fit < FIT_FLOOR {
-            return self.by_hint(core, &candidates);
+            return self.by_hint(entity, &candidates);
         }
         // Two candidates fit and neither wins: genuine ambiguity. The hint must not break this tie.
         if best.fit - runner_up < FIT_MARGIN {
@@ -479,9 +479,9 @@ impl Engine for Wikidata {
         }
     }
 
-    fn plan(&self, core: &CoreView) -> Vec<Request> {
+    fn plan(&self, entity: &EntityView) -> Vec<Request> {
         let mut requests = Vec::new();
-        if let Some((platform, handle)) = &core.handle
+        if let Some((platform, handle)) = &entity.handle
             && let Some(kind) = Self::kind_for_handle(platform)
         {
             requests.push(Request {
@@ -491,7 +491,7 @@ impl Engine for Wikidata {
                 query: handle.trim().to_string(),
             });
         }
-        let label = core.name.trim();
+        let label = entity.name.trim();
         if !label.is_empty() {
             // Title before label: a capture's name is often the *article* title
             // (`Symphony No. 7 (Sibelius)`), and the item is labelled `Symphony No. 7`. The label
@@ -516,10 +516,10 @@ impl Engine for Wikidata {
     ///
     /// This is a lookup fallback, not a ranking signal. Wikidata labels `J. R. R. Tolkien` and
     /// `D. H. Lawrence` *with spaces*; our exact-label SPARQL sends `J.R.R. Tolkien` and gets nothing,
-    /// while search finds Q892 immediately. Measured on 20 random empty-label cores: 4 recoverable
+    /// while search finds Q892 immediately. Measured on 20 random empty-label entities: 4 recoverable
     /// this way.
-    fn plan_fallback(&self, core: &CoreView) -> Vec<Request> {
-        let label = core.name.trim();
+    fn plan_fallback(&self, entity: &EntityView) -> Vec<Request> {
+        let label = entity.name.trim();
         if label.is_empty() {
             return Vec::new();
         }
@@ -531,7 +531,7 @@ impl Engine for Wikidata {
         }]
     }
 
-    fn parse(&self, core: &CoreView, request: &Request, raw: &Raw) -> Vec<Claim> {
+    fn parse(&self, entity: &EntityView, request: &Request, raw: &Raw) -> Vec<Claim> {
         // A degraded answer still carries candidates; it is only cached for a shorter time.
         if !raw.outcome.answered() {
             return Vec::new();
@@ -569,11 +569,11 @@ impl Engine for Wikidata {
             {
                 return Vec::new();
             }
-            return self.decide(core, &candidates, request);
+            return self.decide(entity, &candidates, request);
         }
 
         if request.kind == "search" {
-            let ours = surface_key(&core.name);
+            let ours = surface_key(&entity.name);
             let same: Vec<&Candidate> = candidates
                 .iter()
                 .filter(|candidate| {
@@ -595,7 +595,7 @@ impl Engine for Wikidata {
             if let [candidate] = same.as_slice() {
                 let weights = Weights::over(&candidates);
                 let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
-                let ours = our_tokens(core);
+                let ours = our_tokens(entity);
                 let fit = ours
                     .iter()
                     .map(|tokens| weights.fit(&theirs, tokens))
@@ -621,10 +621,10 @@ impl Engine for Wikidata {
             if admitted.is_empty() {
                 return Vec::new();
             }
-            return self.decide(core, &admitted, request);
+            return self.decide(entity, &admitted, request);
         }
 
-        self.decide(core, &candidates, request)
+        self.decide(entity, &candidates, request)
     }
 
     async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
@@ -919,8 +919,8 @@ struct Ranked<'a> {
 /// `Sunset Boulevard (musical film adaptation)` above the 1950 film, because that candidate's
 /// description literally contains the hint's words. A hint drawn from what we saw is not independent
 /// evidence about which candidate we meant.
-fn rank<'a>(core: &CoreView, candidates: &'a [Candidate]) -> Vec<Ranked<'a>> {
-    let ours = our_tokens(core);
+fn rank<'a>(entity: &EntityView, candidates: &'a [Candidate]) -> Vec<Ranked<'a>> {
+    let ours = our_tokens(entity);
     let weights = Weights::over(candidates);
 
     let mut scored: Vec<Ranked<'a>> = candidates
@@ -929,13 +929,13 @@ fn rank<'a>(core: &CoreView, candidates: &'a [Candidate]) -> Vec<Ranked<'a>> {
             let exact_label = candidate
                 .label
                 .as_deref()
-                .is_some_and(|label| same_surface(label, &core.name));
+                .is_some_and(|label| same_surface(label, &entity.name));
             let name = if exact_label {
                 1.0
             } else {
                 overlap(
                     &content_tokens(candidate.label.as_deref().unwrap_or_default()),
-                    &content_tokens(&core.name),
+                    &content_tokens(&entity.name),
                 )
             };
             let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
@@ -977,12 +977,12 @@ fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Claim {
 /// of James Davies* on "james" and "davies" — words every candidate shares, because they are the
 /// name. Only the remainder ("anthropologist", "author") carries information, and that is what the
 /// fallback is allowed to weigh.
-fn hint_tokens(core: &CoreView) -> Option<Vec<String>> {
-    let raw = core.search_query.as_deref()?.trim();
-    if raw.is_empty() || same_surface(raw, &core.name) {
+fn hint_tokens(entity: &EntityView) -> Option<Vec<String>> {
+    let raw = entity.search_query.as_deref()?.trim();
+    if raw.is_empty() || same_surface(raw, &entity.name) {
         return None;
     }
-    let named: std::collections::BTreeSet<String> = content_tokens(&core.name).into_iter().collect();
+    let named: std::collections::BTreeSet<String> = content_tokens(&entity.name).into_iter().collect();
     let hint: Vec<String> = content_tokens(raw)
         .into_iter()
         .filter(|token| !named.contains(token))
@@ -1000,10 +1000,10 @@ fn surface_key(surface: &str) -> String {
         .collect()
 }
 
-/// Every description the core has accumulated, tokenized. A candidate only has to fit one of them:
+/// Every description the entity has accumulated, tokenized. A candidate only has to fit one of them:
 /// taking the union instead would dilute a good match with text from unrelated captures.
-fn our_tokens(core: &CoreView) -> Vec<Vec<String>> {
-    core.descriptions().map(content_tokens).collect()
+fn our_tokens(entity: &EntityView) -> Vec<Vec<String>> {
+    entity.descriptions().map(content_tokens).collect()
 }
 
 fn content_tokens(text: &str) -> Vec<String> {
@@ -1137,8 +1137,8 @@ mod tests {
         Wikidata::new().expect("client should build")
     }
 
-    fn core(label: &str, description: Option<&str>) -> CoreView {
-        CoreView {
+    fn entity(label: &str, description: Option<&str>) -> EntityView {
+        EntityView {
             id: 1,
             name: label.to_string(),
             entity_type: "unknown".to_string(),
@@ -1152,7 +1152,7 @@ mod tests {
     #[test]
     fn an_exact_label_match_is_claimed() {
         let claims = engine().parse(
-            &core("Train Dreams", None),
+            &entity("Train Dreams", None),
             &request("label", "Train Dreams"),
             &found(json!([{"id": "Q185971", "label": "Train Dreams", "description": "novella"}])),
         );
@@ -1168,7 +1168,7 @@ mod tests {
     fn an_ambiguous_label_is_not_claimed() {
         // The Django case: two items share the surface, so the name cannot decide.
         let claims = engine().parse(
-            &core("Django", None),
+            &entity("Django", None),
             &request("label", "Django"),
             &found(json!([
                 {"id": "Q1", "label": "Django", "description": "web framework"},
@@ -1181,7 +1181,7 @@ mod tests {
     #[test]
     fn a_label_that_only_fuzzily_matches_is_not_claimed() {
         let claims = engine().parse(
-            &core("Sunset Boulevard", None),
+            &entity("Sunset Boulevard", None),
             &request("label", "Sunset Boulevard"),
             &found(json!([{"id": "Q1", "label": "Sunset Boulevard", "description": "street"}])),
         );
@@ -1190,7 +1190,7 @@ mod tests {
         assert_eq!(claims.len(), 1);
 
         let none = engine().parse(
-            &core("Sunset Boulevarde", None),
+            &entity("Sunset Boulevarde", None),
             &request("label", "Sunset Boulevarde"),
             &found(json!([{"id": "Q1", "label": "Sunset Boulevard"}])),
         );
@@ -1200,7 +1200,7 @@ mod tests {
     #[test]
     fn a_handle_match_is_stronger_than_a_label_match() {
         let claims = engine().parse(
-            &core("Tsoding", None),
+            &entity("Tsoding", None),
             &request("handle:P2002", "tsoding"),
             &found(json!([{"id": "Q1234", "label": "Tsoding"}])),
         );
@@ -1220,7 +1220,7 @@ mod tests {
             {"id": "Q4", "label": "Sunset Boulevard", "description": "film directed by someone else"}
         ]);
         let claims = engine().parse(
-            &core(
+            &entity(
                 "Sunset Boulevard",
                 Some("1950 American film noir directed by Billy Wilder about a faded silent-screen star"),
             ),
@@ -1242,7 +1242,7 @@ mod tests {
     #[test]
     fn a_short_generic_description_never_wins() {
         let claims = engine().parse(
-            &core(
+            &entity(
                 "George Washington",
                 Some("An American military general and statesman who served as the first president of the United States"),
             ),
@@ -1261,7 +1261,7 @@ mod tests {
     /// With no candidate fitting the description, the illumination's hint decides.
     #[test]
     fn the_hint_decides_when_nothing_fits_the_description() {
-        let mut view = core("Stagecoach", Some("a western"));
+        let mut view = entity("Stagecoach", Some("a western"));
         view.search_query = Some("Stagecoach 1939 film".to_string());
         let claims = engine().parse(
             &view,
@@ -1282,7 +1282,7 @@ mod tests {
     /// could pick one is still our own text echoing back, not independent evidence.
     #[test]
     fn the_hint_does_not_break_a_tie_between_qualifying_candidates() {
-        let mut view = core("Dune", Some("1965 science fiction novel by Frank Herbert"));
+        let mut view = entity("Dune", Some("1965 science fiction novel by Frank Herbert"));
         view.search_query = Some("Dune novel Frank Herbert".to_string());
         let claims = engine().parse(
             &view,
@@ -1299,7 +1299,7 @@ mod tests {
     #[test]
     fn a_near_tie_claims_nothing() {
         let claims = engine().parse(
-            &core("Dune", None),
+            &entity("Dune", None),
             &request("label", "Dune"),
             &found(json!([
                 {"id": "Q1", "label": "Dune", "description": "1965 novel by Frank Herbert"},
@@ -1313,7 +1313,7 @@ mod tests {
     #[test]
     fn a_description_breaks_the_dune_tie() {
         let claims = engine().parse(
-            &core("Dune", Some("1965 science fiction novel by Frank Herbert")),
+            &entity("Dune", Some("1965 science fiction novel by Frank Herbert")),
             &request("label", "Dune"),
             &found(json!([
                 {"id": "Q1", "label": "Dune", "description": "1965 science fiction novel by Frank Herbert"},
@@ -1327,7 +1327,7 @@ mod tests {
 
     #[test]
     fn an_empty_answer_claims_nothing() {
-        let mume = core("MUME", None);
+        let mume = entity("MUME", None);
         assert!(engine()
             .parse(&mume, &request("label", "MUME"), &Raw { outcome: Outcome::Empty, payload: None })
             .is_empty());
@@ -1338,7 +1338,7 @@ mod tests {
 
     #[test]
     fn planning_prefers_the_handle_then_a_title_then_the_label() {
-        let core = CoreView {
+        let entity = EntityView {
             id: 1,
             name: "Alexey Kutepov".to_string(),
             entity_type: "real_person".to_string(),
@@ -1347,7 +1347,7 @@ mod tests {
             search_query: Some("Tsoding".to_string()),
             handle: Some(("x".to_string(), "tsoding".to_string())),
         };
-        let plans = engine().plan(&core);
+        let plans = engine().plan(&entity);
         assert_eq!(plans.len(), 3);
         assert_eq!(plans[0].kind, "handle:P2002");
         // A title is unique where a label is not, so it is asked first and wins the claim.
@@ -1355,7 +1355,7 @@ mod tests {
         assert_eq!(plans[2].kind, "label");
 
         // Stage two searches for the bare label: that is the lookup blind spot it exists for.
-        let fallback = engine().plan_fallback(&core);
+        let fallback = engine().plan_fallback(&entity);
         assert_eq!(fallback.len(), 1);
         assert_eq!(fallback[0].kind, "search");
         assert_eq!(fallback[0].query, "Alexey Kutepov");
@@ -1366,7 +1366,7 @@ mod tests {
     #[test]
     fn a_search_answer_is_accepted_on_a_punctuation_variant() {
         let claims = engine().parse(
-            &core("J.R.R. Tolkien", Some("English author, philologist, and academic")),
+            &entity("J.R.R. Tolkien", Some("English author, philologist, and academic")),
             &request("search", "J.R.R. Tolkien"),
             &found(json!([
                 {"id": "Q892", "label": "J. R. R. Tolkien", "description": "English writer and philologist"},
@@ -1383,7 +1383,7 @@ mod tests {
     #[test]
     fn a_search_answer_with_a_misspelt_label_is_ranked() {
         let claims = engine().parse(
-            &core(
+            &entity(
                 "Fyodor Dostoevsky",
                 Some("19th-century Russian novelist and philosopher renowned for psychological mastery"),
             ),
@@ -1402,7 +1402,7 @@ mod tests {
     #[test]
     fn a_search_answer_that_only_mentions_our_name_is_refused() {
         let claims = engine().parse(
-            &core("Royal Navy", Some("the United Kingdom's naval warfare force")),
+            &entity("Royal Navy", Some("the United Kingdom's naval warfare force")),
             &request("search", "Royal Navy"),
             &found(json!([{
                 "id": "Q63751162",
@@ -1418,7 +1418,7 @@ mod tests {
     #[test]
     fn a_search_answer_without_a_surface_match_claims_nothing() {
         let claims = engine().parse(
-            &core("Clawdbot", Some("an open-source personal AI agent harness")),
+            &entity("Clawdbot", Some("an open-source personal AI agent harness")),
             &request("search", "Clawdbot"),
             &found(json!([{"id": "Q1", "label": "Clawdbot Pro", "description": "something else"}])),
         );
@@ -1430,7 +1430,7 @@ mod tests {
     #[test]
     fn a_title_reaches_an_item_whose_label_differs() {
         let claims = engine().parse(
-            &core(
+            &entity(
                 "Symphony No. 7 (Sibelius)",
                 Some("The final published symphony by Finnish composer Jean Sibelius"),
             ),
@@ -1451,7 +1451,7 @@ mod tests {
     #[test]
     fn a_title_that_is_a_disambiguation_page_is_refused() {
         let claims = engine().parse(
-            &core("John Grant", Some("American singer-songwriter")),
+            &entity("John Grant", Some("American singer-songwriter")),
             &request("title", "John Grant"),
             &found(json!([{
                 "id": "Q632837",

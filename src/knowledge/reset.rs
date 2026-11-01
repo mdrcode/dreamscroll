@@ -6,7 +6,7 @@
 //!
 //! Snapshotting copies rather than renames. Renaming the live tables would drag the foreign key from
 //! `user_observed_entities.knowledge_entity_id` along with them — Postgres keeps a constraint pointing at the
-//! same table — so the new empty core table would have nothing referencing it while the archive did,
+//! same table — so the new empty entity table would have nothing referencing it while the archive did,
 //! and the fixed index name on the evidence table would then collide when it was recreated.
 //! `CREATE TABLE AS SELECT` sidesteps all of it: a frozen artifact needs no constraints, and the live
 //! schema is left exactly as it was.
@@ -49,7 +49,7 @@ impl Snapshot {
         format!("{EVIDENCE_TABLE}__{}", self.suffix)
     }
 
-    /// Which observations belonged to which core — the only record of that is
+    /// Which observations belonged to which entity — the only record of that is
     /// `user_observed_entities.knowledge_entity_id`, so snapshotting the entities alone would keep the referents
     /// and lose the membership. One row per linked observation.
     pub fn membership(&self) -> String {
@@ -173,8 +173,8 @@ mod tests {
     use crate::knowledge::link;
     use crate::test_support::fixtures;
 
-    /// Observation ids grouped by core, ids of the entities ignored, so two runs can be compared even
-    /// though their core ids differ.
+    /// Observation ids grouped by entity, ids of the entities ignored, so two runs can be compared even
+    /// though their entity ids differ.
     fn group(rows: Vec<(i32, i32)>) -> Vec<Vec<i32>> {
         let mut groups: BTreeMap<i32, Vec<i32>> = BTreeMap::new();
         for (observation_id, knowledge_entity_id) in rows {

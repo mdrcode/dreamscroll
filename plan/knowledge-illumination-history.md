@@ -95,6 +95,14 @@ observations and drops everything derived, so the rebuild is cheap: 12 seconds f
 
 ## Still open
 
+- **There is no arbiter for which reading is right.** `current` is `max(illumination_id)` — recency,
+  not quality, and nothing in the system pretends otherwise. In the three re-reads examined closely
+  the *newest* reading was the worse one every time (captures 683, 697, 684). Only a user can say a
+  reading is right, and a correction needs somewhere to live: today the sole way to change what the
+  graph believes is to produce another reading. A capture-level pointer to the chosen illumination is
+  the natural home for that decision, and is deliberately deferred. It would also be the first source
+  of labelled data — every pinned reading says which run was correct, which is the only way to ever
+  answer whether re-illumination helps or hurts.
 - **Retries still destroy history.** `insert_illumination` upserts the illumination row by
   `task_run_id` and then deletes and re-inserts its observations, so a retry of the same run
   discards the previous attempt before `link` sees it. Re-illumination from a *new* task run is

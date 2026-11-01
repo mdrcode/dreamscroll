@@ -1,4 +1,4 @@
-//! Resolution: ask providers about cores, through the cache, and never any other way.
+//! Resolution: ask providers about entities, through the cache, and never any other way.
 //!
 //! The rule this module enforces structurally: **only the executor calls an engine's `fetch`**. A
 //! provider may say what it would ask (`plan`) and interpret an answer (`parse`), but it cannot
@@ -24,14 +24,14 @@ use crate::{database, model};
 pub(crate) const BATCH: usize = 50;
 
 /// Smaller under test, so a second transport call — where the rate limit is exercised — is reachable
-/// with a handful of cores.
+/// with a handful of entities.
 #[cfg(test)]
 pub(crate) const BATCH: usize = 2;
 
-/// What a provider is allowed to see about a core. Deliberately small: a provider gets the surface,
+/// What a provider is allowed to see about an entity. Deliberately small: a provider gets the surface,
 /// the type, the text and its identifiers, and nothing about who captured it.
 #[derive(Debug, Clone)]
-pub struct CoreView {
+pub struct EntityView {
     pub id: i32,
     pub name: String,
     pub entity_type: String,
@@ -40,11 +40,11 @@ pub struct CoreView {
     pub alt_descriptions: Vec<String>,
     /// The best disambiguation hint an observation carried, if any.
     pub search_query: Option<String>,
-    /// `(platform, handle)` when one of the core's observations carried an account.
+    /// `(platform, handle)` when one of the entity's observations carried an account.
     pub handle: Option<(String, String)>,
 }
 
-impl CoreView {
+impl EntityView {
     /// The selected description first, then the alternates accumulated from other members.
     pub fn descriptions(&self) -> impl Iterator<Item = &str> {
         self.description
@@ -69,7 +69,7 @@ pub struct Raw {
     pub payload: Option<Value>,
 }
 
-/// One identity a provider is willing to assert about a core.
+/// One identity a provider is willing to assert about an entity.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Claim {
     pub scheme: String,
@@ -107,7 +107,7 @@ impl std::error::Error for FetchError {}
 pub enum Stage {
     /// Identifiers and exact labels: cheap, high precision.
     Identity,
-    /// Full-text search: only for cores the first stage could not resolve.
+    /// Full-text search: only for entities the first stage could not resolve.
     Fallback,
 }
 
@@ -115,17 +115,17 @@ pub enum Stage {
 pub trait Engine: Send + Sync {
     fn id(&self) -> &'static str;
 
-    /// What this engine would ask about a core. Empty when it has nothing to offer.
-    fn plan(&self, core: &CoreView) -> Vec<Request>;
+    /// What this engine would ask about an entity. Empty when it has nothing to offer.
+    fn plan(&self, entity: &EntityView) -> Vec<Request>;
 
     /// Second-stage questions, asked only when the first stage found nothing.
-    fn plan_fallback(&self, _core: &CoreView) -> Vec<Request> {
+    fn plan_fallback(&self, _core: &EntityView) -> Vec<Request> {
         Vec::new()
     }
 
-    /// Turn an answer into claims. Pure: same core plus same answer, same claims. The core is
+    /// Turn an answer into claims. Pure: same entity plus same answer, same claims. The entity is
     /// passed because deciding between ambiguous candidates needs its description and type.
-    fn parse(&self, core: &CoreView, request: &Request, raw: &Raw) -> Vec<Claim>;
+    fn parse(&self, entity: &EntityView, request: &Request, raw: &Raw) -> Vec<Claim>;
 
     /// How many queries this kind can answer in one network call. The executor chunks by this and
     /// paces each call, so a kind that cannot batch is throttled per query instead of fired as a
@@ -144,7 +144,7 @@ pub const DEFAULT_MAX_REQUESTS: usize = 200;
 
 #[derive(Debug, Clone)]
 pub struct Options {
-    /// How many candidate cores to consider.
+    /// How many candidate entities to consider.
     pub limit: Option<usize>,
     /// Transport calls allowed in this run — the anti-spam budget.
     pub max_requests: usize,
@@ -152,7 +152,7 @@ pub struct Options {
     /// thousand labels to a few minutes while staying far below WDQS's processing-time budget.
     pub min_interval: std::time::Duration,
     pub dry_run: bool,
-    /// Resolve only this core — for debugging one case without walking the corpus.
+    /// Resolve only this entity — for debugging one case without walking the corpus.
     pub only: Option<i32>,
 }
 
@@ -177,9 +177,9 @@ pub struct Report {
     pub fetched: usize,
     pub failed: usize,
     pub claims: usize,
-    /// Cores that gained at least one claim.
-    pub cores_resolved: usize,
-    /// Cores folded into the core that already held their identity.
+    /// Entities that gained at least one claim.
+    pub entities_resolved: usize,
+    /// Entities folded into the entity that already held their identity.
     pub merges: usize,
     /// Identity conflicts that survived the same-capture veto — real contradictions, kept as
     /// collisions for adjudication rather than folded.
@@ -195,10 +195,10 @@ pub async fn resolve(
     engines: &[Box<dyn Engine>],
     options: &Options,
 ) -> anyhow::Result<Report> {
-    let cores = candidates(&db.conn, options.limit, options.only).await?;
+    let entities = candidates(&db.conn, options.limit, options.only).await?;
     let cache = Cache::new(&db.conn);
     let mut report = Report {
-        candidates: cores.len(),
+        candidates: entities.len(),
         dry_run: options.dry_run,
         ..Default::default()
     };
@@ -208,24 +208,24 @@ pub async fn resolve(
         if report.rate_limited_after.is_some() {
             break;
         }
-        run_stage(db, &cache, engine.as_ref(), &cores, &mut resolved, Stage::Identity, options, &mut report).await?;
+        run_stage(db, &cache, engine.as_ref(), &entities, &mut resolved, Stage::Identity, options, &mut report).await?;
     }
     // Stage two is the search fallback: an exact-label lookup misses when Wikidata spells the name
     // differently (`J.R.R. Tolkien` vs `J. R. R. Tolkien`), and search recovers it. It only runs for
-    // cores the identity stage left unresolved.
+    // entities the identity stage left unresolved.
     if !options.dry_run {
         for engine in engines {
             if report.rate_limited_after.is_some() {
                 break;
             }
-            run_stage(db, &cache, engine.as_ref(), &cores, &mut resolved, Stage::Fallback, options, &mut report).await?;
+            run_stage(db, &cache, engine.as_ref(), &entities, &mut resolved, Stage::Fallback, options, &mut report).await?;
         }
     }
 
     for knowledge_entity_id in &resolved {
         project(&db.conn, *knowledge_entity_id).await?;
     }
-    report.cores_resolved = resolved.len();
+    report.entities_resolved = resolved.len();
     Ok(report)
 }
 
@@ -234,20 +234,20 @@ async fn run_stage(
     db: &database::DbHandle,
     cache: &Cache<'_>,
     engine: &dyn Engine,
-    cores: &[CoreView],
+    entities: &[EntityView],
     resolved: &mut HashSet<i32>,
     stage: Stage,
     options: &Options,
     report: &mut Report,
 ) -> anyhow::Result<()> {
-    let plans: Vec<(usize, Request)> = cores
+    let plans: Vec<(usize, Request)> = entities
         .iter()
         .enumerate()
-        .filter(|(_, core)| !resolved.contains(&core.id))
-        .flat_map(|(index, core)| {
+        .filter(|(_, entity)| !resolved.contains(&entity.id))
+        .flat_map(|(index, entity)| {
             let requests = match stage {
-                Stage::Identity => engine.plan(core),
-                Stage::Fallback => engine.plan_fallback(core),
+                Stage::Identity => engine.plan(entity),
+                Stage::Fallback => engine.plan_fallback(entity),
             };
             requests.into_iter().map(move |request| (index, request))
         })
@@ -262,20 +262,20 @@ async fn run_stage(
     let answers = fetch_plans(cache, engine, &plans, options, report).await?;
 
     for (index, request) in plans {
-        // One core, one identity. A core gets several plans (handle, title, label) and the first to
+        // One entity, one identity. A entity gets several plans (handle, title, label) and the first to
         // claim wins: the title route is ordered ahead of the label route because a title is unique
         // where a label is not.
-        if resolved.contains(&cores[index].id) {
+        if resolved.contains(&entities[index].id) {
             continue;
         }
         let Some(raw) = answers.get(&(request.kind.clone(), request.query.clone())) else {
             continue;
         };
-        let claims = engine.parse(&cores[index], &request, raw);
+        let claims = engine.parse(&entities[index], &request, raw);
         if claims.is_empty() {
             continue;
         }
-        let knowledge_entity_id = cores[index].id;
+        let knowledge_entity_id = entities[index].id;
         let mut accepted = 0;
         for claim in claims {
             if store_claim(&db.conn, engine.id(), knowledge_entity_id, claim, report).await? {
@@ -435,7 +435,7 @@ async fn fetch_plans(
     Ok(answers)
 }
 
-/// Store one claim as `ontology` evidence. Returns whether it was accepted; a claim another core
+/// Store one claim as `ontology` evidence. Returns whether it was accepted; a claim another entity
 /// already holds is a conflict (a merge the graph has not made), not a duplicate.
 async fn store_claim(
     conn: &sea_orm::DatabaseConnection,
@@ -472,20 +472,20 @@ async fn store_claim(
             Ok(true)
         }
         Err(error) => match unique_violation(&error) {
-            // Another core already holds this identity, which means the two cores are the same
+            // Another entity already holds this identity, which means the two entities are the same
             // referent: the graph was told so by the authority. Fold ours into the one that holds it
             // rather than leaving a duplicate behind.
             Some("idx-knowledge_evidence_identity") => {
                 if let Some(owner) = crate::knowledge::link::identity_owner(conn, &scheme, &identity).await?
                     && owner != knowledge_entity_id
                 {
-                    match crate::knowledge::merge::merge_core(conn, knowledge_entity_id, owner).await? {
+                    match crate::knowledge::merge::merge(conn, knowledge_entity_id, owner).await? {
                         crate::knowledge::merge::Outcome::Merged => report.merges += 1,
                         crate::knowledge::merge::Outcome::AlreadyMerged => {}
                         // The veto says these two cannot be one referent, so the authority is
                         // contradicting something we already know. Record it; do not fold.
                         crate::knowledge::merge::Outcome::RefusedSharedIllumination => {
-                            // Recorded once per pair. A resolve run retries every core without a
+                            // Recorded once per pair. A resolve run retries every entity without a
                             // claim, so re-asserting the same contradiction would otherwise append
                             // a row per run and turn "3 collisions" into noise.
                             if !collision_recorded(conn, owner, knowledge_entity_id, &identity).await? {
@@ -512,7 +512,7 @@ async fn store_claim(
                 }
                 Ok(false)
             }
-            // The same fact already recorded for this core: nothing to do.
+            // The same fact already recorded for this entity: nothing to do.
             Some(_) => Ok(false),
             None => Err(error.into()),
         },
@@ -673,7 +673,7 @@ pub async fn project(conn: &sea_orm::DatabaseConnection, knowledge_entity_id: i3
     // Corroboration counts independent *inputs*, not scheme labels. A `p2002` claim is derived from
     // the handle — the resolver asked Wikidata which item owns that account — so counting it beside
     // the handle's own `platform_link` row treated one chain as two and gave every handle-resolved
-    // core the maximum confidence.
+    // entity the maximum confidence.
     let from_text = claims
         .iter()
         .any(|claim| claim.source == "wikidata" && claim.method.as_deref() != Some("p2002"));
@@ -718,15 +718,15 @@ pub async fn project(conn: &sea_orm::DatabaseConnection, knowledge_entity_id: i3
     Ok(())
 }
 
-/// Cores with no live ontology claim. Note the filter is *ontology*, not *no evidence*: a core
+/// Entities with no live ontology claim. Note the filter is *ontology*, not *no evidence*: an entity
 /// identified only by a platform handle still deserves a QID, because that is how corroboration
 /// happens.
 async fn candidates(
     conn: &sea_orm::DatabaseConnection,
     limit: Option<usize>,
     only: Option<i32>,
-) -> anyhow::Result<Vec<CoreView>> {
-    use model::knowledge_entity as core;
+) -> anyhow::Result<Vec<EntityView>> {
+    use model::knowledge_entity as entity;
     use model::knowledge_evidence as evidence;
     use model::user_observed_entity as observation;
 
@@ -740,17 +740,17 @@ async fn candidates(
         .map(|row| row.knowledge_entity_id)
         .collect();
 
-    let mut cores = core::Entity::find()
-        .filter(core::Column::MergedIntoId.is_null())
-        .order_by_asc(core::Column::Id)
+    let mut entities = entity::Entity::find()
+        .filter(entity::Column::MergedIntoId.is_null())
+        .order_by_asc(entity::Column::Id)
         .all(conn)
         .await?;
-    cores.retain(|row| !already.contains(&row.id));
+    entities.retain(|row| !already.contains(&row.id));
     if let Some(knowledge_entity_id) = only {
-        cores.retain(|row| row.id == knowledge_entity_id);
+        entities.retain(|row| row.id == knowledge_entity_id);
     }
     if let Some(limit) = limit {
-        cores.truncate(limit);
+        entities.truncate(limit);
     }
 
     let observations = observation::Entity::find()
@@ -775,9 +775,9 @@ async fn candidates(
         }
     }
 
-    Ok(cores
+    Ok(entities
         .into_iter()
-        .map(|row| CoreView {
+        .map(|row| EntityView {
             search_query: search.get(&row.id).cloned(),
             handle: handles.get(&row.id).cloned(),
             id: row.id,
@@ -808,16 +808,16 @@ mod tests {
             "fake"
         }
 
-        fn plan(&self, core: &CoreView) -> Vec<Request> {
+        fn plan(&self, entity: &EntityView) -> Vec<Request> {
             vec![Request {
                 provider: "fake",
                 kind: "label".to_string(),
                 shape: "v1".to_string(),
-                query: core.name.clone(),
+                query: entity.name.clone(),
             }]
         }
 
-        fn parse(&self, _core: &CoreView, request: &Request, raw: &Raw) -> Vec<Claim> {
+        fn parse(&self, _core: &EntityView, request: &Request, raw: &Raw) -> Vec<Claim> {
             let Some(payload) = &raw.payload else {
                 return Vec::new();
             };
@@ -856,7 +856,7 @@ mod tests {
         }
     }
 
-    /// One observation, linked to a core by the real linker — the same path production takes.
+    /// One observation, linked to an entity by the real linker — the same path production takes.
     async fn seed(db: &database::DbHandle, name: &str) -> i32 {
         use crate::test_support::fixtures;
 
@@ -919,15 +919,15 @@ mod tests {
         assert_eq!(first.fetched, 1, "{first:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
 
-        let core = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+        let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(core.status, "identified");
-        assert_eq!(core.confidence, Some(0.9));
+        assert_eq!(entity.status, "identified");
+        assert_eq!(entity.confidence, Some(0.9));
 
-        // Second run: the core now has an ontology claim, so it is not even a candidate.
+        // Second run: the entity now has an ontology claim, so it is not even a candidate.
         let second = resolve(&db, &engines, &Options::default()).await.expect("resolve");
         assert_eq!(second.candidates, 0, "{second:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 1, "no second fetch");
@@ -948,19 +948,19 @@ mod tests {
         assert_eq!(first.fetched, 1, "{first:?}");
         assert_eq!(first.claims, 0);
 
-        // The core is still a candidate (no claim), but the negative answer is cached.
+        // The entity is still a candidate (no claim), but the negative answer is cached.
         let second = resolve(&db, &engines, &Options::default()).await.expect("resolve");
         assert_eq!(second.candidates, 1, "{second:?}");
         assert_eq!(second.fetched, 0, "{second:?}");
         assert_eq!(second.cache_hits, 1, "{second:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 1, "the negative was not re-fetched");
 
-        let core = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+        let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(core.status, "provisional");
+        assert_eq!(entity.status, "provisional");
     }
 
     /// Two *independent inputs* — a text match and an account link — raise confidence.
@@ -1001,12 +1001,12 @@ mod tests {
 
         project(&db.conn, knowledge_entity_id).await.unwrap();
 
-        let core = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+        let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
-        assert!((core.confidence.unwrap() - 0.9).abs() < 1e-6, "{core:?}");
+        assert!((entity.confidence.unwrap() - 0.9).abs() < 1e-6, "{entity:?}");
     }
 
     /// A `p2002` claim *is* the handle — it must not count as a second input beside it.
@@ -1040,14 +1040,14 @@ mod tests {
 
         project(&db.conn, knowledge_entity_id).await.unwrap();
 
-        let core = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+        let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
         assert!(
-            (core.confidence.unwrap() - 0.95).abs() < 1e-6,
-            "one chain must not be paid twice: {core:?}"
+            (entity.confidence.unwrap() - 0.95).abs() < 1e-6,
+            "one chain must not be paid twice: {entity:?}"
         );
     }
 
@@ -1060,16 +1060,16 @@ mod tests {
             "limited"
         }
 
-        fn plan(&self, core: &CoreView) -> Vec<Request> {
+        fn plan(&self, entity: &EntityView) -> Vec<Request> {
             vec![Request {
                 provider: "limited",
                 kind: "label".to_string(),
                 shape: "v1".to_string(),
-                query: core.name.clone(),
+                query: entity.name.clone(),
             }]
         }
 
-        fn parse(&self, _core: &CoreView, _request: &Request, _raw: &Raw) -> Vec<Claim> {
+        fn parse(&self, _core: &EntityView, _request: &Request, _raw: &Raw) -> Vec<Claim> {
             Vec::new()
         }
 
@@ -1092,16 +1092,16 @@ mod tests {
             "flaky"
         }
 
-        fn plan(&self, core: &CoreView) -> Vec<Request> {
+        fn plan(&self, entity: &EntityView) -> Vec<Request> {
             vec![Request {
                 provider: "flaky",
                 kind: "label".to_string(),
                 shape: "v1".to_string(),
-                query: core.name.clone(),
+                query: entity.name.clone(),
             }]
         }
 
-        fn parse(&self, _core: &CoreView, request: &Request, raw: &Raw) -> Vec<Claim> {
+        fn parse(&self, _core: &EntityView, request: &Request, raw: &Raw) -> Vec<Claim> {
             (raw.outcome == Outcome::Found)
                 .then(|| Claim {
                     scheme: "wikidata".to_string(),
@@ -1181,7 +1181,7 @@ mod tests {
         );
     }
 
-    /// Two different cores resolving to the same QID are the same referent. The second must fold
+    /// Two different entities resolving to the same QID are the same referent. The second must fold
     /// into the first rather than leaving a duplicate behind.
     #[tokio::test]
     async fn cores_that_resolve_to_the_same_identity_are_merged() {
@@ -1217,7 +1217,7 @@ mod tests {
             .count(&db.conn)
             .await
             .unwrap();
-        assert_eq!(live, 1, "one core survives");
+        assert_eq!(live, 1, "one entity survives");
         let tombstoned = model::knowledge_entity::Entity::find()
             .filter(model::knowledge_entity::Column::MergedIntoId.is_not_null())
             .count(&db.conn)

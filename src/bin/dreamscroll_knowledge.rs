@@ -40,7 +40,7 @@ struct MergeArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "reset")]
-#[argh(description = "snapshot the cores, evidence and membership, then empty them; needs --yes")]
+#[argh(description = "snapshot the entities, evidence and membership, then empty them; needs --yes")]
 struct ResetArgs {
     #[argh(switch, short = 'y')]
     #[argh(description = "confirm resetting the projected graph")]
@@ -59,7 +59,7 @@ struct CompareArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "resolve")]
-#[argh(description = "ask evidence providers about cores with no authority claim (cache first)")]
+#[argh(description = "ask evidence providers about entities with no authority claim (cache first)")]
 struct ResolveArgs {
     #[argh(switch)]
     #[argh(description = "plan and report without touching the network")]
@@ -71,11 +71,11 @@ struct ResolveArgs {
     #[argh(description = "serve from the cache only; makes no transport calls")]
     offline: bool,
     #[argh(option)]
-    #[argh(description = "consider at most this many cores")]
+    #[argh(description = "consider at most this many entities")]
     limit: Option<usize>,
     #[argh(option)]
-    #[argh(description = "resolve only this core id")]
-    core: Option<i32>,
+    #[argh(description = "resolve only this entity id")]
+    entity: Option<i32>,
     #[argh(option, default = "1000")]
     #[argh(description = "minimum milliseconds between transport calls")]
     min_interval_ms: u64,
@@ -83,7 +83,7 @@ struct ResolveArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "stats")]
-#[argh(description = "counts: observations, linked share, cores by status, duplicate rate")]
+#[argh(description = "counts: observations, linked share, entities by status, duplicate rate")]
 struct StatsArgs {}
 
 #[tokio::main]
@@ -129,7 +129,7 @@ async fn main() -> anyhow::Result<()> {
                 println!("dry run; pass --yes to apply");
                 return Ok(());
             }
-            match knowledge::merge::merge_core(&db.conn, args.loser, args.winner).await? {
+            match knowledge::merge::merge(&db.conn, args.loser, args.winner).await? {
                 knowledge::merge::Outcome::Merged => {
                     println!("merged; {} is now a tombstone", args.loser)
                 }
@@ -137,7 +137,7 @@ async fn main() -> anyhow::Result<()> {
                     println!("already merged; nothing to do")
                 }
                 knowledge::merge::Outcome::RefusedSharedIllumination => {
-                    println!("refused at merge time — the cores changed under us")
+                    println!("refused at merge time — the entities changed under us")
                 }
             }
         }
@@ -150,7 +150,7 @@ async fn main() -> anyhow::Result<()> {
             let report = knowledge::reset::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
-                    "snapshot {} · cores {} · evidence {} · members {}",
+                    "snapshot {} · entities {} · evidence {} · members {}",
                     snapshot.suffix,
                     report.snapshot_entities,
                     report.snapshot_evidence,
@@ -159,7 +159,7 @@ async fn main() -> anyhow::Result<()> {
                 None => println!("nothing to snapshot"),
             }
             println!(
-                "unlinked {} observations · deleted {} evidence rows · deleted {} cores",
+                "unlinked {} observations · deleted {} evidence rows · deleted {} entities",
                 report.unlinked, report.evidence, report.entities
             );
         }
@@ -179,9 +179,9 @@ async fn main() -> anyhow::Result<()> {
             );
             println!(
                 "entities     {:>7}  before {} · after {}",
-                report.cores_before.max(report.cores_after),
-                report.cores_before,
-                report.cores_after
+                report.entities_before.max(report.entities_after),
+                report.entities_before,
+                report.entities_after
             );
             println!("unchanged    {:>7}  groups", report.unchanged);
             println!(
@@ -227,7 +227,7 @@ async fn main() -> anyhow::Result<()> {
                 limit: args.limit,
                 max_requests,
                 dry_run: args.dry_run,
-                only: args.core,
+                only: args.entity,
                 min_interval: std::time::Duration::from_millis(args.min_interval_ms),
             };
             let report = knowledge::resolve::resolve(&db, &engines, &options).await?;
@@ -244,8 +244,8 @@ async fn main() -> anyhow::Result<()> {
                 report.candidates, report.planned, report.cache_hits
             );
             println!(
-                "fetched {} · failed {} · claims {} · cores resolved {} · merges {} · collisions {}",
-                report.fetched, report.failed, report.claims, report.cores_resolved, report.merges, report.collisions
+                "fetched {} · failed {} · claims {} · entities resolved {} · merges {} · collisions {}",
+                report.fetched, report.failed, report.claims, report.entities_resolved, report.merges, report.collisions
             );
             if report.budget_exhausted {
                 println!("budget exhausted at {max_requests} requests");

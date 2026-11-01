@@ -55,19 +55,19 @@ impl Observation {
     }
 }
 
-/// A candidate core, with the label work precomputed so scoring is cheap in a loop.
+/// A candidate entity, with the label work precomputed so scoring is cheap in a loop.
 #[derive(Debug, Clone)]
-pub struct Core {
+pub struct Scored {
     pub id: i32,
     pub alt_name_keys: Vec<String>,
     pub alt_name_token_keys: Vec<String>,
     /// One token set per accumulated description; a candidate has to fit only one of them.
     pub description_tokens: Vec<Vec<String>>,
-    /// Every type this core's members asserted. Agreement with any one of them counts.
+    /// Every type this entity's members asserted. Agreement with any one of them counts.
     pub entity_types: Vec<String>,
 }
 
-impl Core {
+impl Scored {
     /// `name` is the entity's selected surface and must be indexed alongside the alternatives.
     /// `project` deliberately excludes it from `alt_names`, so indexing `alt_names` alone leaves a
     /// persisted entity invisible to blocking on its own name — every later observation that names
@@ -113,18 +113,18 @@ pub fn worth_merging(features: &Features) -> bool {
         && (features.type_match >= AGREEMENT_FLOOR || features.description >= AGREEMENT_FLOOR)
 }
 
-pub fn score(observation: &Observation, core: &Core) -> Features {
-    let name = name_similarity(observation, core);
-    // Best fit across every description the core has accumulated, never their union: a union would
+pub fn score(observation: &Observation, entity: &Scored) -> Features {
+    let name = name_similarity(observation, entity);
+    // Best fit across every description the entity has accumulated, never their union: a union would
     // dilute a good match with text from captures that had nothing to do with this observation.
-    let description = core
+    let description = entity
         .description_tokens
         .iter()
         .map(|tokens| jaccard(&observation.description_tokens, tokens))
         .fold(0.0f32, f32::max);
-    // Any agreement counts. A core whose members were called both `brand` and `organization` must
+    // Any agreement counts. A entity whose members were called both `brand` and `organization` must
     // accept either, or half its own members could not have joined it.
-    let type_match = core
+    let type_match = entity
         .entity_types
         .iter()
         .map(|entity_type| type_similarity(&observation.entity_type, entity_type))
@@ -140,11 +140,11 @@ pub fn score(observation: &Observation, core: &Core) -> Features {
 
 /// 1.0 on the same normalized surface, 0.9 when only word order or an article differs, else the
 /// best token overlap. A name never decides on its own — see the vetoes in `link`.
-fn name_similarity(observation: &Observation, core: &Core) -> f32 {
-    if core.alt_name_keys.contains(&observation.name_key) {
+fn name_similarity(observation: &Observation, entity: &Scored) -> f32 {
+    if entity.alt_name_keys.contains(&observation.name_key) {
         return 1.0;
     }
-    if core.alt_name_token_keys.contains(&observation.token_key) {
+    if entity.alt_name_token_keys.contains(&observation.token_key) {
         return 0.9;
     }
     0.0
@@ -178,23 +178,23 @@ mod tests {
         Observation::new(name, description, ty)
     }
 
-    fn core(name: &str, description: Option<&str>, ty: &str) -> Core {
+    fn entity(name: &str, description: Option<&str>, ty: &str) -> Scored {
         let descriptions: Vec<&str> = description.into_iter().collect();
-        Core::new(1, name, &[], &descriptions, &[ty.to_string()])
+        Scored::new(1, name, &[], &descriptions, &[ty.to_string()])
     }
 
     /// `brand` and `organization` are the same referent described twice — the taxonomy does not have
     /// to choose for a member to agree.
     #[test]
     fn any_asserted_type_counts_as_agreement() {
-        let core = Core::new(
+        let entity = Scored::new(
             1,
             "Nintendo",
             &[],
             &[],
             &["organization".to_string(), "brand".to_string()],
         );
-        let typed = |ty: &str| score(&observation("Nintendo", None, ty), &core).type_match;
+        let typed = |ty: &str| score(&observation("Nintendo", None, ty), &entity).type_match;
         assert_eq!(typed("brand"), 1.0);
         assert_eq!(typed("organization"), 1.0);
         assert_eq!(typed("movie"), 0.0);
@@ -204,7 +204,7 @@ mod tests {
     fn identical_name_and_type_clears_the_bar() {
         let features = score(
             &observation("Train Dreams", Some("a novella by Denis Johnson"), "book"),
-            &core("Train Dreams", Some("a novella by Denis Johnson"), "book"),
+            &entity("Train Dreams", Some("a novella by Denis Johnson"), "book"),
         );
         assert_eq!(features.name, 1.0);
         assert!(worth_merging(&features), "{features:?}");
@@ -214,7 +214,7 @@ mod tests {
     fn article_or_word_order_alone_still_clears() {
         let features = score(
             &observation("The Train Dreams", None, "book"),
-            &core("Train Dreams", None, "book"),
+            &entity("Train Dreams", None, "book"),
         );
         assert_eq!(features.name, 0.9);
         assert!(worth_merging(&features), "{features:?}");
@@ -224,7 +224,7 @@ mod tests {
     fn a_type_mismatch_without_name_agreement_does_not_clear() {
         let features = score(
             &observation("Django", Some("a Python web framework"), "software"),
-            &core("Django", Some("a 2021 video game"), "product"),
+            &entity("Django", Some("a 2021 video game"), "product"),
         );
         assert_eq!(features.name, 1.0);
         assert_eq!(features.type_match, 0.0);
@@ -237,7 +237,7 @@ mod tests {
     fn different_names_do_not_clear() {
         let features = score(
             &observation("Train Dreams", None, "book"),
-            &core("Gravity's Rainbow", None, "book"),
+            &entity("Gravity's Rainbow", None, "book"),
         );
         assert_eq!(features.name, 0.0);
         assert!(!worth_merging(&features), "{features:?}");
@@ -247,7 +247,7 @@ mod tests {
     fn unknown_type_is_weak_not_negative() {
         let features = score(
             &observation("Wojak", None, "unknown"),
-            &core("Wojak", None, "concept"),
+            &entity("Wojak", None, "concept"),
         );
         assert_eq!(features.type_match, 0.5);
     }

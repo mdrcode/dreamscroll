@@ -15,7 +15,7 @@ pub struct Stats {
     pub provisional: u64,
     pub identified: u64,
     pub contested: u64,
-    /// Cores with a live authority claim — the number `resolve` moves.
+    /// Entities with a live authority claim — the number `resolve` moves.
     pub with_claim: u64,
     pub cache_found: u64,
     pub cache_empty: u64,
@@ -49,9 +49,9 @@ pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
         ..Default::default()
     };
 
-    for core in model::knowledge_entity::Entity::find().all(&db.conn).await? {
+    for entity in model::knowledge_entity::Entity::find().all(&db.conn).await? {
         stats.entities += 1;
-        match core.status.as_str() {
+        match entity.status.as_str() {
             "identified" => stats.identified += 1,
             "contested" => stats.contested += 1,
             _ => stats.provisional += 1,
