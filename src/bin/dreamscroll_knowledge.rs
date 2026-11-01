@@ -120,8 +120,8 @@ async fn main() -> anyhow::Result<()> {
             );
             if preview.shared_illuminations > 0 {
                 println!(
-                    "refused: both cores have observations in the same capture, and the linker \
-                     already decided those mentions are different referents"
+                    "refused: both entities appear in the same illumination, and one extraction \
+                     emitting both means two referents"
                 );
                 return Ok(());
             }
