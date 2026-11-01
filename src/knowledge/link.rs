@@ -251,7 +251,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
         .all(&db.conn)
         .await?
     {
-        crate::knowledge::resolve::project(&db.conn, entity.id).await?;
+        crate::knowledge::project::project(&db.conn, entity.id).await?;
     }
 
     Ok(report)

@@ -11,6 +11,7 @@ pub mod link;
 pub mod linker;
 pub mod merge;
 pub mod normalize;
+pub mod project;
 pub mod reset;
 pub mod resolve;
 pub mod heuristic;
