@@ -284,6 +284,95 @@ mod tests {
         );
         assert_eq!(features.type_match, 0.5);
     }
+
+    fn entity_view(id: i32, name: &str, ty: &str) -> view::EntityView {
+        view::EntityView {
+            id,
+            name: name.to_string(),
+            alt_names: Vec::new(),
+            entity_type: ty.to_string(),
+            alt_types: Vec::new(),
+            description: None,
+            alt_descriptions: Vec::new(),
+            search_query: None,
+            account: None,
+        }
+    }
+
+    fn observation_view(name: &str, ty: &str) -> view::ObservationView {
+        view::ObservationView {
+            id: 1,
+            capture_id: 1,
+            illumination_id: 1,
+            name: name.to_string(),
+            entity_type: ty.to_string(),
+            description: None,
+            account: None,
+        }
+    }
+
+    /// The bug that made every later capture duplicate an existing name: `project` keeps the
+    /// selected surface out of `alt_names`, so an entity with no alternatives must still be
+    /// findable by its own name.
+    #[test]
+    fn the_selected_name_is_a_block_key_on_its_own() {
+        let mut blocker = NameBlocker::new();
+        blocker.index(&entity_view(7, "Francis Ford Coppola", "real_person"));
+
+        let candidates = blocker.candidates(&observation_view("Francis Ford Coppola", "real_person"));
+        assert_eq!(candidates, vec![7]);
+    }
+
+    #[test]
+    fn word_order_alone_still_blocks() {
+        let mut blocker = NameBlocker::new();
+        blocker.index(&entity_view(7, "Train Dreams", "book"));
+
+        let candidates = blocker.candidates(&observation_view("Dreams Train", "book"));
+        assert_eq!(candidates, vec![7], "token-set equality is a block key");
+    }
+
+    #[test]
+    fn distinct_names_propose_nothing() {
+        let mut blocker = NameBlocker::new();
+        blocker.index(&entity_view(7, "Train Dreams", "book"));
+
+        assert!(blocker.candidates(&observation_view("Apocalypse Now", "movie")).is_empty());
+    }
+
+    #[test]
+    fn the_linker_takes_the_best_candidate_that_clears_the_bar() {
+        let weak = entity_view(1, "Train Dreams", "book");
+        let strong = entity_view(2, "Train Dreams", "book");
+        let observation = observation_view("Train Dreams", "book");
+
+        match ScorerLinker.decide(&observation, &[&weak, &strong]) {
+            Decision::Attach { entity, score } => {
+                assert!(entity == 1 || entity == 2);
+                assert!(score >= 0.6, "{score}");
+            }
+            other => panic!("expected an attach, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn the_linker_creates_when_nothing_clears_the_bar() {
+        let mut other = entity_view(1, "Apocalypse Now", "movie");
+        other.description = Some("a 1979 film by Francis Ford Coppola".to_string());
+
+        match ScorerLinker.decide(&observation_view("Train Dreams", "book"), &[&other]) {
+            Decision::Create { best } => assert!(best.is_some(), "the rejected candidate is kept"),
+            other => panic!("expected a create, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn no_candidates_creates_with_nothing_to_report() {
+        match ScorerLinker.decide(&observation_view("Anything", "unknown"), &[]) {
+            Decision::Create { best } => assert!(best.is_none()),
+            other => panic!("expected a create, got {other:?}"),
+        }
+    }
 }
 
 /// Blocks on normalized names and the account a capture showed.

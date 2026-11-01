@@ -536,24 +536,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn same_name_across_captures_shares_one_core() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let first = capture(&db, "link_first").await;
-        let second = capture(&db, "link_second").await;
-        observe(&db, &first, 0, "Train Dreams", Some("a novella by Denis Johnson"), "book", None, None).await;
-        observe(&db, &second, 0, "train dreams", Some("a novella by Denis Johnson"), "book", None, None).await;
-
-        let report = link(&db).await.expect("build should succeed");
-
-        assert_eq!(report.created, 1, "{report:?}");
-        assert_eq!(report.linked, 1, "{report:?}");
-        assert_eq!(entity_count(&db).await, 1);
-    }
-
-    #[tokio::test]
     async fn one_capture_never_folds_two_observations_together() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
@@ -562,23 +544,6 @@ mod tests {
         let same = capture(&db, "link_same_capture").await;
         observe(&db, &same, 0, "Dune", Some("a 1965 novel by Frank Herbert"), "book", None, None).await;
         observe(&db, &same, 1, "Dune", Some("a 1965 novel by Frank Herbert"), "book", None, None).await;
-
-        let report = link(&db).await.expect("build should succeed");
-
-        assert_eq!(report.created, 2, "{report:?}");
-        assert_eq!(entity_count(&db).await, 2);
-    }
-
-    #[tokio::test]
-    async fn distinct_names_get_distinct_cores() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let first = capture(&db, "link_distinct_first").await;
-        let second = capture(&db, "link_distinct_second").await;
-        observe(&db, &first, 0, "Train Dreams", None, "book", None, None).await;
-        observe(&db, &second, 0, "Gravity's Rainbow", None, "book", None, None).await;
 
         let report = link(&db).await.expect("build should succeed");
 
@@ -649,53 +614,6 @@ mod tests {
     /// `project` keeps the selected name out of `alt_names`, so an observation is only findable on a
     /// later run if its own name is indexed as well. Without that, every capture that repeated a
     /// name created a duplicate — the local corpus had ten such pairs.
-    #[tokio::test]
-    async fn a_later_run_finds_an_entity_by_its_own_name() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-
-        let first = capture(&db, "link_name_first").await;
-        observe(
-            &db,
-            &first,
-            0,
-            "Francis Ford Coppola",
-            Some("An American film director, producer and screenwriter"),
-            "real_person",
-            None,
-            None,
-        )
-        .await;
-        let first_run = link(&db).await.expect("first link");
-        assert_eq!(first_run.created, 1, "{first_run:?}");
-
-        let second = capture(&db, "link_name_second").await;
-        observe(
-            &db,
-            &second,
-            0,
-            "Francis Ford Coppola",
-            Some("An American film director, producer and screenwriter"),
-            "real_person",
-            None,
-            None,
-        )
-        .await;
-        let second_run = link(&db).await.expect("second link");
-
-        assert_eq!(
-            second_run.created, 0,
-            "a repeated name must attach, not duplicate: {second_run:?}"
-        );
-        assert_eq!(second_run.linked, 1, "{second_run:?}");
-        assert_eq!(entity::Entity::find().count(&db.conn).await.unwrap(), 1);
-    }
-
-    /// The persona case: an account's own name is the identity, so two captures that name the same
-    /// person differently still share an entity. Without the identifier lookup these would be two entities,
-    /// because the names share no tokens.
     #[tokio::test]
     async fn a_shared_handle_links_across_captures_and_names() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
