@@ -14,7 +14,7 @@ use sea_orm::{
     QueryFilter, Set, Statement,
 };
 
-use crate::knowledge::{project, resolve};
+use crate::knowledge::project;
 use crate::model::{
     knowledge_entity as entity, knowledge_evidence as evidence,
     user_observed_entity as observation,

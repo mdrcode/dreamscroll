@@ -8,10 +8,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use sea_orm::sea_query::Expr;
-use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
-};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde_json::{json, Value};
 
 use crate::knowledge::cache::{Answer, Cache, Outcome};
@@ -596,6 +593,7 @@ async fn candidates(
 
 #[cfg(test)]
 mod tests {
+    use sea_orm::PaginatorTrait;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 
