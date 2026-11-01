@@ -203,6 +203,86 @@ pub fn jaccard(a: &[String], b: &[String]) -> f32 {
     intersection / union
 }
 
+/// Blocks on normalized names and the account a capture showed.
+///
+/// Both keys are cheap and generous: a shared word-order-insensitive name, or a `(scheme, handle)`
+/// an observation carries, puts an entity in front of the linker. Nothing here knows about identity
+/// or type — those narrow, they do not find.
+#[derive(Debug, Default)]
+pub struct NameBlocker {
+    /// Block key -> entity ids. `BTreeSet` so candidates come back in a stable order.
+    blocks: HashMap<String, BTreeSet<i32>>,
+}
+
+impl NameBlocker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    fn keys_of(entity: &view::EntityView) -> Vec<String> {
+        let mut keys: Vec<String> = entity
+            .surfaces()
+            .flat_map(|surface| [normalize::key(surface), normalize::token_key(surface)])
+            .filter(|key| !key.is_empty())
+            .collect();
+        if let Some((scheme, handle)) = &entity.account {
+            keys.push(format!("{scheme}:{}", handle.to_lowercase()));
+        }
+        keys
+    }
+}
+
+impl Blocker for NameBlocker {
+    fn index(&mut self, entity: &view::EntityView) {
+        for key in Self::keys_of(entity) {
+            self.blocks.entry(key).or_default().insert(entity.id);
+        }
+    }
+
+    fn candidates(&self, observation: &view::ObservationView) -> Vec<i32> {
+        let observation = Observation::from(observation);
+        let mut found: BTreeSet<i32> = BTreeSet::new();
+        for block in [&observation.name_key, &observation.token_key] {
+            if let Some(hits) = self.blocks.get(block) {
+                found.extend(hits.iter().copied());
+            }
+        }
+        found.into_iter().collect()
+    }
+}
+
+/// Take the highest-scoring candidate that clears the bar; otherwise start a new entity.
+///
+/// A name alone never decides — [`worth_merging`] requires corroboration — so this is a thin shell
+/// over pure functions. It exists so that "what to do" has exactly one home.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ScorerLinker;
+
+impl Linker for ScorerLinker {
+    fn decide(
+        &self,
+        observation: &view::ObservationView,
+        candidates: &[&view::EntityView],
+    ) -> Decision {
+        let observation = Observation::from(observation);
+        let best = candidates
+            .iter()
+            .map(|entity| (*entity, score(&observation, &Scored::from(*entity))))
+            .max_by(|a, b| a.1.total.total_cmp(&b.1.total));
+
+        match best {
+            Some((entity, features)) if worth_merging(&features) => Decision::Attach {
+                entity: entity.id,
+                score: features.total,
+            },
+            Some((entity, features)) => Decision::Create {
+                best: Some((entity.id, features.total)),
+            },
+            None => Decision::Create { best: None },
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -371,86 +451,6 @@ mod tests {
         match ScorerLinker.decide(&observation_view("Anything", "unknown"), &[]) {
             Decision::Create { best } => assert!(best.is_none()),
             other => panic!("expected a create, got {other:?}"),
-        }
-    }
-}
-
-/// Blocks on normalized names and the account a capture showed.
-///
-/// Both keys are cheap and generous: a shared word-order-insensitive name, or a `(scheme, handle)`
-/// an observation carries, puts an entity in front of the linker. Nothing here knows about identity
-/// or type — those narrow, they do not find.
-#[derive(Debug, Default)]
-pub struct NameBlocker {
-    /// Block key -> entity ids. `BTreeSet` so candidates come back in a stable order.
-    blocks: HashMap<String, BTreeSet<i32>>,
-}
-
-impl NameBlocker {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    fn keys_of(entity: &view::EntityView) -> Vec<String> {
-        let mut keys: Vec<String> = entity
-            .surfaces()
-            .flat_map(|surface| [normalize::key(surface), normalize::token_key(surface)])
-            .filter(|key| !key.is_empty())
-            .collect();
-        if let Some((scheme, handle)) = &entity.account {
-            keys.push(format!("{scheme}:{}", handle.to_lowercase()));
-        }
-        keys
-    }
-}
-
-impl Blocker for NameBlocker {
-    fn index(&mut self, entity: &view::EntityView) {
-        for key in Self::keys_of(entity) {
-            self.blocks.entry(key).or_default().insert(entity.id);
-        }
-    }
-
-    fn candidates(&self, observation: &view::ObservationView) -> Vec<i32> {
-        let observation = Observation::from(observation);
-        let mut found: BTreeSet<i32> = BTreeSet::new();
-        for block in [&observation.name_key, &observation.token_key] {
-            if let Some(hits) = self.blocks.get(block) {
-                found.extend(hits.iter().copied());
-            }
-        }
-        found.into_iter().collect()
-    }
-}
-
-/// Take the highest-scoring candidate that clears the bar; otherwise start a new entity.
-///
-/// A name alone never decides — [`worth_merging`] requires corroboration — so this is a thin shell
-/// over pure functions. It exists so that "what to do" has exactly one home.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct ScorerLinker;
-
-impl Linker for ScorerLinker {
-    fn decide(
-        &self,
-        observation: &view::ObservationView,
-        candidates: &[&view::EntityView],
-    ) -> Decision {
-        let observation = Observation::from(observation);
-        let best = candidates
-            .iter()
-            .map(|entity| (*entity, score(&observation, &Scored::from(*entity))))
-            .max_by(|a, b| a.1.total.total_cmp(&b.1.total));
-
-        match best {
-            Some((entity, features)) if worth_merging(&features) => Decision::Attach {
-                entity: entity.id,
-                score: features.total,
-            },
-            Some((entity, features)) => Decision::Create {
-                best: Some((entity.id, features.total)),
-            },
-            None => Decision::Create { best: None },
         }
     }
 }
