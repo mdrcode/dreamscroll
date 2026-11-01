@@ -180,3 +180,118 @@ pub async fn project(conn: &sea_orm::DatabaseConnection, knowledge_entity_id: i3
     .await?;
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{knowledge_entity as entity, knowledge_evidence as evidence, user_observed_entity as observation};
+    use crate::test_support::{fixtures, test_db};
+
+    /// One entity with one observation attached, ready to project.
+    async fn seed(db: &crate::database::DbHandle, name: &str) -> i32 {
+        let user_id = fixtures::user(db, "project").await;
+        let capture_id = fixtures::capture(db, user_id).await;
+        let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
+        let observation_id =
+            fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
+        let knowledge_entity_id = entity::Entity::insert(entity::ActiveModel {
+            name: Set(name.to_string()),
+            entity_type: Set("real_person".to_string()),
+            status: Set("provisional".to_string()),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap()
+        .last_insert_id as i32;
+        observation::Entity::update_many()
+            .col_expr(observation::Column::KnowledgeEntityId, Expr::value(Some(knowledge_entity_id)))
+            .filter(observation::Column::Id.eq(observation_id))
+            .exec(&db.conn)
+            .await
+            .unwrap();
+        knowledge_entity_id
+    }
+
+    async fn claim(db: &crate::database::DbHandle, id: i32, kind: &str, scheme: &str, value: &str) {
+        evidence::Entity::insert(evidence::ActiveModel {
+            knowledge_entity_id: Set(id),
+            kind: Set(kind.to_string()),
+            value: Set(serde_json::json!({ "scheme": scheme, "id": value })),
+            source: Set("test".to_string()),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap();
+    }
+
+    async fn load(db: &crate::database::DbHandle, id: i32) -> entity::Model {
+        entity::Entity::find_by_id(id).one(&db.conn).await.unwrap().unwrap()
+    }
+
+    #[tokio::test]
+    async fn the_selected_surface_is_not_one_of_its_own_alternatives() {
+        let Some(db) = test_db::test_db().await else { return };
+        let db = db.handle();
+        let id = seed(&db, "Train Dreams").await;
+
+        project(&db.conn, id).await.unwrap();
+
+        let entity = load(&db, id).await;
+        assert_eq!(entity.name, "Train Dreams");
+        assert!(
+            !entity.alt_names.iter().any(|name| name == "Train Dreams"),
+            "alt_names is the complement of the selected name: {:?}",
+            entity.alt_names
+        );
+        assert_eq!(entity.status, "provisional");
+        assert_eq!(entity.confidence, None);
+    }
+
+    #[tokio::test]
+    async fn a_live_claim_makes_it_identified() {
+        let Some(db) = test_db::test_db().await else { return };
+        let db = db.handle();
+        let id = seed(&db, "Train Dreams").await;
+        claim(&db, id, "claim", "wikidata", "Q104919").await;
+
+        project(&db.conn, id).await.unwrap();
+
+        let entity = load(&db, id).await;
+        assert_eq!(entity.status, "identified");
+        assert!(entity.confidence.is_some(), "a claim carries a confidence");
+    }
+
+    #[tokio::test]
+    async fn a_collision_makes_it_contested() {
+        let Some(db) = test_db::test_db().await else { return };
+        let db = db.handle();
+        let id = seed(&db, "Train Dreams").await;
+        claim(&db, id, "collision", "wikidata", "Q104919").await;
+
+        project(&db.conn, id).await.unwrap();
+
+        let entity = load(&db, id).await;
+        assert_eq!(entity.status, "contested");
+        assert_eq!(entity.confidence, None, "a collision is not an identity");
+    }
+
+    #[tokio::test]
+    async fn a_retracted_claim_does_not_identify() {
+        let Some(db) = test_db::test_db().await else { return };
+        let db = db.handle();
+        let id = seed(&db, "Train Dreams").await;
+        claim(&db, id, "claim", "wikidata", "Q104919").await;
+        evidence::Entity::update_many()
+            .col_expr(evidence::Column::RetractedAt, Expr::value(chrono::Utc::now()))
+            .filter(evidence::Column::KnowledgeEntityId.eq(id))
+            .exec(&db.conn)
+            .await
+            .unwrap();
+
+        project(&db.conn, id).await.unwrap();
+
+        assert_eq!(load(&db, id).await.status, "provisional");
+    }
+}
