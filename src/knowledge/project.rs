@@ -1,7 +1,8 @@
 //! Projection: the entity columns that are a function of its members and its evidence.
 //!
 //! Nothing else writes `name`, `alt_names`, `entity_type`, `alt_types`, `description`,
-//! `alt_descriptions`, `search_query`, `alt_search_queries`, `status` or `confidence`. Deriving them here rather than at write time is what
+//! `alt_descriptions`, `search_query`, `alt_search_queries`, `platform`, `platform_handle`,
+//! `platform_display_name`, `status` or `confidence`. Deriving them here rather than at write time is what
 //! makes a merge safe: a merge re-points observations and projects the winner, so the loser's names
 //! and descriptions are picked up from the members that moved rather than being lost with the row.
 //!
@@ -16,7 +17,7 @@ use crate::model;
 
 /// Recompute the columns that are a function of the members and of the evidence. Nothing else writes
 /// `name`, `alt_names`, `description`, `alt_descriptions`, `search_query`, `alt_search_queries`,
-/// `status` or `confidence`.
+/// `platform`, `platform_handle`, `platform_display_name`, `status` or `confidence`.
 ///
 /// Deriving the surface and text here rather than at write time is what makes a merge safe: a merge
 /// re-points observations and projects the winner, so the loser's names and descriptions are picked
@@ -39,6 +40,7 @@ pub async fn project<C: sea_orm::ConnectionTrait>(
     let mut descriptions: Vec<String> = Vec::new();
     let mut seen_queries = HashSet::new();
     let mut queries: Vec<String> = Vec::new();
+    let mut links: Vec<(String, Option<String>, Option<String>)> = Vec::new();
     let mut types: Vec<String> = Vec::new();
     for member in &members {
         if !types.contains(&member.entity_type) {
@@ -68,6 +70,21 @@ pub async fn project<C: sea_orm::ConnectionTrait>(
         {
             queries.push(text.to_string());
         }
+        // The platform presence, if this member carried one. One per entity is enough for the
+        // resolver, and a member has at most one.
+        if let Some(platform) = member
+            .platform
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            && !links.iter().any(|(seen, _, _)| seen == platform)
+        {
+            links.push((
+                platform.to_string(),
+                member.platform_handle.clone(),
+                member.platform_display_name.clone(),
+            ));
+        }
     }
 
     let current = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
@@ -80,6 +97,7 @@ pub async fn project<C: sea_orm::ConnectionTrait>(
         existing_alt_descriptions,
         existing_query,
         existing_alt_queries,
+        existing_link,
     ) = match &current {
         Some(row) => (
             row.name.clone(),
@@ -88,8 +106,21 @@ pub async fn project<C: sea_orm::ConnectionTrait>(
             row.alt_descriptions.clone(),
             row.search_query.clone(),
             row.alt_search_queries.clone(),
+            (
+                row.platform.clone(),
+                row.platform_handle.clone(),
+                row.platform_display_name.clone(),
+            ),
         ),
-        None => (String::new(), String::new(), None, Vec::new(), None, Vec::new()),
+        None => (
+            String::new(),
+            String::new(),
+            None,
+            Vec::new(),
+            None,
+            Vec::new(),
+            (None, None, None),
+        ),
     };
 
     // The selected surface survives a merge as long as a member still carries it.
@@ -147,6 +178,20 @@ pub async fn project<C: sea_orm::ConnectionTrait>(
             .cloned()
             .collect();
         (selected, alt)
+    };
+
+    // The platform presence follows the same rule as everything else here: the one already chosen
+    // survives while a member still carries it, so a merge does not silently swap it.
+    let (platform, platform_handle, platform_display_name) = if links.is_empty() {
+        existing_link
+    } else {
+        let (chosen_platform, chosen_handle, _) = existing_link.clone();
+        let selected = chosen_platform
+            .as_ref()
+            .and_then(|chosen| links.iter().find(|(p, h, _)| p == chosen && h == &chosen_handle))
+            .cloned()
+            .unwrap_or_else(|| links[0].clone());
+        (Some(selected.0), selected.1, selected.2)
     };
 
     let claims = evidence::Entity::find()
@@ -216,6 +261,9 @@ pub async fn project<C: sea_orm::ConnectionTrait>(
         alt_descriptions: Set(alt_descriptions),
         search_query: Set(search_query),
         alt_search_queries: Set(alt_search_queries),
+        platform: Set(platform),
+        platform_handle: Set(platform_handle),
+        platform_display_name: Set(platform_display_name),
         ..Default::default()
     })
     .exec(conn)
@@ -310,6 +358,50 @@ mod tests {
             .exec(&db.conn)
             .await
             .unwrap();
+    }
+
+    /// A member that carries a platform presence.
+    async fn attach_link(
+        db: &crate::database::DbHandle,
+        id: i32,
+        name: &str,
+        platform: &str,
+        handle: &str,
+    ) {
+        let user_id = fixtures::user(db, "project").await;
+        let capture_id = fixtures::capture(db, user_id).await;
+        let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
+        let observation_id = fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
+        observation::Entity::update_many()
+            .col_expr(observation::Column::Platform, Expr::value(Some(platform.to_string())))
+            .col_expr(
+                observation::Column::PlatformHandle,
+                Expr::value(Some(handle.to_string())),
+            )
+            .col_expr(
+                observation::Column::KnowledgeEntityId,
+                Expr::value(Some(id)),
+            )
+            .filter(observation::Column::Id.eq(observation_id))
+            .exec(&db.conn)
+            .await
+            .unwrap();
+    }
+
+    /// The platform presence, projected from whichever member carried one.
+    #[tokio::test]
+    async fn the_platform_presence_is_projected_from_a_member() {
+        let Some(db) = test_db::test_db().await else { return };
+        let db = db.handle();
+        let id = seed(&db, "Tsoding").await;
+        attach_link(&db, id, "Tsoding", "x_twitter", "tsoding").await;
+
+        project(&db.conn, id).await.unwrap();
+
+        let entity = load(&db, id).await;
+        assert_eq!(entity.platform.as_deref(), Some("x_twitter"));
+        assert_eq!(entity.platform_handle.as_deref(), Some("tsoding"));
+        assert_eq!(entity.platform_display_name, None);
     }
 
     /// The hint is a property of the entity, projected like the description: one selected, the rest

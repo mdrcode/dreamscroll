@@ -17,9 +17,9 @@ use std::collections::HashSet;
 use serde_json::{json, Value};
 
 use crate::knowledge::resolve::{
-    Answers, BATCH, Claim, EntityView, FetchError, Raw, Request, ResolutionContext, Resolver,
-    Transport,
+    Answers, BATCH, Claim, FetchError, Raw, Request, ResolutionContext, Resolver, Transport,
 };
+use crate::model;
 
 pub(super) const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
 /// Article-title reconciliation. A Wikipedia title is unique where a Wikidata label is not: 213 items
@@ -84,7 +84,7 @@ impl Wikidata {
     /// lower, and it can never overrule a description that resolved the case — which is what keeps
     /// the `Sunset Boulevard` failure (the hint lifting the musical adaptation above the film) from
     /// recurring, because there the description decides first.
-    fn by_hint(&self, entity: &EntityView, candidates: &[Candidate]) -> Vec<Claim> {
+    fn by_hint(&self, entity: &model::knowledge_entity::Model, candidates: &[Candidate]) -> Vec<Claim> {
         let Some(hint) = hint_tokens(entity) else {
             return Vec::new();
         };
@@ -127,7 +127,7 @@ impl Wikidata {
 
     /// Choose a referent from the candidates, or none. Shared by the label path and the search
     /// fallback — the only difference between them is which candidates are admitted.
-    fn decide(&self, entity: &EntityView, candidates: &[Candidate], request: &Request) -> Vec<Claim> {
+    fn decide(&self, entity: &model::knowledge_entity::Model, candidates: &[Candidate], request: &Request) -> Vec<Claim> {
         let mut ranked = rank(entity, candidates);
         if ranked.is_empty() {
             return Vec::new();
@@ -169,11 +169,10 @@ impl Wikidata {
     /// The first pass: a handle, then a title, then an exact label. Pure, so the order is testable
     /// without a network — and public for the same reason: `examples/eval_resolve` re-runs the whole
     /// decision over cached payloads.
-    pub fn plan(&self, entity: &EntityView) -> Vec<Request> {
+    pub fn plan(&self, entity: &model::knowledge_entity::Model) -> Vec<Request> {
         let mut requests = Vec::new();
-        if let Some(link) = &entity.platform_link
-            && let Some(handle) = &link.handle
-            && let Some(kind) = Self::kind_for_handle(link.platform_name())
+        if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle)
+            && let Some(kind) = Self::kind_for_handle(platform)
         {
             requests.push(Request {
                 provider: "wikidata",
@@ -212,7 +211,7 @@ impl Wikidata {
     ///
     /// The pass boundary lives here, not in the engine: no other authority knows that search is the
     /// expensive route.
-    pub fn plan_fallback(&self, entity: &EntityView) -> Vec<Request> {
+    pub fn plan_fallback(&self, entity: &model::knowledge_entity::Model) -> Vec<Request> {
         let label = entity.name.trim();
         if label.is_empty() {
             return Vec::new();
@@ -227,7 +226,7 @@ impl Wikidata {
 
     /// Turn an answer into claims. Pure: same entity plus same answer, same claims. The entity is
     /// passed because deciding between ambiguous candidates needs its description and type.
-    pub fn parse(&self, entity: &EntityView, request: &Request, raw: &Raw) -> Vec<Claim> {
+    pub fn parse(&self, entity: &model::knowledge_entity::Model, request: &Request, raw: &Raw) -> Vec<Claim> {
         // A degraded answer still carries candidates; it is only cached for a shorter time.
         if !raw.outcome.answered() {
             return Vec::new();
@@ -327,7 +326,7 @@ impl Wikidata {
     /// orders them: a handle is a stronger statement than a title, and a title than a label.
     async fn collect(
         &self,
-        entities: &[EntityView],
+        entities: &[model::knowledge_entity::Model],
         plans: &[(usize, Request)],
         answers: &Answers,
         ctx: &ResolutionContext<'_>,
@@ -371,7 +370,7 @@ impl Resolver for Wikidata {
     /// The engine sees only the claims that come back.
     async fn resolve(
         &self,
-        entities: &[EntityView],
+        entities: &[model::knowledge_entity::Model],
         ctx: &ResolutionContext<'_>,
     ) -> Vec<(i32, Claim)> {
         let mut claims = Vec::new();
@@ -394,8 +393,8 @@ impl Resolver for Wikidata {
         self.collect(entities, &identity, &answers, ctx, &mut claims, &mut resolved)
             .await;
 
-        // A dry run fetches nothing, so a second pass has nothing to learn.
-        if ctx.dry_run() {
+        // Offline, nothing is fetched, so a second pass has nothing to learn.
+        if ctx.offline() {
             return claims;
         }
 
@@ -587,7 +586,7 @@ struct Ranked<'a> {
 /// `Sunset Boulevard (musical film adaptation)` above the 1950 film, because that candidate's
 /// description literally contains the hint's words. A hint drawn from what we saw is not independent
 /// evidence about which candidate we meant.
-fn rank<'a>(entity: &EntityView, candidates: &'a [Candidate]) -> Vec<Ranked<'a>> {
+fn rank<'a>(entity: &model::knowledge_entity::Model, candidates: &'a [Candidate]) -> Vec<Ranked<'a>> {
     let ours = our_tokens(entity);
     let weights = Weights::over(candidates);
 
@@ -645,7 +644,7 @@ fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Claim {
 /// of James Davies* on "james" and "davies" — words every candidate shares, because they are the
 /// name. Only the remainder ("anthropologist", "author") carries information, and that is what the
 /// fallback is allowed to weigh.
-fn hint_tokens(entity: &EntityView) -> Option<Vec<String>> {
+fn hint_tokens(entity: &model::knowledge_entity::Model) -> Option<Vec<String>> {
     let raw = entity.search_query.as_deref()?.trim();
     if raw.is_empty() || same_surface(raw, &entity.name) {
         return None;
@@ -670,7 +669,7 @@ fn surface_key(surface: &str) -> String {
 
 /// Every description the entity has accumulated, tokenized. A candidate only has to fit one of them:
 /// taking the union instead would dilute a good match with text from unrelated captures.
-fn our_tokens(entity: &EntityView) -> Vec<Vec<String>> {
+fn our_tokens(entity: &model::knowledge_entity::Model) -> Vec<Vec<String>> {
     entity.descriptions().map(content_tokens).collect()
 }
 
@@ -783,7 +782,6 @@ fn overlap(a: &[String], b: &[String]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::illumination::v2::{Platform, PlatformLink};
     use crate::knowledge::cache::Outcome;
     use super::*;
 
@@ -807,19 +805,10 @@ mod tests {
         Wikidata::new().expect("client should build")
     }
 
-    fn entity(label: &str, description: Option<&str>) -> EntityView {
-        EntityView {
-            id: 1,
-            name: label.to_string(),
-            alt_names: Vec::new(),
-            entity_type: "unknown".to_string(),
-            alt_types: Vec::new(),
-            description: description.map(str::to_string),
-            alt_descriptions: Vec::new(),
-            search_query: None,
-            alt_search_queries: Vec::new(),
-            platform_link: None,
-        }
+    fn entity(label: &str, description: Option<&str>) -> model::knowledge_entity::Model {
+        let mut entity = crate::knowledge::entity::scratch(1, label, "unknown");
+        entity.description = description.map(str::to_string);
+        entity
     }
 
     #[test]
@@ -1011,18 +1000,10 @@ mod tests {
 
     #[test]
     fn planning_prefers_the_handle_then_a_title_then_the_label() {
-        let entity = EntityView {
-            id: 1,
-            name: "Alexey Kutepov".to_string(),
-            alt_names: Vec::new(),
-            entity_type: "real_person".to_string(),
-            alt_types: Vec::new(),
-            description: None,
-            alt_descriptions: Vec::new(),
-            search_query: Some("Tsoding".to_string()),
-            alt_search_queries: Vec::new(),
-            platform_link: Some(PlatformLink { platform: Platform::XTwitter, handle: Some("tsoding".to_string()), display_name: None, url: None }),
-        };
+        let mut entity = crate::knowledge::entity::scratch(1, "Alexey Kutepov", "real_person");
+        entity.search_query = Some("Tsoding".to_string());
+        entity.platform = Some("x_twitter".to_string());
+        entity.platform_handle = Some("tsoding".to_string());
         let plans = engine().plan(&entity);
         assert_eq!(plans.len(), 3);
         assert_eq!(plans[0].kind, "handle:P2002");
@@ -1206,10 +1187,11 @@ mod tests {
 
         let entities = vec![
             entity("Train Dreams", Some("novella by Denis Johnson")),
-            EntityView {
-                id: 2,
-                description: Some("English author, philologist, and academic".to_string()),
-                ..entity("J.R.R. Tolkien", None)
+            {
+                let mut second = entity("J.R.R. Tolkien", None);
+                second.id = 2;
+                second.description = Some("English author, philologist, and academic".to_string());
+                second
             },
         ];
 

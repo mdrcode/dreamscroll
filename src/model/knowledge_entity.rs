@@ -48,6 +48,15 @@ pub struct Model {
     /// Every other name this entity has been seen under: member names, platform display names and
     /// handles. Verbatim, unlike the derived keys the linker builds from them.
     pub alt_names: Vec<String>,
+
+    /// The platform presence, copied from a member by `project`. Flat rather than a link table:
+    /// one presence per entity is all the resolver needs, and a member can have at most one.
+    #[sea_orm(nullable)]
+    pub platform: Option<String>,
+    #[sea_orm(nullable)]
+    pub platform_handle: Option<String>,
+    #[sea_orm(nullable)]
+    pub platform_display_name: Option<String>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

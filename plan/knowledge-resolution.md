@@ -339,9 +339,8 @@ reruns it; with the cache warm, the rerun costs only the requests that had not b
 
 ```sh
 dreamscroll_knowledge resolve                          # default budget of 200 calls
-dreamscroll_knowledge resolve --dry-run --limit 20     # what would be asked
 dreamscroll_knowledge resolve --limit 20 --max-requests 5
-dreamscroll_knowledge resolve --offline                # cache only, no transport calls
+dreamscroll_knowledge resolve --offline --limit 20     # cache only, no transport calls
 dreamscroll_knowledge resolve --knowledge entity 20190             # one case, for debugging
 ```
 

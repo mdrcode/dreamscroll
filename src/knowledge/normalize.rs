@@ -28,6 +28,14 @@ pub fn tokens(surface: &str) -> Vec<String> {
         .collect()
 }
 
+/// The key a platform presence turns on: `platform:handle`, folded the same way everywhere.
+///
+/// Illumination canonicalises the platform when it parses model output, so stored values already
+/// agree; this exists so the block key and the evidence identity cannot drift apart again.
+pub fn link_key(platform: &str, handle: &str) -> String {
+    format!("{}:{}", fold(platform.trim()), key(handle))
+}
+
 /// A word-order- and article-insensitive key, for blocking only. Never an identity key.
 pub fn token_key(surface: &str) -> String {
     let mut words = tokens(surface);

@@ -17,7 +17,7 @@ use super::{
     blocking::Blocker,
     heuristic::{NameBlocker, HeuristicLinker},
     linker::{self, Linker},
-    normalize, view,
+    normalize,
 };
 use crate::{database, model};
 
@@ -40,7 +40,7 @@ pub struct Report {
 
 /// Add an observed type. Returns whether anything changed: an entity that has accepted `brand`
 /// must accept it for the rest of the run.
-fn absorb_type(entity: &mut view::EntityView, entity_type: &str) -> bool {
+fn absorb_type(entity: &mut model::knowledge_entity::Model, entity_type: &str) -> bool {
     if entity_type.is_empty() || entity.alt_types.iter().any(|t| t == entity_type) {
         return false;
     }
@@ -49,7 +49,7 @@ fn absorb_type(entity: &mut view::EntityView, entity_type: &str) -> bool {
 }
 
 /// Add a surface. Returns whether anything changed, so a caller can skip the write.
-fn absorb_surface(entity: &mut view::EntityView, surface: &str) -> bool {
+fn absorb_surface(entity: &mut model::knowledge_entity::Model, surface: &str) -> bool {
     let key = normalize::key(surface);
     if key.is_empty() || entity.surfaces().any(|seen| normalize::key(seen) == key) {
         return false;
@@ -79,7 +79,7 @@ fn identifier_of(observation: &model::user_observed_entity::Model) -> Option<(St
 /// The corpus is passed in *here* because this is the moment it is known. A database-backed blocker
 /// ignores the slice and answers `candidates` with a query; the in-memory one indexes it now. Adding
 /// a third implementation means adding a branch here, and nothing else in the executor changes.
-fn make_blocker(entities: &[view::EntityView]) -> Box<dyn Blocker> {
+fn make_blocker(entities: &[model::knowledge_entity::Model]) -> Box<dyn Blocker> {
     Box::new(NameBlocker::build_entities(entities))
 }
 
@@ -100,13 +100,12 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
         *current = (*current).max(observation.illumination_id);
     }
 
-    let mut entities: Vec<view::EntityView> = model::knowledge_entity::Entity::find()
+    let mut entities: Vec<model::knowledge_entity::Model> = model::knowledge_entity::Entity::find()
         .order_by_asc(model::knowledge_entity::Column::Id)
         .all(&db.conn)
         .await?
         .into_iter()
         .filter(|row| row.merged_into_id.is_none())
-        .map(view::EntityView::from_model)
         .collect();
 
     let mut positions: HashMap<i32, usize> = entities
@@ -167,11 +166,10 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
             continue;
         }
 
-        let observation_view = view::ObservationView::from_model(&observation);
         // The linker scores; the executor only supplies views. One extraction cannot fold two of
         // its own observations into one entity, so those candidates never reach the decision.
-        let candidates: Vec<&view::EntityView> = blocker
-            .candidates(&observation_view)
+        let candidates: Vec<&model::knowledge_entity::Model> = blocker
+            .candidates(&observation)
             .await
             .into_iter()
             .filter(|id| !seen.contains(&(*id, observation.illumination_id)))
@@ -179,7 +177,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
             .map(|position| &entities[position])
             .collect();
 
-        match HeuristicLinker.decide(&observation_view, &candidates) {
+        match HeuristicLinker.decide(&observation, &candidates) {
             linker::Decision::Attach { entity, .. } => {
                 let position = positions[&entity];
                 let knowledge_entity_id = entity;
@@ -227,20 +225,28 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
                     continue;
                 }
 
-                let alt_names = names_for(&observation);
-                let view = view::EntityView {
+                // The row the create just wrote, as the rest of this run needs to see it. The
+                // derived columns are filled by `project` at the end, so what matters here is the
+                // surface and text the next candidate lookup may match on.
+                entities.push(model::knowledge_entity::Model {
                     id: knowledge_entity_id,
+                    created_at: observation.created_at,
+                    updated_at: observation.created_at,
                     name: observation.name.clone(),
-                    alt_names,
+                    alt_names: names_for(&observation),
                     entity_type: observation.entity_type.clone(),
                     alt_types: Vec::new(),
                     description: observation.description.clone(),
                     alt_descriptions: Vec::new(),
                     search_query: observation.search_query.clone(),
                     alt_search_queries: Vec::new(),
-                    platform_link: None,
-                };
-                entities.push(view);
+                    platform: observation.platform.clone(),
+                    platform_handle: observation.platform_handle.clone(),
+                    platform_display_name: observation.platform_display_name.clone(),
+                    status: "provisional".to_string(),
+                    confidence: None,
+                    merged_into_id: None,
+                });
                 let position = entities.len() - 1;
                 positions.insert(knowledge_entity_id, position);
                 blocker.changed(entities.last().expect("just pushed"));
@@ -332,7 +338,7 @@ async fn attach(
 /// `project`, which runs once at the end of a build rather than per observation.
 async fn absorb_observation(
     conn: &sea_orm::DatabaseConnection,
-    entity: &mut view::EntityView,
+    entity: &mut model::knowledge_entity::Model,
     observation: &model::user_observed_entity::Model,
 ) -> anyhow::Result<bool> {
     let mut changed = false;

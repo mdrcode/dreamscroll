@@ -10,13 +10,13 @@
 //!
 //! The one implementation is [`crate::knowledge::heuristic::NameBlocker`].
 
-use crate::knowledge::view;
+use crate::model;
 
 #[async_trait::async_trait]
 pub trait Blocker: Send + Sync {
-    /// Generates knowledge entity link candidates for one observation.
-    async fn candidates(&self, observation: &view::ObservationView) -> Vec<i32>;
+    /// Generates knowledge entity link candidates for an observation.
+    async fn candidates(&self, observation: &model::user_observed_entity::Model) -> Vec<i32>;
 
     /// Notifies the blocker that an entity has changed (e.g. newly created or updated).
-    fn changed(&mut self, _entity: &view::EntityView) {}
+    fn changed(&mut self, _entity: &model::knowledge_entity::Model) {}
 }

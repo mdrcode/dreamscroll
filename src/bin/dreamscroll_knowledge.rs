@@ -61,14 +61,12 @@ struct CompareArgs {
 #[argh(subcommand, name = "resolve")]
 #[argh(description = "ask evidence providers about entities with no authority claim (cache first)")]
 struct ResolveArgs {
-    #[argh(switch)]
-    #[argh(description = "plan and report without touching the network")]
-    dry_run: bool,
     #[argh(option)]
     #[argh(description = "transport calls allowed in this run (default 200)")]
     max_requests: Option<usize>,
     #[argh(switch)]
-    #[argh(description = "serve from the cache only; makes no transport calls")]
+    #[argh(description = "serve from the cache only; makes no transport calls. Claims carried by \
+                                 cached answers are still written — this is not a rehearsal")]
     offline: bool,
     #[argh(option)]
     #[argh(description = "consider at most this many entities")]
@@ -223,7 +221,7 @@ async fn main() -> anyhow::Result<()> {
             let options = knowledge::resolve::Options {
                 limit: args.limit,
                 max_requests,
-                dry_run: args.dry_run,
+                offline: args.offline,
                 only: args.entity,
                 min_interval: std::time::Duration::from_millis(args.min_interval_ms),
             };
@@ -232,9 +230,7 @@ async fn main() -> anyhow::Result<()> {
             ));
             let report = engine.run().await?;
 
-            if report.dry_run {
-                println!("dry run — nothing fetched");
-            } else if args.offline {
+            if report.offline {
                 println!("offline — cache only, no transport calls");
             } else {
                 println!("budget {} requests", max_requests);

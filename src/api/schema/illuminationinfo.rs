@@ -35,9 +35,7 @@ impl IlluminationInfo {
                     if let Some(display_name) = &link.display_name {
                         parts.push(format!("display name: {display_name}"));
                     }
-                    if let Some(handle) = &link.handle {
-                        parts.push(format!("handle: {handle}"));
-                    }
+                    parts.push(format!("handle: {}", link.handle));
                 }
                 format!("- {}", parts.join(" | "))
             })
@@ -70,7 +68,6 @@ fn push_section(sections: &mut Vec<String>, header: &str, body: &str) {
 
 #[cfg(test)]
 mod tests {
-    use crate::illumination::v2::{Platform, PlatformLink};
 
     use super::*;
 
@@ -91,11 +88,10 @@ mod tests {
                 entity_type: "real_person".to_string(),
                 description: Some("Pioneer of computing".to_string()),
                 search_query: Some("Ada Lovelace mathematician".to_string()),
-                platform_link: Some(PlatformLink {
-                    platform: Platform::XTwitter,
-                    handle: Some("@ada".to_string()),
+                platform_link: Some(super::super::observedentityinfo::PlatformLinkInfo {
+                    platform: "x_twitter".to_string(),
+                    handle: "@ada".to_string(),
                     display_name: Some("Ada".to_string()),
-                    url: None,
                 }),
             }],
         };

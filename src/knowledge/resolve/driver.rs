@@ -13,7 +13,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde_json::{json, Value};
 
-use crate::illumination::v2::PlatformLink;
 use crate::knowledge::cache::{Answer, Cache, Outcome, UNPRODUCTIVE_TTL};
 use crate::knowledge::project;
 use crate::{database, model};
@@ -27,8 +26,6 @@ pub(crate) const BATCH: usize = 50;
 /// with a handful of entities.
 #[cfg(test)]
 pub(crate) const BATCH: usize = 2;
-
-pub use crate::knowledge::view::EntityView;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
@@ -111,7 +108,7 @@ pub trait Resolver: Send + Sync {
 
     /// Claims about the entities it could resolve, each tagged with the entity it belongs to, in
     /// priority order: the engine takes the first claim per entity that the graph accepts.
-    async fn resolve(&self, entities: &[EntityView], ctx: &ResolutionContext<'_>) -> Vec<(i32, Claim)>;
+    async fn resolve(&self, entities: &[model::knowledge_entity::Model], ctx: &ResolutionContext<'_>) -> Vec<(i32, Claim)>;
 }
 
 /// Transport calls a plain resolve is allowed to make. Exists so that omitting the budget does real
@@ -127,7 +124,7 @@ pub struct Options {
     /// Minimum wall-clock gap between transport calls. One request per second keeps a walk of a few
     /// thousand labels to a few minutes while staying far below WDQS's processing-time budget.
     pub min_interval: std::time::Duration,
-    pub dry_run: bool,
+    pub offline: bool,
     /// Resolve only this entity — for debugging one case without walking the corpus.
     pub only: Option<i32>,
 }
@@ -138,7 +135,7 @@ impl Default for Options {
             limit: None,
             max_requests: DEFAULT_MAX_REQUESTS,
             min_interval: std::time::Duration::from_secs(1),
-            dry_run: false,
+            offline: false,
             only: None,
         }
     }
@@ -163,7 +160,7 @@ pub struct Report {
     pub budget_exhausted: bool,
     /// Set when the provider asked us to back off: the run stopped instead of risking a ban.
     pub rate_limited_after: Option<u64>,
-    pub dry_run: bool,
+    pub offline: bool,
 }
 
 /// No rate limit seen. Distinguishes "the provider did not ask us to wait" from "wait zero seconds".
@@ -178,7 +175,7 @@ pub struct ResolutionContext<'a> {
     cache: &'a Cache<'a>,
     pacer: tokio::sync::Mutex<Pacer>,
     budget: tokio::sync::Mutex<Budget>,
-    dry_run: bool,
+    offline: bool,
     planned: AtomicUsize,
     cache_hits: AtomicUsize,
     fetched: AtomicUsize,
@@ -193,7 +190,7 @@ impl<'a> ResolutionContext<'a> {
             cache,
             pacer: tokio::sync::Mutex::new(Pacer::new(options.min_interval)),
             budget: tokio::sync::Mutex::new(Budget::new(options.max_requests)),
-            dry_run: options.dry_run,
+            offline: options.offline,
             planned: AtomicUsize::new(0),
             cache_hits: AtomicUsize::new(0),
             fetched: AtomicUsize::new(0),
@@ -205,8 +202,8 @@ impl<'a> ResolutionContext<'a> {
 
     /// Whether the run is prohibited from touching the network. A resolver that plans several passes
     /// can stop after the first: with nothing fetched, a second pass has nothing new to say.
-    pub fn dry_run(&self) -> bool {
-        self.dry_run
+    pub fn offline(&self) -> bool {
+        self.offline
     }
 
     /// Whether the provider has told us to stop. Checked between resolvers, not inside one.
@@ -258,7 +255,7 @@ impl<'a> ResolutionContext<'a> {
                 .into_iter()
                 .filter(|query| !answers.contains_key(&(kind.clone(), shape.clone(), query.clone())))
                 .collect();
-            if misses.is_empty() || self.dry_run {
+            if misses.is_empty() || self.offline {
                 continue;
             }
 
@@ -403,7 +400,7 @@ impl<'a> ResolutionEngine<'a> {
         let ctx = ResolutionContext::new(&cache, &self.options);
         let mut report = Report {
             candidates: entities.len(),
-            dry_run: self.options.dry_run,
+            offline: self.options.offline,
             ..Default::default()
         };
         let mut resolved: HashSet<i32> = HashSet::new();
@@ -638,10 +635,9 @@ async fn candidates(
     conn: &sea_orm::DatabaseConnection,
     limit: Option<usize>,
     only: Option<i32>,
-) -> anyhow::Result<Vec<EntityView>> {
+) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
     use model::knowledge_entity as entity;
     use model::knowledge_evidence as evidence;
-    use model::user_observed_entity as observation;
 
     let already: HashSet<i32> = evidence::Entity::find()
         .filter(evidence::Column::Kind.eq("claim"))
@@ -666,29 +662,7 @@ async fn candidates(
         entities.truncate(limit);
     }
 
-    let observations = observation::Entity::find()
-        .filter(observation::Column::KnowledgeEntityId.is_not_null())
-        .all(conn)
-        .await?;
-    let mut links: HashMap<i32, PlatformLink> = HashMap::new();
-    for row in observations {
-        let Some(knowledge_entity_id) = row.knowledge_entity_id else { continue };
-        if let Some(link) = PlatformLink::from_columns(
-            row.platform.clone(),
-            row.platform_handle.clone(),
-            row.platform_display_name.clone(),
-        ) {
-            links.entry(knowledge_entity_id).or_insert(link);
-        }
-    }
-
-    Ok(entities
-        .into_iter()
-        .map(|row| EntityView {
-            platform_link: links.get(&row.id).cloned(),
-            ..EntityView::from_model(row)
-        })
-        .collect())
+    Ok(entities)
 }
 
 #[cfg(test)]
@@ -705,7 +679,7 @@ mod tests {
         calls: Arc<AtomicUsize>,
     }
 
-    fn fake_request(entity: &EntityView) -> Request {
+    fn fake_request(entity: &model::knowledge_entity::Model) -> Request {
         Request {
             provider: "fake",
             kind: "label".to_string(),
@@ -722,7 +696,7 @@ mod tests {
 
         async fn resolve(
             &self,
-            entities: &[EntityView],
+            entities: &[model::knowledge_entity::Model],
             ctx: &ResolutionContext<'_>,
         ) -> Vec<(i32, Claim)> {
             let requests: Vec<Request> = entities.iter().map(fake_request).collect();
@@ -984,7 +958,7 @@ mod tests {
 
         async fn resolve(
             &self,
-            entities: &[EntityView],
+            entities: &[model::knowledge_entity::Model],
             ctx: &ResolutionContext<'_>,
         ) -> Vec<(i32, Claim)> {
             let requests: Vec<Request> = entities.iter().map(fake_request).collect();
@@ -1016,7 +990,7 @@ mod tests {
 
         async fn resolve(
             &self,
-            entities: &[EntityView],
+            entities: &[model::knowledge_entity::Model],
             ctx: &ResolutionContext<'_>,
         ) -> Vec<(i32, Claim)> {
             let requests: Vec<Request> = entities
@@ -1192,7 +1166,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dry_run_plans_without_fetching() {
+    async fn offline_plans_without_fetching() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -1201,7 +1175,7 @@ mod tests {
 
         let calls = Arc::new(AtomicUsize::new(0));
         let options = Options {
-            dry_run: true,
+            offline: true,
             ..Default::default()
         };
 

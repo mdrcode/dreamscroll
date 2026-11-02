@@ -1,8 +1,17 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::illumination::v2::PlatformLink;
 use crate::model;
+
+/// The wire form of a platform presence. Deliberately its own type rather than the illuminator's:
+/// the clients depend on this shape, and the extraction schema is free to change.
+#[derive(Clone, Debug, Deserialize, Serialize)]
+pub struct PlatformLinkInfo {
+    pub platform: String,
+    pub handle: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ObservedEntityInfo {
@@ -23,7 +32,7 @@ pub struct ObservedEntityInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub search_query: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub platform_link: Option<PlatformLink>,
+    pub platform_link: Option<PlatformLinkInfo>,
 }
 
 impl ObservedEntityInfo {
@@ -36,11 +45,14 @@ impl ObservedEntityInfo {
         entity: model::user_observed_entity::ModelEx,
         capture_archived_at: Option<DateTime<Utc>>,
     ) -> Self {
-        let platform_link = PlatformLink::from_columns(
-            entity.platform,
-            entity.platform_handle,
-            entity.platform_display_name,
-        );
+        let platform_link = match (entity.platform, entity.platform_handle) {
+            (Some(platform), Some(handle)) => Some(PlatformLinkInfo {
+                platform,
+                handle,
+                display_name: entity.platform_display_name,
+            }),
+            _ => None,
+        };
 
         Self {
             id: entity.id,

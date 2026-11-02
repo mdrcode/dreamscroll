@@ -8,7 +8,7 @@
 //! particular heuristic, and the only thing the core asks for is a decision and the number that
 //! justified it. The one implementation is [`crate::knowledge::heuristic::HeuristicLinker`].
 
-use crate::knowledge::view;
+use crate::model;
 
 /// What to do with one observation.
 #[derive(Debug, Clone, PartialEq)]
@@ -21,10 +21,10 @@ pub enum Decision {
 
 pub trait Linker {
     /// Decide what an observation is, given the entities a blocker proposed. The linker receives
-    /// views rather than scores, because measuring is part of the policy, not part of the contract.
+    /// rows rather than scores, because measuring is part of the policy, not part of the contract.
     fn decide(
         &self,
-        observation: &view::ObservationView,
-        candidates: &[&view::EntityView],
+        observation: &model::user_observed_entity::Model,
+        candidates: &[&model::knowledge_entity::Model],
     ) -> Decision;
 }

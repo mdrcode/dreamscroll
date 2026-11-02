@@ -16,4 +16,4 @@ pub mod reset;
 pub mod resolve;
 pub mod heuristic;
 pub mod stats;
-pub mod view;
+pub mod entity;

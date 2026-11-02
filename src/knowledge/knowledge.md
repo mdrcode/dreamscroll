@@ -59,6 +59,7 @@ name / alt_names            the chosen surface, and every other one seen
 entity_type / alt_types     the chosen type, and every other one asserted
 description / alt_*         same shape: one selected, the rest kept for matching
 search_query / alt_*        the disambiguation hint, projected the same way
+platform / platform_*       the presence one member carried, so the resolver can ask by handle
 status                      provisional → identified → contested
 merged_into_id              set when this entity was folded into another
 ```
@@ -80,12 +81,12 @@ the first two are traits precisely so a second implementation can exist.
 
 ```rust
 trait Blocker {                  // recall: find candidates, over-generate
-    fn index(&mut self, entity: &EntityView);
-    fn candidates(&self, observation: &ObservationView) -> Vec<i32>;
+    async fn candidates(&self, observation: &Observation) -> Vec<i32>;
+    fn changed(&mut self, entity: &Entity);      // an in-memory blocker only; a no-op otherwise
 }
 
 trait Linker {                   // precision: decide, and nothing else
-    fn decide(&self, observation: &ObservationView, candidates: &[&EntityView]) -> Decision;
+    fn decide(&self, observation: &Observation, candidates: &[&Entity]) -> Decision;
 }
 
 enum Decision {
@@ -94,10 +95,13 @@ enum Decision {
 }
 ```
 
-Both traits see **views** — `ObservationView` and `EntityView` — which are plain values cloned out of
-models. No database, no network, no async. That is what makes a decision reproducible from a fixture.
+Both traits take **model rows** — `user_observed_entity::Model` and `knowledge_entity::Model` —
+because a separate view layer was a second place for a column to go missing, and it went missing
+twice. What a strategy must not do is *write* one: `project` is the only writer of a derived column.
+The derived forms the scorer works with (`surfaces()`, `descriptions()`, `types()`) live in
+`entity.rs`, beside the strategies rather than beside the table.
 
-`link.rs` is the executor: load the views, drive them through the blocker and linker, apply the
+`link.rs` is the executor: load the rows, drive them through the blocker and linker, apply the
 effects.
 
 **The heuristic is one implementation of that chain — not the chain.** `heuristic.rs` holds our
@@ -115,7 +119,7 @@ Resolving is the opposite kind of work: network, cached, and only ever through o
 ```rust
 trait Resolver {
     fn id(&self) -> &'static str;
-    async fn resolve(&self, entities: &[EntityView], ctx: &ResolutionContext)
+    async fn resolve(&self, entities: &[Model], ctx: &ResolutionContext)
         -> Vec<(i32, Claim)>;                 // claims, each tagged with its entity
 }
 
@@ -190,7 +194,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 | file | what it is |
 |---|---|
-| `view.rs` | the plain values strategies see |
+| `entity.rs` | what the strategies read from a row, and the keys they derive |
 | `blocking.rs`, `linker.rs` | the two traits, and nothing else — the contract a linker implements |
 | `heuristic.rs` | our first linker, self-contained: features, weights, bars, `NameBlocker`, `HeuristicLinker` |
 | `link.rs` | the linking executor |

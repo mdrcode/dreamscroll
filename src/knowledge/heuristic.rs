@@ -14,10 +14,10 @@
 
 use std::collections::{BTreeSet, HashMap};
 
-use crate::illumination::v2::PlatformLink;
 use super::blocking::Blocker;
 use super::linker::{Decision, Linker};
-use super::{normalize, view};
+use super::normalize;
+use crate::model;
 
 
 pub const W_NAME: f32 = 0.60;
@@ -54,8 +54,8 @@ pub struct Observation {
     pub entity_type: String,
 }
 
-impl From<&view::ObservationView> for Observation {
-    fn from(observation: &view::ObservationView) -> Self {
+impl From<&model::user_observed_entity::Model> for Observation {
+    fn from(observation: &model::user_observed_entity::Model) -> Self {
         Self::new(
             &observation.name,
             observation.description.as_deref(),
@@ -64,8 +64,8 @@ impl From<&view::ObservationView> for Observation {
     }
 }
 
-impl From<&view::EntityView> for Scored {
-    fn from(entity: &view::EntityView) -> Self {
+impl From<&model::knowledge_entity::Model> for Scored {
+    fn from(entity: &model::knowledge_entity::Model) -> Self {
         let descriptions: Vec<&str> = entity
             .description
             .iter()
@@ -221,7 +221,7 @@ impl NameBlocker {
     }
 
     /// Build the index from the corpus. Called where the corpus is known, before the run.
-    pub fn build_entities(entities: &[view::EntityView]) -> Self {
+    pub fn build_entities(entities: &[model::knowledge_entity::Model]) -> Self {
         let mut blocker = Self::default();
         for entity in entities {
             blocker.changed(entity);
@@ -229,14 +229,14 @@ impl NameBlocker {
         blocker
     }
 
-    fn keys_of(entity: &view::EntityView) -> Vec<String> {
+    fn keys_of(entity: &model::knowledge_entity::Model) -> Vec<String> {
         let mut keys: Vec<String> = entity
             .surfaces()
             .flat_map(|surface| [normalize::key(surface), normalize::token_key(surface)])
             .filter(|key| !key.is_empty())
             .collect();
-        if let Some(key) = entity.platform_link.as_ref().and_then(PlatformLink::key) {
-            keys.push(key);
+        if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle) {
+            keys.push(normalize::link_key(platform, handle));
         }
         keys
     }
@@ -244,13 +244,13 @@ impl NameBlocker {
 
 #[async_trait::async_trait]
 impl Blocker for NameBlocker {
-    fn changed(&mut self, entity: &view::EntityView) {
+    fn changed(&mut self, entity: &model::knowledge_entity::Model) {
         for key in Self::keys_of(entity) {
             self.blocks.entry(key).or_default().insert(entity.id);
         }
     }
 
-    async fn candidates(&self, observation: &view::ObservationView) -> Vec<i32> {
+    async fn candidates(&self, observation: &model::user_observed_entity::Model) -> Vec<i32> {
         let observation = Observation::from(observation);
         let mut found: BTreeSet<i32> = BTreeSet::new();
         for block in [&observation.name_key, &observation.token_key] {
@@ -272,8 +272,8 @@ pub struct HeuristicLinker;
 impl Linker for HeuristicLinker {
     fn decide(
         &self,
-        observation: &view::ObservationView,
-        candidates: &[&view::EntityView],
+        observation: &model::user_observed_entity::Model,
+        candidates: &[&model::knowledge_entity::Model],
     ) -> Decision {
         let observation = Observation::from(observation);
         let best = candidates
@@ -376,31 +376,12 @@ mod tests {
         assert_eq!(features.type_match, 0.5);
     }
 
-    fn entity_view(id: i32, name: &str, ty: &str) -> view::EntityView {
-        view::EntityView {
-            id,
-            name: name.to_string(),
-            alt_names: Vec::new(),
-            entity_type: ty.to_string(),
-            alt_types: Vec::new(),
-            description: None,
-            alt_descriptions: Vec::new(),
-            search_query: None,
-            alt_search_queries: Vec::new(),
-            platform_link: None,
-        }
+    fn entity_view(id: i32, name: &str, ty: &str) -> model::knowledge_entity::Model {
+        crate::knowledge::entity::scratch(id, name, ty)
     }
 
-    fn observation_view(name: &str, ty: &str) -> view::ObservationView {
-        view::ObservationView {
-            id: 1,
-            capture_id: 1,
-            illumination_id: 1,
-            name: name.to_string(),
-            entity_type: ty.to_string(),
-            description: None,
-            platform_link: None,
-        }
+    fn observation_view(name: &str, ty: &str) -> model::user_observed_entity::Model {
+        crate::knowledge::entity::scratch_observation(1, name, ty)
     }
 
     /// The bug that made every later capture duplicate an existing name: `project` keeps the
