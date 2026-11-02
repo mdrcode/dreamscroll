@@ -10,7 +10,7 @@
 //!
 //! - [`NameBlocker`] — normalized names and account handles. Recall-oriented, over-generates.
 //! - [`score`] — pure features: name, description, type, weighted into a total.
-//! - [`ScorerLinker`] — take the best candidate that clears the bar, else create.
+//! - [`HeuristicLinker`] — take the best candidate that clears the bar, else create.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -256,9 +256,9 @@ impl Blocker for NameBlocker {
 /// A name alone never decides — [`worth_merging`] requires corroboration — so this is a thin shell
 /// over pure functions. It exists so that "what to do" has exactly one home.
 #[derive(Debug, Default, Clone, Copy)]
-pub struct ScorerLinker;
+pub struct HeuristicLinker;
 
-impl Linker for ScorerLinker {
+impl Linker for HeuristicLinker {
     fn decide(
         &self,
         observation: &view::ObservationView,
@@ -426,7 +426,7 @@ mod tests {
         let strong = entity_view(2, "Train Dreams", "book");
         let observation = observation_view("Train Dreams", "book");
 
-        match ScorerLinker.decide(&observation, &[&weak, &strong]) {
+        match HeuristicLinker.decide(&observation, &[&weak, &strong]) {
             Decision::Attach { entity, score } => {
                 assert!(entity == 1 || entity == 2);
                 assert!(score >= 0.6, "{score}");
@@ -440,7 +440,7 @@ mod tests {
         let mut other = entity_view(1, "Apocalypse Now", "movie");
         other.description = Some("a 1979 film by Francis Ford Coppola".to_string());
 
-        match ScorerLinker.decide(&observation_view("Train Dreams", "book"), &[&other]) {
+        match HeuristicLinker.decide(&observation_view("Train Dreams", "book"), &[&other]) {
             Decision::Create { best } => assert!(best.is_some(), "the rejected candidate is kept"),
             other => panic!("expected a create, got {other:?}"),
         }
@@ -448,7 +448,7 @@ mod tests {
 
     #[test]
     fn no_candidates_creates_with_nothing_to_report() {
-        match ScorerLinker.decide(&observation_view("Anything", "unknown"), &[]) {
+        match HeuristicLinker.decide(&observation_view("Anything", "unknown"), &[]) {
             Decision::Create { best } => assert!(best.is_none()),
             other => panic!("expected a create, got {other:?}"),
         }

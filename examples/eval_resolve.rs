@@ -10,7 +10,7 @@ use std::collections::HashMap;
 
 use dreamscroll::knowledge::cache::Outcome;
 use dreamscroll::knowledge::resolve::wikidata::Wikidata;
-use dreamscroll::knowledge::resolve::{EntityView, Resolver, Raw};
+use dreamscroll::knowledge::resolve::{EntityView, Raw};
 use dreamscroll::{config, database};
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::Value;

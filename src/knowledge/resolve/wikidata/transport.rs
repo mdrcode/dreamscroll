@@ -6,7 +6,7 @@
 use serde_json::{json, Value};
 
 use super::super::driver::{FetchError, Raw, Request};
-use super::{Candidate, Wikidata, LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT};
+use super::resolver::{Candidate, Wikidata, LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT};
 use crate::knowledge::cache::Outcome;
 
 impl Wikidata {
@@ -451,6 +451,8 @@ pub(super) fn sparql_for_handles(requests: &[Request], property: &str) -> String
          }}"
     )
 }
+
+/// SPARQL string literals: backslash and double quote are the only escapes that matter here.
 pub(super) fn escape(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
 }

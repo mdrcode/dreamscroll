@@ -96,9 +96,15 @@ Both traits see **views** — `ObservationView` and `EntityView` — which are p
 models. No database, no network, no async. That is what makes a decision reproducible from a fixture.
 
 `link.rs` is the executor: load the views, drive them through the blocker and linker, apply the
-effects. Everything that is *our guess* — normalised name keys, weighted features, the bar a
-candidate has to clear — lives in `heuristic.rs` and nowhere else. Delete that file and the graph
-still compiles; it simply has no policy.
+effects.
+
+**The heuristic is one implementation of that chain — not the chain.** `heuristic.rs` holds our
+first prototype: normalized name keys to block on, weighted features, a bar to clear. It is
+deliberately self-contained, which is the property worth protecting: everything it needs lives in
+that one file, so it can be tuned, replaced, or deleted without touching the framework. A future
+linker might block on embeddings, decide with a model, or reason over evidence in a way that shares
+nothing with this one — it would implement the same two traits and import not a line of `heuristic`.
+Delete that file today and the lib still compiles; it simply has no policy.
 
 ## Resolving: what can the authorities tell us?
 
@@ -107,22 +113,37 @@ Resolving is the opposite kind of work: network, cached, and only ever through o
 ```rust
 trait Resolver {
     fn id(&self) -> &'static str;
-    fn plan(&self, entity: &EntityView) -> Vec<Request>;      // what I would ask
-    fn parse(&self, entity: &EntityView, request: &Request, raw: &Raw) -> Vec<Claim>;  // what it means
+    async fn resolve(&self, entities: &[EntityView], ctx: &ResolutionContext)
+        -> Vec<(i32, Claim)>;                 // claims, each tagged with its entity
+}
+
+trait Transport {
     async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError>;
 }
 ```
 
-`plan` and `parse` are pure, so the whole decision can be re-run over cached payloads for free.
-`fetch` is the only network call in the system, and only the executor calls it — a provider cannot
-forget the cache, because there is no other way to reach the network.
+`resolve` takes a *batch*, not one entity: batching across entities is the difference between a
+hundred transport calls for a corpus walk and five thousand, and only the resolver knows how to
+group its own requests.
+
+How a resolver gets to its claims is its own business. `Wikidata` uses a two-pass ladder — handles,
+titles and exact labels first, then full-text search for whatever is left — but that shape is
+internal to it, not vocabulary the engine knows about. There is no `plan`/`plan_fallback` in the
+contract, so **adding an authority means writing one `Resolver`**, and a resolver is free to make one
+request or a dozen.
+
+The one thing a resolver cannot do is fetch. Its only route to the world is
+`ResolutionContext::ask`, which consults the cache first, charges the budget and paces the call —
+which is why a resolver can own its own strategy without being able to bypass any of them. (An
+agentic resolver, whose tool calls happen inside a provider's runtime, is the one exception: it uses
+the same context by convention, and it is expected to fail at that rather than to pretend.)
 
 Resolvers **accumulate**. Wikidata supplies a QID, and a second resolver might supply an IMDb id;
 they answer different questions, so both are kept. The promise is not "the answer" but *independent
 external evidence that this identity is true*.
 
-Run in two stages: identity first (exact label, handle), then a search fallback only for what the
-first stage missed.
+`plan` and `parse` inside `Wikidata` are pure, so its whole decision can be re-run over cached
+payloads for free — that is what `examples/eval_resolve` does.
 
 ## Evidence: why we believe it
 
@@ -168,11 +189,11 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | file | what it is |
 |---|---|
 | `view.rs` | the plain values strategies see |
-| `blocking.rs`, `linker.rs` | the two traits, and nothing else |
-| `heuristic.rs` | **all** of our guesswork: features, weights, bars, `NameBlocker`, `ScorerLinker` |
+| `blocking.rs`, `linker.rs` | the two traits, and nothing else — the contract a linker implements |
+| `heuristic.rs` | our first linker, self-contained: features, weights, bars, `NameBlocker`, `HeuristicLinker` |
 | `link.rs` | the linking executor |
-| `resolve/driver.rs` | the resolver contract, the cache-first driver, claim storage |
-| `resolve/wikidata/` | one authority: policy in `wikidata.rs`, HTTP in `transport.rs` |
+| `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
+| `resolve/wikidata/` | one authority: policy in `resolver.rs`, HTTP in `transport.rs` |
 | `project.rs` | the only writer of an entity's derived columns |
 | `merge.rs`, `reset.rs`, `compare.rs` | repair and the tooling around it |
 | `current.rs` | which reading a user sees |

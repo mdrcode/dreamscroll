@@ -15,7 +15,7 @@ use sea_orm::{
 
 use super::{
     blocking::Blocker,
-    heuristic::{NameBlocker, ScorerLinker},
+    heuristic::{NameBlocker, HeuristicLinker},
     linker::{self, Linker},
     normalize, view,
 };
@@ -172,7 +172,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
             .map(|position| &entities[position])
             .collect();
 
-        match ScorerLinker.decide(&observation_view, &candidates) {
+        match HeuristicLinker.decide(&observation_view, &candidates) {
             linker::Decision::Attach { entity, .. } => {
                 let position = positions[&entity];
                 let knowledge_entity_id = entity;

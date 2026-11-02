@@ -6,7 +6,7 @@
 //!
 //! Note what is *not* here: no features, no score components, no thresholds. Those belong to a
 //! particular heuristic, and the only thing the core asks for is a decision and the number that
-//! justified it. The one implementation is [`crate::knowledge::heuristic::ScorerLinker`].
+//! justified it. The one implementation is [`crate::knowledge::heuristic::HeuristicLinker`].
 
 use crate::knowledge::view;
 

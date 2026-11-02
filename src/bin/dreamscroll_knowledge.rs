@@ -205,9 +205,6 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Command::Resolve(args) => {
-            let engines: Vec<Box<dyn knowledge::resolve::Resolver>> = vec![Box::new(
-                knowledge::resolve::wikidata::Wikidata::new()?,
-            )];
             // A budget of zero makes no transport calls, which reads like a successful run that
             // resolved nothing. That is a mode, not a number.
             if args.offline && args.max_requests.is_some() {
@@ -230,7 +227,10 @@ async fn main() -> anyhow::Result<()> {
                 only: args.entity,
                 min_interval: std::time::Duration::from_millis(args.min_interval_ms),
             };
-            let report = knowledge::resolve::resolve(&db, &engines, &options).await?;
+            let engine = knowledge::resolve::ResolutionEngine::new(&db, options).with(Box::new(
+                knowledge::resolve::wikidata::Wikidata::new()?,
+            ));
+            let report = engine.run().await?;
 
             if report.dry_run {
                 println!("dry run — nothing fetched");

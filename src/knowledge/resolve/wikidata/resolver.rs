@@ -9,22 +9,26 @@
 //! | `search` | `wbsearchentities` | no | full-text fallback, only for entities the first stage missed |
 //!
 //! `plan` and `parse` are pure, so the whole decision can be tested from a fixture and re-run over
-//! cached payloads for free. Only `fetch` touches the network, and only the executor calls it.
+//! cached payloads for free. Only `fetch` touches the network, and nothing here calls it directly:
+//! it goes through `ResolutionContext::ask`, which keeps the cache, the pace and the budget.
 
-mod transport;
+use std::collections::HashSet;
 
 use serde_json::{json, Value};
 
-use super::{Claim, EntityView, Resolver, FetchError, Raw, Request, BATCH};
+use crate::knowledge::resolve::{
+    Answers, BATCH, Claim, EntityView, FetchError, Raw, Request, ResolutionContext, Resolver,
+    Transport,
+};
 
-const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
+pub(super) const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
 /// Article-title reconciliation. A Wikipedia title is unique where a Wikidata label is not: 213 items
 /// are labelled `Paris`, but only one page is titled `Paris`.
-const WIKIPEDIA_ENDPOINT: &str = "https://en.wikipedia.org/w/api.php";
+pub(super) const WIKIPEDIA_ENDPOINT: &str = "https://en.wikipedia.org/w/api.php";
 /// `Wikimedia disambiguation page`. A title that resolves here has no referent, only a menu.
 const DISAMBIGUATION: &str = "Q4167410";
 const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";
-const LANGUAGE: &str = "en";
+pub(super) const LANGUAGE: &str = "en";
 const SEARCH_LIMIT: usize = 10;
 
 /// A platform account is an identity, and each platform is a different property. Adding one is a row
@@ -46,7 +50,7 @@ fn handle_property(platform: &str) -> Option<&'static str> {
 }
 
 pub struct Wikidata {
-    client: reqwest::Client,
+    pub(super) client: reqwest::Client,
 }
 
 impl Wikidata {
@@ -117,7 +121,7 @@ impl Wikidata {
         handle_property(platform).map(|property| format!("handle:{property}"))
     }
 
-    fn property_of(kind: &str) -> Option<&str> {
+    pub(super) fn property_of(kind: &str) -> Option<&str> {
         kind.strip_prefix("handle:")
     }
 
@@ -161,26 +165,11 @@ impl Wikidata {
         };
         vec![claim(best.candidate, method, confidence(best.score))]
     }
-}
 
-#[async_trait::async_trait]
-impl Resolver for Wikidata {
-    fn id(&self) -> &'static str {
-        "wikidata"
-    }
-
-    /// The search endpoint takes one query per call; only SPARQL batches.
-    fn batch_size(&self, kind: &str) -> usize {
-        if kind == "search" {
-            1
-        } else if kind == "title" {
-            50
-        } else {
-            BATCH
-        }
-    }
-
-    fn plan(&self, entity: &EntityView) -> Vec<Request> {
+    /// The first pass: a handle, then a title, then an exact label. Pure, so the order is testable
+    /// without a network — and public for the same reason: `examples/eval_resolve` re-runs the whole
+    /// decision over cached payloads.
+    pub fn plan(&self, entity: &EntityView) -> Vec<Request> {
         let mut requests = Vec::new();
         if let Some((platform, handle)) = &entity.account
             && let Some(kind) = Self::kind_for_handle(platform)
@@ -213,13 +202,16 @@ impl Resolver for Wikidata {
         requests
     }
 
-    /// Stage two: search for the **bare label** when the exact-label lookup produced no claim.
+    /// The second pass: search for the **bare label**, for entities the first pass left unresolved.
     ///
     /// This is a lookup fallback, not a ranking signal. Wikidata labels `J. R. R. Tolkien` and
     /// `D. H. Lawrence` *with spaces*; our exact-label SPARQL sends `J.R.R. Tolkien` and gets nothing,
     /// while search finds Q892 immediately. Measured on 20 random empty-label entities: 4 recoverable
     /// this way.
-    fn plan_fallback(&self, entity: &EntityView) -> Vec<Request> {
+    ///
+    /// The pass boundary lives here, not in the engine: no other authority knows that search is the
+    /// expensive route.
+    pub fn plan_fallback(&self, entity: &EntityView) -> Vec<Request> {
         let label = entity.name.trim();
         if label.is_empty() {
             return Vec::new();
@@ -232,7 +224,9 @@ impl Resolver for Wikidata {
         }]
     }
 
-    fn parse(&self, entity: &EntityView, request: &Request, raw: &Raw) -> Vec<Claim> {
+    /// Turn an answer into claims. Pure: same entity plus same answer, same claims. The entity is
+    /// passed because deciding between ambiguous candidates needs its description and type.
+    pub fn parse(&self, entity: &EntityView, request: &Request, raw: &Raw) -> Vec<Claim> {
         // A degraded answer still carries candidates; it is only cached for a shorter time.
         if !raw.outcome.answered() {
             return Vec::new();
@@ -328,6 +322,117 @@ impl Resolver for Wikidata {
         self.decide(entity, &candidates, request)
     }
 
+    /// Turn answers into claims. First request to speak wins for an entity, which is why `plan`
+    /// orders them: a handle is a stronger statement than a title, and a title than a label.
+    async fn collect(
+        &self,
+        entities: &[EntityView],
+        plans: &[(usize, Request)],
+        answers: &Answers,
+        ctx: &ResolutionContext<'_>,
+        claims: &mut Vec<(i32, Claim)>,
+        resolved: &mut HashSet<i32>,
+    ) {
+        for (index, request) in plans {
+            let entity = &entities[*index];
+            if resolved.contains(&entity.id) {
+                continue;
+            }
+            let key = (
+                request.kind.clone(),
+                request.shape.clone(),
+                request.query.clone(),
+            );
+            let Some(raw) = answers.get(&key) else {
+                continue;
+            };
+            let parsed = self.parse(entity, request, raw);
+            if parsed.is_empty() {
+                // The answer was not wrong, or at least we cannot show it was — only unhelpful.
+                // Re-ask it sooner than the default week: a stale negative is indistinguishable from
+                // a fact, and a degraded answer looks exactly like a real one.
+                ctx.unproductive(request).await;
+                continue;
+            }
+            resolved.insert(entity.id);
+            claims.extend(parsed.into_iter().map(|claim| (entity.id, claim)));
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Resolver for Wikidata {
+    fn id(&self) -> &'static str {
+        "wikidata"
+    }
+
+    /// Handles, titles and exact labels in one pass, then a search pass for whatever is left.
+    /// The engine sees only the claims that come back.
+    async fn resolve(
+        &self,
+        entities: &[EntityView],
+        ctx: &ResolutionContext<'_>,
+    ) -> Vec<(i32, Claim)> {
+        let mut claims = Vec::new();
+        let mut resolved: HashSet<i32> = HashSet::new();
+
+        let identity: Vec<(usize, Request)> = entities
+            .iter()
+            .enumerate()
+            .flat_map(|(index, entity)| {
+                self.plan(entity)
+                    .into_iter()
+                    .map(move |request| (index, request))
+            })
+            .collect();
+        let requests: Vec<Request> = identity
+            .iter()
+            .map(|(_, request)| request.clone())
+            .collect();
+        let answers = ctx.ask(self, &requests).await;
+        self.collect(entities, &identity, &answers, ctx, &mut claims, &mut resolved)
+            .await;
+
+        // A dry run fetches nothing, so a second pass has nothing to learn.
+        if ctx.dry_run() {
+            return claims;
+        }
+
+        let fallback: Vec<(usize, Request)> = entities
+            .iter()
+            .enumerate()
+            .filter(|(_, entity)| !resolved.contains(&entity.id))
+            .flat_map(|(index, entity)| {
+                self.plan_fallback(entity)
+                    .into_iter()
+                    .map(move |request| (index, request))
+            })
+            .collect();
+        let requests: Vec<Request> = fallback
+            .iter()
+            .map(|(_, request)| request.clone())
+            .collect();
+        let answers = ctx.ask(self, &requests).await;
+        self.collect(entities, &fallback, &answers, ctx, &mut claims, &mut resolved)
+            .await;
+
+        claims
+    }
+}
+
+#[async_trait::async_trait]
+impl Transport for Wikidata {
+    /// The search endpoint takes one query per call; only SPARQL batches.
+    fn batch_size(&self, kind: &str) -> usize {
+        if kind == "search" {
+            1
+        } else if kind == "title" {
+            50
+        } else {
+            BATCH
+        }
+    }
+
     async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
         let Some(first) = requests.first() else {
             return Ok(Vec::new());
@@ -348,11 +453,11 @@ impl Resolver for Wikidata {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-struct Candidate {
-    id: String,
-    label: Option<String>,
-    description: Option<String>,
-    classes: Vec<String>,
+pub(super) struct Candidate {
+    pub(super) id: String,
+    pub(super) label: Option<String>,
+    pub(super) description: Option<String>,
+    pub(super) classes: Vec<String>,
 }
 
 impl Candidate {
@@ -377,7 +482,7 @@ impl Candidate {
         })
     }
 
-    fn to_json(&self) -> Value {
+    pub(super) fn to_json(&self) -> Value {
         json!({
             "id": self.id,
             "label": self.label,
@@ -386,10 +491,6 @@ impl Candidate {
         })
     }
 }
-
-
-
-/// SPARQL string literals: backslash and double quote are the only escapes that matter here.
 
 /// Case-insensitive, whitespace-insensitive surface comparison.
 fn same_surface(a: &str, b: &str) -> bool {
@@ -1043,7 +1144,80 @@ mod tests {
     #[test]
     fn sparql_literals_are_escaped() {
         let requests = vec![request("label", "A \"quoted\" name")];
-        let query = super::transport::sparql_for_labels(&requests);
+        let query = crate::knowledge::resolve::wikidata::transport::sparql_for_labels(&requests);
         assert!(query.contains("\\\"quoted\\\""), "{query}");
+    }
+
+    /// The ladder, driven end to end. Every answer is already in the cache, so nothing is fetched:
+    /// the point is that `resolve` consults the title before the label, and only searches for the
+    /// entity the first pass left unresolved.
+    #[tokio::test]
+    async fn resolve_prefers_a_title_and_searches_only_what_is_left() {
+        use crate::knowledge::cache::{Answer, Cache};
+        use crate::knowledge::resolve::Options;
+
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let cache = Cache::new(&db.conn);
+
+        let seed = |kind: &str, query: &str, raw: Raw| {
+            let answer = Answer {
+                outcome: raw.outcome,
+                payload: raw.payload,
+            };
+            (kind.to_string(), query.to_string(), answer)
+        };
+
+        let title_wins = found(json!([
+            {"id": "Q2", "label": "Train Dreams (novella)", "description": "novella by Denis Johnson"}
+        ]));
+        let label_loses = found(json!([
+            {"id": "Q1", "label": "Train Dreams", "description": "something else entirely"}
+        ]));
+        let nothing = Raw {
+            outcome: Outcome::Empty,
+            payload: None,
+        };
+        let by_search = found(json!([
+            {"id": "Q892", "label": "J. R. R. Tolkien", "description": "English writer and philologist"}
+        ]));
+
+        // The title answers for the first entity, so its label must never be consulted — and a
+        // different QID there makes the ordering visible.
+        for (kind, query, answer) in [
+            seed("title", "Train Dreams", title_wins),
+            seed("label", "Train Dreams", label_loses),
+            // The second entity misses both lookups and has to be searched for.
+            seed("title", "J.R.R. Tolkien", nothing.clone()),
+            seed("label", "J.R.R. Tolkien", nothing),
+            seed("search", "J.R.R. Tolkien", by_search),
+        ] {
+            cache
+                .put("wikidata", &kind, &Wikidata::shape(&kind), &query, &answer)
+                .await
+                .unwrap();
+        }
+
+        let entities = vec![
+            entity("Train Dreams", Some("novella by Denis Johnson")),
+            EntityView {
+                id: 2,
+                description: Some("English author, philologist, and academic".to_string()),
+                ..entity("J.R.R. Tolkien", None)
+            },
+        ];
+
+        let options = Options {
+            min_interval: std::time::Duration::from_millis(0),
+            ..Default::default()
+        };
+        let ctx = ResolutionContext::new(&cache, &options);
+        let claims = engine().resolve(&entities, &ctx).await;
+
+        let ids: Vec<(i32, &str)> = claims.iter().map(|(id, claim)| (*id, claim.id.as_str())).collect();
+        assert_eq!(ids, vec![(1, "Q2"), (2, "Q892")], "{claims:?}");
+        assert_eq!(ctx.fetched(), 0, "everything was answered from the cache");
     }
 }

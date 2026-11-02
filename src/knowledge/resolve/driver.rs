@@ -1,22 +1,24 @@
-//! The resolver contract and the driver that runs it.
+//! What a resolver is, and the engine that runs it.
 //!
-//! `Resolver` is what a provider implements: it may say what it would ask (`plan`) and interpret an
-//! answer (`parse`), but it cannot reach the network on its own. `resolve` is the only caller of
-//! `fetch`, and it always consults the cache first — adding an authority means adding one `Resolver`,
-//! and it cannot forget the cache because there is no other door.
-
+//! A `Resolver` is one authority plus the strategy for getting claims out of it: it is handed a
+//! batch of entities and returns claims about them. How it gets there — one request or a ladder of
+//! them, one pass or several — is its own business.
+//!
+//! Adding an authority means writing one `Resolver`. It cannot forget the cache, because
+//! `ResolutionContext::ask` is the only way to reach the world: there is no other door.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde_json::{json, Value};
 
-use crate::knowledge::cache::{Answer, Cache, Outcome};
+use crate::knowledge::cache::{Answer, Cache, Outcome, UNPRODUCTIVE_TTL};
 use crate::knowledge::project;
 use crate::{database, model};
 
 /// How many queries go into one transport call. Providers that cannot batch ignore the chunking and
-/// answer one request per query; the executor does not care.
+/// answer one request per query; the engine does not care.
 #[cfg(not(test))]
 pub(crate) const BATCH: usize = 50;
 
@@ -41,6 +43,10 @@ pub struct Raw {
     pub outcome: Outcome,
     pub payload: Option<Value>,
 }
+
+/// Answers keyed by `(kind, shape, query)`. `title` and `label` ask about the same string and the
+/// answers are different things, so the kind has to be in the key.
+pub type Answers = HashMap<(String, String, String), Raw>;
 
 /// One identity a provider is willing to assert about an entity.
 #[derive(Debug, Clone, PartialEq)]
@@ -76,43 +82,39 @@ impl std::fmt::Display for FetchError {
 
 impl std::error::Error for FetchError {}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Stage {
-    /// Identifiers and exact labels: cheap, high precision.
-    Identity,
-    /// Full-text search: only for entities the first stage could not resolve.
-    Fallback,
-}
-
+/// The wire.
+///
+/// Separate from `Resolver` because the strategy is the resolver's business while the transport is
+/// the narrow part the cache has to understand. A resolver that batches badly pays for it here.
 #[async_trait::async_trait]
-pub trait Resolver: Send + Sync {
-    fn id(&self) -> &'static str;
+pub trait Transport: Send + Sync {
+    /// The only network call in the system. `requests` are all the same kind and shape.
+    async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError>;
 
-    /// What this engine would ask about an entity. Empty when it has nothing to offer.
-    fn plan(&self, entity: &EntityView) -> Vec<Request>;
-
-    /// Second-stage questions, asked only when the first stage found nothing.
-    fn plan_fallback(&self, _core: &EntityView) -> Vec<Request> {
-        Vec::new()
-    }
-
-    /// Turn an answer into claims. Pure: same entity plus same answer, same claims. The entity is
-    /// passed because deciding between ambiguous candidates needs its description and type.
-    fn parse(&self, entity: &EntityView, request: &Request, raw: &Raw) -> Vec<Claim>;
-
-    /// How many queries this kind can answer in one network call. The executor chunks by this and
+    /// How many queries this kind can answer in one network call. The engine chunks by this and
     /// paces each call, so a kind that cannot batch is throttled per query instead of fired as a
     /// burst — which is how the search endpoint got us rate limited.
     fn batch_size(&self, _kind: &str) -> usize {
         BATCH
     }
-
-    /// The only network call in the system. `requests` are all the same kind and shape.
-    async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError>;
 }
 
-/// Transport calls a plain `resolve` is allowed to make. Exists so that omitting the budget does
-/// real work instead of quietly resolving nothing.
+/// One authority, and the strategy for asking it.
+///
+/// `resolve` takes a *batch* of entities rather than one: batching across entities is the difference
+/// between a hundred transport calls for a corpus walk and five thousand, and only the resolver knows
+/// how to group its own requests.
+#[async_trait::async_trait]
+pub trait Resolver: Send + Sync {
+    fn id(&self) -> &'static str;
+
+    /// Claims about the entities it could resolve, each tagged with the entity it belongs to, in
+    /// priority order: the engine takes the first claim per entity that the graph accepts.
+    async fn resolve(&self, entities: &[EntityView], ctx: &ResolutionContext<'_>) -> Vec<(i32, Claim)>;
+}
+
+/// Transport calls a plain resolve is allowed to make. Exists so that omitting the budget does real
+/// work instead of quietly resolving nothing.
 pub const DEFAULT_MAX_REQUESTS: usize = 200;
 
 #[derive(Debug, Clone)]
@@ -163,137 +165,291 @@ pub struct Report {
     pub dry_run: bool,
 }
 
-pub async fn resolve(
-    db: &database::DbHandle,
-    engines: &[Box<dyn Resolver>],
-    options: &Options,
-) -> anyhow::Result<Report> {
-    let entities = candidates(&db.conn, options.limit, options.only).await?;
-    let cache = Cache::new(&db.conn);
-    let mut report = Report {
-        candidates: entities.len(),
-        dry_run: options.dry_run,
-        ..Default::default()
-    };
-    let mut resolved: HashSet<i32> = HashSet::new();
-    // One pacer and one budget for the whole run: a stage boundary must not reset either.
-    let mut pacer = Pacer::new(options.min_interval);
-    let mut budget = Budget::new(options.max_requests);
+/// No rate limit seen. Distinguishes "the provider did not ask us to wait" from "wait zero seconds".
+const NOT_LIMITED: u64 = u64::MAX;
 
-    for engine in engines {
-        if report.rate_limited_after.is_some() {
-            break;
+/// What a resolver is given.
+///
+/// It is the only door to the world: a resolver cannot fetch, only ask. That is what lets one own its
+/// own strategy — including several passes — without being able to bypass the cache, the pace or the
+/// budget.
+pub struct ResolutionContext<'a> {
+    cache: &'a Cache<'a>,
+    pacer: tokio::sync::Mutex<Pacer>,
+    budget: tokio::sync::Mutex<Budget>,
+    dry_run: bool,
+    planned: AtomicUsize,
+    cache_hits: AtomicUsize,
+    fetched: AtomicUsize,
+    failed: AtomicUsize,
+    budget_exhausted: AtomicBool,
+    rate_limited_after: AtomicU64,
+}
+
+impl<'a> ResolutionContext<'a> {
+    pub(crate) fn new(cache: &'a Cache<'a>, options: &Options) -> Self {
+        Self {
+            cache,
+            pacer: tokio::sync::Mutex::new(Pacer::new(options.min_interval)),
+            budget: tokio::sync::Mutex::new(Budget::new(options.max_requests)),
+            dry_run: options.dry_run,
+            planned: AtomicUsize::new(0),
+            cache_hits: AtomicUsize::new(0),
+            fetched: AtomicUsize::new(0),
+            failed: AtomicUsize::new(0),
+            budget_exhausted: AtomicBool::new(false),
+            rate_limited_after: AtomicU64::new(NOT_LIMITED),
         }
-        run_stage(db, &cache, engine.as_ref(), &entities, &mut resolved, Stage::Identity, options, &mut pacer, &mut budget, &mut report).await?;
     }
-    // Stage two is the search fallback: an exact-label lookup misses when Wikidata spells the name
-    // differently (`J.R.R. Tolkien` vs `J. R. R. Tolkien`), and search recovers it. It only runs for
-    // entities the identity stage left unresolved.
-    if !options.dry_run {
-        for engine in engines {
-            if report.rate_limited_after.is_some() {
+
+    /// Whether the run is prohibited from touching the network. A resolver that plans several passes
+    /// can stop after the first: with nothing fetched, a second pass has nothing new to say.
+    pub fn dry_run(&self) -> bool {
+        self.dry_run
+    }
+
+    /// Whether the provider has told us to stop. Checked between resolvers, not inside one.
+    pub fn rate_limited_after(&self) -> Option<u64> {
+        let after = self.rate_limited_after.load(Ordering::Relaxed);
+        (after != NOT_LIMITED).then_some(after)
+    }
+
+    pub fn budget_exhausted(&self) -> bool {
+        self.budget_exhausted.load(Ordering::Relaxed)
+    }
+
+    /// How many transport calls this run has made.
+    pub fn fetched(&self) -> usize {
+        self.fetched.load(Ordering::Relaxed)
+    }
+
+    /// Ask the transport: cache first, then only what is missing, in batches, paced and budgeted.
+    ///
+    /// Returns whatever it has. A rate limit stops *further fetching*, never the answers already in
+    /// hand — a partial answer is worth more than a tidy one.
+    pub async fn ask<T: Transport + ?Sized>(&self, transport: &T, requests: &[Request]) -> Answers {
+        let mut answers = Answers::new();
+        if requests.is_empty() {
+            return answers;
+        }
+        self.planned.fetch_add(requests.len(), Ordering::Relaxed);
+
+        for ((provider, kind, shape), queries) in plan_groups(requests) {
+            let hits = match self.cache.get_many(provider, &kind, &shape, &queries).await {
+                Ok(hits) => hits,
+                Err(error) => {
+                    tracing::warn!(%error, "could not read the cache");
+                    continue;
+                }
+            };
+            self.cache_hits.fetch_add(hits.len(), Ordering::Relaxed);
+            for (query, answer) in hits {
+                answers.insert(
+                    (kind.clone(), shape.clone(), query),
+                    Raw {
+                        outcome: answer.outcome,
+                        payload: answer.payload,
+                    },
+                );
+            }
+
+            let misses: Vec<String> = queries
+                .into_iter()
+                .filter(|query| !answers.contains_key(&(kind.clone(), shape.clone(), query.clone())))
+                .collect();
+            if misses.is_empty() || self.dry_run {
+                continue;
+            }
+
+            for chunk in misses.chunks(transport.batch_size(&kind)) {
+                if !self.budget.lock().await.take() {
+                    self.budget_exhausted.store(true, Ordering::Relaxed);
+                    break;
+                }
+                let batch: Vec<Request> = chunk
+                    .iter()
+                    .map(|query| Request {
+                        provider,
+                        kind: kind.clone(),
+                        shape: shape.clone(),
+                        query: query.clone(),
+                    })
+                    .collect();
+                self.pacer.lock().await.pace().await;
+                self.fetched.fetch_add(1, Ordering::Relaxed);
+
+                match transport.fetch(&batch).await {
+                    Ok(results) => {
+                        for (query, raw) in results {
+                            if let Err(error) = self
+                                .cache
+                                .put(
+                                    provider,
+                                    &kind,
+                                    &shape,
+                                    &query,
+                                    &Answer {
+                                        outcome: raw.outcome,
+                                        payload: raw.payload.clone(),
+                                    },
+                                )
+                                .await
+                            {
+                                tracing::warn!(%error, "could not write the cache");
+                            }
+                            answers.insert((kind.clone(), shape.clone(), query), raw);
+                        }
+                    }
+                    Err(FetchError::RateLimited { retry_after_secs }) => {
+                        // An instruction, not a fact. Do not cache it, do not retry, do not
+                        // continue: WDQS temporarily bans clients that keep requesting after a 429.
+                        self.rate_limited_after.store(retry_after_secs, Ordering::Relaxed);
+                        return answers;
+                    }
+                    Err(FetchError::Failed(_)) => {
+                        // Not a fact about the world either: cache it briefly so a sick provider is
+                        // not hammered, then move on.
+                        for query in chunk {
+                            if let Err(error) = self
+                                .cache
+                                .put(
+                                    provider,
+                                    &kind,
+                                    &shape,
+                                    query,
+                                    &Answer {
+                                        outcome: Outcome::Failed,
+                                        payload: None,
+                                    },
+                                )
+                                .await
+                            {
+                                tracing::warn!(%error, "could not write the cache");
+                            }
+                            answers.insert(
+                                (kind.clone(), shape.clone(), query.clone()),
+                                Raw {
+                                    outcome: Outcome::Failed,
+                                    payload: None,
+                                },
+                            );
+                            self.failed.fetch_add(1, Ordering::Relaxed);
+                        }
+                    }
+                }
+            }
+        }
+
+        answers
+    }
+
+    /// An answer arrived but told us nothing usable. Re-ask it sooner than the default week: a stale
+    /// negative is indistinguishable from a fact, and a degraded answer looks exactly like a real one.
+    pub async fn unproductive(&self, request: &Request) {
+        if let Err(error) = self
+            .cache
+            .shorten(
+                request.provider,
+                &request.kind,
+                &request.shape,
+                &request.query,
+                UNPRODUCTIVE_TTL,
+            )
+            .await
+        {
+            tracing::warn!(%error, query = %request.query, "could not shorten an unproductive answer");
+        }
+    }
+
+    fn absorb(&self, report: &mut Report) {
+        report.planned = self.planned.load(Ordering::Relaxed);
+        report.cache_hits = self.cache_hits.load(Ordering::Relaxed);
+        report.fetched = self.fetched.load(Ordering::Relaxed);
+        report.failed = self.failed.load(Ordering::Relaxed);
+        report.budget_exhausted = self.budget_exhausted();
+        report.rate_limited_after = self.rate_limited_after();
+    }
+}
+
+/// The harness: it holds the resolvers, gives them a context, and stores what they return.
+///
+/// It knows nothing about stages, tiers or ladders. A resolver that wants two passes takes them; the
+/// engine only orders resolvers and merges their claims.
+pub struct ResolutionEngine<'a> {
+    db: &'a database::DbHandle,
+    options: Options,
+    resolvers: Vec<Box<dyn Resolver>>,
+}
+
+impl<'a> ResolutionEngine<'a> {
+    pub fn new(db: &'a database::DbHandle, options: Options) -> Self {
+        Self {
+            db,
+            options,
+            resolvers: Vec::new(),
+        }
+    }
+
+    /// Register an authority. This is the whole cost of adding one.
+    pub fn with(mut self, resolver: Box<dyn Resolver>) -> Self {
+        self.resolvers.push(resolver);
+        self
+    }
+
+    pub async fn run(self) -> anyhow::Result<Report> {
+        let entities = candidates(&self.db.conn, self.options.limit, self.options.only).await?;
+        let cache = Cache::new(&self.db.conn);
+        let ctx = ResolutionContext::new(&cache, &self.options);
+        let mut report = Report {
+            candidates: entities.len(),
+            dry_run: self.options.dry_run,
+            ..Default::default()
+        };
+        let mut resolved: HashSet<i32> = HashSet::new();
+
+        for resolver in &self.resolvers {
+            if ctx.rate_limited_after().is_some() {
                 break;
             }
-            run_stage(db, &cache, engine.as_ref(), &entities, &mut resolved, Stage::Fallback, options, &mut pacer, &mut budget, &mut report).await?;
-        }
-    }
-
-    for knowledge_entity_id in &resolved {
-        project::project(&db.conn, *knowledge_entity_id).await?;
-    }
-    report.entities_resolved = resolved.len();
-    Ok(report)
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn run_stage(
-    db: &database::DbHandle,
-    cache: &Cache<'_>,
-    engine: &dyn Resolver,
-    entities: &[EntityView],
-    resolved: &mut HashSet<i32>,
-    stage: Stage,
-    options: &Options,
-    pacer: &mut Pacer,
-    budget: &mut Budget,
-    report: &mut Report,
-) -> anyhow::Result<()> {
-    let plans: Vec<(usize, Request)> = entities
-        .iter()
-        .enumerate()
-        .filter(|(_, entity)| !resolved.contains(&entity.id))
-        .flat_map(|(index, entity)| {
-            let requests = match stage {
-                Stage::Identity => engine.plan(entity),
-                Stage::Fallback => engine.plan_fallback(entity),
-            };
-            requests.into_iter().map(move |request| (index, request))
-        })
-        .collect();
-    if plans.is_empty() {
-        return Ok(());
-    }
-    report.planned += plans.len();
-
-    // Note the order: a rate limit stops *further fetching*, not the parsing of answers already in
-    // hand. Returning here discarded every claim from the batches that succeeded.
-    let answers = fetch_plans(cache, engine, &plans, options, pacer, budget, report).await?;
-
-    for (index, request) in plans {
-        // One entity, one identity. A entity gets several plans (handle, title, label) and the first to
-        // claim wins: the title route is ordered ahead of the label route because a title is unique
-        // where a label is not.
-        if resolved.contains(&entities[index].id) {
-            continue;
-        }
-        let Some(raw) = answers.get(&(request.kind.clone(), request.shape.clone(), request.query.clone())) else {
-            continue;
-        };
-        let claims = engine.parse(&entities[index], &request, raw);
-        if claims.is_empty() {
-            continue;
-        }
-        let knowledge_entity_id = entities[index].id;
-        let mut accepted = 0;
-        for claim in claims {
-            if store_claim(&db.conn, engine.id(), knowledge_entity_id, claim, report).await? {
-                accepted += 1;
+            // One entity, one identity: the first claim the graph accepts wins, and the rest of that
+            // entity's claims are dropped. The resolver's ordering is its own priority.
+            for (knowledge_entity_id, claim) in resolver.resolve(&entities, &ctx).await {
+                if resolved.contains(&knowledge_entity_id) {
+                    continue;
+                }
+                if store_claim(&self.db.conn, resolver.id(), knowledge_entity_id, claim, &mut report)
+                    .await?
+                {
+                    resolved.insert(knowledge_entity_id);
+                }
             }
         }
-        if accepted > 0 {
-            resolved.insert(knowledge_entity_id);
-        } else {
-            // The answer was not wrong, or at least we cannot show it was — only unhelpful. Re-ask it
-            // sooner than the default week: a stale negative is indistinguishable from a fact, and a
-            // degraded answer looks exactly like a real one.
-            if let Err(error) = cache
-                .shorten(
-                    engine.id(),
-                    &request.kind,
-                    &request.shape,
-                    &request.query,
-                    crate::knowledge::cache::UNPRODUCTIVE_TTL,
-                )
-                .await
-            {
-                tracing::warn!(%error, query = %request.query, "could not shorten an unproductive answer");
-            }
+
+        for knowledge_entity_id in &resolved {
+            project::project(&self.db.conn, *knowledge_entity_id).await?;
         }
+        report.entities_resolved = resolved.len();
+        ctx.absorb(&mut report);
+        Ok(report)
     }
-    Ok(())
 }
 
-/// Look every planned query up in the cache, then fetch only what is missing, in batches.
 /// Group planned requests by what a provider can answer in one call, deduped.
 ///
-/// Keyed by `(kind, shape)`, not by query: `title` and `label` ask about the same string and the
-/// answers are different things. Keyed by query alone, the label group shadowed the title group and
-/// the title requests were never sent.
-fn plan_groups(plans: &[(usize, Request)]) -> BTreeMap<(String, String), Vec<String>> {
-    let mut groups: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
-    for (_, request) in plans {
+/// Keyed by `(provider, kind, shape)`, not by query: `title` and `label` ask about the same string and
+/// the answers are different things. Keyed by query alone, the label group shadowed the title group
+/// and the title requests were never sent.
+fn plan_groups(
+    requests: &[Request],
+) -> BTreeMap<(&'static str, String, String), Vec<String>> {
+    let mut groups: BTreeMap<(&'static str, String, String), Vec<String>> = BTreeMap::new();
+    for request in requests {
         groups
-            .entry((request.kind.clone(), request.shape.clone()))
+            .entry((
+                request.provider,
+                request.kind.clone(),
+                request.shape.clone(),
+            ))
             .or_default()
             .push(request.query.clone());
     }
@@ -307,7 +463,7 @@ fn plan_groups(plans: &[(usize, Request)]) -> BTreeMap<(String, String), Vec<Str
 /// A floor between transport calls.
 ///
 /// WDQS meters processing time rather than request count, but a floor is the simplest thing that
-/// cannot be wrong. It lives for a whole run, so two stages back to back do not each start afresh.
+/// cannot be wrong. It lives for a whole run, so two passes back to back do not each start afresh.
 struct Pacer {
     after: Option<std::time::Instant>,
     interval: std::time::Duration,
@@ -356,114 +512,6 @@ impl Budget {
         self.remaining -= 1;
         true
     }
-}
-
-async fn fetch_plans(
-    cache: &Cache<'_>,
-    resolver: &dyn Resolver,
-    plans: &[(usize, Request)],
-    options: &Options,
-    pacer: &mut Pacer,
-    budget: &mut Budget,
-    report: &mut Report,
-) -> anyhow::Result<HashMap<(String, String, String), Raw>> {
-    let mut answers: HashMap<(String, String, String), Raw> = HashMap::new();
-
-    for ((kind, shape), queries) in plan_groups(plans) {
-        let hits = cache
-            .get_many(resolver.id(), &kind, &shape, &queries)
-            .await?;
-        report.cache_hits += hits.len();
-        for (query, answer) in hits {
-            answers.insert(
-                (kind.clone(), shape.clone(), query),
-                Raw {
-                    outcome: answer.outcome,
-                    payload: answer.payload,
-                },
-            );
-        }
-
-        let misses: Vec<String> = queries
-            .into_iter()
-            .filter(|query| !answers.contains_key(&(kind.clone(), shape.clone(), query.clone())))
-            .collect();
-        if misses.is_empty() || options.dry_run {
-            continue;
-        }
-
-        for chunk in misses.chunks(resolver.batch_size(&kind)) {
-            if !budget.take() {
-                report.budget_exhausted = true;
-                break;
-            }
-            let requests: Vec<Request> = chunk
-                .iter()
-                .map(|query| Request {
-                    provider: resolver.id(),
-                    kind: kind.clone(),
-                    shape: shape.clone(),
-                    query: query.clone(),
-                })
-                .collect();
-            pacer.pace().await;
-            report.fetched += 1;
-
-            match resolver.fetch(&requests).await {
-                Ok(results) => {
-                    for (query, raw) in results {
-                        cache
-                            .put(
-                                resolver.id(),
-                                &kind,
-                                &shape,
-                                &query,
-                                &Answer {
-                                    outcome: raw.outcome,
-                                    payload: raw.payload.clone(),
-                                },
-                            )
-                            .await?;
-                        answers.insert((kind.clone(), shape.clone(), query), raw);
-                    }
-                }
-                Err(FetchError::RateLimited { retry_after_secs }) => {
-                    // An instruction, not a fact. Do not cache it, do not retry, do not continue:
-                    // WDQS temporarily bans clients that keep requesting after a 429.
-                    report.rate_limited_after = Some(retry_after_secs);
-                    return Ok(answers);
-                }
-                Err(FetchError::Failed(_)) => {
-                    // Not a fact about the world either: cache it briefly so a sick provider is not
-                    // hammered, then move on.
-                    for query in chunk {
-                        cache
-                            .put(
-                                resolver.id(),
-                                &kind,
-                                &shape,
-                                query,
-                                &Answer {
-                                    outcome: Outcome::Failed,
-                                    payload: None,
-                                },
-                            )
-                            .await?;
-                        answers.insert(
-                            (kind.clone(), shape.clone(), query.clone()),
-                            Raw {
-                                outcome: Outcome::Failed,
-                                payload: None,
-                            },
-                        );
-                        report.failed += 1;
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(answers)
 }
 
 /// Store one claim as `ontology` evidence. Returns whether it was accepted; a claim another entity
@@ -652,15 +700,24 @@ async fn candidates(
 #[cfg(test)]
 mod tests {
     use sea_orm::PaginatorTrait;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
 
     use super::*;
 
-    /// An engine that never touches the network: it answers from a fixed map and counts calls.
+    /// An authority that never touches the network: it answers from a fixed map and counts calls.
     struct Fake {
         answers: HashMap<String, Raw>,
         calls: Arc<AtomicUsize>,
+    }
+
+    fn fake_request(entity: &EntityView) -> Request {
+        Request {
+            provider: "fake",
+            kind: "label".to_string(),
+            shape: "v1".to_string(),
+            query: entity.name.clone(),
+        }
     }
 
     #[async_trait::async_trait]
@@ -669,48 +726,50 @@ mod tests {
             "fake"
         }
 
-        fn plan(&self, entity: &EntityView) -> Vec<Request> {
-            vec![Request {
-                provider: "fake",
-                kind: "label".to_string(),
-                shape: "v1".to_string(),
-                query: entity.name.clone(),
-            }]
-        }
-
-        fn parse(&self, _core: &EntityView, request: &Request, raw: &Raw) -> Vec<Claim> {
-            let Some(payload) = &raw.payload else {
-                return Vec::new();
-            };
-            payload
-                .get("claim")
-                .and_then(Value::as_str)
-                .map(|id| Claim {
-                    scheme: "fake".to_string(),
-                    id: id.to_string(),
-                    label: Some(request.query.clone()),
-                    description: None,
-                    classes: Vec::new(),
-                    method: "exact_label".to_string(),
-                    confidence: 0.9,
+        async fn resolve(
+            &self,
+            entities: &[EntityView],
+            ctx: &ResolutionContext<'_>,
+        ) -> Vec<(i32, Claim)> {
+            let requests: Vec<Request> = entities.iter().map(fake_request).collect();
+            let answers = ctx.ask(self, &requests).await;
+            entities
+                .iter()
+                .filter_map(|entity| {
+                    let raw = answers.get(&(
+                        "label".to_string(),
+                        "v1".to_string(),
+                        entity.name.clone(),
+                    ))?;
+                    let id = raw.payload.as_ref()?.get("claim")?.as_str()?;
+                    Some((
+                        entity.id,
+                        Claim {
+                            scheme: "fake".to_string(),
+                            id: id.to_string(),
+                            label: Some(entity.name.clone()),
+                            description: None,
+                            classes: Vec::new(),
+                            method: "exact_label".to_string(),
+                            confidence: 0.9,
+                        },
+                    ))
                 })
-                .into_iter()
                 .collect()
         }
+    }
 
+    #[async_trait::async_trait]
+    impl Transport for Fake {
         async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(requests
                 .iter()
                 .map(|request| {
-                    let raw = self
-                        .answers
-                        .get(&request.query)
-                        .cloned()
-                        .unwrap_or(Raw {
-                            outcome: Outcome::Empty,
-                            payload: None,
-                        });
+                    let raw = self.answers.get(&request.query).cloned().unwrap_or(Raw {
+                        outcome: Outcome::Empty,
+                        payload: None,
+                    });
                     (request.query.clone(), raw)
                 })
                 .collect())
@@ -751,10 +810,6 @@ mod tests {
             .expect("build_core should have linked the observation")
     }
 
-    fn fake(answers: HashMap<String, Raw>, calls: Arc<AtomicUsize>) -> Vec<Box<dyn Resolver>> {
-        vec![Box::new(Fake { answers, calls })]
-    }
-
     #[tokio::test]
     async fn a_claim_identifies_the_core_and_a_second_run_asks_nothing() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
@@ -764,18 +819,19 @@ mod tests {
         let knowledge_entity_id = seed(&db, "Train Dreams").await;
 
         let calls = Arc::new(AtomicUsize::new(0));
-        let engines = fake(
-            HashMap::from([(
-                "Train Dreams".to_string(),
-                Raw {
-                    outcome: Outcome::Found,
-                    payload: Some(json!({"claim": "Q185971"})),
-                },
-            )]),
-            calls.clone(),
-        );
+        let answers = HashMap::from([(
+            "Train Dreams".to_string(),
+            Raw {
+                outcome: Outcome::Found,
+                payload: Some(json!({"claim": "Q185971"})),
+            },
+        )]);
 
-        let first = resolve(&db, &engines, &Options::default()).await.expect("resolve");
+        let first = ResolutionEngine::new(&db, Options::default())
+            .with(Box::new(Fake { answers: answers.clone(), calls: calls.clone() }))
+            .run()
+            .await
+            .expect("resolve");
         assert_eq!(first.claims, 1, "{first:?}");
         assert_eq!(first.fetched, 1, "{first:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -789,7 +845,11 @@ mod tests {
         assert_eq!(entity.confidence, Some(0.9));
 
         // Second run: the entity now has an ontology claim, so it is not even a candidate.
-        let second = resolve(&db, &engines, &Options::default()).await.expect("resolve");
+        let second = ResolutionEngine::new(&db, Options::default())
+            .with(Box::new(Fake { answers, calls: calls.clone() }))
+            .run()
+            .await
+            .expect("resolve");
         assert_eq!(second.candidates, 0, "{second:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 1, "no second fetch");
     }
@@ -803,14 +863,21 @@ mod tests {
         let knowledge_entity_id = seed(&db, "MUME").await;
 
         let calls = Arc::new(AtomicUsize::new(0));
-        let engines = fake(HashMap::new(), calls.clone());
 
-        let first = resolve(&db, &engines, &Options::default()).await.expect("resolve");
+        let first = ResolutionEngine::new(&db, Options::default())
+            .with(Box::new(Fake { answers: HashMap::new(), calls: calls.clone() }))
+            .run()
+            .await
+            .expect("resolve");
         assert_eq!(first.fetched, 1, "{first:?}");
         assert_eq!(first.claims, 0);
 
         // The entity is still a candidate (no claim), but the negative answer is cached.
-        let second = resolve(&db, &engines, &Options::default()).await.expect("resolve");
+        let second = ResolutionEngine::new(&db, Options::default())
+            .with(Box::new(Fake { answers: HashMap::new(), calls: calls.clone() }))
+            .run()
+            .await
+            .expect("resolve");
         assert_eq!(second.candidates, 1, "{second:?}");
         assert_eq!(second.fetched, 0, "{second:?}");
         assert_eq!(second.cache_hits, 1, "{second:?}");
@@ -921,19 +988,19 @@ mod tests {
             "limited"
         }
 
-        fn plan(&self, entity: &EntityView) -> Vec<Request> {
-            vec![Request {
-                provider: "limited",
-                kind: "label".to_string(),
-                shape: "v1".to_string(),
-                query: entity.name.clone(),
-            }]
-        }
-
-        fn parse(&self, _core: &EntityView, _request: &Request, _raw: &Raw) -> Vec<Claim> {
+        async fn resolve(
+            &self,
+            entities: &[EntityView],
+            ctx: &ResolutionContext<'_>,
+        ) -> Vec<(i32, Claim)> {
+            let requests: Vec<Request> = entities.iter().map(fake_request).collect();
+            ctx.ask(self, &requests).await;
             Vec::new()
         }
+    }
 
+    #[async_trait::async_trait]
+    impl Transport for Limited {
         async fn fetch(&self, _requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
             Err(FetchError::RateLimited {
                 retry_after_secs: 30,
@@ -942,7 +1009,7 @@ mod tests {
     }
 
     /// The regression that mattered: a rate limit on the second batch must not discard the claims
-    /// from the first. Fetching stops; parsing what we already have does not.
+    /// from the first. Fetching stops; the claims already in hand do not.
     struct Flaky {
         calls: Arc<AtomicUsize>,
     }
@@ -953,30 +1020,50 @@ mod tests {
             "flaky"
         }
 
-        fn plan(&self, entity: &EntityView) -> Vec<Request> {
-            vec![Request {
-                provider: "flaky",
-                kind: "label".to_string(),
-                shape: "v1".to_string(),
-                query: entity.name.clone(),
-            }]
-        }
-
-        fn parse(&self, _core: &EntityView, request: &Request, raw: &Raw) -> Vec<Claim> {
-            (raw.outcome == Outcome::Found)
-                .then(|| Claim {
-                    scheme: "wikidata".to_string(),
-                    id: format!("Q{}", request.query.len()),
-                    label: Some(request.query.clone()),
-                    description: None,
-                    classes: Vec::new(),
-                    method: "exact_label".to_string(),
-                    confidence: 0.9,
+        async fn resolve(
+            &self,
+            entities: &[EntityView],
+            ctx: &ResolutionContext<'_>,
+        ) -> Vec<(i32, Claim)> {
+            let requests: Vec<Request> = entities
+                .iter()
+                .map(|entity| Request {
+                    provider: "flaky",
+                    kind: "label".to_string(),
+                    shape: "v1".to_string(),
+                    query: entity.name.clone(),
                 })
-                .into_iter()
+                .collect();
+            let answers = ctx.ask(self, &requests).await;
+            entities
+                .iter()
+                .filter_map(|entity| {
+                    let raw = answers.get(&(
+                        "label".to_string(),
+                        "v1".to_string(),
+                        entity.name.clone(),
+                    ))?;
+                    (raw.outcome == Outcome::Found).then(|| {
+                        (
+                            entity.id,
+                            Claim {
+                                scheme: "wikidata".to_string(),
+                                id: format!("Q{}", entity.name.len()),
+                                label: Some(entity.name.clone()),
+                                description: None,
+                                classes: Vec::new(),
+                                method: "exact_label".to_string(),
+                                confidence: 0.9,
+                            },
+                        )
+                    })
+                })
                 .collect()
         }
+    }
 
+    #[async_trait::async_trait]
+    impl Transport for Flaky {
         async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
             if self.calls.fetch_add(1, Ordering::SeqCst) >= 1 {
                 return Err(FetchError::RateLimited {
@@ -1008,10 +1095,13 @@ mod tests {
             seed(&db, name).await;
         }
 
-        let engines: Vec<Box<dyn Resolver>> = vec![Box::new(Flaky {
-            calls: Arc::new(AtomicUsize::new(0)),
-        })];
-        let report = resolve(&db, &engines, &Options::default()).await.expect("resolve");
+        let report = ResolutionEngine::new(&db, Options::default())
+            .with(Box::new(Flaky {
+                calls: Arc::new(AtomicUsize::new(0)),
+            }))
+            .run()
+            .await
+            .expect("resolve");
 
         assert_eq!(report.rate_limited_after, Some(60), "{report:?}");
         assert_eq!(report.fetched, 2, "one successful batch, then the 429: {report:?}");
@@ -1026,8 +1116,11 @@ mod tests {
         let db = test_db.handle();
         seed(&db, "Train Dreams").await;
 
-        let engines: Vec<Box<dyn Resolver>> = vec![Box::new(Limited)];
-        let report = resolve(&db, &engines, &Options::default()).await.expect("resolve");
+        let report = ResolutionEngine::new(&db, Options::default())
+            .with(Box::new(Limited))
+            .run()
+            .await
+            .expect("resolve");
 
         assert_eq!(report.rate_limited_after, Some(30), "{report:?}");
         assert_eq!(report.fetched, 1, "{report:?}");
@@ -1062,15 +1155,19 @@ mod tests {
             outcome: Outcome::Found,
             payload: Some(json!({"claim": "Q42"})),
         };
-        let engines = fake(
-            HashMap::from([
-                ("Alpha One".to_string(), claim.clone()),
-                ("Beta Two".to_string(), claim),
-            ]),
-            Arc::new(AtomicUsize::new(0)),
-        );
+        let answers = HashMap::from([
+            ("Alpha One".to_string(), claim.clone()),
+            ("Beta Two".to_string(), claim),
+        ]);
 
-        let report = resolve(&db, &engines, &Options::default()).await.expect("resolve");
+        let report = ResolutionEngine::new(&db, Options::default())
+            .with(Box::new(Fake {
+                answers,
+                calls: Arc::new(AtomicUsize::new(0)),
+            }))
+            .run()
+            .await
+            .expect("resolve");
 
         assert_eq!(report.merges, 1, "{report:?}");
         let live = model::knowledge_entity::Entity::find()
@@ -1109,56 +1206,65 @@ mod tests {
         seed(&db, "Train Dreams").await;
 
         let calls = Arc::new(AtomicUsize::new(0));
-        let engines = fake(HashMap::new(), calls.clone());
         let options = Options {
             dry_run: true,
             ..Default::default()
         };
 
-        let report = resolve(&db, &engines, &options).await.expect("resolve");
+        let report = ResolutionEngine::new(&db, options)
+            .with(Box::new(Fake {
+                answers: HashMap::new(),
+                calls: calls.clone(),
+            }))
+            .run()
+            .await
+            .expect("resolve");
 
         assert_eq!(report.planned, 1, "{report:?}");
         assert_eq!(report.fetched, 0, "{report:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 
-    fn request(kind: &str, shape: &str, query: &str) -> (usize, Request) {
-        (
-            0,
-            Request {
-                provider: "test",
-                kind: kind.to_string(),
-                shape: shape.to_string(),
-                query: query.to_string(),
-            },
-        )
+    fn request(kind: &str, shape: &str, query: &str) -> Request {
+        Request {
+            provider: "test",
+            kind: kind.to_string(),
+            shape: shape.to_string(),
+            query: query.to_string(),
+        }
     }
 
     /// `title` and `label` ask about the same string and the answers are different things, so the
     /// group key includes the kind — keyed by query alone the label group once swallowed the titles.
     #[test]
     fn plans_group_by_kind_and_shape() {
-        let plans = [
+        let requests = [
             request("label", "v1", "Train Dreams"),
             request("label", "v1", "Train Dreams"),
             request("title", "v1", "Train Dreams"),
         ];
-        let groups = plan_groups(&plans);
+        let groups = plan_groups(&requests);
 
         assert_eq!(groups.len(), 2);
-        assert_eq!(groups[&("label".into(), "v1".into())], vec!["Train Dreams"]);
-        assert_eq!(groups[&("title".into(), "v1".into())], vec!["Train Dreams"]);
+        assert_eq!(
+            groups[&("test", "label".into(), "v1".into())],
+            vec!["Train Dreams"]
+        );
+        assert_eq!(
+            groups[&("test", "title".into(), "v1".into())],
+            vec!["Train Dreams"]
+        );
     }
 
     #[test]
     fn duplicates_within_a_group_are_collapsed() {
-        let plans = [
+        let requests = [
             request("search", "v1", "b"),
             request("search", "v1", "a"),
             request("search", "v1", "b"),
         ];
-        let groups = plan_groups(&plans);
-        assert_eq!(groups[&("search".into(), "v1".into())], vec!["a", "b"]);
+        let groups = plan_groups(&requests);
+        assert_eq!(groups[&("test", "search".into(), "v1".into())], vec!["a", "b"]);
     }
 
     #[test]
@@ -1173,16 +1279,7 @@ mod tests {
     struct AlwaysRateLimited;
 
     #[async_trait::async_trait]
-    impl Resolver for AlwaysRateLimited {
-        fn id(&self) -> &'static str {
-            "limited"
-        }
-        fn plan(&self, _entity: &EntityView) -> Vec<Request> {
-            Vec::new()
-        }
-        fn parse(&self, _entity: &EntityView, _request: &Request, _raw: &Raw) -> Vec<Claim> {
-            Vec::new()
-        }
+    impl Transport for AlwaysRateLimited {
         async fn fetch(&self, _requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
             Err(FetchError::RateLimited {
                 retry_after_secs: 7,
@@ -1193,32 +1290,25 @@ mod tests {
     /// A 429 is an instruction: stop, cache nothing, report the wait. Caching it would turn a
     /// temporary throttle into a week-long "no such entity".
     #[tokio::test]
-    async fn a_rate_limit_stops_the_run_and_caches_nothing() {
+    async fn a_rate_limit_stops_the_ask_and_caches_nothing() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
         let db = test_db.handle();
         let cache = Cache::new(&db.conn);
-        let plans = vec![request("label", "v1", "Train Dreams")];
-        let mut pacer = Pacer::new(std::time::Duration::from_millis(0));
-        let mut budget = Budget::new(10);
-        let mut report = Report::default();
+        let options = Options {
+            min_interval: std::time::Duration::from_millis(0),
+            ..Default::default()
+        };
+        let ctx = ResolutionContext::new(&cache, &options);
 
-        let answers = fetch_plans(
-            &cache,
-            &AlwaysRateLimited,
-            &plans,
-            &Options::default(),
-            &mut pacer,
-            &mut budget,
-            &mut report,
-        )
-        .await
-        .unwrap();
+        let answers = ctx
+            .ask(&AlwaysRateLimited, &[request("label", "v1", "Train Dreams")])
+            .await;
 
         assert!(answers.is_empty(), "a 429 must not be recorded as an answer");
-        assert_eq!(report.rate_limited_after, Some(7));
-        assert_eq!(report.fetched, 1, "it stopped after the first call");
+        assert_eq!(ctx.rate_limited_after(), Some(7));
+        assert_eq!(ctx.fetched.load(Ordering::Relaxed), 1, "it stopped after the first call");
     }
 
     /// A spent budget stops issuing calls and says so, rather than silently returning nothing.
@@ -1229,25 +1319,17 @@ mod tests {
         };
         let db = test_db.handle();
         let cache = Cache::new(&db.conn);
-        let plans = vec![request("label", "v1", "Train Dreams")];
-        let mut pacer = Pacer::new(std::time::Duration::from_millis(0));
-        let mut budget = Budget::new(0);
-        let mut report = Report::default();
+        let options = Options {
+            max_requests: 0,
+            min_interval: std::time::Duration::from_millis(0),
+            ..Default::default()
+        };
+        let ctx = ResolutionContext::new(&cache, &options);
 
-        fetch_plans(
-            &cache,
-            &AlwaysRateLimited,
-            &plans,
-            &Options::default(),
-            &mut pacer,
-            &mut budget,
-            &mut report,
-        )
-        .await
-        .unwrap();
+        ctx.ask(&AlwaysRateLimited, &[request("label", "v1", "Train Dreams")])
+            .await;
 
-        assert!(report.budget_exhausted, "the refusal is recorded");
-        assert_eq!(report.fetched, 0, "and no transport call was made");
+        assert!(ctx.budget_exhausted(), "the refusal is recorded");
+        assert_eq!(ctx.fetched.load(Ordering::Relaxed), 0, "and no transport call was made");
     }
 }
-

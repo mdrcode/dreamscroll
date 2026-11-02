@@ -1,9 +1,10 @@
-//! Resolution: ask providers about entities, through the cache, and never any other way.
+//! Resolution: ask authorities about entities, through the cache, and never any other way.
 //!
-//! The rule this module enforces structurally: **only the executor calls an engine's `fetch`**. A
-//! provider may say what it would ask (`plan`) and interpret an answer (`parse`), but it cannot
-//! reach the network on its own — every request goes through the cache first. Adding IMDb means
-//! adding one `Resolver`; it cannot forget the cache, because there is no other door.
+//! The rule this module enforces structurally: **a resolver cannot fetch, only ask**. A resolver owns
+//! its own strategy — one request or a ladder of them, one pass or several — but its only route to
+//! the world is `ResolutionContext::ask`, which consults the cache first, paces the call and charges
+//! the budget. Adding IMDb means adding one `Resolver`; it cannot forget the cache, because there is
+//! no other door.
 
 pub mod driver;
 pub mod wikidata;
