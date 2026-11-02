@@ -334,18 +334,18 @@ impl LinkDecider for HeuristicLinker {
             .filter_map(|observation| observation.knowledge_entity_id)
             .collect();
 
-        for observation in &observations {
+        for observation in observations {
             if observation.knowledge_entity_id.is_some() {
                 continue;
             }
-            let claim = Claim::of(observation);
+            let claim = Claim::of(&observation);
 
             if let Some(found) = &claim
                 && let Some(owner) = evidence.owner(found).await?
             {
                 claimed.insert(owner);
                 decisions.push(Decision {
-                    observation: observation.id,
+                    observation,
                     action: Action::Attach {
                         entity: owner,
                         score: 1.0,
@@ -356,11 +356,11 @@ impl LinkDecider for HeuristicLinker {
                 continue;
             }
 
-            let scored = Observation::from(observation);
+            let scored = Observation::from(&observation);
             let mut best_free: Option<(i32, f32, bool)> = None;
             let mut best_any: Option<(i32, f32, bool)> = None;
 
-            for candidate in blocker.candidates(observation).await {
+            for candidate in blocker.candidates(&observation).await {
                 let features = score(&scored, &Scored::from(&candidate));
                 let entry = (candidate.id, features.total, worth_merging(&features));
                 if best_any.is_none_or(|best| entry.1 > best.1) {
@@ -396,7 +396,7 @@ impl LinkDecider for HeuristicLinker {
                 },
             };
             decisions.push(Decision {
-                observation: observation.id,
+                observation,
                 action,
                 claim,
             });

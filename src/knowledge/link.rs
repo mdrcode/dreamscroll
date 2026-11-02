@@ -7,7 +7,6 @@
 
 use std::collections::HashSet;
 
-use anyhow::anyhow;
 
 use sea_orm::EntityTrait;
 
@@ -47,18 +46,7 @@ pub async fn link_illumination(
     decider: &dyn LinkDecider,
     illumination: &model::illumination::ModelEx,
 ) -> anyhow::Result<LinkStats> {
-    // Unrolled here as well as inside the linker: applying a decision needs the whole row, and a
-    // row is not something to reconstruct from an id. Order does not matter to the executor — the
-    // linker decides who wins a contested entity, and it does its own ordering.
-    let observations: Vec<model::user_observed_entity::Model> = illumination
-        .observations
-        .iter()
-        .map(|row| row.clone().into())
-        .collect();
-
-    let decisions = decider
-        .decide_link(blocker, evidence, illumination)
-        .await?;
+    let decisions = decider.decide_link(blocker, evidence, illumination).await?;
 
     let mut stats = LinkStats::default();
     let mut touched = HashSet::new();
@@ -68,17 +56,7 @@ pub async fn link_illumination(
             link_decider::Action::Create { vetoed: true, .. } => stats.vetoed += 1,
             _ => {}
         }
-        let observation = observations
-            .iter()
-            .find(|row| row.id == decision.observation)
-            .ok_or_else(|| {
-                anyhow!(
-                    "the linker decided about observation {}, which is not in this illumination",
-                    decision.observation
-                )
-            })?;
-        apply_link_decision(db, blocker, evidence, observation, decision, &mut touched, &mut stats)
-            .await?;
+        apply_link_decision(db, blocker, evidence, decision, &mut touched, &mut stats).await?;
     }
 
     // Projection is a function of the members, so it runs after this illumination's writes.
@@ -89,18 +67,17 @@ pub async fn link_illumination(
     Ok(stats)
 }
 
-
 /// Carry out one decision: give the observation its entity, then record what the capture asserted
 /// against it.
 async fn apply_link_decision(
     db: &database::DbHandle,
     blocker: &mut dyn Blocker,
     evidence: &Evidence,
-    observation: &model::user_observed_entity::Model,
     decision: &link_decider::Decision,
     touched: &mut HashSet<i32>,
     stats: &mut LinkStats,
 ) -> anyhow::Result<()> {
+    let observation = &decision.observation;
     if observation.knowledge_entity_id.is_some() {
         anyhow::bail!(
             "the linker decided about observation {}, which is already linked",
@@ -134,7 +111,9 @@ async fn apply_link_decision(
                     model::knowledge_entity::Entity::delete_by_id(entity)
                         .exec(&db.conn)
                         .await?;
-                    if let Some(absorbed) = entity::absorb_observation(&db.conn, owner, observation).await? {
+                    if let Some(absorbed) =
+                        entity::absorb_observation(&db.conn, owner, observation).await?
+                    {
                         blocker.changed(&absorbed);
                     }
                     touched.insert(owner);
@@ -166,10 +145,6 @@ async fn apply_link_decision(
     }
     Ok(())
 }
-
-
-
-
 
 #[cfg(test)]
 mod tests {
@@ -263,7 +238,9 @@ mod tests {
         )
         .await;
 
-        crate::test_support::link::link_all(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
 
         assert_eq!(entity_count(&db).await, 2);
     }
@@ -287,10 +264,18 @@ mod tests {
         )
         .await;
 
-        crate::test_support::link::link_all(&db).await.expect("build should succeed");
-        crate::test_support::link::link_all(&db).await.expect("second build should succeed");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("second build should succeed");
 
-        assert_eq!(entity_count(&db).await, 1, "one entity, and a second run adds none");
+        assert_eq!(
+            entity_count(&db).await,
+            1,
+            "one entity, and a second run adds none"
+        );
         let unlinked = observation::Entity::find()
             .filter(observation::Column::KnowledgeEntityId.is_null())
             .count(&db.conn)
@@ -328,7 +313,9 @@ mod tests {
             .unwrap();
         }
 
-        crate::test_support::link::link_all(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
 
         let unlinked = observation::Entity::find()
             .filter(observation::Column::KnowledgeEntityId.is_null())
@@ -372,7 +359,9 @@ mod tests {
         )
         .await;
 
-        crate::test_support::link::link_all(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
 
         assert_eq!(entity_count(&db).await, 1, "the claim folded the duplicate");
         assert_eq!(evidence::Entity::find().count(&db.conn).await.unwrap(), 1);
@@ -398,7 +387,9 @@ mod tests {
             Some("tsoding"),
         )
         .await;
-        crate::test_support::link::link_all(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
 
         let owner_core = entity::Entity::find().one(&db.conn).await.unwrap().unwrap();
         let duplicate = entity::Entity::insert(entity::ActiveModel {
@@ -451,7 +442,9 @@ mod tests {
         )
         .await;
 
-        crate::test_support::link::link_all(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
 
         let entity = entity::Entity::find().one(&db.conn).await.unwrap().unwrap();
         assert_eq!(entity.status, STATUS_IDENTIFIED);

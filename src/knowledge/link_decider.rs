@@ -44,8 +44,9 @@ pub enum Action {
 /// What the linker decided about one observation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Decision {
-    /// The observation this is about.
-    pub observation: i32,
+    /// The observation itself, not its id: the subject of the decision, so the caller never has to
+    /// look it up — and cannot be handed one it was never given.
+    pub observation: model::user_observed_entity::Model,
     pub action: Action,
     /// What the capture asserted about it, transcribed and not yet recorded. The executor records it
     /// against whichever entity `action` names, and withholds it when the decision declined.
