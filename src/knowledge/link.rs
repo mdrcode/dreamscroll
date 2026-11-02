@@ -109,11 +109,13 @@ pub async fn link(
         .map(|row| row.illumination_id);
 
     // The relation, materialised by `Entity::load().with(observation::Entity)`.
+    // Ordered too: within a reading, the first observation to claim a candidate keeps it.
     let mut observations: Vec<model::user_observed_entity::Model> = illumination
         .observations
         .iter()
         .map(|row| row.clone().into())
         .collect();
+    observations.sort_by_key(|observation| observation.id);
     let mut report = Report {
         considered: observations.len(),
         ..Default::default()
@@ -244,9 +246,12 @@ pub async fn link_db(db: &database::DbHandle) -> anyhow::Result<Report> {
         .and_where(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
         .to_owned();
 
+    // Ordered, because linking a reading can change what a later one finds: two readings that both
+    // see a new entity, whichever runs first, decides who owns it.
     let illuminations = model::illumination::Entity::load()
         .filter(Expr::col(model::illumination::Column::Id).in_subquery(unlinked_obs))
         .with(model::user_observed_entity::Entity)
+        .order_by_asc(model::illumination::Column::Id)
         .all(&db.conn)
         .await?;
 
