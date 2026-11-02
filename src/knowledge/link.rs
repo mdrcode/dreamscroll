@@ -7,16 +7,16 @@
 
 use std::collections::HashSet;
 
-
 use sea_orm::EntityTrait;
 
-use super::entity;
+use crate::{database, model};
+
 use super::{
     blocking::Blocker,
+    entity,
     evidence::{ClaimOutcome, Evidence},
     link_decider::{self, LinkDecider},
 };
-use crate::{database, model};
 
 /// What one illumination's decisions actually did.
 ///
