@@ -6,6 +6,15 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
+- [ ] **Give evidence claims a repository.** `link` and `resolve` each hand-roll the same
+  three outcomes around `idx-knowledge_evidence_identity`: insert, unique violation, and
+  "another entity already holds this `(scheme, id)`". Both duplicate the violation check
+  (`is_unique_violation` / `unique_violation`) and both call `identity_owner` directly.
+  A `knowledge::evidence::Evidence<'a>` over a connection — `owner(scheme, id)`,
+  `claim(entity, &Claim) -> Accepted | HeldBy(i32)` — would own the storage while callers keep
+  their policy (`link` deletes the duplicate it just made; `resolve` merges or records a
+  collision). Open question: whether `resolve::Claim` moves into `evidence` too, since the
+  platform claim `link` writes is the same row shape with different fields filled.
 - [ ] **Score the entity-resolution precision sheet.** 100 labelled rows sit in
   `localdev/analysis/entity-promotion/evidence/review/precision_sheet.csv`
   (45 identified / 25 ranked / 15 ambiguous / 15 unidentified). Precision ≥ 0.90

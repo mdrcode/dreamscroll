@@ -14,6 +14,8 @@
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 
+use sea_orm::{EntityTrait, QueryOrder};
+
 use super::blocking::Blocker;
 use super::linker::{Decision, LinkResult, Linker};
 use super::normalize;
@@ -219,11 +221,22 @@ pub struct NameBlocker {
 }
 
 impl NameBlocker {
-    pub fn new() -> Self {
-        Self::default()
+    /// Index every live entity. The blocker is the corpus, so it loads its own.
+    pub async fn new(db: &crate::database::DbHandle) -> anyhow::Result<Self> {
+        let entities = model::knowledge_entity::Entity::find()
+            .order_by_asc(model::knowledge_entity::Column::Id)
+            .all(&db.conn)
+            .await?
+            .into_iter()
+            .filter(|row| row.merged_into_id.is_none());
+        let mut blocker = Self::default();
+        for entity in entities {
+            blocker.changed(&entity);
+        }
+        Ok(blocker)
     }
 
-    /// Build the index from the corpus. Called where the corpus is known, before the run.
+    /// Build the index from a corpus already in hand — tests, and anything that has one.
     pub fn build_entities(entities: &[model::knowledge_entity::Model]) -> Self {
         let mut blocker = Self::default();
         for entity in entities {

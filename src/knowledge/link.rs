@@ -9,7 +9,7 @@ use std::collections::HashSet;
 
 use anyhow::anyhow;
 
-use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseBackend, DbErr, EntityTrait,
     QueryFilter, QueryOrder, RuntimeErr, Set, Statement,
@@ -70,15 +70,6 @@ fn identifier_of(observation: &model::user_observed_entity::Model) -> Option<(St
     Some((platform.to_lowercase(), normalize::key(handle)))
 }
 
-/// Build the blocker for a run.
-///
-/// The corpus is passed in *here* because this is the moment it is known. A database-backed blocker
-/// ignores the slice and answers `candidates` with a query; the in-memory one indexes it now. Adding
-/// a third implementation means adding a branch here, and nothing else in the executor changes.
-fn make_blocker(entities: &[model::knowledge_entity::Model]) -> Box<dyn Blocker> {
-    Box::new(NameBlocker::build_entities(entities))
-}
-
 /// Link one illumination: its observations, against the whole graph.
 ///
 /// Self-contained — it loads the corpus it needs — so a worker holding one illumination can call it
@@ -123,6 +114,9 @@ pub async fn link(
         }
     }
 
+    // Entities this reading changes, and so must re-project before the next reading sees them.
+    let mut touched: HashSet<i32> = HashSet::new();
+
     // Identity first: decisive, and no scoring. Marking the observation as linked is also how the
     // linker learns the entity is spoken for in this reading.
     for observation in observations.iter_mut() {
@@ -139,6 +133,7 @@ pub async fn link(
         observation.knowledge_entity_id = Some(knowledge_entity_id);
         if let Some(entity) = absorb_observation(&db.conn, knowledge_entity_id, observation).await? {
             blocker.changed(&entity);
+            touched.insert(knowledge_entity_id);
         }
         report.linked_by_identifier += 1;
     }
@@ -151,7 +146,6 @@ pub async fn link(
         .await;
     report.vetoed += result.vetoed;
 
-    let mut touched: HashSet<i32> = HashSet::new();
     for (observation_id, decision) in result.decisions {
         let observation = observations
             .iter()
@@ -232,34 +226,25 @@ pub async fn link(
 /// Builds the blocker once and hands it to [`link`] for each reading — the same call a worker makes
 /// for a single illumination.
 pub async fn link_db(db: &database::DbHandle) -> anyhow::Result<Report> {
-    let entities: Vec<model::knowledge_entity::Model> = model::knowledge_entity::Entity::find()
-        .order_by_asc(model::knowledge_entity::Column::Id)
-        .all(&db.conn)
-        .await?
-        .into_iter()
-        .filter(|row| row.merged_into_id.is_none())
-        .collect();
-    let mut blocker = make_blocker(&entities);
+    let mut blocker = NameBlocker::new(db).await?;
 
-    let pending: Vec<i32> = model::user_observed_entity::Entity::find()
-        .filter(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
-        .all(&db.conn)
-        .await?
-        .into_iter()
-        .map(|row| row.illumination_id)
-        .collect::<HashSet<_>>()
-        .into_iter()
-        .collect();
+    // One query: the database decides which readings still have work, rather than shipping every
+    // unlinked observation's illumination id back to filter here.
+    let pending = Query::select()
+        .column(model::user_observed_entity::Column::IlluminationId)
+        .from(model::user_observed_entity::Entity)
+        .and_where(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
+        .to_owned();
 
     let mut report = Report::default();
     let illuminations = model::illumination::Entity::load()
-        .filter(model::illumination::Column::Id.is_in(pending))
+        .filter(Expr::col(model::illumination::Column::Id).in_subquery(pending))
         .with(model::user_observed_entity::Entity)
         .all(&db.conn)
         .await?;
 
     for illumination in &illuminations {
-        let part = link(db, blocker.as_mut(), illumination).await?;
+        let part = link(db, &mut blocker, illumination).await?;
         report.considered += part.considered;
         report.already_linked += part.already_linked;
         report.stale += part.stale;
@@ -267,16 +252,6 @@ pub async fn link_db(db: &database::DbHandle) -> anyhow::Result<Report> {
         report.linked += part.linked;
         report.created += part.created;
         report.vetoed += part.vetoed;
-    }
-
-    // Projecting every live entity once at the end repairs rows written before projection covered
-    // its columns, which a per-illumination pass cannot see.
-    for entity in model::knowledge_entity::Entity::find()
-        .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
-        .all(&db.conn)
-        .await?
-    {
-        crate::knowledge::project::project(&db.conn, entity.id).await?;
     }
 
     Ok(report)
