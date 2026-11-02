@@ -17,6 +17,40 @@ use super::{
     link_decider::{self, LinkDecider},
 };
 
+impl LinkStats {
+    /// Fold one decision and what came of it into the totals.
+    ///
+    /// Both halves live here because they are one question: what did this reading do, and why.
+    fn record(&mut self, decision: &link_decider::Decision, applied: Applied) {
+        match &decision.action {
+            link_decider::Action::Attach { by_claim: true, .. } => self.by_claim += 1,
+            link_decider::Action::Create { vetoed: true, .. } => self.vetoed += 1,
+            _ => {}
+        }
+        match applied.outcome {
+            Outcome::Attached => self.attached += 1,
+            Outcome::Created => self.created += 1,
+            Outcome::Folded => self.folded += 1,
+        }
+    }
+}
+
+/// What applying one decision did.
+struct Applied {
+    /// The entity the observation ended up on — the one to re-project.
+    entity: i32,
+    outcome: Outcome,
+}
+
+enum Outcome {
+    /// It joined the entity the decision named.
+    Attached,
+    /// A new entity was created for it.
+    Created,
+    /// A new entity was created and then discarded, because another one already held the claim.
+    Folded,
+}
+
 /// What one illumination's decisions actually did.
 ///
 /// Deliberately not a report: there is no `considered`, no `stale`, no notion of a run. Those are
@@ -50,12 +84,9 @@ pub async fn link_illumination(
     let mut stats = LinkStats::default();
     let mut touched = HashSet::new();
     for decision in &decisions {
-        match &decision.action {
-            link_decider::Action::Attach { by_claim: true, .. } => stats.by_claim += 1,
-            link_decider::Action::Create { vetoed: true, .. } => stats.vetoed += 1,
-            _ => {}
-        }
-        apply_link_decision(db, blocker, evidence, decision, &mut touched, &mut stats).await?;
+        let applied = apply_link_decision(db, blocker, evidence, decision).await?;
+        touched.insert(applied.entity);
+        stats.record(decision, applied);
     }
 
     // Projection is a function of the members, so it runs after this illumination's writes.
@@ -73,9 +104,7 @@ async fn apply_link_decision(
     blocker: &mut dyn Blocker,
     evidence: &Evidence,
     decision: &link_decider::Decision,
-    touched: &mut HashSet<i32>,
-    stats: &mut LinkStats,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<Applied> {
     let observation = &decision.observation;
     if observation.knowledge_entity_id.is_some() {
         anyhow::bail!(
@@ -117,16 +146,18 @@ async fn apply_link_decision(
     // Fold what the capture said into whichever entity won, and let the blocker see the result.
     entity::absorb_observation(&db.conn, &mut entity, observation).await?;
     blocker.changed(&entity);
-    touched.insert(entity.id);
 
-    if folded {
-        stats.folded += 1;
+    let outcome = if folded {
+        Outcome::Folded
     } else if matches!(decision.action, link_decider::Action::Attach { .. }) {
-        stats.attached += 1;
+        Outcome::Attached
     } else {
-        stats.created += 1;
-    }
-    Ok(())
+        Outcome::Created
+    };
+    Ok(Applied {
+        entity: entity.id,
+        outcome,
+    })
 }
 
 #[cfg(test)]
