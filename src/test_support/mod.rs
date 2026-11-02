@@ -10,5 +10,6 @@
 //! - [`fixtures`] — model builders for a user/capture/illumination/entity graph.
 
 pub mod fixtures;
+pub mod link;
 pub mod test_config;
 pub mod test_db;

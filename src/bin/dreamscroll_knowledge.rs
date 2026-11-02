@@ -1,6 +1,95 @@
 use argh::FromArgs;
+use sea_orm::sea_query::{Expr, ExprTrait, Query};
+use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseBackend, QueryFilter, QueryOrder, Statement};
 
+use dreamscroll::knowledge::evidence::Evidence;
+use dreamscroll::knowledge::heuristic::NameBlocker;
+use dreamscroll::knowledge::link::link_illumination;
+use dreamscroll::model;
 use dreamscroll::{config, database, knowledge, telemetry};
+
+/// What a rebuild of the whole graph did.
+///
+/// Lives here rather than in the library because it describes a *run*, not a link decision: how many
+/// readings there were, which were stale, how the totals add up. The library reports what it wrote.
+#[derive(Debug, Default)]
+struct Report {
+    considered: usize,
+    already_linked: usize,
+    stale: usize,
+    attached: usize,
+    by_claim: usize,
+    created: usize,
+    folded: usize,
+    vetoed: u32,
+}
+
+impl Report {
+    fn update(&mut self, part: knowledge::link::Applied) {
+        self.attached += part.attached;
+        self.by_claim += part.by_claim;
+        self.created += part.created;
+        self.folded += part.folded;
+        self.vetoed += part.vetoed;
+    }
+}
+
+/// Link every illumination that still has unlinked observations.
+///
+/// The whole graph, rebuilt: one blocker and one evidence store for the run, ordered so a rebuild is
+/// reproducible.
+async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<Report> {
+    let mut blocker = NameBlocker::new(db).await?;
+    let evidence = Evidence::from_handle(db);
+    let current = current_readings(db).await?;
+
+    let pending = Query::select()
+        .column(model::user_observed_entity::Column::IlluminationId)
+        .from(model::user_observed_entity::Entity)
+        .and_where(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
+        .to_owned();
+
+    let illuminations = model::illumination::Entity::load()
+        .filter(Expr::col(model::illumination::Column::Id).in_subquery(pending))
+        .with(model::user_observed_entity::Entity)
+        .order_by_asc(model::illumination::Column::Id)
+        .all(&db.conn)
+        .await?;
+
+    let mut report = Report::default();
+    for illumination in &illuminations {
+        for observation in illumination.observations.iter() {
+            report.considered += 1;
+            if observation.knowledge_entity_id.is_some() {
+                report.already_linked += 1;
+            } else if current.get(&observation.capture_id) != Some(&observation.illumination_id) {
+                report.stale += 1;
+            }
+        }
+        let applied = link_illumination(db, &mut blocker, &evidence, illumination).await?;
+        report.update(applied);
+    }
+    Ok(report)
+}
+
+/// The illumination a capture currently shows, for the stale count only. Earlier readings are
+/// linked too: an illumination can be wrong, and the graph holds what every reading said.
+async fn current_readings(
+    db: &database::DbHandle,
+) -> anyhow::Result<std::collections::HashMap<i32, i32>> {
+    let rows = db
+        .conn
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT capture_id, MAX(illumination_id) FROM user_observed_entities GROUP BY capture_id",
+        ))
+        .await?;
+    let mut current = std::collections::HashMap::new();
+    for row in rows {
+        current.insert(row.try_get_by_index::<i32>(0)?, row.try_get_by_index::<i32>(1)?);
+    }
+    Ok(current)
+}
 
 #[derive(FromArgs)]
 #[argh(description = "offline knowledge-graph tooling: observations, knowledge entities, evidence")]
@@ -96,15 +185,16 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Link(_) => {
-            let report = knowledge::link::link_db(&db).await?;
+            let report = link_all_pending(&db).await?;
             println!(
-                "considered {} · already linked {} · from stale readings {} · linked {} ({} by claim) · created {} · vetoed {}",
+                "considered {} · already linked {} · from stale readings {} · linked {} ({} by claim) · created {} · dropped {} · vetoed {}",
                 report.considered,
                 report.already_linked,
                 report.stale,
-                report.linked,
-                report.linked_by_identifier,
+                report.attached,
+                report.by_claim,
                 report.created,
+                report.folded,
                 report.vetoed
             );
         }

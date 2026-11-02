@@ -55,13 +55,21 @@ pub enum ClaimOutcome {
 }
 
 /// The evidence table, for claims.
-pub struct Evidence<'a> {
-    conn: &'a sea_orm::DatabaseConnection,
+///
+/// Holds its own clone of the connection rather than borrowing one: `DatabaseConnection` is a pool
+/// handle behind an `Arc`, so cloning is a pointer copy, and the type can be built once and kept in
+/// a long-lived state — which is the point of it being a parameter.
+pub struct Evidence {
+    conn: sea_orm::DatabaseConnection,
 }
 
-impl<'a> Evidence<'a> {
-    pub fn new(conn: &'a sea_orm::DatabaseConnection) -> Self {
+impl Evidence {
+    pub fn new(conn: sea_orm::DatabaseConnection) -> Self {
         Self { conn }
+    }
+
+    pub fn from_handle(db: &crate::database::DbHandle) -> Self {
+        Self::new(db.conn.clone())
     }
 
     /// Which entity holds this claim, if any. The identity index serves this lookup.
@@ -117,7 +125,7 @@ impl<'a> Evidence<'a> {
                 ..Default::default()
             },
         )
-        .exec(self.conn)
+        .exec(&self.conn)
         .await;
 
         match insert {

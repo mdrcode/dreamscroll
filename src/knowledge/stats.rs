@@ -116,7 +116,6 @@ pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
 
 #[cfg(test)]
 mod tests {
-    use crate::knowledge::link;
     use crate::test_support::fixtures;
 
     #[tokio::test]
@@ -132,7 +131,7 @@ mod tests {
             let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
             fixtures::entity(&db, user_id, capture_id, illumination_id, index, "Train Dreams").await;
         }
-        link::link_db(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db).await.expect("build should succeed");
         let stats = super::stats(&db).await.expect("stats should succeed");
 
         assert_eq!(stats.observations, 2);

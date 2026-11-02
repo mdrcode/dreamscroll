@@ -9,15 +9,15 @@ use std::collections::HashSet;
 
 use anyhow::anyhow;
 
-use sea_orm::sea_query::{Expr, ExprTrait, Query};
+use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set,
 };
 
 use super::{
     blocking::Blocker,
     evidence::{ClaimOutcome, Evidence},
-    heuristic::{HeuristicLinker, NameBlocker},
+    heuristic::HeuristicLinker,
     linker::{self, Linker},
     normalize,
 };
@@ -26,35 +26,20 @@ use crate::{database, model};
 pub const STATUS_PROVISIONAL: &str = "provisional";
 pub const STATUS_IDENTIFIED: &str = "identified";
 
+/// What one reading's decisions actually did.
+///
+/// Deliberately not a report: there is no `considered`, no `stale`, no notion of a run. Those are
+/// questions the caller asks of its own inputs; this says only what the executor wrote.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct Report {
-    pub considered: usize,
-    /// Observations that already had an entity.
-    pub already_linked: usize,
-    /// Observations linked from a superseded illumination of their capture. Counted, not skipped:
-    /// the graph holds every reading, and the view decides which one a capture currently shows.
-    pub stale: usize,
-    /// The part of `linked` that a claim decided rather than a score. Subset, not a separate
-    /// category: these are the matches that override similarity.
-    pub linked_by_identifier: usize,
-    pub linked: usize,
-    /// Observations whose best candidate was already taken by a sibling from the same illumination.
-    pub vetoed: u32,
+pub struct Applied {
+    pub attached: usize,
+    /// Attached because a claim named the entity rather than a score.
+    pub by_claim: usize,
     pub created: usize,
-}
-
-impl Report {
-    /// Fold one run's counts into this one. Derived rather than stored (`duplicate_rate`), and the
-    /// two entry points differ only in how many runs there are.
-    pub fn update(&mut self, part: Report) {
-        self.considered += part.considered;
-        self.already_linked += part.already_linked;
-        self.stale += part.stale;
-        self.linked_by_identifier += part.linked_by_identifier;
-        self.linked += part.linked;
-        self.created += part.created;
-        self.vetoed += part.vetoed;
-    }
+    /// Created, then dropped: another entity turned out to hold the claim after all.
+    pub folded: usize,
+    /// The same-illumination veto firing.
+    pub vetoed: u32,
 }
 
 /// Add an observed type. Returns whether anything changed: an entity that has accepted `brand`
@@ -88,21 +73,17 @@ fn absorb_surface(entity: &mut model::knowledge_entity::Model, surface: &str) ->
 /// The blocker is passed in because it *is* the corpus: building it costs a pass over every live
 /// entity, so a caller doing more than one illumination builds it once. A worker handling a single
 /// illumination builds one and calls this — [`link_db`] is the same call in a loop.
-pub async fn link(
+/// Link one illumination against the graph.
+///
+/// The blocker and the evidence store are passed in because they are the expensive, shareable
+/// things: a caller doing more than one reading builds them once. Nothing here reads the database
+/// except to write.
+pub async fn link_illumination(
     db: &database::DbHandle,
     blocker: &mut dyn Blocker,
+    evidence: &Evidence,
     illumination: &model::illumination::ModelEx,
-) -> anyhow::Result<Report> {
-    // Which reading of this capture is current, for the report only. Earlier readings are linked
-    // too: an illumination can be wrong — a re-read of one image once described a different film —
-    // so the graph holds what every reading said.
-    let current = model::user_observed_entity::Entity::find()
-        .filter(model::user_observed_entity::Column::CaptureId.eq(illumination.capture_id))
-        .order_by_desc(model::user_observed_entity::Column::IlluminationId)
-        .one(&db.conn)
-        .await?
-        .map(|row| row.illumination_id);
-
+) -> anyhow::Result<Applied> {
     // The relation, materialised by `Entity::load().with(observation::Entity)`. Ordered, because
     // within a reading the first observation to claim a candidate keeps it.
     let mut observations: Vec<model::user_observed_entity::Model> = illumination
@@ -111,16 +92,17 @@ pub async fn link(
         .map(|row| row.clone().into())
         .collect();
     observations.sort_by_key(|observation| observation.id);
-    let mut report = report_of(&observations, current);
 
-    let evidence = Evidence::new(&db.conn);
     let reading: model::illumination::Model = illumination.clone().into();
     let result = HeuristicLinker
-        .link_illuminated_observations(blocker, &evidence, &reading, &observations)
+        .link_illuminated_observations(blocker, evidence, &reading, &observations)
         .await?;
-    report.vetoed = result.vetoed;
-    report.linked_by_identifier += result.by_claim as usize;
 
+    let mut applied = Applied {
+        vetoed: result.vetoed,
+        by_claim: result.by_claim as usize,
+        ..Default::default()
+    };
     let mut touched = HashSet::new();
     for (observation_id, decision) in &result.decisions {
         let observation = observations
@@ -129,7 +111,7 @@ pub async fn link(
             .ok_or_else(|| {
                 anyhow!("the linker decided about observation {observation_id}, which is not in this reading")
             })?;
-        apply(db, blocker, &evidence, observation, decision, &mut touched, &mut report).await?;
+        apply(db, blocker, evidence, observation, decision, &mut touched, &mut applied).await?;
     }
 
     // Projection is a function of the members, so it runs after this reading's writes.
@@ -137,26 +119,19 @@ pub async fn link(
         crate::knowledge::project::project(&db.conn, *knowledge_entity_id).await?;
     }
 
-    Ok(report)
+    Ok(applied)
 }
 
-/// What the reading costs the report before any decision is made.
-fn report_of(
-    observations: &[model::user_observed_entity::Model],
-    current: Option<i32>,
-) -> Report {
-    let mut report = Report {
-        considered: observations.len(),
-        ..Default::default()
-    };
-    for observation in observations {
-        if observation.knowledge_entity_id.is_some() {
-            report.already_linked += 1;
-        } else if current != Some(observation.illumination_id) {
-            report.stale += 1;
-        }
-    }
-    report
+pub(crate) fn surfaces(
+    observation: &model::user_observed_entity::Model,
+) -> impl Iterator<Item = &str> {
+    [
+        Some(observation.name.as_str()),
+        observation.platform_handle.as_deref(),
+        observation.platform_display_name.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
 }
 
 /// Carry out one decision: give the observation its entity, then record what the capture asserted
@@ -164,11 +139,11 @@ fn report_of(
 async fn apply(
     db: &database::DbHandle,
     blocker: &mut dyn Blocker,
-    evidence: &Evidence<'_>,
+    evidence: &Evidence,
     observation: &model::user_observed_entity::Model,
     decision: &linker::Decision,
     touched: &mut HashSet<i32>,
-    report: &mut Report,
+    applied: &mut Applied,
 ) -> anyhow::Result<()> {
     if observation.knowledge_entity_id.is_some() {
         anyhow::bail!(
@@ -184,15 +159,13 @@ async fn apply(
     };
     attach(&db.conn, observation.id, entity).await?;
 
-    // A claim that is already held — by this same entity — is corroboration, not a duplicate:
-    // `record` reports it as accepted. One held by *another* entity after we chose this one is a
-    // contradiction: the new entity owns nothing yet, so it is dropped and the observation folds
-    // into the real owner.
     if let Some(claim) = &decision.claim {
         match evidence.record(entity, claim, observation).await? {
             ClaimOutcome::Accepted => {
                 touched.insert(entity);
             }
+            // Another entity turned out to hold the claim after the linker looked. If we attached,
+            // that is a contradiction worth stopping for; if we created, the row owns nothing yet.
             ClaimOutcome::HeldBy(owner) => match &decision.action {
                 linker::Action::Attach { .. } => anyhow::bail!(
                     "entities {entity} and {owner} both hold {}:{}; merging is not implemented yet \
@@ -209,7 +182,7 @@ async fn apply(
                         blocker.changed(&absorbed);
                     }
                     touched.insert(owner);
-                    report.linked_by_identifier += 1;
+                    applied.folded += 1;
                     return Ok(());
                 }
             },
@@ -232,54 +205,10 @@ async fn apply(
     }
 
     match &decision.action {
-        linker::Action::Attach { entity, .. } => {
-            report.linked += 1;
-            let _ = entity;
-        }
-        linker::Action::Create { .. } => report.created += 1,
+        linker::Action::Attach { .. } => applied.attached += 1,
+        linker::Action::Create { .. } => applied.created += 1,
     }
     Ok(())
-}
-
-/// Link every illumination that still has unlinked observations: the whole graph, rebuilt.
-pub async fn link_db(db: &database::DbHandle) -> anyhow::Result<Report> {
-    let mut blocker = NameBlocker::new(db).await?;
-
-    let unlinked_obs = Query::select()
-        .column(model::user_observed_entity::Column::IlluminationId)
-        .from(model::user_observed_entity::Entity)
-        .and_where(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
-        .to_owned();
-
-    // Ordered, because linking a reading can change what a later one finds: two readings that both
-    // see a new entity, whichever runs first, decides who owns it.
-    let illuminations = model::illumination::Entity::load()
-        .filter(Expr::col(model::illumination::Column::Id).in_subquery(unlinked_obs))
-        .with(model::user_observed_entity::Entity)
-        .order_by_asc(model::illumination::Column::Id)
-        .all(&db.conn)
-        .await?;
-
-    let mut report = Report::default();
-    for illumination in &illuminations {
-        let part = link(db, &mut blocker, illumination).await?;
-
-        report.update(part);
-    }
-
-    Ok(report)
-}
-
-pub(crate) fn surfaces(
-    observation: &model::user_observed_entity::Model,
-) -> impl Iterator<Item = &str> {
-    [
-        Some(observation.name.as_str()),
-        observation.platform_handle.as_deref(),
-        observation.platform_display_name.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
 }
 
 fn names_for(observation: &model::user_observed_entity::Model) -> Vec<String> {
@@ -478,9 +407,8 @@ mod tests {
         )
         .await;
 
-        let report = link_db(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db).await.expect("build should succeed");
 
-        assert_eq!(report.created, 2, "{report:?}");
         assert_eq!(entity_count(&db).await, 2);
     }
 
@@ -503,16 +431,16 @@ mod tests {
         )
         .await;
 
-        let first_run = link_db(&db).await.expect("build should succeed");
-        let second_run = link_db(&db).await.expect("second build should succeed");
+        crate::test_support::link::link_all(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db).await.expect("second build should succeed");
 
-        assert_eq!(first_run.created, 1, "{first_run:?}");
-        assert_eq!(second_run.created, 0, "{second_run:?}");
-        assert_eq!(second_run.linked, 0, "{second_run:?}");
-        assert_eq!(
-            second_run.considered, 0,
-            "no illumination still needs linking: {second_run:?}"
-        );
+        assert_eq!(entity_count(&db).await, 1, "one entity, and a second run adds none");
+        let unlinked = observation::Entity::find()
+            .filter(observation::Column::KnowledgeEntityId.is_null())
+            .count(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(unlinked, 0, "the second run had nothing left to link");
     }
 
     /// Every reading is linked. An illumination can be wrong and the correct reading is often the
@@ -544,13 +472,7 @@ mod tests {
             .unwrap();
         }
 
-        let report = link_db(&db).await.expect("build should succeed");
-
-        assert_eq!(report.stale, 1, "the older reading is counted: {report:?}");
-        assert_eq!(
-            report.created, 2,
-            "both readings reach the graph: {report:?}"
-        );
+        crate::test_support::link::link_all(&db).await.expect("build should succeed");
 
         let unlinked = observation::Entity::find()
             .filter(observation::Column::KnowledgeEntityId.is_null())
@@ -594,11 +516,9 @@ mod tests {
         )
         .await;
 
-        let report = link_db(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db).await.expect("build should succeed");
 
-        assert_eq!(report.created, 1, "{report:?}");
-        assert_eq!(report.linked_by_identifier, 1, "{report:?}");
-        assert_eq!(entity_count(&db).await, 1);
+        assert_eq!(entity_count(&db).await, 1, "the claim folded the duplicate");
         assert_eq!(evidence::Entity::find().count(&db.conn).await.unwrap(), 1);
     }
 
@@ -622,7 +542,7 @@ mod tests {
             Some("tsoding"),
         )
         .await;
-        link_db(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db).await.expect("build should succeed");
 
         let owner_core = entity::Entity::find().one(&db.conn).await.unwrap().unwrap();
         let duplicate = entity::Entity::insert(entity::ActiveModel {
@@ -643,7 +563,7 @@ mod tests {
             .unwrap()
             .unwrap();
         let claim = crate::knowledge::evidence::Claim::of(&observation).expect("a handle");
-        let outcome = Evidence::new(&db.conn)
+        let outcome = Evidence::from_handle(&db)
             .record(duplicate, &claim, &observation)
             .await
             .expect("claim write should succeed");
@@ -675,7 +595,7 @@ mod tests {
         )
         .await;
 
-        link_db(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db).await.expect("build should succeed");
 
         let entity = entity::Entity::find().one(&db.conn).await.unwrap().unwrap();
         assert_eq!(entity.status, STATUS_IDENTIFIED);

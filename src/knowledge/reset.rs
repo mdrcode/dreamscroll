@@ -170,7 +170,6 @@ mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
     use super::*;
-    use crate::knowledge::link;
     use crate::test_support::fixtures;
 
     /// Observation ids grouped by entity, ids of the entities ignored, so two runs can be compared even
@@ -247,7 +246,7 @@ mod tests {
         };
         let db = test_db.handle();
         seed(&db).await;
-        link::link_db(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db).await.expect("build should succeed");
         let before = live_partition(&db).await;
         assert_eq!(before, vec![vec![1, 2], vec![3]], "{before:?}");
 
@@ -272,7 +271,7 @@ mod tests {
             "the snapshot must reproduce the partition it replaced"
         );
 
-        link::link_db(&db).await.expect("rebuild should succeed");
+        crate::test_support::link::link_all(&db).await.expect("rebuild should succeed");
         assert_eq!(live_partition(&db).await, before, "rebuild must be deterministic");
     }
 
@@ -284,9 +283,9 @@ mod tests {
         let db = test_db.handle();
         seed(&db).await;
 
-        link::link_db(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db).await.expect("build should succeed");
         let first = reset(&db).await.expect("reset should succeed");
-        link::link_db(&db).await.expect("rebuild should succeed");
+        crate::test_support::link::link_all(&db).await.expect("rebuild should succeed");
         let second = reset(&db).await.expect("second reset should succeed");
 
         let (first, second) = (

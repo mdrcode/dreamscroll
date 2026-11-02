@@ -62,7 +62,7 @@ pub trait Linker: Send + Sync {
     async fn link_illuminated_observations(
         &self,
         blocker: &dyn Blocker,
-        evidence: &Evidence<'_>,
+        evidence: &Evidence,
         illumination: &model::illumination::Model,
         observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<LinkResult>;

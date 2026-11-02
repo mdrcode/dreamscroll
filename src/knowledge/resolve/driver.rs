@@ -558,7 +558,7 @@ async fn store_claim(
                     id: identity.clone(),
                     handle: None,
                 };
-                if let Some(owner) = crate::knowledge::evidence::Evidence::new(conn).owner(&claim).await?
+                if let Some(owner) = crate::knowledge::evidence::Evidence::new(conn.clone()).owner(&claim).await?
                     && owner != knowledge_entity_id
                 {
                     match crate::knowledge::merge::merge(conn, knowledge_entity_id, owner).await? {
@@ -760,7 +760,7 @@ mod tests {
         .unwrap()
         .last_insert_id as i32;
 
-        crate::knowledge::link::link_db(db).await.unwrap();
+        crate::test_support::link::link_all(db).await.unwrap();
 
         model::user_observed_entity::Entity::find_by_id(entity_id)
             .one(&db.conn)
