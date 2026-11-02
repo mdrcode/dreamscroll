@@ -311,7 +311,7 @@ struct Report {
 }
 
 impl Report {
-    fn update(&mut self, part: knowledge::link::Applied) {
+    fn update(&mut self, part: knowledge::link::LinkStats) {
         self.attached += part.attached;
         self.by_claim += part.by_claim;
         self.created += part.created;

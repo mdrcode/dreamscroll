@@ -25,7 +25,7 @@ use crate::{database, model};
 /// Deliberately not a report: there is no `considered`, no `stale`, no notion of a run. Those are
 /// questions the caller asks of its own inputs; this says only what the executor wrote.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct Applied {
+pub struct LinkStats {
     pub attached: usize,
     /// Attached because a claim named the entity rather than a score.
     pub by_claim: usize,
@@ -48,7 +48,7 @@ pub async fn link_illumination(
     blocker: &mut dyn Blocker,
     evidence: &Evidence,
     illumination: &model::illumination::ModelEx,
-) -> anyhow::Result<Applied> {
+) -> anyhow::Result<LinkStats> {
     // Unrolled here as well as inside the linker: applying a decision needs the whole row, and a
     // row is not something to reconstruct from an id. Order does not matter to the executor — the
     // linker decides who wins a contested entity, and it does its own ordering.
@@ -62,12 +62,12 @@ pub async fn link_illumination(
         .link_illuminated_observations(blocker, evidence, illumination)
         .await?;
 
-    let mut applied = Applied::default();
+    let mut stats = LinkStats::default();
     let mut touched = HashSet::new();
     for decision in &decisions {
         match &decision.action {
-            link_decider::Action::Attach { by_claim: true, .. } => applied.by_claim += 1,
-            link_decider::Action::Create { vetoed: true, .. } => applied.vetoed += 1,
+            link_decider::Action::Attach { by_claim: true, .. } => stats.by_claim += 1,
+            link_decider::Action::Create { vetoed: true, .. } => stats.vetoed += 1,
             _ => {}
         }
         let observation = observations
@@ -79,7 +79,7 @@ pub async fn link_illumination(
                     decision.observation
                 )
             })?;
-        apply_link_decision(db, blocker, evidence, observation, decision, &mut touched, &mut applied)
+        apply_link_decision(db, blocker, evidence, observation, decision, &mut touched, &mut stats)
             .await?;
     }
 
@@ -88,7 +88,7 @@ pub async fn link_illumination(
         entity::project(&db.conn, *knowledge_entity_id).await?;
     }
 
-    Ok(applied)
+    Ok(stats)
 }
 
 
@@ -101,7 +101,7 @@ async fn apply_link_decision(
     observation: &model::user_observed_entity::Model,
     decision: &link_decider::Decision,
     touched: &mut HashSet<i32>,
-    applied: &mut Applied,
+    stats: &mut LinkStats,
 ) -> anyhow::Result<()> {
     if observation.knowledge_entity_id.is_some() {
         anyhow::bail!(
@@ -140,7 +140,7 @@ async fn apply_link_decision(
                         blocker.changed(&absorbed);
                     }
                     touched.insert(owner);
-                    applied.folded += 1;
+                    stats.folded += 1;
                     return Ok(());
                 }
             },
@@ -163,8 +163,8 @@ async fn apply_link_decision(
     }
 
     match &decision.action {
-        link_decider::Action::Attach { .. } => applied.attached += 1,
-        link_decider::Action::Create { .. } => applied.created += 1,
+        link_decider::Action::Attach { .. } => stats.attached += 1,
+        link_decider::Action::Create { .. } => stats.created += 1,
     }
     Ok(())
 }
