@@ -25,7 +25,7 @@ pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
         .and_where(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
         .to_owned();
 
-    // Ordered: linking a reading changes what a later one finds, so the order decides who owns a
+    // Ordered: linking an illumination changes what a later one finds, so the order decides who owns a
     // contested entity.
     let illuminations = model::illumination::Entity::load()
         .filter(Expr::col(model::illumination::Column::Id).in_subquery(pending))

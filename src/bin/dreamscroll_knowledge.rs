@@ -8,66 +8,6 @@ use dreamscroll::knowledge::link::link_knowledge_illumination;
 use dreamscroll::model;
 use dreamscroll::{config, database, knowledge, telemetry};
 
-/// What a rebuild of the whole graph did.
-///
-/// Lives here rather than in the library because it describes a *run*, not a link decision: how many
-/// readings there were and how the totals add up. The library reports what it wrote.
-#[derive(Debug, Default)]
-struct Report {
-    considered: usize,
-    already_linked: usize,
-    attached: usize,
-    by_claim: usize,
-    created: usize,
-    folded: usize,
-    vetoed: u32,
-}
-
-impl Report {
-    fn update(&mut self, part: knowledge::link::Applied) {
-        self.attached += part.attached;
-        self.by_claim += part.by_claim;
-        self.created += part.created;
-        self.folded += part.folded;
-        self.vetoed += part.vetoed;
-    }
-}
-
-/// Link every illumination that still has unlinked observations.
-///
-/// The whole graph, rebuilt: one blocker and one evidence store for the run, ordered so a rebuild is
-/// reproducible.
-async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<Report> {
-    let mut blocker = NameBlocker::new(db).await?;
-    let evidence = Evidence::from_handle(db);
-
-    let pending = Query::select()
-        .column(model::user_observed_entity::Column::IlluminationId)
-        .from(model::user_observed_entity::Entity)
-        .and_where(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
-        .to_owned();
-
-    let illuminations = model::illumination::Entity::load()
-        .filter(Expr::col(model::illumination::Column::Id).in_subquery(pending))
-        .with(model::user_observed_entity::Entity)
-        .order_by_asc(model::illumination::Column::Id)
-        .all(&db.conn)
-        .await?;
-
-    let mut report = Report::default();
-    for illumination in &illuminations {
-        for observation in illumination.observations.iter() {
-            report.considered += 1;
-            if observation.knowledge_entity_id.is_some() {
-                report.already_linked += 1;
-            }
-        }
-        let applied = link_knowledge_illumination(db, &mut blocker, &evidence, illumination).await?;
-        report.update(applied);
-    }
-    Ok(report)
-}
-
 #[derive(FromArgs)]
 #[argh(description = "offline knowledge-graph tooling: observations, knowledge entities, evidence")]
 struct Args {
@@ -88,7 +28,9 @@ enum Command {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "link")]
-#[argh(description = "link every unlinked observation to a knowledge entity, creating one as needed")]
+#[argh(
+    description = "link every unlinked observation to a knowledge entity, creating one as needed"
+)]
 struct LinkArgs {}
 
 #[derive(FromArgs)]
@@ -106,7 +48,9 @@ struct MergeArgs {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "reset")]
-#[argh(description = "snapshot the entities, evidence and membership, then empty them; needs --yes")]
+#[argh(
+    description = "snapshot the entities, evidence and membership, then empty them; needs --yes"
+)]
 struct ResetArgs {
     #[argh(switch, short = 'y')]
     #[argh(description = "confirm resetting the projected graph")]
@@ -131,8 +75,10 @@ struct ResolveArgs {
     #[argh(description = "transport calls allowed in this run (default 200)")]
     max_requests: Option<usize>,
     #[argh(switch)]
-    #[argh(description = "serve from the cache only; makes no transport calls. Claims carried by \
-                                 cached answers are still written — this is not a rehearsal")]
+    #[argh(
+        description = "serve from the cache only; makes no transport calls. Claims carried by \
+                                 cached answers are still written — this is not a rehearsal"
+    )]
     offline: bool,
     #[argh(option)]
     #[argh(description = "consider at most this many entities")]
@@ -162,7 +108,7 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Link(_) => {
-            let report = link_all_pending(&db).await?;
+            let report = link_knowledge_all(&db).await?;
             println!(
                 "considered {} · already linked {} · linked {} ({} by claim) · created {} · dropped {} · vetoed {}",
                 report.considered,
@@ -209,9 +155,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Reset(args) => {
             if !args.yes {
-                anyhow::bail!(
-                    "reset empties the projected graph; pass --yes to confirm"
-                );
+                anyhow::bail!("reset empties the projected graph; pass --yes to confirm");
             }
             let report = knowledge::snapshot::reset(&db).await?;
             match &report.snapshot {
@@ -293,9 +237,8 @@ async fn main() -> anyhow::Result<()> {
                 only: args.entity,
                 min_interval: std::time::Duration::from_millis(args.min_interval_ms),
             };
-            let engine = knowledge::resolve::ResolutionEngine::new(&db, options).with(Box::new(
-                knowledge::resolve::wikidata::Wikidata::new()?,
-            ));
+            let engine = knowledge::resolve::ResolutionEngine::new(&db, options)
+                .with(Box::new(knowledge::resolve::wikidata::Wikidata::new()?));
             let report = engine.run().await?;
 
             if report.offline {
@@ -309,7 +252,12 @@ async fn main() -> anyhow::Result<()> {
             );
             println!(
                 "fetched {} · failed {} · claims {} · entities resolved {} · merges {} · collisions {}",
-                report.fetched, report.failed, report.claims, report.entities_resolved, report.merges, report.collisions
+                report.fetched,
+                report.failed,
+                report.claims,
+                report.entities_resolved,
+                report.merges,
+                report.collisions
             );
             if report.budget_exhausted {
                 println!("budget exhausted at {max_requests} requests");
@@ -345,4 +293,65 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// What a rebuild of the whole graph did.
+///
+/// Lives here rather than in the library because it describes a *run*, not a link decision: how many
+/// illuminations there were and how the totals add up. The library reports what it wrote.
+#[derive(Debug, Default)]
+struct Report {
+    considered: usize,
+    already_linked: usize,
+    attached: usize,
+    by_claim: usize,
+    created: usize,
+    folded: usize,
+    vetoed: u32,
+}
+
+impl Report {
+    fn update(&mut self, part: knowledge::link::Applied) {
+        self.attached += part.attached;
+        self.by_claim += part.by_claim;
+        self.created += part.created;
+        self.folded += part.folded;
+        self.vetoed += part.vetoed;
+    }
+}
+
+/// Link every illumination that still has unlinked observations.
+///
+/// The whole graph, rebuilt: one blocker and one evidence store for the run, ordered so a rebuild is
+/// reproducible.
+async fn link_knowledge_all(db: &database::DbHandle) -> anyhow::Result<Report> {
+    let mut blocker = NameBlocker::new(db).await?;
+    let evidence = Evidence::from_handle(db);
+
+    let unlinked_obs = Query::select()
+        .column(model::user_observed_entity::Column::IlluminationId)
+        .from(model::user_observed_entity::Entity)
+        .and_where(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
+        .to_owned();
+
+    let illuminations = model::illumination::Entity::load()
+        .filter(Expr::col(model::illumination::Column::Id).in_subquery(unlinked_obs))
+        .with(model::user_observed_entity::Entity)
+        .order_by_asc(model::illumination::Column::Id)
+        .all(&db.conn)
+        .await?;
+
+    let mut report = Report::default();
+    for illumination in &illuminations {
+        for observation in illumination.observations.iter() {
+            report.considered += 1;
+            if observation.knowledge_entity_id.is_some() {
+                report.already_linked += 1;
+            }
+        }
+        let applied =
+            link_knowledge_illumination(db, &mut blocker, &evidence, illumination).await?;
+        report.update(applied);
+    }
+    Ok(report)
 }

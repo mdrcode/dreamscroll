@@ -1,4 +1,4 @@
-//! Link one reading's observations to entities.
+//! Link one illumination's observations to entities.
 //!
 //! No network. The blocker is an in-memory index the caller built (`~2k` rows, so a scan beats a
 //! query plan), the evidence store answers exactly one question — does an entity already hold this
@@ -26,7 +26,7 @@ use crate::{database, model};
 pub const STATUS_PROVISIONAL: &str = "provisional";
 pub const STATUS_IDENTIFIED: &str = "identified";
 
-/// What one reading's decisions actually did.
+/// What one illumination's decisions actually did.
 ///
 /// Deliberately not a report: there is no `considered`, no `stale`, no notion of a run. Those are
 /// questions the caller asks of its own inputs; this says only what the executor wrote.
@@ -65,7 +65,7 @@ fn absorb_surface(entity: &mut model::knowledge_entity::Model, surface: &str) ->
 /// Link one illumination's observed entities into the knowledge graph.
 ///
 /// The blocker and the evidence store are passed in because they are the expensive, shareable things:
-/// a caller linking more than one reading builds them once. This function queries nothing to decide
+/// a caller linking more than one illumination builds them once. This function queries nothing to decide
 /// anything — the reads it does are read-modify-write on the entities it is about to change.
 pub async fn link_knowledge_illumination(
     db: &database::DbHandle,
@@ -74,7 +74,7 @@ pub async fn link_knowledge_illumination(
     illumination: &model::illumination::ModelEx,
 ) -> anyhow::Result<Applied> {
     // The relation, materialised by `Entity::load().with(observation::Entity)`. Ordered, because
-    // within a reading the first observation to claim a candidate keeps it.
+    // within an illumination the first observation to claim a candidate keeps it.
     let mut observations: Vec<model::user_observed_entity::Model> = illumination
         .observations
         .iter()
@@ -82,9 +82,9 @@ pub async fn link_knowledge_illumination(
         .collect();
     observations.sort_by_key(|observation| observation.id);
 
-    let reading: model::illumination::Model = illumination.clone().into();
+    let illumination_model: model::illumination::Model = illumination.clone().into();
     let result = HeuristicLinker
-        .link_illuminated_observations(blocker, evidence, &reading, &observations)
+        .link_illuminated_observations(blocker, evidence, &illumination_model, &observations)
         .await?;
 
     let mut applied = Applied {
@@ -98,12 +98,12 @@ pub async fn link_knowledge_illumination(
             .iter()
             .find(|row| row.id == *observation_id)
             .ok_or_else(|| {
-                anyhow!("the linker decided about observation {observation_id}, which is not in this reading")
+                anyhow!("the linker decided about observation {observation_id}, which is not in this illumination")
             })?;
         apply(db, blocker, evidence, observation, decision, &mut touched, &mut applied).await?;
     }
 
-    // Projection is a function of the members, so it runs after this reading's writes.
+    // Projection is a function of the members, so it runs after this illumination's writes.
     for knowledge_entity_id in &touched {
         crate::knowledge::project::project(&db.conn, *knowledge_entity_id).await?;
     }
@@ -434,7 +434,7 @@ mod tests {
         assert_eq!(unlinked, 0, "the second run had nothing left to link");
     }
 
-    /// Every reading is linked. An illumination can be wrong and the correct reading is often the
+    /// Every illumination is linked. An illumination can be wrong and the correct illumination is often the
     /// older one, so the graph keeps them all — currency is decided at the view boundary
     /// (`knowledge::current`), not here.
     #[tokio::test]

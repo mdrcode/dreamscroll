@@ -295,7 +295,7 @@ pub struct HeuristicLinker;
 
 #[async_trait::async_trait]
 impl Linker for HeuristicLinker {
-    /// Give the reading's observations their entities.
+    /// Give the illumination's observations their entities.
     ///
     /// A claim settles the question before any scoring: an entity that already holds this platform
     /// link *is* the thing, and asking a name-similarity model to second-guess that is how a handle
@@ -314,7 +314,7 @@ impl Linker for HeuristicLinker {
     ) -> anyhow::Result<LinkResult> {
         let mut result = LinkResult::default();
         // A sibling that already has an entity — attached before this ran — has spent it for the
-        // reading. It is context, not work: no decision is owed for it.
+        // illumination. It is context, not work: no decision is owed for it.
         let mut claimed: HashSet<i32> = observations
             .iter()
             .filter_map(|observation| observation.knowledge_entity_id)
@@ -481,7 +481,7 @@ mod tests {
     /// The bug that made every later capture duplicate an existing name: `project` keeps the
     /// selected surface out of `alt_names`, so an entity with no alternatives must still be
     /// findable by its own name.
-    /// Link one reading: build the blocker from the corpus and run the linker over it.
+    /// Link one illumination: build the blocker from the corpus and run the linker over it.
     ///
     /// Needs a database now, because the linker asks the evidence store whether a claim is already
     /// held. Observations with no platform link never reach that call.
@@ -573,10 +573,10 @@ mod tests {
         }
     }
 
-    /// The veto: one reading that emitted two names meant two things, so an entity taken by one of
+    /// The veto: one illumination that emitted two names meant two things, so an entity taken by one of
     /// them is not available to the other — however well it scores.
     #[tokio::test]
-    async fn a_sibling_cannot_take_the_entity_the_reading_already_spent() {
+    async fn a_sibling_cannot_take_the_entity_the_illumination_already_spent() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };

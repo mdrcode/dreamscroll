@@ -9,7 +9,7 @@ Capture ──illuminate──▶ Illumination ──▶ Observation ──link�
 
 Every clause of that line has a home in this directory, and everything else is detail.
 
-The leftmost step is not ours: **illumination** — the model reading an image into a summary plus the
+The leftmost step is not ours: **illumination** — the model turning an image into a summary plus the
 entities it believes are present — lives in the sibling `src/illumination/` lib, and its vocabulary
 is described in `plan/lexicon.md`. (It has no `illumination.md` yet. When it does, this file should
 link to it rather than paraphrase it.)
@@ -33,8 +33,8 @@ Two properties matter more than the columns:
   was ever edited.
 
 That is also why history is safe to keep: an illumination can be wrong — a re-read of one image once
-described an entirely different film — so the graph holds **every** reading of every capture. The
-question of which reading a user *sees* is answered later, in "The view boundary".
+described an entirely different film — so the graph holds **every** illumination of every capture. The
+question of which illumination a user *sees* is answered later, in "The view boundary".
 
 ## Entities: what the graph knows
 
@@ -72,7 +72,7 @@ under.
 ## Linking: are these the same thing?
 
 Linking asks one question — **have we already got this thing?** — and asks it about a whole
-**illumination** at once. That is the unit, because it is what the system produces: one reading of one
+**illumination** at once. That is the unit, because it is what the system produces: one illumination of one
 image, a coherent set of the things that image showed. An observation is a part of that claim set,
 not an independent event.
 
@@ -183,7 +183,7 @@ timestamp, not a status.
 
 ## The view boundary
 
-The graph keeps every reading; a user sees one.
+The graph keeps every illumination; a user sees one.
 
 A capture's **current** illumination is its highest id, and every user-facing read starts there and
 left-joins into entities (`knowledge::current`). Two consequences fall out for free:
@@ -202,7 +202,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
   writes that must all land.
 - The **same-illumination veto**: two entities that both appear in one illumination cannot be one
   referent, because a single extraction emitting both means two things. The unit is the illumination,
-  not the capture — re-reading an image is a separate reading.
+  not the capture — re-illuminating an image is a separate illumination.
 
 ## Where things live
 
@@ -216,7 +216,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `project.rs` | the only writer of an entity's derived columns |
 | `merge.rs` | fold one entity into another |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `current.rs` | which reading a user sees |
+| `current.rs` | which illumination a user sees |
 | `cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | the one definition of "the same name" |
 

@@ -133,7 +133,7 @@ pub fn stub_observation(
     }
 }
 
-/// The same, for one illumination — the reading a decision is made about.
+/// The same, for one illumination — the unit a decision is made about.
 pub fn stub_illumination(id: i32) -> model::illumination::Model {
     model::illumination::Model {
         id,

@@ -1,9 +1,9 @@
-//! Which reading of a capture the user currently sees.
+//! Which illumination of a capture the user currently sees.
 //!
-//! The graph holds **every** reading of every capture — an illumination can be wrong, and the
-//! correct reading is often the older one, so `link` no longer discards history. The user's view is
+//! The graph holds **every** illumination of every capture — an illumination can be wrong, and the
+//! correct illumination is often the older one, so `link` no longer discards history. The user's view is
 //! the opposite: it starts from the capture's *current* illumination and left-joins into knowledge
-//! entities, so a reading the capture no longer stands behind can never surface.
+//! entities, so an illumination the capture no longer stands behind can never surface.
 //!
 //! Current means the highest illumination id for the capture. Illuminations are only ever appended,
 //! so a higher id is a later run. Nothing stores the flag; deriving it means it cannot drift.

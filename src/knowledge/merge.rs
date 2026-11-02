@@ -89,7 +89,7 @@ pub async fn preview<C: ConnectionTrait>(
 /// the veto exists to prevent. In that case the conflict is real and needs adjudication, so it is
 /// reported rather than resolved.
 ///
-/// The unit is the illumination, not the capture: re-reading an image is a separate reading, and
+/// The unit is the illumination, not the capture: re-illuminating an image is a separate illumination, and
 /// its names may legitimately join the same entity. See `plan/knowledge-illumination-history.md`.
 pub async fn merge(
     conn: &DatabaseConnection,

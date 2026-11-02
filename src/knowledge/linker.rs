@@ -1,7 +1,7 @@
 //! Linking: the one place a decision is made.
 //!
 //! The unit is the **illumination**, not the observation. An illumination is what the system
-//! produces — one reading of one image, a coherent set of things that image showed — so a decision
+//! produces — one illumination of one image, a coherent set of things that image showed — so a decision
 //! made about one observation while ignoring its siblings is a decision about a fragment.
 //!
 //! Everything upstream is recall (a blocker proposed candidates). Everything downstream is effect
@@ -54,7 +54,7 @@ pub struct LinkResult {
 
 #[async_trait::async_trait]
 pub trait Linker: Send + Sync {
-    /// Decide what each observation from one reading is.
+    /// Decide what each observation from one illumination is.
     ///
     /// `blocker` is recall and nothing else: it may return nothing, it over-generates by design, and
     /// its order means nothing. `evidence` answers whether a claim is already held. Measuring — and

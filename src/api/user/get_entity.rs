@@ -8,7 +8,7 @@ use crate::{api::*, auth, database::DbHandle, model};
 ///
 /// Ids are only ever handed out from current views, but a stale id can still be presented — so the
 /// occurrence is checked against the capture's current illumination before it is returned. The user
-/// never sees a reading their capture no longer stands behind.
+/// never sees an illumination their capture no longer stands behind.
 pub async fn get_knowledge_entity(
     db: &DbHandle,
     context: &auth::Context,

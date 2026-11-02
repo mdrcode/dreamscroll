@@ -80,7 +80,7 @@ impl Wikidata {
     }
 
     /// Last resort: the illumination's own disambiguation, consulted *only* when the description
-    /// cannot decide. It is weaker evidence than the capture's reading, so its claims are capped
+    /// cannot decide. It is weaker evidence than the capture's description, so its claims are capped
     /// lower, and it can never overrule a description that resolved the case — which is what keeps
     /// the `Sunset Boulevard` failure (the hint lifting the musical adaptation above the film) from
     /// recurring, because there the description decides first.
@@ -148,7 +148,7 @@ impl Wikidata {
         // The decision is on the *evidence*, not the blend. The name is why this candidate is here at
         // all, so requiring a blended score quietly demanded a fixed amount of text overlap — which
         // real, terse Wikidata descriptions cannot supply ("German-born theoretical physicist" vs a
-        // capture's six-word reading of Einstein).
+        // capture's six-word description of Einstein).
         if best.fit < FIT_FLOOR {
             return self.by_hint(entity, &candidates);
         }
@@ -578,7 +578,7 @@ struct Ranked<'a> {
 /// Score every candidate by how well it fits, best first.
 ///
 /// The signal is the capture's description, read two ways: *containment* — how much of what Wikidata
-/// says about the candidate is accounted for by our reading of it, which survives our description
+/// says about the candidate is accounted for by our description of it, which survives our description
 /// being long — and symmetric *overlap*, which separates `Dune` (1965 novel) from `Dune` (the series)
 /// because the series' description is a superset of ours.
 ///
