@@ -104,7 +104,8 @@ pub async fn link_knowledge_illumination(
             .ok_or_else(|| {
                 anyhow!("the linker decided about observation {observation_id}, which is not in this illumination")
             })?;
-        apply(db, blocker, evidence, observation, decision, &mut touched, &mut applied).await?;
+        apply_link_decision(db, blocker, evidence, observation, decision, &mut touched, &mut applied)
+            .await?;
     }
 
     // Projection is a function of the members, so it runs after this illumination's writes.
@@ -129,7 +130,7 @@ pub(crate) fn surfaces(
 
 /// Carry out one decision: give the observation its entity, then record what the capture asserted
 /// against it.
-async fn apply(
+async fn apply_link_decision(
     db: &database::DbHandle,
     blocker: &mut dyn Blocker,
     evidence: &Evidence,
