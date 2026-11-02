@@ -11,7 +11,7 @@ use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 use crate::database::DbHandle;
 use crate::knowledge::evidence::Evidence;
 use crate::knowledge::heuristic::NameBlocker;
-use crate::knowledge::link::link_illumination;
+use crate::knowledge::link::link_knowledge_illumination;
 use crate::model;
 
 /// Link every illumination that still has unlinked observations.
@@ -35,7 +35,7 @@ pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
         .await?;
 
     for illumination in &illuminations {
-        link_illumination(db, &mut blocker, &evidence, illumination).await?;
+        link_knowledge_illumination(db, &mut blocker, &evidence, illumination).await?;
     }
     Ok(())
 }

@@ -4,7 +4,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseBackend, QueryFilter, QueryO
 
 use dreamscroll::knowledge::evidence::Evidence;
 use dreamscroll::knowledge::heuristic::NameBlocker;
-use dreamscroll::knowledge::link::link_illumination;
+use dreamscroll::knowledge::link::link_knowledge_illumination;
 use dreamscroll::model;
 use dreamscroll::{config, database, knowledge, telemetry};
 
@@ -66,7 +66,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<Report> {
                 report.stale += 1;
             }
         }
-        let applied = link_illumination(db, &mut blocker, &evidence, illumination).await?;
+        let applied = link_knowledge_illumination(db, &mut blocker, &evidence, illumination).await?;
         report.update(applied);
     }
     Ok(report)
