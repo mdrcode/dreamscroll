@@ -16,7 +16,6 @@ mod transport;
 use serde_json::{json, Value};
 
 use super::{Claim, EntityView, Resolver, FetchError, Raw, Request, BATCH};
-use crate::knowledge::cache::Outcome;
 
 const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
 /// Article-title reconciliation. A Wikipedia title is unique where a Wikidata label is not: 213 items
