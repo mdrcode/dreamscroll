@@ -15,7 +15,6 @@ use sea_orm::{
     QueryFilter, Set, Statement,
 };
 
-use crate::knowledge::project;
 use crate::model::{
     knowledge_entity as entity, knowledge_evidence as evidence,
     user_observed_entity as observation,
@@ -172,7 +171,7 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         .exec(conn)
         .await?;
 
-    project::project(conn, winner).await?;
+    crate::knowledge::entity::project(conn, winner).await?;
     Ok(Outcome::Merged)
 }
 

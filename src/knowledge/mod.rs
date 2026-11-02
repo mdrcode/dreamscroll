@@ -6,12 +6,12 @@
 pub mod cache;
 pub mod blocking;
 pub mod current;
+pub mod entity;
 pub mod evidence;
 pub mod link;
 pub mod linker;
 pub mod merge;
 pub mod normalize;
-pub mod project;
 pub mod snapshot;
 pub mod resolve;
 pub mod heuristic;

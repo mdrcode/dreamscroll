@@ -213,7 +213,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `link.rs` | the linking executor |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, HTTP in `transport.rs` |
-| `project.rs` | the only writer of an entity's derived columns |
+| `entity.rs` | the write side: create, attach, absorb, and the only writer of derived columns |
 | `merge.rs` | fold one entity into another |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `current.rs` | which illumination a user sees |

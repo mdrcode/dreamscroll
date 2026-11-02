@@ -9,22 +9,16 @@ use std::collections::HashSet;
 
 use anyhow::anyhow;
 
-use sea_orm::sea_query::Expr;
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set,
-};
+use sea_orm::EntityTrait;
 
+use super::entity;
 use super::{
     blocking::Blocker,
     evidence::{ClaimOutcome, Evidence},
     heuristic::HeuristicLinker,
     linker::{self, Linker},
-    normalize,
 };
 use crate::{database, model};
-
-pub const STATUS_PROVISIONAL: &str = "provisional";
-pub const STATUS_IDENTIFIED: &str = "identified";
 
 /// What one illumination's decisions actually did.
 ///
@@ -42,25 +36,7 @@ pub struct Applied {
     pub vetoed: u32,
 }
 
-/// Add an observed type. Returns whether anything changed: an entity that has accepted `brand`
-/// must accept it for the rest of the run.
-fn absorb_type(entity: &mut model::knowledge_entity::Model, entity_type: &str) -> bool {
-    if entity_type.is_empty() || entity.alt_types.iter().any(|t| t == entity_type) {
-        return false;
-    }
-    entity.alt_types.push(entity_type.to_string());
-    true
-}
 
-/// Add a surface. Returns whether anything changed, so a caller can skip the write.
-fn absorb_surface(entity: &mut model::knowledge_entity::Model, surface: &str) -> bool {
-    let key = normalize::key(surface);
-    if key.is_empty() || entity.surfaces().any(|seen| normalize::key(seen) == key) {
-        return false;
-    }
-    entity.alt_names.push(surface.trim().to_string());
-    true
-}
 
 /// Link one illumination's observed entities into the knowledge graph.
 ///
@@ -109,23 +85,12 @@ pub async fn link_illumination(
 
     // Projection is a function of the members, so it runs after this illumination's writes.
     for knowledge_entity_id in &touched {
-        crate::knowledge::project::project(&db.conn, *knowledge_entity_id).await?;
+        entity::project(&db.conn, *knowledge_entity_id).await?;
     }
 
     Ok(applied)
 }
 
-pub(crate) fn surfaces(
-    observation: &model::user_observed_entity::Model,
-) -> impl Iterator<Item = &str> {
-    [
-        Some(observation.name.as_str()),
-        observation.platform_handle.as_deref(),
-        observation.platform_display_name.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-}
 
 /// Carry out one decision: give the observation its entity, then record what the capture asserted
 /// against it.
@@ -148,9 +113,9 @@ async fn apply_link_decision(
     // Either way the observation ends up pointing at one entity: the one we chose, or a new one.
     let entity = match &decision.action {
         linker::Action::Attach { entity, .. } => *entity,
-        linker::Action::Create { .. } => create(&db.conn, observation).await?.id,
+        linker::Action::Create { .. } => entity::create(&db.conn, observation).await?.id,
     };
-    attach(&db.conn, observation.id, entity).await?;
+    entity::attach(&db.conn, observation.id, entity).await?;
 
     if let Some(claim) = &decision.claim {
         match evidence.record(entity, claim, observation).await? {
@@ -167,11 +132,11 @@ async fn apply_link_decision(
                     claim.id
                 ),
                 linker::Action::Create { .. } => {
-                    attach(&db.conn, observation.id, owner).await?;
+                    entity::attach(&db.conn, observation.id, owner).await?;
                     model::knowledge_entity::Entity::delete_by_id(entity)
                         .exec(&db.conn)
                         .await?;
-                    if let Some(absorbed) = absorb_observation(&db.conn, owner, observation).await? {
+                    if let Some(absorbed) = entity::absorb_observation(&db.conn, owner, observation).await? {
                         blocker.changed(&absorbed);
                     }
                     touched.insert(owner);
@@ -184,7 +149,7 @@ async fn apply_link_decision(
         touched.insert(entity);
     }
 
-    let absorbed = absorb_observation(&db.conn, entity, observation).await?;
+    let absorbed = entity::absorb_observation(&db.conn, entity, observation).await?;
     if absorbed.is_none() && matches!(decision.action, linker::Action::Create { .. }) {
         // A new entity has nothing to absorb, but the blocker still has to know it exists.
         let created = model::knowledge_entity::Entity::find_by_id(entity)
@@ -204,118 +169,16 @@ async fn apply_link_decision(
     Ok(())
 }
 
-fn names_for(observation: &model::user_observed_entity::Model) -> Vec<String> {
-    let mut labels: Vec<String> = Vec::new();
-    let mut keys: Vec<String> = Vec::new();
-    for surface in surfaces(observation) {
-        let label = surface.trim();
-        let key = normalize::key(label);
-        if key.is_empty() || keys.contains(&key) {
-            continue;
-        }
-        keys.push(key);
-        labels.push(label.to_string());
-    }
-    labels
-}
 
-/// Point an observation at its entity.
-///
-/// This is the only place a `knowledge_entity_id` is set. `project` reads the resulting membership to
-/// compute the entity's columns, so nothing else about the move needs recording here.
-async fn attach(
-    conn: &sea_orm::DatabaseConnection,
-    entity_id: i32,
-    knowledge_entity_id: i32,
-) -> anyhow::Result<()> {
-    model::user_observed_entity::Entity::update_many()
-        .col_expr(
-            model::user_observed_entity::Column::KnowledgeEntityId,
-            Expr::value(Some(knowledge_entity_id)),
-        )
-        .filter(model::user_observed_entity::Column::Id.eq(entity_id))
-        .exec(conn)
-        .await?;
-    Ok(())
-}
 
-/// Fold everything one observation contributes into the entity it was linked to: its surfaces (so a
-/// later observation can find the entity by any of them) and its type. Descriptions accumulate in
-/// `project`, which runs once at the end of a build rather than per observation.
-/// Fold what an observation knows into its entity. Returns the updated row when anything changed,
-/// so the caller can hand it to the blocker.
-///
-/// Read here rather than passed in: the blocker owns the corpus, so the executor keeps no parallel
-/// copy of the entities and cannot hold one stale.
-async fn absorb_observation(
-    conn: &sea_orm::DatabaseConnection,
-    knowledge_entity_id: i32,
-    observation: &model::user_observed_entity::Model,
-) -> anyhow::Result<Option<model::knowledge_entity::Model>> {
-    let Some(mut entity) = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
-        .one(conn)
-        .await?
-    else {
-        return Ok(None);
-    };
 
-    let mut changed = false;
-    for surface in surfaces(observation) {
-        changed |= absorb_surface(&mut entity, surface);
-    }
-    changed |= absorb_type(&mut entity, &observation.entity_type);
-    if !changed {
-        return Ok(None);
-    }
-    model::knowledge_entity::ActiveModel {
-        id: Set(entity.id),
-        alt_names: Set(entity.alt_names.clone()),
-        alt_types: Set(entity.alt_types.clone()),
-        ..Default::default()
-    }
-    .update(conn)
-    .await?;
-    Ok(Some(entity))
-}
-
-/// Record the observation's identifier against its entity. Returns the *other* entity that already
-/// claims it, if any — the caller decides what to do, because dropping the claim silently would
-/// leave two entities for one referent and no trace of the race.
-///
-/// The read-back is what makes this race-safe: `ON CONFLICT DO NOTHING` leaves whichever row was
-/// committed first, and comparing its owner is cheaper and clearer than matching a unique-violation
-/// error code.
-async fn create(
-    conn: &sea_orm::DatabaseConnection,
-    observation: &model::user_observed_entity::Model,
-) -> anyhow::Result<model::knowledge_entity::Model> {
-    let description = observation.description.clone();
-    // Always provisional: a new entity has nothing proving it yet. If the capture asserted a claim,
-    // it is recorded against this entity and `project` promotes it to `identified` moments later —
-    // guessing the status here would be a second writer of a projected column.
-    let status = STATUS_PROVISIONAL;
-    let model = model::knowledge_entity::ActiveModel {
-        name: Set(observation.name.trim().to_string()),
-        entity_type: Set(observation.entity_type.clone()),
-        alt_types: Set(Vec::new()),
-        description: Set(description),
-        alt_descriptions: Set(Vec::new()),
-        status: Set(status.to_string()),
-        confidence: Set(None),
-        merged_into_id: Set(None),
-        alt_names: Set(names_for(observation)),
-        ..Default::default()
-    };
-    Ok(model::knowledge_entity::Entity::insert(model)
-        .exec_with_returning(conn)
-        .await?)
-}
 
 #[cfg(test)]
 mod tests {
-    use sea_orm::PaginatorTrait;
+    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
     use super::*;
+    use crate::knowledge::entity::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
     use crate::model::{
         knowledge_entity as entity, knowledge_evidence as evidence,
         user_observed_entity as observation,
