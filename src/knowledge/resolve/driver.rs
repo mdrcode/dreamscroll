@@ -548,12 +548,17 @@ async fn store_claim(
             report.claims += 1;
             Ok(true)
         }
-        Err(error) => match unique_violation(&error) {
+        Err(error) => match crate::knowledge::evidence::unique_violation(&error) {
             // Another entity already holds this identity, which means the two entities are the same
             // referent: the graph was told so by the authority. Fold ours into the one that holds it
             // rather than leaving a duplicate behind.
             Some("idx-knowledge_evidence_identity") => {
-                if let Some(owner) = crate::knowledge::link::identity_owner(conn, &scheme, &identity).await?
+                let claim = crate::knowledge::evidence::Claim {
+                    scheme: scheme.clone(),
+                    id: identity.clone(),
+                    handle: None,
+                };
+                if let Some(owner) = crate::knowledge::evidence::Evidence::new(conn).owner(&claim).await?
                     && owner != knowledge_entity_id
                 {
                     match crate::knowledge::merge::merge(conn, knowledge_entity_id, owner).await? {
@@ -593,18 +598,6 @@ async fn store_claim(
             Some(_) => Ok(false),
             None => Err(error.into()),
         },
-    }
-}
-
-fn unique_violation(error: &sea_orm::DbErr) -> Option<&str> {
-    use sea_orm::RuntimeErr;
-    match error {
-        sea_orm::DbErr::Exec(RuntimeErr::SqlxError(error))
-        | sea_orm::DbErr::Query(RuntimeErr::SqlxError(error)) => error
-            .as_database_error()
-            .filter(|error| error.code().as_deref() == Some("23505"))
-            .and_then(|error| error.constraint()),
-        _ => None,
     }
 }
 

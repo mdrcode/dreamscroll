@@ -98,11 +98,12 @@ async fn main() -> anyhow::Result<()> {
         Command::Link(_) => {
             let report = knowledge::link::link_db(&db).await?;
             println!(
-                "considered {} · already linked {} · from stale readings {} · linked {} · created {} · vetoed {}",
+                "considered {} · already linked {} · from stale readings {} · linked {} ({} by claim) · created {} · vetoed {}",
                 report.considered,
                 report.already_linked,
                 report.stale,
                 report.linked,
+                report.linked_by_identifier,
                 report.created,
                 report.vetoed
             );

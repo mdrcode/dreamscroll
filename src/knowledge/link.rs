@@ -11,12 +11,12 @@ use anyhow::anyhow;
 
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseBackend, DbErr, EntityTrait,
-    QueryFilter, QueryOrder, RuntimeErr, Set, Statement,
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set,
 };
 
 use super::{
     blocking::Blocker,
+    evidence::{ClaimOutcome, Evidence},
     heuristic::{HeuristicLinker, NameBlocker},
     linker::{self, Linker},
     normalize,
@@ -34,7 +34,8 @@ pub struct Report {
     /// Observations linked from a superseded illumination of their capture. Counted, not skipped:
     /// the graph holds every reading, and the view decides which one a capture currently shows.
     pub stale: usize,
-    /// Linked by an identifier rather than by similarity.
+    /// The part of `linked` that a claim decided rather than a score. Subset, not a separate
+    /// category: these are the matches that override similarity.
     pub linked_by_identifier: usize,
     pub linked: usize,
     /// Observations whose best candidate was already taken by a sibling from the same illumination.
@@ -78,12 +79,6 @@ fn absorb_surface(entity: &mut model::knowledge_entity::Model, surface: &str) ->
 
 /// The `(scheme, value)` an observation carries, if it carries one. `scheme` is the platform; the
 /// same shape covers `wikidata` → `Q…`, `imdb` → `tt…`, and every authority after them.
-fn identifier_of(observation: &model::user_observed_entity::Model) -> Option<(String, String)> {
-    let platform = observation.platform.as_deref()?;
-    let handle = observation.platform_handle.as_deref()?;
-    Some((platform.to_lowercase(), normalize::key(handle)))
-}
-
 /// Link one illumination: its observations, against the whole graph.
 ///
 /// Self-contained — it loads the corpus it needs — so a worker holding one illumination can call it
@@ -108,124 +103,33 @@ pub async fn link(
         .await?
         .map(|row| row.illumination_id);
 
-    // The relation, materialised by `Entity::load().with(observation::Entity)`.
-    // Ordered too: within a reading, the first observation to claim a candidate keeps it.
+    // The relation, materialised by `Entity::load().with(observation::Entity)`. Ordered, because
+    // within a reading the first observation to claim a candidate keeps it.
     let mut observations: Vec<model::user_observed_entity::Model> = illumination
         .observations
         .iter()
         .map(|row| row.clone().into())
         .collect();
     observations.sort_by_key(|observation| observation.id);
-    let mut report = Report {
-        considered: observations.len(),
-        ..Default::default()
-    };
-    for observation in &observations {
-        if observation.knowledge_entity_id.is_some() {
-            report.already_linked += 1;
-            continue;
-        }
-        if current != Some(observation.illumination_id) {
-            report.stale += 1;
-        }
-    }
+    let mut report = report_of(&observations, current);
 
-    // Entities this reading changes, and so must re-project before the next reading sees them.
-    let mut touched: HashSet<i32> = HashSet::new();
-
-    // Identity first: decisive, and no scoring. Marking the observation as linked is also how the
-    // linker learns the entity is spoken for in this reading.
-    for observation in observations.iter_mut() {
-        if observation.knowledge_entity_id.is_some() {
-            continue;
-        }
-        let Some((scheme, value)) = identifier_of(observation) else {
-            continue;
-        };
-        let Some(knowledge_entity_id) = identity_owner(&db.conn, &scheme, &value).await? else {
-            continue;
-        };
-        attach(&db.conn, observation.id, knowledge_entity_id).await?;
-        observation.knowledge_entity_id = Some(knowledge_entity_id);
-        if let Some(entity) = absorb_observation(&db.conn, knowledge_entity_id, observation).await?
-        {
-            blocker.changed(&entity);
-            touched.insert(knowledge_entity_id);
-        }
-        report.linked_by_identifier += 1;
-    }
-
-    // The reading as a set, already-linked siblings included: they are what makes the veto
-    // expressible, and what lets a linker see more than one thing at a time.
+    let evidence = Evidence::new(&db.conn);
     let reading: model::illumination::Model = illumination.clone().into();
     let result = HeuristicLinker
-        .link_illuminated_observations(blocker, &reading, &observations)
-        .await;
-    report.vetoed += result.vetoed;
+        .link_illuminated_observations(blocker, &evidence, &reading, &observations)
+        .await?;
+    report.vetoed = result.vetoed;
+    report.linked_by_identifier += result.by_claim as usize;
 
-    for (observation_id, decision) in result.decisions {
+    let mut touched = HashSet::new();
+    for (observation_id, decision) in &result.decisions {
         let observation = observations
             .iter()
-            .find(|row| row.id == observation_id)
+            .find(|row| row.id == *observation_id)
             .ok_or_else(|| {
                 anyhow!("the linker decided about observation {observation_id}, which is not in this reading")
             })?;
-        if observation.knowledge_entity_id.is_some() {
-            anyhow::bail!(
-                "the linker decided about observation {observation_id}, which is already linked"
-            );
-        }
-
-        match decision {
-            linker::Decision::Attach { entity, .. } => {
-                attach(&db.conn, observation.id, entity).await?;
-                if let Some(absorbed) = absorb_observation(&db.conn, entity, observation).await? {
-                    blocker.changed(&absorbed);
-                }
-                let has_identity = identifier_of(observation).is_some();
-                if let Some(owner) = remember_identifier(&db.conn, entity, observation).await? {
-                    anyhow::bail!(
-                        "entities {entity} and {owner} both claim the same identifier; \
-                         merging is not implemented yet (plan/knowledge-canonical-entities.md §Repair)"
-                    );
-                }
-                if has_identity {
-                    // The entity may have been created without an identity and is only now
-                    // acquiring one. `status` is a projection of evidence, so it moves with it.
-                    mark_identified(&db.conn, entity).await?;
-                }
-                touched.insert(entity);
-                report.linked += 1;
-            }
-            linker::Decision::Create { .. } => {
-                let entity = create(&db.conn, observation).await?;
-                let knowledge_entity_id = entity.id;
-
-                // A concurrent worker may have claimed this identifier since the map was read. The
-                // new entity is then a duplicate that owns nothing yet: link to the real owner and
-                // forget it.
-                if let Some(owner) =
-                    remember_identifier(&db.conn, knowledge_entity_id, observation).await?
-                {
-                    attach(&db.conn, observation.id, owner).await?;
-                    model::knowledge_entity::Entity::delete_by_id(knowledge_entity_id)
-                        .exec(&db.conn)
-                        .await?;
-                    if let Some(absorbed) = absorb_observation(&db.conn, owner, observation).await?
-                    {
-                        blocker.changed(&absorbed);
-                    }
-                    touched.insert(owner);
-                    report.linked_by_identifier += 1;
-                    continue;
-                }
-
-                blocker.changed(&entity);
-                attach(&db.conn, observation.id, knowledge_entity_id).await?;
-                touched.insert(knowledge_entity_id);
-                report.created += 1;
-            }
-        }
+        apply(db, blocker, &evidence, observation, decision, &mut touched, &mut report).await?;
     }
 
     // Projection is a function of the members, so it runs after this reading's writes.
@@ -234,6 +138,107 @@ pub async fn link(
     }
 
     Ok(report)
+}
+
+/// What the reading costs the report before any decision is made.
+fn report_of(
+    observations: &[model::user_observed_entity::Model],
+    current: Option<i32>,
+) -> Report {
+    let mut report = Report {
+        considered: observations.len(),
+        ..Default::default()
+    };
+    for observation in observations {
+        if observation.knowledge_entity_id.is_some() {
+            report.already_linked += 1;
+        } else if current != Some(observation.illumination_id) {
+            report.stale += 1;
+        }
+    }
+    report
+}
+
+/// Carry out one decision: give the observation its entity, then record what the capture asserted
+/// against it.
+async fn apply(
+    db: &database::DbHandle,
+    blocker: &mut dyn Blocker,
+    evidence: &Evidence<'_>,
+    observation: &model::user_observed_entity::Model,
+    decision: &linker::Decision,
+    touched: &mut HashSet<i32>,
+    report: &mut Report,
+) -> anyhow::Result<()> {
+    if observation.knowledge_entity_id.is_some() {
+        anyhow::bail!(
+            "the linker decided about observation {}, which is already linked",
+            observation.id
+        );
+    }
+
+    // Either way the observation ends up pointing at one entity: the one we chose, or a new one.
+    let entity = match &decision.action {
+        linker::Action::Attach { entity, .. } => *entity,
+        linker::Action::Create { .. } => create(&db.conn, observation).await?.id,
+    };
+    attach(&db.conn, observation.id, entity).await?;
+
+    // A claim that is already held — by this same entity — is corroboration, not a duplicate:
+    // `record` reports it as accepted. One held by *another* entity after we chose this one is a
+    // contradiction: the new entity owns nothing yet, so it is dropped and the observation folds
+    // into the real owner.
+    if let Some(claim) = &decision.claim {
+        match evidence.record(entity, claim, observation).await? {
+            ClaimOutcome::Accepted => {
+                touched.insert(entity);
+            }
+            ClaimOutcome::HeldBy(owner) => match &decision.action {
+                linker::Action::Attach { .. } => anyhow::bail!(
+                    "entities {entity} and {owner} both hold {}:{}; merging is not implemented yet \
+                     (plan/knowledge-canonical-entities.md §Repair)",
+                    claim.scheme,
+                    claim.id
+                ),
+                linker::Action::Create { .. } => {
+                    attach(&db.conn, observation.id, owner).await?;
+                    model::knowledge_entity::Entity::delete_by_id(entity)
+                        .exec(&db.conn)
+                        .await?;
+                    if let Some(absorbed) = absorb_observation(&db.conn, owner, observation).await? {
+                        blocker.changed(&absorbed);
+                    }
+                    touched.insert(owner);
+                    report.linked_by_identifier += 1;
+                    return Ok(());
+                }
+            },
+        }
+    } else {
+        touched.insert(entity);
+    }
+
+    let absorbed = absorb_observation(&db.conn, entity, observation).await?;
+    if absorbed.is_none() && matches!(decision.action, linker::Action::Create { .. }) {
+        // A new entity has nothing to absorb, but the blocker still has to know it exists.
+        let created = model::knowledge_entity::Entity::find_by_id(entity)
+            .one(&db.conn)
+            .await?;
+        if let Some(created) = created {
+            blocker.changed(&created);
+        }
+    } else if let Some(absorbed) = absorbed {
+        blocker.changed(&absorbed);
+    }
+
+    match &decision.action {
+        linker::Action::Attach { entity, .. } => {
+            report.linked += 1;
+            let _ = entity;
+        }
+        linker::Action::Create { .. } => report.created += 1,
+    }
+    Ok(())
 }
 
 /// Link every illumination that still has unlinked observations: the whole graph, rebuilt.
@@ -294,22 +299,6 @@ fn names_for(observation: &model::user_observed_entity::Model) -> Vec<String> {
 
 /// `identified` is a claim about evidence, so it is true the moment an identity exists — including
 /// when a provisional entity absorbs an observation that carries one. A no-op when already set.
-async fn mark_identified(
-    conn: &sea_orm::DatabaseConnection,
-    knowledge_entity_id: i32,
-) -> anyhow::Result<()> {
-    model::knowledge_entity::Entity::update_many()
-        .col_expr(
-            model::knowledge_entity::Column::Status,
-            Expr::value(STATUS_IDENTIFIED),
-        )
-        .filter(model::knowledge_entity::Column::Id.eq(knowledge_entity_id))
-        .filter(model::knowledge_entity::Column::Status.ne(STATUS_IDENTIFIED))
-        .exec(conn)
-        .await?;
-    Ok(())
-}
-
 async fn attach(
     conn: &sea_orm::DatabaseConnection,
     entity_id: i32,
@@ -372,102 +361,15 @@ async fn absorb_observation(
 /// The read-back is what makes this race-safe: `ON CONFLICT DO NOTHING` leaves whichever row was
 /// committed first, and comparing its owner is cheaper and clearer than matching a unique-violation
 /// error code.
-async fn remember_identifier(
-    conn: &sea_orm::DatabaseConnection,
-    knowledge_entity_id: i32,
-    observation: &model::user_observed_entity::Model,
-) -> anyhow::Result<Option<i32>> {
-    let Some((scheme, value)) = identifier_of(observation) else {
-        return Ok(None);
-    };
-    // Asked rather than cached: the claim is one row in one index, and a map held across a rebuild
-    // is the same data with a staler answer.
-    if let Some(existing) = identity_owner(conn, &scheme, &value).await? {
-        return Ok((existing != knowledge_entity_id).then_some(existing));
-    }
-
-    // The partial unique index refuses a second live claim to the same (scheme, id). Under a
-    // concurrent writer that surfaces as a unique violation, so the run stops rather than leaving
-    // two entities for one referent; turning it into a merge is phase 3 (§Repair).
-    let insert =
-        model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
-            knowledge_entity_id: Set(knowledge_entity_id),
-            kind: Set("claim".to_string()),
-            value: Set(serde_json::json!({
-                "scheme": scheme,
-                "id": value,
-                "handle": observation.platform_handle,
-            })),
-            source: Set("platform".to_string()),
-            method: Set(Some("capture".to_string())),
-            user_observed_entity_id: Set(Some(observation.id)),
-            source_user_id: Set(Some(observation.user_id)),
-            ..Default::default()
-        })
-        .exec(conn)
-        .await;
-
-    match insert {
-        Ok(_) => Ok(None),
-        // Another entity claimed this identity between the map read and the insert. The index said so;
-        // report the owner so the caller can drop the duplicate instead of leaving two referents.
-        Err(err) if is_unique_violation(&err) => {
-            let owner = identity_owner(conn, &scheme, &value).await?;
-            match owner {
-                Some(owner) if owner != knowledge_entity_id => Ok(Some(owner)),
-                Some(_) => Ok(None),
-                None => Err(err.into()),
-            }
-        }
-        Err(err) => Err(err.into()),
-    }
-}
-
-fn is_unique_violation(err: &DbErr) -> bool {
-    match err {
-        DbErr::Exec(RuntimeErr::SqlxError(error)) | DbErr::Query(RuntimeErr::SqlxError(error)) => {
-            error
-                .as_database_error()
-                .and_then(|error| error.code())
-                .is_some_and(|code| code == "23505")
-        }
-        _ => false,
-    }
-}
-
-pub(crate) async fn identity_owner(
-    conn: &sea_orm::DatabaseConnection,
-    scheme: &str,
-    value: &str,
-) -> anyhow::Result<Option<i32>> {
-    let row = conn
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT knowledge_entity_id FROM knowledge_evidence \
-             WHERE kind = 'claim' AND retracted_at IS NULL \
-               AND value->>'scheme' = $1 AND value->>'id' = $2 \
-             LIMIT 1",
-            [scheme.into(), value.into()],
-        ))
-        .await?;
-    Ok(match row {
-        Some(row) => Some(row.try_get_by_index::<i32>(0)?),
-        None => None,
-    })
-}
-
 async fn create(
     conn: &sea_orm::DatabaseConnection,
     observation: &model::user_observed_entity::Model,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
     let description = observation.description.clone();
-    // A handle is an identifier, so the row is identified from the start; anything else is a
-    // hypothesis until resolution supplies an authority identifier.
-    let status = if identifier_of(observation).is_some() {
-        STATUS_IDENTIFIED
-    } else {
-        STATUS_PROVISIONAL
-    };
+    // Always provisional: a new entity has nothing proving it yet. If the capture asserted a claim,
+    // it is recorded against this entity and `project` promotes it to `identified` moments later —
+    // guessing the status here would be a second writer of a projected column.
+    let status = STATUS_PROVISIONAL;
     let model = model::knowledge_entity::ActiveModel {
         name: Set(observation.name.trim().to_string()),
         entity_type: Set(observation.entity_type.clone()),
@@ -740,11 +642,13 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let claimed = remember_identifier(&db.conn, duplicate, &observation)
+        let claim = crate::knowledge::evidence::Claim::of(&observation).expect("a handle");
+        let outcome = Evidence::new(&db.conn)
+            .record(duplicate, &claim, &observation)
             .await
-            .expect("claim lookup should succeed");
+            .expect("claim write should succeed");
 
-        assert_eq!(claimed, Some(owner_core.id));
+        assert_eq!(outcome, ClaimOutcome::HeldBy(owner_core.id));
         assert_eq!(
             evidence::Entity::find().count(&db.conn).await.unwrap(),
             1,

@@ -17,7 +17,8 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use sea_orm::{EntityTrait, QueryOrder};
 
 use super::blocking::Blocker;
-use super::linker::{Decision, LinkResult, Linker};
+use super::evidence::{Claim, Evidence};
+use super::linker::{Action, Decision, LinkResult, Linker};
 use super::normalize;
 use crate::model;
 
@@ -294,22 +295,26 @@ pub struct HeuristicLinker;
 
 #[async_trait::async_trait]
 impl Linker for HeuristicLinker {
-    /// Score what the blocker proposed, best first, and give the illumination's observations their
-    /// entities.
+    /// Give the reading's observations their entities.
     ///
-    /// The veto lives here because it is a fact about the reading: one extraction that emitted two
-    /// names meant two things, so an entity already taken by a sibling is not a candidate for this
-    /// observation — however well it scores. Processing the illumination as a set is what makes that
-    /// expressible; per observation it could only ever be applied after the fact.
+    /// A claim settles the question before any scoring: an entity that already holds this platform
+    /// link *is* the thing, and asking a name-similarity model to second-guess that is how a handle
+    /// and a real name end up as two entities. Similarity is for the observations no claim speaks
+    /// for — and for the claim that nothing holds yet, which rides along to be recorded once the
+    /// decision picks an entity.
+    ///
+    /// The veto is only about similarity. Two observations from one extraction are two things, but
+    /// two observations asserting one platform link are one account; the claim wins.
     async fn link_illuminated_observations(
         &self,
         blocker: &dyn Blocker,
+        evidence: &Evidence<'_>,
         _illumination: &model::illumination::Model,
         observations: &[model::user_observed_entity::Model],
-    ) -> LinkResult {
+    ) -> anyhow::Result<LinkResult> {
         let mut result = LinkResult::default();
-        // A sibling that already has an entity — attached by identifier before this ran — has spent
-        // it for the reading. It is context, not work: no decision is owed for it.
+        // A sibling that already has an entity — attached before this ran — has spent it for the
+        // reading. It is context, not work: no decision is owed for it.
         let mut claimed: HashSet<i32> = observations
             .iter()
             .filter_map(|observation| observation.knowledge_entity_id)
@@ -319,6 +324,26 @@ impl Linker for HeuristicLinker {
             if observation.knowledge_entity_id.is_some() {
                 continue;
             }
+            let claim = Claim::of(observation);
+
+            if let Some(found) = &claim
+                && let Some(owner) = evidence.owner(found).await?
+            {
+                claimed.insert(owner);
+                result.by_claim += 1;
+                result.decisions.push((
+                    observation.id,
+                    Decision {
+                        action: Action::Attach {
+                            entity: owner,
+                            score: 1.0,
+                        },
+                        claim,
+                    },
+                ));
+                continue;
+            }
+
             let scored = Observation::from(observation);
             let mut best_free: Option<(i32, f32, bool)> = None;
             let mut best_any: Option<(i32, f32, bool)> = None;
@@ -344,20 +369,22 @@ impl Linker for HeuristicLinker {
                 result.vetoed += 1;
             }
 
-            let decision = match best_free {
+            let action = match best_free {
                 Some((entity, score, true)) => {
                     claimed.insert(entity);
-                    Decision::Attach { entity, score }
+                    Action::Attach { entity, score }
                 }
-                Some((entity, score, false)) => Decision::Create {
+                Some((entity, score, false)) => Action::Create {
                     best: Some((entity, score)),
                 },
-                None => Decision::Create { best: None },
+                None => Action::Create { best: None },
             };
-            result.decisions.push((observation.id, decision));
+            result
+                .decisions
+                .push((observation.id, Decision { action, claim }));
         }
 
-        result
+        Ok(result)
     }
 }
 
@@ -455,15 +482,21 @@ mod tests {
     /// selected surface out of `alt_names`, so an entity with no alternatives must still be
     /// findable by its own name.
     /// Link one reading: build the blocker from the corpus and run the linker over it.
+    ///
+    /// Needs a database now, because the linker asks the evidence store whether a claim is already
+    /// held. Observations with no platform link never reach that call.
     async fn link(
+        db: &crate::database::DbHandle,
         entities: &[model::knowledge_entity::Model],
         observations: &[model::user_observed_entity::Model],
     ) -> LinkResult {
         let blocker = NameBlocker::build_entities(entities);
         let illumination = crate::test_support::fixtures::stub_illumination(1);
+        let evidence = Evidence::new(&db.conn);
         HeuristicLinker
-            .link_illuminated_observations(&blocker, &illumination, observations)
+            .link_illuminated_observations(&blocker, &evidence, &illumination, observations)
             .await
+            .expect("the linker should not fail")
     }
 
     fn ids(candidates: &[model::knowledge_entity::Model]) -> Vec<i32> {
@@ -518,18 +551,25 @@ mod tests {
 
     #[tokio::test]
     async fn the_linker_takes_the_best_candidate_that_clears_the_bar() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
         let weak = entity_view(1, "Train Dreams", "book");
         let strong = entity_view(2, "Train Dreams", "book");
         let observation = observation_view("Train Dreams", "book");
 
-        let result = link(&[weak, strong], &[observation]).await;
+        let result = link(&db, &[weak, strong], &[observation]).await;
 
         match result.decisions.as_slice() {
-            [(_, Decision::Attach { entity, score })] => {
-                assert!(*entity == 1 || *entity == 2);
-                assert!(*score >= 0.6, "{score}");
-            }
-            other => panic!("expected one attach, got {other:?}"),
+            [(_, decision)] => match &decision.action {
+                Action::Attach { entity, score } => {
+                    assert!(*entity == 1 || *entity == 2);
+                    assert!(*score >= 0.6, "{score}");
+                }
+                other => panic!("expected an attach, got {other:?}"),
+            },
+            other => panic!("expected one decision, got {other:?}"),
         }
     }
 
@@ -537,27 +577,48 @@ mod tests {
     /// them is not available to the other — however well it scores.
     #[tokio::test]
     async fn a_sibling_cannot_take_the_entity_the_reading_already_spent() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
         let only = entity_view(7, "Train Dreams", "book");
         let first = crate::test_support::fixtures::stub_observation(1, "Train Dreams", "book");
         let second = crate::test_support::fixtures::stub_observation(2, "Train Dreams", "book");
 
-        let result = link(&[only], &[first, second]).await;
+        let result = link(&db, &[only], &[first, second]).await;
 
         match result.decisions.as_slice() {
-            [(_, Decision::Attach { entity, .. }), (_, Decision::Create { .. })] => {
-                assert_eq!(*entity, 7, "the first to arrive takes the entity");
+            [(_, first), (_, second)] => {
+                match &first.action {
+                    Action::Attach { entity, .. } => {
+                        assert_eq!(*entity, 7, "the first to arrive takes the entity")
+                    }
+                    other => panic!("expected the first to attach, got {other:?}"),
+                }
+                assert!(
+                    matches!(second.action, Action::Create { .. }),
+                    "the second must create, got {:?}",
+                    second.action
+                );
             }
-            other => panic!("expected attach then create, got {other:?}"),
+            other => panic!("expected two decisions, got {other:?}"),
         }
         assert_eq!(result.vetoed, 1, "the second's best candidate was already spent");
     }
 
     #[tokio::test]
     async fn no_candidates_creates_with_nothing_to_report() {
-        let result = link(&[], &[observation_view("Anything", "unknown")]).await;
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let result = link(&db, &[], &[observation_view("Anything", "unknown")]).await;
         match result.decisions.as_slice() {
-            [(_, Decision::Create { best })] => assert!(best.is_none()),
-            other => panic!("expected a create, got {other:?}"),
+            [(_, decision)] => match &decision.action {
+                Action::Create { best } => assert!(best.is_none()),
+                other => panic!("expected a create, got {other:?}"),
+            },
+            other => panic!("expected one decision, got {other:?}"),
         }
     }
 }

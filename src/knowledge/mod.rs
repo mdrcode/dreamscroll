@@ -7,6 +7,7 @@ pub mod cache;
 pub mod blocking;
 pub mod compare;
 pub mod current;
+pub mod evidence;
 pub mod link;
 pub mod linker;
 pub mod merge;
