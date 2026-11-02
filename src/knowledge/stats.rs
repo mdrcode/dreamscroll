@@ -19,6 +19,9 @@ pub struct Stats {
     pub with_claim: u64,
     /// Entities whose projected platform presence is set. A member had one and `project` kept it.
     pub with_platform: u64,
+    /// Distinct entities that *should* have one, counted from the observations. Always equal to
+    /// `with_platform`; when it is not, projection has lost something.
+    pub platform_from_members: u64,
     pub cache_found: u64,
     pub cache_empty: u64,
     pub cache_failed: u64,
@@ -45,13 +48,29 @@ pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
         .count(&db.conn)
         .await?;
 
+    let platform_from_members: HashSet<i32> = model::user_observed_entity::Entity::find()
+        .filter(model::user_observed_entity::Column::Platform.is_not_null())
+        .filter(model::user_observed_entity::Column::Platform.ne(""))
+        .filter(model::user_observed_entity::Column::KnowledgeEntityId.is_not_null())
+        .all(&db.conn)
+        .await?
+        .into_iter()
+        .filter_map(|row| row.knowledge_entity_id)
+        .collect();
+
     let mut stats = Stats {
         observations,
         linked,
+        platform_from_members: platform_from_members.len() as u64,
         ..Default::default()
     };
 
     for entity in model::knowledge_entity::Entity::find().all(&db.conn).await? {
+        // A tombstone is history, not an entity: it keeps the columns it had and its members have
+        // moved. Counting it inflated every number here by the number of merges.
+        if entity.merged_into_id.is_some() {
+            continue;
+        }
         stats.entities += 1;
         match entity.status.as_str() {
             "identified" => stats.identified += 1,
