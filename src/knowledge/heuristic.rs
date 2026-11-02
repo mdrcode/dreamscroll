@@ -377,11 +377,11 @@ mod tests {
     }
 
     fn entity_view(id: i32, name: &str, ty: &str) -> model::knowledge_entity::Model {
-        crate::knowledge::entity::scratch(id, name, ty)
+        crate::test_support::fixtures::stub_entity(id, name, ty)
     }
 
     fn observation_view(name: &str, ty: &str) -> model::user_observed_entity::Model {
-        crate::knowledge::entity::scratch_observation(1, name, ty)
+        crate::test_support::fixtures::stub_observation(1, name, ty)
     }
 
     /// The bug that made every later capture duplicate an existing name: `project` keeps the

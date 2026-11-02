@@ -98,8 +98,8 @@ enum Decision {
 Both traits take **model rows** — `user_observed_entity::Model` and `knowledge_entity::Model` —
 because a separate view layer was a second place for a column to go missing, and it went missing
 twice. What a strategy must not do is *write* one: `project` is the only writer of a derived column.
-The derived forms the scorer works with (`surfaces()`, `descriptions()`, `types()`) live in
-`entity.rs`, beside the strategies rather than beside the table.
+The derived forms the scorer works with (`surfaces()`, `descriptions()`, `types()`) are inherent
+methods on the model, beside its columns.
 
 `link.rs` is the executor: load the rows, drive them through the blocker and linker, apply the
 effects.
@@ -194,7 +194,6 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 | file | what it is |
 |---|---|
-| `entity.rs` | what the strategies read from a row, and the keys they derive |
 | `blocking.rs`, `linker.rs` | the two traits, and nothing else — the contract a linker implements |
 | `heuristic.rs` | our first linker, self-contained: features, weights, bars, `NameBlocker`, `HeuristicLinker` |
 | `link.rs` | the linking executor |

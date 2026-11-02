@@ -59,4 +59,24 @@ pub struct Model {
     pub platform_display_name: Option<String>,
 }
 
+impl Model {
+    /// Every surface this entity answers to, its selected name first.
+    pub fn surfaces(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.name.as_str()).chain(self.alt_names.iter().map(String::as_str))
+    }
+
+    /// The selected description first, then the alternates other members contributed.
+    pub fn descriptions(&self) -> impl Iterator<Item = &str> {
+        self.description
+            .iter()
+            .map(String::as_str)
+            .chain(self.alt_descriptions.iter().map(String::as_str))
+    }
+
+    /// Every type its members asserted, the selected one first.
+    pub fn types(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.entity_type.as_str()).chain(self.alt_types.iter().map(String::as_str))
+    }
+}
+
 impl ActiveModelBehavior for ActiveModel {}

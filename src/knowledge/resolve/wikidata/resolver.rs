@@ -806,7 +806,7 @@ mod tests {
     }
 
     fn entity(label: &str, description: Option<&str>) -> model::knowledge_entity::Model {
-        let mut entity = crate::knowledge::entity::scratch(1, label, "unknown");
+        let mut entity = crate::test_support::fixtures::stub_entity(1, label, "unknown");
         entity.description = description.map(str::to_string);
         entity
     }
@@ -1000,7 +1000,7 @@ mod tests {
 
     #[test]
     fn planning_prefers_the_handle_then_a_title_then_the_label() {
-        let mut entity = crate::knowledge::entity::scratch(1, "Alexey Kutepov", "real_person");
+        let mut entity = crate::test_support::fixtures::stub_entity(1, "Alexey Kutepov", "real_person");
         entity.search_query = Some("Tsoding".to_string());
         entity.platform = Some("x_twitter".to_string());
         entity.platform_handle = Some("tsoding".to_string());

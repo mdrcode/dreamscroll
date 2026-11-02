@@ -15,6 +15,31 @@ use dreamscroll::{config, database};
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use serde_json::Value;
 
+/// The row a decision needs, and nothing else. `test_support` is compiled only under `cfg(test)`,
+/// so an example that is not a test keeps its own.
+fn scratch(id: i32, name: &str, entity_type: &str) -> dreamscroll::model::knowledge_entity::Model {
+    let now = chrono::Utc::now();
+    dreamscroll::model::knowledge_entity::Model {
+        id,
+        created_at: now,
+        updated_at: now,
+        name: name.to_string(),
+        alt_names: Vec::new(),
+        entity_type: entity_type.to_string(),
+        alt_types: Vec::new(),
+        description: None,
+        alt_descriptions: Vec::new(),
+        search_query: None,
+        alt_search_queries: Vec::new(),
+        platform: None,
+        platform_handle: None,
+        platform_display_name: None,
+        status: "provisional".to_string(),
+        confidence: None,
+        merged_into_id: None,
+    }
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     config::populate_env_if_test_or_dev();
@@ -112,11 +137,7 @@ async fn main() -> anyhow::Result<()> {
             continue;
         };
         let entity_type: String = row.try_get_by_index(1)?;
-        let mut view = dreamscroll::knowledge::entity::scratch(
-            row.try_get_by_index(0)?,
-            label,
-            &entity_type,
-        );
+        let mut view = scratch(row.try_get_by_index(0)?, label, &entity_type);
         view.description = Some(row.try_get_by_index::<String>(2)?).filter(|d| !d.is_empty());
         let request = engine.plan(&view).into_iter().next().expect("a plan");
         let raw = Raw {

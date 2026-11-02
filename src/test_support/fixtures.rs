@@ -81,3 +81,54 @@ pub async fn entity(
         .unwrap()
         .id
 }
+
+/// An in-memory knowledge entity: the fields a strategy reads, and nothing else.
+///
+/// The async builders above insert a graph; this one is for the tests that only need something to
+/// hand a `Blocker`, `Linker` or `Resolver`. Never inserted, so changing it cannot affect a query.
+pub fn stub_entity(id: i32, name: &str, entity_type: &str) -> model::knowledge_entity::Model {
+    let now = Utc::now();
+    model::knowledge_entity::Model {
+        id,
+        created_at: now,
+        updated_at: now,
+        name: name.to_string(),
+        alt_names: Vec::new(),
+        entity_type: entity_type.to_string(),
+        alt_types: Vec::new(),
+        description: None,
+        alt_descriptions: Vec::new(),
+        search_query: None,
+        alt_search_queries: Vec::new(),
+        platform: None,
+        platform_handle: None,
+        platform_display_name: None,
+        status: "provisional".to_string(),
+        confidence: None,
+        merged_into_id: None,
+    }
+}
+
+/// The same, for one observation.
+pub fn stub_observation(
+    id: i32,
+    name: &str,
+    entity_type: &str,
+) -> model::user_observed_entity::Model {
+    model::user_observed_entity::Model {
+        id,
+        user_id: 1,
+        capture_id: 1,
+        illumination_id: 1,
+        position: 0,
+        created_at: Utc::now(),
+        name: name.to_string(),
+        entity_type: entity_type.to_string(),
+        description: None,
+        search_query: None,
+        platform: None,
+        platform_handle: None,
+        platform_display_name: None,
+        knowledge_entity_id: None,
+    }
+}
