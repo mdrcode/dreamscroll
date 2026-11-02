@@ -59,11 +59,14 @@ pub trait Linker: Send + Sync {
     /// `blocker` is recall and nothing else: it may return nothing, it over-generates by design, and
     /// its order means nothing. `evidence` answers whether a claim is already held. Measuring — and
     /// concluding that nothing fits — is this side's job.
+    ///
+    /// The observations arrive in the order the capture emitted them, which is what decides who wins
+    /// a contested entity. An implementation that wants more context — the illumination's summary and
+    /// details — can ask for it; nothing needs it yet.
     async fn link_illuminated_observations(
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,
-        illumination: &model::illumination::Model,
         observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<LinkResult>;
 }

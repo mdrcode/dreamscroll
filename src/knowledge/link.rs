@@ -73,12 +73,6 @@ pub async fn link_knowledge_illumination(
     evidence: &Evidence,
     illumination: &model::illumination::ModelEx,
 ) -> anyhow::Result<Applied> {
-    // The relation, materialised by `Entity::load().with(observation::Entity)`, then put in the
-    // order the model emitted it: `position` is unique within an illumination and is what the row
-    // was written with. The id only breaks ties, which is a test fixture rather than production —
-    // it is a global sequence that happens to follow position, not a guarantee.
-    //
-    // The order decides who wins a contested entity: the first observation to claim it keeps it.
     let mut observations: Vec<model::user_observed_entity::Model> = illumination
         .observations
         .iter()
@@ -86,9 +80,8 @@ pub async fn link_knowledge_illumination(
         .collect();
     observations.sort_by_key(|observation| (observation.position, observation.id));
 
-    let illumination_model: model::illumination::Model = illumination.clone().into();
     let result = HeuristicLinker
-        .link_illuminated_observations(blocker, evidence, &illumination_model, &observations)
+        .link_illuminated_observations(blocker, evidence, &observations)
         .await?;
 
     let mut applied = Applied {

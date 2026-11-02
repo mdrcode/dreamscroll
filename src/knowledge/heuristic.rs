@@ -309,7 +309,6 @@ impl Linker for HeuristicLinker {
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,
-        _illumination: &model::illumination::Model,
         observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<LinkResult> {
         let mut result = LinkResult::default();
@@ -491,10 +490,9 @@ mod tests {
         observations: &[model::user_observed_entity::Model],
     ) -> LinkResult {
         let blocker = NameBlocker::build_entities(entities);
-        let illumination = crate::test_support::fixtures::stub_illumination(1);
         let evidence = Evidence::from_handle(db);
         HeuristicLinker
-            .link_illuminated_observations(&blocker, &evidence, &illumination, observations)
+            .link_illuminated_observations(&blocker, &evidence, observations)
             .await
             .expect("the linker should not fail")
     }
