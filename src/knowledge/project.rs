@@ -20,7 +20,10 @@ use crate::model;
 /// Deriving the surface and text here rather than at write time is what makes a merge safe: a merge
 /// re-points observations and projects the winner, so the loser's names and descriptions are picked
 /// up from the members that moved rather than being lost with the deleted row.
-pub async fn project(conn: &sea_orm::DatabaseConnection, knowledge_entity_id: i32) -> anyhow::Result<()> {
+pub async fn project<C: sea_orm::ConnectionTrait>(
+    conn: &C,
+    knowledge_entity_id: i32,
+) -> anyhow::Result<()> {
     use model::knowledge_evidence as evidence;
 
     // Ordered by member id, so the result never depends on the order members arrived in.

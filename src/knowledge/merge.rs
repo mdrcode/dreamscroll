@@ -11,6 +11,7 @@
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait,
+    TransactionTrait,
     QueryFilter, Set, Statement,
 };
 
@@ -43,8 +44,8 @@ pub struct Preview {
     pub shared_illuminations: i64,
 }
 
-pub async fn preview(
-    conn: &DatabaseConnection,
+pub async fn preview<C: ConnectionTrait>(
+    conn: &C,
     loser: i32,
     winner: i32,
 ) -> anyhow::Result<Preview> {
@@ -92,6 +93,21 @@ pub async fn preview(
 /// its names may legitimately join the same entity. See `plan/knowledge-illumination-history.md`.
 pub async fn merge(
     conn: &DatabaseConnection,
+    loser: i32,
+    winner: i32,
+) -> anyhow::Result<Outcome> {
+    // Five writes that must all land: repointing observations, dropping the evidence that would
+    // collide, moving the rest, recording the merge and tombstoning the loser. A crash between any
+    // two of them leaves two live entities claiming one identity, which nothing can repair.
+    conn.transaction(move |txn| {
+        Box::pin(async move { merge_in_transaction(txn, loser, winner).await })
+    })
+    .await
+    .map_err(|error| anyhow::anyhow!("merge transaction failed: {error}"))
+}
+
+async fn merge_in_transaction<C: ConnectionTrait>(
+    conn: &C,
     loser: i32,
     winner: i32,
 ) -> anyhow::Result<Outcome> {

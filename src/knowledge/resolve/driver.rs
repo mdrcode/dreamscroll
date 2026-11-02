@@ -246,7 +246,7 @@ async fn run_stage(
         if resolved.contains(&entities[index].id) {
             continue;
         }
-        let Some(raw) = answers.get(&(request.kind.clone(), request.query.clone())) else {
+        let Some(raw) = answers.get(&(request.kind.clone(), request.shape.clone(), request.query.clone())) else {
             continue;
         };
         let claims = engine.parse(&entities[index], &request, raw);
@@ -366,8 +366,8 @@ async fn fetch_plans(
     pacer: &mut Pacer,
     budget: &mut Budget,
     report: &mut Report,
-) -> anyhow::Result<HashMap<(String, String), Raw>> {
-    let mut answers: HashMap<(String, String), Raw> = HashMap::new();
+) -> anyhow::Result<HashMap<(String, String, String), Raw>> {
+    let mut answers: HashMap<(String, String, String), Raw> = HashMap::new();
 
     for ((kind, shape), queries) in plan_groups(plans) {
         let hits = cache
@@ -376,7 +376,7 @@ async fn fetch_plans(
         report.cache_hits += hits.len();
         for (query, answer) in hits {
             answers.insert(
-                (kind.clone(), query),
+                (kind.clone(), shape.clone(), query),
                 Raw {
                     outcome: answer.outcome,
                     payload: answer.payload,
@@ -386,7 +386,7 @@ async fn fetch_plans(
 
         let misses: Vec<String> = queries
             .into_iter()
-            .filter(|query| !answers.contains_key(&(kind.clone(), query.clone())))
+            .filter(|query| !answers.contains_key(&(kind.clone(), shape.clone(), query.clone())))
             .collect();
         if misses.is_empty() || options.dry_run {
             continue;
@@ -424,7 +424,7 @@ async fn fetch_plans(
                                 },
                             )
                             .await?;
-                        answers.insert((kind.clone(), query), raw);
+                        answers.insert((kind.clone(), shape.clone(), query), raw);
                     }
                 }
                 Err(FetchError::RateLimited { retry_after_secs }) => {
@@ -450,7 +450,7 @@ async fn fetch_plans(
                             )
                             .await?;
                         answers.insert(
-                            (kind.clone(), query.clone()),
+                            (kind.clone(), shape.clone(), query.clone()),
                             Raw {
                                 outcome: Outcome::Failed,
                                 payload: None,
@@ -1168,6 +1168,86 @@ mod tests {
         assert!(budget.take());
         assert!(!budget.take(), "the third call is refused");
         assert!(budget.spent, "and the refusal is recorded");
+    }
+
+    struct AlwaysRateLimited;
+
+    #[async_trait::async_trait]
+    impl Resolver for AlwaysRateLimited {
+        fn id(&self) -> &'static str {
+            "limited"
+        }
+        fn plan(&self, _entity: &EntityView) -> Vec<Request> {
+            Vec::new()
+        }
+        fn parse(&self, _entity: &EntityView, _request: &Request, _raw: &Raw) -> Vec<Claim> {
+            Vec::new()
+        }
+        async fn fetch(&self, _requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
+            Err(FetchError::RateLimited {
+                retry_after_secs: 7,
+            })
+        }
+    }
+
+    /// A 429 is an instruction: stop, cache nothing, report the wait. Caching it would turn a
+    /// temporary throttle into a week-long "no such entity".
+    #[tokio::test]
+    async fn a_rate_limit_stops_the_run_and_caches_nothing() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let cache = Cache::new(&db.conn);
+        let plans = vec![request("label", "v1", "Train Dreams")];
+        let mut pacer = Pacer::new(std::time::Duration::from_millis(0));
+        let mut budget = Budget::new(10);
+        let mut report = Report::default();
+
+        let answers = fetch_plans(
+            &cache,
+            &AlwaysRateLimited,
+            &plans,
+            &Options::default(),
+            &mut pacer,
+            &mut budget,
+            &mut report,
+        )
+        .await
+        .unwrap();
+
+        assert!(answers.is_empty(), "a 429 must not be recorded as an answer");
+        assert_eq!(report.rate_limited_after, Some(7));
+        assert_eq!(report.fetched, 1, "it stopped after the first call");
+    }
+
+    /// A spent budget stops issuing calls and says so, rather than silently returning nothing.
+    #[tokio::test]
+    async fn a_spent_budget_issues_no_calls() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let cache = Cache::new(&db.conn);
+        let plans = vec![request("label", "v1", "Train Dreams")];
+        let mut pacer = Pacer::new(std::time::Duration::from_millis(0));
+        let mut budget = Budget::new(0);
+        let mut report = Report::default();
+
+        fetch_plans(
+            &cache,
+            &AlwaysRateLimited,
+            &plans,
+            &Options::default(),
+            &mut pacer,
+            &mut budget,
+            &mut report,
+        )
+        .await
+        .unwrap();
+
+        assert!(report.budget_exhausted, "the refusal is recorded");
+        assert_eq!(report.fetched, 0, "and no transport call was made");
     }
 }
 
