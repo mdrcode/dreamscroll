@@ -1,6 +1,6 @@
 use argh::FromArgs;
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
-use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseBackend, QueryFilter, QueryOrder, Statement};
+use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use dreamscroll::knowledge::evidence::Evidence;
 use dreamscroll::knowledge::heuristic::NameBlocker;
@@ -11,12 +11,11 @@ use dreamscroll::{config, database, knowledge, telemetry};
 /// What a rebuild of the whole graph did.
 ///
 /// Lives here rather than in the library because it describes a *run*, not a link decision: how many
-/// readings there were, which were stale, how the totals add up. The library reports what it wrote.
+/// readings there were and how the totals add up. The library reports what it wrote.
 #[derive(Debug, Default)]
 struct Report {
     considered: usize,
     already_linked: usize,
-    stale: usize,
     attached: usize,
     by_claim: usize,
     created: usize,
@@ -41,7 +40,6 @@ impl Report {
 async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<Report> {
     let mut blocker = NameBlocker::new(db).await?;
     let evidence = Evidence::from_handle(db);
-    let current = current_readings(db).await?;
 
     let pending = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
@@ -62,33 +60,12 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<Report> {
             report.considered += 1;
             if observation.knowledge_entity_id.is_some() {
                 report.already_linked += 1;
-            } else if current.get(&observation.capture_id) != Some(&observation.illumination_id) {
-                report.stale += 1;
             }
         }
         let applied = link_knowledge_illumination(db, &mut blocker, &evidence, illumination).await?;
         report.update(applied);
     }
     Ok(report)
-}
-
-/// The illumination a capture currently shows, for the stale count only. Earlier readings are
-/// linked too: an illumination can be wrong, and the graph holds what every reading said.
-async fn current_readings(
-    db: &database::DbHandle,
-) -> anyhow::Result<std::collections::HashMap<i32, i32>> {
-    let rows = db
-        .conn
-        .query_all_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT capture_id, MAX(illumination_id) FROM user_observed_entities GROUP BY capture_id",
-        ))
-        .await?;
-    let mut current = std::collections::HashMap::new();
-    for row in rows {
-        current.insert(row.try_get_by_index::<i32>(0)?, row.try_get_by_index::<i32>(1)?);
-    }
-    Ok(current)
 }
 
 #[derive(FromArgs)]
@@ -187,10 +164,9 @@ async fn main() -> anyhow::Result<()> {
         Command::Link(_) => {
             let report = link_all_pending(&db).await?;
             println!(
-                "considered {} · already linked {} · from stale readings {} · linked {} ({} by claim) · created {} · dropped {} · vetoed {}",
+                "considered {} · already linked {} · linked {} ({} by claim) · created {} · dropped {} · vetoed {}",
                 report.considered,
                 report.already_linked,
-                report.stale,
                 report.attached,
                 report.by_claim,
                 report.created,
