@@ -80,22 +80,26 @@ pub async fn link_knowledge_illumination(
         .collect();
     observations.sort_by_key(|observation| (observation.position, observation.id));
 
-    let result = HeuristicLinker
+    let decisions = HeuristicLinker
         .link_illuminated_observations(blocker, evidence, &observations)
         .await?;
 
-    let mut applied = Applied {
-        vetoed: result.vetoed,
-        by_claim: result.by_claim as usize,
-        ..Default::default()
-    };
+    let mut applied = Applied::default();
     let mut touched = HashSet::new();
-    for (observation_id, decision) in &result.decisions {
+    for decision in &decisions {
+        match &decision.action {
+            linker::Action::Attach { by_claim: true, .. } => applied.by_claim += 1,
+            linker::Action::Create { vetoed: true, .. } => applied.vetoed += 1,
+            _ => {}
+        }
         let observation = observations
             .iter()
-            .find(|row| row.id == *observation_id)
+            .find(|row| row.id == decision.observation)
             .ok_or_else(|| {
-                anyhow!("the linker decided about observation {observation_id}, which is not in this illumination")
+                anyhow!(
+                    "the linker decided about observation {}, which is not in this illumination",
+                    decision.observation
+                )
             })?;
         apply_link_decision(db, blocker, evidence, observation, decision, &mut touched, &mut applied)
             .await?;

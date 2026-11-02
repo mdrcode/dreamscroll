@@ -18,7 +18,7 @@ use sea_orm::{EntityTrait, QueryOrder};
 
 use super::blocking::Blocker;
 use super::evidence::{Claim, Evidence};
-use super::linker::{Action, Decision, LinkResult, Linker};
+use super::linker::{Action, Decision, Linker};
 use super::normalize;
 use crate::model;
 
@@ -310,8 +310,8 @@ impl Linker for HeuristicLinker {
         blocker: &dyn Blocker,
         evidence: &Evidence,
         observations: &[model::user_observed_entity::Model],
-    ) -> anyhow::Result<LinkResult> {
-        let mut result = LinkResult::default();
+    ) -> anyhow::Result<Vec<Decision>> {
+        let mut decisions = Vec::new();
         // A sibling that already has an entity — attached before this ran — has spent it for the
         // illumination. It is context, not work: no decision is owed for it.
         let mut claimed: HashSet<i32> = observations
@@ -329,17 +329,15 @@ impl Linker for HeuristicLinker {
                 && let Some(owner) = evidence.owner(found).await?
             {
                 claimed.insert(owner);
-                result.by_claim += 1;
-                result.decisions.push((
-                    observation.id,
-                    Decision {
-                        action: Action::Attach {
-                            entity: owner,
-                            score: 1.0,
-                        },
-                        claim,
+                decisions.push(Decision {
+                    observation: observation.id,
+                    action: Action::Attach {
+                        entity: owner,
+                        score: 1.0,
+                        by_claim: true,
                     },
-                ));
+                    claim,
+                });
                 continue;
             }
 
@@ -362,28 +360,34 @@ impl Linker for HeuristicLinker {
             }
 
             // The veto doing something, rather than merely being available to.
-            if let Some((entity, _, true)) = best_any
-                && claimed.contains(&entity)
-            {
-                result.vetoed += 1;
-            }
+            let vetoed = matches!(best_any, Some((entity, _, true)) if claimed.contains(&entity));
 
             let action = match best_free {
                 Some((entity, score, true)) => {
                     claimed.insert(entity);
-                    Action::Attach { entity, score }
+                    Action::Attach {
+                        entity,
+                        score,
+                        by_claim: false,
+                    }
                 }
                 Some((entity, score, false)) => Action::Create {
                     best: Some((entity, score)),
+                    vetoed,
                 },
-                None => Action::Create { best: None },
+                None => Action::Create {
+                    best: None,
+                    vetoed,
+                },
             };
-            result
-                .decisions
-                .push((observation.id, Decision { action, claim }));
+            decisions.push(Decision {
+                observation: observation.id,
+                action,
+                claim,
+            });
         }
 
-        Ok(result)
+        Ok(decisions)
     }
 }
 
@@ -488,7 +492,7 @@ mod tests {
         db: &crate::database::DbHandle,
         entities: &[model::knowledge_entity::Model],
         observations: &[model::user_observed_entity::Model],
-    ) -> LinkResult {
+    ) -> Vec<Decision> {
         let blocker = NameBlocker::build_entities(entities);
         let evidence = Evidence::from_handle(db);
         HeuristicLinker
@@ -559,9 +563,9 @@ mod tests {
 
         let result = link(&db, &[weak, strong], &[observation]).await;
 
-        match result.decisions.as_slice() {
-            [(_, decision)] => match &decision.action {
-                Action::Attach { entity, score } => {
+        match result.as_slice() {
+            [decision] => match &decision.action {
+                Action::Attach { entity, score, .. } => {
                     assert!(*entity == 1 || *entity == 2);
                     assert!(*score >= 0.6, "{score}");
                 }
@@ -585,23 +589,22 @@ mod tests {
 
         let result = link(&db, &[only], &[first, second]).await;
 
-        match result.decisions.as_slice() {
-            [(_, first), (_, second)] => {
-                match &first.action {
+        match result.as_slice() {
+            [first_decision, second_decision] => {
+                match &first_decision.action {
                     Action::Attach { entity, .. } => {
                         assert_eq!(*entity, 7, "the first to arrive takes the entity")
                     }
                     other => panic!("expected the first to attach, got {other:?}"),
                 }
                 assert!(
-                    matches!(second.action, Action::Create { .. }),
-                    "the second must create, got {:?}",
-                    second.action
+                    matches!(second_decision.action, Action::Create { vetoed: true, .. }),
+                    "the second's best candidate was already spent: {:?}",
+                    second_decision.action
                 );
             }
             other => panic!("expected two decisions, got {other:?}"),
         }
-        assert_eq!(result.vetoed, 1, "the second's best candidate was already spent");
     }
 
     #[tokio::test]
@@ -611,9 +614,9 @@ mod tests {
         };
         let db = test_db.handle();
         let result = link(&db, &[], &[observation_view("Anything", "unknown")]).await;
-        match result.decisions.as_slice() {
-            [(_, decision)] => match &decision.action {
-                Action::Create { best } => assert!(best.is_none()),
+        match result.as_slice() {
+            [decision] => match &decision.action {
+                Action::Create { best, .. } => assert!(best.is_none()),
                 other => panic!("expected a create, got {other:?}"),
             },
             other => panic!("expected one decision, got {other:?}"),

@@ -21,35 +21,35 @@ use super::evidence::Evidence;
 /// What to do with one observation.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    /// Attach the observation to this entity, with the score that justified it. An identifier match
-    /// scores 1.0: it is decisive, not a similarity.
-    Attach { entity: i32, score: f32 },
-    /// Start a new entity. `best` is the closest candidate that was turned down, kept for diagnosis
-    /// — which includes the entity that holds the claim when a match was refused.
-    Create { best: Option<(i32, f32)> },
+    /// Attach the observation to this entity.
+    Attach {
+        entity: i32,
+        /// `1.0` when a claim named the entity; a similarity score otherwise.
+        score: f32,
+        /// A claim decided this rather than a score. Carried because it cannot be recovered: an
+        /// unmatched claim travels on a similarity decision too, so `claim.is_some()` says nothing
+        /// about why.
+        by_claim: bool,
+    },
+    /// Start a new entity.
+    Create {
+        /// The closest candidate that was turned down, kept for diagnosis.
+        best: Option<(i32, f32)>,
+        /// The best candidate was worth merging, but a sibling from the same illumination had
+        /// already taken it — the reading said two things and only one could have it.
+        vetoed: bool,
+    },
 }
 
-/// What a linker decided about one observation.
+/// What the linker decided about one observation.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Decision {
+    /// The observation this is about.
+    pub observation: i32,
     pub action: Action,
     /// What the capture asserted about it, transcribed and not yet recorded. The executor records it
-    /// against whichever entity `action` resolves to, and withholds it when the decision declined.
+    /// against whichever entity `action` names, and withholds it when the decision declined.
     pub claim: Option<super::evidence::Claim>,
-}
-
-/// What a linker came back with for one illumination.
-#[derive(Debug, Default, PartialEq)]
-pub struct LinkResult {
-    /// One decision per observation, keyed by observation id — not by position, so the executor
-    /// is not relying on the order it happened to pass.
-    pub decisions: Vec<(i32, Decision)>,
-    /// How often an observation's best candidate was already taken by a sibling from the same
-    /// illumination. The veto firing is the only thing the batch knows that the loop could not.
-    pub vetoed: u32,
-    /// Attachments a claim decided rather than a score. The distinction is the interesting one:
-    /// these are the matches that override similarity.
-    pub by_claim: u32,
 }
 
 #[async_trait::async_trait]
@@ -68,5 +68,5 @@ pub trait Linker: Send + Sync {
         blocker: &dyn Blocker,
         evidence: &Evidence,
         observations: &[model::user_observed_entity::Model],
-    ) -> anyhow::Result<LinkResult>;
+    ) -> anyhow::Result<Vec<Decision>>;
 }
