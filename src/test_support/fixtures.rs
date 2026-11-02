@@ -133,3 +133,20 @@ pub fn stub_observation(
     }
 }
 
+
+/// The same, for one illumination. Its `observations` start unloaded; a caller that needs them sets
+/// the relation explicitly, which is also what the linker refuses to run without.
+pub fn stub_illumination(id: i32) -> model::illumination::ModelEx {
+    let model = model::illumination::Model {
+        id,
+        user_id: 1,
+        capture_id: 1,
+        task_run_id: format!("task-{id}"),
+        inference_meta_id: None,
+        created_at: Utc::now(),
+        summary: "a summary".to_string(),
+        details: "the details".to_string(),
+        suggested_searches: None,
+    };
+    model.into()
+}

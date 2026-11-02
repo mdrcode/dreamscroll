@@ -60,13 +60,15 @@ pub trait Linker: Send + Sync {
     /// its order means nothing. `evidence` answers whether a claim is already held. Measuring — and
     /// concluding that nothing fits — is this side's job.
     ///
-    /// The observations arrive in the order the capture emitted them, which is what decides who wins
-    /// a contested entity. An implementation that wants more context — the illumination's summary and
+    /// The illumination arrives whole, with its observations loaded. That is the contract the veto
+    /// rests on: every observation in a call comes from one `illumination_id`, so "one extraction
+    /// never folds two of its own observations into one entity" is about the arguments rather than
+    /// about the caller's good behaviour. An implementation that wants more context — the illumination's summary and
     /// details — can ask for it; nothing needs it yet.
     async fn link_illuminated_observations(
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,
-        observations: &[model::user_observed_entity::Model],
+        illumination: &model::illumination::ModelEx,
     ) -> anyhow::Result<Vec<Decision>>;
 }

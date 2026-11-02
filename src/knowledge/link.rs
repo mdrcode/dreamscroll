@@ -73,15 +73,17 @@ pub async fn link_knowledge_illumination(
     evidence: &Evidence,
     illumination: &model::illumination::ModelEx,
 ) -> anyhow::Result<Applied> {
-    let mut observations: Vec<model::user_observed_entity::Model> = illumination
+    // Unrolled here as well as inside the linker: applying a decision needs the whole row, and a
+    // row is not something to reconstruct from an id. Order does not matter to the executor — the
+    // linker decides who wins a contested entity, and it does its own ordering.
+    let observations: Vec<model::user_observed_entity::Model> = illumination
         .observations
         .iter()
         .map(|row| row.clone().into())
         .collect();
-    observations.sort_by_key(|observation| (observation.position, observation.id));
 
     let decisions = HeuristicLinker
-        .link_illuminated_observations(blocker, evidence, &observations)
+        .link_illuminated_observations(blocker, evidence, illumination)
         .await?;
 
     let mut applied = Applied::default();

@@ -309,8 +309,23 @@ impl Linker for HeuristicLinker {
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,
-        observations: &[model::user_observed_entity::Model],
+        illumination: &model::illumination::ModelEx,
     ) -> anyhow::Result<Vec<Decision>> {
+        // An unloaded relation would read as an illumination with no observations, and linking
+        // nothing would look exactly like success.
+        if !illumination.observations.is_loaded() {
+            anyhow::bail!(
+                "the illumination's observations are not loaded; fetch it with Entity::load().with(…) "
+            );
+        }
+        let mut observations: Vec<model::user_observed_entity::Model> = illumination
+            .observations
+            .iter()
+            .map(|row| row.clone().into())
+            .collect();
+        // The order the capture emitted them, which decides who wins a contested entity.
+        observations.sort_by_key(|observation| (observation.position, observation.id));
+
         let mut decisions = Vec::new();
         // A sibling that already has an entity — attached before this ran — has spent it for the
         // illumination. It is context, not work: no decision is owed for it.
@@ -319,7 +334,7 @@ impl Linker for HeuristicLinker {
             .filter_map(|observation| observation.knowledge_entity_id)
             .collect();
 
-        for observation in observations {
+        for observation in &observations {
             if observation.knowledge_entity_id.is_some() {
                 continue;
             }
@@ -495,8 +510,12 @@ mod tests {
     ) -> Vec<Decision> {
         let blocker = NameBlocker::build_entities(entities);
         let evidence = Evidence::from_handle(db);
+        let mut illumination = crate::test_support::fixtures::stub_illumination(1);
+        illumination.observations = sea_orm::compound::HasMany::Loaded(
+            observations.iter().map(|row| row.clone().into()).collect(),
+        );
         HeuristicLinker
-            .link_illuminated_observations(&blocker, &evidence, observations)
+            .link_illuminated_observations(&blocker, &evidence, &illumination)
             .await
             .expect("the linker should not fail")
     }
