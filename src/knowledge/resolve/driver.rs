@@ -176,12 +176,15 @@ pub async fn resolve(
         ..Default::default()
     };
     let mut resolved: HashSet<i32> = HashSet::new();
+    // One pacer and one budget for the whole run: a stage boundary must not reset either.
+    let mut pacer = Pacer::new(options.min_interval);
+    let mut budget = Budget::new(options.max_requests);
 
     for engine in engines {
         if report.rate_limited_after.is_some() {
             break;
         }
-        run_stage(db, &cache, engine.as_ref(), &entities, &mut resolved, Stage::Identity, options, &mut report).await?;
+        run_stage(db, &cache, engine.as_ref(), &entities, &mut resolved, Stage::Identity, options, &mut pacer, &mut budget, &mut report).await?;
     }
     // Stage two is the search fallback: an exact-label lookup misses when Wikidata spells the name
     // differently (`J.R.R. Tolkien` vs `J. R. R. Tolkien`), and search recovers it. It only runs for
@@ -191,7 +194,7 @@ pub async fn resolve(
             if report.rate_limited_after.is_some() {
                 break;
             }
-            run_stage(db, &cache, engine.as_ref(), &entities, &mut resolved, Stage::Fallback, options, &mut report).await?;
+            run_stage(db, &cache, engine.as_ref(), &entities, &mut resolved, Stage::Fallback, options, &mut pacer, &mut budget, &mut report).await?;
         }
     }
 
@@ -211,6 +214,8 @@ async fn run_stage(
     resolved: &mut HashSet<i32>,
     stage: Stage,
     options: &Options,
+    pacer: &mut Pacer,
+    budget: &mut Budget,
     report: &mut Report,
 ) -> anyhow::Result<()> {
     let plans: Vec<(usize, Request)> = entities
@@ -232,7 +237,7 @@ async fn run_stage(
 
     // Note the order: a rate limit stops *further fetching*, not the parsing of answers already in
     // hand. Returning here discarded every claim from the batches that succeeded.
-    let answers = fetch_plans(cache, engine, &plans, options, report).await?;
+    let answers = fetch_plans(cache, engine, &plans, options, pacer, budget, report).await?;
 
     for (index, request) in plans {
         // One entity, one identity. A entity gets several plans (handle, title, label) and the first to
@@ -279,13 +284,12 @@ async fn run_stage(
 }
 
 /// Look every planned query up in the cache, then fetch only what is missing, in batches.
-async fn fetch_plans(
-    cache: &Cache<'_>,
-    engine: &dyn Resolver,
-    plans: &[(usize, Request)],
-    options: &Options,
-    report: &mut Report,
-) -> anyhow::Result<HashMap<(String, String), Raw>> {
+/// Group planned requests by what a provider can answer in one call, deduped.
+///
+/// Keyed by `(kind, shape)`, not by query: `title` and `label` ask about the same string and the
+/// answers are different things. Keyed by query alone, the label group shadowed the title group and
+/// the title requests were never sent.
+fn plan_groups(plans: &[(usize, Request)]) -> BTreeMap<(String, String), Vec<String>> {
     let mut groups: BTreeMap<(String, String), Vec<String>> = BTreeMap::new();
     for (_, request) in plans {
         groups
@@ -297,15 +301,78 @@ async fn fetch_plans(
         queries.sort();
         queries.dedup();
     }
+    groups
+}
 
-    // Keyed by (kind, query), not by query: `title` and `label` ask about the same string and the
-    // answers are different things. Keyed by query alone, the label group shadowed the title group
-    // and the title requests were never sent.
+/// A floor between transport calls.
+///
+/// WDQS meters processing time rather than request count, but a floor is the simplest thing that
+/// cannot be wrong. It lives for a whole run, so two stages back to back do not each start afresh.
+struct Pacer {
+    after: Option<std::time::Instant>,
+    interval: std::time::Duration,
+}
+
+impl Pacer {
+    fn new(interval: std::time::Duration) -> Self {
+        Self {
+            after: None,
+            interval,
+        }
+    }
+
+    async fn pace(&mut self) {
+        if let Some(previous) = self.after {
+            let ready = previous + self.interval;
+            let now = std::time::Instant::now();
+            if ready > now {
+                tokio::time::sleep(ready - now).await;
+            }
+        }
+        self.after = Some(std::time::Instant::now());
+    }
+}
+
+/// How many transport calls this run may still make.
+struct Budget {
+    remaining: usize,
+    spent: bool,
+}
+
+impl Budget {
+    fn new(max_requests: usize) -> Self {
+        Self {
+            remaining: max_requests,
+            spent: false,
+        }
+    }
+
+    /// Take one call. Returns false when the budget is gone, having recorded that it is.
+    fn take(&mut self) -> bool {
+        if self.remaining == 0 {
+            self.spent = true;
+            return false;
+        }
+        self.remaining -= 1;
+        true
+    }
+}
+
+async fn fetch_plans(
+    cache: &Cache<'_>,
+    resolver: &dyn Resolver,
+    plans: &[(usize, Request)],
+    options: &Options,
+    pacer: &mut Pacer,
+    budget: &mut Budget,
+    report: &mut Report,
+) -> anyhow::Result<HashMap<(String, String), Raw>> {
     let mut answers: HashMap<(String, String), Raw> = HashMap::new();
-    let mut last_call: Option<std::time::Instant> = None;
 
-    for ((kind, shape), queries) in groups {
-        let hits = cache.get_many(engine.id(), &kind, &shape, &queries).await?;
+    for ((kind, shape), queries) in plan_groups(plans) {
+        let hits = cache
+            .get_many(resolver.id(), &kind, &shape, &queries)
+            .await?;
         report.cache_hits += hits.len();
         for (query, answer) in hits {
             answers.insert(
@@ -325,38 +392,29 @@ async fn fetch_plans(
             continue;
         }
 
-        for chunk in misses.chunks(engine.batch_size(&kind)) {
-            if report.fetched >= options.max_requests {
+        for chunk in misses.chunks(resolver.batch_size(&kind)) {
+            if !budget.take() {
                 report.budget_exhausted = true;
                 break;
             }
             let requests: Vec<Request> = chunk
                 .iter()
                 .map(|query| Request {
-                    provider: engine.id(),
+                    provider: resolver.id(),
                     kind: kind.clone(),
                     shape: shape.clone(),
                     query: query.clone(),
                 })
                 .collect();
-            // Space calls out. WDQS meters processing time, not request count, but a floor is the
-            // simplest thing that cannot be wrong.
-            if let Some(previous) = last_call {
-                let ready = previous + options.min_interval;
-                let now = std::time::Instant::now();
-                if ready > now {
-                    tokio::time::sleep(ready - now).await;
-                }
-            }
-            last_call = Some(std::time::Instant::now());
+            pacer.pace().await;
             report.fetched += 1;
 
-            match engine.fetch(&requests).await {
+            match resolver.fetch(&requests).await {
                 Ok(results) => {
                     for (query, raw) in results {
                         cache
                             .put(
-                                engine.id(),
+                                resolver.id(),
                                 &kind,
                                 &shape,
                                 &query,
@@ -381,7 +439,7 @@ async fn fetch_plans(
                     for query in chunk {
                         cache
                             .put(
-                                engine.id(),
+                                resolver.id(),
                                 &kind,
                                 &shape,
                                 query,
@@ -1063,4 +1121,53 @@ mod tests {
         assert_eq!(report.fetched, 0, "{report:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
+
+    fn request(kind: &str, shape: &str, query: &str) -> (usize, Request) {
+        (
+            0,
+            Request {
+                provider: "test",
+                kind: kind.to_string(),
+                shape: shape.to_string(),
+                query: query.to_string(),
+            },
+        )
+    }
+
+    /// `title` and `label` ask about the same string and the answers are different things, so the
+    /// group key includes the kind — keyed by query alone the label group once swallowed the titles.
+    #[test]
+    fn plans_group_by_kind_and_shape() {
+        let plans = [
+            request("label", "v1", "Train Dreams"),
+            request("label", "v1", "Train Dreams"),
+            request("title", "v1", "Train Dreams"),
+        ];
+        let groups = plan_groups(&plans);
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[&("label".into(), "v1".into())], vec!["Train Dreams"]);
+        assert_eq!(groups[&("title".into(), "v1".into())], vec!["Train Dreams"]);
+    }
+
+    #[test]
+    fn duplicates_within_a_group_are_collapsed() {
+        let plans = [
+            request("search", "v1", "b"),
+            request("search", "v1", "a"),
+            request("search", "v1", "b"),
+        ];
+        let groups = plan_groups(&plans);
+        assert_eq!(groups[&("search".into(), "v1".into())], vec!["a", "b"]);
+    }
+
+    #[test]
+    fn the_budget_stops_when_spent_and_says_so() {
+        let mut budget = Budget::new(2);
+        assert!(budget.take());
+        assert!(budget.take());
+        assert!(!budget.take(), "the third call is refused");
+        assert!(budget.spent, "and the refusal is recorded");
+    }
 }
+
