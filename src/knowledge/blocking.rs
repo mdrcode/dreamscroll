@@ -4,9 +4,9 @@
 //! the network, but it may touch the database — the intended implementation queries an index of
 //! normalised keys, and the in-memory one is the cheap version for tests and offline runs.
 //!
-//! How a blocker gets its view of the corpus is its own business, and it is not part of this trait:
-//! construction happens where the corpus is known (`link`'s `make_blocker`). A database-backed
-//! blocker ignores the corpus entirely; an in-memory one builds its index from it in `build_entities`.
+//! How a blocker gets its corpus is its own business, and it is not part of this trait: `NameBlocker`
+//! loads its own from the database on construction. A future implementation could query per
+//! observation instead; `candidates` is the only thing the contract requires.
 //!
 //! The one implementation is [`crate::knowledge::heuristic::NameBlocker`].
 

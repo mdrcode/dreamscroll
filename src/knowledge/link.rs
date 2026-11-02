@@ -1,9 +1,9 @@
-//! Link every observation to an entity, creating one when nothing is close enough.
+//! Link one reading's observations to entities.
 //!
-//! No network. Blocking is an in-memory index over the entities (`~2k` rows per user, so a scan is
-//! cheaper than a query plan), identifiers are a decisive lookup, the decision is [`score`], and
-//! every write is idempotent: a second run finds nothing to do because every observation already has
-//! a `knowledge_entity_id`.
+//! No network. The blocker is an in-memory index the caller built (`~2k` rows, so a scan beats a
+//! query plan), the evidence store answers exactly one question — does an entity already hold this
+//! claim — and what to do about the answer belongs to a [`Linker`]. Every write is idempotent: a
+//! second run finds nothing to do because every observation already has a `knowledge_entity_id`.
 
 use std::collections::HashSet;
 
@@ -64,20 +64,11 @@ fn absorb_surface(entity: &mut model::knowledge_entity::Model, surface: &str) ->
 
 /// The `(scheme, value)` an observation carries, if it carries one. `scheme` is the platform; the
 /// same shape covers `wikidata` → `Q…`, `imdb` → `tt…`, and every authority after them.
-/// Link one illumination: its observations, against the whole graph.
-///
-/// Self-contained — it loads the corpus it needs — so a worker holding one illumination can call it
-/// without a rebuilding pass around it.
 /// Link one illumination against the graph.
 ///
-/// The blocker is passed in because it *is* the corpus: building it costs a pass over every live
-/// entity, so a caller doing more than one illumination builds it once. A worker handling a single
-/// illumination builds one and calls this — [`link_db`] is the same call in a loop.
-/// Link one illumination against the graph.
-///
-/// The blocker and the evidence store are passed in because they are the expensive, shareable
-/// things: a caller doing more than one reading builds them once. Nothing here reads the database
-/// except to write.
+/// The blocker and the evidence store are passed in because they are the expensive, shareable things:
+/// a caller linking more than one reading builds them once. This function queries nothing to decide
+/// anything — the reads it does are read-modify-write on the entities it is about to change.
 pub async fn link_illumination(
     db: &database::DbHandle,
     blocker: &mut dyn Blocker,
@@ -226,8 +217,10 @@ fn names_for(observation: &model::user_observed_entity::Model) -> Vec<String> {
     labels
 }
 
-/// `identified` is a claim about evidence, so it is true the moment an identity exists — including
-/// when a provisional entity absorbs an observation that carries one. A no-op when already set.
+/// Point an observation at its entity.
+///
+/// This is the only place a `knowledge_entity_id` is set. `project` reads the resulting membership to
+/// compute the entity's columns, so nothing else about the move needs recording here.
 async fn attach(
     conn: &sea_orm::DatabaseConnection,
     entity_id: i32,
