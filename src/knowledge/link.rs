@@ -67,7 +67,7 @@ fn absorb_surface(entity: &mut model::knowledge_entity::Model, surface: &str) ->
 /// The blocker and the evidence store are passed in because they are the expensive, shareable things:
 /// a caller linking more than one illumination builds them once. This function queries nothing to decide
 /// anything — the reads it does are read-modify-write on the entities it is about to change.
-pub async fn link_knowledge_illumination(
+pub async fn link_illumination(
     db: &database::DbHandle,
     blocker: &mut dyn Blocker,
     evidence: &Evidence,
