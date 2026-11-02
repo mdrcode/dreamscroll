@@ -22,6 +22,26 @@ ALTER TABLE knowledge_entities ALTER COLUMN alt_descriptions SET DEFAULT '{}';
 ALTER TABLE knowledge_entities ALTER COLUMN alt_search_queries SET DEFAULT '{}';
 "#;
 
+/// A `NOT NULL` array column cannot be added to a populated table without a default, and the
+/// registry creates one without: every existing entity needs its empty collection first.
+///
+/// Guarded on the table existing, because on a fresh database the registry has not created it yet.
+const BACKFILL_ALT_SEARCH_QUERIES: &str = r#"
+DO $sync$
+BEGIN
+    IF to_regclass('knowledge_entities') IS NOT NULL THEN
+        ALTER TABLE knowledge_entities
+            ADD COLUMN IF NOT EXISTS alt_search_queries text[] NOT NULL DEFAULT '{}';
+    END IF;
+END;
+$sync$;
+"#;
+
+pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(BACKFILL_ALT_SEARCH_QUERIES).await?;
+    Ok(())
+}
+
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(CREATE).await?;
     conn.execute_unprepared(ARRAY_DEFAULTS).await?;

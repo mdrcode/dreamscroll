@@ -84,6 +84,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             }
 
             indexes::task_run::before_schema_sync(transaction).await?;
+            indexes::knowledge::before_schema_sync(transaction).await?;
             registry.sync(transaction).await?;
             // After the registry has created the new tables: the observations move across before the
             // old ones are dropped. `link` rebuilds the entities from them.
