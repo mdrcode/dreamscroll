@@ -1,12 +1,5 @@
 //! Blocking: which entities are worth considering as targets for linking an observation into the knowledge graph.
 //!
-//! Recall-oriented and allowed to over-generate. A blocker never decides anything and never touches
-//! the network, but it may touch the database — the intended implementation queries an index of
-//! normalised keys, and the in-memory one is the cheap version for tests and offline runs.
-//!
-//! How a blocker gets its corpus is its own business, and it is not part of this trait: `NameBlocker`
-//! loads its own from the database on construction. A future implementation could query per
-//! observation instead; `candidates` is the only thing the contract requires.
 //!
 //! The one implementation is [`crate::knowledge::heuristic::NameBlocker`].
 

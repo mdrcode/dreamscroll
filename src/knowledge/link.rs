@@ -35,8 +35,6 @@ pub struct LinkStats {
     pub vetoed: u32,
 }
 
-
-
 /// Link one illumination's observed entities into the knowledge graph.
 ///
 /// The blocker and the evidence store are passed in because they are the expensive, shareable things:
@@ -59,7 +57,7 @@ pub async fn link_illumination(
         .collect();
 
     let decisions = decider
-        .link_illuminated_observations(blocker, evidence, illumination)
+        .decide_link(blocker, evidence, illumination)
         .await?;
 
     let mut stats = LinkStats::default();

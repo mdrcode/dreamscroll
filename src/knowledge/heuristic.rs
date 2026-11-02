@@ -305,7 +305,7 @@ impl LinkDecider for HeuristicLinker {
     ///
     /// The veto is only about similarity. Two observations from one extraction are two things, but
     /// two observations asserting one platform link are one account; the claim wins.
-    async fn link_illuminated_observations(
+    async fn decide_link(
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,
@@ -515,7 +515,7 @@ mod tests {
             observations.iter().map(|row| row.clone().into()).collect(),
         );
         HeuristicLinker
-            .link_illuminated_observations(&blocker, &evidence, &illumination)
+            .decide_link(&blocker, &evidence, &illumination)
             .await
             .expect("the linker should not fail")
     }

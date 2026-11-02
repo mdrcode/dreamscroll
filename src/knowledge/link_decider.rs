@@ -65,7 +65,7 @@ pub trait LinkDecider: Send + Sync {
     /// never folds two of its own observations into one entity" is about the arguments rather than
     /// about the caller's good behaviour. An implementation that wants more context — the illumination's summary and
     /// details — can ask for it; nothing needs it yet.
-    async fn link_illuminated_observations(
+    async fn decide_link(
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,

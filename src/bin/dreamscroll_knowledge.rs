@@ -3,8 +3,8 @@ use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use dreamscroll::knowledge::evidence::Evidence;
-use dreamscroll::knowledge::heuristic::NameBlocker;
 use dreamscroll::knowledge::heuristic::HeuristicLinker;
+use dreamscroll::knowledge::heuristic::NameBlocker;
 use dreamscroll::knowledge::link::link_illumination;
 use dreamscroll::model;
 use dreamscroll::{config, database, knowledge, telemetry};
@@ -109,7 +109,7 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Link(_) => {
-            let report = link_knowledge_all(&db).await?;
+            let report = link_all_pending(&db).await?;
             println!(
                 "considered {} · already linked {} · linked {} ({} by claim) · created {} · dropped {} · vetoed {}",
                 report.considered,
@@ -296,12 +296,13 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// What a rebuild of the whole graph did.
+/// Stats from a run of linking all pending observations into the knowledge graph.
 ///
 /// Lives here rather than in the library because it describes a *run*, not a link decision: how many
-/// illuminations there were and how the totals add up. The library reports what it wrote.
+/// illuminations there were and how the totals add up. The library reports what it wrote. When
+/// link_all_pending is run after a reset, these stats reflect the entire rebuild of the knowledge graph.
 #[derive(Debug, Default)]
-struct Report {
+struct LinkAllPendingReport {
     considered: usize,
     already_linked: usize,
     attached: usize,
@@ -311,7 +312,7 @@ struct Report {
     vetoed: u32,
 }
 
-impl Report {
+impl LinkAllPendingReport {
     fn update(&mut self, part: knowledge::link::LinkStats) {
         self.attached += part.attached;
         self.by_claim += part.by_claim;
@@ -323,9 +324,8 @@ impl Report {
 
 /// Link every illumination that still has unlinked observations.
 ///
-/// The whole graph, rebuilt: one blocker and one evidence store for the run, ordered so a rebuild is
-/// reproducible.
-async fn link_knowledge_all(db: &database::DbHandle) -> anyhow::Result<Report> {
+/// After a reset, this rebuilds the entire knowledge graph.
+async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPendingReport> {
     let mut blocker = NameBlocker::new(db).await?;
     let evidence = Evidence::from_handle(db);
     let decider = HeuristicLinker;
@@ -343,7 +343,7 @@ async fn link_knowledge_all(db: &database::DbHandle) -> anyhow::Result<Report> {
         .all(&db.conn)
         .await?;
 
-    let mut report = Report::default();
+    let mut report = LinkAllPendingReport::default();
     for illumination in &illuminations {
         for observation in illumination.observations.iter() {
             report.considered += 1;
