@@ -18,7 +18,6 @@ use serde_json::{json, Value};
 use super::{Claim, EntityView, Resolver, FetchError, Raw, Request, BATCH};
 use crate::knowledge::cache::Outcome;
 
-const SPARQL_ENDPOINT: &str = "https://query.wikidata.org/sparql";
 const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
 /// Article-title reconciliation. A Wikipedia title is unique where a Wikidata label is not: 213 items
 /// are labelled `Paris`, but only one page is titled `Paris`.
@@ -345,109 +344,7 @@ impl Resolver for Wikidata {
             return Ok(answers);
         }
 
-        let query = if let Some(property) = Self::property_of(&first.kind) {
-            sparql_for_handles(requests, property)
-        } else {
-            sparql_for_labels(requests)
-        };
-        let response = self
-            .client
-            .post(SPARQL_ENDPOINT)
-            .header("Accept", "application/sparql-results+json")
-            .form(&[("query", query.as_str()), ("format", "json")])
-            .send()
-            .await
-            .map_err(|error| FetchError::Failed(error.to_string()))?;
-
-        let status = response.status();
-        // WDQS throttles with 429 and a Retry-After, and bans clients that ignore it.
-        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            let retry_after_secs = response
-                .headers()
-                .get(reqwest::header::RETRY_AFTER)
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.trim().parse::<u64>().ok())
-                .unwrap_or(60);
-            return Err(FetchError::RateLimited { retry_after_secs });
-        }
-        if !status.is_success() {
-            return Err(FetchError::Failed(format!("wikidata sparql returned {status}")));
-        }
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|error| FetchError::Failed(error.to_string()))?;
-
-        // Every requested query gets an answer, found or empty — so the cache records the negative
-        // instead of the executor asking again next run.
-        let mut answers: Vec<(String, Raw)> = requests
-            .iter()
-            .map(|request| {
-                (
-                    request.query.clone(),
-                    Raw {
-                        outcome: Outcome::Empty,
-                        payload: None,
-                    },
-                )
-            })
-            .collect();
-        let mut grouped: std::collections::HashMap<String, Vec<Candidate>> =
-            std::collections::HashMap::new();
-        for row in body
-            .pointer("/results/bindings")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let Some(query) = row.get("query").and_then(|v| v.get("value")).and_then(Value::as_str)
-            else {
-                continue;
-            };
-            let Some(item) = row.get("item").and_then(|v| v.get("value")).and_then(Value::as_str)
-            else {
-                continue;
-            };
-            let Some(id) = item.rsplit('/').next() else {
-                continue;
-            };
-            let candidate = Candidate {
-                id: id.to_string(),
-                label: row
-                    .get("itemLabel")
-                    .and_then(|v| v.get("value"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                description: row
-                    .get("itemDescription")
-                    .and_then(|v| v.get("value"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                classes: Vec::new(),
-            };
-            let entry = grouped.entry(query.to_string()).or_default();
-            if !entry.iter().any(|existing| existing.id == candidate.id) {
-                entry.push(candidate);
-            }
-            if let Some(class) = row.get("type").and_then(|v| v.get("value")).and_then(Value::as_str)
-                && let Some(class_id) = class.rsplit('/').next()
-                && let Some(existing) = entry.last_mut()
-            {
-                existing.classes.push(class_id.to_string());
-            }
-        }
-
-        for (query, candidates) in grouped {
-            if let Some(slot) = answers.iter_mut().find(|(key, _)| *key == query) {
-                slot.1 = Raw {
-                    outcome: Outcome::Found,
-                    payload: Some(json!({
-                        "candidates": candidates.iter().map(Candidate::to_json).collect::<Vec<_>>()
-                    })),
-                };
-            }
-        }
-        Ok(answers)
+        return self.sparql(requests).await;
     }
 }
 
@@ -491,42 +388,9 @@ impl Candidate {
     }
 }
 
-fn sparql_for_labels(requests: &[Request]) -> String {
-    let values = requests
-        .iter()
-        .map(|request| format!("\"{}\"@{LANGUAGE}", escape(&request.query)))
-        .collect::<Vec<_>>()
-        .join(" ");
-    format!(
-        // No `P31` here on purpose: classes are not used by the ranking, and the extra join made a
-        // 50-label batch cost enough processing time to hit WDQS's 60-seconds-per-minute budget.
-        // They can come from a separate `VALUES ?item` query when type validation needs them.
-        "SELECT ?query ?item ?itemLabel ?itemDescription WHERE {{\n\
-         VALUES ?query {{ {values} }}\n\
-         ?item rdfs:label ?query .\n\
-         SERVICE wikibase:label {{ bd:serviceParam wikibase:language \"{LANGUAGE}\". }}\n\
-         }}"
-    )
-}
 
-fn sparql_for_handles(requests: &[Request], property: &str) -> String {
-    let values = requests
-        .iter()
-        .map(|request| format!("\"{}\"", escape(&request.query)))
-        .collect::<Vec<_>>()
-        .join(" ");
-    format!(
-        "SELECT ?query ?item WHERE {{\n\
-         VALUES ?query {{ {values} }}\n\
-         ?item wdt:{property} ?query .\n\
-         }}"
-    )
-}
 
 /// SPARQL string literals: backslash and double quote are the only escapes that matter here.
-fn escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
-}
 
 /// Case-insensitive, whitespace-insensitive surface comparison.
 fn same_surface(a: &str, b: &str) -> bool {
@@ -1179,7 +1043,7 @@ mod tests {
     #[test]
     fn sparql_literals_are_escaped() {
         let requests = vec![request("label", "A \"quoted\" name")];
-        let query = sparql_for_labels(&requests);
+        let query = super::transport::sparql_for_labels(&requests);
         assert!(query.contains("\\\"quoted\\\""), "{query}");
     }
 }
