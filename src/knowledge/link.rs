@@ -17,7 +17,7 @@ use sea_orm::{
 
 use super::{
     blocking::Blocker,
-    heuristic::{NameBlocker, HeuristicLinker},
+    heuristic::{HeuristicLinker, NameBlocker},
     linker::{self, Linker},
     normalize,
 };
@@ -40,6 +40,20 @@ pub struct Report {
     /// Observations whose best candidate was already taken by a sibling from the same illumination.
     pub vetoed: u32,
     pub created: usize,
+}
+
+impl Report {
+    /// Fold one run's counts into this one. Derived rather than stored (`duplicate_rate`), and the
+    /// two entry points differ only in how many runs there are.
+    pub fn update(&mut self, part: Report) {
+        self.considered += part.considered;
+        self.already_linked += part.already_linked;
+        self.stale += part.stale;
+        self.linked_by_identifier += part.linked_by_identifier;
+        self.linked += part.linked;
+        self.created += part.created;
+        self.vetoed += part.vetoed;
+    }
 }
 
 /// Add an observed type. Returns whether anything changed: an entity that has accepted `brand`
@@ -131,7 +145,8 @@ pub async fn link(
         };
         attach(&db.conn, observation.id, knowledge_entity_id).await?;
         observation.knowledge_entity_id = Some(knowledge_entity_id);
-        if let Some(entity) = absorb_observation(&db.conn, knowledge_entity_id, observation).await? {
+        if let Some(entity) = absorb_observation(&db.conn, knowledge_entity_id, observation).await?
+        {
             blocker.changed(&entity);
             touched.insert(knowledge_entity_id);
         }
@@ -166,9 +181,7 @@ pub async fn link(
                     blocker.changed(&absorbed);
                 }
                 let has_identity = identifier_of(observation).is_some();
-                if let Some(owner) =
-                    remember_identifier(&db.conn, entity, observation).await?
-                {
+                if let Some(owner) = remember_identifier(&db.conn, entity, observation).await? {
                     anyhow::bail!(
                         "entities {entity} and {owner} both claim the same identifier; \
                          merging is not implemented yet (plan/knowledge-canonical-entities.md §Repair)"
@@ -190,14 +203,14 @@ pub async fn link(
                 // new entity is then a duplicate that owns nothing yet: link to the real owner and
                 // forget it.
                 if let Some(owner) =
-                    remember_identifier(&db.conn, knowledge_entity_id, observation)
-                        .await?
+                    remember_identifier(&db.conn, knowledge_entity_id, observation).await?
                 {
                     attach(&db.conn, observation.id, owner).await?;
                     model::knowledge_entity::Entity::delete_by_id(knowledge_entity_id)
                         .exec(&db.conn)
                         .await?;
-                    if let Some(absorbed) = absorb_observation(&db.conn, owner, observation).await? {
+                    if let Some(absorbed) = absorb_observation(&db.conn, owner, observation).await?
+                    {
                         blocker.changed(&absorbed);
                     }
                     touched.insert(owner);
@@ -222,36 +235,26 @@ pub async fn link(
 }
 
 /// Link every illumination that still has unlinked observations: the whole graph, rebuilt.
-///
-/// Builds the blocker once and hands it to [`link`] for each reading — the same call a worker makes
-/// for a single illumination.
 pub async fn link_db(db: &database::DbHandle) -> anyhow::Result<Report> {
     let mut blocker = NameBlocker::new(db).await?;
 
-    // One query: the database decides which readings still have work, rather than shipping every
-    // unlinked observation's illumination id back to filter here.
-    let pending = Query::select()
+    let unlinked_obs = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
         .from(model::user_observed_entity::Entity)
         .and_where(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
         .to_owned();
 
-    let mut report = Report::default();
     let illuminations = model::illumination::Entity::load()
-        .filter(Expr::col(model::illumination::Column::Id).in_subquery(pending))
+        .filter(Expr::col(model::illumination::Column::Id).in_subquery(unlinked_obs))
         .with(model::user_observed_entity::Entity)
         .all(&db.conn)
         .await?;
 
+    let mut report = Report::default();
     for illumination in &illuminations {
         let part = link(db, &mut blocker, illumination).await?;
-        report.considered += part.considered;
-        report.already_linked += part.already_linked;
-        report.stale += part.stale;
-        report.linked_by_identifier += part.linked_by_identifier;
-        report.linked += part.linked;
-        report.created += part.created;
-        report.vetoed += part.vetoed;
+
+        report.update(part);
     }
 
     Ok(report)
@@ -381,8 +384,8 @@ async fn remember_identifier(
     // The partial unique index refuses a second live claim to the same (scheme, id). Under a
     // concurrent writer that surfaces as a unique violation, so the run stops rather than leaving
     // two entities for one referent; turning it into a merge is phase 3 (§Repair).
-    let insert = model::knowledge_evidence::Entity::insert(
-        model::knowledge_evidence::ActiveModel {
+    let insert =
+        model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
             knowledge_entity_id: Set(knowledge_entity_id),
             kind: Set("claim".to_string()),
             value: Set(serde_json::json!({
@@ -395,10 +398,9 @@ async fn remember_identifier(
             user_observed_entity_id: Set(Some(observation.id)),
             source_user_id: Set(Some(observation.user_id)),
             ..Default::default()
-        },
-    )
-    .exec(conn)
-    .await;
+        })
+        .exec(conn)
+        .await;
 
     match insert {
         Ok(_) => Ok(None),
@@ -546,8 +548,28 @@ mod tests {
         };
         let db = test_db.handle();
         let same = capture(&db, "link_same_capture").await;
-        observe(&db, &same, 0, "Dune", Some("a 1965 novel by Frank Herbert"), "book", None, None).await;
-        observe(&db, &same, 1, "Dune", Some("a 1965 novel by Frank Herbert"), "book", None, None).await;
+        observe(
+            &db,
+            &same,
+            0,
+            "Dune",
+            Some("a 1965 novel by Frank Herbert"),
+            "book",
+            None,
+            None,
+        )
+        .await;
+        observe(
+            &db,
+            &same,
+            1,
+            "Dune",
+            Some("a 1965 novel by Frank Herbert"),
+            "book",
+            None,
+            None,
+        )
+        .await;
 
         let report = link_db(&db).await.expect("build should succeed");
 
@@ -562,7 +584,17 @@ mod tests {
         };
         let db = test_db.handle();
         let first = capture(&db, "link_idempotent").await;
-        observe(&db, &first, 0, "Train Dreams", Some("a novella"), "book", None, None).await;
+        observe(
+            &db,
+            &first,
+            0,
+            "Train Dreams",
+            Some("a novella"),
+            "book",
+            None,
+            None,
+        )
+        .await;
 
         let first_run = link_db(&db).await.expect("build should succeed");
         let second_run = link_db(&db).await.expect("second build should succeed");
@@ -608,7 +640,10 @@ mod tests {
         let report = link_db(&db).await.expect("build should succeed");
 
         assert_eq!(report.stale, 1, "the older reading is counted: {report:?}");
-        assert_eq!(report.created, 2, "both readings reach the graph: {report:?}");
+        assert_eq!(
+            report.created, 2,
+            "both readings reach the graph: {report:?}"
+        );
 
         let unlinked = observation::Entity::find()
             .filter(observation::Column::KnowledgeEntityId.is_null())
@@ -629,18 +664,35 @@ mod tests {
         let db = test_db.handle();
         let first = capture(&db, "link_persona_first").await;
         let second = capture(&db, "link_persona_second").await;
-        observe(&db, &first, 0, "Alexey Kutepov", None, "real_person", Some("x"), Some("tsoding")).await;
-        observe(&db, &second, 0, "Tsoding", None, "social_media_account", Some("x"), Some("Tsoding")).await;
+        observe(
+            &db,
+            &first,
+            0,
+            "Alexey Kutepov",
+            None,
+            "real_person",
+            Some("x"),
+            Some("tsoding"),
+        )
+        .await;
+        observe(
+            &db,
+            &second,
+            0,
+            "Tsoding",
+            None,
+            "social_media_account",
+            Some("x"),
+            Some("Tsoding"),
+        )
+        .await;
 
         let report = link_db(&db).await.expect("build should succeed");
 
         assert_eq!(report.created, 1, "{report:?}");
         assert_eq!(report.linked_by_identifier, 1, "{report:?}");
         assert_eq!(entity_count(&db).await, 1);
-        assert_eq!(
-            evidence::Entity::find().count(&db.conn).await.unwrap(),
-            1
-        );
+        assert_eq!(evidence::Entity::find().count(&db.conn).await.unwrap(), 1);
     }
 
     /// The concurrency guard, tested directly: a second entity asking for an identifier that is
@@ -652,7 +704,17 @@ mod tests {
         };
         let db = test_db.handle();
         let first = capture(&db, "link_claim").await;
-        observe(&db, &first, 0, "Tsoding", None, "real_person", Some("x"), Some("tsoding")).await;
+        observe(
+            &db,
+            &first,
+            0,
+            "Tsoding",
+            None,
+            "real_person",
+            Some("x"),
+            Some("tsoding"),
+        )
+        .await;
         link_db(&db).await.expect("build should succeed");
 
         let owner_core = entity::Entity::find().one(&db.conn).await.unwrap().unwrap();
@@ -668,7 +730,11 @@ mod tests {
         .unwrap()
         .last_insert_id as i32;
 
-        let observation = observation::Entity::find().one(&db.conn).await.unwrap().unwrap();
+        let observation = observation::Entity::find()
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
         let claimed = remember_identifier(&db.conn, duplicate, &observation)
             .await
             .expect("claim lookup should succeed");
@@ -688,7 +754,17 @@ mod tests {
         };
         let db = test_db.handle();
         let first = capture(&db, "link_status").await;
-        observe(&db, &first, 0, "Tsoding", None, "real_person", Some("x"), Some("tsoding")).await;
+        observe(
+            &db,
+            &first,
+            0,
+            "Tsoding",
+            None,
+            "real_person",
+            Some("x"),
+            Some("tsoding"),
+        )
+        .await;
 
         link_db(&db).await.expect("build should succeed");
 
