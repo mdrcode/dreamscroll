@@ -1,15 +1,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::illumination::v2::PlatformLink;
 use crate::model;
-
-#[derive(Clone, Debug, Deserialize, Serialize)]
-pub struct PlatformLinkInfo {
-    pub platform: String,
-    pub handle: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-}
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ObservedEntityInfo {
@@ -30,7 +23,7 @@ pub struct ObservedEntityInfo {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub search_query: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub platform_link: Option<PlatformLinkInfo>,
+    pub platform_link: Option<PlatformLink>,
 }
 
 impl ObservedEntityInfo {
@@ -43,14 +36,11 @@ impl ObservedEntityInfo {
         entity: model::user_observed_entity::ModelEx,
         capture_archived_at: Option<DateTime<Utc>>,
     ) -> Self {
-        let platform_link = match (entity.platform, entity.platform_handle) {
-            (Some(platform), Some(handle)) => Some(PlatformLinkInfo {
-                platform,
-                handle,
-                display_name: entity.platform_display_name,
-            }),
-            _ => None,
-        };
+        let platform_link = PlatformLink::from_columns(
+            entity.platform,
+            entity.platform_handle,
+            entity.platform_display_name,
+        );
 
         Self {
             id: entity.id,

@@ -22,7 +22,7 @@ all users.
 ## Observations: what the user saw
 
 An observation is one thing one capture named — a name, a type, a description, sometimes a platform
-account. It is the Illuminator's best effort, recorded **verbatim and never rewritten**, and it lives
+link. It is the Illuminator's best effort, recorded **verbatim and never rewritten**, and it lives
 in `user_observed_entities`.
 
 Two properties matter more than the columns:
@@ -51,12 +51,14 @@ captures — and the first observation of a thing is always the expensive one.
 An entity is the thing itself, shared by every user, in `knowledge_entities`. It is not authored; it
 is **projected**: every derived column is a function of the entity's observations and its evidence, so
 a merge or a fresh link simply recomputes them. `project()` is the only writer of `name`, `alt_names`,
-`entity_type`, `alt_types`, `description`, `alt_descriptions`, `status` and `confidence`.
+`entity_type`, `alt_types`, `description`, `alt_descriptions`, `search_query`, `alt_search_queries`,
+`status` and `confidence`.
 
 ```
 name / alt_names            the chosen surface, and every other one seen
 entity_type / alt_types     the chosen type, and every other one asserted
 description / alt_*         same shape: one selected, the rest kept for matching
+search_query / alt_*        the disambiguation hint, projected the same way
 status                      provisional → identified → contested
 merged_into_id              set when this entity was folded into another
 ```

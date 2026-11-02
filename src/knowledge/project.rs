@@ -1,7 +1,7 @@
 //! Projection: the entity columns that are a function of its members and its evidence.
 //!
 //! Nothing else writes `name`, `alt_names`, `entity_type`, `alt_types`, `description`,
-//! `alt_descriptions`, `status` or `confidence`. Deriving them here rather than at write time is what
+//! `alt_descriptions`, `search_query`, `alt_search_queries`, `status` or `confidence`. Deriving them here rather than at write time is what
 //! makes a merge safe: a merge re-points observations and projects the winner, so the loser's names
 //! and descriptions are picked up from the members that moved rather than being lost with the row.
 //!
@@ -15,7 +15,8 @@ use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder,
 use crate::model;
 
 /// Recompute the columns that are a function of the members and of the evidence. Nothing else writes
-/// `name`, `alt_names`, `description`, `alt_descriptions`, `status` or `confidence`.
+/// `name`, `alt_names`, `description`, `alt_descriptions`, `search_query`, `alt_search_queries`,
+/// `status` or `confidence`.
 ///
 /// Deriving the surface and text here rather than at write time is what makes a merge safe: a merge
 /// re-points observations and projects the winner, so the loser's names and descriptions are picked
@@ -36,6 +37,8 @@ pub async fn project<C: sea_orm::ConnectionTrait>(
     let mut labels: Vec<String> = Vec::new();
     let mut seen_descriptions = HashSet::new();
     let mut descriptions: Vec<String> = Vec::new();
+    let mut seen_queries = HashSet::new();
+    let mut queries: Vec<String> = Vec::new();
     let mut types: Vec<String> = Vec::new();
     for member in &members {
         if !types.contains(&member.entity_type) {
@@ -56,21 +59,38 @@ pub async fn project<C: sea_orm::ConnectionTrait>(
         {
             descriptions.push(text.to_string());
         }
+        if let Some(text) = member
+            .search_query
+            .as_deref()
+            .map(str::trim)
+            .filter(|text| !text.is_empty())
+            && seen_queries.insert(text.to_string())
+        {
+            queries.push(text.to_string());
+        }
     }
 
     let current = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
         .one(conn)
         .await?;
-    let (existing_name, existing_type, existing_description, existing_alt_descriptions) =
-        match &current {
-            Some(row) => (
-                row.name.clone(),
-                row.entity_type.clone(),
-                row.description.clone(),
-                row.alt_descriptions.clone(),
-            ),
-            None => (String::new(), String::new(), None, Vec::new()),
-        };
+    let (
+        existing_name,
+        existing_type,
+        existing_description,
+        existing_alt_descriptions,
+        existing_query,
+        existing_alt_queries,
+    ) = match &current {
+        Some(row) => (
+            row.name.clone(),
+            row.entity_type.clone(),
+            row.description.clone(),
+            row.alt_descriptions.clone(),
+            row.search_query.clone(),
+            row.alt_search_queries.clone(),
+        ),
+        None => (String::new(), String::new(), None, Vec::new(), None, Vec::new()),
+    };
 
     // The selected surface survives a merge as long as a member still carries it.
     let name = if labels.is_empty() || labels.contains(&existing_name) {
@@ -105,6 +125,23 @@ pub async fn project<C: sea_orm::ConnectionTrait>(
             _ => descriptions.first().cloned(),
         };
         let alt = descriptions
+            .iter()
+            .filter(|text| Some(text.as_str()) != selected.as_deref())
+            .cloned()
+            .collect();
+        (selected, alt)
+    };
+
+    // The hint is projected exactly like the description: the one already selected survives while a
+    // member still carries it, so a search query is never silently swapped for another member's.
+    let (search_query, alt_search_queries) = if queries.is_empty() {
+        (existing_query, existing_alt_queries)
+    } else {
+        let selected = match existing_query {
+            Some(text) if queries.contains(&text) => Some(text),
+            _ => queries.first().cloned(),
+        };
+        let alt = queries
             .iter()
             .filter(|text| Some(text.as_str()) != selected.as_deref())
             .cloned()
@@ -177,6 +214,8 @@ pub async fn project<C: sea_orm::ConnectionTrait>(
         alt_types: Set(alt_types),
         description: Set(description),
         alt_descriptions: Set(alt_descriptions),
+        search_query: Set(search_query),
+        alt_search_queries: Set(alt_search_queries),
         ..Default::default()
     })
     .exec(conn)
@@ -250,6 +289,77 @@ mod tests {
         );
         assert_eq!(entity.status, "provisional");
         assert_eq!(entity.confidence, None);
+    }
+
+    /// Another member of the same entity, carrying its own hint.
+    async fn attach(db: &crate::database::DbHandle, id: i32, name: &str, query: Option<&str>) {
+        let user_id = fixtures::user(db, "project").await;
+        let capture_id = fixtures::capture(db, user_id).await;
+        let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
+        let observation_id = fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
+        observation::Entity::update_many()
+            .col_expr(
+                observation::Column::SearchQuery,
+                Expr::value(query.map(str::to_string)),
+            )
+            .col_expr(
+                observation::Column::KnowledgeEntityId,
+                Expr::value(Some(id)),
+            )
+            .filter(observation::Column::Id.eq(observation_id))
+            .exec(&db.conn)
+            .await
+            .unwrap();
+    }
+
+    /// The hint is a property of the entity, projected like the description: one selected, the rest
+    /// kept, in member order so the answer never depends on arrival order.
+    #[tokio::test]
+    async fn the_hint_is_projected_with_its_alternatives() {
+        let Some(db) = test_db::test_db().await else { return };
+        let db = db.handle();
+        let id = seed(&db, "Train Dreams").await;
+        attach(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
+        attach(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
+
+        project(&db.conn, id).await.unwrap();
+
+        let entity = load(&db, id).await;
+        assert_eq!(entity.search_query.as_deref(), Some("Train Dreams novella"));
+        assert_eq!(
+            entity.alt_search_queries,
+            vec!["Train Dreams Denis Johnson"],
+            "the selected hint is never one of its own alternatives"
+        );
+    }
+
+    /// A selected hint is not silently swapped for another member's while its own member still
+    /// carries it — the same protection the description has.
+    #[tokio::test]
+    async fn a_selected_hint_survives_while_a_member_still_carries_it() {
+        let Some(db) = test_db::test_db().await else { return };
+        let db = db.handle();
+        let id = seed(&db, "Train Dreams").await;
+        attach(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
+        attach(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
+
+        entity::Entity::update(entity::ActiveModel {
+            id: Set(id),
+            search_query: Set(Some("Train Dreams Denis Johnson".to_string())),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap();
+
+        project(&db.conn, id).await.unwrap();
+
+        let entity = load(&db, id).await;
+        assert_eq!(
+            entity.search_query.as_deref(),
+            Some("Train Dreams Denis Johnson"),
+            "a hint a member still carries must not be replaced"
+        );
     }
 
     #[tokio::test]

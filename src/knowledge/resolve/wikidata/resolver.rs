@@ -171,8 +171,9 @@ impl Wikidata {
     /// decision over cached payloads.
     pub fn plan(&self, entity: &EntityView) -> Vec<Request> {
         let mut requests = Vec::new();
-        if let Some((platform, handle)) = &entity.account
-            && let Some(kind) = Self::kind_for_handle(platform)
+        if let Some(link) = &entity.platform_link
+            && let Some(handle) = &link.handle
+            && let Some(kind) = Self::kind_for_handle(link.platform_name())
         {
             requests.push(Request {
                 provider: "wikidata",
@@ -782,6 +783,7 @@ fn overlap(a: &[String], b: &[String]) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use crate::illumination::v2::{Platform, PlatformLink};
     use crate::knowledge::cache::Outcome;
     use super::*;
 
@@ -815,7 +817,8 @@ mod tests {
             description: description.map(str::to_string),
             alt_descriptions: Vec::new(),
             search_query: None,
-            account: None,
+            alt_search_queries: Vec::new(),
+            platform_link: None,
         }
     }
 
@@ -1017,7 +1020,8 @@ mod tests {
             description: None,
             alt_descriptions: Vec::new(),
             search_query: Some("Tsoding".to_string()),
-            account: Some(("x".to_string(), "tsoding".to_string())),
+            alt_search_queries: Vec::new(),
+            platform_link: Some(PlatformLink { platform: Platform::XTwitter, handle: Some("tsoding".to_string()), display_name: None, url: None }),
         };
         let plans = engine().plan(&entity);
         assert_eq!(plans.len(), 3);

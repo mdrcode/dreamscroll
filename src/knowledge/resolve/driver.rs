@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde_json::{json, Value};
 
+use crate::illumination::v2::PlatformLink;
 use crate::knowledge::cache::{Answer, Cache, Outcome, UNPRODUCTIVE_TTL};
 use crate::knowledge::project;
 use crate::{database, model};
@@ -669,29 +670,22 @@ async fn candidates(
         .filter(observation::Column::KnowledgeEntityId.is_not_null())
         .all(conn)
         .await?;
-    let mut search: HashMap<i32, String> = HashMap::new();
-    let mut handles: HashMap<i32, (String, String)> = HashMap::new();
+    let mut links: HashMap<i32, PlatformLink> = HashMap::new();
     for row in observations {
         let Some(knowledge_entity_id) = row.knowledge_entity_id else { continue };
-        if let Some(query) = row.search_query {
-            let query = query.trim().to_string();
-            if !query.is_empty() {
-                let entry = search.entry(knowledge_entity_id).or_default();
-                if query.len() > entry.len() {
-                    *entry = query;
-                }
-            }
-        }
-        if let (Some(platform), Some(handle)) = (row.platform, row.platform_handle) {
-            handles.entry(knowledge_entity_id).or_insert((platform, handle));
+        if let Some(link) = PlatformLink::from_columns(
+            row.platform.clone(),
+            row.platform_handle.clone(),
+            row.platform_display_name.clone(),
+        ) {
+            links.entry(knowledge_entity_id).or_insert(link);
         }
     }
 
     Ok(entities
         .into_iter()
         .map(|row| EntityView {
-            search_query: search.get(&row.id).cloned(),
-            account: handles.get(&row.id).cloned(),
+            platform_link: links.get(&row.id).cloned(),
             ..EntityView::from_model(row)
         })
         .collect())

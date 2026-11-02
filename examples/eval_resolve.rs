@@ -120,7 +120,8 @@ async fn main() -> anyhow::Result<()> {
             description: Some(row.try_get_by_index::<String>(2)?).filter(|d| !d.is_empty()),
             alt_descriptions: Vec::new(),
             search_query: None,
-            account: None,
+            alt_search_queries: Vec::new(),
+            platform_link: None,
         };
         let request = engine.plan(&view).into_iter().next().expect("a plan");
         let raw = Raw {

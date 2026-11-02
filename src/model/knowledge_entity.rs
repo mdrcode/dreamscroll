@@ -30,6 +30,14 @@ pub struct Model {
     /// Every other description supplied. `description` is the selected one; these are what a
     /// matcher may also fit a candidate against.
     pub alt_descriptions: Vec<String>,
+
+    /// The canonical disambiguation hint, projected from its members exactly as `description` is.
+    /// Kept even though nothing consumes it yet: it is the phrasing a search engine needs, and it
+    /// would be a shame to lose it and have to reacquire it from the illuminator.
+    #[sea_orm(nullable)]
+    pub search_query: Option<String>,
+    /// Every other hint a member carried. `search_query` is the selected one.
+    pub alt_search_queries: Vec<String>,
     /// provisional | identified | contested. Projected from evidence, never hand-set.
     pub status: String,
     #[sea_orm(nullable)]

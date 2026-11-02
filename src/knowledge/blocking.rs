@@ -1,20 +1,22 @@
 //! Blocking: which entities are worth considering for an observation.
 //!
-//! Recall-oriented and allowed to over-generate. A blocker never decides anything, never touches IO,
-//! and owns whatever representation of the corpus it needs — the trait deliberately takes no corpus
-//! parameter, so a DB-backed implementation can load or cache in its constructor without the
-//! executor learning about it.
+//! Recall-oriented and allowed to over-generate. A blocker never decides anything and never touches
+//! the network, but it may touch the database — the intended implementation queries an index of
+//! normalised keys, and the in-memory one is the cheap version for tests and offline runs.
+//!
+//! How a blocker gets its view of the corpus is its own business, and it is not part of this trait:
+//! construction happens where the corpus is known (`link`'s `make_blocker`). A database-backed
+//! blocker ignores the corpus entirely; an in-memory one builds its index from it in `build_entities`.
 //!
 //! The one implementation is [`crate::knowledge::heuristic::NameBlocker`].
 
 use crate::knowledge::view;
 
-pub trait Blocker {
-    /// Register an entity so it can be proposed later. Called once for every existing entity before
-    /// a run, and again whenever the executor creates or extends one: an entity created mid-run must
-    /// be findable by the observations that follow it.
-    fn index(&mut self, entity: &view::EntityView);
+#[async_trait::async_trait]
+pub trait Blocker: Send + Sync {
+    /// Generates knowledge entity link candidates for one observation.
+    async fn candidates(&self, observation: &view::ObservationView) -> Vec<i32>;
 
-    /// Candidates for one observation, by entity id. Pure: same entity set, same answer.
-    fn candidates(&self, observation: &view::ObservationView) -> Vec<i32>;
+    /// Notifies the blocker that an entity has changed (e.g. newly created or updated).
+    fn changed(&mut self, _entity: &view::EntityView) {}
 }

@@ -1,4 +1,5 @@
 use std::fmt::Write as _;
+use std::str::FromStr;
 
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
@@ -121,6 +122,15 @@ pub struct Entity {
     pub platform_link: Option<PlatformLink>,
 }
 
+
+
+
+/// The platforms the illuminator is allowed to name.
+///
+/// The list is a prompt vocabulary as much as a type: the prompt is built from `Platform::iter()`, so
+/// adding a platform is a variant here and nothing else. Aliases are tolerated on the way in —
+/// models have emitted `x` and `twitter` for the same thing — and normalise to `x_twitter` on the way
+/// out, which is what the database stores.
 #[derive(
     Debug,
     Clone,
@@ -131,10 +141,16 @@ pub struct Entity {
     strum::Display,
     strum::EnumIter,
     strum::AsRefStr,
+    strum::EnumString,
 )]
 #[serde(rename_all = "snake_case")]
 #[strum(serialize_all = "snake_case")]
 pub enum Platform {
+    /// The explicit strings are also what `EnumString` accepts, in order: the canonical name first
+    /// (that is what `Display` and the database use), then the spellings models have emitted.
+    #[strum(serialize = "x_twitter")]
+    #[strum(serialize = "twitter")]
+    #[strum(serialize = "x")]
     XTwitter,
     Youtube,
     Instagram,
@@ -152,13 +168,51 @@ pub enum Platform {
 pub struct PlatformLink {
     pub platform: Platform,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub display_name: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handle: Option<String>,
-    /// Optional post-inference URL; not populated from model output.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<String>,
+    /// A post-inference URL; never populated from model output.
     #[serde(default, skip_deserializing, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
 }
+
+impl PlatformLink {
+    /// The database's flattening: three nullable columns, of which the platform is the only one a
+    /// link cannot exist without.
+    ///
+    /// An unrecognised platform becomes [`Platform::Other`] rather than failing: the row is a record
+    /// of what was seen, and a platform we have not taught the enum about is not a corrupt row.
+    pub fn from_columns(
+        platform: Option<String>,
+        handle: Option<String>,
+        display_name: Option<String>,
+    ) -> Option<Self> {
+        let platform = Platform::from_str(&platform?).unwrap_or(Platform::Other);
+        Some(Self {
+            platform,
+            handle,
+            display_name,
+            url: None,
+        })
+    }
+
+    /// The canonical platform string, which is what the database column holds.
+    pub fn platform_name(&self) -> &str {
+        self.platform.as_ref()
+    }
+
+    /// The handle, when there is one. A link with a display name and no handle is still a link.
+    pub fn handle(&self) -> Option<&str> {
+        self.handle.as_deref()
+    }
+
+    /// The key identity turns on: `(platform, handle)`, folded the same way everywhere.
+    pub fn key(&self) -> Option<String> {
+        let handle = self.handle()?;
+        Some(format!("{}:{}", self.platform_name(), handle.trim().to_lowercase()))
+    }
+}
+
 
 #[cfg(test)]
 mod tests {

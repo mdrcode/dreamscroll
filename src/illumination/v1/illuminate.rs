@@ -76,7 +76,7 @@ fn make_schema() -> serde_json::Value {
     let entity_types: Vec<String> = EntityType::iter()
         .map(|entity_type| entity_type.as_ref().to_string())
         .collect();
-    let platform_types: Vec<String> = SocialMediaPlatform::iter()
+    let platform_types: Vec<String> = Platform::iter()
         .map(|platform| platform.as_ref().to_string())
         .collect();
 

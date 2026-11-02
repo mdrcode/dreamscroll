@@ -14,6 +14,7 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use crate::illumination::v2::PlatformLink;
 use super::blocking::Blocker;
 use super::linker::{Decision, Linker};
 use super::{normalize, view};
@@ -219,27 +220,37 @@ impl NameBlocker {
         Self::default()
     }
 
+    /// Build the index from the corpus. Called where the corpus is known, before the run.
+    pub fn build_entities(entities: &[view::EntityView]) -> Self {
+        let mut blocker = Self::default();
+        for entity in entities {
+            blocker.changed(entity);
+        }
+        blocker
+    }
+
     fn keys_of(entity: &view::EntityView) -> Vec<String> {
         let mut keys: Vec<String> = entity
             .surfaces()
             .flat_map(|surface| [normalize::key(surface), normalize::token_key(surface)])
             .filter(|key| !key.is_empty())
             .collect();
-        if let Some((scheme, handle)) = &entity.account {
-            keys.push(format!("{scheme}:{}", handle.to_lowercase()));
+        if let Some(key) = entity.platform_link.as_ref().and_then(PlatformLink::key) {
+            keys.push(key);
         }
         keys
     }
 }
 
+#[async_trait::async_trait]
 impl Blocker for NameBlocker {
-    fn index(&mut self, entity: &view::EntityView) {
+    fn changed(&mut self, entity: &view::EntityView) {
         for key in Self::keys_of(entity) {
             self.blocks.entry(key).or_default().insert(entity.id);
         }
     }
 
-    fn candidates(&self, observation: &view::ObservationView) -> Vec<i32> {
+    async fn candidates(&self, observation: &view::ObservationView) -> Vec<i32> {
         let observation = Observation::from(observation);
         let mut found: BTreeSet<i32> = BTreeSet::new();
         for block in [&observation.name_key, &observation.token_key] {
@@ -375,7 +386,8 @@ mod tests {
             description: None,
             alt_descriptions: Vec::new(),
             search_query: None,
-            account: None,
+            alt_search_queries: Vec::new(),
+            platform_link: None,
         }
     }
 
@@ -387,37 +399,54 @@ mod tests {
             name: name.to_string(),
             entity_type: ty.to_string(),
             description: None,
-            account: None,
+            platform_link: None,
         }
     }
 
     /// The bug that made every later capture duplicate an existing name: `project` keeps the
     /// selected surface out of `alt_names`, so an entity with no alternatives must still be
     /// findable by its own name.
-    #[test]
-    fn the_selected_name_is_a_block_key_on_its_own() {
-        let mut blocker = NameBlocker::new();
-        blocker.index(&entity_view(7, "Francis Ford Coppola", "real_person"));
+    #[tokio::test]
+    async fn the_selected_name_is_a_block_key_on_its_own() {
+        let blocker =
+            NameBlocker::build_entities(&[entity_view(7, "Francis Ford Coppola", "real_person")]);
 
-        let candidates = blocker.candidates(&observation_view("Francis Ford Coppola", "real_person"));
+        let candidates = blocker
+            .candidates(&observation_view("Francis Ford Coppola", "real_person"))
+            .await;
         assert_eq!(candidates, vec![7]);
     }
 
-    #[test]
-    fn word_order_alone_still_blocks() {
-        let mut blocker = NameBlocker::new();
-        blocker.index(&entity_view(7, "Train Dreams", "book"));
+    #[tokio::test]
+    async fn word_order_alone_still_blocks() {
+        let blocker = NameBlocker::build_entities(&[entity_view(7, "Train Dreams", "book")]);
 
-        let candidates = blocker.candidates(&observation_view("Dreams Train", "book"));
+        let candidates = blocker
+            .candidates(&observation_view("Dreams Train", "book"))
+            .await;
         assert_eq!(candidates, vec![7], "token-set equality is a block key");
     }
 
-    #[test]
-    fn distinct_names_propose_nothing() {
-        let mut blocker = NameBlocker::new();
-        blocker.index(&entity_view(7, "Train Dreams", "book"));
+    #[tokio::test]
+    async fn distinct_names_propose_nothing() {
+        let blocker = NameBlocker::build_entities(&[entity_view(7, "Train Dreams", "book")]);
 
-        assert!(blocker.candidates(&observation_view("Apocalypse Now", "movie")).is_empty());
+        assert!(blocker
+            .candidates(&observation_view("Apocalypse Now", "movie"))
+            .await
+            .is_empty());
+    }
+
+    /// The mid-run path: an entity built after the corpus is findable by it.
+    #[tokio::test]
+    async fn an_entity_added_mid_run_is_findable() {
+        let mut blocker = NameBlocker::build_entities(&[entity_view(7, "Train Dreams", "book")]);
+        blocker.changed(&entity_view(9, "Apocalypse Now", "movie"));
+
+        let candidates = blocker
+            .candidates(&observation_view("Apocalypse Now", "movie"))
+            .await;
+        assert_eq!(candidates, vec![9]);
     }
 
     #[test]

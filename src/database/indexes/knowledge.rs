@@ -19,6 +19,7 @@ const ARRAY_DEFAULTS: &str = r#"
 ALTER TABLE knowledge_entities ALTER COLUMN alt_names SET DEFAULT '{}';
 ALTER TABLE knowledge_entities ALTER COLUMN alt_types SET DEFAULT '{}';
 ALTER TABLE knowledge_entities ALTER COLUMN alt_descriptions SET DEFAULT '{}';
+ALTER TABLE knowledge_entities ALTER COLUMN alt_search_queries SET DEFAULT '{}';
 "#;
 
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {

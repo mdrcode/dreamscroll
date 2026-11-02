@@ -74,6 +74,15 @@ fn identifier_of(observation: &model::user_observed_entity::Model) -> Option<(St
     Some((platform.to_lowercase(), normalize::key(handle)))
 }
 
+/// Build the blocker for a run.
+///
+/// The corpus is passed in *here* because this is the moment it is known. A database-backed blocker
+/// ignores the slice and answers `candidates` with a query; the in-memory one indexes it now. Adding
+/// a third implementation means adding a branch here, and nothing else in the executor changes.
+fn make_blocker(entities: &[view::EntityView]) -> Box<dyn Blocker> {
+    Box::new(NameBlocker::build_entities(entities))
+}
+
 pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
     let observations = model::user_observed_entity::Entity::find()
         .order_by_asc(model::user_observed_entity::Column::Id)
@@ -106,10 +115,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
         .map(|(position, entity)| (entity.id, position))
         .collect();
 
-    let mut blocker = NameBlocker::new();
-    for entity in &entities {
-        blocker.index(entity);
-    }
+    let mut blocker = make_blocker(&entities);
 
     // Any authority, one lookup. Identity is a claim like any other, so it is read from evidence:
     // `(scheme, id)` over every live identity row, whatever the authority.
@@ -155,7 +161,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
             attach(&db.conn, observation.id, knowledge_entity_id).await?;
             seen.insert((knowledge_entity_id, observation.illumination_id));
             if absorb_observation(&db.conn, &mut entities[position], &observation).await? {
-                blocker.index(&entities[position]);
+                blocker.changed(&entities[position]);
             }
             report.linked_by_identifier += 1;
             continue;
@@ -166,6 +172,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
         // its own observations into one entity, so those candidates never reach the decision.
         let candidates: Vec<&view::EntityView> = blocker
             .candidates(&observation_view)
+            .await
             .into_iter()
             .filter(|id| !seen.contains(&(*id, observation.illumination_id)))
             .filter_map(|id| positions.get(&id).copied())
@@ -179,7 +186,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
                 attach(&db.conn, observation.id, knowledge_entity_id).await?;
                 seen.insert((knowledge_entity_id, observation.illumination_id));
                 if absorb_observation(&db.conn, &mut entities[position], &observation).await? {
-                    blocker.index(&entities[position]);
+                    blocker.changed(&entities[position]);
                 }
                 let claimed = identifier_of(&observation).is_some();
                 if let Some(owner) =
@@ -214,7 +221,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
                     if let Some(&position) = positions.get(&owner)
                         && absorb_observation(&db.conn, &mut entities[position], &observation).await?
                     {
-                        blocker.index(&entities[position]);
+                        blocker.changed(&entities[position]);
                     }
                     report.linked_by_identifier += 1;
                     continue;
@@ -230,12 +237,13 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
                     description: observation.description.clone(),
                     alt_descriptions: Vec::new(),
                     search_query: observation.search_query.clone(),
-                    account: None,
+                    alt_search_queries: Vec::new(),
+                    platform_link: None,
                 };
                 entities.push(view);
                 let position = entities.len() - 1;
                 positions.insert(knowledge_entity_id, position);
-                blocker.index(entities.last().expect("just pushed"));
+                blocker.changed(entities.last().expect("just pushed"));
                 attach(&db.conn, observation.id, knowledge_entity_id).await?;
                 seen.insert((knowledge_entity_id, observation.illumination_id));
                 report.created += 1;
