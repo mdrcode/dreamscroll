@@ -132,7 +132,7 @@ mod tests {
             let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
             fixtures::entity(&db, user_id, capture_id, illumination_id, index, "Train Dreams").await;
         }
-        link::link(&db).await.expect("build should succeed");
+        link::link_db(&db).await.expect("build should succeed");
         let stats = super::stats(&db).await.expect("stats should succeed");
 
         assert_eq!(stats.observations, 2);

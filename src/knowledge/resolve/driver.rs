@@ -767,7 +767,7 @@ mod tests {
         .unwrap()
         .last_insert_id as i32;
 
-        crate::knowledge::link::link(db).await.unwrap();
+        crate::knowledge::link::link_db(db).await.unwrap();
 
         model::user_observed_entity::Entity::find_by_id(entity_id)
             .one(&db.conn)

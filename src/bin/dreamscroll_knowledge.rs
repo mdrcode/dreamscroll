@@ -96,14 +96,15 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Link(_) => {
-            let report = knowledge::link::link(&db).await?;
+            let report = knowledge::link::link_db(&db).await?;
             println!(
-                "considered {} · already linked {} · from stale readings {} · linked {} · created {}",
+                "considered {} · already linked {} · from stale readings {} · linked {} · created {} · vetoed {}",
                 report.considered,
                 report.already_linked,
                 report.stale,
                 report.linked,
-                report.created
+                report.created,
+                report.vetoed
             );
         }
         Command::Merge(args) => {

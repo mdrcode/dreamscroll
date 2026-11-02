@@ -71,29 +71,43 @@ under.
 
 ## Linking: are these the same thing?
 
-For each observation that has not been linked yet, linking asks one question: **have we already got
-this thing?** If the answer is yes, the observation attaches to that entity and enriches it; if not,
-a new entity is created. Getting that wrong in either direction is the whole risk — one entity split
-in two, or two things fused into one — so the decision is separated from everything around it.
-
-Linking is offline, pure, and the only place that decision is made. It has three moving parts, and
-the first two are traits precisely so a second implementation can exist.
+Linking asks one question — **have we already got this thing?** — and asks it about a whole
+**illumination** at once. That is the unit, because it is what the system produces: one reading of one
+image, a coherent set of the things that image showed. An observation is a part of that claim set,
+not an independent event.
 
 ```rust
 trait Blocker {                  // recall: find candidates, over-generate
-    async fn candidates(&self, observation: &Observation) -> Vec<i32>;
+    async fn candidates(&self, observation: &Observation) -> Vec<Entity>;
     fn changed(&mut self, entity: &Entity);      // an in-memory blocker only; a no-op otherwise
 }
 
 trait Linker {                   // precision: decide, and nothing else
-    fn decide(&self, observation: &Observation, candidates: &[&Entity]) -> Decision;
+    async fn link_illuminated_observations(
+        &self,
+        blocker: &dyn Blocker,
+        illumination: &Illumination,
+        observations: &[Observation],
+    ) -> LinkResult;
 }
 
 enum Decision {
     Attach { entity: i32, score: f32 },
     Create { best: Option<(i32, f32)> },
 }
+
+struct LinkResult {
+    decisions: Vec<(i32, Decision)>,   // observation id → what to do
+    vetoed: u32,                       // how often the rule below actually fired
+}
 ```
+
+**The veto is the linker's, and it is why the batch exists.** One extraction that emitted two names
+meant two things, so an entity a sibling from the same illumination has already taken is not a
+candidate — however well it scores. That is a statement about the *set*, which is why a per
+observation loop could only ever apply it after the fact. Siblings that arrived already linked (by
+an account identifier, before the linker ran) are context: they seed the set, and no decision is owed
+for them.
 
 Both traits take **model rows** — `user_observed_entity::Model` and `knowledge_entity::Model` —
 because a separate view layer was a second place for a column to go missing, and it went missing

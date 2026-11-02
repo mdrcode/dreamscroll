@@ -12,10 +12,10 @@
 //! - [`score`] — pure features: name, description, type, weighted into a total.
 //! - [`HeuristicLinker`] — take the best candidate that clears the bar, else create.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use super::blocking::Blocker;
-use super::linker::{Decision, Linker};
+use super::linker::{Decision, LinkResult, Linker};
 use super::normalize;
 use crate::model;
 
@@ -213,6 +213,9 @@ pub fn jaccard(a: &[String], b: &[String]) -> f32 {
 pub struct NameBlocker {
     /// Block key -> entity ids. `BTreeSet` so candidates come back in a stable order.
     blocks: HashMap<String, BTreeSet<i32>>,
+    /// The entities themselves. Candidates are handed back whole, because the linker scores them
+    /// and an id it cannot resolve is a query the executor would otherwise have to run.
+    entities: HashMap<i32, model::knowledge_entity::Model>,
 }
 
 impl NameBlocker {
@@ -248,9 +251,13 @@ impl Blocker for NameBlocker {
         for key in Self::keys_of(entity) {
             self.blocks.entry(key).or_default().insert(entity.id);
         }
+        self.entities.insert(entity.id, entity.clone());
     }
 
-    async fn candidates(&self, observation: &model::user_observed_entity::Model) -> Vec<i32> {
+    async fn candidates(
+        &self,
+        observation: &model::user_observed_entity::Model,
+    ) -> Vec<model::knowledge_entity::Model> {
         let observation = Observation::from(observation);
         let mut found: BTreeSet<i32> = BTreeSet::new();
         for block in [&observation.name_key, &observation.token_key] {
@@ -258,7 +265,10 @@ impl Blocker for NameBlocker {
                 found.extend(hits.iter().copied());
             }
         }
-        found.into_iter().collect()
+        found
+            .into_iter()
+            .filter_map(|id| self.entities.get(&id).cloned())
+            .collect()
     }
 }
 
@@ -269,28 +279,72 @@ impl Blocker for NameBlocker {
 #[derive(Debug, Default, Clone, Copy)]
 pub struct HeuristicLinker;
 
+#[async_trait::async_trait]
 impl Linker for HeuristicLinker {
-    fn decide(
+    /// Score what the blocker proposed, best first, and give the illumination's observations their
+    /// entities.
+    ///
+    /// The veto lives here because it is a fact about the reading: one extraction that emitted two
+    /// names meant two things, so an entity already taken by a sibling is not a candidate for this
+    /// observation — however well it scores. Processing the illumination as a set is what makes that
+    /// expressible; per observation it could only ever be applied after the fact.
+    async fn link_illuminated_observations(
         &self,
-        observation: &model::user_observed_entity::Model,
-        candidates: &[&model::knowledge_entity::Model],
-    ) -> Decision {
-        let observation = Observation::from(observation);
-        let best = candidates
+        blocker: &dyn Blocker,
+        _illumination: &model::illumination::Model,
+        observations: &[model::user_observed_entity::Model],
+    ) -> LinkResult {
+        let mut result = LinkResult::default();
+        // A sibling that already has an entity — attached by identifier before this ran — has spent
+        // it for the reading. It is context, not work: no decision is owed for it.
+        let mut claimed: HashSet<i32> = observations
             .iter()
-            .map(|entity| (*entity, score(&observation, &Scored::from(*entity))))
-            .max_by(|a, b| a.1.total.total_cmp(&b.1.total));
+            .filter_map(|observation| observation.knowledge_entity_id)
+            .collect();
 
-        match best {
-            Some((entity, features)) if worth_merging(&features) => Decision::Attach {
-                entity: entity.id,
-                score: features.total,
-            },
-            Some((entity, features)) => Decision::Create {
-                best: Some((entity.id, features.total)),
-            },
-            None => Decision::Create { best: None },
+        for observation in observations {
+            if observation.knowledge_entity_id.is_some() {
+                continue;
+            }
+            let scored = Observation::from(observation);
+            let mut best_free: Option<(i32, f32, bool)> = None;
+            let mut best_any: Option<(i32, f32, bool)> = None;
+
+            for candidate in blocker.candidates(observation).await {
+                let features = score(&scored, &Scored::from(&candidate));
+                let entry = (candidate.id, features.total, worth_merging(&features));
+                if best_any.is_none_or(|best| entry.1 > best.1) {
+                    best_any = Some(entry);
+                }
+                if claimed.contains(&candidate.id) {
+                    continue;
+                }
+                if best_free.is_none_or(|best| entry.1 > best.1) {
+                    best_free = Some(entry);
+                }
+            }
+
+            // The veto doing something, rather than merely being available to.
+            if let Some((entity, _, true)) = best_any
+                && claimed.contains(&entity)
+            {
+                result.vetoed += 1;
+            }
+
+            let decision = match best_free {
+                Some((entity, score, true)) => {
+                    claimed.insert(entity);
+                    Decision::Attach { entity, score }
+                }
+                Some((entity, score, false)) => Decision::Create {
+                    best: Some((entity, score)),
+                },
+                None => Decision::Create { best: None },
+            };
+            result.decisions.push((observation.id, decision));
         }
+
+        result
     }
 }
 
@@ -387,6 +441,25 @@ mod tests {
     /// The bug that made every later capture duplicate an existing name: `project` keeps the
     /// selected surface out of `alt_names`, so an entity with no alternatives must still be
     /// findable by its own name.
+    /// Link one reading: build the blocker from the corpus and run the linker over it.
+    async fn link(
+        entities: &[model::knowledge_entity::Model],
+        observations: &[model::user_observed_entity::Model],
+    ) -> LinkResult {
+        let blocker = NameBlocker::build_entities(entities);
+        let illumination = crate::test_support::fixtures::stub_illumination(1);
+        HeuristicLinker
+            .link_illuminated_observations(&blocker, &illumination, observations)
+            .await
+    }
+
+    fn ids(candidates: &[model::knowledge_entity::Model]) -> Vec<i32> {
+        candidates.iter().map(|entity| entity.id).collect()
+    }
+
+    /// The bug that made every later capture duplicate an existing name: `project` keeps the
+    /// selected surface out of `alt_names`, so an entity with no alternatives must still be
+    /// findable by its own name.
     #[tokio::test]
     async fn the_selected_name_is_a_block_key_on_its_own() {
         let blocker =
@@ -395,7 +468,7 @@ mod tests {
         let candidates = blocker
             .candidates(&observation_view("Francis Ford Coppola", "real_person"))
             .await;
-        assert_eq!(candidates, vec![7]);
+        assert_eq!(ids(&candidates), vec![7]);
     }
 
     #[tokio::test]
@@ -405,7 +478,7 @@ mod tests {
         let candidates = blocker
             .candidates(&observation_view("Dreams Train", "book"))
             .await;
-        assert_eq!(candidates, vec![7], "token-set equality is a block key");
+        assert_eq!(ids(&candidates), vec![7], "token-set equality is a block key");
     }
 
     #[tokio::test]
@@ -427,39 +500,50 @@ mod tests {
         let candidates = blocker
             .candidates(&observation_view("Apocalypse Now", "movie"))
             .await;
-        assert_eq!(candidates, vec![9]);
+        assert_eq!(ids(&candidates), vec![9]);
     }
 
-    #[test]
-    fn the_linker_takes_the_best_candidate_that_clears_the_bar() {
+    #[tokio::test]
+    async fn the_linker_takes_the_best_candidate_that_clears_the_bar() {
         let weak = entity_view(1, "Train Dreams", "book");
         let strong = entity_view(2, "Train Dreams", "book");
         let observation = observation_view("Train Dreams", "book");
 
-        match HeuristicLinker.decide(&observation, &[&weak, &strong]) {
-            Decision::Attach { entity, score } => {
-                assert!(entity == 1 || entity == 2);
-                assert!(score >= 0.6, "{score}");
+        let result = link(&[weak, strong], &[observation]).await;
+
+        match result.decisions.as_slice() {
+            [(_, Decision::Attach { entity, score })] => {
+                assert!(*entity == 1 || *entity == 2);
+                assert!(*score >= 0.6, "{score}");
             }
-            other => panic!("expected an attach, got {other:?}"),
+            other => panic!("expected one attach, got {other:?}"),
         }
     }
 
-    #[test]
-    fn the_linker_creates_when_nothing_clears_the_bar() {
-        let mut other = entity_view(1, "Apocalypse Now", "movie");
-        other.description = Some("a 1979 film by Francis Ford Coppola".to_string());
+    /// The veto: one reading that emitted two names meant two things, so an entity taken by one of
+    /// them is not available to the other — however well it scores.
+    #[tokio::test]
+    async fn a_sibling_cannot_take_the_entity_the_reading_already_spent() {
+        let only = entity_view(7, "Train Dreams", "book");
+        let first = crate::test_support::fixtures::stub_observation(1, "Train Dreams", "book");
+        let second = crate::test_support::fixtures::stub_observation(2, "Train Dreams", "book");
 
-        match HeuristicLinker.decide(&observation_view("Train Dreams", "book"), &[&other]) {
-            Decision::Create { best } => assert!(best.is_some(), "the rejected candidate is kept"),
-            other => panic!("expected a create, got {other:?}"),
+        let result = link(&[only], &[first, second]).await;
+
+        match result.decisions.as_slice() {
+            [(_, Decision::Attach { entity, .. }), (_, Decision::Create { .. })] => {
+                assert_eq!(*entity, 7, "the first to arrive takes the entity");
+            }
+            other => panic!("expected attach then create, got {other:?}"),
         }
+        assert_eq!(result.vetoed, 1, "the second's best candidate was already spent");
     }
 
-    #[test]
-    fn no_candidates_creates_with_nothing_to_report() {
-        match HeuristicLinker.decide(&observation_view("Anything", "unknown"), &[]) {
-            Decision::Create { best } => assert!(best.is_none()),
+    #[tokio::test]
+    async fn no_candidates_creates_with_nothing_to_report() {
+        let result = link(&[], &[observation_view("Anything", "unknown")]).await;
+        match result.decisions.as_slice() {
+            [(_, Decision::Create { best })] => assert!(best.is_none()),
             other => panic!("expected a create, got {other:?}"),
         }
     }

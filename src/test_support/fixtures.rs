@@ -132,3 +132,18 @@ pub fn stub_observation(
         knowledge_entity_id: None,
     }
 }
+
+/// The same, for one illumination — the reading a decision is made about.
+pub fn stub_illumination(id: i32) -> model::illumination::Model {
+    model::illumination::Model {
+        id,
+        user_id: 1,
+        capture_id: 1,
+        task_run_id: format!("task-{id}"),
+        inference_meta_id: None,
+        created_at: Utc::now(),
+        summary: "a summary".to_string(),
+        details: "the details".to_string(),
+        suggested_searches: None,
+    }
+}
