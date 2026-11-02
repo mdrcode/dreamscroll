@@ -681,6 +681,7 @@ fn overlap(a: &[String], b: &[String]) -> f32 {
 
 #[cfg(test)]
 mod tests {
+    use crate::knowledge::cache::Outcome;
     use super::*;
 
     fn request(kind: &str, query: &str) -> Request {
