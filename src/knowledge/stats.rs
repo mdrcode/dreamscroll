@@ -17,6 +17,8 @@ pub struct Stats {
     pub contested: u64,
     /// Entities with a live authority claim — the number `resolve` moves.
     pub with_claim: u64,
+    /// Entities whose projected platform presence is set. A member had one and `project` kept it.
+    pub with_platform: u64,
     pub cache_found: u64,
     pub cache_empty: u64,
     pub cache_failed: u64,
@@ -55,6 +57,9 @@ pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
             "identified" => stats.identified += 1,
             "contested" => stats.contested += 1,
             _ => stats.provisional += 1,
+        }
+        if entity.platform.is_some() {
+            stats.with_platform += 1;
         }
     }
 

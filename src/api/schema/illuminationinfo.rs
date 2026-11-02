@@ -93,6 +93,7 @@ mod tests {
                     handle: "@ada".to_string(),
                     display_name: Some("Ada".to_string()),
                 }),
+                knowledge_entity: None,
             }],
         };
         let payload = serde_json::to_value(&info).unwrap();

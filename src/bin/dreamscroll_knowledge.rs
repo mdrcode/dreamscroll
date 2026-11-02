@@ -265,6 +265,7 @@ async fn main() -> anyhow::Result<()> {
             println!("duplicate rate      {:>7.3}", stats.duplicate_rate());
             println!("resolution");
             println!("  with authority claim {:>5}", stats.with_claim);
+            println!("  with a platform link {:>5}", stats.with_platform);
             println!(
                 "  cache {} with candidates · {} no match · {} failed · {} expired",
                 stats.cache_found, stats.cache_empty, stats.cache_failed, stats.cache_expired

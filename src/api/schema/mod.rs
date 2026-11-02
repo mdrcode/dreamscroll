@@ -21,6 +21,9 @@ pub use illuminationinfo::*;
 mod inferencemetainfo;
 pub use inferencemetainfo::*;
 
+mod knowledgeentityinfo;
+pub use knowledgeentityinfo::*;
+
 mod observedentityinfo;
 pub use observedentityinfo::*;
 

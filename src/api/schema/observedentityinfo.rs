@@ -1,6 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::KnowledgeEntityInfo;
 use crate::model;
 
 /// The wire form of a platform presence. Deliberately its own type rather than the illuminator's:
@@ -33,6 +34,10 @@ pub struct ObservedEntityInfo {
     pub search_query: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform_link: Option<PlatformLinkInfo>,
+    /// The entity this reading was linked to, when it has been. Served only through an observation
+    /// the caller owns.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub knowledge_entity: Option<KnowledgeEntityInfo>,
 }
 
 impl ObservedEntityInfo {
@@ -64,6 +69,7 @@ impl ObservedEntityInfo {
             description: entity.description,
             search_query: entity.search_query,
             platform_link,
+            knowledge_entity: None,
         }
     }
 }

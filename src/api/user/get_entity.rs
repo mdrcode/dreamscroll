@@ -38,6 +38,24 @@ pub async fn get_knowledge_entity(
     Ok(entity.into())
 }
 
+/// The knowledge entity an observation was linked to, if it has been.
+///
+/// Read through the observation rather than by id: entities are shared and have no owner, so a
+/// lookup by id alone would serve any user any entity. Walking in from a capture the caller owns is
+/// the whole access rule.
+pub async fn linked_knowledge_entity(
+    db: &DbHandle,
+    observation: &model::user_observed_entity::ModelEx,
+) -> Result<Option<model::knowledge_entity::Model>, ApiError> {
+    let Some(knowledge_entity_id) = observation.knowledge_entity_id else {
+        return Ok(None);
+    };
+    Ok(model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+        .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
+        .one(&db.conn)
+        .await?)
+}
+
 /// Fetch the user's unarchived knowledge entities of the requested type.
 ///
 /// Scoped to each capture's current illumination: the graph keeps every reading, the view keeps one.
@@ -67,6 +85,8 @@ pub async fn get_knowledge_entities_by_type(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use sea_orm::sea_query::Expr;
+
     use crate::test_support::{fixtures, test_db};
 
     /// One active and one archived capture, each with one entity named after
@@ -104,6 +124,57 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["active entity"]
         );
+    }
+
+    /// The referent is served through the observation the caller owns, and carries the projected
+    /// platform presence — the column the resolver now reads.
+    #[tokio::test]
+    async fn the_linked_entity_is_served_with_its_platform_presence() {
+        let Some(test_db) = test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let (user, ids) = seed(&db).await;
+        let observation_id = ids[0];
+
+        let knowledge_entity_id = model::knowledge_entity::Entity::insert(
+            model::knowledge_entity::ActiveModel {
+                name: sea_orm::Set("active entity".to_string()),
+                entity_type: sea_orm::Set("unknown".to_string()),
+                status: sea_orm::Set("provisional".to_string()),
+                platform: sea_orm::Set(Some("x_twitter".to_string())),
+                platform_handle: sea_orm::Set(Some("tsoding".to_string())),
+                ..Default::default()
+            },
+        )
+        .exec(&db.conn)
+        .await
+        .unwrap()
+        .last_insert_id as i32;
+
+        model::user_observed_entity::Entity::update_many()
+            .col_expr(
+                model::user_observed_entity::Column::KnowledgeEntityId,
+                Expr::value(Some(knowledge_entity_id)),
+            )
+            .filter(model::user_observed_entity::Column::Id.eq(observation_id))
+            .exec(&db.conn)
+            .await
+            .unwrap();
+
+        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
+        let observation = get_knowledge_entity(&db, &context, observation_id)
+            .await
+            .unwrap();
+        let linked = linked_knowledge_entity(&db, &observation)
+            .await
+            .unwrap()
+            .expect("the observation is linked");
+
+        let info = KnowledgeEntityInfo::new(linked);
+        assert_eq!(info.platform.as_deref(), Some("x_twitter"));
+        assert_eq!(info.platform_handle.as_deref(), Some("tsoding"));
+        assert_eq!(info.name, "active entity");
     }
 
     #[tokio::test]
