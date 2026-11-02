@@ -4,6 +4,7 @@ use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use dreamscroll::knowledge::evidence::Evidence;
 use dreamscroll::knowledge::heuristic::NameBlocker;
+use dreamscroll::knowledge::heuristic::HeuristicLinker;
 use dreamscroll::knowledge::link::link_illumination;
 use dreamscroll::model;
 use dreamscroll::{config, database, knowledge, telemetry};
@@ -327,6 +328,7 @@ impl Report {
 async fn link_knowledge_all(db: &database::DbHandle) -> anyhow::Result<Report> {
     let mut blocker = NameBlocker::new(db).await?;
     let evidence = Evidence::from_handle(db);
+    let decider = HeuristicLinker;
 
     let unlinked_obs = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
@@ -350,7 +352,7 @@ async fn link_knowledge_all(db: &database::DbHandle) -> anyhow::Result<Report> {
             }
         }
         let applied =
-            link_illumination(db, &mut blocker, &evidence, illumination).await?;
+            link_illumination(db, &mut blocker, &evidence, &decider, illumination).await?;
         report.update(applied);
     }
     Ok(report)

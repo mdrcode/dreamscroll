@@ -1,4 +1,4 @@
-//! Blocking: which entities are worth considering for an observation.
+//! Blocking: which entities are worth considering as targets for linking an observation into the knowledge graph.
 //!
 //! Recall-oriented and allowed to over-generate. A blocker never decides anything and never touches
 //! the network, but it may touch the database — the intended implementation queries an index of

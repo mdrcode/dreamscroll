@@ -15,7 +15,6 @@ use super::entity;
 use super::{
     blocking::Blocker,
     evidence::{ClaimOutcome, Evidence},
-    heuristic::HeuristicLinker,
     link_decider::{self, LinkDecider},
 };
 use crate::{database, model};
@@ -47,6 +46,7 @@ pub async fn link_illumination(
     db: &database::DbHandle,
     blocker: &mut dyn Blocker,
     evidence: &Evidence,
+    decider: &dyn LinkDecider,
     illumination: &model::illumination::ModelEx,
 ) -> anyhow::Result<LinkStats> {
     // Unrolled here as well as inside the linker: applying a decision needs the whole row, and a
@@ -58,7 +58,7 @@ pub async fn link_illumination(
         .map(|row| row.clone().into())
         .collect();
 
-    let decisions = HeuristicLinker
+    let decisions = decider
         .link_illuminated_observations(blocker, evidence, illumination)
         .await?;
 

@@ -10,7 +10,7 @@ use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
 use crate::knowledge::evidence::Evidence;
-use crate::knowledge::heuristic::NameBlocker;
+use crate::knowledge::heuristic::{HeuristicLinker, NameBlocker};
 use crate::knowledge::link::link_illumination;
 use crate::model;
 
@@ -18,6 +18,7 @@ use crate::model;
 pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
     let mut blocker = NameBlocker::new(db).await?;
     let evidence = Evidence::from_handle(db);
+    let decider = HeuristicLinker;
 
     let pending = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
@@ -35,7 +36,7 @@ pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
         .await?;
 
     for illumination in &illuminations {
-        link_illumination(db, &mut blocker, &evidence, illumination).await?;
+        link_illumination(db, &mut blocker, &evidence, &decider, illumination).await?;
     }
     Ok(())
 }
