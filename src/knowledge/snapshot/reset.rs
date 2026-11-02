@@ -11,51 +11,20 @@
 //! `CREATE TABLE AS SELECT` sidesteps all of it: a frozen artifact needs no constraints, and the live
 //! schema is left exactly as it was.
 
-use chrono::Utc;
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter,
     Statement, TransactionTrait,
 };
 
+use super::record::{Snapshot, CORE_TABLE, EVIDENCE_TABLE};
+
+const OBSERVATION_TABLE: &str = "user_observed_entities";
 use crate::database;
 use crate::model::{
     knowledge_entity as entity, knowledge_evidence as evidence,
     user_observed_entity as observation,
 };
-
-const CORE_TABLE: &str = "knowledge_entities";
-const EVIDENCE_TABLE: &str = "knowledge_evidence";
-const OBSERVATION_TABLE: &str = "user_observed_entities";
-
-/// A frozen copy of one run, named by the moment it was taken so two runs sort chronologically.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Snapshot {
-    pub suffix: String,
-}
-
-impl Snapshot {
-    pub fn now() -> Self {
-        Self {
-            suffix: Utc::now().format("%Y%m%dT%H%M%S%3f").to_string(),
-        }
-    }
-
-    pub fn entities(&self) -> String {
-        format!("{CORE_TABLE}__{}", self.suffix)
-    }
-
-    pub fn evidence(&self) -> String {
-        format!("{EVIDENCE_TABLE}__{}", self.suffix)
-    }
-
-    /// Which observations belonged to which entity — the only record of that is
-    /// `user_observed_entities.knowledge_entity_id`, so snapshotting the entities alone would keep the referents
-    /// and lose the membership. One row per linked observation.
-    pub fn membership(&self) -> String {
-        format!("knowledge_entity_membership__{}", self.suffix)
-    }
-}
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Report {

@@ -237,7 +237,7 @@ async fn main() -> anyhow::Result<()> {
                     "reset empties the projected graph; pass --yes to confirm"
                 );
             }
-            let report = knowledge::reset::reset(&db).await?;
+            let report = knowledge::snapshot::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
                     "snapshot {} · entities {} · evidence {} · members {}",
@@ -254,13 +254,13 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         Command::Compare(args) => {
-            let before = knowledge::reset::Snapshot {
+            let before = knowledge::snapshot::Snapshot {
                 suffix: args.before.clone(),
             };
-            let after = knowledge::reset::Snapshot {
+            let after = knowledge::snapshot::Snapshot {
                 suffix: args.after.clone(),
             };
-            let report = knowledge::compare::compare(&db, &before, &after).await?;
+            let report = knowledge::snapshot::compare(&db, &before, &after).await?;
 
             println!("before {} · after {}", args.before, args.after);
             println!(
@@ -280,11 +280,11 @@ async fn main() -> anyhow::Result<()> {
             );
             for example in &report.examples {
                 match example.kind {
-                    knowledge::compare::Kind::Split => println!(
+                    knowledge::snapshot::Kind::Split => println!(
                         "  split  \"{}\" · {} members → {} groups",
                         example.label, example.members, example.into
                     ),
-                    knowledge::compare::Kind::Merged => println!(
+                    knowledge::snapshot::Kind::Merged => println!(
                         "  merge  \"{}\" · {} groups → {} members",
                         example.label, example.into, example.members
                     ),

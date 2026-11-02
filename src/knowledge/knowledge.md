@@ -214,7 +214,8 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, HTTP in `transport.rs` |
 | `project.rs` | the only writer of an entity's derived columns |
-| `merge.rs`, `reset.rs`, `compare.rs` | repair and the tooling around it |
+| `merge.rs` | fold one entity into another |
+| `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `current.rs` | which reading a user sees |
 | `cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | the one definition of "the same name" |

@@ -9,7 +9,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
 use crate::database;
-use super::reset::Snapshot;
+use super::record::Snapshot;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {

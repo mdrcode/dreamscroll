@@ -62,9 +62,7 @@ fn absorb_surface(entity: &mut model::knowledge_entity::Model, surface: &str) ->
     true
 }
 
-/// The `(scheme, value)` an observation carries, if it carries one. `scheme` is the platform; the
-/// same shape covers `wikidata` → `Q…`, `imdb` → `tt…`, and every authority after them.
-/// Link one illumination against the graph.
+/// Link one illumination's observed entities into the knowledge graph.
 ///
 /// The blocker and the evidence store are passed in because they are the expensive, shareable things:
 /// a caller linking more than one reading builds them once. This function queries nothing to decide
