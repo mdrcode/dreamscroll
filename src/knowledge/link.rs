@@ -7,7 +7,6 @@
 
 use std::collections::HashSet;
 
-use sea_orm::EntityTrait;
 
 use crate::{database, model};
 
@@ -85,63 +84,47 @@ async fn apply_link_decision(
         );
     }
 
-    // Either way the observation ends up pointing at one entity: the one we chose, or a new one.
-    let entity = match &decision.action {
-        link_decider::Action::Attach { entity, .. } => *entity,
-        link_decider::Action::Create { .. } => entity::create(&db.conn, observation).await?.id,
+    // The entity this observation ends up on, resolved once: the one the decision named, or a new
+    // one it asked for.
+    let mut entity = match &decision.action {
+        link_decider::Action::Attach { entity, .. } => entity::get(&db.conn, *entity).await?,
+        link_decider::Action::Create { .. } => entity::create(&db.conn, observation).await?,
     };
-    entity::attach(&db.conn, observation.id, entity).await?;
+    entity::attach(&db.conn, observation.id, entity.id).await?;
 
-    if let Some(claim) = &decision.claim {
-        match evidence.record(entity, claim, observation).await? {
-            ClaimOutcome::Accepted => {
-                touched.insert(entity);
-            }
-            // Another entity turned out to hold the claim after the linker looked. If we attached,
-            // that is a contradiction worth stopping for; if we created, the row owns nothing yet.
-            ClaimOutcome::HeldBy(owner) => match &decision.action {
-                link_decider::Action::Attach { .. } => anyhow::bail!(
-                    "entities {entity} and {owner} both hold {}:{}; merging is not implemented yet \
-                     (plan/knowledge-canonical-entities.md §Repair)",
-                    claim.scheme,
-                    claim.id
-                ),
-                link_decider::Action::Create { .. } => {
-                    entity::attach(&db.conn, observation.id, owner).await?;
-                    model::knowledge_entity::Entity::delete_by_id(entity)
-                        .exec(&db.conn)
-                        .await?;
-                    if let Some(absorbed) =
-                        entity::absorb_observation(&db.conn, owner, observation).await?
-                    {
-                        blocker.changed(&absorbed);
-                    }
-                    touched.insert(owner);
-                    stats.folded += 1;
-                    return Ok(());
-                }
-            },
+    // A claim held by another entity turns a *created* row into a duplicate: it owns nothing yet, so
+    // it is discarded and the observation joins the entity that got there first. An attach that hits
+    // the same wall is a contradiction, not something to paper over.
+    let mut folded = false;
+    if let Some(claim) = &decision.claim
+        && let ClaimOutcome::HeldBy(owner) = evidence.record(entity.id, claim, observation).await?
+    {
+        if matches!(decision.action, link_decider::Action::Attach { .. }) {
+            anyhow::bail!(
+                "entities {} and {owner} both hold {}:{}; merging is not implemented yet \
+                 (plan/knowledge-canonical-entities.md §Repair)",
+                entity.id,
+                claim.scheme,
+                claim.id
+            );
         }
+        entity::discard(&db.conn, entity.id).await?;
+        entity = entity::get(&db.conn, owner).await?;
+        entity::attach(&db.conn, observation.id, owner).await?;
+        folded = true;
+    }
+
+    // Fold what the capture said into whichever entity won, and let the blocker see the result.
+    entity::absorb_observation(&db.conn, &mut entity, observation).await?;
+    blocker.changed(&entity);
+    touched.insert(entity.id);
+
+    if folded {
+        stats.folded += 1;
+    } else if matches!(decision.action, link_decider::Action::Attach { .. }) {
+        stats.attached += 1;
     } else {
-        touched.insert(entity);
-    }
-
-    let absorbed = entity::absorb_observation(&db.conn, entity, observation).await?;
-    if absorbed.is_none() && matches!(decision.action, link_decider::Action::Create { .. }) {
-        // A new entity has nothing to absorb, but the blocker still has to know it exists.
-        let created = model::knowledge_entity::Entity::find_by_id(entity)
-            .one(&db.conn)
-            .await?;
-        if let Some(created) = created {
-            blocker.changed(&created);
-        }
-    } else if let Some(absorbed) = absorbed {
-        blocker.changed(&absorbed);
-    }
-
-    match &decision.action {
-        link_decider::Action::Attach { .. } => stats.attached += 1,
-        link_decider::Action::Create { .. } => stats.created += 1,
+        stats.created += 1;
     }
     Ok(())
 }

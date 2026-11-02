@@ -93,43 +93,27 @@ pub(crate) async fn attach(
     Ok(())
 }
 
-/// Fold everything one observation contributes into the entity it was linked to: its surfaces (so a
-/// later observation can find the entity by any of them) and its type. Descriptions accumulate in
-/// `project`, which runs once at the end of a build rather than per observation.
-/// Fold what an observation knows into its entity. Returns the updated row when anything changed,
-/// so the caller can hand it to the blocker.
-///
-/// Read here rather than passed in: the blocker owns the corpus, so the executor keeps no parallel
-/// copy of the entities and cannot hold one stale.
 pub(crate) async fn absorb_observation(
     conn: &sea_orm::DatabaseConnection,
-    knowledge_entity_id: i32,
+    entity: &mut model::knowledge_entity::Model,
     observation: &model::user_observed_entity::Model,
-) -> anyhow::Result<Option<model::knowledge_entity::Model>> {
-    let Some(mut entity) = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
-        .one(conn)
-        .await?
-    else {
-        return Ok(None);
-    };
-
+) -> anyhow::Result<bool> {
     let mut changed = false;
     for surface in surfaces(observation) {
-        changed |= absorb_surface(&mut entity, surface);
+        changed |= absorb_surface(entity, surface);
     }
-    changed |= absorb_type(&mut entity, &observation.entity_type);
-    if !changed {
-        return Ok(None);
+    changed |= absorb_type(entity, &observation.entity_type);
+    if changed {
+        model::knowledge_entity::ActiveModel {
+            id: Set(entity.id),
+            alt_names: Set(entity.alt_names.clone()),
+            alt_types: Set(entity.alt_types.clone()),
+            ..Default::default()
+        }
+        .update(conn)
+        .await?;
     }
-    model::knowledge_entity::ActiveModel {
-        id: Set(entity.id),
-        alt_names: Set(entity.alt_names.clone()),
-        alt_types: Set(entity.alt_types.clone()),
-        ..Default::default()
-    }
-    .update(conn)
-    .await?;
-    Ok(Some(entity))
+    Ok(changed)
 }
 
 /// Record the observation's identifier against its entity. Returns the *other* entity that already
@@ -420,6 +404,28 @@ pub async fn project<C: sea_orm::ConnectionTrait>(
     })
     .exec(conn)
     .await?;
+    Ok(())
+}
+
+/// The entity, or an error. Every caller that asks has already decided it exists.
+pub(crate) async fn get(
+    conn: &sea_orm::DatabaseConnection,
+    knowledge_entity_id: i32,
+) -> anyhow::Result<model::knowledge_entity::Model> {
+    let found = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+        .one(conn)
+        .await?;
+    found.ok_or_else(|| anyhow::anyhow!("knowledge entity {knowledge_entity_id} does not exist"))
+}
+
+/// Throw away an entity that owns nothing — a create that lost its claim to another entity.
+pub(crate) async fn discard(
+    conn: &sea_orm::DatabaseConnection,
+    knowledge_entity_id: i32,
+) -> anyhow::Result<()> {
+    model::knowledge_entity::Entity::delete_by_id(knowledge_entity_id)
+        .exec(conn)
+        .await?;
     Ok(())
 }
 
