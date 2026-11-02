@@ -154,7 +154,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
             let position = positions[&knowledge_entity_id];
             attach(&db.conn, observation.id, knowledge_entity_id).await?;
             seen.insert((knowledge_entity_id, observation.illumination_id));
-            if absorb_names(&db.conn, &mut entities[position], &observation).await? {
+            if absorb_observation(&db.conn, &mut entities[position], &observation).await? {
                 blocker.index(&entities[position]);
             }
             report.linked_by_identifier += 1;
@@ -178,7 +178,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
                 let knowledge_entity_id = entity;
                 attach(&db.conn, observation.id, knowledge_entity_id).await?;
                 seen.insert((knowledge_entity_id, observation.illumination_id));
-                if absorb_names(&db.conn, &mut entities[position], &observation).await? {
+                if absorb_observation(&db.conn, &mut entities[position], &observation).await? {
                     blocker.index(&entities[position]);
                 }
                 let claimed = identifier_of(&observation).is_some();
@@ -212,7 +212,7 @@ pub async fn link(db: &database::DbHandle) -> anyhow::Result<Report> {
                         .await?;
                     seen.insert((owner, observation.illumination_id));
                     if let Some(&position) = positions.get(&owner)
-                        && absorb_names(&db.conn, &mut entities[position], &observation).await?
+                        && absorb_observation(&db.conn, &mut entities[position], &observation).await?
                     {
                         blocker.index(&entities[position]);
                     }
@@ -319,9 +319,10 @@ async fn attach(
     Ok(())
 }
 
-/// Fold this observation's surfaces into the entity it was linked to. Descriptions accumulate in
+/// Fold everything one observation contributes into the entity it was linked to: its surfaces (so a
+/// later observation can find the entity by any of them) and its type. Descriptions accumulate in
 /// `project`, which runs once at the end of a build rather than per observation.
-async fn absorb_names(
+async fn absorb_observation(
     conn: &sea_orm::DatabaseConnection,
     entity: &mut view::EntityView,
     observation: &model::user_observed_entity::Model,
