@@ -85,7 +85,7 @@ pub async fn entity(
 /// An in-memory knowledge entity: the fields a strategy reads, and nothing else.
 ///
 /// The async builders above insert a graph; this one is for the tests that only need something to
-/// hand a `Blocker`, `Linker` or `Resolver`. Never inserted, so changing it cannot affect a query.
+/// hand a `Blocker`, `LinkDecider` or `Resolver`. Never inserted, so changing it cannot affect a query.
 pub fn stub_entity(id: i32, name: &str, entity_type: &str) -> model::knowledge_entity::Model {
     let now = Utc::now();
     model::knowledge_entity::Model {

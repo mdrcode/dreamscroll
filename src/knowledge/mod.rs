@@ -9,7 +9,7 @@ pub mod current;
 pub mod entity;
 pub mod evidence;
 pub mod link;
-pub mod linker;
+pub mod link_decider;
 pub mod merge;
 pub mod normalize;
 pub mod snapshot;

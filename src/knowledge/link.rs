@@ -2,7 +2,7 @@
 //!
 //! No network. The blocker is an in-memory index the caller built (`~2k` rows, so a scan beats a
 //! query plan), the evidence store answers exactly one question — does an entity already hold this
-//! claim — and what to do about the answer belongs to a [`Linker`]. Every write is idempotent: a
+//! claim — and what to do about the answer belongs to a [`LinkDecider`]. Every write is idempotent: a
 //! second run finds nothing to do because every observation already has a `knowledge_entity_id`.
 
 use std::collections::HashSet;
@@ -16,7 +16,7 @@ use super::{
     blocking::Blocker,
     evidence::{ClaimOutcome, Evidence},
     heuristic::HeuristicLinker,
-    linker::{self, Linker},
+    link_decider::{self, LinkDecider},
 };
 use crate::{database, model};
 
@@ -66,8 +66,8 @@ pub async fn link_illumination(
     let mut touched = HashSet::new();
     for decision in &decisions {
         match &decision.action {
-            linker::Action::Attach { by_claim: true, .. } => applied.by_claim += 1,
-            linker::Action::Create { vetoed: true, .. } => applied.vetoed += 1,
+            link_decider::Action::Attach { by_claim: true, .. } => applied.by_claim += 1,
+            link_decider::Action::Create { vetoed: true, .. } => applied.vetoed += 1,
             _ => {}
         }
         let observation = observations
@@ -99,7 +99,7 @@ async fn apply_link_decision(
     blocker: &mut dyn Blocker,
     evidence: &Evidence,
     observation: &model::user_observed_entity::Model,
-    decision: &linker::Decision,
+    decision: &link_decider::Decision,
     touched: &mut HashSet<i32>,
     applied: &mut Applied,
 ) -> anyhow::Result<()> {
@@ -112,8 +112,8 @@ async fn apply_link_decision(
 
     // Either way the observation ends up pointing at one entity: the one we chose, or a new one.
     let entity = match &decision.action {
-        linker::Action::Attach { entity, .. } => *entity,
-        linker::Action::Create { .. } => entity::create(&db.conn, observation).await?.id,
+        link_decider::Action::Attach { entity, .. } => *entity,
+        link_decider::Action::Create { .. } => entity::create(&db.conn, observation).await?.id,
     };
     entity::attach(&db.conn, observation.id, entity).await?;
 
@@ -125,13 +125,13 @@ async fn apply_link_decision(
             // Another entity turned out to hold the claim after the linker looked. If we attached,
             // that is a contradiction worth stopping for; if we created, the row owns nothing yet.
             ClaimOutcome::HeldBy(owner) => match &decision.action {
-                linker::Action::Attach { .. } => anyhow::bail!(
+                link_decider::Action::Attach { .. } => anyhow::bail!(
                     "entities {entity} and {owner} both hold {}:{}; merging is not implemented yet \
                      (plan/knowledge-canonical-entities.md §Repair)",
                     claim.scheme,
                     claim.id
                 ),
-                linker::Action::Create { .. } => {
+                link_decider::Action::Create { .. } => {
                     entity::attach(&db.conn, observation.id, owner).await?;
                     model::knowledge_entity::Entity::delete_by_id(entity)
                         .exec(&db.conn)
@@ -150,7 +150,7 @@ async fn apply_link_decision(
     }
 
     let absorbed = entity::absorb_observation(&db.conn, entity, observation).await?;
-    if absorbed.is_none() && matches!(decision.action, linker::Action::Create { .. }) {
+    if absorbed.is_none() && matches!(decision.action, link_decider::Action::Create { .. }) {
         // A new entity has nothing to absorb, but the blocker still has to know it exists.
         let created = model::knowledge_entity::Entity::find_by_id(entity)
             .one(&db.conn)
@@ -163,8 +163,8 @@ async fn apply_link_decision(
     }
 
     match &decision.action {
-        linker::Action::Attach { .. } => applied.attached += 1,
-        linker::Action::Create { .. } => applied.created += 1,
+        link_decider::Action::Attach { .. } => applied.attached += 1,
+        link_decider::Action::Create { .. } => applied.created += 1,
     }
     Ok(())
 }

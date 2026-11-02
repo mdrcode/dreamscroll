@@ -2,7 +2,7 @@
 //!
 //! This module is the *entire* ad hoc policy that turns observations into links. Nothing outside it
 //! knows what a name similarity is, which weights apply, or where a bar sits — the core exposes
-//! `Blocker`, `Linker` and the views, and this file is one implementation of both traits. Delete it
+//! `Blocker`, `LinkDecider` and the views, and this file is one implementation of both traits. Delete it
 //! and the graph has no linking policy at all, which is the point: the guess is replaceable, the
 //! contracts are not.
 //!
@@ -18,7 +18,7 @@ use sea_orm::{EntityTrait, QueryOrder};
 
 use super::blocking::Blocker;
 use super::evidence::{Claim, Evidence};
-use super::linker::{Action, Decision, Linker};
+use super::link_decider::{Action, Decision, LinkDecider};
 use super::normalize;
 use crate::model;
 
@@ -294,7 +294,7 @@ impl Blocker for NameBlocker {
 pub struct HeuristicLinker;
 
 #[async_trait::async_trait]
-impl Linker for HeuristicLinker {
+impl LinkDecider for HeuristicLinker {
     /// Give the illumination's observations their entities.
     ///
     /// A claim settles the question before any scoring: an entity that already holds this platform

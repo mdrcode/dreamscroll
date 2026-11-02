@@ -53,7 +53,7 @@ pub struct Decision {
 }
 
 #[async_trait::async_trait]
-pub trait Linker: Send + Sync {
+pub trait LinkDecider: Send + Sync {
     /// Decide what each observation from one illumination is.
     ///
     /// `blocker` is recall and nothing else: it may return nothing, it over-generates by design, and
