@@ -71,13 +71,6 @@ impl Knowledge {
         }
     }
 
-    /// Tell the held blocker what just happened, if there is one.
-    fn notify(&self, entity: &model::knowledge_entity::Model) {
-        if let Some(blocker) = &self.blocker {
-            blocker.changed(entity);
-        }
-    }
-
     /// Tell the blocker an entity is gone. `pub(super)` so `merge` can retire the loser.
     pub(super) fn forget(&self, knowledge_entity_id: i32) {
         if let Some(blocker) = &self.blocker {
@@ -142,7 +135,9 @@ impl Knowledge {
         knowledge_entity_id: i32,
     ) -> anyhow::Result<model::knowledge_entity::Model> {
         let entity = super::project::project(&self.db.conn, knowledge_entity_id).await?;
-        self.notify(&entity);
+        if let Some(blocker) = &self.blocker {
+            blocker.changed(&entity);
+        }
         Ok(entity)
     }
 
