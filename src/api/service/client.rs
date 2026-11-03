@@ -23,6 +23,14 @@ impl ServiceApiClient {
             .collect())
     }
 
+    /// One illumination, with its observations loaded.
+    pub async fn illumination(
+        &self,
+        illumination_id: i32,
+    ) -> Result<crate::model::illumination::ModelEx, ApiError> {
+        super::get_illumination(&self.db, illumination_id).await
+    }
+
     pub async fn record_inference(
         &self,
         user_id: i32,

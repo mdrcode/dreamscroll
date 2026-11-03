@@ -358,7 +358,9 @@ mod tests {
             ])
         );
         let v2_entities = model::user_observed_entity::Entity::find()
-            .filter(model::user_observed_entity::Column::IlluminationId.eq(stored_v2_illumination.id))
+            .filter(
+                model::user_observed_entity::Column::IlluminationId.eq(stored_v2_illumination.id),
+            )
             .order_by_asc(model::user_observed_entity::Column::Position)
             .all(&db.conn)
             .await

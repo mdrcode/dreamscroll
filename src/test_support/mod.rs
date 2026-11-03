@@ -13,3 +13,9 @@ pub mod fixtures;
 pub mod link;
 pub mod test_config;
 pub mod test_db;
+
+/// A service client over the test database, for code that reaches the app the way a worker does.
+pub fn service_api(db: &crate::database::DbHandle) -> crate::api::ServiceApiClient {
+    let config = test_config::load().expect("test config should load");
+    crate::api::ServiceApiClient::new(db.clone(), crate::storage::UrlMaker::from_config(&config))
+}

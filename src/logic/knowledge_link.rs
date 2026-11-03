@@ -11,9 +11,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use sea_orm::prelude::*;
-
-use crate::{api, model, task};
+use crate::{api, task};
 
 /// The concrete task for linking one illumination's observations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -45,7 +43,7 @@ pub async fn exec(
     task_run: &task::TaskRun<KnowledgeLinkTask>,
     _attempt: i32,
 ) -> Result<(), api::ApiError> {
-    let stats = link(&state.knowledge, &task_run.task)
+    let stats = link(&state.knowledge, &state.service_api, &task_run.task)
         .await
         .map_err(api::ApiError::internal)?;
 
@@ -68,16 +66,12 @@ pub async fn exec(
 /// them, so an owner-scoped read belongs to the caller that was handed both ids.
 pub(crate) async fn link(
     knowledge: &crate::knowledge::Knowledge,
+    service_api: &crate::api::ServiceApiClient,
     task: &KnowledgeLinkTask,
 ) -> anyhow::Result<crate::knowledge::LinkStats> {
-    // Loaded here, not by the store: this is the one caller that has a payload to resolve, and the
-    // `.with(observations)` is this caller's requirement — the decider cannot work without them.
-    let illumination = model::illumination::Entity::load()
-        .filter(model::illumination::Column::Id.eq(task.illumination_id))
-        .with(model::user_observed_entity::Entity)
-        .one(knowledge.conn())
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("illumination {} does not exist", task.illumination_id))?;
+    // The read belongs to the service layer, which is the worker's door to the app; the ownership
+    // check belongs here, where the payload is. The store is not involved in either.
+    let illumination = service_api.illumination(task.illumination_id).await?;
     anyhow::ensure!(
         illumination.user_id == task.entity_owner_id,
         "illumination {} belongs to user {}, not {}",
@@ -93,6 +87,9 @@ pub(crate) async fn link(
 mod tests {
     use super::*;
 
+    use sea_orm::prelude::*;
+
+    use crate::model;
     use crate::test_support::{fixtures, test_db};
 
     fn task(illumination_id: i32, entity_owner_id: i32) -> KnowledgeLinkTask {
@@ -114,6 +111,7 @@ mod tests {
         let first = fixtures::illumination(&db, user, capture).await;
         fixtures::entity(&db, user, capture, first, 0, "Train Dreams").await;
 
+        let service_api = crate::test_support::service_api(&db);
         let stats = link(
             &crate::knowledge::Knowledge::with_linker(
                 &db,
@@ -124,6 +122,7 @@ mod tests {
                         .unwrap(),
                 ),
             ),
+            &service_api,
             &task(first, user),
         )
         .await
@@ -136,6 +135,7 @@ mod tests {
         let second = fixtures::illumination(&db, user, capture).await;
         fixtures::entity(&db, user, capture, second, 0, "Train Dreams").await;
 
+        let service_api = crate::test_support::service_api(&db);
         let stats = link(
             &crate::knowledge::Knowledge::with_linker(
                 &db,
@@ -146,6 +146,7 @@ mod tests {
                         .unwrap(),
                 ),
             ),
+            &service_api,
             &task(second, user),
         )
         .await
@@ -178,6 +179,7 @@ mod tests {
         let illumination = fixtures::illumination(&db, owner, capture).await;
         fixtures::entity(&db, owner, capture, illumination, 0, "Train Dreams").await;
 
+        let service_api = crate::test_support::service_api(&db);
         let error = link(
             &crate::knowledge::Knowledge::with_linker(
                 &db,
@@ -188,6 +190,7 @@ mod tests {
                         .unwrap(),
                 ),
             ),
+            &service_api,
             &task(illumination, stranger),
         )
         .await
