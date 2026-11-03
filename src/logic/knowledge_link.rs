@@ -11,7 +11,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::{api, task};
+use sea_orm::prelude::*;
+
+use crate::{api, model, task};
 
 /// The concrete task for linking one illumination's observations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,22 +62,36 @@ pub async fn exec(
 }
 
 /// The work itself: the graph and nothing else, so it can be exercised without a `LogicState`.
+///
+/// This is where the payload is checked against the world. A task names its owner and an
+/// illumination row has one, but the graph does not: entities are shared by everyone who observed
+/// them, so an owner-scoped read belongs to the caller that was handed both ids.
 pub(crate) async fn link(
     knowledge: &crate::knowledge::Knowledge,
     task: &KnowledgeLinkTask,
 ) -> anyhow::Result<crate::knowledge::LinkStats> {
-    knowledge
-        .link_illumination_by_id(task.illumination_id, task.entity_owner_id)
-        .await
+    // Loaded here, not by the store: this is the one caller that has a payload to resolve, and the
+    // `.with(observations)` is this caller's requirement — the decider cannot work without them.
+    let illumination = model::illumination::Entity::load()
+        .filter(model::illumination::Column::Id.eq(task.illumination_id))
+        .with(model::user_observed_entity::Entity)
+        .one(knowledge.conn())
+        .await?
+        .ok_or_else(|| anyhow::anyhow!("illumination {} does not exist", task.illumination_id))?;
+    anyhow::ensure!(
+        illumination.user_id == task.entity_owner_id,
+        "illumination {} belongs to user {}, not {}",
+        illumination.id,
+        illumination.user_id,
+        task.entity_owner_id
+    );
+
+    knowledge.link_illumination(&illumination).await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    use sea_orm::prelude::*;
-
-    use crate::model;
 
     use crate::test_support::{fixtures, test_db};
 
@@ -161,7 +177,10 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert!(error.to_string().contains("not found"), "{error}");
+        assert!(
+            error.to_string().contains("belongs to user"),
+            "the task must refuse a payload naming another user: {error}"
+        );
 
         let linked = model::user_observed_entity::Entity::find()
             .filter(model::user_observed_entity::Column::KnowledgeEntityId.is_not_null())

@@ -103,28 +103,14 @@ impl Knowledge {
             .await
     }
 
-    /// Link one illumination by id, refusing one that belongs to somebody else.
+    /// The connection the graph writes with.
     ///
-    /// The owner is part of the read rather than a check after it: an illumination id names exactly
-    /// one user's reading, and a task carrying the wrong owner should find nothing.
-    pub async fn link_illumination_by_id(
-        &self,
-        illumination_id: i32,
-        entity_owner_id: i32,
-    ) -> anyhow::Result<LinkStats> {
-        let illumination = model::illumination::Entity::load()
-            .filter(model::illumination::Column::Id.eq(illumination_id))
-            .filter(model::illumination::Column::UserId.eq(entity_owner_id))
-            .with(model::user_observed_entity::Entity)
-            .one(&self.db.conn)
-            .await?
-            .ok_or_else(|| {
-                anyhow::anyhow!(
-                    "illumination {illumination_id} not found for user {entity_owner_id}"
-                )
-            })?;
-
-        self.link_illumination(&illumination).await
+    /// A door, not an invitation: every *write* has a method here, and a caller that reaches for this
+    /// is doing a read the store has no verb for — loading the row a task names, for instance. It
+    /// exists so that the store can be the only place that owns a handle, without every read anyone
+    /// will ever need becoming a method on it.
+    pub fn conn(&self) -> &sea_orm::DatabaseConnection {
+        &self.db.conn
     }
 }
 
@@ -472,6 +458,16 @@ impl Knowledge {
         illumination: &model::illumination::ModelEx,
         blocker: &mut dyn Blocker,
     ) -> anyhow::Result<LinkStats> {
+        // The caller's job, checked here: an illumination loaded as a row and nothing else is a
+        // reading with no observations, and a decider would happily decide about it. The decider
+        // cannot be relied on to notice — it is injectable.
+        anyhow::ensure!(
+            illumination.observations.is_loaded(),
+            "illumination {} was handed to link_illumination with no observations loaded; fetch it \
+             with Entity::load().with(model::user_observed_entity::Entity)",
+            illumination.id
+        );
+
         let decisions = self
             .decider
             .decide_link(blocker, &self.evidence, illumination)
@@ -562,6 +558,17 @@ mod tests {
         user_observed_entity as observation,
     };
     use crate::test_support::{fixtures, test_db};
+
+    /// The shape `link_illumination` needs: one illumination with its observations loaded.
+    async fn load_illumination(db: &DbHandle, id: i32) -> model::illumination::ModelEx {
+        model::illumination::Entity::load()
+            .filter(model::illumination::Column::Id.eq(id))
+            .with(model::user_observed_entity::Entity)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap()
+    }
 
     fn store(db: &DbHandle) -> Knowledge {
         Knowledge::new(db, Arc::new(crate::knowledge::heuristic::HeuristicLinker))
@@ -788,11 +795,9 @@ mod tests {
         let illumination = fixtures::illumination(&db, user, capture).await;
         fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
 
+        let loaded = load_illumination(&db, illumination).await;
         let inert = Knowledge::new(&db, Arc::new(NoDecisions));
-        let stats = inert
-            .link_illumination_by_id(illumination, user)
-            .await
-            .unwrap();
+        let stats = inert.link_illumination(&loaded).await.unwrap();
         assert_eq!(
             stats,
             LinkStats::default(),
@@ -804,12 +809,42 @@ mod tests {
             "an inert policy must not create entities"
         );
 
+        let loaded = load_illumination(&db, illumination).await;
         let linking = Knowledge::new(&db, Arc::new(crate::knowledge::heuristic::HeuristicLinker));
-        let stats = linking
-            .link_illumination_by_id(illumination, user)
-            .await
-            .unwrap();
+        let stats = linking.link_illumination(&loaded).await.unwrap();
         assert_eq!(stats.created, 1, "the linker it was built with decides");
+    }
+
+    /// The executor owns this precondition, not the decider: the decider here decides nothing and
+    /// checks nothing, so an error naming the missing observations can only come from the store.
+    #[tokio::test]
+    async fn an_illumination_without_observations_is_refused() {
+        let Some(test_db) = test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let user = fixtures::user(&db, "unloaded").await;
+        let capture = fixtures::capture(&db, user).await;
+        let illumination = fixtures::illumination(&db, user, capture).await;
+        fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
+
+        // The row and nothing hanging off it.
+        let unloaded = model::illumination::Entity::load()
+            .filter(model::illumination::Column::Id.eq(illumination))
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!unloaded.observations.is_loaded());
+
+        let error = Knowledge::new(&db, Arc::new(NoDecisions))
+            .link_illumination(&unloaded)
+            .await
+            .unwrap_err();
+        assert!(
+            error.to_string().contains("no observations loaded"),
+            "{error}"
+        );
     }
 
     /// The name is the contract: an entity that still owns observations is refused, not deleted.
