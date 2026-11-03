@@ -175,7 +175,10 @@ async fn initialize()
             webhook::WebhookState {
                 logic: logic::LogicState {
                     service_api,
-                    knowledge: crate::knowledge::Knowledge::new(&db),
+                    knowledge: crate::knowledge::Knowledge::new(
+                        &db,
+                        std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                    ),
                     storage: stg,
                     inference_client: Box::new(inference_client),
                     firestarter,

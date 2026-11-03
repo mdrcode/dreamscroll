@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::cache::{Answer, Cache, Outcome, UNPRODUCTIVE_TTL};
 use crate::{database, model};
@@ -107,7 +107,11 @@ pub trait Resolver: Send + Sync {
 
     /// Claims about the entities it could resolve, each tagged with the entity it belongs to, in
     /// priority order: the engine takes the first claim per entity that the graph accepts.
-    async fn resolve(&self, entities: &[model::knowledge_entity::Model], ctx: &ResolutionContext<'_>) -> Vec<(i32, Claim)>;
+    async fn resolve(
+        &self,
+        entities: &[model::knowledge_entity::Model],
+        ctx: &ResolutionContext<'_>,
+    ) -> Vec<(i32, Claim)>;
 }
 
 /// Transport calls a plain resolve is allowed to make. Exists so that omitting the budget does real
@@ -252,7 +256,9 @@ impl<'a> ResolutionContext<'a> {
 
             let misses: Vec<String> = queries
                 .into_iter()
-                .filter(|query| !answers.contains_key(&(kind.clone(), shape.clone(), query.clone())))
+                .filter(|query| {
+                    !answers.contains_key(&(kind.clone(), shape.clone(), query.clone()))
+                })
                 .collect();
             if misses.is_empty() || self.offline {
                 continue;
@@ -300,7 +306,8 @@ impl<'a> ResolutionContext<'a> {
                     Err(FetchError::RateLimited { retry_after_secs }) => {
                         // An instruction, not a fact. Do not cache it, do not retry, do not
                         // continue: WDQS temporarily bans clients that keep requesting after a 429.
-                        self.rate_limited_after.store(retry_after_secs, Ordering::Relaxed);
+                        self.rate_limited_after
+                            .store(retry_after_secs, Ordering::Relaxed);
                         return answers;
                     }
                     Err(FetchError::Failed(_)) => {
@@ -414,8 +421,14 @@ impl<'a> ResolutionEngine<'a> {
                 if resolved.contains(&knowledge_entity_id) {
                     continue;
                 }
-                if store_claim(&self.db.conn, resolver.id(), knowledge_entity_id, claim, &mut report)
-                    .await?
+                if store_claim(
+                    &self.db.conn,
+                    resolver.id(),
+                    knowledge_entity_id,
+                    claim,
+                    &mut report,
+                )
+                .await?
                 {
                     resolved.insert(knowledge_entity_id);
                 }
@@ -423,7 +436,12 @@ impl<'a> ResolutionEngine<'a> {
         }
 
         for knowledge_entity_id in &resolved {
-            crate::knowledge::Knowledge::new(self.db).update_projection(*knowledge_entity_id).await?;
+            crate::knowledge::Knowledge::new(
+                self.db,
+                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+            )
+            .update_projection(*knowledge_entity_id)
+            .await?;
         }
         report.entities_resolved = resolved.len();
         ctx.absorb(&mut report);
@@ -436,9 +454,7 @@ impl<'a> ResolutionEngine<'a> {
 /// Keyed by `(provider, kind, shape)`, not by query: `title` and `label` ask about the same string and
 /// the answers are different things. Keyed by query alone, the label group shadowed the title group
 /// and the title requests were never sent.
-fn plan_groups(
-    requests: &[Request],
-) -> BTreeMap<(&'static str, String, String), Vec<String>> {
+fn plan_groups(requests: &[Request]) -> BTreeMap<(&'static str, String, String), Vec<String>> {
     let mut groups: BTreeMap<(&'static str, String, String), Vec<String>> = BTreeMap::new();
     for request in requests {
         groups
@@ -528,8 +544,8 @@ async fn store_claim(
         "description": claim.description,
         "classes": claim.classes,
     });
-    let insert = model::knowledge_evidence::Entity::insert(
-        model::knowledge_evidence::ActiveModel {
+    let insert =
+        model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
             knowledge_entity_id: Set(knowledge_entity_id),
             kind: Set("claim".to_string()),
             value: Set(value),
@@ -537,10 +553,9 @@ async fn store_claim(
             method: Set(Some(claim.method)),
             confidence: Set(Some(claim.confidence)),
             ..Default::default()
-        },
-    )
-    .exec(conn)
-    .await;
+        })
+        .exec(conn)
+        .await;
 
     match insert {
         Ok(_) => {
@@ -557,7 +572,9 @@ async fn store_claim(
                     id: identity.clone(),
                     handle: None,
                 };
-                if let Some(owner) = crate::knowledge::evidence::Evidence::new(conn.clone()).owner(&claim).await?
+                if let Some(owner) = crate::knowledge::evidence::Evidence::new(conn.clone())
+                    .owner(&claim)
+                    .await?
                     && owner != knowledge_entity_id
                 {
                     match crate::knowledge::merge::merge(conn, knowledge_entity_id, owner).await? {
@@ -569,7 +586,9 @@ async fn store_claim(
                             // Recorded once per pair. A resolve run retries every entity without a
                             // claim, so re-asserting the same contradiction would otherwise append
                             // a row per run and turn "3 collisions" into noise.
-                            if !collision_recorded(conn, owner, knowledge_entity_id, &identity).await? {
+                            if !collision_recorded(conn, owner, knowledge_entity_id, &identity)
+                                .await?
+                            {
                                 report.collisions += 1;
                                 model::knowledge_evidence::Entity::insert(
                                     model::knowledge_evidence::ActiveModel {
@@ -616,7 +635,10 @@ async fn collision_recorded(
             [owner.into(), other.into(), identity.into()],
         ))
         .await?;
-    let count: i64 = row.map(|row| row.try_get_by_index(0)).transpose()?.unwrap_or(0);
+    let count: i64 = row
+        .map(|row| row.try_get_by_index(0))
+        .transpose()?
+        .unwrap_or(0);
     Ok(count > 0)
 }
 
@@ -660,8 +682,8 @@ async fn candidates(
 #[cfg(test)]
 mod tests {
     use sea_orm::PaginatorTrait;
-    use std::sync::atomic::AtomicUsize;
     use std::sync::Arc;
+    use std::sync::atomic::AtomicUsize;
 
     use super::*;
 
@@ -743,8 +765,8 @@ mod tests {
         let user_id = fixtures::user(db, "resolve").await;
         let capture_id = fixtures::capture(db, user_id).await;
         let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-        let entity_id = model::user_observed_entity::Entity::insert(
-            model::user_observed_entity::ActiveModel {
+        let entity_id =
+            model::user_observed_entity::Entity::insert(model::user_observed_entity::ActiveModel {
                 user_id: Set(user_id),
                 capture_id: Set(capture_id),
                 illumination_id: Set(illumination_id),
@@ -752,12 +774,11 @@ mod tests {
                 name: Set(name.to_string()),
                 entity_type: Set("book".to_string()),
                 ..Default::default()
-            },
-        )
-        .exec(&db.conn)
-        .await
-        .unwrap()
-        .last_insert_id as i32;
+            })
+            .exec(&db.conn)
+            .await
+            .unwrap()
+            .last_insert_id as i32;
 
         crate::test_support::link::link_all(db).await.unwrap();
 
@@ -788,7 +809,10 @@ mod tests {
         )]);
 
         let first = ResolutionEngine::new(&db, Options::default())
-            .with(Box::new(Fake { answers: answers.clone(), calls: calls.clone() }))
+            .with(Box::new(Fake {
+                answers: answers.clone(),
+                calls: calls.clone(),
+            }))
             .run()
             .await
             .expect("resolve");
@@ -806,7 +830,10 @@ mod tests {
 
         // Second run: the entity now has an ontology claim, so it is not even a candidate.
         let second = ResolutionEngine::new(&db, Options::default())
-            .with(Box::new(Fake { answers, calls: calls.clone() }))
+            .with(Box::new(Fake {
+                answers,
+                calls: calls.clone(),
+            }))
             .run()
             .await
             .expect("resolve");
@@ -825,7 +852,10 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
 
         let first = ResolutionEngine::new(&db, Options::default())
-            .with(Box::new(Fake { answers: HashMap::new(), calls: calls.clone() }))
+            .with(Box::new(Fake {
+                answers: HashMap::new(),
+                calls: calls.clone(),
+            }))
             .run()
             .await
             .expect("resolve");
@@ -834,14 +864,21 @@ mod tests {
 
         // The entity is still a candidate (no claim), but the negative answer is cached.
         let second = ResolutionEngine::new(&db, Options::default())
-            .with(Box::new(Fake { answers: HashMap::new(), calls: calls.clone() }))
+            .with(Box::new(Fake {
+                answers: HashMap::new(),
+                calls: calls.clone(),
+            }))
             .run()
             .await
             .expect("resolve");
         assert_eq!(second.candidates, 1, "{second:?}");
         assert_eq!(second.fetched, 0, "{second:?}");
         assert_eq!(second.cache_hits, 1, "{second:?}");
-        assert_eq!(calls.load(Ordering::SeqCst), 1, "the negative was not re-fetched");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "the negative was not re-fetched"
+        );
 
         let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
@@ -860,41 +897,46 @@ mod tests {
         let db = test_db.handle();
         let knowledge_entity_id = seed(&db, "Nintendo").await;
 
-        model::knowledge_evidence::Entity::insert(
-            model::knowledge_evidence::ActiveModel {
-                knowledge_entity_id: Set(knowledge_entity_id),
-                kind: Set("claim".to_string()),
-                value: Set(json!({"scheme": "wikidata", "id": "Q8093"})),
-                source: Set("wikidata".to_string()),
-                method: Set(Some("exact_label".to_string())),
-                confidence: Set(Some(0.8)),
-                ..Default::default()
-            },
-        )
+        model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
+            knowledge_entity_id: Set(knowledge_entity_id),
+            kind: Set("claim".to_string()),
+            value: Set(json!({"scheme": "wikidata", "id": "Q8093"})),
+            source: Set("wikidata".to_string()),
+            method: Set(Some("exact_label".to_string())),
+            confidence: Set(Some(0.8)),
+            ..Default::default()
+        })
         .exec(&db.conn)
         .await
         .unwrap();
-        model::knowledge_evidence::Entity::insert(
-            model::knowledge_evidence::ActiveModel {
-                knowledge_entity_id: Set(knowledge_entity_id),
-                kind: Set("claim".to_string()),
-                value: Set(json!({"scheme": "x_twitter", "id": "nintendo"})),
-                source: Set("platform".to_string()),
-                ..Default::default()
-            },
-        )
+        model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
+            knowledge_entity_id: Set(knowledge_entity_id),
+            kind: Set("claim".to_string()),
+            value: Set(json!({"scheme": "x_twitter", "id": "nintendo"})),
+            source: Set("platform".to_string()),
+            ..Default::default()
+        })
         .exec(&db.conn)
         .await
         .unwrap();
 
-        crate::knowledge::Knowledge::new(&db).update_projection(knowledge_entity_id).await.unwrap();
+        crate::knowledge::Knowledge::new(
+            &db,
+            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+        )
+        .update_projection(knowledge_entity_id)
+        .await
+        .unwrap();
 
         let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
-        assert!((entity.confidence.unwrap() - 0.9).abs() < 1e-6, "{entity:?}");
+        assert!(
+            (entity.confidence.unwrap() - 0.9).abs() < 1e-6,
+            "{entity:?}"
+        );
     }
 
     /// A `p2002` claim *is* the handle — it must not count as a second input beside it.
@@ -907,26 +949,40 @@ mod tests {
         let knowledge_entity_id = seed(&db, "Tsoding").await;
 
         for (source, method, value, confidence) in [
-            ("platform", None, json!({"scheme": "x_twitter", "id": "tsoding"}), None),
-            ("wikidata", Some("p2002"), json!({"scheme": "wikidata", "id": "Q123737256"}), Some(0.95)),
+            (
+                "platform",
+                None,
+                json!({"scheme": "x_twitter", "id": "tsoding"}),
+                None,
+            ),
+            (
+                "wikidata",
+                Some("p2002"),
+                json!({"scheme": "wikidata", "id": "Q123737256"}),
+                Some(0.95),
+            ),
         ] {
-            model::knowledge_evidence::Entity::insert(
-                model::knowledge_evidence::ActiveModel {
-                    knowledge_entity_id: Set(knowledge_entity_id),
-                    kind: Set("claim".to_string()),
-                    value: Set(value),
-                    source: Set(source.to_string()),
-                    method: Set(method.map(str::to_string)),
-                    confidence: Set(confidence),
-                    ..Default::default()
-                },
-            )
+            model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
+                knowledge_entity_id: Set(knowledge_entity_id),
+                kind: Set("claim".to_string()),
+                value: Set(value),
+                source: Set(source.to_string()),
+                method: Set(method.map(str::to_string)),
+                confidence: Set(confidence),
+                ..Default::default()
+            })
             .exec(&db.conn)
             .await
             .unwrap();
         }
 
-        crate::knowledge::Knowledge::new(&db).update_projection(knowledge_entity_id).await.unwrap();
+        crate::knowledge::Knowledge::new(
+            &db,
+            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+        )
+        .update_projection(knowledge_entity_id)
+        .await
+        .unwrap();
 
         let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
@@ -1064,8 +1120,14 @@ mod tests {
             .expect("resolve");
 
         assert_eq!(report.rate_limited_after, Some(60), "{report:?}");
-        assert_eq!(report.fetched, 2, "one successful batch, then the 429: {report:?}");
-        assert_eq!(report.claims, BATCH, "claims from the first batch survive: {report:?}");
+        assert_eq!(
+            report.fetched, 2,
+            "one successful batch, then the 429: {report:?}"
+        );
+        assert_eq!(
+            report.claims, BATCH,
+            "claims from the first batch survive: {report:?}"
+        );
     }
 
     #[tokio::test]
@@ -1224,7 +1286,10 @@ mod tests {
             request("search", "v1", "b"),
         ];
         let groups = plan_groups(&requests);
-        assert_eq!(groups[&("test", "search".into(), "v1".into())], vec!["a", "b"]);
+        assert_eq!(
+            groups[&("test", "search".into(), "v1".into())],
+            vec!["a", "b"]
+        );
     }
 
     #[test]
@@ -1263,12 +1328,22 @@ mod tests {
         let ctx = ResolutionContext::new(&cache, &options);
 
         let answers = ctx
-            .ask(&AlwaysRateLimited, &[request("label", "v1", "Train Dreams")])
+            .ask(
+                &AlwaysRateLimited,
+                &[request("label", "v1", "Train Dreams")],
+            )
             .await;
 
-        assert!(answers.is_empty(), "a 429 must not be recorded as an answer");
+        assert!(
+            answers.is_empty(),
+            "a 429 must not be recorded as an answer"
+        );
         assert_eq!(ctx.rate_limited_after(), Some(7));
-        assert_eq!(ctx.fetched.load(Ordering::Relaxed), 1, "it stopped after the first call");
+        assert_eq!(
+            ctx.fetched.load(Ordering::Relaxed),
+            1,
+            "it stopped after the first call"
+        );
     }
 
     /// A spent budget stops issuing calls and says so, rather than silently returning nothing.
@@ -1286,10 +1361,17 @@ mod tests {
         };
         let ctx = ResolutionContext::new(&cache, &options);
 
-        ctx.ask(&AlwaysRateLimited, &[request("label", "v1", "Train Dreams")])
-            .await;
+        ctx.ask(
+            &AlwaysRateLimited,
+            &[request("label", "v1", "Train Dreams")],
+        )
+        .await;
 
         assert!(ctx.budget_exhausted(), "the refusal is recorded");
-        assert_eq!(ctx.fetched.load(Ordering::Relaxed), 0, "and no transport call was made");
+        assert_eq!(
+            ctx.fetched.load(Ordering::Relaxed),
+            0,
+            "and no transport call was made"
+        );
     }
 }

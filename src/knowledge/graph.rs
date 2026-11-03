@@ -6,6 +6,7 @@
 //! this module can reach a connection at all.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use sea_orm::sea_query::Expr;
 use sea_orm::{
@@ -17,21 +18,29 @@ use crate::model;
 
 use super::blocker::Blocker;
 use super::evidence::{ClaimOutcome, Evidence};
-use super::heuristic::{HeuristicLinker, NameBlocker};
+use super::heuristic::NameBlocker;
 use super::link_decider::{self, LinkDecider};
 
 pub const STATUS_PROVISIONAL: &str = "provisional";
 pub const STATUS_IDENTIFIED: &str = "identified";
 
 /// The knowledge graph, as seen by anyone who writes to it.
+///
+/// The linker is a constructor argument, not a name in here: which linker decides is a policy the
+/// composition root chooses, and a second one (or a stub in a test) must not need an edit to the
+/// executor.
 #[derive(Clone)]
 pub struct Knowledge {
     db: DbHandle,
+    decider: Arc<dyn LinkDecider>,
 }
 
 impl Knowledge {
-    pub fn new(db: &DbHandle) -> Self {
-        Self { db: db.clone() }
+    pub fn new(db: &DbHandle, decider: Arc<dyn LinkDecider>) -> Self {
+        Self {
+            db: db.clone(),
+            decider,
+        }
     }
 
     /// The entity, or an error. Every caller that asks has already decided it exists.
@@ -87,7 +96,7 @@ impl Knowledge {
     ) -> anyhow::Result<LinkStats> {
         let mut blocker = NameBlocker::new(&self.db).await?;
         let evidence = Evidence::from_handle(&self.db);
-        self.link_illumination_with(illumination, &mut blocker, &evidence, &HeuristicLinker)
+        self.link_illumination_with(illumination, &mut blocker, &evidence)
             .await
     }
 
@@ -450,17 +459,19 @@ enum Outcome {
 
 /// Apply a linking decision against the knowledge_entities table.
 impl Knowledge {
-    /// Link one illumination under a linker's policy: the blocker, the evidence store and the decider
-    /// are passed in because they are the expensive, shareable things — a caller linking several
-    /// illuminations builds them once. [`Self::link_illumination`] is the default policy.
+    /// Link one illumination with a caller's blocker and evidence: they are the expensive, shareable
+    /// things, so a caller linking several illuminations builds them once. The linking policy is the
+    /// one this store was built with. [`Self::link_illumination`] builds the collaborators too.
     pub async fn link_illumination_with(
         &self,
         illumination: &model::illumination::ModelEx,
         blocker: &mut dyn Blocker,
         evidence: &Evidence,
-        decider: &dyn LinkDecider,
     ) -> anyhow::Result<LinkStats> {
-        let decisions = decider.decide_link(blocker, evidence, illumination).await?;
+        let decisions = self
+            .decider
+            .decide_link(blocker, evidence, illumination)
+            .await?;
 
         let mut stats = LinkStats::default();
         for decision in &decisions {
@@ -552,7 +563,7 @@ mod tests {
     use crate::test_support::{fixtures, test_db};
 
     fn store(db: &DbHandle) -> Knowledge {
-        Knowledge::new(db)
+        Knowledge::new(db, Arc::new(crate::knowledge::heuristic::HeuristicLinker))
     }
 
     /// One entity with one observation attached, ready to update.
@@ -747,6 +758,57 @@ mod tests {
             Some("Train Dreams Denis Johnson"),
             "the origin decides"
         );
+    }
+
+    /// A decider that decides nothing. Exists to prove the policy is the caller's: if this store
+    /// still named `HeuristicLinker` somewhere inside, this test could not pass.
+    struct NoDecisions;
+
+    #[async_trait::async_trait]
+    impl LinkDecider for NoDecisions {
+        async fn decide_link(
+            &self,
+            _blocker: &dyn Blocker,
+            _evidence: &Evidence,
+            _illumination: &model::illumination::ModelEx,
+        ) -> anyhow::Result<Vec<link_decider::Decision>> {
+            Ok(Vec::new())
+        }
+    }
+
+    #[tokio::test]
+    async fn the_linking_policy_is_the_one_it_was_built_with() {
+        let Some(test_db) = test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let user = fixtures::user(&db, "policy").await;
+        let capture = fixtures::capture(&db, user).await;
+        let illumination = fixtures::illumination(&db, user, capture).await;
+        fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
+
+        let inert = Knowledge::new(&db, Arc::new(NoDecisions));
+        let stats = inert
+            .link_illumination_by_id(illumination, user)
+            .await
+            .unwrap();
+        assert_eq!(
+            stats,
+            LinkStats::default(),
+            "nothing decided, nothing written"
+        );
+        assert_eq!(
+            entity::Entity::find().count(&db.conn).await.unwrap(),
+            0,
+            "an inert policy must not create entities"
+        );
+
+        let linking = Knowledge::new(&db, Arc::new(crate::knowledge::heuristic::HeuristicLinker));
+        let stats = linking
+            .link_illumination_by_id(illumination, user)
+            .await
+            .unwrap();
+        assert_eq!(stats.created, 1, "the linker it was built with decides");
     }
 
     /// The name is the contract: an entity that still owns observations is refused, not deleted.

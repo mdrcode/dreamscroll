@@ -10,15 +10,17 @@ use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
 use crate::knowledge::evidence::Evidence;
-use crate::knowledge::heuristic::{HeuristicLinker, NameBlocker};
+use crate::knowledge::heuristic::NameBlocker;
 use crate::model;
 
 /// Link every illumination that still has unlinked observations.
 pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
-    let knowledge = crate::knowledge::Knowledge::new(db);
+    let knowledge = crate::knowledge::Knowledge::new(
+        db,
+        std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+    );
     let mut blocker = NameBlocker::new(db).await?;
     let evidence = Evidence::from_handle(db);
-    let decider = HeuristicLinker;
 
     let pending = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
@@ -37,7 +39,7 @@ pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
 
     for illumination in &illuminations {
         knowledge
-            .link_illumination_with(illumination, &mut blocker, &evidence, &decider)
+            .link_illumination_with(illumination, &mut blocker, &evidence)
             .await?;
     }
     Ok(())

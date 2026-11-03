@@ -3,7 +3,6 @@ use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use dreamscroll::knowledge::evidence::Evidence;
-use dreamscroll::knowledge::heuristic::HeuristicLinker;
 use dreamscroll::knowledge::heuristic::NameBlocker;
 use dreamscroll::model;
 use dreamscroll::{config, database, knowledge, telemetry};
@@ -327,7 +326,6 @@ impl LinkAllPendingReport {
 async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPendingReport> {
     let mut blocker = NameBlocker::new(db).await?;
     let evidence = Evidence::from_handle(db);
-    let decider = HeuristicLinker;
 
     let unlinked_obs = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
@@ -342,7 +340,10 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
         .all(&db.conn)
         .await?;
 
-    let knowledge = knowledge::Knowledge::new(db);
+    let knowledge = knowledge::Knowledge::new(
+        db,
+        std::sync::Arc::new(knowledge::heuristic::HeuristicLinker),
+    );
     let mut report = LinkAllPendingReport::default();
     for illumination in &illuminations {
         for observation in illumination.observations.iter() {
@@ -352,7 +353,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
             }
         }
         let applied = knowledge
-            .link_illumination_with(illumination, &mut blocker, &evidence, &decider)
+            .link_illumination_with(illumination, &mut blocker, &evidence)
             .await?;
         report.update(applied);
     }
