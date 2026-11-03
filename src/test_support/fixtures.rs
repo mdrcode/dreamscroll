@@ -5,6 +5,7 @@
 //! spelling it out. These keep a test about behaviour instead of setup.
 
 use chrono::Utc;
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 use crate::{database::DbHandle, model};
 
@@ -56,6 +57,41 @@ pub async fn illumination(db: &DbHandle, user_id: i32, capture_id: i32) -> i32 {
 
 /// `position` is part of the `(illumination_id, position)` unique key, so two
 /// entities in one illumination must not share it.
+/// One knowledge entity with one observation attached, created fresh.
+///
+/// The shape projection and discard both operate on: a row whose columns are derived from its
+/// members, and one member to derive them from.
+pub async fn knowledge_entity_with_member(db: &DbHandle, name: &str) -> i32 {
+    let user_id = user(db, "project").await;
+    let capture_id = capture(db, user_id).await;
+    let illumination_id = illumination(db, user_id, capture_id).await;
+    let observation_id = entity(db, user_id, capture_id, illumination_id, 0, name).await;
+
+    let knowledge_entity_id =
+        model::knowledge_entity::Entity::insert(model::knowledge_entity::ActiveModel {
+            name: sea_orm::Set(name.to_string()),
+            entity_type: sea_orm::Set("real_person".to_string()),
+            status: sea_orm::Set("provisional".to_string()),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap()
+        .last_insert_id as i32;
+
+    model::user_observed_entity::Entity::update_many()
+        .col_expr(
+            model::user_observed_entity::Column::KnowledgeEntityId,
+            sea_orm::sea_query::Expr::value(Some(knowledge_entity_id)),
+        )
+        .filter(model::user_observed_entity::Column::Id.eq(observation_id))
+        .exec(&db.conn)
+        .await
+        .unwrap();
+
+    knowledge_entity_id
+}
+
 pub async fn entity(
     db: &DbHandle,
     user_id: i32,
@@ -133,7 +169,6 @@ pub fn stub_observation(
         knowledge_entity_id: None,
     }
 }
-
 
 /// The same, for one illumination. Its `observations` start unloaded; a caller that needs them sets
 /// the relation explicitly, which is also what the linker refuses to run without.

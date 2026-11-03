@@ -5,13 +5,10 @@
 //! implementation, kept `pub(super)` so `merge` can run them inside its transaction; nothing outside
 //! this module can reach a connection at all.
 
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use sea_orm::sea_query::Expr;
-use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
-};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
 use crate::database::DbHandle;
 use crate::model;
@@ -36,7 +33,8 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 /// an index, not for rebuilding this one per call.
 #[derive(Clone)]
 pub struct Knowledge {
-    db: DbHandle,
+    /// `pub(super)`: `project` and `merge` live in their own files and write through this handle.
+    pub(super) db: DbHandle,
     decider: Option<Arc<dyn LinkDecider>>,
     /// `Mutex` because `Blocker::changed` takes `&mut`; `Arc` because `Knowledge` is `Clone`. Held
     /// rather than rebuilt so it accumulates everything this store writes.
@@ -72,7 +70,8 @@ impl Knowledge {
     }
 
     /// Tell the held blocker what just happened, if there is one.
-    async fn notify(&self, entity: &model::knowledge_entity::Model) {
+    /// `pub(super)` for the same reason as `db`: projection lives in `project.rs`.
+    pub(super) async fn notify(&self, entity: &model::knowledge_entity::Model) {
         if let Some(blocker) = &self.blocker {
             blocker.lock().await.changed(entity);
         }
@@ -118,20 +117,6 @@ impl Knowledge {
         discard_empty(&self.db.conn, knowledge_entity_id).await?;
         self.forget(knowledge_entity_id).await;
         Ok(())
-    }
-
-    /// Recompute an entity's projected columns, and tell the blocker what came out.
-    ///
-    /// The notification lives here rather than in the linker's loop because this is the one place
-    /// those columns change: linking, resolving and merging all end up here, so a held blocker
-    /// cannot miss one of them.
-    pub async fn update_projection(
-        &self,
-        knowledge_entity_id: i32,
-    ) -> anyhow::Result<model::knowledge_entity::Model> {
-        let entity = project(&self.db.conn, knowledge_entity_id).await?;
-        self.notify(&entity).await;
-        Ok(entity)
     }
 
     /// Link one reading into the graph: cluster its observations, record their claims, and project
@@ -206,205 +191,6 @@ pub(super) async fn insert_new<C: ConnectionTrait>(
     Ok(model::knowledge_entity::Entity::insert(model)
         .exec_with_returning(conn)
         .await?)
-}
-
-/// Recompute the columns that are a function of the members and of the evidence.
-///
-/// Nothing else writes `name`, `alt_names`, `description`, `alt_descriptions`, `search_query`,
-/// `alt_search_queries`, `platform`, `platform_handle`, `platform_display_name`, `status` or
-/// `confidence`.
-///
-/// The entity **wears the values of its origin** — the member it was created from — and every other
-/// member contributes alternatives. That is what makes a merge safe: the winner keeps its own
-/// surface and text while the loser's arrive as `alt_*`, without anyone having to guess which of
-/// them the current columns came from.
-pub(super) async fn project<C: ConnectionTrait>(
-    conn: &C,
-    knowledge_entity_id: i32,
-) -> anyhow::Result<model::knowledge_entity::Model> {
-    use model::knowledge_evidence as evidence;
-
-    let row = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
-        .one(conn)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("knowledge entity {knowledge_entity_id} does not exist"))?;
-
-    // Ordered by member id, so the alternatives come out in the order the members joined.
-    let members = model::user_observed_entity::Entity::find()
-        .filter(model::user_observed_entity::Column::KnowledgeEntityId.eq(knowledge_entity_id))
-        .order_by_asc(model::user_observed_entity::Column::Id)
-        .all(conn)
-        .await?;
-
-    // An entity that predates the column, or whose origin is gone, falls back to its first member.
-    let origin = row
-        .origin_observation_id
-        .and_then(|id| members.iter().find(|member| member.id == id))
-        .or_else(|| members.first());
-
-    let surfaces = gather(
-        &members,
-        |member| surfaces(member).map(str::to_string).collect(),
-        super::normalize::key,
-    );
-    let types = gather(
-        &members,
-        |member| vec![member.entity_type.clone()],
-        str::to_string,
-    );
-    let descriptions = gather(
-        &members,
-        |member| member.description.clone().into_iter().collect(),
-        str::to_string,
-    );
-    let queries = gather(
-        &members,
-        |member| member.search_query.clone().into_iter().collect(),
-        str::to_string,
-    );
-
-    let (name, alt_names) = select(origin.map(|member| member.name.trim()), &surfaces);
-    let (entity_type, alt_types) = select(origin.map(|member| member.entity_type.trim()), &types);
-
-    // When no member offers text, keep what is there: an authority-sourced description must not be
-    // wiped by a member list that says nothing.
-    let (description, alt_descriptions) = match select(
-        origin.and_then(|member| member.description.as_deref()),
-        &descriptions,
-    ) {
-        (Some(text), alt) => (Some(text), alt),
-        (None, _) => (row.description.clone(), row.alt_descriptions.clone()),
-    };
-    let (search_query, alt_search_queries) = match select(
-        origin.and_then(|member| member.search_query.as_deref()),
-        &queries,
-    ) {
-        (Some(text), alt) => (Some(text), alt),
-        (None, _) => (row.search_query.clone(), row.alt_search_queries.clone()),
-    };
-
-    // The presence the resolver asks by: the origin's if it showed one, else the first member's.
-    let presence = origin
-        .filter(|member| member.platform.is_some())
-        .or_else(|| members.iter().find(|member| member.platform.is_some()));
-    let (platform, platform_handle, platform_display_name) = match presence {
-        Some(member) => (
-            member.platform.clone(),
-            member.platform_handle.clone(),
-            member.platform_display_name.clone(),
-        ),
-        None => (
-            row.platform.clone(),
-            row.platform_handle.clone(),
-            row.platform_display_name.clone(),
-        ),
-    };
-
-    let evidence_rows = evidence::Entity::find()
-        .filter(evidence::Column::KnowledgeEntityId.eq(knowledge_entity_id))
-        .filter(evidence::Column::Kind.is_in(["claim", "collision"]))
-        .filter(evidence::Column::RetractedAt.is_null())
-        .all(conn)
-        .await?;
-    let contested = evidence_rows.iter().any(|row| row.kind == "collision");
-    let claims: Vec<_> = evidence_rows
-        .iter()
-        .filter(|row| row.kind == "claim")
-        .collect();
-
-    let status = if contested {
-        "contested"
-    } else if claims.is_empty() {
-        STATUS_PROVISIONAL
-    } else {
-        STATUS_IDENTIFIED
-    };
-
-    // Corroboration counts independent *inputs*, not scheme labels. A `p2002` claim is derived from
-    // the handle — the resolver asked Wikidata which item owns that account — so counting it beside
-    // the handle's own row treated one chain as two and gave every handle-resolved entity maximum
-    // confidence.
-    let from_text = claims
-        .iter()
-        .any(|claim| claim.source == "wikidata" && claim.method.as_deref() != Some("p2002"));
-    let from_handle = claims.iter().any(|claim| claim.source == "platform");
-    let inputs = usize::from(from_text) + usize::from(from_handle);
-    let best = claims
-        .iter()
-        .map(|claim| claim.confidence.unwrap_or(0.0))
-        .fold(0.0f32, f32::max);
-    let confidence = if claims.is_empty() {
-        None
-    } else {
-        Some((best + inputs.saturating_sub(1) as f32 * 0.1).min(1.0))
-    };
-
-    model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
-        id: Set(knowledge_entity_id),
-        name: Set(name.unwrap_or_else(|| row.name.clone())),
-        alt_names: Set(alt_names),
-        entity_type: Set(entity_type.unwrap_or_else(|| row.entity_type.clone())),
-        alt_types: Set(alt_types),
-        description: Set(description),
-        alt_descriptions: Set(alt_descriptions),
-        search_query: Set(search_query),
-        alt_search_queries: Set(alt_search_queries),
-        platform: Set(platform),
-        platform_handle: Set(platform_handle),
-        platform_display_name: Set(platform_display_name),
-        status: Set(status.to_string()),
-        confidence: Set(confidence),
-        ..Default::default()
-    })
-    .exec(conn)
-    .await
-    .map_err(Into::into)
-}
-
-pub(crate) fn surfaces(
-    observation: &model::user_observed_entity::Model,
-) -> impl Iterator<Item = &str> {
-    [
-        Some(observation.name.as_str()),
-        observation.platform_handle.as_deref(),
-        observation.platform_display_name.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-}
-
-/// Every distinct, non-empty value the members offer, in member order.
-fn gather(
-    members: &[model::user_observed_entity::Model],
-    values: impl Fn(&model::user_observed_entity::Model) -> Vec<String>,
-    key: impl Fn(&str) -> String,
-) -> Vec<String> {
-    let mut seen = HashSet::new();
-    let mut distinct = Vec::new();
-    for member in members {
-        for value in values(member) {
-            let text = value.trim();
-            if !text.is_empty() && seen.insert(key(text)) {
-                distinct.push(text.to_string());
-            }
-        }
-    }
-    distinct
-}
-
-/// Keep `preferred` while the members still offer it; otherwise take the first. Everything else
-/// becomes the alternative list.
-fn select(preferred: Option<&str>, candidates: &[String]) -> (Option<String>, Vec<String>) {
-    let selected = preferred
-        .filter(|text| candidates.iter().any(|candidate| candidate == text))
-        .map(str::to_string)
-        .or_else(|| candidates.first().cloned());
-    let alternatives = candidates
-        .iter()
-        .filter(|candidate| Some(candidate.as_str()) != selected.as_deref())
-        .cloned()
-        .collect();
-    (selected, alternatives)
 }
 
 pub(super) async fn fetch<C: ConnectionTrait>(
@@ -599,10 +385,7 @@ impl Knowledge {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{
-        knowledge_entity as entity, knowledge_evidence as evidence,
-        user_observed_entity as observation,
-    };
+    use crate::model::knowledge_entity as entity;
     use crate::test_support::{fixtures, test_db};
 
     /// The shape `link_illumination` needs: one illumination with its observations loaded.
@@ -616,11 +399,6 @@ mod tests {
             .unwrap()
     }
 
-    /// The store as the projection tests use it: writes only, no linking policy.
-    fn store(db: &DbHandle) -> Knowledge {
-        Knowledge::new(db)
-    }
-
     /// The store with a linker and a fresh blocker, for the tests that actually link.
     async fn linking_store(db: &DbHandle, decider: Arc<dyn LinkDecider>) -> Knowledge {
         Knowledge::with_linker(
@@ -632,200 +410,6 @@ mod tests {
                     .unwrap(),
             ),
         )
-    }
-
-    /// One entity with one observation attached, ready to update.
-    async fn seed(db: &DbHandle, name: &str) -> i32 {
-        let user_id = fixtures::user(db, "project").await;
-        let capture_id = fixtures::capture(db, user_id).await;
-        let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-        let observation_id =
-            fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
-        let knowledge_entity_id = entity::Entity::insert(entity::ActiveModel {
-            name: Set(name.to_string()),
-            entity_type: Set("real_person".to_string()),
-            status: Set(STATUS_PROVISIONAL.to_string()),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .unwrap()
-        .last_insert_id as i32;
-        observation::Entity::update_many()
-            .col_expr(
-                observation::Column::KnowledgeEntityId,
-                Expr::value(Some(knowledge_entity_id)),
-            )
-            .filter(observation::Column::Id.eq(observation_id))
-            .exec(&db.conn)
-            .await
-            .unwrap();
-        knowledge_entity_id
-    }
-
-    async fn claim(db: &DbHandle, id: i32, kind: &str, scheme: &str, value: &str) {
-        evidence::Entity::insert(evidence::ActiveModel {
-            knowledge_entity_id: Set(id),
-            kind: Set(kind.to_string()),
-            value: Set(serde_json::json!({ "scheme": scheme, "id": value })),
-            source: Set("test".to_string()),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .unwrap();
-    }
-
-    async fn load(db: &DbHandle, id: i32) -> entity::Model {
-        entity::Entity::find_by_id(id)
-            .one(&db.conn)
-            .await
-            .unwrap()
-            .unwrap()
-    }
-
-    #[tokio::test]
-    async fn the_selected_surface_is_not_one_of_its_own_alternatives() {
-        let Some(db) = test_db::test_db().await else {
-            return;
-        };
-        let db = db.handle();
-        let id = seed(&db, "Train Dreams").await;
-
-        store(&db).update_projection(id).await.unwrap();
-
-        let entity = load(&db, id).await;
-        assert_eq!(entity.name, "Train Dreams");
-        assert!(
-            !entity.alt_names.iter().any(|name| name == "Train Dreams"),
-            "alt_names is the complement of the selected name: {:?}",
-            entity.alt_names
-        );
-        assert_eq!(entity.status, STATUS_PROVISIONAL);
-        assert_eq!(entity.confidence, None);
-    }
-
-    /// Another member of the same entity, carrying its own hint.
-    async fn attach_member(db: &DbHandle, id: i32, name: &str, query: Option<&str>) -> i32 {
-        let user_id = fixtures::user(db, "project").await;
-        let capture_id = fixtures::capture(db, user_id).await;
-        let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-        let observation_id =
-            fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
-        observation::Entity::update_many()
-            .col_expr(
-                observation::Column::SearchQuery,
-                Expr::value(query.map(str::to_string)),
-            )
-            .col_expr(
-                observation::Column::KnowledgeEntityId,
-                Expr::value(Some(id)),
-            )
-            .filter(observation::Column::Id.eq(observation_id))
-            .exec(&db.conn)
-            .await
-            .unwrap();
-        observation_id
-    }
-
-    /// A member that carries a platform presence.
-    async fn attach_link(db: &DbHandle, id: i32, name: &str, platform: &str, handle: &str) {
-        let user_id = fixtures::user(db, "project").await;
-        let capture_id = fixtures::capture(db, user_id).await;
-        let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-        let observation_id =
-            fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
-        observation::Entity::update_many()
-            .col_expr(
-                observation::Column::Platform,
-                Expr::value(Some(platform.to_string())),
-            )
-            .col_expr(
-                observation::Column::PlatformHandle,
-                Expr::value(Some(handle.to_string())),
-            )
-            .col_expr(
-                observation::Column::KnowledgeEntityId,
-                Expr::value(Some(id)),
-            )
-            .filter(observation::Column::Id.eq(observation_id))
-            .exec(&db.conn)
-            .await
-            .unwrap();
-    }
-
-    /// The platform presence, projected from whichever member carried one.
-    #[tokio::test]
-    async fn the_platform_presence_is_projected_from_a_member() {
-        let Some(db) = test_db::test_db().await else {
-            return;
-        };
-        let db = db.handle();
-        let id = seed(&db, "Tsoding").await;
-        attach_link(&db, id, "Tsoding", "x_twitter", "tsoding").await;
-
-        store(&db).update_projection(id).await.unwrap();
-
-        let entity = load(&db, id).await;
-        assert_eq!(entity.platform.as_deref(), Some("x_twitter"));
-        assert_eq!(entity.platform_handle.as_deref(), Some("tsoding"));
-        assert_eq!(entity.platform_display_name, None);
-    }
-
-    /// The hint is a property of the entity, projected like the description: one selected, the rest
-    /// kept, in member order so the answer never depends on arrival order.
-    #[tokio::test]
-    async fn the_hint_is_projected_with_its_alternatives() {
-        let Some(db) = test_db::test_db().await else {
-            return;
-        };
-        let db = db.handle();
-        let id = seed(&db, "Train Dreams").await;
-        attach_member(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
-        attach_member(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
-
-        store(&db).update_projection(id).await.unwrap();
-
-        let entity = load(&db, id).await;
-        assert_eq!(entity.search_query.as_deref(), Some("Train Dreams novella"));
-        assert_eq!(
-            entity.alt_search_queries,
-            vec!["Train Dreams Denis Johnson"],
-            "the selected hint is never one of its own alternatives"
-        );
-    }
-
-    /// The entity wears its origin's values, whatever the row said before — and the origin is the
-    /// member it was created from, not simply the first one.
-    #[tokio::test]
-    async fn the_origin_member_decides_which_value_is_worn() {
-        let Some(db) = test_db::test_db().await else {
-            return;
-        };
-        let db = db.handle();
-        let id = seed(&db, "Train Dreams").await;
-        attach_member(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
-        let second =
-            attach_member(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
-
-        // The row is told a different member is its origin.
-        entity::Entity::update(entity::ActiveModel {
-            id: Set(id),
-            origin_observation_id: Set(Some(second)),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .unwrap();
-
-        store(&db).update_projection(id).await.unwrap();
-
-        let entity = load(&db, id).await;
-        assert_eq!(
-            entity.search_query.as_deref(),
-            Some("Train Dreams Denis Johnson"),
-            "the origin decides"
-        );
     }
 
     /// A decider that decides nothing. Exists to prove the policy is the caller's: if this store
@@ -937,67 +521,16 @@ mod tests {
             return;
         };
         let db = db.handle();
-        let id = seed(&db, "Train Dreams").await;
+        let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
 
-        let error = store(&db).discard_empty(id).await.unwrap_err();
+        let error = Knowledge::new(&db).discard_empty(id).await.unwrap_err();
         assert!(error.to_string().contains("still owns"), "{error}");
 
-        assert_eq!(load(&db, id).await.id, id, "the row must survive");
-    }
-
-    #[tokio::test]
-    async fn a_live_claim_makes_it_identified() {
-        let Some(db) = test_db::test_db().await else {
-            return;
-        };
-        let db = db.handle();
-        let id = seed(&db, "Train Dreams").await;
-        claim(&db, id, "claim", "wikidata", "Q104919").await;
-
-        store(&db).update_projection(id).await.unwrap();
-
-        let entity = load(&db, id).await;
-        assert_eq!(entity.status, STATUS_IDENTIFIED);
-        assert!(entity.confidence.is_some(), "a claim carries a confidence");
-    }
-
-    #[tokio::test]
-    async fn a_collision_makes_it_contested() {
-        let Some(db) = test_db::test_db().await else {
-            return;
-        };
-        let db = db.handle();
-        let id = seed(&db, "Train Dreams").await;
-        claim(&db, id, "collision", "wikidata", "Q104919").await;
-
-        store(&db).update_projection(id).await.unwrap();
-
-        let entity = load(&db, id).await;
-        assert_eq!(entity.status, "contested");
-        assert_eq!(entity.confidence, None, "a collision is not an identity");
-    }
-
-    #[tokio::test]
-    async fn a_retracted_claim_does_not_identify() {
-        let Some(db) = test_db::test_db().await else {
-            return;
-        };
-        let db = db.handle();
-        let id = seed(&db, "Train Dreams").await;
-        claim(&db, id, "claim", "wikidata", "Q104919").await;
-        evidence::Entity::update_many()
-            .col_expr(
-                evidence::Column::RetractedAt,
-                Expr::value(chrono::Utc::now()),
-            )
-            .filter(evidence::Column::KnowledgeEntityId.eq(id))
-            .exec(&db.conn)
-            .await
-            .unwrap();
-
-        store(&db).update_projection(id).await.unwrap();
-
-        assert_eq!(load(&db, id).await.status, STATUS_PROVISIONAL);
+        assert_eq!(
+            Knowledge::new(&db).get(id).await.unwrap().id,
+            id,
+            "the row must survive"
+        );
     }
 }
 

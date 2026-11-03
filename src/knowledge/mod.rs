@@ -12,5 +12,6 @@ pub mod heuristic;
 pub mod link_decider;
 pub mod merge;
 pub mod normalize;
+mod project;
 pub mod resolve;
 pub mod snapshot;
