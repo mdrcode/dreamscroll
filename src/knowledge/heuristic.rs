@@ -389,14 +389,27 @@ impl LinkDecider for HeuristicLinker {
             }
             let claim = Claim::of(&observation);
 
+            // A claim the graph already holds is the account itself, not merely a lookalike, so
+            // attaching needs no similarity score. Several entities may hold it now that claims are
+            // many-to-one: attach to the best substantiated one (highest confidence, then lowest id)
+            // and leave the others to reconcile, which is where "are these one thing?" is asked.
             if let Some(found) = &claim
-                && let Some(owner) = evidence.owner(found).await?
+                && let Some(best) = evidence
+                    .held_entities(found)
+                    .await?
+                    .into_iter()
+                    .max_by(|a, b| {
+                        a.confidence
+                            .unwrap_or(0.0)
+                            .total_cmp(&b.confidence.unwrap_or(0.0))
+                            .then(b.id.cmp(&a.id))
+                    })
             {
-                claimed.insert(owner);
+                claimed.insert(best.id);
                 decisions.push(Decision {
                     observation,
                     action: Action::Attach {
-                        entity: owner,
+                        entity: best.id,
                         score: 1.0,
                         by_claim: true,
                     },

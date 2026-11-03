@@ -13,6 +13,7 @@ pub mod graph;
 pub mod heuristic;
 pub mod link_decider;
 pub mod merge;
+mod reconcile;
 pub mod normalize;
 pub mod resolve;
 pub mod snapshot;
@@ -21,4 +22,5 @@ mod link;
 mod project;
 
 pub use graph::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
+pub use reconcile::Report as ReconcileReport;
 pub use link::LinkStats;

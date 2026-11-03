@@ -13,6 +13,9 @@ const REQUIRED_SCHEMA_VERSION: i32 = 23;
 /// new `knowledge_identity_id` is `NOT NULL` and the old rows have nothing to put in it. Guarded on
 /// the old column, so a synced database is left alone. Runs before the registry, which would
 /// otherwise try to alter a populated table.
+///
+/// Also drops the single-holder index, which the registry would otherwise try to alter as a
+/// constraint of that name.
 async fn retire_reshaped_claim_tables<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(
         "DO $$ BEGIN \
@@ -28,6 +31,7 @@ async fn retire_reshaped_claim_tables<C: ConnectionTrait>(conn: &C) -> Result<()
                          AND column_name = 'scheme') THEN \
              DROP TABLE knowledge_collisions; \
            END IF; \
+           DROP INDEX IF EXISTS \"idx-knowledge_claims_one_holder\"; \
          END $$",
     )
     .await?;

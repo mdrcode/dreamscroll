@@ -40,13 +40,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity"
     WHERE retracted_at IS NULL
 "#;
 
-/// Still one *entity* per identity, for as long as the graph is single-holder: dropped when claims
-/// become many-to-one.
-const CLAIMS_ONE_HOLDER: &str = r#"
-CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_one_holder"
-    ON knowledge_claims (knowledge_identity_id)
-    WHERE retracted_at IS NULL
-"#;
 
 /// One live record per contested pair and identity: the queue is a set, and a second `resolve` run
 /// re-asserting the same contradiction must add nothing.
@@ -83,7 +76,6 @@ DO $sync$
 BEGIN
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_identity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_entity_identity');
-    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_one_holder');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_collisions_pair');
 END;
 $sync$;
@@ -98,7 +90,6 @@ pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbEr
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(IDENTITIES_UNIQUE).await?;
     conn.execute_unprepared(CLAIMS_UNIQUE).await?;
-    conn.execute_unprepared(CLAIMS_ONE_HOLDER).await?;
     conn.execute_unprepared(COLLISIONS_UNIQUE).await?;
     conn.execute_unprepared(ARRAY_DEFAULTS).await?;
     conn.execute_unprepared(NOT_SELF_MERGED).await?;

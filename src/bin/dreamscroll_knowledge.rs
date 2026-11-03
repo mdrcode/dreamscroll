@@ -21,6 +21,7 @@ enum Command {
     Reset(ResetArgs),
     Compare(CompareArgs),
     Resolve(ResolveArgs),
+    Reconcile(ReconcileArgs),
 }
 
 #[derive(FromArgs)]
@@ -42,6 +43,14 @@ struct MergeArgs {
     #[argh(description = "apply the merge (otherwise it is a dry run)")]
     yes: bool,
 }
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "reconcile")]
+#[argh(
+    description = "ask, for every identity with more than one holder, whether the holders are one \
+                   thing; merge the pairs that score, queue the refusals"
+)]
+struct ReconcileArgs {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "reset")]
@@ -107,13 +116,12 @@ async fn main() -> anyhow::Result<()> {
         Command::Link(_) => {
             let report = link_all_pending(&db).await?;
             println!(
-                "considered {} · already linked {} · linked {} ({} by claim) · created {} · discarded {} · vetoed {}",
+                "considered {} · already linked {} · linked {} ({} by claim) · created {} · vetoed {}",
                 report.considered,
                 report.already_linked,
                 report.attached,
                 report.attached_by_claim,
                 report.created,
-                report.discarded_on_conflict,
                 report.vetoed
             );
         }
@@ -151,6 +159,13 @@ async fn main() -> anyhow::Result<()> {
                     println!("refused at merge time — the entities changed under us")
                 }
             }
+        }
+        Command::Reconcile(_) => {
+            let report = knowledge::Knowledge::new(&db).reconcile().await?;
+            println!(
+                "groups {} · merged {} · refused {} · distinct {}",
+                report.groups, report.merged, report.refused, report.distinct
+            );
         }
         Command::Reset(args) => {
             if !args.yes {
@@ -310,7 +325,6 @@ struct LinkAllPendingReport {
     attached: usize,
     attached_by_claim: usize,
     created: usize,
-    discarded_on_conflict: usize,
     vetoed: u32,
 }
 
@@ -319,7 +333,6 @@ impl LinkAllPendingReport {
         self.attached += part.attached;
         self.attached_by_claim += part.attached_by_claim;
         self.created += part.created;
-        self.discarded_on_conflict += part.discarded_on_conflict;
         self.vetoed += part.vetoed;
     }
 }

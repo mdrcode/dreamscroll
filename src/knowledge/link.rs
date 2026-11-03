@@ -10,7 +10,7 @@
 
 use crate::model;
 
-use super::{Knowledge, evidence::ClaimOutcome, link_decider};
+use super::{Knowledge, link_decider};
 
 // Linking: the one write path that decides before it writes.
 // ---------------------------------------------------------------------------------------------
@@ -73,7 +73,6 @@ pub struct LinkStats {
     pub created: usize,
     /// Created, then discarded: another entity turned out to hold the claim after all, so the row
     /// that was just made owned nothing. Not a merge — nothing was folded into anything.
-    pub discarded_on_conflict: usize,
     /// The same-illumination veto firing.
     pub vetoed: u32,
 }
@@ -91,7 +90,6 @@ impl LinkStats {
         match applied.outcome {
             Outcome::Attached => self.attached += 1,
             Outcome::Created => self.created += 1,
-            Outcome::DiscardedOnConflict => self.discarded_on_conflict += 1,
         }
     }
 }
@@ -108,8 +106,6 @@ enum Outcome {
     Attached,
     /// A new entity was created for it.
     Created,
-    /// A new entity was created and then discarded, because another one already held the claim.
-    DiscardedOnConflict,
 }
 
 /// Apply a linking decision against the knowledge_entities table.
@@ -128,46 +124,45 @@ async fn apply_decision(
 
     // The entity this observation ends up on, resolved once: the one the decision named, or a new
     // one it asked for.
-    let mut target_entity = match &decision.action {
+    let target_entity = match &decision.action {
         link_decider::Action::Attach { entity, .. } => knowledge.get(*entity).await?,
         link_decider::Action::Create { .. } => knowledge.create(observation).await?,
     };
-    let created = target_entity.id;
     knowledge
         .attach_observation(observation.id, target_entity.id)
         .await?;
 
-    // The observation may carry its own claim — a handle we inferred from the capture. If another
-    // entity already holds it, the entity just created owns nothing: discard it and point the
-    // observation at the one that does. Usually this is two observations of one illumination that
-    // both asked for a new entity carrying the same claim; occasionally it is another worker.
-    let mut discarded_on_conflict = false;
+    // The observation may carry its own claim — a handle we inferred from the capture. Two
+    // observations from one capture asserting the same handle are one account, and the
+    // same-illumination veto would refuse the merge that would say so, so the fold happens here and
+    // before anything is written: a claim row on the entity about to be discarded would hold a
+    // foreign key to it.
     if let Some(claim) = &decision.claim
-        && let ClaimOutcome::HeldBy(owner) = knowledge
+        && matches!(decision.action, link_decider::Action::Create { .. })
+        && let Some(holder) = knowledge
             .evidence
-            .record(target_entity.id, claim, observation)
+            .holder_in_illumination(claim, observation.illumination_id)
             .await?
+        && holder != target_entity.id
     {
-        if matches!(decision.action, link_decider::Action::Attach { .. }) {
-            anyhow::bail!(
-                "entities {} and {owner} both hold {}:{}; merging is not implemented yet \
-             (plan/knowledge-canonical-entities.md §Repair)",
-                target_entity.id,
-                claim.scheme,
-                claim.external_id
-            );
-        }
-        // Re-point before discarding: the observation still references the entity being deleted,
-        // and that foreign key is `NO ACTION`.
-        target_entity = knowledge.get(owner).await?;
-        knowledge.attach_observation(observation.id, owner).await?;
-        knowledge.discard_empty(created).await?;
-        discarded_on_conflict = true;
+        // Re-point before discarding: the observation still references the entity being deleted, and
+        // that foreign key is `NO ACTION`.
+        knowledge.attach_observation(observation.id, holder).await?;
+        knowledge.discard_empty(target_entity.id).await?;
+        return Ok(Applied {
+            entity: holder,
+            outcome: Outcome::Attached,
+        });
     }
 
-    let outcome = if discarded_on_conflict {
-        Outcome::DiscardedOnConflict
-    } else if matches!(decision.action, link_decider::Action::Attach { .. }) {
+    if let Some(claim) = &decision.claim {
+        knowledge
+            .evidence
+            .record(target_entity.id, claim, observation)
+            .await?;
+    }
+
+    let outcome = if matches!(decision.action, link_decider::Action::Attach { .. }) {
         Outcome::Attached
     } else {
         Outcome::Created
@@ -323,7 +318,7 @@ mod corpus {
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
     use crate::database;
-    use crate::knowledge::evidence::{ClaimOutcome, Evidence};
+    use crate::knowledge::evidence::Evidence;
     use crate::knowledge::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
     use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
     use crate::test_support::fixtures;
@@ -648,19 +643,24 @@ mod corpus {
             .unwrap()
             .unwrap();
         let claim = crate::knowledge::evidence::Claim::of(&observation).expect("a handle");
-        let outcome = Evidence::from_handle(&db)
+        let evidence = Evidence::from_handle(&db);
+        evidence
             .record(duplicate, &claim, &observation)
             .await
-            .expect("claim write should succeed");
+            .expect("a second holder is not an error: claims are many-to-one");
 
-        assert_eq!(outcome, ClaimOutcome::HeldBy(owner_core.id));
         assert_eq!(
-            crate::model::knowledge_claims::Entity::find()
+            evidence.holders(&claim).await.unwrap(),
+            vec![owner_core.id, duplicate],
+            "both entities hold it, and reconcile decides whether they are one thing"
+        );
+        assert_eq!(
+            crate::model::knowledge_identity::Entity::find()
                 .count(&db.conn)
                 .await
                 .unwrap(),
             1,
-            "the duplicate must not create a second identity row"
+            "one identity, however many entities claim it"
         );
     }
 

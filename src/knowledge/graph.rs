@@ -130,6 +130,14 @@ impl Knowledge {
         Ok(entity)
     }
 
+    /// Fold the holders of each identity that look like one thing, and queue the refusals.
+    ///
+    /// The pass that answers "these two share an identity — are they the same thing?", which sharing
+    /// an identity no longer answers on its own. See [`super::reconcile`].
+    pub async fn reconcile(&self) -> anyhow::Result<super::reconcile::Report> {
+        super::reconcile::reconcile(self, &self.db.conn).await
+    }
+
     /// What a merge would do, without doing it. See [`super::merge`].
     pub async fn merge_preview(
         &self,

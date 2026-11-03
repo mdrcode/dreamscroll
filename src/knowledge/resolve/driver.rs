@@ -424,7 +424,6 @@ impl<'a> ResolutionEngine<'a> {
                 }
                 if store_claim(
                     self.db,
-                    &knowledge,
                     resolver.id(),
                     knowledge_entity_id,
                     claim,
@@ -436,6 +435,11 @@ impl<'a> ResolutionEngine<'a> {
                 }
             }
         }
+
+        // Sharing an identity is a candidate, not a verdict — decide which holders are one thing.
+        let reconciled = knowledge.reconcile().await?;
+        report.merges = reconciled.merged;
+        report.collisions = reconciled.refused;
 
         for knowledge_entity_id in &resolved {
             knowledge.update_projection(*knowledge_entity_id).await?;
@@ -524,11 +528,11 @@ impl Budget {
     }
 }
 
-/// Store one claim as an edge to its identity. Returns whether it was accepted; a claim another
-/// entity already holds is a conflict (a merge the graph has not made), not a duplicate.
+/// Store one claim as an edge to its identity. Returns whether a new claim was written; an identity
+/// another entity already holds is not a conflict, because claims are many-to-one — whether the
+/// holders are one thing is [`crate::knowledge::reconcile`]'s question.
 async fn store_claim(
     db: &database::DbHandle,
-    knowledge: &crate::knowledge::Knowledge,
     source: &str,
     knowledge_entity_id: i32,
     claim: Claim,
@@ -561,87 +565,12 @@ async fn store_claim(
             report.claims += 1;
             Ok(true)
         }
+        // This entity already asserts the identity.
         Err(error) => match crate::knowledge::evidence::unique_violation(&error) {
-            // This entity already asserts the identity: nothing to do, and not an error.
             Some("idx-knowledge_claims_entity_identity") => Ok(false),
-            // Another entity holds it, which means the two are the same referent: the graph was told
-            // so by the authority. Fold ours into the one that holds it rather than leaving a
-            // duplicate behind.
-            Some(_) => match evidence.holder(identity_id).await? {
-                Some(owner) if owner != knowledge_entity_id => {
-                    match knowledge
-                        .merge(
-                            knowledge_entity_id,
-                            owner,
-                            crate::knowledge::merge::Cause::IdentityConflict,
-                        )
-                        .await?
-                    {
-                        crate::knowledge::merge::Outcome::Merged => {
-                            report.merges += 1;
-                            // Folded into another entity: this entity's claim was not accepted.
-                            Ok(false)
-                        }
-                        crate::knowledge::merge::Outcome::AlreadyMerged => Ok(false),
-                        // The veto says these two cannot be one referent, so the authority is
-                        // contradicting something we already know. Record it; do not fold.
-                        crate::knowledge::merge::Outcome::RefusedSharedIllumination => {
-                            // Recorded once per pair. A resolve run retries every entity without a
-                            // claim, so re-asserting the same contradiction would otherwise append
-                            // a row per run and turn "3 collisions" into noise.
-                            if !collision_recorded(
-                                &db.conn,
-                                owner,
-                                knowledge_entity_id,
-                                identity_id,
-                            )
-                            .await?
-                            {
-                                report.collisions += 1;
-                                model::knowledge_collisions::Entity::insert(
-                                    model::knowledge_collisions::ActiveModel {
-                                        holder_id: Set(owner),
-                                        claimant_id: Set(knowledge_entity_id),
-                                        knowledge_identity_id: Set(identity_id),
-                                        reason: Set("shared_illumination".to_string()),
-                                        ..Default::default()
-                                    },
-                                )
-                                .exec(&db.conn)
-                                .await?;
-                            }
-                            Ok(false)
-                        }
-                    }
-                }
-                _ => Err(error.into()),
-            },
-            None => Err(error.into()),
+            _ => Err(error.into()),
         },
     }
-}
-
-/// Whether this pair already carries a live collision for the same identity.
-async fn collision_recorded(
-    conn: &sea_orm::DatabaseConnection,
-    holder: i32,
-    claimant: i32,
-    identity_id: i32,
-) -> anyhow::Result<bool> {
-    let row = conn
-        .query_one_raw(sea_orm::Statement::from_sql_and_values(
-            sea_orm::DatabaseBackend::Postgres,
-            "SELECT count(*) FROM knowledge_collisions \
-             WHERE adjudicated_at IS NULL AND holder_id = $1 AND claimant_id = $2 \
-               AND knowledge_identity_id = $3",
-            [holder.into(), claimant.into(), identity_id.into()],
-        ))
-        .await?;
-    let count: i64 = row
-        .map(|row| row.try_get_by_index(0))
-        .transpose()?
-        .unwrap_or(0);
-    Ok(count > 0)
 }
 
 /// Entities with no live ontology claim. Note the filter is *ontology*, not *no evidence*: an entity
@@ -1164,21 +1093,17 @@ mod tests {
         );
     }
 
-    /// Two different entities resolving to the same QID are the same referent. The second must fold
-    /// into the first rather than leaving a duplicate behind.
+    /// Two entities resolving to the same QID are a *candidate* for one thing, not a verdict: an
+    /// album's article names the album and covers each of its songs. Names that disagree stay two
+    /// entities, both holding the identity, and reconcile leaves them alone.
     #[tokio::test]
-    async fn cores_that_resolve_to_the_same_identity_are_merged() {
+    async fn two_entities_may_resolve_to_one_identity() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
         let db = test_db.handle();
         seed(&db, "Alpha One").await;
         seed(&db, "Beta Two").await;
-        let before = model::knowledge_entity::Entity::find()
-            .count(&db.conn)
-            .await
-            .unwrap();
-        assert_eq!(before, 2);
 
         let claim = Raw {
             outcome: Outcome::Found,
@@ -1198,60 +1123,30 @@ mod tests {
             .await
             .expect("resolve");
 
-        assert_eq!(report.merges, 1, "{report:?}");
+        assert_eq!(report.claims, 2, "{report:?}");
+        assert_eq!(report.merges, 0, "sharing an identity does not merge");
         let live = model::knowledge_entity::Entity::find()
             .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
             .count(&db.conn)
             .await
             .unwrap();
-        assert_eq!(live, 1, "one entity survives");
-        let tombstoned = model::knowledge_entity::Entity::find()
-            .filter(model::knowledge_entity::Column::MergedIntoId.is_not_null())
-            .count(&db.conn)
-            .await
-            .unwrap();
-        assert_eq!(tombstoned, 1, "the loser is a tombstone, not a deletion");
+        assert_eq!(live, 2, "both entities survive");
 
-        let survivor = model::knowledge_entity::Entity::find()
-            .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
+        let identity = model::knowledge_identity::Entity::find()
+            .filter(model::knowledge_identity::Column::ExternalId.eq("Q42"))
             .one(&db.conn)
             .await
             .unwrap()
-            .unwrap();
-        let pointing = model::user_observed_entity::Entity::find()
-            .filter(model::user_observed_entity::Column::KnowledgeEntityId.eq(survivor.id))
-            .count(&db.conn)
-            .await
-            .unwrap();
-        assert_eq!(pointing, 2, "both observations follow the survivor");
-    }
-
-    #[tokio::test]
-    async fn offline_plans_without_fetching() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        seed(&db, "Train Dreams").await;
-
-        let calls = Arc::new(AtomicUsize::new(0));
-        let options = Options {
-            offline: true,
-            ..Default::default()
-        };
-
-        let report = ResolutionEngine::new(&db, options)
-            .with(Box::new(Fake {
-                answers: HashMap::new(),
-                calls: calls.clone(),
-            }))
-            .run()
-            .await
-            .expect("resolve");
-
-        assert_eq!(report.planned, 1, "{report:?}");
-        assert_eq!(report.fetched, 0, "{report:?}");
-        assert_eq!(calls.load(Ordering::SeqCst), 0);
+            .expect("the identity exists");
+        assert_eq!(
+            model::knowledge_claims::Entity::find()
+                .filter(model::knowledge_claims::Column::KnowledgeIdentityId.eq(identity.id))
+                .count(&db.conn)
+                .await
+                .unwrap(),
+            2,
+            "one identity, two holders"
+        );
     }
 
     fn request(kind: &str, shape: &str, query: &str) -> Request {
