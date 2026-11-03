@@ -47,11 +47,12 @@ pub struct Preview {
 /// it, but a rollback would leave the index holding a row that never landed. The second projection is
 /// idempotent and merges are rare, so it doubles as the notification.
 pub(super) async fn merge_into(
+    conn: &sea_orm::DatabaseConnection,
     knowledge: &super::Knowledge,
     loser: i32,
     winner: i32,
 ) -> anyhow::Result<Outcome> {
-    let outcome = merge(&knowledge.db.conn, loser, winner).await?;
+    let outcome = merge(conn, loser, winner).await?;
     if outcome == Outcome::Merged {
         knowledge.update_projection(winner).await?;
         knowledge.forget(loser).await;

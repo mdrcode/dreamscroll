@@ -1,9 +1,10 @@
 //! The knowledge graph's write side: [`Knowledge`].
 //!
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
-//! onto one goes through [`Knowledge`]. The connection-generic functions at the bottom are the
-//! implementation, kept `pub(super)` so `merge` can run them inside its transaction; nothing outside
-//! this module can reach a connection at all.
+//! onto one goes through [`Knowledge`], and the handle itself never leaves it — the primitives below
+//! are private, and the three collaborators (`decider`, `blocker`, `evidence`) are `pub(super)` only
+//! because the linking code that reads them lives in `link.rs`. Outside `knowledge`, a caller sees
+//! [`Knowledge`]'s methods and nothing else.
 
 use std::sync::Arc;
 
@@ -33,8 +34,7 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 /// an index, not for rebuilding this one per call.
 #[derive(Clone)]
 pub struct Knowledge {
-    /// `pub(super)`: `project` and `merge` live in their own files and write through this handle.
-    pub(super) db: DbHandle,
+    db: DbHandle,
     pub(super) decider: Option<Arc<dyn LinkDecider>>,
     /// `Mutex` because `Blocker::changed` takes `&mut`; `Arc` because `Knowledge` is `Clone`. Held
     /// rather than rebuilt so it accumulates everything this store writes.
@@ -70,8 +70,7 @@ impl Knowledge {
     }
 
     /// Tell the held blocker what just happened, if there is one.
-    /// `pub(super)` for the same reason as `db`: projection lives in `project.rs`.
-    pub(super) async fn notify(&self, entity: &model::knowledge_entity::Model) {
+    async fn notify(&self, entity: &model::knowledge_entity::Model) {
         if let Some(blocker) = &self.blocker {
             blocker.lock().await.changed(entity);
         }
@@ -156,7 +155,7 @@ impl Knowledge {
 
     /// Fold `loser` into `winner`. See [`super::merge`].
     pub async fn merge(&self, loser: i32, winner: i32) -> anyhow::Result<super::merge::Outcome> {
-        super::merge::merge_into(self, loser, winner).await
+        super::merge::merge_into(&self.db.conn, self, loser, winner).await
     }
 
     /// The connection the graph writes with, for the one caller that has to read a row before it can
@@ -176,7 +175,7 @@ impl Knowledge {
 
 /// This is the only place a `knowledge_entity_id` is set. `project` reads the resulting membership
 /// to compute the entity's columns, so nothing else about the move is recorded here.
-pub(super) async fn attach<C: ConnectionTrait>(
+async fn attach<C: ConnectionTrait>(
     conn: &C,
     observation_id: i32,
     knowledge_entity_id: i32,
@@ -192,7 +191,7 @@ pub(super) async fn attach<C: ConnectionTrait>(
     Ok(())
 }
 
-pub(super) async fn insert_new<C: ConnectionTrait>(
+async fn insert_new<C: ConnectionTrait>(
     conn: &C,
     observation: &model::user_observed_entity::Model,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
@@ -220,7 +219,7 @@ pub(super) async fn insert_new<C: ConnectionTrait>(
         .await?)
 }
 
-pub(super) async fn fetch<C: ConnectionTrait>(
+async fn fetch<C: ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
@@ -230,7 +229,7 @@ pub(super) async fn fetch<C: ConnectionTrait>(
     found.ok_or_else(|| anyhow::anyhow!("knowledge entity {knowledge_entity_id} does not exist"))
 }
 
-pub(super) async fn discard_empty<C: ConnectionTrait>(
+async fn discard_empty<C: ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<()> {
