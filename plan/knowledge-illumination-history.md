@@ -53,11 +53,11 @@ does not vanish between capture and `link`.
 | --- | --- |
 | `knowledge::link` | no longer skips superseded illuminations; counts them as `stale` in the report |
 | `knowledge::link`, `knowledge::merge` | the one-extraction guard is scoped to `illumination_id`, not `capture_id` |
-| `knowledge::current` | new: the current illumination per capture, for one user (`DISTINCT ON`) |
-| `api::user::get_entity` | both reads scoped through `knowledge::current` |
+| `api::user::get_entity` | owns the currency rule: a `MAX(id)`-per-capture subquery both reads filter on |
+| ~~`knowledge::current`~~ | deleted: one caller, and the same rule was spelled twice |
 
-`get_knowledge_entities_by_type` filters `IlluminationId.is_in(current)`; `get_knowledge_entity`
-rejects an id whose illumination is not current.
+Both reads now filter `IlluminationId.in_subquery(current_illumination())`; an id from a superseded
+illumination simply does not match, so it 404s like any other unknown id.
 
 ### Why the guard moved to the illumination
 

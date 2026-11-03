@@ -186,7 +186,9 @@ timestamp, not a status.
 The graph keeps every illumination; a user sees one.
 
 A capture's **current** illumination is its highest id, and every user-facing read starts there and
-left-joins into entities (`knowledge::current`). Two consequences fall out for free:
+left-joins into entities. That rule lives where the view does
+(`api::user::get_entity::current_illumination`), not here: `link` links every illumination, and the
+API decides which one a user sees. Two consequences fall out for free:
 
 - An entity whose observations are all superseded — a *ghost* — can never surface, because nothing
   queries entities to decide what a user sees.
@@ -217,7 +219,6 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `merge.rs` | fold one entity into another |
 | `evidence.rs`, `stats.rs` | claims about entities, and the counters a run reports |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `current.rs` | which illumination a user sees |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | the one definition of "the same name" |
 

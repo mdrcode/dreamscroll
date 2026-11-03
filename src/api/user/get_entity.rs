@@ -1,6 +1,7 @@
 use anyhow::anyhow;
-use sea_orm::QueryOrder;
 use sea_orm::prelude::*;
+use sea_orm::sea_query::{Expr, ExprTrait};
+use sea_orm::QueryOrder;
 
 use crate::{api::*, auth, database::DbHandle, model};
 
@@ -19,23 +20,34 @@ pub async fn get_knowledge_entity(
         .filter(model::user_observed_entity::Column::UserId.eq(context.user_id()))
         .filter(model::user_observed_entity::Column::Id.eq(id))
         .filter(model::capture::Column::ArchivedAt.is_null())
+        .filter(
+            Expr::col(model::user_observed_entity::Column::IlluminationId)
+                .in_subquery(current_illumination()),
+        )
         .one(&db.conn)
         .await?
         .ok_or_else(|| ApiError::not_found(anyhow!("Knowledge entity with id {id} not found")))?;
 
-    let current = model::illumination::Entity::find()
-        .filter(model::illumination::Column::CaptureId.eq(entity.capture_id))
-        .order_by_desc(model::illumination::Column::Id)
-        .one(&db.conn)
-        .await?
-        .map(|illumination| illumination.id);
-    if current != Some(entity.illumination_id) {
-        return Err(ApiError::not_found(anyhow!(
-            "Knowledge entity {id} belongs to a superseded illumination"
-        )));
-    }
-
     Ok(entity.into())
+}
+
+/// The newest illumination of every capture, as a set of ids.
+///
+/// The graph keeps **every** illumination of a capture — an illumination can be wrong, and the
+/// correct one is often the older reading — while the view shows exactly one. Illuminations are only
+/// ever appended, so the highest id is the latest, and deriving that keeps a stored flag from
+/// drifting.
+///
+/// Both reads below filter on this, so a capture that has been re-read surfaces only its latest
+/// reading, whether through the list or through a stale id.
+fn current_illumination() -> sea_orm::sea_query::SelectStatement {
+    use model::illumination::Column;
+    use sea_orm::sea_query::{Alias, Query};
+    Query::select()
+        .expr_as(Expr::col(Column::Id).max(), Alias::new("id"))
+        .from(model::illumination::Entity)
+        .group_by_col(Column::CaptureId)
+        .to_owned()
 }
 
 /// The knowledge entity an observation was linked to, if it has been.
@@ -50,10 +62,12 @@ pub async fn linked_knowledge_entity(
     let Some(knowledge_entity_id) = observation.knowledge_entity_id else {
         return Ok(None);
     };
-    Ok(model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
-        .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
-        .one(&db.conn)
-        .await?)
+    Ok(
+        model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+            .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
+            .one(&db.conn)
+            .await?,
+    )
 }
 
 /// Fetch the user's unarchived knowledge entities of the requested type.
@@ -64,19 +78,15 @@ pub async fn get_knowledge_entities_by_type(
     context: &auth::Context,
     entity_type: &str,
 ) -> Result<Vec<model::user_observed_entity::Model>, ApiError> {
-    let current = crate::knowledge::current::illumination_ids(&db.conn, context.user_id())
-        .await
-        .map_err(ApiError::internal)?;
-    if current.is_empty() {
-        return Ok(Vec::new());
-    }
-
     Ok(model::user_observed_entity::Entity::find()
         .inner_join(model::capture::Entity)
         .filter(model::user_observed_entity::Column::UserId.eq(context.user_id()))
         .filter(model::capture::Column::ArchivedAt.is_null())
         .filter(model::user_observed_entity::Column::EntityType.eq(entity_type))
-        .filter(model::user_observed_entity::Column::IlluminationId.is_in(current))
+        .filter(
+            Expr::col(model::user_observed_entity::Column::IlluminationId)
+                .in_subquery(current_illumination()),
+        )
         .order_by_asc(model::user_observed_entity::Column::Id)
         .all(&db.conn)
         .await?)
@@ -137,20 +147,19 @@ mod tests {
         let (user, ids) = seed(&db).await;
         let observation_id = ids[0];
 
-        let knowledge_entity_id = model::knowledge_entity::Entity::insert(
-            model::knowledge_entity::ActiveModel {
+        let knowledge_entity_id =
+            model::knowledge_entity::Entity::insert(model::knowledge_entity::ActiveModel {
                 name: sea_orm::Set("active entity".to_string()),
                 entity_type: sea_orm::Set("unknown".to_string()),
                 status: sea_orm::Set("provisional".to_string()),
                 platform: sea_orm::Set(Some("x_twitter".to_string())),
                 platform_handle: sea_orm::Set(Some("tsoding".to_string())),
                 ..Default::default()
-            },
-        )
-        .exec(&db.conn)
-        .await
-        .unwrap()
-        .last_insert_id as i32;
+            })
+            .exec(&db.conn)
+            .await
+            .unwrap()
+            .last_insert_id as i32;
 
         model::user_observed_entity::Entity::update_many()
             .col_expr(
@@ -209,11 +218,25 @@ mod tests {
         let capture = fixtures::capture(&db, user).await;
 
         let stale_illumination = fixtures::illumination(&db, user, capture).await;
-        let stale =
-            fixtures::entity(&db, user, capture, stale_illumination, 0, "superseded reading").await;
+        let stale = fixtures::entity(
+            &db,
+            user,
+            capture,
+            stale_illumination,
+            0,
+            "superseded reading",
+        )
+        .await;
         let current_illumination = fixtures::illumination(&db, user, capture).await;
-        let current =
-            fixtures::entity(&db, user, capture, current_illumination, 0, "current reading").await;
+        let current = fixtures::entity(
+            &db,
+            user,
+            capture,
+            current_illumination,
+            0,
+            "current reading",
+        )
+        .await;
 
         let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
 
@@ -221,7 +244,10 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            listed.into_iter().map(|entity| entity.name).collect::<Vec<_>>(),
+            listed
+                .into_iter()
+                .map(|entity| entity.name)
+                .collect::<Vec<_>>(),
             vec!["current reading"],
             "a superseded reading must never reach the listing"
         );
@@ -229,11 +255,12 @@ mod tests {
         let superseded = get_knowledge_entity(&db, &context, stale)
             .await
             .unwrap_err();
-        assert_eq!(superseded.http_status_code, axum::http::StatusCode::NOT_FOUND);
+        assert_eq!(
+            superseded.http_status_code,
+            axum::http::StatusCode::NOT_FOUND
+        );
 
-        let live = get_knowledge_entity(&db, &context, current)
-            .await
-            .unwrap();
+        let live = get_knowledge_entity(&db, &context, current).await.unwrap();
         assert_eq!(live.name, "current reading");
     }
 }

@@ -351,7 +351,7 @@ mod tests {
 
     /// Every illumination is linked. An illumination can be wrong and the correct illumination is often the
     /// older one, so the graph keeps them all — currency is decided at the view boundary
-    /// (`knowledge::current`), not here.
+    /// (`api::user::get_entity`), not here.
     #[tokio::test]
     async fn a_superseded_illumination_is_linked_too() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
