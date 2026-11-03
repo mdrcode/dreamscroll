@@ -165,7 +165,7 @@ mod tests {
         let state = std::sync::Arc::new(crate::webhook::WebhookState {
             logic: crate::logic::LogicState {
                 service_api,
-                knowledge: crate::knowledge::Knowledge::new(
+                knowledge: crate::knowledge::Knowledge::with_linker(
                     &db,
                     std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
                 ),

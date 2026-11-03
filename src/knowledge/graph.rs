@@ -26,24 +26,34 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 
 /// The knowledge graph, as seen by anyone who writes to it.
 ///
-/// The linker is a constructor argument, not a name in here: which linker decides is a policy the
-/// composition root chooses, and a second one (or a stub in a test) must not need an edit to the
-/// executor.
+/// Most callers are a store: they create, attach, project and merge, and never decide anything. Those
+/// build `Knowledge::new`. Linking is the one operation with a policy, and it is chosen at
+/// construction — `Knowledge::with_linker` — so a caller that only merges does not have to name a
+/// linker it will not consult.
 #[derive(Clone)]
 pub struct Knowledge {
     db: DbHandle,
-    decider: Arc<dyn LinkDecider>,
+    decider: Option<Arc<dyn LinkDecider>>,
     /// The claims about entities. Built here rather than per link: it is a handle, not state, and a
     /// caller that links thousands of illuminations should not be constructing one each time.
     evidence: Evidence,
 }
 
 impl Knowledge {
-    pub fn new(db: &DbHandle, decider: Arc<dyn LinkDecider>) -> Self {
+    /// The graph, for reads and writes. Linking on it fails; see [`Self::with_linker`].
+    pub fn new(db: &DbHandle) -> Self {
         Self {
             db: db.clone(),
-            decider,
+            decider: None,
             evidence: Evidence::from_handle(db),
+        }
+    }
+
+    /// The graph, with the policy that decides how one reading's observations cluster.
+    pub fn with_linker(db: &DbHandle, decider: Arc<dyn LinkDecider>) -> Self {
+        Self {
+            decider: Some(decider),
+            ..Self::new(db)
         }
     }
 
@@ -458,6 +468,13 @@ impl Knowledge {
         illumination: &model::illumination::ModelEx,
         blocker: &mut dyn Blocker,
     ) -> anyhow::Result<LinkStats> {
+        let Some(decider) = &self.decider else {
+            anyhow::bail!(
+                "this Knowledge was built without a linker; use Knowledge::with_linker to link \
+                 illuminations"
+            );
+        };
+
         // The caller's job, checked here: an illumination loaded as a row and nothing else is a
         // reading with no observations, and a decider would happily decide about it. The decider
         // cannot be relied on to notice — it is injectable.
@@ -468,8 +485,7 @@ impl Knowledge {
             illumination.id
         );
 
-        let decisions = self
-            .decider
+        let decisions = decider
             .decide_link(blocker, &self.evidence, illumination)
             .await?;
 
@@ -571,7 +587,7 @@ mod tests {
     }
 
     fn store(db: &DbHandle) -> Knowledge {
-        Knowledge::new(db, Arc::new(crate::knowledge::heuristic::HeuristicLinker))
+        Knowledge::with_linker(db, Arc::new(crate::knowledge::heuristic::HeuristicLinker))
     }
 
     /// One entity with one observation attached, ready to update.
@@ -796,7 +812,7 @@ mod tests {
         fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
 
         let loaded = load_illumination(&db, illumination).await;
-        let inert = Knowledge::new(&db, Arc::new(NoDecisions));
+        let inert = Knowledge::with_linker(&db, Arc::new(NoDecisions));
         let stats = inert.link_illumination(&loaded).await.unwrap();
         assert_eq!(
             stats,
@@ -810,9 +826,30 @@ mod tests {
         );
 
         let loaded = load_illumination(&db, illumination).await;
-        let linking = Knowledge::new(&db, Arc::new(crate::knowledge::heuristic::HeuristicLinker));
+        let linking =
+            Knowledge::with_linker(&db, Arc::new(crate::knowledge::heuristic::HeuristicLinker));
         let stats = linking.link_illumination(&loaded).await.unwrap();
         assert_eq!(stats.created, 1, "the linker it was built with decides");
+    }
+
+    /// A store built for writing has no policy, and linking on it says so rather than pretending.
+    #[tokio::test]
+    async fn a_store_without_a_linker_refuses_to_link() {
+        let Some(test_db) = test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let user = fixtures::user(&db, "no_linker").await;
+        let capture = fixtures::capture(&db, user).await;
+        let illumination = fixtures::illumination(&db, user, capture).await;
+        fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
+        let loaded = load_illumination(&db, illumination).await;
+
+        let error = Knowledge::new(&db)
+            .link_illumination(&loaded)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("without a linker"), "{error}");
     }
 
     /// The executor owns this precondition, not the decider: the decider here decides nothing and
@@ -837,7 +874,7 @@ mod tests {
             .unwrap();
         assert!(!unloaded.observations.is_loaded());
 
-        let error = Knowledge::new(&db, Arc::new(NoDecisions))
+        let error = Knowledge::with_linker(&db, Arc::new(NoDecisions))
             .link_illumination(&unloaded)
             .await
             .unwrap_err();

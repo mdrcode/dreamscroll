@@ -410,6 +410,7 @@ impl<'a> ResolutionEngine<'a> {
             ..Default::default()
         };
         let mut resolved: HashSet<i32> = HashSet::new();
+        let knowledge = crate::knowledge::Knowledge::new(self.db);
 
         for resolver in &self.resolvers {
             if ctx.rate_limited_after().is_some() {
@@ -422,7 +423,7 @@ impl<'a> ResolutionEngine<'a> {
                     continue;
                 }
                 if store_claim(
-                    &self.db.conn,
+                    &knowledge,
                     resolver.id(),
                     knowledge_entity_id,
                     claim,
@@ -436,12 +437,7 @@ impl<'a> ResolutionEngine<'a> {
         }
 
         for knowledge_entity_id in &resolved {
-            crate::knowledge::Knowledge::new(
-                self.db,
-                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
-            )
-            .update_projection(*knowledge_entity_id)
-            .await?;
+            knowledge.update_projection(*knowledge_entity_id).await?;
         }
         report.entities_resolved = resolved.len();
         ctx.absorb(&mut report);
@@ -530,7 +526,7 @@ impl Budget {
 /// Store one claim as `ontology` evidence. Returns whether it was accepted; a claim another entity
 /// already holds is a conflict (a merge the graph has not made), not a duplicate.
 async fn store_claim(
-    conn: &sea_orm::DatabaseConnection,
+    knowledge: &crate::knowledge::Knowledge,
     source: &str,
     knowledge_entity_id: i32,
     claim: Claim,
@@ -554,7 +550,7 @@ async fn store_claim(
             confidence: Set(Some(claim.confidence)),
             ..Default::default()
         })
-        .exec(conn)
+        .exec(knowledge.conn())
         .await;
 
     match insert {
@@ -572,12 +568,13 @@ async fn store_claim(
                     id: identity.clone(),
                     handle: None,
                 };
-                if let Some(owner) = crate::knowledge::evidence::Evidence::new(conn.clone())
-                    .owner(&claim)
-                    .await?
+                if let Some(owner) =
+                    crate::knowledge::evidence::Evidence::new(knowledge.conn().clone())
+                        .owner(&claim)
+                        .await?
                     && owner != knowledge_entity_id
                 {
-                    match crate::knowledge::merge::merge(conn, knowledge_entity_id, owner).await? {
+                    match knowledge.merge(knowledge_entity_id, owner).await? {
                         crate::knowledge::merge::Outcome::Merged => report.merges += 1,
                         crate::knowledge::merge::Outcome::AlreadyMerged => {}
                         // The veto says these two cannot be one referent, so the authority is
@@ -586,8 +583,13 @@ async fn store_claim(
                             // Recorded once per pair. A resolve run retries every entity without a
                             // claim, so re-asserting the same contradiction would otherwise append
                             // a row per run and turn "3 collisions" into noise.
-                            if !collision_recorded(conn, owner, knowledge_entity_id, &identity)
-                                .await?
+                            if !collision_recorded(
+                                knowledge.conn(),
+                                owner,
+                                knowledge_entity_id,
+                                &identity,
+                            )
+                            .await?
                             {
                                 report.collisions += 1;
                                 model::knowledge_evidence::Entity::insert(
@@ -604,7 +606,7 @@ async fn store_claim(
                                         ..Default::default()
                                     },
                                 )
-                                .exec(conn)
+                                .exec(knowledge.conn())
                                 .await?;
                             }
                         }
@@ -920,7 +922,7 @@ mod tests {
         .await
         .unwrap();
 
-        crate::knowledge::Knowledge::new(
+        crate::knowledge::Knowledge::with_linker(
             &db,
             std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
         )
@@ -976,7 +978,7 @@ mod tests {
             .unwrap();
         }
 
-        crate::knowledge::Knowledge::new(
+        crate::knowledge::Knowledge::with_linker(
             &db,
             std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
         )

@@ -115,7 +115,7 @@ mod tests {
         fixtures::entity(&db, user, capture, first, 0, "Train Dreams").await;
 
         let stats = link(
-            &crate::knowledge::Knowledge::new(
+            &crate::knowledge::Knowledge::with_linker(
                 &db,
                 std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
             ),
@@ -132,7 +132,7 @@ mod tests {
         fixtures::entity(&db, user, capture, second, 0, "Train Dreams").await;
 
         let stats = link(
-            &crate::knowledge::Knowledge::new(
+            &crate::knowledge::Knowledge::with_linker(
                 &db,
                 std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
             ),
@@ -169,7 +169,7 @@ mod tests {
         fixtures::entity(&db, owner, capture, illumination, 0, "Train Dreams").await;
 
         let error = link(
-            &crate::knowledge::Knowledge::new(
+            &crate::knowledge::Knowledge::with_linker(
                 &db,
                 std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
             ),

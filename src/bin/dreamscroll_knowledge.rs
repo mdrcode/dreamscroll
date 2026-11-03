@@ -119,7 +119,8 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         Command::Merge(args) => {
-            let preview = knowledge::merge::preview(&db.conn, args.loser, args.winner).await?;
+            let store = knowledge::Knowledge::new(&db);
+            let preview = store.merge_preview(args.loser, args.winner).await?;
             println!(
                 "merge {} -> {} · observations {} · evidence {} · shared illuminations {}",
                 args.loser,
@@ -139,7 +140,7 @@ async fn main() -> anyhow::Result<()> {
                 println!("dry run; pass --yes to apply");
                 return Ok(());
             }
-            match knowledge::merge::merge(&db.conn, args.loser, args.winner).await? {
+            match store.merge(args.loser, args.winner).await? {
                 knowledge::merge::Outcome::Merged => {
                     println!("merged; {} is now a tombstone", args.loser)
                 }
@@ -338,7 +339,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
         .all(&db.conn)
         .await?;
 
-    let knowledge = knowledge::Knowledge::new(
+    let knowledge = knowledge::Knowledge::with_linker(
         db,
         std::sync::Arc::new(knowledge::heuristic::HeuristicLinker),
     );

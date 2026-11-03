@@ -11,13 +11,11 @@
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait,
-    TransactionTrait,
-    QueryFilter, Set, Statement,
+    QueryFilter, Set, Statement, TransactionTrait,
 };
 
 use crate::model::{
-    knowledge_entity as entity, knowledge_evidence as evidence,
-    user_observed_entity as observation,
+    knowledge_entity as entity, knowledge_evidence as evidence, user_observed_entity as observation,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -43,7 +41,20 @@ pub struct Preview {
     pub shared_illuminations: i64,
 }
 
-pub async fn preview<C: ConnectionTrait>(
+impl super::Knowledge {
+    /// What a merge would do, without doing it.
+    pub async fn merge_preview(&self, loser: i32, winner: i32) -> anyhow::Result<Preview> {
+        preview(self.conn(), loser, winner).await
+    }
+
+    /// Fold `loser` into `winner`. See [`merge`] for what that means and why it can refuse.
+    pub async fn merge(&self, loser: i32, winner: i32) -> anyhow::Result<Outcome> {
+        merge(self.conn(), loser, winner).await
+    }
+}
+
+/// What a merge would do. Free because [`merge_in_transaction`] and the method both use it.
+pub(super) async fn preview<C: ConnectionTrait>(
     conn: &C,
     loser: i32,
     winner: i32,
@@ -90,11 +101,7 @@ pub async fn preview<C: ConnectionTrait>(
 ///
 /// The unit is the illumination, not the capture: re-illuminating an image is a separate illumination, and
 /// its names may legitimately join the same entity. See `plan/knowledge-illumination-history.md`.
-pub async fn merge(
-    conn: &DatabaseConnection,
-    loser: i32,
-    winner: i32,
-) -> anyhow::Result<Outcome> {
+async fn merge(conn: &DatabaseConnection, loser: i32, winner: i32) -> anyhow::Result<Outcome> {
     // Five writes that must all land: repointing observations, dropping the evidence that would
     // collide, moving the rest, recording the merge and tombstoning the loser. A crash between any
     // two of them leaves two live entities claiming one identity, which nothing can repair.
@@ -127,7 +134,10 @@ async fn merge_in_transaction<C: ConnectionTrait>(
 
     // Observations follow the winner. This is the only column a merge touches on them.
     observation::Entity::update_many()
-        .col_expr(observation::Column::KnowledgeEntityId, Expr::value(Some(winner)))
+        .col_expr(
+            observation::Column::KnowledgeEntityId,
+            Expr::value(Some(winner)),
+        )
         .filter(observation::Column::KnowledgeEntityId.eq(loser))
         .exec(conn)
         .await?;
@@ -145,7 +155,10 @@ async fn merge_in_transaction<C: ConnectionTrait>(
     .await?;
 
     evidence::Entity::update_many()
-        .col_expr(evidence::Column::KnowledgeEntityId, Expr::value(Some(winner)))
+        .col_expr(
+            evidence::Column::KnowledgeEntityId,
+            Expr::value(Some(winner)),
+        )
         .filter(evidence::Column::KnowledgeEntityId.eq(loser))
         .exec(conn)
         .await?;
@@ -163,10 +176,7 @@ async fn merge_in_transaction<C: ConnectionTrait>(
 
     // Tombstone, never delete: a stale pointer still resolves.
     entity::Entity::update_many()
-        .col_expr(
-            entity::Column::MergedIntoId,
-            Expr::value(Some(winner)),
-        )
+        .col_expr(entity::Column::MergedIntoId, Expr::value(Some(winner)))
         .filter(entity::Column::Id.eq(loser))
         .exec(conn)
         .await?;
@@ -312,7 +322,9 @@ mod tests {
         let user_id = fixtures::user(&db, "merge_veto").await;
         let capture_id = fixtures::capture(&db, user_id).await;
         let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
-        for (position, knowledge_entity_id, name) in [(0, book, "Corduroy"), (1, character, "Corduroy")] {
+        for (position, knowledge_entity_id, name) in
+            [(0, book, "Corduroy"), (1, character, "Corduroy")]
+        {
             obs::Entity::insert(obs::ActiveModel {
                 user_id: Set(user_id),
                 capture_id: Set(capture_id),

@@ -14,7 +14,7 @@ use crate::model;
 
 /// Link every illumination that still has unlinked observations.
 pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
-    let knowledge = crate::knowledge::Knowledge::new(
+    let knowledge = crate::knowledge::Knowledge::with_linker(
         db,
         std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
     );
