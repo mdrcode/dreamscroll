@@ -1,8 +1,8 @@
 //! Claims: what a capture asserted, and who holds it.
 //!
-//! A claim is evidence of one kind — `kind = 'claim'` — and the identity index is what makes it
-//! useful: no two entities may hold a *live* claim to the same `(scheme, id)`. Retracting frees the
-//! slot, so a claim is a fact with a timestamp rather than a status.
+//! A claim is a fact about the world with provenance attached, and the identity index is what makes
+//! it useful: no two entities may hold a *live* claim to the same `(scheme, external_id)`.
+//! Retracting frees the slot, so a claim is a fact with a timestamp rather than a status.
 //!
 //! Two questions live here, and nothing else does:
 //!
@@ -24,10 +24,10 @@ use crate::model;
 pub struct Claim {
     /// The platform, canonicalised by the illumination lib: `x_twitter`, `reddit`, …
     pub scheme: String,
-    /// The handle in its comparable form, so two spellings agree.
-    pub id: String,
-    /// The handle as written, kept for the evidence payload.
-    pub handle: Option<String>,
+    /// The identifier in its comparable form, so two spellings agree.
+    pub external_id: String,
+    /// The identifier as written, when a capture carried it verbatim.
+    pub surface: Option<String>,
 }
 
 impl Claim {
@@ -41,8 +41,8 @@ impl Claim {
         let handle = observation.platform_handle.as_deref()?;
         Some(Self {
             scheme: normalize::comparable(platform),
-            id: normalize::comparable(handle),
-            handle: Some(handle.to_string()),
+            external_id: normalize::comparable(handle),
+            surface: Some(handle.to_string()),
         })
     }
 
@@ -63,7 +63,7 @@ impl Claim {
 
     /// [`Self::key`] for a claim already built; equal to it for the claim that observation yields.
     pub fn identity(&self) -> String {
-        format!("{}:{}", self.scheme, self.id)
+        format!("{}:{}", self.scheme, self.external_id)
     }
 }
 
@@ -102,11 +102,13 @@ impl Evidence {
             .conn
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT knowledge_entity_id FROM knowledge_evidence \
-                 WHERE kind = 'claim' AND retracted_at IS NULL \
-                   AND value->>'scheme' = $1 AND value->>'id' = $2 \
+                "SELECT knowledge_entity_id FROM knowledge_claims \
+                 WHERE scheme = $1 AND external_id = $2 AND retracted_at IS NULL \
                  LIMIT 1",
-                [claim.scheme.clone().into(), claim.id.clone().into()],
+                [
+                    claim.scheme.clone().into(),
+                    claim.external_id.clone().into(),
+                ],
             ))
             .await?;
         Ok(match row {
@@ -134,14 +136,11 @@ impl Evidence {
         }
 
         let insert =
-            model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
+            model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
                 knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
-                kind: sea_orm::Set("claim".to_string()),
-                value: sea_orm::Set(serde_json::json!({
-                    "scheme": claim.scheme,
-                    "id": claim.id,
-                    "handle": claim.handle,
-                })),
+                scheme: sea_orm::Set(claim.scheme.clone()),
+                external_id: sea_orm::Set(claim.external_id.clone()),
+                surface: sea_orm::Set(claim.surface.clone()),
                 source: sea_orm::Set("platform".to_string()),
                 method: sea_orm::Set(Some("capture".to_string())),
                 user_observed_entity_id: sea_orm::Set(Some(observation.id)),

@@ -17,12 +17,12 @@ use sea_orm::{
     Statement, TransactionTrait,
 };
 
-use super::record::{Snapshot, CORE_TABLE, EVIDENCE_TABLE};
+use super::record::{CLAIMS_TABLE, CORE_TABLE, EVIDENCE_TABLE, Snapshot};
 
 const OBSERVATION_TABLE: &str = "user_observed_entities";
 use crate::database;
 use crate::model::{
-    knowledge_entity as entity, knowledge_evidence as evidence,
+    knowledge_claims as claims, knowledge_entity as entity, knowledge_evidence as evidence,
     user_observed_entity as observation,
 };
 
@@ -31,11 +31,13 @@ pub struct Report {
     /// Observations whose `knowledge_entity_id` was cleared.
     pub unlinked: u64,
     pub evidence: u64,
+    pub claims: u64,
     pub entities: u64,
     /// `None` when there was nothing to snapshot.
     pub snapshot: Option<Snapshot>,
     pub snapshot_entities: u64,
     pub snapshot_evidence: u64,
+    pub snapshot_claims: u64,
     pub snapshot_members: u64,
 }
 
@@ -56,20 +58,24 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
 
                 let snapshot_entities = copy(txn, &snapshot.entities(), CORE_TABLE).await?;
                 let snapshot_evidence = copy(txn, &snapshot.evidence(), EVIDENCE_TABLE).await?;
+                let snapshot_claims = copy(txn, &snapshot.claims(), CLAIMS_TABLE).await?;
                 let snapshot_members = copy_membership(txn, &snapshot.membership()).await?;
 
                 // Order follows the foreign keys: observations first, then evidence, then entities.
                 let unlinked = unlink(txn).await?;
                 let evidence = remove_evidence(txn).await?;
+                let claims = remove_claims(txn).await?;
                 let entities = remove_entities(txn).await?;
 
                 Ok(Report {
                     unlinked,
                     evidence,
+                    claims,
                     entities,
                     snapshot: Some(snapshot),
                     snapshot_entities,
                     snapshot_evidence,
+                    snapshot_claims,
                     snapshot_members,
                 })
             })
@@ -80,11 +86,7 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
 }
 
 /// Names are generated here (digits and a `T`), never user input, so quoting them is sufficient.
-async fn copy<C: ConnectionTrait>(
-    conn: &C,
-    snapshot: &str,
-    source: &str,
-) -> anyhow::Result<u64> {
+async fn copy<C: ConnectionTrait>(conn: &C, snapshot: &str, source: &str) -> anyhow::Result<u64> {
     conn.execute_unprepared(&format!(
         "CREATE TABLE \"{snapshot}\" AS SELECT * FROM \"{source}\""
     ))
@@ -114,7 +116,10 @@ async fn count<C: ConnectionTrait>(conn: &C, table: &str) -> anyhow::Result<u64>
 
 async fn unlink<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
     let result = observation::Entity::update_many()
-        .col_expr(observation::Column::KnowledgeEntityId, Expr::value(Option::<i32>::None))
+        .col_expr(
+            observation::Column::KnowledgeEntityId,
+            Expr::value(Option::<i32>::None),
+        )
         .filter(observation::Column::KnowledgeEntityId.is_not_null())
         .exec(conn)
         .await?;
@@ -128,8 +133,18 @@ async fn remove_evidence<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
         .rows_affected)
 }
 
+async fn remove_claims<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
+    Ok(claims::Entity::delete_many()
+        .exec(conn)
+        .await?
+        .rows_affected)
+}
+
 async fn remove_entities<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
-    Ok(entity::Entity::delete_many().exec(conn).await?.rows_affected)
+    Ok(entity::Entity::delete_many()
+        .exec(conn)
+        .await?
+        .rows_affected)
 }
 
 #[cfg(test)]
@@ -146,7 +161,10 @@ mod tests {
     fn group(rows: Vec<(i32, i32)>) -> Vec<Vec<i32>> {
         let mut groups: BTreeMap<i32, Vec<i32>> = BTreeMap::new();
         for (observation_id, knowledge_entity_id) in rows {
-            groups.entry(knowledge_entity_id).or_default().push(observation_id);
+            groups
+                .entry(knowledge_entity_id)
+                .or_default()
+                .push(observation_id);
         }
         let mut partition: Vec<Vec<i32>> = groups.into_values().collect();
         for group in &mut partition {
@@ -215,7 +233,15 @@ mod tests {
         };
         let db = test_db.handle();
         seed(&db).await;
-        crate::test_support::link::link_all(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
+        let claimed = entity::Entity::find()
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("linking made an entity");
+        fixtures::claim(&db, claimed.id, "wikidata", "Q317521", "test", None, None).await;
         let before = live_partition(&db).await;
         assert_eq!(before, vec![vec![1, 2], vec![3]], "{before:?}");
 
@@ -224,6 +250,8 @@ mod tests {
         assert_eq!(report.unlinked, 3, "{report:?}");
         assert_eq!(report.entities, 2, "{report:?}");
         assert_eq!(report.snapshot_entities, 2, "{report:?}");
+        assert_eq!(report.snapshot_claims, 1, "{report:?}");
+        assert_eq!(report.claims, 1, "{report:?}");
         assert_eq!(report.snapshot_members, 3, "{report:?}");
         assert_eq!(
             observation::Entity::find().count(&db.conn).await.unwrap(),
@@ -240,8 +268,14 @@ mod tests {
             "the snapshot must reproduce the partition it replaced"
         );
 
-        crate::test_support::link::link_all(&db).await.expect("rebuild should succeed");
-        assert_eq!(live_partition(&db).await, before, "rebuild must be deterministic");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("rebuild should succeed");
+        assert_eq!(
+            live_partition(&db).await,
+            before,
+            "rebuild must be deterministic"
+        );
     }
 
     #[tokio::test]
@@ -252,9 +286,13 @@ mod tests {
         let db = test_db.handle();
         seed(&db).await;
 
-        crate::test_support::link::link_all(&db).await.expect("build should succeed");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
         let first = reset(&db).await.expect("reset should succeed");
-        crate::test_support::link::link_all(&db).await.expect("rebuild should succeed");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("rebuild should succeed");
         let second = reset(&db).await.expect("second reset should succeed");
 
         let (first, second) = (

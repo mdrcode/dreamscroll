@@ -28,6 +28,15 @@ pub struct Model {
     #[sea_orm(nullable)]
     pub surface: Option<String>,
 
+    /// What the authority said about the thing: its label, description and classes. Null for a
+    /// claim read off a capture. An `enrichment` record is the planned home for this; until then it
+    /// rides on the claim that produced it.
+    #[sea_orm(nullable)]
+    pub label: Option<String>,
+    #[sea_orm(nullable)]
+    pub description: Option<String>,
+    pub classes: Vec<String>,
+
     /// Who asserted it: `wikidata`, `wikimedia`, `platform`.
     pub source: String,
     /// How we got it: `exact_label`, `p2002`, `capture`.

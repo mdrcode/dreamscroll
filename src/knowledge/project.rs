@@ -15,7 +15,9 @@
 
 use std::collections::HashSet;
 
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
+};
 
 use crate::model;
 
@@ -113,17 +115,19 @@ pub(super) async fn project<C: ConnectionTrait>(
         ),
     };
 
-    let evidence_rows = evidence::Entity::find()
-        .filter(evidence::Column::KnowledgeEntityId.eq(knowledge_entity_id))
-        .filter(evidence::Column::Kind.is_in(["claim", "collision"]))
-        .filter(evidence::Column::RetractedAt.is_null())
+    let claims = model::knowledge_claims::Entity::find()
+        .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(knowledge_entity_id))
+        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
         .all(conn)
         .await?;
-    let contested = evidence_rows.iter().any(|row| row.kind == "collision");
-    let claims: Vec<_> = evidence_rows
-        .iter()
-        .filter(|row| row.kind == "claim")
-        .collect();
+    // The queue, not evidence: a live collision against this entity makes its identity disputed.
+    let contested = evidence::Entity::find()
+        .filter(evidence::Column::KnowledgeEntityId.eq(knowledge_entity_id))
+        .filter(evidence::Column::Kind.eq("collision"))
+        .filter(evidence::Column::RetractedAt.is_null())
+        .count(conn)
+        .await?
+        > 0;
 
     let status = if contested {
         "contested"
@@ -235,10 +239,14 @@ mod tests {
         crate::knowledge::Knowledge::new(db)
     }
 
-    async fn claim(db: &DbHandle, id: i32, kind: &str, scheme: &str, value: &str) {
+    async fn claim(db: &DbHandle, id: i32, scheme: &str, value: &str) {
+        fixtures::claim(db, id, scheme, value, "test", None, None).await;
+    }
+
+    async fn collision(db: &DbHandle, id: i32, scheme: &str, value: &str) {
         evidence::Entity::insert(evidence::ActiveModel {
             knowledge_entity_id: Set(id),
-            kind: Set(kind.to_string()),
+            kind: Set("collision".to_string()),
             value: Set(serde_json::json!({ "scheme": scheme, "id": value })),
             source: Set("test".to_string()),
             ..Default::default()
@@ -407,7 +415,7 @@ mod tests {
         };
         let db = db.handle();
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        claim(&db, id, "claim", "wikidata", "Q104919").await;
+        claim(&db, id, "wikidata", "Q104919").await;
 
         store(&db).update_projection(id).await.unwrap();
 
@@ -423,7 +431,7 @@ mod tests {
         };
         let db = db.handle();
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        claim(&db, id, "collision", "wikidata", "Q104919").await;
+        collision(&db, id, "wikidata", "Q104919").await;
 
         store(&db).update_projection(id).await.unwrap();
 
@@ -439,13 +447,13 @@ mod tests {
         };
         let db = db.handle();
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        claim(&db, id, "claim", "wikidata", "Q104919").await;
-        evidence::Entity::update_many()
+        claim(&db, id, "wikidata", "Q104919").await;
+        model::knowledge_claims::Entity::update_many()
             .col_expr(
-                evidence::Column::RetractedAt,
+                model::knowledge_claims::Column::RetractedAt,
                 Expr::value(chrono::Utc::now()),
             )
-            .filter(evidence::Column::KnowledgeEntityId.eq(id))
+            .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(id))
             .exec(&db.conn)
             .await
             .unwrap();

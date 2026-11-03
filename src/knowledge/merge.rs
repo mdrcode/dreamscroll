@@ -15,7 +15,8 @@ use sea_orm::{
 };
 
 use crate::model::{
-    knowledge_entity as entity, knowledge_evidence as evidence, user_observed_entity as observation,
+    knowledge_claims as claims, knowledge_entity as entity, knowledge_evidence as evidence,
+    user_observed_entity as observation,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -100,8 +101,8 @@ pub(super) async fn preview<C: ConnectionTrait>(
         .filter(observation::Column::KnowledgeEntityId.eq(loser))
         .count(conn)
         .await?;
-    let evidence_count = evidence::Entity::find()
-        .filter(evidence::Column::KnowledgeEntityId.eq(loser))
+    let claim_count = claims::Entity::find()
+        .filter(claims::Column::KnowledgeEntityId.eq(loser))
         .count(conn)
         .await?;
     let row = conn
@@ -119,7 +120,7 @@ pub(super) async fn preview<C: ConnectionTrait>(
         .unwrap_or(0);
     Ok(Preview {
         observations,
-        evidence: evidence_count,
+        evidence: claim_count,
         shared_illuminations,
     })
 }
@@ -211,16 +212,21 @@ async fn merge_in_transaction<C: ConnectionTrait>(
     // is dropped first. It is the same fact stated twice, and the winner's copy is the one kept.
     conn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "DELETE FROM knowledge_evidence l USING knowledge_evidence w \
+        "DELETE FROM knowledge_claims l USING knowledge_claims w \
          WHERE l.knowledge_entity_id = $1 AND w.knowledge_entity_id = $2 \
-           AND l.kind = 'claim' AND w.kind = 'claim' \
            AND w.retracted_at IS NULL \
-           AND l.value->>'scheme' IS NOT DISTINCT FROM w.value->>'scheme' \
-           AND l.value->>'id' IS NOT DISTINCT FROM w.value->>'id'",
+           AND l.scheme = w.scheme AND l.external_id = w.external_id",
         [loser.into(), winner.into()],
     ))
     .await?;
 
+    claims::Entity::update_many()
+        .col_expr(claims::Column::KnowledgeEntityId, Expr::value(Some(winner)))
+        .filter(claims::Column::KnowledgeEntityId.eq(loser))
+        .exec(conn)
+        .await?;
+    // The rest of the old evidence kinds — a merge log row and any collision queue entries — follow
+    // the loser too. They move to their own tables later in this refactor.
     evidence::Entity::update_many()
         .col_expr(
             evidence::Column::KnowledgeEntityId,
@@ -461,18 +467,16 @@ mod tests {
         .await
         .unwrap();
 
-        evidence::Entity::insert(evidence::ActiveModel {
-            knowledge_entity_id: Set(loser),
-            kind: Set("claim".to_string()),
-            value: Set(serde_json::json!({"scheme": "wikidata", "id": "Q317521"})),
-            source: Set("wikidata".to_string()),
-            method: Set(Some("exact_label".to_string())),
-            confidence: Set(Some(0.8)),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .unwrap();
+        fixtures::claim(
+            &db,
+            loser,
+            "wikidata",
+            "Q317521",
+            "wikidata",
+            Some("exact_label"),
+            Some(0.8),
+        )
+        .await;
 
         let outcome = merge(&db.conn, loser, winner, Cause::IdentityConflict)
             .await
@@ -489,14 +493,13 @@ mod tests {
             "the observation follows the winner"
         );
         assert_eq!(
-            evidence::Entity::find()
-                .filter(evidence::Column::KnowledgeEntityId.eq(winner))
-                .filter(evidence::Column::Kind.eq("claim"))
+            claims::Entity::find()
+                .filter(claims::Column::KnowledgeEntityId.eq(winner))
                 .count(&db.conn)
                 .await
                 .unwrap(),
             1,
-            "the evidence moved"
+            "the claim moved"
         );
         assert_eq!(
             evidence::Entity::find()

@@ -61,6 +61,30 @@ pub async fn illumination(db: &DbHandle, user_id: i32, capture_id: i32) -> i32 {
 ///
 /// The shape projection and discard both operate on: a row whose columns are derived from its
 /// members, and one member to derive them from.
+/// A claim row, the shape the resolver or a capture writes.
+pub async fn claim(
+    db: &DbHandle,
+    knowledge_entity_id: i32,
+    scheme: &str,
+    external_id: &str,
+    source: &str,
+    method: Option<&str>,
+    confidence: Option<f32>,
+) {
+    model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
+        knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
+        scheme: sea_orm::Set(scheme.to_string()),
+        external_id: sea_orm::Set(external_id.to_string()),
+        source: sea_orm::Set(source.to_string()),
+        method: sea_orm::Set(method.map(str::to_string)),
+        confidence: sea_orm::Set(confidence),
+        ..Default::default()
+    })
+    .exec(&db.conn)
+    .await
+    .unwrap();
+}
+
 pub async fn knowledge_entity_with_member(db: &DbHandle, name: &str) -> i32 {
     let user_id = user(db, "project").await;
     let capture_id = capture(db, user_id).await;

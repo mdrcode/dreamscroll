@@ -154,7 +154,7 @@ async fn apply_decision(
              (plan/knowledge-canonical-entities.md §Repair)",
                 target_entity.id,
                 claim.scheme,
-                claim.id
+                claim.external_id
             );
         }
         // Re-point before discarding: the observation still references the entity being deleted,
@@ -325,10 +325,7 @@ mod corpus {
     use crate::database;
     use crate::knowledge::evidence::{ClaimOutcome, Evidence};
     use crate::knowledge::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
-    use crate::model::{
-        knowledge_entity as entity, knowledge_evidence as evidence,
-        user_observed_entity as observation,
-    };
+    use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
     use crate::test_support::fixtures;
 
     struct Capture {
@@ -467,7 +464,10 @@ mod corpus {
         assert_eq!(linked.len(), 2);
         assert!(linked.iter().all(|id| *id == linked[0] && id.is_some()));
         assert_eq!(
-            evidence::Entity::find().count(&db.conn).await.unwrap(),
+            crate::model::knowledge_claims::Entity::find()
+                .count(&db.conn)
+                .await
+                .unwrap(),
             1,
             "one claim, on the entity that survived"
         );
@@ -596,7 +596,13 @@ mod corpus {
             1,
             "the claim discarded the duplicate"
         );
-        assert_eq!(evidence::Entity::find().count(&db.conn).await.unwrap(), 1);
+        assert_eq!(
+            crate::model::knowledge_claims::Entity::find()
+                .count(&db.conn)
+                .await
+                .unwrap(),
+            1
+        );
     }
 
     /// The concurrency guard, tested directly: a second entity asking for an identifier that is
@@ -649,7 +655,10 @@ mod corpus {
 
         assert_eq!(outcome, ClaimOutcome::HeldBy(owner_core.id));
         assert_eq!(
-            evidence::Entity::find().count(&db.conn).await.unwrap(),
+            crate::model::knowledge_claims::Entity::find()
+                .count(&db.conn)
+                .await
+                .unwrap(),
             1,
             "the duplicate must not create a second identity row"
         );

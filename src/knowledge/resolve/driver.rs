@@ -535,25 +535,20 @@ async fn store_claim(
     report: &mut Report,
 ) -> anyhow::Result<bool> {
     let (scheme, identity) = (claim.scheme.clone(), claim.id.clone());
-    let value = json!({
-        "scheme": claim.scheme,
-        "id": claim.id,
-        "label": claim.label,
-        "description": claim.description,
-        "classes": claim.classes,
-    });
-    let insert =
-        model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
-            knowledge_entity_id: Set(knowledge_entity_id),
-            kind: Set("claim".to_string()),
-            value: Set(value),
-            source: Set(source.to_string()),
-            method: Set(Some(claim.method)),
-            confidence: Set(Some(claim.confidence)),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await;
+    let insert = model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
+        knowledge_entity_id: Set(knowledge_entity_id),
+        scheme: Set(claim.scheme),
+        external_id: Set(claim.id),
+        label: Set(claim.label),
+        description: Set(claim.description),
+        classes: Set(claim.classes),
+        source: Set(source.to_string()),
+        method: Set(Some(claim.method)),
+        confidence: Set(Some(claim.confidence)),
+        ..Default::default()
+    })
+    .exec(&db.conn)
+    .await;
 
     match insert {
         Ok(_) => {
@@ -564,11 +559,11 @@ async fn store_claim(
             // Another entity already holds this identity, which means the two entities are the same
             // referent: the graph was told so by the authority. Fold ours into the one that holds it
             // rather than leaving a duplicate behind.
-            Some("idx-knowledge_evidence_identity") => {
+            Some("idx-knowledge_claims_identity") => {
                 let claim = crate::knowledge::evidence::Claim {
                     scheme: scheme.clone(),
-                    id: identity.clone(),
-                    handle: None,
+                    external_id: identity.clone(),
+                    surface: None,
                 };
                 if let Some(owner) = crate::knowledge::evidence::Evidence::new(db.conn.clone())
                     .owner(&claim)
@@ -655,13 +650,12 @@ async fn candidates(
     limit: Option<usize>,
     only: Option<i32>,
 ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
+    use model::knowledge_claims as claims;
     use model::knowledge_entity as entity;
-    use model::knowledge_evidence as evidence;
 
-    let already: HashSet<i32> = evidence::Entity::find()
-        .filter(evidence::Column::Kind.eq("claim"))
-        .filter(evidence::Column::Source.ne("platform"))
-        .filter(evidence::Column::RetractedAt.is_null())
+    let already: HashSet<i32> = claims::Entity::find()
+        .filter(claims::Column::Source.ne("platform"))
+        .filter(claims::Column::RetractedAt.is_null())
         .all(conn)
         .await?
         .into_iter()
@@ -902,28 +896,26 @@ mod tests {
         let db = test_db.handle();
         let knowledge_entity_id = seed(&db, "Nintendo").await;
 
-        model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
-            knowledge_entity_id: Set(knowledge_entity_id),
-            kind: Set("claim".to_string()),
-            value: Set(json!({"scheme": "wikidata", "id": "Q8093"})),
-            source: Set("wikidata".to_string()),
-            method: Set(Some("exact_label".to_string())),
-            confidence: Set(Some(0.8)),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .unwrap();
-        model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
-            knowledge_entity_id: Set(knowledge_entity_id),
-            kind: Set("claim".to_string()),
-            value: Set(json!({"scheme": "x_twitter", "id": "nintendo"})),
-            source: Set("platform".to_string()),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .unwrap();
+        crate::test_support::fixtures::claim(
+            &db,
+            knowledge_entity_id,
+            "wikidata",
+            "Q8093",
+            "wikidata",
+            Some("exact_label"),
+            Some(0.8),
+        )
+        .await;
+        crate::test_support::fixtures::claim(
+            &db,
+            knowledge_entity_id,
+            "x_twitter",
+            "nintendo",
+            "platform",
+            None,
+            None,
+        )
+        .await;
 
         crate::knowledge::Knowledge::with_linking(
             &db,
@@ -958,32 +950,26 @@ mod tests {
         let db = test_db.handle();
         let knowledge_entity_id = seed(&db, "Tsoding").await;
 
-        for (source, method, value, confidence) in [
-            (
-                "platform",
-                None,
-                json!({"scheme": "x_twitter", "id": "tsoding"}),
-                None,
-            ),
+        for (source, method, scheme, external_id, confidence) in [
+            ("platform", None, "x_twitter", "tsoding", None),
             (
                 "wikidata",
                 Some("p2002"),
-                json!({"scheme": "wikidata", "id": "Q123737256"}),
+                "wikidata",
+                "Q123737256",
                 Some(0.95),
             ),
         ] {
-            model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
-                knowledge_entity_id: Set(knowledge_entity_id),
-                kind: Set("claim".to_string()),
-                value: Set(value),
-                source: Set(source.to_string()),
-                method: Set(method.map(str::to_string)),
-                confidence: Set(confidence),
-                ..Default::default()
-            })
-            .exec(&db.conn)
-            .await
-            .unwrap();
+            crate::test_support::fixtures::claim(
+                &db,
+                knowledge_entity_id,
+                scheme,
+                external_id,
+                source,
+                method,
+                confidence,
+            )
+            .await;
         }
 
         crate::knowledge::Knowledge::with_linking(

@@ -89,10 +89,9 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
     }
 
     let mut with_claim: HashSet<i32> = HashSet::new();
-    for row in model::knowledge_evidence::Entity::find()
-        .filter(model::knowledge_evidence::Column::Kind.eq("claim"))
-        .filter(model::knowledge_evidence::Column::Source.ne("platform"))
-        .filter(model::knowledge_evidence::Column::RetractedAt.is_null())
+    for row in model::knowledge_claims::Entity::find()
+        .filter(model::knowledge_claims::Column::Source.ne("platform"))
+        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
         .all(&db.conn)
         .await?
     {

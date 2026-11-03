@@ -169,7 +169,7 @@ async fn main() -> anyhow::Result<()> {
             }
             println!(
                 "unlinked {} observations · deleted {} evidence rows · deleted {} entities",
-                report.unlinked, report.evidence, report.entities
+                report.unlinked, report.claims + report.evidence, report.entities
             );
         }
         Command::Compare(args) => {
