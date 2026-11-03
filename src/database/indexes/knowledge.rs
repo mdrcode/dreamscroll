@@ -40,7 +40,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity"
     WHERE retracted_at IS NULL
 "#;
 
-
 /// One live record per contested pair and identity: the queue is a set, and a second `resolve` run
 /// re-asserting the same contradiction must add nothing.
 const COLLISIONS_UNIQUE: &str = r#"

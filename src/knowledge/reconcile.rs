@@ -12,10 +12,10 @@
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
+use super::Knowledge;
 use super::evidence::Evidence;
 use super::heuristic::{self, NormalizedCandidate, NormalizedObservation};
 use super::merge::{Cause, Outcome};
-use super::Knowledge;
 
 /// What one pass did.
 #[derive(Debug, Default, PartialEq, Eq)]
