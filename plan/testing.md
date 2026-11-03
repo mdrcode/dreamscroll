@@ -51,13 +51,34 @@ async fn submit_illumination_records_a_queued_row() {
 
 ### How isolation works
 
-Each `test_db()` call creates a **fresh, uniquely-named schema**
-(`test_<uuid>`) with the full app schema synced into it, and drops it on
-teardown. So:
+`test_db()` hands each test a **schema of its own** (`test_<pid>_<uuid>`) with the full app schema
+synced into it. So:
 
 - Tests are fully isolated from each other.
 - Tests can run **in parallel** safely.
 - Nothing touches the app's real tables.
+
+Schemas are **pooled**, not created per call. Building one costs ~115ms (`CREATE SCHEMA`, a pool,
+`sync_schema` over 21 tables), and creating and dropping them takes catalog locks, which is why the
+suite used to spend all of its wall time there and ran *slower* on 8 threads than on the default.
+Instead a schema is built once, reset between tests with a single `TRUNCATE ... RESTART IDENTITY`
+(~21ms), and returned to a process-wide pool in `Drop` — synchronously, because the old teardown
+handed the `DROP SCHEMA` to the test's own runtime, which died first, so every schema leaked and
+each run paid to sweep the previous run's 126.
+
+The reset also rolls back a transaction a panicking test may have left open, re-pins the search path,
+and puts back the `dreamscroll_schema_version` marker that the truncate removes.
+
+Two consequences worth knowing:
+
+- A test may not create its own tables: the truncate list is captured once per schema, so extra
+  tables (and their rows) would survive into the next test that draws that schema.
+- A schema carries no connection. A `DatabaseConnection` belongs to the runtime that built it, and
+  every `#[tokio::test]` brings its own — sharing one across runtimes deadlocks, because the pool's
+  background tasks died with the first runtime. Each test connects for itself (~25ms).
+
+Measured on this machine: the lib suite went from 16.4s to 6.2s wall, and 8 threads from 20.4s to
+5.6s — contention gone rather than amortized.
 
 ### Why this design (and not the alternatives)
 
@@ -75,7 +96,7 @@ without a DB service), while still running the DB tests wherever a DB exists.
 
 The trade-off: a skipped DB test looks like a passing test. If you need to be
 sure DB tests actually ran, watch for the `test_support::test_db: skipping DB test, ...`
-message on stderr, or check the test's runtime (a real DB test takes ~0.2s; a
+message on stderr, or check the test's runtime (a real DB test takes ~50ms; a
 skipped one is instant).
 
 ## Test support modules
