@@ -37,6 +37,25 @@ END;
 $sync$;
 "#;
 
+/// The identity invariant, and the only one of the three that lives in `knowledge_claims`.
+///
+/// No two entities may hold a *live* claim to the same `(scheme, external_id)`. Retracting a claim
+/// (`retracted_at`) frees the slot, which is why the predicate is part of the index rather than a
+/// separate table — claims can only be unique while they are believed.
+const CLAIMS_UNIQUE: &str = r#"
+CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_identity"
+    ON knowledge_claims (scheme, external_id)
+    WHERE retracted_at IS NULL
+"#;
+
+/// One live record per contested pair and identity: the queue is a set, and a second `resolve` run
+/// re-asserting the same contradiction must add nothing.
+const COLLISIONS_UNIQUE: &str = r#"
+CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_collisions_pair"
+    ON knowledge_collisions (holder_id, claimant_id, scheme, external_id)
+    WHERE adjudicated_at IS NULL
+"#;
+
 /// A tombstone must point at another entity, never at itself: self-merge is a no-op in the code, and
 /// a row that pointed at itself would be an unbreakable redirect loop.
 ///
@@ -56,13 +75,28 @@ END;
 $sync$;
 "#;
 
+/// SeaORM 2.0.4 misclassifies a custom unique index as a constraint and tries to drop it during sync
+/// — then fails, because no constraint of that name exists. Removing them first is the same
+/// workaround `indexes::task_run` uses.
+const DROP_BEFORE_SYNC: &str = r#"
+DO $sync$
+BEGIN
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_identity');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_collisions_pair');
+END;
+$sync$;
+"#;
+
 pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(BACKFILL_ALT_SEARCH_QUERIES).await?;
+    conn.execute_unprepared(DROP_BEFORE_SYNC).await?;
     Ok(())
 }
 
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(CREATE).await?;
+    conn.execute_unprepared(CLAIMS_UNIQUE).await?;
+    conn.execute_unprepared(COLLISIONS_UNIQUE).await?;
     conn.execute_unprepared(ARRAY_DEFAULTS).await?;
     conn.execute_unprepared(NOT_SELF_MERGED).await?;
     Ok(())
