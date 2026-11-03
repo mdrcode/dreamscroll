@@ -7,23 +7,36 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 ## Next
 
 - [ ] **Make `link_illumination` transactional.** Linking one reading writes several times per
-  decision: create or load the entity, attach the observation, record the claim (or fold and discard
-  the row it just made), then project. A crash between any two leaves an entity with members and no
-  claim, or a claim on an entity the projection never recomputed — and nothing repairs either.
-  `merge` already shows the shape: `merge_in_transaction<C>` takes the connection and its five writes
-  share one transaction. Two things block doing the same here. The executor has to take the
-  connection as a parameter rather than reach for `&self.db.conn`, and `Evidence` has to borrow that
-  connection instead of owning one: a claim written outside the transaction would reference a
-  `knowledge_entity_id` the transaction has not committed, which is a foreign-key violation rather
-  than a torn read. `Evidence` holds a `DatabaseConnection` today and seven call sites build one, so
-  this and "Give evidence claims a repository" below are the same change approached from opposite
-  ends — do them together.
+  decision: create or load the entity, attach the observation, record the claim (or fold and
+  discard the row it just made), then project. A crash between any two leaves an entity with
+  members and no claim, or a claim on an entity the projection never recomputed — and nothing
+  repairs either. `merge` already shows the shape: `merge_in_transaction<C>` takes the connection
+  and its five writes share one transaction. Two things block doing the same here. The executor
+  has to take the connection as a parameter rather than reach for `&self.db.conn`, and `Evidence`
+  has to borrow that connection instead of owning one: a claim written outside the transaction
+  would reference a `knowledge_entity_id` the transaction has not committed, which is a
+  foreign-key violation rather than a torn read. `Evidence` holds a `DatabaseConnection` today and
+  seven call sites build one, so this and "Give evidence claims a repository" below are the same
+  change approached from opposite ends — do them together.
 - [ ] **Assert the projection invariant.** `knowledge_stats` prints `platform_from_members` beside
   `with_platform`, and the field is documented as always equal: a divergence means `project` lost a
   presence that some member still carries. Nothing asserts it — a lost presence currently shows up
   only as two numbers a human has to compare. The cheap version is an assertion in the stats test;
   the useful one is a test that projects an entity whose *second* member carries a platform and
   asserts the column survives, since that is the order in which the blocker lag used to lose it.
+- [ ] **Make `origin_observation_id` required.** It is `Option<i32>` and the column is nullable,
+  but `create` is the only writer and it always sets it — every entity in the rebuilt corpus has
+  one, 2,119 of 2,119. The nullability is vestigial: it was added to a table that already had
+  rows, and the no-migration policy means a rebuild is the backfill. Making it `NOT NULL` would
+  turn the premise of the whole projection rule ("the entity wears the values of the member it
+  came from") into something the schema states rather than something `create` happens to honour,
+  and it would delete `project`'s fallback to the first member — a branch that exists only for the
+  null case and that reads as though origins were sometimes unknown. Two things move with it: the
+  model field becomes `i32`, and `fixtures::stub_entity` passes `None` for entities that never had
+  an observation behind them, so those stubs need either a real observation id or a shape that
+  admits an entity with no origin at all. Worth deciding at the same time whether `project` should
+  error on an entity with no members or keep its silent fallback — with the column required, "no
+  members" is the only way to reach the fallback.
 - [ ] **Unmerge.** A merge tombstones the loser and records `kind = 'merge'` with `child` and
   `method`, so reversing one is a pointer away — `merge`'s own doc says the decision is "one pointer
   away from being undone". Nothing implements it. `plan/knowledge-canonical-entities.md` §Repair
