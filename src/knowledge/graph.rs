@@ -119,6 +119,46 @@ impl Knowledge {
         Ok(())
     }
 
+    /// Link one reading into the graph: cluster its observations, record their claims, and project
+    /// every entity it touched.
+    ///
+    /// The implementation is in [`super::link`]; it is here so the facade reads as one list of what a
+    /// caller can ask the graph to do.
+    pub async fn link_illumination(
+        &self,
+        illumination: &model::illumination::ModelEx,
+    ) -> anyhow::Result<super::LinkStats> {
+        super::link::link_illumination(self, illumination).await
+    }
+
+    /// Recompute an entity's projected columns, and tell the blocker what came out.
+    ///
+    /// The notification lives with this method rather than in the linker's loop because projection is
+    /// the one place those columns change: linking, resolving and merging all end up here, so a held
+    /// blocker cannot miss one of them. The derivation itself is [`super::project`].
+    pub async fn update_projection(
+        &self,
+        knowledge_entity_id: i32,
+    ) -> anyhow::Result<model::knowledge_entity::Model> {
+        let entity = super::project::project(&self.db.conn, knowledge_entity_id).await?;
+        self.notify(&entity).await;
+        Ok(entity)
+    }
+
+    /// What a merge would do, without doing it. See [`super::merge`].
+    pub async fn merge_preview(
+        &self,
+        loser: i32,
+        winner: i32,
+    ) -> anyhow::Result<super::merge::Preview> {
+        super::merge::preview(&self.db.conn, loser, winner).await
+    }
+
+    /// Fold `loser` into `winner`. See [`super::merge`].
+    pub async fn merge(&self, loser: i32, winner: i32) -> anyhow::Result<super::merge::Outcome> {
+        super::merge::merge_into(self, loser, winner).await
+    }
+
     /// The connection the graph writes with, for the one caller that has to read a row before it can
     /// ask for a write: the link task, which is told "link illumination 7" and must load it.
     ///

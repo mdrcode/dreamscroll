@@ -19,23 +19,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder
 
 use crate::model;
 
-use super::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
-
-impl Knowledge {
-    /// Recompute an entity's projected columns, and tell the blocker what came out.
-    ///
-    /// The notification lives here rather than in the linker's loop because this is the one place
-    /// those columns change: linking, resolving and merging all end up here, so a held blocker
-    /// cannot miss one of them.
-    pub async fn update_projection(
-        &self,
-        knowledge_entity_id: i32,
-    ) -> anyhow::Result<model::knowledge_entity::Model> {
-        let entity = project(&self.db.conn, knowledge_entity_id).await?;
-        self.notify(&entity).await;
-        Ok(entity)
-    }
-}
+use super::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 
 /// Recompute the columns that are a function of the members and of the evidence.
 ///
@@ -247,8 +231,8 @@ mod tests {
     };
     use crate::test_support::{fixtures, test_db};
 
-    fn store(db: &DbHandle) -> Knowledge {
-        Knowledge::new(db)
+    fn store(db: &DbHandle) -> crate::knowledge::Knowledge {
+        crate::knowledge::Knowledge::new(db)
     }
 
     async fn claim(db: &DbHandle, id: i32, kind: &str, scheme: &str, value: &str) {

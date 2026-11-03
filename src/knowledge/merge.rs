@@ -41,28 +41,25 @@ pub struct Preview {
     pub shared_illuminations: i64,
 }
 
-impl super::Knowledge {
-    /// What a merge would do, without doing it.
-    pub async fn merge_preview(&self, loser: i32, winner: i32) -> anyhow::Result<Preview> {
-        preview(&self.db.conn, loser, winner).await
+/// Fold `loser` into `winner`. See [`merge`] for what that means and why it can refuse.
+///
+/// The blocker is told afterwards, not inside the transaction: projecting the winner happens within
+/// it, but a rollback would leave the index holding a row that never landed. The second projection is
+/// idempotent and merges are rare, so it doubles as the notification.
+pub(super) async fn merge_into(
+    knowledge: &super::Knowledge,
+    loser: i32,
+    winner: i32,
+) -> anyhow::Result<Outcome> {
+    let outcome = merge(&knowledge.db.conn, loser, winner).await?;
+    if outcome == Outcome::Merged {
+        knowledge.update_projection(winner).await?;
+        knowledge.forget(loser).await;
     }
-
-    /// Fold `loser` into `winner`. See [`merge`] for what that means and why it can refuse.
-    ///
-    /// The blocker is told afterwards, not inside the transaction: projecting the winner happens
-    /// within it, but a rollback would leave the index holding a row that never landed. The second
-    /// projection is idempotent and merges are rare, so it doubles as the notification.
-    pub async fn merge(&self, loser: i32, winner: i32) -> anyhow::Result<Outcome> {
-        let outcome = merge(&self.db.conn, loser, winner).await?;
-        if outcome == Outcome::Merged {
-            self.update_projection(winner).await?;
-            self.forget(loser).await;
-        }
-        Ok(outcome)
-    }
+    Ok(outcome)
 }
 
-/// What a merge would do. Free because [`merge_in_transaction`] and the method both use it.
+/// What a merge would do. Free because [`merge_in_transaction`] and the facade both use it.
 pub(super) async fn preview<C: ConnectionTrait>(
     conn: &C,
     loser: i32,

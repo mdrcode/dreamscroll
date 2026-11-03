@@ -15,6 +15,52 @@ use super::{Knowledge, evidence::ClaimOutcome, link_decider};
 // Linking: the one write path that decides before it writes.
 // ---------------------------------------------------------------------------------------------
 
+/// Link one reading into the graph: cluster its observations, record their claims, and project every
+/// entity it touched.
+///
+/// One entry point, because the blocker is the store's: a caller linking a thousand illuminations and
+/// a caller linking one take the same path, and both benefit from what the store has been told so far.
+pub(super) async fn link_illumination(
+    knowledge: &Knowledge,
+    illumination: &model::illumination::ModelEx,
+) -> anyhow::Result<LinkStats> {
+    let (Some(decider), Some(blocker)) = (&knowledge.decider, &knowledge.blocker) else {
+        anyhow::bail!(
+            "this Knowledge was built without a linker; use Knowledge::with_linker to link \
+             illuminations"
+        );
+    };
+
+    // The caller's job, checked here: an illumination loaded as a row and nothing else is a reading
+    // with no observations, and a decider would happily decide about it. The decider cannot be relied
+    // on to notice — it is injectable.
+    anyhow::ensure!(
+        illumination.observations.is_loaded(),
+        "illumination {} was handed to link_illumination with no observations loaded; fetch it \
+         with Entity::load().with(model::user_observed_entity::Entity)",
+        illumination.id
+    );
+
+    // The lock is held for the decision only: applying decisions projects entities, and projecting
+    // notifies the blocker, which needs the same lock.
+    let decisions = decider
+        .decide_link(&**blocker.lock().await, &knowledge.evidence, illumination)
+        .await?;
+
+    let mut stats = LinkStats::default();
+    for decision in &decisions {
+        let applied = apply_decision(knowledge, decision).await?;
+        // Projection is a function of the members, so it runs after the writes that changed them,
+        // and it returns the row it wrote — which is exactly what the blocker needs to re-index.
+        // An entity two observations landed on is projected twice; a wasted read is cheaper than
+        // remembering which ones were already done.
+        knowledge.update_projection(applied.entity).await?;
+        stats.record(decision, applied);
+    }
+
+    Ok(stats)
+}
+
 /// What one illumination's decisions actually did.
 ///
 /// Deliberately not a report: it does not count what the caller already knows — how many observations
@@ -67,121 +113,69 @@ enum Outcome {
 }
 
 /// Apply a linking decision against the knowledge_entities table.
-impl Knowledge {
-    /// Link one reading into the graph: cluster its observations, record their claims, and project
-    /// every entity it touched.
-    ///
-    /// One entry point, because the blocker is the store's: a caller linking a thousand illuminations
-    /// and a caller linking one take the same path, and both benefit from what the store has been
-    /// told so far.
-    pub async fn link_illumination(
-        &self,
-        illumination: &model::illumination::ModelEx,
-    ) -> anyhow::Result<LinkStats> {
-        self.link_illumination_with(illumination).await
-    }
-
-    async fn link_illumination_with(
-        &self,
-        illumination: &model::illumination::ModelEx,
-    ) -> anyhow::Result<LinkStats> {
-        let (Some(decider), Some(blocker)) = (&self.decider, &self.blocker) else {
-            anyhow::bail!(
-                "this Knowledge was built without a linker; use Knowledge::with_linker to link \
-                 illuminations"
-            );
-        };
-
-        // The caller's job, checked here: an illumination loaded as a row and nothing else is a
-        // reading with no observations, and a decider would happily decide about it. The decider
-        // cannot be relied on to notice — it is injectable.
-        anyhow::ensure!(
-            illumination.observations.is_loaded(),
-            "illumination {} was handed to link_illumination with no observations loaded; fetch it \
-             with Entity::load().with(model::user_observed_entity::Entity)",
-            illumination.id
+/// Apply one decision against the graph.
+async fn apply_decision(
+    knowledge: &Knowledge,
+    decision: &link_decider::Decision,
+) -> anyhow::Result<Applied> {
+    let observation = &decision.observation;
+    if observation.knowledge_entity_id.is_some() {
+        anyhow::bail!(
+            "the linker decided about observation {}, which is already linked",
+            observation.id
         );
-
-        // The lock is held for the decision only: applying decisions projects entities, and
-        // projecting notifies the blocker, which needs the same lock.
-        let decisions = decider
-            .decide_link(&**blocker.lock().await, &self.evidence, illumination)
-            .await?;
-
-        let mut stats = LinkStats::default();
-        for decision in &decisions {
-            let applied = self.apply_decision(decision).await?;
-            // Projection is a function of the members, so it runs after the writes that changed them,
-            // and it returns the row it wrote — which is exactly what the blocker needs to re-index.
-            // An entity two observations landed on is projected twice; a wasted read is cheaper than
-            // remembering which ones were already done.
-            self.update_projection(applied.entity).await?;
-            stats.record(decision, applied);
-        }
-
-        Ok(stats)
     }
 
-    /// Apply one decision against the graph.
-    async fn apply_decision(&self, decision: &link_decider::Decision) -> anyhow::Result<Applied> {
-        let observation = &decision.observation;
-        if observation.knowledge_entity_id.is_some() {
+    // The entity this observation ends up on, resolved once: the one the decision named, or a new
+    // one it asked for.
+    let mut target_entity = match &decision.action {
+        link_decider::Action::Attach { entity, .. } => knowledge.get(*entity).await?,
+        link_decider::Action::Create { .. } => knowledge.create(observation).await?,
+    };
+    let created = target_entity.id;
+    knowledge
+        .attach_observation(observation.id, target_entity.id)
+        .await?;
+
+    // The observation may carry its own claim — a handle we inferred from the capture. If another
+    // entity already holds it, the entity just created owns nothing: discard it and point the
+    // observation at the one that does. Usually this is two observations of one illumination that
+    // both asked for a new entity carrying the same claim; occasionally it is another worker.
+    let mut discarded_on_conflict = false;
+    if let Some(claim) = &decision.claim
+        && let ClaimOutcome::HeldBy(owner) = knowledge
+            .evidence
+            .record(target_entity.id, claim, observation)
+            .await?
+    {
+        if matches!(decision.action, link_decider::Action::Attach { .. }) {
             anyhow::bail!(
-                "the linker decided about observation {}, which is already linked",
-                observation.id
+                "entities {} and {owner} both hold {}:{}; merging is not implemented yet \
+             (plan/knowledge-canonical-entities.md §Repair)",
+                target_entity.id,
+                claim.scheme,
+                claim.id
             );
         }
-
-        // The entity this observation ends up on, resolved once: the one the decision named, or a new
-        // one it asked for.
-        let mut target_entity = match &decision.action {
-            link_decider::Action::Attach { entity, .. } => self.get(*entity).await?,
-            link_decider::Action::Create { .. } => self.create(observation).await?,
-        };
-        let created = target_entity.id;
-        self.attach_observation(observation.id, target_entity.id)
-            .await?;
-
-        // The observation may carry its own claim — a handle we inferred from the capture. If another
-        // entity already holds it, the entity just created owns nothing: discard it and point the
-        // observation at the one that does. Usually this is two observations of one illumination that
-        // both asked for a new entity carrying the same claim; occasionally it is another worker.
-        let mut discarded_on_conflict = false;
-        if let Some(claim) = &decision.claim
-            && let ClaimOutcome::HeldBy(owner) = self
-                .evidence
-                .record(target_entity.id, claim, observation)
-                .await?
-        {
-            if matches!(decision.action, link_decider::Action::Attach { .. }) {
-                anyhow::bail!(
-                    "entities {} and {owner} both hold {}:{}; merging is not implemented yet \
-                 (plan/knowledge-canonical-entities.md §Repair)",
-                    target_entity.id,
-                    claim.scheme,
-                    claim.id
-                );
-            }
-            // Re-point before discarding: the observation still references the entity being deleted,
-            // and that foreign key is `NO ACTION`.
-            target_entity = self.get(owner).await?;
-            self.attach_observation(observation.id, owner).await?;
-            self.discard_empty(created).await?;
-            discarded_on_conflict = true;
-        }
-
-        let outcome = if discarded_on_conflict {
-            Outcome::DiscardedOnConflict
-        } else if matches!(decision.action, link_decider::Action::Attach { .. }) {
-            Outcome::Attached
-        } else {
-            Outcome::Created
-        };
-        Ok(Applied {
-            entity: target_entity.id,
-            outcome,
-        })
+        // Re-point before discarding: the observation still references the entity being deleted,
+        // and that foreign key is `NO ACTION`.
+        target_entity = knowledge.get(owner).await?;
+        knowledge.attach_observation(observation.id, owner).await?;
+        knowledge.discard_empty(created).await?;
+        discarded_on_conflict = true;
     }
+
+    let outcome = if discarded_on_conflict {
+        Outcome::DiscardedOnConflict
+    } else if matches!(decision.action, link_decider::Action::Attach { .. }) {
+        Outcome::Attached
+    } else {
+        Outcome::Created
+    };
+    Ok(Applied {
+        entity: target_entity.id,
+        outcome,
+    })
 }
 
 #[cfg(test)]
