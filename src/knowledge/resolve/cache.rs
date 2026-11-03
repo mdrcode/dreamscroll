@@ -121,7 +121,13 @@ impl<'a> Cache<'a> {
             let Some(outcome) = Outcome::parse(&row.outcome) else {
                 continue;
             };
-            answers.insert(row.query, Answer { outcome, payload: row.payload });
+            answers.insert(
+                row.query,
+                Answer {
+                    outcome,
+                    payload: row.payload,
+                },
+            );
         }
         Ok(answers)
     }
@@ -224,29 +230,54 @@ mod tests {
         let queries = vec!["Train Dreams".to_string(), "Wojak".to_string()];
 
         cache
-            .put("wikidata", "label", "v1", "Train Dreams", &answer(Outcome::Found, Some(json!({"qid": "Q1"}))))
+            .put(
+                "wikidata",
+                "label",
+                "v1",
+                "Train Dreams",
+                &answer(Outcome::Found, Some(json!({"qid": "Q1"}))),
+            )
             .await
             .expect("put should succeed");
         cache
-            .put("wikidata", "label", "v1", "Wojak", &answer(Outcome::Empty, None))
+            .put(
+                "wikidata",
+                "label",
+                "v1",
+                "Wojak",
+                &answer(Outcome::Empty, None),
+            )
             .await
             .expect("put should succeed");
 
-        let hits = cache.get_many("wikidata", "label", "v1", &queries).await.expect("get");
+        let hits = cache
+            .get_many("wikidata", "label", "v1", &queries)
+            .await
+            .expect("get");
 
         assert_eq!(hits.len(), 2);
         assert_eq!(hits["Train Dreams"].outcome, Outcome::Found);
-        assert_eq!(hits["Wojak"].outcome, Outcome::Empty, "a negative is a cached answer");
+        assert_eq!(
+            hits["Wojak"].outcome,
+            Outcome::Empty,
+            "a negative is a cached answer"
+        );
 
         // Expire one row by hand; a stale answer must not be served.
         cached::Entity::update_many()
-            .col_expr(cached::Column::ExpiresAt, sea_orm::sea_query::Expr::value(Utc::now() - Duration::seconds(1)))
+            .col_expr(
+                cached::Column::ExpiresAt,
+                sea_orm::sea_query::Expr::value(Utc::now() - Duration::seconds(1)),
+            )
             .filter(cached::Column::Query.eq("Wojak"))
             .exec(&db.conn)
             .await
             .expect("expiry update should succeed");
 
-        let hits = cache.get_many("wikidata", "label", "v1", &queries).await.expect("get");
+        let hits = cache
+            .get_many("wikidata", "label", "v1", &queries)
+            .await
+            .expect("get");
         assert_eq!(hits.len(), 1, "the expired row is a miss: {hits:?}");
         assert!(!hits.contains_key("Wojak"));
     }
@@ -261,13 +292,27 @@ mod tests {
         let queries = vec!["Dune".to_string()];
 
         cache
-            .put("wikidata", "label", "shape-a", "Dune", &answer(Outcome::Empty, None))
+            .put(
+                "wikidata",
+                "label",
+                "shape-a",
+                "Dune",
+                &answer(Outcome::Empty, None),
+            )
             .await
             .expect("put should succeed");
 
-        assert!(cache.get_many("wikidata", "label", "shape-a", &queries).await.unwrap().contains_key("Dune"));
+        assert!(cache
+            .get_many("wikidata", "label", "shape-a", &queries)
+            .await
+            .unwrap()
+            .contains_key("Dune"));
         assert!(
-            cache.get_many("wikidata", "label", "shape-b", &queries).await.unwrap().is_empty(),
+            cache
+                .get_many("wikidata", "label", "shape-b", &queries)
+                .await
+                .unwrap()
+                .is_empty(),
             "a stale negative must not outlive the query shape that produced it"
         );
     }
@@ -282,15 +327,30 @@ mod tests {
         let queries = vec!["Nintendo".to_string()];
 
         cache
-            .put("wikidata", "label", "v1", "Nintendo", &answer(Outcome::Empty, None))
+            .put(
+                "wikidata",
+                "label",
+                "v1",
+                "Nintendo",
+                &answer(Outcome::Empty, None),
+            )
             .await
             .expect("put should succeed");
         cache
-            .put("wikidata", "label", "v1", "Nintendo", &answer(Outcome::Found, Some(json!({"qid": "Q1"}))))
+            .put(
+                "wikidata",
+                "label",
+                "v1",
+                "Nintendo",
+                &answer(Outcome::Found, Some(json!({"qid": "Q1"}))),
+            )
             .await
             .expect("second put should succeed");
 
-        let hits = cache.get_many("wikidata", "label", "v1", &queries).await.expect("get");
+        let hits = cache
+            .get_many("wikidata", "label", "v1", &queries)
+            .await
+            .expect("get");
         assert_eq!(hits["Nintendo"].outcome, Outcome::Found);
         assert_eq!(
             cached::Entity::find().count(&db.conn).await.unwrap(),

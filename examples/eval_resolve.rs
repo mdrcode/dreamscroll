@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use dreamscroll::knowledge::cache::Outcome;
+use dreamscroll::knowledge::resolve::cache::Outcome;
 use dreamscroll::knowledge::resolve::wikidata::Wikidata;
 use dreamscroll::knowledge::resolve::Raw;
 use dreamscroll::{config, database};

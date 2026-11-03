@@ -218,7 +218,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `evidence.rs`, `stats.rs` | claims about entities, and the counters a run reports |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `current.rs` | which illumination a user sees |
-| `cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
+| `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | the one definition of "the same name" |
 
 The vocabulary — and the names we rejected — is in `plan/lexicon.md`. The design history, including

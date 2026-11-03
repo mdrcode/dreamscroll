@@ -7,7 +7,7 @@ use serde_json::{json, Value};
 
 use super::super::driver::{FetchError, Raw, Request};
 use super::resolver::{Candidate, Wikidata, LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT};
-use crate::knowledge::cache::Outcome;
+use crate::knowledge::resolve::cache::Outcome;
 
 impl Wikidata {
     /// Full-text search over items, through MediaWiki's own search (CirrusSearch).

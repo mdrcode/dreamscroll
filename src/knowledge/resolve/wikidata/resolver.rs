@@ -782,7 +782,7 @@ fn overlap(a: &[String], b: &[String]) -> f32 {
 
 #[cfg(test)]
 mod tests {
-    use crate::knowledge::cache::Outcome;
+    use crate::knowledge::resolve::cache::Outcome;
     use super::*;
 
     fn request(kind: &str, query: &str) -> Request {
@@ -1138,7 +1138,7 @@ mod tests {
     /// entity the first pass left unresolved.
     #[tokio::test]
     async fn resolve_prefers_a_title_and_searches_only_what_is_left() {
-        use crate::knowledge::cache::{Answer, Cache};
+        use crate::knowledge::resolve::cache::{Answer, Cache};
         use crate::knowledge::resolve::Options;
 
         let Some(test_db) = crate::test_support::test_db::test_db().await else {

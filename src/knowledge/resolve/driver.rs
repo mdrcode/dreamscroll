@@ -13,7 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 use serde_json::{json, Value};
 
-use crate::knowledge::cache::{Answer, Cache, Outcome, UNPRODUCTIVE_TTL};
+use super::cache::{Answer, Cache, Outcome, UNPRODUCTIVE_TTL};
 use crate::{database, model};
 
 /// How many queries go into one transport call. Providers that cannot batch ignore the chunking and

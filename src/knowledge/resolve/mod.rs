@@ -6,6 +6,7 @@
 //! the budget. Adding IMDb means adding one `Resolver`; it cannot forget the cache, because there is
 //! no other door.
 
+pub mod cache;
 pub mod driver;
 pub mod wikidata;
 
