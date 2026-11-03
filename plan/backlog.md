@@ -6,6 +6,38 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
+- [ ] **Make `link_illumination` transactional.** Linking one reading writes several times per
+  decision: create or load the entity, attach the observation, record the claim (or fold and discard
+  the row it just made), then project. A crash between any two leaves an entity with members and no
+  claim, or a claim on an entity the projection never recomputed — and nothing repairs either.
+  `merge` already shows the shape: `merge_in_transaction<C>` takes the connection and its five writes
+  share one transaction. Two things block doing the same here. The executor has to take the
+  connection as a parameter rather than reach for `&self.db.conn`, and `Evidence` has to borrow that
+  connection instead of owning one: a claim written outside the transaction would reference a
+  `knowledge_entity_id` the transaction has not committed, which is a foreign-key violation rather
+  than a torn read. `Evidence` holds a `DatabaseConnection` today and seven call sites build one, so
+  this and "Give evidence claims a repository" below are the same change approached from opposite
+  ends — do them together.
+- [ ] **Assert the projection invariant.** `knowledge_stats` prints `platform_from_members` beside
+  `with_platform`, and the field is documented as always equal: a divergence means `project` lost a
+  presence that some member still carries. Nothing asserts it — a lost presence currently shows up
+  only as two numbers a human has to compare. The cheap version is an assertion in the stats test;
+  the useful one is a test that projects an entity whose *second* member carries a platform and
+  asserts the column survives, since that is the order in which the blocker lag used to lose it.
+- [ ] **Unmerge.** A merge tombstones the loser and records `kind = 'merge'` with `child` and
+  `method`, so reversing one is a pointer away — `merge`'s own doc says the decision is "one pointer
+  away from being undone". Nothing implements it. `plan/knowledge-canonical-entities.md` §Repair
+  describes `retire` and `relink`, and the CLI that drives a repair by hand is still "later". Settle
+  one design question first: observations are the source of truth for membership, so re-pointing them
+  by the ids the merge moved is probably enough, but the evidence rows that moved need their old owner
+  back, and the `merge` row is the only record of which entities were involved.
+- [ ] **Make the tree `rustfmt`-clean, and keep it that way.** `cargo fmt --check` reports ~87
+  differences and there is no `rustfmt.toml`. Worse for this codebase: formatting a module root
+  (`src/knowledge/mod.rs`) recurses into every child module, so a per-file `rustfmt` run silently
+  reformats hundreds of unrelated lines — twice in one session that had to be reverted by hand.
+  Either adopt the formatter repo-wide in a single commit and gate it in CI, or pin a `rustfmt.toml`
+  whose style matches what is there closely enough that the first run is small. Formatting only the
+  files you touched is the current workaround: it keeps diffs honest and leaves the drift in place.
 - [ ] **Implement `SqlBlocker`.** `NameBlocker` is an in-memory index built by a full scan of
   `knowledge_entities` (~2.1k rows), so every `Knowledge::link_illumination` pays for the whole graph
   to link one reading. Fine for a capture arriving at a time; wrong for a backfill, which is why
