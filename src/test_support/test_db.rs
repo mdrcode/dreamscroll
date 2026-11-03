@@ -88,6 +88,16 @@ impl TestDb {
     pub fn handle(&self) -> database::DbHandle {
         self.handle.clone()
     }
+
+    /// The schema this handle has checked out. For diagnostics, and for the one test that has to
+    /// name the row it is asserting about.
+    pub fn schema(&self) -> &str {
+        &self
+            .slot
+            .as_ref()
+            .expect("a TestDb always holds a schema until it is dropped")
+            .schema
+    }
 }
 
 impl Drop for TestDb {
@@ -350,4 +360,36 @@ fn process_alive(pid: u32) -> bool {
         .status()
         .map(|status| status.success())
         .unwrap_or(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The regression this harness exists to prevent, from the other side: `Drop` used to hand the
+    /// cleanup to the test's own runtime, which was already shutting down, so *every* schema leaked
+    /// and each run swept the previous run's 126. Dropping a handle now returns its schema to the
+    /// pool, so the next acquisition is handed the same one instead of building another.
+    ///
+    /// A concurrent test may draw the returned schema first, in which case it is still not leaked —
+    /// hence the retries. Without the fix the schema is never in the pool and no retry can find it.
+    #[tokio::test]
+    async fn a_dropped_handle_returns_its_schema_to_the_pool() {
+        let Some(first) = test_db().await else {
+            return;
+        };
+        let schema = first.schema().to_string();
+        drop(first);
+
+        for _ in 0..8 {
+            let Some(next) = test_db().await else {
+                return;
+            };
+            if next.schema() == schema {
+                return;
+            }
+        }
+
+        panic!("schema {schema} was never handed back to the pool after its handle was dropped");
+    }
 }
