@@ -132,18 +132,6 @@ impl Knowledge {
 // The implementation. Connection-generic, so a caller inside a transaction can share it.
 // ---------------------------------------------------------------------------------------------
 
-pub(crate) fn surfaces(
-    observation: &model::user_observed_entity::Model,
-) -> impl Iterator<Item = &str> {
-    [
-        Some(observation.name.as_str()),
-        observation.platform_handle.as_deref(),
-        observation.platform_display_name.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-}
-
 /// This is the only place a `knowledge_entity_id` is set. `project` reads the resulting membership
 /// to compute the entity's columns, so nothing else about the move is recorded here.
 pub(super) async fn attach<C: ConnectionTrait>(
@@ -343,6 +331,18 @@ pub(super) async fn project<C: ConnectionTrait>(
     .map_err(Into::into)
 }
 
+pub(crate) fn surfaces(
+    observation: &model::user_observed_entity::Model,
+) -> impl Iterator<Item = &str> {
+    [
+        Some(observation.name.as_str()),
+        observation.platform_handle.as_deref(),
+        observation.platform_display_name.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+}
+
 /// Every distinct, non-empty value the members offer, in member order.
 fn gather(
     members: &[model::user_observed_entity::Model],
@@ -420,8 +420,9 @@ pub struct LinkStats {
     /// The part of `attached` where a claim named the entity rather than a score.
     pub attached_by_claim: usize,
     pub created: usize,
-    /// Created, then dropped: another entity turned out to hold the claim after all.
-    pub folded: usize,
+    /// Created, then discarded: another entity turned out to hold the claim after all, so the row
+    /// that was just made owned nothing. Not a merge — nothing was folded into anything.
+    pub discarded_on_conflict: usize,
     /// The same-illumination veto firing.
     pub vetoed: u32,
 }
@@ -439,7 +440,7 @@ impl LinkStats {
         match applied.outcome {
             Outcome::Attached => self.attached += 1,
             Outcome::Created => self.created += 1,
-            Outcome::Folded => self.folded += 1,
+            Outcome::DiscardedOnConflict => self.discarded_on_conflict += 1,
         }
     }
 }
@@ -457,7 +458,7 @@ enum Outcome {
     /// A new entity was created for it.
     Created,
     /// A new entity was created and then discarded, because another one already held the claim.
-    Folded,
+    DiscardedOnConflict,
 }
 
 /// Apply a linking decision against the knowledge_entities table.
@@ -515,7 +516,7 @@ impl Knowledge {
         // entity already holds it, the entity just created owns nothing: discard it and point the
         // observation at the one that does. Usually this is two observations of one illumination that
         // both asked for a new entity carrying the same claim; occasionally it is another worker.
-        let mut folded = false;
+        let mut discarded_on_conflict = false;
         if let Some(claim) = &decision.claim
             && let ClaimOutcome::HeldBy(owner) = self
                 .evidence
@@ -536,11 +537,11 @@ impl Knowledge {
             target_entity = self.get(owner).await?;
             self.attach_observation(observation.id, owner).await?;
             self.discard_empty(created).await?;
-            folded = true;
+            discarded_on_conflict = true;
         }
 
-        let outcome = if folded {
-            Outcome::Folded
+        let outcome = if discarded_on_conflict {
+            Outcome::DiscardedOnConflict
         } else if matches!(decision.action, link_decider::Action::Attach { .. }) {
             Outcome::Attached
         } else {
@@ -1156,7 +1157,11 @@ mod linking {
             .await
             .expect("build should succeed");
 
-        assert_eq!(entity_count(&db).await, 1, "the claim folded the duplicate");
+        assert_eq!(
+            entity_count(&db).await,
+            1,
+            "the claim discarded the duplicate"
+        );
         assert_eq!(evidence::Entity::find().count(&db.conn).await.unwrap(), 1);
     }
 

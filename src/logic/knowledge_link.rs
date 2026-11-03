@@ -52,7 +52,7 @@ pub async fn exec(
         attached = stats.attached,
         attached_by_claim = stats.attached_by_claim,
         created = stats.created,
-        folded = stats.folded,
+        discarded_on_conflict = stats.discarded_on_conflict,
         vetoed = stats.vetoed,
         "Knowledge link completed"
     );

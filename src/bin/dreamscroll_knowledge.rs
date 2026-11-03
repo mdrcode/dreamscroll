@@ -108,13 +108,13 @@ async fn main() -> anyhow::Result<()> {
         Command::Link(_) => {
             let report = link_all_pending(&db).await?;
             println!(
-                "considered {} · already linked {} · linked {} ({} by claim) · created {} · dropped {} · vetoed {}",
+                "considered {} · already linked {} · linked {} ({} by claim) · created {} · discarded {} · vetoed {}",
                 report.considered,
                 report.already_linked,
                 report.attached,
                 report.attached_by_claim,
                 report.created,
-                report.folded,
+                report.discarded_on_conflict,
                 report.vetoed
             );
         }
@@ -305,7 +305,7 @@ struct LinkAllPendingReport {
     attached: usize,
     attached_by_claim: usize,
     created: usize,
-    folded: usize,
+    discarded_on_conflict: usize,
     vetoed: u32,
 }
 
@@ -314,7 +314,7 @@ impl LinkAllPendingReport {
         self.attached += part.attached;
         self.attached_by_claim += part.attached_by_claim;
         self.created += part.created;
-        self.folded += part.folded;
+        self.discarded_on_conflict += part.discarded_on_conflict;
         self.vetoed += part.vetoed;
     }
 }
