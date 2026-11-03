@@ -4,7 +4,7 @@
 //! `illuminate` writes observations, `link` clusters them, `resolve` asks the authorities.
 
 pub mod cache;
-pub mod blocking;
+pub mod blocker;
 pub mod current;
 pub mod entity;
 pub mod evidence;

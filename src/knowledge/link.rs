@@ -8,7 +8,7 @@
 use crate::{database, model};
 
 use super::{
-    blocking::Blocker,
+    blocker::Blocker,
     entity,
     evidence::{ClaimOutcome, Evidence},
     link_decider::{self, LinkDecider},

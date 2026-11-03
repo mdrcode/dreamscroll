@@ -1,17 +1,4 @@
-//! The write side of an entity: create one, attach a member to it, absorb what that member knows,
-//! and recompute its derived columns.
-//!
-//! `model::knowledge_entity` says what an entity *is*; this says who is allowed to change one.
-//!
-//! Three rules, and they are why these functions share a file:
-//!
-//! - [`attach`] is the only thing that writes `user_observed_entities.knowledge_entity_id`.
-//! - [`absorb_observation`] accumulates a member's surfaces and type into the row it joins — an
-//!   incremental step, not the truth.
-//! - [`update_projection`] recomputes every derived column from the members and the evidence, and is
-//!   authoritative: nothing else writes `name`, `description`, `status`, `confidence`,
-//!   `search_query`, `alt_search_queries` or the `platform_*` triple.
-
+//! Logic for managing the knowledge graph via writes to the `knowledge_entities` table.
 use std::collections::HashSet;
 
 use sea_orm::sea_query::Expr;
@@ -148,8 +135,6 @@ pub(crate) async fn create(
         .exec_with_returning(conn)
         .await?)
 }
-
-
 
 /// Recompute the columns that are a function of the members and of the evidence. Nothing else writes
 /// `name`, `alt_names`, `description`, `alt_descriptions`, `search_query`, `alt_search_queries`,
@@ -324,7 +309,11 @@ pub async fn update_projection<C: sea_orm::ConnectionTrait>(
         let (chosen_platform, chosen_handle, _) = existing_link.clone();
         let selected = chosen_platform
             .as_ref()
-            .and_then(|chosen| links.iter().find(|(p, h, _)| p == chosen && h == &chosen_handle))
+            .and_then(|chosen| {
+                links
+                    .iter()
+                    .find(|(p, h, _)| p == chosen && h == &chosen_handle)
+            })
             .cloned()
             .unwrap_or_else(|| links[0].clone());
         (Some(selected.0), selected.1, selected.2)
@@ -376,10 +365,7 @@ pub async fn update_projection<C: sea_orm::ConnectionTrait>(
     };
 
     model::knowledge_entity::Entity::update_many()
-        .col_expr(
-            model::knowledge_entity::Column::Status,
-            Expr::value(status),
-        )
+        .col_expr(model::knowledge_entity::Column::Status, Expr::value(status))
         .col_expr(
             model::knowledge_entity::Column::Confidence,
             Expr::value(confidence),
@@ -432,7 +418,10 @@ pub(crate) async fn discard(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{knowledge_entity as entity, knowledge_evidence as evidence, user_observed_entity as observation};
+    use crate::model::{
+        knowledge_entity as entity, knowledge_evidence as evidence,
+        user_observed_entity as observation,
+    };
     use crate::test_support::{fixtures, test_db};
 
     /// One entity with one observation attached, ready to update.
@@ -453,7 +442,10 @@ mod tests {
         .unwrap()
         .last_insert_id as i32;
         observation::Entity::update_many()
-            .col_expr(observation::Column::KnowledgeEntityId, Expr::value(Some(knowledge_entity_id)))
+            .col_expr(
+                observation::Column::KnowledgeEntityId,
+                Expr::value(Some(knowledge_entity_id)),
+            )
             .filter(observation::Column::Id.eq(observation_id))
             .exec(&db.conn)
             .await
@@ -475,12 +467,18 @@ mod tests {
     }
 
     async fn load(db: &crate::database::DbHandle, id: i32) -> entity::Model {
-        entity::Entity::find_by_id(id).one(&db.conn).await.unwrap().unwrap()
+        entity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap()
     }
 
     #[tokio::test]
     async fn the_selected_surface_is_not_one_of_its_own_alternatives() {
-        let Some(db) = test_db::test_db().await else { return };
+        let Some(db) = test_db::test_db().await else {
+            return;
+        };
         let db = db.handle();
         let id = seed(&db, "Train Dreams").await;
 
@@ -502,7 +500,8 @@ mod tests {
         let user_id = fixtures::user(db, "project").await;
         let capture_id = fixtures::capture(db, user_id).await;
         let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-        let observation_id = fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
+        let observation_id =
+            fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
         observation::Entity::update_many()
             .col_expr(
                 observation::Column::SearchQuery,
@@ -529,9 +528,13 @@ mod tests {
         let user_id = fixtures::user(db, "project").await;
         let capture_id = fixtures::capture(db, user_id).await;
         let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-        let observation_id = fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
+        let observation_id =
+            fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
         observation::Entity::update_many()
-            .col_expr(observation::Column::Platform, Expr::value(Some(platform.to_string())))
+            .col_expr(
+                observation::Column::Platform,
+                Expr::value(Some(platform.to_string())),
+            )
             .col_expr(
                 observation::Column::PlatformHandle,
                 Expr::value(Some(handle.to_string())),
@@ -549,7 +552,9 @@ mod tests {
     /// The platform presence, projected from whichever member carried one.
     #[tokio::test]
     async fn the_platform_presence_is_projected_from_a_member() {
-        let Some(db) = test_db::test_db().await else { return };
+        let Some(db) = test_db::test_db().await else {
+            return;
+        };
         let db = db.handle();
         let id = seed(&db, "Tsoding").await;
         attach_link(&db, id, "Tsoding", "x_twitter", "tsoding").await;
@@ -566,7 +571,9 @@ mod tests {
     /// kept, in member order so the answer never depends on arrival order.
     #[tokio::test]
     async fn the_hint_is_projected_with_its_alternatives() {
-        let Some(db) = test_db::test_db().await else { return };
+        let Some(db) = test_db::test_db().await else {
+            return;
+        };
         let db = db.handle();
         let id = seed(&db, "Train Dreams").await;
         attach(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
@@ -587,7 +594,9 @@ mod tests {
     /// carries it — the same protection the description has.
     #[tokio::test]
     async fn a_selected_hint_survives_while_a_member_still_carries_it() {
-        let Some(db) = test_db::test_db().await else { return };
+        let Some(db) = test_db::test_db().await else {
+            return;
+        };
         let db = db.handle();
         let id = seed(&db, "Train Dreams").await;
         attach(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
@@ -614,7 +623,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_live_claim_makes_it_identified() {
-        let Some(db) = test_db::test_db().await else { return };
+        let Some(db) = test_db::test_db().await else {
+            return;
+        };
         let db = db.handle();
         let id = seed(&db, "Train Dreams").await;
         claim(&db, id, "claim", "wikidata", "Q104919").await;
@@ -628,7 +639,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_collision_makes_it_contested() {
-        let Some(db) = test_db::test_db().await else { return };
+        let Some(db) = test_db::test_db().await else {
+            return;
+        };
         let db = db.handle();
         let id = seed(&db, "Train Dreams").await;
         claim(&db, id, "collision", "wikidata", "Q104919").await;
@@ -642,12 +655,17 @@ mod tests {
 
     #[tokio::test]
     async fn a_retracted_claim_does_not_identify() {
-        let Some(db) = test_db::test_db().await else { return };
+        let Some(db) = test_db::test_db().await else {
+            return;
+        };
         let db = db.handle();
         let id = seed(&db, "Train Dreams").await;
         claim(&db, id, "claim", "wikidata", "Q104919").await;
         evidence::Entity::update_many()
-            .col_expr(evidence::Column::RetractedAt, Expr::value(chrono::Utc::now()))
+            .col_expr(
+                evidence::Column::RetractedAt,
+                Expr::value(chrono::Utc::now()),
+            )
             .filter(evidence::Column::KnowledgeEntityId.eq(id))
             .exec(&db.conn)
             .await

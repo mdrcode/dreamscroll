@@ -16,7 +16,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use sea_orm::{EntityTrait, QueryOrder};
 
-use super::blocking::Blocker;
+use super::blocker::Blocker;
 use super::evidence::{Claim, Evidence};
 use super::link_decider::{Action, Decision, LinkDecider};
 use super::normalize;

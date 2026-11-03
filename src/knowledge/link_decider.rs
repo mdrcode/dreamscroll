@@ -15,7 +15,7 @@
 
 use crate::model;
 
-use super::blocking::Blocker;
+use super::blocker::Blocker;
 use super::evidence::Evidence;
 
 /// What to do with one observation.
