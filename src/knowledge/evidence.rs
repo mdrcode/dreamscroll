@@ -59,6 +59,9 @@ pub enum ClaimOutcome {
 /// Holds its own clone of the connection rather than borrowing one: `DatabaseConnection` is a pool
 /// handle behind an `Arc`, so cloning is a pointer copy, and the type can be built once and kept in
 /// a long-lived state — which is the point of it being a parameter.
+/// A handle, not state: cloning one clones the connection handle, which is what `Knowledge` stores so
+/// that a caller linking thousands of illuminations does not build one per link.
+#[derive(Clone)]
 pub struct Evidence {
     conn: sea_orm::DatabaseConnection,
 }
@@ -109,8 +112,8 @@ impl Evidence {
             });
         }
 
-        let insert = model::knowledge_evidence::Entity::insert(
-            model::knowledge_evidence::ActiveModel {
+        let insert =
+            model::knowledge_evidence::Entity::insert(model::knowledge_evidence::ActiveModel {
                 knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
                 kind: sea_orm::Set("claim".to_string()),
                 value: sea_orm::Set(serde_json::json!({
@@ -123,10 +126,9 @@ impl Evidence {
                 user_observed_entity_id: sea_orm::Set(Some(observation.id)),
                 source_user_id: sea_orm::Set(Some(observation.user_id)),
                 ..Default::default()
-            },
-        )
-        .exec(&self.conn)
-        .await;
+            })
+            .exec(&self.conn)
+            .await;
 
         match insert {
             Ok(_) => Ok(ClaimOutcome::Accepted),

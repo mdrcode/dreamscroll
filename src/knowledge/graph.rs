@@ -33,6 +33,9 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 pub struct Knowledge {
     db: DbHandle,
     decider: Arc<dyn LinkDecider>,
+    /// The claims about entities. Built here rather than per link: it is a handle, not state, and a
+    /// caller that links thousands of illuminations should not be constructing one each time.
+    evidence: Evidence,
 }
 
 impl Knowledge {
@@ -40,6 +43,7 @@ impl Knowledge {
         Self {
             db: db.clone(),
             decider,
+            evidence: Evidence::from_handle(db),
         }
     }
 
@@ -95,8 +99,7 @@ impl Knowledge {
         illumination: &model::illumination::ModelEx,
     ) -> anyhow::Result<LinkStats> {
         let mut blocker = NameBlocker::new(&self.db).await?;
-        let evidence = Evidence::from_handle(&self.db);
-        self.link_illumination_with(illumination, &mut blocker, &evidence)
+        self.link_illumination_with(illumination, &mut blocker)
             .await
     }
 
@@ -459,23 +462,23 @@ enum Outcome {
 
 /// Apply a linking decision against the knowledge_entities table.
 impl Knowledge {
-    /// Link one illumination with a caller's blocker and evidence: they are the expensive, shareable
-    /// things, so a caller linking several illuminations builds them once. The linking policy is the
-    /// one this store was built with. [`Self::link_illumination`] builds the collaborators too.
+    /// Link one illumination with a caller's blocker: it is the expensive thing — an index of the
+    /// whole graph — so a caller linking several illuminations builds one and reuses it. The linking
+    /// policy and the evidence store are this store's. [`Self::link_illumination`] builds the
+    /// blocker too.
     pub async fn link_illumination_with(
         &self,
         illumination: &model::illumination::ModelEx,
         blocker: &mut dyn Blocker,
-        evidence: &Evidence,
     ) -> anyhow::Result<LinkStats> {
         let decisions = self
             .decider
-            .decide_link(blocker, evidence, illumination)
+            .decide_link(blocker, &self.evidence, illumination)
             .await?;
 
         let mut stats = LinkStats::default();
         for decision in &decisions {
-            let applied = self.apply_decision(evidence, decision).await?;
+            let applied = self.apply_decision(decision).await?;
             // Projection is a function of the members, so it runs after the writes that changed them,
             // and it returns the row it wrote — which is exactly what the blocker needs to re-index.
             // An entity two observations landed on is projected twice; a wasted read is cheaper than
@@ -489,11 +492,7 @@ impl Knowledge {
     }
 
     /// Apply one decision against the graph.
-    async fn apply_decision(
-        &self,
-        evidence: &Evidence,
-        decision: &link_decider::Decision,
-    ) -> anyhow::Result<Applied> {
+    async fn apply_decision(&self, decision: &link_decider::Decision) -> anyhow::Result<Applied> {
         let observation = &decision.observation;
         if observation.knowledge_entity_id.is_some() {
             anyhow::bail!(
@@ -518,7 +517,8 @@ impl Knowledge {
         // both asked for a new entity carrying the same claim; occasionally it is another worker.
         let mut folded = false;
         if let Some(claim) = &decision.claim
-            && let ClaimOutcome::HeldBy(owner) = evidence
+            && let ClaimOutcome::HeldBy(owner) = self
+                .evidence
                 .record(target_entity.id, claim, observation)
                 .await?
         {

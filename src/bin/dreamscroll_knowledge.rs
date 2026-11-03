@@ -2,7 +2,6 @@ use argh::FromArgs;
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
-use dreamscroll::knowledge::evidence::Evidence;
 use dreamscroll::knowledge::heuristic::NameBlocker;
 use dreamscroll::model;
 use dreamscroll::{config, database, knowledge, telemetry};
@@ -325,7 +324,6 @@ impl LinkAllPendingReport {
 /// After a reset, this rebuilds the entire knowledge graph.
 async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPendingReport> {
     let mut blocker = NameBlocker::new(db).await?;
-    let evidence = Evidence::from_handle(db);
 
     let unlinked_obs = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
@@ -353,7 +351,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
             }
         }
         let applied = knowledge
-            .link_illumination_with(illumination, &mut blocker, &evidence)
+            .link_illumination_with(illumination, &mut blocker)
             .await?;
         report.update(applied);
     }
