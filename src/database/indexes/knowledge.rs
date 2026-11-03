@@ -37,6 +37,25 @@ END;
 $sync$;
 "#;
 
+/// A tombstone must point at another entity, never at itself: self-merge is a no-op in the code, and
+/// a row that pointed at itself would be an unbreakable redirect loop.
+///
+/// Only self-reference fits a `CHECK`. A longer cycle (A → B → A) is not expressible here; the reader
+/// that follows pointers bounds its hops and fails loudly instead.
+const NOT_SELF_MERGED: &str = r#"
+DO $sync$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'knowledge_entities_merged_into_not_self'
+    ) THEN
+        ALTER TABLE knowledge_entities
+            ADD CONSTRAINT knowledge_entities_merged_into_not_self
+            CHECK (merged_into_id IS NULL OR merged_into_id <> id);
+    END IF;
+END;
+$sync$;
+"#;
+
 pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(BACKFILL_ALT_SEARCH_QUERIES).await?;
     Ok(())
@@ -45,5 +64,6 @@ pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbEr
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(CREATE).await?;
     conn.execute_unprepared(ARRAY_DEFAULTS).await?;
+    conn.execute_unprepared(NOT_SELF_MERGED).await?;
     Ok(())
 }

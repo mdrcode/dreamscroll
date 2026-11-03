@@ -127,7 +127,8 @@ pub(super) async fn preview<C: ConnectionTrait>(
 /// Fold `loser` into `winner`.
 ///
 /// The winner should be the better-substantiated entity — in practice the one that already holds the
-/// identity which caused the conflict. Both must be live; merging a tombstone is a no-op.
+/// identity which caused the conflict — and it must be live. A tombstoned *loser* is a no-op; a
+/// tombstoned winner is refused, because the loser's observations would be stranded on a dead row.
 ///
 /// **The same-illumination veto applies here too.** Two entities that both appear in one *illumination*
 /// cannot be one referent: one extractor writing the same string twice in one screenshot means two
@@ -186,6 +187,11 @@ async fn merge_in_transaction<C: ConnectionTrait>(
     if live(loser) == Some(false) {
         return Ok(Outcome::AlreadyMerged);
     }
+    // A tombstone is a forwarding pointer, not a home: observations landing on one are stranded.
+    anyhow::ensure!(
+        live(winner) == Some(true),
+        "knowledge entity {winner} is a tombstone; merge into its canonical entity"
+    );
 
     if preview(conn, loser, winner).await?.shared_illuminations > 0 {
         return Ok(Outcome::RefusedSharedIllumination);
@@ -568,5 +574,32 @@ mod tests {
             assert_eq!(row.value["child"], serde_json::json!(loser));
             assert_eq!(row.source, source);
         }
+    }
+
+    /// Merging into a tombstone would strand the loser's observations, so it is refused.
+    #[tokio::test]
+    async fn merging_into_a_tombstone_is_refused() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let dead = entity_with(&db, "Elon").await;
+        let alive = entity_with(&db, "Elon Musk").await;
+        merge(&db.conn, dead, alive, Cause::Repair)
+            .await
+            .expect("the first merge is fine");
+
+        let other = entity_with(&db, "E. Musk").await;
+        let error = merge(&db.conn, other, dead, Cause::Repair)
+            .await
+            .expect_err("the winner is a tombstone");
+        assert!(error.to_string().contains("tombstone"), "{error}");
+
+        let loser = entity::Entity::find_by_id(other)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(loser.merged_into_id, None, "the loser was left alone");
     }
 }

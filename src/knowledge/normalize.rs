@@ -32,6 +32,10 @@ pub(crate) fn comparable(surface: &str) -> String {
     collapse(&fold_case(unterminated))
 }
 
+fn collapse(surface: &str) -> String {
+    surface.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 fn fold_case(surface: &str) -> String {
     let mut out = String::with_capacity(surface.len());
     for c in surface.chars() {
@@ -68,10 +72,6 @@ fn latin_base(c: char) -> Option<char> {
         'ž' | 'ź' | 'ż' | 'Ž' | 'Ź' | 'Ż' => 'z',
         _ => return None,
     })
-}
-
-fn collapse(surface: &str) -> String {
-    surface.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]

@@ -178,7 +178,7 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Browser tests for SSE/refresh/upload               | [testing-js-and-browser.md](testing-js-and-browser.md)                 | First client bug that unit tests miss                         |
 | Coverage strategy beyond the two tiers             | [testing-coverage.md](testing-coverage.md)                             | Coverage discussions block a change                           |
 | Private media URLs                                 | [media-serving.md](media-serving.md)                                   | Multi-user access or CDN/LB work starts                       |
-| Provisioning the schema-sync Cloud Run Job         | [prod-deploy.md](prod-deploy.md)                                       | First production schema change                                |
+| Provisioning the schema-sync Cloud Run Job         | [prod-deploy.md](prod-deploy.md)                                       | **Fired** — schema 20 adds the `merged_into_id` FK and CHECK; nothing syncs at boot, so prod stays at 19 until this job runs |
 | API token hardening                                | [api_token_hardening.md](api_token_hardening.md)                       | API usage grows beyond first-party clients                    |
 | Entity taxonomy pass                               | [knowledge-entity-types.md](knowledge-entity-types.md)                 | Environment fully backfilled with v2                          |
 | htmx 4.0 migration                                 | [htmx4.md](htmx4.md)                                                   | 4.x becomes `latest`, or 2.x breaks a behavior we rely on     |
@@ -196,6 +196,12 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 Carried forward from `plan/archive/devlog.md`; each needs a design pass before it becomes a task.
 
 - **Bifurcate the app loop** into `LearnMoreAbout`, `MoreLikeThis`, and `GoBeyond`.
+- **Entity pages, and permanent redirects from tombstones.** One page per knowledge entity, and a
+  merged entity answers `301` to its canonical one: `merged_into_id` is a permanent forwarding
+  pointer, kept append-only so unmerging stays a single pointer restore. Following stops at a fixed
+  hop cap and errors — exhaustion means a cycle, which nothing else guards. `301` not `302`, because
+  the identity moved for good: a browser that cached the redirect will keep following it after an
+  unmerge.
 - **Mind Map** view over the knowledge graph.
 - **Derived media resolutions.** `thumbnail_url` points at the original asset, not a
   separately generated thumbnail; large screenshots are served at full size.

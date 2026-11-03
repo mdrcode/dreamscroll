@@ -64,6 +64,10 @@ pub struct Model {
     pub platform_handle: Option<String>,
     #[sea_orm(nullable)]
     pub platform_display_name: Option<String>,
+
+    // if this is non-null, the entity is a tombstone (it has been merge'd into another entity)
+    #[sea_orm(belongs_to, from = "merged_into_id", to = "id")]
+    pub merged_into: HasOne<crate::model::knowledge_entity::Entity>,
 }
 
 impl Model {

@@ -8,8 +8,10 @@
 
 use std::sync::Arc;
 
-use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter, Set,
+    Statement,
+};
 
 use crate::database::DbHandle;
 use crate::model;
@@ -195,19 +197,28 @@ async fn get<C: ConnectionTrait>(
 ///
 /// This is the only place a `knowledge_entity_id` is set. `project` reads the resulting membership
 /// to compute the entity's columns, so nothing else about the move is recorded here.
+///
+/// The target entity must be live — `merged_into_id IS NULL` — and that condition is in the SQL
+/// write itself, so a stale blocker cannot park an observation on a tombstone.
 async fn attach<C: ConnectionTrait>(
     conn: &C,
     observation_id: i32,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<()> {
-    model::user_observed_entity::Entity::update_many()
-        .col_expr(
-            model::user_observed_entity::Column::KnowledgeEntityId,
-            Expr::value(Some(knowledge_entity_id)),
-        )
-        .filter(model::user_observed_entity::Column::Id.eq(observation_id))
-        .exec(conn)
+    let attached = conn
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE user_observed_entities o SET knowledge_entity_id = $2 \
+               FROM knowledge_entities e \
+              WHERE o.id = $1 AND e.id = $2 AND e.merged_into_id IS NULL",
+            [observation_id.into(), knowledge_entity_id.into()],
+        ))
         .await?;
+    anyhow::ensure!(
+        attached.rows_affected() == 1,
+        "could not attach observation {observation_id} to knowledge entity {knowledge_entity_id}: \
+         the entity is a tombstone, or one of the two does not exist"
+    );
     Ok(())
 }
 
@@ -254,5 +265,47 @@ mod tests {
             id,
             "the row must survive"
         );
+    }
+
+    /// A stale blocker can hand back an entity another writer has since merged: the write refuses.
+    #[tokio::test]
+    async fn an_observation_is_not_attached_to_a_tombstone() {
+        let Some(test_db) = test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let store = Knowledge::new(&db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Train").await;
+        store
+            .merge(loser, winner, crate::knowledge::merge::Cause::Repair)
+            .await
+            .expect("the two entities are mergeable");
+
+        let user = fixtures::user(&db, "attach").await;
+        let capture = fixtures::capture(&db, user).await;
+        let illumination = fixtures::illumination(&db, user, capture).await;
+        let observation = fixtures::entity(&db, user, capture, illumination, 0, "Train").await;
+
+        let error = store
+            .attach_observation(observation, loser)
+            .await
+            .expect_err("the loser is a tombstone");
+        assert!(error.to_string().contains("tombstone"), "{error}");
+
+        let row = model::user_observed_entity::Entity::find_by_id(observation)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            row.knowledge_entity_id, None,
+            "the observation was left alone"
+        );
+
+        store
+            .attach_observation(observation, winner)
+            .await
+            .expect("a live entity still takes it");
     }
 }
