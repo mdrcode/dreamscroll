@@ -171,7 +171,7 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         .exec(conn)
         .await?;
 
-    crate::knowledge::knowledge::project(conn, winner).await?;
+    crate::knowledge::graph::project(conn, winner).await?;
     Ok(Outcome::Merged)
 }
 

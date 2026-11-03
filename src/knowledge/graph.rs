@@ -1,4 +1,4 @@
-//! The knowledge graph's write side.
+//! The knowledge graph's write side: [`Knowledge`].
 //!
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
 //! onto one goes through [`Knowledge`]. The connection-generic functions at the bottom are the
@@ -796,7 +796,7 @@ mod linking {
 
     use super::*;
     use crate::database;
-    use crate::knowledge::knowledge::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
+    use crate::knowledge::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
     use crate::model::{
         knowledge_entity as entity, knowledge_evidence as evidence,
         user_observed_entity as observation,
