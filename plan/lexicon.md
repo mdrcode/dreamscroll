@@ -45,6 +45,7 @@ observation.
 | --- | --- | --- | --- |
 | **observation** | `UserObservedEntity` | `user_observed_entities` | `id`, `user_id`, `capture_id`, `illumination_id`, `position`, `created_at`, `name`, `entity_type`, `description`, `search_query`, `platform`, `platform_handle`, `platform_display_name`, `knowledge_entity_id` |
 | **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `status`, `confidence`, `merged_into_id`, timestamps |
+| **identity** (planned, schema 23) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `scheme`, `external_id`, `label`, `description`, `classes`, `method`, `confidence`, `first_seen` |
 | **claim** | `KnowledgeClaim` | `knowledge_claims` | `id`, `knowledge_entity_id`, `scheme`, `external_id`, `surface`, `label`, `description`, `classes`, `source`, `method`, `confidence`, `user_observed_entity_id`, `source_user_id`, `retracted_at`, `observed_at` |
 | **merge** | `KnowledgeMerge` | `knowledge_merges` | `id`, `loser_id`, `winner_id`, `cause`, `source`, `source_user_id`, `at` |
 | **collision** | `KnowledgeCollision` | `knowledge_collisions` | `id`, `holder_id`, `claimant_id`, `scheme`, `external_id`, `reason`, `detected_at`, `adjudicated_at` |
@@ -112,6 +113,7 @@ live authority claim; it is not the past participle of `resolve`, which may abst
 | *mention* | implies a string whose meaning is fixed by its referent; an observation can be wrong and still be a faithful record |
 | *core* / *CoreEntity* | a cluster has a core; entities are not derived from clusters, and "core" names a mechanism that no longer exists |
 | *CoreKnowledgeEvidence* / *evidence* | one table with a `kind` discriminator for three different statements; split into claims, collisions and merges |
+| *knowledge_evidence* (for the identity table, schema 23) | a QID is the referent, not a statement about it, and half of the identities are platform handles read off a capture — neither has an external assertion to be evidence *of*. `identity` is already this lexicon's word for `(scheme, external_id)`, so the table adds no vocabulary. Reconsider only as a fourth, statement-level table (`knowledge_evidence` = one row per authority answer, with identities derived), which is a different and larger model |
 | *label* / *alt_labels* | technical jargon for the same idea; `name`/`alt_names` is plain and keeps the singular/plural pattern |
 | *identify* | presupposes success, and resolution abstains often; also too narrow — it names only one of the kinds |
 | *related_core_id* | one column with two meanings selected by `kind`; deleted, the role lives in the payload |
