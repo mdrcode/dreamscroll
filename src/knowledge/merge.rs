@@ -48,8 +48,17 @@ impl super::Knowledge {
     }
 
     /// Fold `loser` into `winner`. See [`merge`] for what that means and why it can refuse.
+    ///
+    /// The blocker is told afterwards, not inside the transaction: projecting the winner happens
+    /// within it, but a rollback would leave the index holding a row that never landed. The second
+    /// projection is idempotent and merges are rare, so it doubles as the notification.
     pub async fn merge(&self, loser: i32, winner: i32) -> anyhow::Result<Outcome> {
-        merge(self.conn(), loser, winner).await
+        let outcome = merge(self.conn(), loser, winner).await?;
+        if outcome == Outcome::Merged {
+            self.update_projection(winner).await?;
+            self.forget(loser).await;
+        }
+        Ok(outcome)
     }
 }
 

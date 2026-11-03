@@ -18,7 +18,6 @@ use crate::model;
 
 use super::blocker::Blocker;
 use super::evidence::{ClaimOutcome, Evidence};
-use super::heuristic::NameBlocker;
 use super::link_decider::{self, LinkDecider};
 
 pub const STATUS_PROVISIONAL: &str = "provisional";
@@ -27,13 +26,21 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 /// The knowledge graph, as seen by anyone who writes to it.
 ///
 /// Most callers are a store: they create, attach, project and merge, and never decide anything. Those
-/// build `Knowledge::new`. Linking is the one operation with a policy, and it is chosen at
-/// construction — `Knowledge::with_linker` — so a caller that only merges does not have to name a
-/// linker it will not consult.
+/// build [`Knowledge::new`]. Linking additionally needs a policy and a blocker, both injected by
+/// [`Knowledge::with_linker`].
+///
+/// The blocker is built once and kept, so it accumulates everything this store writes — `project`
+/// tells it about every entity whose columns changed, and a discarded or tombstoned entity is
+/// forgotten. It therefore knows *this* store's writes only: a second writer (the CLI, another
+/// instance) is invisible to it. That is the argument for a blocker that queries instead of holding
+/// an index, not for rebuilding this one per call.
 #[derive(Clone)]
 pub struct Knowledge {
     db: DbHandle,
     decider: Option<Arc<dyn LinkDecider>>,
+    /// `Mutex` because `Blocker::changed` takes `&mut`; `Arc` because `Knowledge` is `Clone`. Held
+    /// rather than rebuilt so it accumulates everything this store writes.
+    blocker: Option<Arc<tokio::sync::Mutex<Box<dyn Blocker>>>>,
     /// The claims about entities. Built here rather than per link: it is a handle, not state, and a
     /// caller that links thousands of illuminations should not be constructing one each time.
     evidence: Evidence,
@@ -45,15 +52,36 @@ impl Knowledge {
         Self {
             db: db.clone(),
             decider: None,
+            blocker: None,
             evidence: Evidence::from_handle(db),
         }
     }
 
-    /// The graph, with the policy that decides how one reading's observations cluster.
-    pub fn with_linker(db: &DbHandle, decider: Arc<dyn LinkDecider>) -> Self {
+    /// The graph, with the policy that decides how a reading's observations cluster, and the index
+    /// it asks. `NameBlocker::new(&db)` is the usual blocker.
+    pub fn with_linker(
+        db: &DbHandle,
+        decider: Arc<dyn LinkDecider>,
+        blocker: Box<dyn Blocker>,
+    ) -> Self {
         Self {
             decider: Some(decider),
+            blocker: Some(Arc::new(tokio::sync::Mutex::new(blocker))),
             ..Self::new(db)
+        }
+    }
+
+    /// Tell the held blocker what just happened, if there is one.
+    async fn notify(&self, entity: &model::knowledge_entity::Model) {
+        if let Some(blocker) = &self.blocker {
+            blocker.lock().await.changed(entity);
+        }
+    }
+
+    /// Tell the blocker an entity is gone. `pub(super)` so `merge` can retire the loser.
+    pub(super) async fn forget(&self, knowledge_entity_id: i32) {
+        if let Some(blocker) = &self.blocker {
+            blocker.lock().await.forget(knowledge_entity_id);
         }
     }
 
@@ -87,30 +115,36 @@ impl Knowledge {
     /// refused rather than deleted. The foreign key would fail the delete anyway, but only after the
     /// fact and with a message about constraints rather than about this call.
     pub async fn discard_empty(&self, knowledge_entity_id: i32) -> anyhow::Result<()> {
-        discard_empty(&self.db.conn, knowledge_entity_id).await
+        discard_empty(&self.db.conn, knowledge_entity_id).await?;
+        self.forget(knowledge_entity_id).await;
+        Ok(())
     }
 
+    /// Recompute an entity's projected columns, and tell the blocker what came out.
+    ///
+    /// The notification lives here rather than in the linker's loop because this is the one place
+    /// those columns change: linking, resolving and merging all end up here, so a held blocker
+    /// cannot miss one of them.
     pub async fn update_projection(
         &self,
         knowledge_entity_id: i32,
     ) -> anyhow::Result<model::knowledge_entity::Model> {
-        project(&self.db.conn, knowledge_entity_id).await
+        let entity = project(&self.db.conn, knowledge_entity_id).await?;
+        self.notify(&entity).await;
+        Ok(entity)
     }
 
     /// Link one reading into the graph: cluster its observations, record their claims, and project
     /// every entity it touched.
     ///
-    /// The blocker is rebuilt per call — it is an in-memory index of every entity, so a long-lived
-    /// one would go stale the moment `resolve` or a merge reshapes the graph. Callers that link many
-    /// illuminations in a row (`link`, `link_all`) build one blocker and use `link::link_illumination`
-    /// directly.
+    /// One entry point, because the blocker is the store's: a caller linking a thousand illuminations
+    /// and a caller linking one take the same path, and both benefit from what the store has been
+    /// told so far.
     pub async fn link_illumination(
         &self,
         illumination: &model::illumination::ModelEx,
     ) -> anyhow::Result<LinkStats> {
-        let mut blocker = NameBlocker::new(&self.db).await?;
-        self.link_illumination_with(illumination, &mut blocker)
-            .await
+        self.link_illumination_with(illumination).await
     }
 
     /// The connection the graph writes with.
@@ -459,16 +493,11 @@ enum Outcome {
 
 /// Apply a linking decision against the knowledge_entities table.
 impl Knowledge {
-    /// Link one illumination with a caller's blocker: it is the expensive thing — an index of the
-    /// whole graph — so a caller linking several illuminations builds one and reuses it. The linking
-    /// policy and the evidence store are this store's. [`Self::link_illumination`] builds the
-    /// blocker too.
-    pub async fn link_illumination_with(
+    async fn link_illumination_with(
         &self,
         illumination: &model::illumination::ModelEx,
-        blocker: &mut dyn Blocker,
     ) -> anyhow::Result<LinkStats> {
-        let Some(decider) = &self.decider else {
+        let (Some(decider), Some(blocker)) = (&self.decider, &self.blocker) else {
             anyhow::bail!(
                 "this Knowledge was built without a linker; use Knowledge::with_linker to link \
                  illuminations"
@@ -485,8 +514,10 @@ impl Knowledge {
             illumination.id
         );
 
+        // The lock is held for the decision only: applying decisions projects entities, and
+        // projecting notifies the blocker, which needs the same lock.
         let decisions = decider
-            .decide_link(blocker, &self.evidence, illumination)
+            .decide_link(&**blocker.lock().await, &self.evidence, illumination)
             .await?;
 
         let mut stats = LinkStats::default();
@@ -496,8 +527,7 @@ impl Knowledge {
             // and it returns the row it wrote — which is exactly what the blocker needs to re-index.
             // An entity two observations landed on is projected twice; a wasted read is cheaper than
             // remembering which ones were already done.
-            let entity = self.update_projection(applied.entity).await?;
-            blocker.changed(&entity);
+            self.update_projection(applied.entity).await?;
             stats.record(decision, applied);
         }
 
@@ -586,8 +616,22 @@ mod tests {
             .unwrap()
     }
 
+    /// The store as the projection tests use it: writes only, no linking policy.
     fn store(db: &DbHandle) -> Knowledge {
-        Knowledge::with_linker(db, Arc::new(crate::knowledge::heuristic::HeuristicLinker))
+        Knowledge::new(db)
+    }
+
+    /// The store with a linker and a fresh blocker, for the tests that actually link.
+    async fn linking_store(db: &DbHandle, decider: Arc<dyn LinkDecider>) -> Knowledge {
+        Knowledge::with_linker(
+            db,
+            decider,
+            Box::new(
+                crate::knowledge::heuristic::NameBlocker::new(db)
+                    .await
+                    .unwrap(),
+            ),
+        )
     }
 
     /// One entity with one observation attached, ready to update.
@@ -812,7 +856,7 @@ mod tests {
         fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
 
         let loaded = load_illumination(&db, illumination).await;
-        let inert = Knowledge::with_linker(&db, Arc::new(NoDecisions));
+        let inert = linking_store(&db, Arc::new(NoDecisions)).await;
         let stats = inert.link_illumination(&loaded).await.unwrap();
         assert_eq!(
             stats,
@@ -827,7 +871,7 @@ mod tests {
 
         let loaded = load_illumination(&db, illumination).await;
         let linking =
-            Knowledge::with_linker(&db, Arc::new(crate::knowledge::heuristic::HeuristicLinker));
+            linking_store(&db, Arc::new(crate::knowledge::heuristic::HeuristicLinker)).await;
         let stats = linking.link_illumination(&loaded).await.unwrap();
         assert_eq!(stats.created, 1, "the linker it was built with decides");
     }
@@ -874,7 +918,8 @@ mod tests {
             .unwrap();
         assert!(!unloaded.observations.is_loaded());
 
-        let error = Knowledge::with_linker(&db, Arc::new(NoDecisions))
+        let error = linking_store(&db, Arc::new(NoDecisions))
+            .await
             .link_illumination(&unloaded)
             .await
             .unwrap_err();

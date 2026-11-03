@@ -118,6 +118,11 @@ mod tests {
             &crate::knowledge::Knowledge::with_linker(
                 &db,
                 std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                Box::new(
+                    crate::knowledge::heuristic::NameBlocker::new(&db)
+                        .await
+                        .unwrap(),
+                ),
             ),
             &task(first, user),
         )
@@ -135,6 +140,11 @@ mod tests {
             &crate::knowledge::Knowledge::with_linker(
                 &db,
                 std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                Box::new(
+                    crate::knowledge::heuristic::NameBlocker::new(&db)
+                        .await
+                        .unwrap(),
+                ),
             ),
             &task(second, user),
         )
@@ -172,6 +182,11 @@ mod tests {
             &crate::knowledge::Knowledge::with_linker(
                 &db,
                 std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                Box::new(
+                    crate::knowledge::heuristic::NameBlocker::new(&db)
+                        .await
+                        .unwrap(),
+                ),
             ),
             &task(illumination, stranger),
         )

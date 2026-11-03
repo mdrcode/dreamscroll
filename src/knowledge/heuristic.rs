@@ -277,6 +277,14 @@ impl NameBlocker {
 
 #[async_trait::async_trait]
 impl Blocker for NameBlocker {
+    fn forget(&mut self, knowledge_entity_id: i32) {
+        self.entities.remove(&knowledge_entity_id);
+        self.blocks.retain(|_, ids| {
+            ids.remove(&knowledge_entity_id);
+            !ids.is_empty()
+        });
+    }
+
     fn changed(&mut self, entity: &model::knowledge_entity::Model) {
         for key in Self::keys_of(entity) {
             self.blocks.entry(key).or_default().insert(entity.id);
@@ -535,6 +543,38 @@ mod tests {
 
     fn ids(candidates: &[model::knowledge_entity::Model]) -> Vec<i32> {
         candidates.iter().map(|entity| entity.id).collect()
+    }
+
+    /// The counterpart to `changed`: a held blocker is only ever added to, so an entity that is
+    /// discarded or tombstoned has to be told, or it keeps being offered as a candidate.
+    #[tokio::test]
+    async fn a_forgotten_entity_is_no_longer_proposed() {
+        let mut blocker = NameBlocker::build_entities(&[
+            entity_view(7, "Train Dreams", "book"),
+            entity_view(8, "Dune", "book"),
+        ]);
+
+        assert_eq!(
+            ids(&blocker
+                .candidates(&observation_view("Train Dreams", "book"))
+                .await),
+            vec![7]
+        );
+
+        blocker.forget(7);
+
+        assert!(
+            blocker
+                .candidates(&observation_view("Train Dreams", "book"))
+                .await
+                .is_empty(),
+            "the name must not resolve to a deleted entity"
+        );
+        assert_eq!(
+            ids(&blocker.candidates(&observation_view("Dune", "book")).await),
+            vec![8],
+            "forgetting one entity leaves the others alone"
+        );
     }
 
     /// The bug that made every later capture duplicate an existing name: `project` keeps the

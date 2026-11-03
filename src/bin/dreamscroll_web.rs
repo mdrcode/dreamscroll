@@ -178,6 +178,7 @@ async fn initialize()
                     knowledge: crate::knowledge::Knowledge::with_linker(
                         &db,
                         std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                        Box::new(crate::knowledge::heuristic::NameBlocker::new(&db).await?),
                     ),
                     storage: stg,
                     inference_client: Box::new(inference_client),

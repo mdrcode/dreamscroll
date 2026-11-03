@@ -14,11 +14,12 @@ use crate::model;
 
 /// Link every illumination that still has unlinked observations.
 pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
+    // One blocker for the whole rebuild: the store holds it and keeps it current as it links.
     let knowledge = crate::knowledge::Knowledge::with_linker(
         db,
         std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+        Box::new(NameBlocker::new(db).await?),
     );
-    let mut blocker = NameBlocker::new(db).await?;
 
     let pending = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
@@ -36,9 +37,7 @@ pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
         .await?;
 
     for illumination in &illuminations {
-        knowledge
-            .link_illumination_with(illumination, &mut blocker)
-            .await?;
+        knowledge.link_illumination(illumination).await?;
     }
     Ok(())
 }

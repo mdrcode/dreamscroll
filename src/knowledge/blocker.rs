@@ -21,4 +21,10 @@ pub trait Blocker: Send + Sync {
     /// A no-op for anything that reads the database directly: the row is written before this is
     /// called, so the blocker already sees it. An in-memory blocker has to be told.
     fn changed(&mut self, _entity: &model::knowledge_entity::Model) {}
+
+    /// An entity that is gone — discarded, or tombstoned by a merge — and must stop being offered.
+    ///
+    /// The counterpart to [`Self::changed`]: an in-memory index that is only ever added to keeps
+    /// handing back rows that no longer exist.
+    fn forget(&mut self, _knowledge_entity_id: i32) {}
 }
