@@ -25,7 +25,7 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 ///
 /// Most callers are a store: they create, attach, project and merge, and never decide anything. Those
 /// build [`Knowledge::new`]. Linking additionally needs a policy and a blocker, both injected by
-/// [`Knowledge::with_linker`].
+/// [`Knowledge::with_linking`].
 ///
 /// The blocker is built once and kept, so it accumulates everything this store writes — `project`
 /// tells it about every entity whose columns changed, and a discarded or tombstoned entity is
@@ -36,16 +36,18 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 pub struct Knowledge {
     db: DbHandle,
     pub(super) decider: Option<Arc<dyn LinkDecider>>,
-    /// `Mutex` because `Blocker::changed` takes `&mut`; `Arc` because `Knowledge` is `Clone`. Held
-    /// rather than rebuilt so it accumulates everything this store writes.
-    pub(super) blocker: Option<Arc<tokio::sync::Mutex<Box<dyn Blocker>>>>,
+    /// `Arc` because `Knowledge` is `Clone` and the blocker is shared by every writer on it. Held
+    /// rather than rebuilt so it accumulates everything this store writes. No lock here: the
+    /// blocker's methods take `&self` and the implementation synchronizes itself, so a guard never
+    /// outlives one call — which is what used to make a notification during a link deadlock.
+    pub(super) blocker: Option<Arc<dyn Blocker>>,
     /// The claims about entities. Built here rather than per link: it is a handle, not state, and a
     /// caller that links thousands of illuminations should not be constructing one each time.
     pub(super) evidence: Evidence,
 }
 
 impl Knowledge {
-    /// The graph, for reads and writes. Linking on it fails; see [`Self::with_linker`].
+    /// The graph, for reads and writes. Linking on it fails; see [`Self::with_linking`].
     pub fn new(db: &DbHandle) -> Self {
         Self {
             db: db.clone(),
@@ -57,29 +59,29 @@ impl Knowledge {
 
     /// The graph, with the policy that decides how a reading's observations cluster, and the index
     /// it asks. `NameBlocker::new(&db)` is the usual blocker.
-    pub fn with_linker(
+    pub fn with_linking(
         db: &DbHandle,
-        decider: Arc<dyn LinkDecider>,
         blocker: Box<dyn Blocker>,
+        decider: Arc<dyn LinkDecider>,
     ) -> Self {
         Self {
             decider: Some(decider),
-            blocker: Some(Arc::new(tokio::sync::Mutex::new(blocker))),
+            blocker: Some(blocker.into()),
             ..Self::new(db)
         }
     }
 
     /// Tell the held blocker what just happened, if there is one.
-    async fn notify(&self, entity: &model::knowledge_entity::Model) {
+    fn notify(&self, entity: &model::knowledge_entity::Model) {
         if let Some(blocker) = &self.blocker {
-            blocker.lock().await.changed(entity);
+            blocker.changed(entity);
         }
     }
 
     /// Tell the blocker an entity is gone. `pub(super)` so `merge` can retire the loser.
-    pub(super) async fn forget(&self, knowledge_entity_id: i32) {
+    pub(super) fn forget(&self, knowledge_entity_id: i32) {
         if let Some(blocker) = &self.blocker {
-            blocker.lock().await.forget(knowledge_entity_id);
+            blocker.forget(knowledge_entity_id);
         }
     }
 
@@ -114,7 +116,7 @@ impl Knowledge {
     /// fact and with a message about constraints rather than about this call.
     pub async fn discard_empty(&self, knowledge_entity_id: i32) -> anyhow::Result<()> {
         discard_empty(&self.db.conn, knowledge_entity_id).await?;
-        self.forget(knowledge_entity_id).await;
+        self.forget(knowledge_entity_id);
         Ok(())
     }
 
@@ -140,7 +142,7 @@ impl Knowledge {
         knowledge_entity_id: i32,
     ) -> anyhow::Result<model::knowledge_entity::Model> {
         let entity = super::project::project(&self.db.conn, knowledge_entity_id).await?;
-        self.notify(&entity).await;
+        self.notify(&entity);
         Ok(entity)
     }
 

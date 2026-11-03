@@ -113,14 +113,14 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
-            &crate::knowledge::Knowledge::with_linker(
+            &crate::knowledge::Knowledge::with_linking(
                 &db,
-                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
                 Box::new(
                     crate::knowledge::heuristic::NameBlocker::new(&db)
                         .await
                         .unwrap(),
                 ),
+                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
             ),
             &service_api,
             &task(first, user),
@@ -137,14 +137,14 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
-            &crate::knowledge::Knowledge::with_linker(
+            &crate::knowledge::Knowledge::with_linking(
                 &db,
-                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
                 Box::new(
                     crate::knowledge::heuristic::NameBlocker::new(&db)
                         .await
                         .unwrap(),
                 ),
+                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
             ),
             &service_api,
             &task(second, user),
@@ -181,14 +181,14 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let error = link(
-            &crate::knowledge::Knowledge::with_linker(
+            &crate::knowledge::Knowledge::with_linking(
                 &db,
-                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
                 Box::new(
                     crate::knowledge::heuristic::NameBlocker::new(&db)
                         .await
                         .unwrap(),
                 ),
+                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
             ),
             &service_api,
             &task(illumination, stranger),

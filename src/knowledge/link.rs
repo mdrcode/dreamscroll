@@ -26,7 +26,7 @@ pub(super) async fn link_illumination(
 ) -> anyhow::Result<LinkStats> {
     let (Some(decider), Some(blocker)) = (&knowledge.decider, &knowledge.blocker) else {
         anyhow::bail!(
-            "this Knowledge was built without a linker; use Knowledge::with_linker to link \
+            "this Knowledge was built without a linker; use Knowledge::with_linking to link \
              illuminations"
         );
     };
@@ -41,10 +41,10 @@ pub(super) async fn link_illumination(
         illumination.id
     );
 
-    // The lock is held for the decision only: applying decisions projects entities, and projecting
-    // notifies the blocker, which needs the same lock.
+    // No guard is held across the decision: the blocker synchronizes itself, so the notifications
+    // that `apply_decision` and projection make cannot deadlock against this call.
     let decisions = decider
-        .decide_link(&**blocker.lock().await, &knowledge.evidence, illumination)
+        .decide_link(&**blocker, &knowledge.evidence, illumination)
         .await?;
 
     let mut stats = LinkStats::default();
@@ -205,14 +205,14 @@ mod unit {
 
     /// The store with a linker and a fresh blocker, for the tests that actually link.
     async fn linking_store(db: &DbHandle, decider: Arc<dyn LinkDecider>) -> Knowledge {
-        Knowledge::with_linker(
+        Knowledge::with_linking(
             db,
-            decider,
             Box::new(
                 crate::knowledge::heuristic::NameBlocker::new(db)
                     .await
                     .unwrap(),
             ),
+            decider,
         )
     }
 

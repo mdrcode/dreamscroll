@@ -165,14 +165,14 @@ mod tests {
         let state = std::sync::Arc::new(crate::webhook::WebhookState {
             logic: crate::logic::LogicState {
                 service_api,
-                knowledge: crate::knowledge::Knowledge::with_linker(
+                knowledge: crate::knowledge::Knowledge::with_linking(
                     &db,
-                    std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
                     Box::new(
                         crate::knowledge::heuristic::NameBlocker::new(&db)
                             .await
                             .unwrap(),
                     ),
+                    std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
                 ),
                 storage: Box::new(TestStorageProvider),
                 inference_client: Box::new(TestInferenceClient::new(vec![

@@ -79,8 +79,12 @@ not an independent event.
 ```rust
 trait Blocker {                  // recall: find candidates, over-generate
     async fn candidates(&self, observation: &Observation) -> Vec<Entity>;
-    fn changed(&mut self, entity: &Entity);      // an in-memory blocker only; a no-op otherwise
+    fn changed(&self, entity: &Entity);          // an in-memory blocker only; a no-op otherwise
+    fn forget(&self, id: i32);                   // discarded or tombstoned; ditto
 }
+
+// All three take `&self`, so the store holds one `Arc<dyn Blocker>` and no lock: an implementation
+// that keeps an index owns its own mutex, and nobody holds a guard across a `candidates` call.
 
 trait Linker {                   // precision: decide, and nothing else
     async fn link_illuminated_observations(

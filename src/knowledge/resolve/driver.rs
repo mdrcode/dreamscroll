@@ -918,14 +918,14 @@ mod tests {
         .await
         .unwrap();
 
-        crate::knowledge::Knowledge::with_linker(
+        crate::knowledge::Knowledge::with_linking(
             &db,
-            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
             Box::new(
                 crate::knowledge::heuristic::NameBlocker::new(&db)
                     .await
                     .unwrap(),
             ),
+            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
         )
         .update_projection(knowledge_entity_id)
         .await
@@ -979,14 +979,14 @@ mod tests {
             .unwrap();
         }
 
-        crate::knowledge::Knowledge::with_linker(
+        crate::knowledge::Knowledge::with_linking(
             &db,
-            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
             Box::new(
                 crate::knowledge::heuristic::NameBlocker::new(&db)
                     .await
                     .unwrap(),
             ),
+            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
         )
         .update_projection(knowledge_entity_id)
         .await

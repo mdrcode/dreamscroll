@@ -336,10 +336,10 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
         .all(&db.conn)
         .await?;
 
-    let knowledge = knowledge::Knowledge::with_linker(
+    let knowledge = knowledge::Knowledge::with_linking(
         db,
-        std::sync::Arc::new(knowledge::heuristic::HeuristicLinker),
         Box::new(knowledge::heuristic::NameBlocker::new(db).await?),
+        std::sync::Arc::new(knowledge::heuristic::HeuristicLinker),
     );
     let mut report = LinkAllPendingReport::default();
     for illumination in &illuminations {

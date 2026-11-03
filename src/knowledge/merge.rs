@@ -55,7 +55,7 @@ pub(super) async fn merge_into(
     let outcome = merge(conn, loser, winner).await?;
     if outcome == Outcome::Merged {
         knowledge.update_projection(winner).await?;
-        knowledge.forget(loser).await;
+        knowledge.forget(loser);
     }
     Ok(outcome)
 }

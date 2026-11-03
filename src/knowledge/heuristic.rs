@@ -226,6 +226,14 @@ pub fn jaccard(a: &[String], b: &[String]) -> f32 {
 /// or type — those narrow, they do not find.
 #[derive(Debug, Default)]
 pub struct NameBlocker {
+    /// One lock over both maps: `blocks` naming an entity `entities` does not hold is a candidate
+    /// the linker would score against nothing, so the two only ever move together. `std` rather
+    /// than `tokio` because no method waits while holding it — the whole index is in memory.
+    index: std::sync::Mutex<Index>,
+}
+
+#[derive(Debug, Default)]
+struct Index {
     /// Block key -> entity ids. `BTreeSet` so candidates come back in a stable order.
     blocks: HashMap<String, BTreeSet<i32>>,
     /// The entities themselves. Candidates are handed back whole, because the linker scores them
@@ -242,7 +250,7 @@ impl NameBlocker {
             .await?
             .into_iter()
             .filter(|row| row.merged_into_id.is_none());
-        let mut blocker = Self::default();
+        let blocker = Self::default();
         for entity in entities {
             blocker.changed(&entity);
         }
@@ -251,11 +259,19 @@ impl NameBlocker {
 
     /// Build the index from a corpus already in hand — tests, and anything that has one.
     pub fn build_entities(entities: &[model::knowledge_entity::Model]) -> Self {
-        let mut blocker = Self::default();
+        let blocker = Self::default();
         for entity in entities {
             blocker.changed(entity);
         }
         blocker
+    }
+
+    /// The index, locked. A poisoned lock is still a usable one: the maps are updated cell by cell,
+    /// so a panic mid-update cannot leave them structurally broken.
+    fn index(&self) -> std::sync::MutexGuard<'_, Index> {
+        self.index
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn keys_of(entity: &model::knowledge_entity::Model) -> Vec<String> {
@@ -277,19 +293,21 @@ impl NameBlocker {
 
 #[async_trait::async_trait]
 impl Blocker for NameBlocker {
-    fn forget(&mut self, knowledge_entity_id: i32) {
-        self.entities.remove(&knowledge_entity_id);
-        self.blocks.retain(|_, ids| {
+    fn forget(&self, knowledge_entity_id: i32) {
+        let mut index = self.index();
+        index.entities.remove(&knowledge_entity_id);
+        index.blocks.retain(|_, ids| {
             ids.remove(&knowledge_entity_id);
             !ids.is_empty()
         });
     }
 
-    fn changed(&mut self, entity: &model::knowledge_entity::Model) {
+    fn changed(&self, entity: &model::knowledge_entity::Model) {
+        let mut index = self.index();
         for key in Self::keys_of(entity) {
-            self.blocks.entry(key).or_default().insert(entity.id);
+            index.blocks.entry(key).or_default().insert(entity.id);
         }
-        self.entities.insert(entity.id, entity.clone());
+        index.entities.insert(entity.id, entity.clone());
     }
 
     async fn candidates(
@@ -297,15 +315,16 @@ impl Blocker for NameBlocker {
         observation: &model::user_observed_entity::Model,
     ) -> Vec<model::knowledge_entity::Model> {
         let observation = Observation::from(observation);
+        let index = self.index();
         let mut found: BTreeSet<i32> = BTreeSet::new();
         for block in [&observation.name_key, &observation.token_key] {
-            if let Some(hits) = self.blocks.get(block) {
+            if let Some(hits) = index.blocks.get(block) {
                 found.extend(hits.iter().copied());
             }
         }
         found
             .into_iter()
-            .filter_map(|id| self.entities.get(&id).cloned())
+            .filter_map(|id| index.entities.get(&id).cloned())
             .collect()
     }
 }
@@ -549,7 +568,7 @@ mod tests {
     /// discarded or tombstoned has to be told, or it keeps being offered as a candidate.
     #[tokio::test]
     async fn a_forgotten_entity_is_no_longer_proposed() {
-        let mut blocker = NameBlocker::build_entities(&[
+        let blocker = NameBlocker::build_entities(&[
             entity_view(7, "Train Dreams", "book"),
             entity_view(8, "Dune", "book"),
         ]);
@@ -620,7 +639,7 @@ mod tests {
     /// The mid-run path: an entity built after the corpus is findable by it.
     #[tokio::test]
     async fn an_entity_added_mid_run_is_findable() {
-        let mut blocker = NameBlocker::build_entities(&[entity_view(7, "Train Dreams", "book")]);
+        let blocker = NameBlocker::build_entities(&[entity_view(7, "Train Dreams", "book")]);
         blocker.changed(&entity_view(9, "Apocalypse Now", "movie"));
 
         let candidates = blocker
