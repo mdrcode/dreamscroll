@@ -5,9 +5,6 @@
 //! claim — and what to do about the answer belongs to a [`LinkDecider`]. Every write is idempotent: a
 //! second run finds nothing to do because every observation already has a `knowledge_entity_id`.
 
-use std::collections::HashSet;
-
-
 use crate::{database, model};
 
 use super::{
@@ -82,16 +79,13 @@ pub async fn link_illumination(
     let decisions = decider.decide_link(blocker, evidence, illumination).await?;
 
     let mut stats = LinkStats::default();
-    let mut touched = HashSet::new();
     for decision in &decisions {
         let applied = apply_link_decision(db, blocker, evidence, decision).await?;
-        touched.insert(applied.entity);
+        // Projection is a function of the members, so it runs after the writes that changed them.
+        // An entity two observations landed on is projected twice; a wasted read is cheaper than
+        // remembering which ones were already done.
+        entity::project(&db.conn, applied.entity).await?;
         stats.record(decision, applied);
-    }
-
-    // Projection is a function of the members, so it runs after this illumination's writes.
-    for knowledge_entity_id in &touched {
-        entity::project(&db.conn, *knowledge_entity_id).await?;
     }
 
     Ok(stats)
