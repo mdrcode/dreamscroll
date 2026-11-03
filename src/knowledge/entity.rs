@@ -60,13 +60,13 @@ fn names_for(observation: &model::user_observed_entity::Model) -> Vec<String> {
     labels
 }
 
-/// Point an observation at its entity.
+/// Point an observation at the knowledge entity it belongs to.
 ///
-/// This is the only place a `knowledge_entity_id` is set. `update_projection` reads the resulting membership to
-/// compute the entity's columns, so nothing else about the move needs recording here.
-pub(crate) async fn attach(
+/// This is the only place a `knowledge_entity_id` is set. `update_projection` reads the resulting
+/// membership to compute the entity's columns, so nothing else about the move is recorded here.
+pub(crate) async fn attach_observation(
     conn: &sea_orm::DatabaseConnection,
-    entity_id: i32,
+    observation_id: i32,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<()> {
     model::user_observed_entity::Entity::update_many()
@@ -74,7 +74,7 @@ pub(crate) async fn attach(
             model::user_observed_entity::Column::KnowledgeEntityId,
             Expr::value(Some(knowledge_entity_id)),
         )
-        .filter(model::user_observed_entity::Column::Id.eq(entity_id))
+        .filter(model::user_observed_entity::Column::Id.eq(observation_id))
         .exec(conn)
         .await?;
     Ok(())

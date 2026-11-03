@@ -112,7 +112,7 @@ async fn apply_decision(
         link_decider::Action::Attach { entity, .. } => entity::get(&db.conn, *entity).await?,
         link_decider::Action::Create { .. } => entity::create(&db.conn, observation).await?,
     };
-    entity::attach(&db.conn, observation.id, target_entity.id).await?;
+    entity::attach_observation(&db.conn, observation.id, target_entity.id).await?;
 
     // The observation may carry its own claim — a handle we inferred from the capture. If another
     // entity already holds it, the entity just created owns nothing: discard it and point the
@@ -135,7 +135,7 @@ async fn apply_decision(
         }
         entity::discard(&db.conn, target_entity.id).await?;
         target_entity = entity::get(&db.conn, owner).await?;
-        entity::attach(&db.conn, observation.id, owner).await?;
+        entity::attach_observation(&db.conn, observation.id, owner).await?;
         folded = true;
     }
 
