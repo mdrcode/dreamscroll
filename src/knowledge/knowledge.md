@@ -49,8 +49,8 @@ entity easier to recognise the next time it appears, so the graph gets better th
 captures — and the first observation of a thing is always the expensive one.
 
 An entity is the thing itself, shared by every user, in `knowledge_entities`. It is not authored; it
-is **projected**: every derived column is a function of the entity's observations and its evidence, so
-a merge or a fresh link simply recomputes them. `project()` is the only writer of `name`, `alt_names`,
+is **recomputed**: every derived column is a function of the entity's observations and its evidence, so
+a merge or a fresh link simply recomputes them. `update_projection()` is the only writer of `name`, `alt_names`,
 `entity_type`, `alt_types`, `description`, `alt_descriptions`, `search_query`, `alt_search_queries`,
 `status` and `confidence`.
 
@@ -111,7 +111,7 @@ for them.
 
 Both traits take **model rows** — `user_observed_entity::Model` and `knowledge_entity::Model` —
 because a separate view layer was a second place for a column to go missing, and it went missing
-twice. What a strategy must not do is *write* one: `project` is the only writer of a derived column.
+twice. What a strategy must not do is *write* one: `update_projection` is the only writer of a derived column.
 The derived forms the scorer works with (`surfaces()`, `descriptions()`, `types()`) are inherent
 methods on the model, beside its columns.
 
@@ -213,7 +213,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `link.rs` | the linking executor |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, HTTP in `transport.rs` |
-| `entity.rs` | the write side: create, attach, absorb, and the only writer of derived columns |
+| `knowledge_graph.rs` | the write side: create, attach, absorb, and the only writer of derived columns |
 | `merge.rs` | fold one entity into another |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `current.rs` | which illumination a user sees |

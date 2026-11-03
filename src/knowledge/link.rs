@@ -80,11 +80,11 @@ pub async fn link_illumination(
 
     let mut stats = LinkStats::default();
     for decision in &decisions {
-        let applied = apply_link_decision(db, blocker, evidence, decision).await?;
+        let applied = apply_decision(db, blocker, evidence, decision).await?;
         // Projection is a function of the members, so it runs after the writes that changed them.
         // An entity two observations landed on is projected twice; a wasted read is cheaper than
         // remembering which ones were already done.
-        entity::project(&db.conn, applied.entity).await?;
+        entity::update_projection(&db.conn, applied.entity).await?;
         stats.record(decision, applied);
     }
 
@@ -93,7 +93,7 @@ pub async fn link_illumination(
 
 /// Carry out one decision: give the observation its entity, then record what the capture asserted
 /// against it.
-async fn apply_link_decision(
+async fn apply_decision(
     db: &database::DbHandle,
     blocker: &mut dyn Blocker,
     evidence: &Evidence,

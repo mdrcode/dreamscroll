@@ -8,7 +8,7 @@
 //! - [`attach`] is the only thing that writes `user_observed_entities.knowledge_entity_id`.
 //! - [`absorb_observation`] accumulates a member's surfaces and type into the row it joins — an
 //!   incremental step, not the truth.
-//! - [`project`] recomputes every derived column from the members and the evidence, and is
+//! - [`update_projection`] recomputes every derived column from the members and the evidence, and is
 //!   authoritative: nothing else writes `name`, `description`, `status`, `confidence`,
 //!   `search_query`, `alt_search_queries` or the `platform_*` triple.
 
@@ -75,7 +75,7 @@ fn names_for(observation: &model::user_observed_entity::Model) -> Vec<String> {
 
 /// Point an observation at its entity.
 ///
-/// This is the only place a `knowledge_entity_id` is set. `project` reads the resulting membership to
+/// This is the only place a `knowledge_entity_id` is set. `update_projection` reads the resulting membership to
 /// compute the entity's columns, so nothing else about the move needs recording here.
 pub(crate) async fn attach(
     conn: &sea_orm::DatabaseConnection,
@@ -129,7 +129,7 @@ pub(crate) async fn create(
 ) -> anyhow::Result<model::knowledge_entity::Model> {
     let description = observation.description.clone();
     // Always provisional: a new entity has nothing proving it yet. If the capture asserted a claim,
-    // it is recorded against this entity and `project` promotes it to `identified` moments later —
+    // it is recorded against this entity and `update_projection` promotes it to `identified` moments later —
     // guessing the status here would be a second writer of a projected column.
     let status = STATUS_PROVISIONAL;
     let model = model::knowledge_entity::ActiveModel {
@@ -156,9 +156,9 @@ pub(crate) async fn create(
 /// `platform`, `platform_handle`, `platform_display_name`, `status` or `confidence`.
 ///
 /// Deriving the surface and text here rather than at write time is what makes a merge safe: a merge
-/// re-points observations and projects the winner, so the loser's names and descriptions are picked
+/// re-points observations and refreshes the winner's projection, so the loser's names and descriptions are picked
 /// up from the members that moved rather than being lost with the deleted row.
-pub async fn project<C: sea_orm::ConnectionTrait>(
+pub async fn update_projection<C: sea_orm::ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<()> {
@@ -435,7 +435,7 @@ mod tests {
     use crate::model::{knowledge_entity as entity, knowledge_evidence as evidence, user_observed_entity as observation};
     use crate::test_support::{fixtures, test_db};
 
-    /// One entity with one observation attached, ready to project.
+    /// One entity with one observation attached, ready to update.
     async fn seed(db: &crate::database::DbHandle, name: &str) -> i32 {
         let user_id = fixtures::user(db, "project").await;
         let capture_id = fixtures::capture(db, user_id).await;
@@ -484,7 +484,7 @@ mod tests {
         let db = db.handle();
         let id = seed(&db, "Train Dreams").await;
 
-        project(&db.conn, id).await.unwrap();
+        update_projection(&db.conn, id).await.unwrap();
 
         let entity = load(&db, id).await;
         assert_eq!(entity.name, "Train Dreams");
@@ -554,7 +554,7 @@ mod tests {
         let id = seed(&db, "Tsoding").await;
         attach_link(&db, id, "Tsoding", "x_twitter", "tsoding").await;
 
-        project(&db.conn, id).await.unwrap();
+        update_projection(&db.conn, id).await.unwrap();
 
         let entity = load(&db, id).await;
         assert_eq!(entity.platform.as_deref(), Some("x_twitter"));
@@ -572,7 +572,7 @@ mod tests {
         attach(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
         attach(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
 
-        project(&db.conn, id).await.unwrap();
+        update_projection(&db.conn, id).await.unwrap();
 
         let entity = load(&db, id).await;
         assert_eq!(entity.search_query.as_deref(), Some("Train Dreams novella"));
@@ -602,7 +602,7 @@ mod tests {
         .await
         .unwrap();
 
-        project(&db.conn, id).await.unwrap();
+        update_projection(&db.conn, id).await.unwrap();
 
         let entity = load(&db, id).await;
         assert_eq!(
@@ -619,7 +619,7 @@ mod tests {
         let id = seed(&db, "Train Dreams").await;
         claim(&db, id, "claim", "wikidata", "Q104919").await;
 
-        project(&db.conn, id).await.unwrap();
+        update_projection(&db.conn, id).await.unwrap();
 
         let entity = load(&db, id).await;
         assert_eq!(entity.status, "identified");
@@ -633,7 +633,7 @@ mod tests {
         let id = seed(&db, "Train Dreams").await;
         claim(&db, id, "collision", "wikidata", "Q104919").await;
 
-        project(&db.conn, id).await.unwrap();
+        update_projection(&db.conn, id).await.unwrap();
 
         let entity = load(&db, id).await;
         assert_eq!(entity.status, "contested");
@@ -653,7 +653,7 @@ mod tests {
             .await
             .unwrap();
 
-        project(&db.conn, id).await.unwrap();
+        update_projection(&db.conn, id).await.unwrap();
 
         assert_eq!(load(&db, id).await.status, "provisional");
     }
