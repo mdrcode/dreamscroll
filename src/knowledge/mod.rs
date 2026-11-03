@@ -8,10 +8,10 @@ pub mod blocker;
 // module is where the graph's writes live. Callers reach it through the re-export below.
 #[allow(clippy::module_inception)]
 pub mod knowledge;
-pub use knowledge::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
+pub use knowledge::{Knowledge, LinkStats, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 pub mod evidence;
 pub mod heuristic;
-pub mod link;
+
 pub mod link_decider;
 pub mod merge;
 pub mod normalize;

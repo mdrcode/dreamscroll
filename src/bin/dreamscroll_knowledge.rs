@@ -5,7 +5,6 @@ use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 use dreamscroll::knowledge::evidence::Evidence;
 use dreamscroll::knowledge::heuristic::HeuristicLinker;
 use dreamscroll::knowledge::heuristic::NameBlocker;
-use dreamscroll::knowledge::link::link_illumination;
 use dreamscroll::model;
 use dreamscroll::{config, database, knowledge, telemetry};
 
@@ -313,7 +312,7 @@ struct LinkAllPendingReport {
 }
 
 impl LinkAllPendingReport {
-    fn update(&mut self, part: knowledge::link::LinkStats) {
+    fn update(&mut self, part: knowledge::LinkStats) {
         self.attached += part.attached;
         self.attached_by_claim += part.attached_by_claim;
         self.created += part.created;
@@ -352,8 +351,9 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
                 report.already_linked += 1;
             }
         }
-        let applied =
-            link_illumination(&knowledge, &mut blocker, &evidence, &decider, illumination).await?;
+        let applied = knowledge
+            .link_illumination_with(illumination, &mut blocker, &evidence, &decider)
+            .await?;
         report.update(applied);
     }
     Ok(report)

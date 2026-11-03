@@ -63,7 +63,7 @@ pub async fn exec(
 pub(crate) async fn link(
     knowledge: &crate::knowledge::Knowledge,
     task: &KnowledgeLinkTask,
-) -> anyhow::Result<crate::knowledge::link::LinkStats> {
+) -> anyhow::Result<crate::knowledge::LinkStats> {
     knowledge
         .link_illumination_by_id(task.illumination_id, task.entity_owner_id)
         .await
