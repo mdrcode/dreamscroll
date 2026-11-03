@@ -212,15 +212,21 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 |---|---|
 | `blocker.rs`, `link_decider.rs` | the two traits, and nothing else — the contract a linker implements |
 | `heuristic.rs` | our first linker, self-contained: features, weights, bars, `NameBlocker`, `HeuristicLinker` |
-| `link.rs` | the linking executor |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, HTTP in `transport.rs` |
-| `graph.rs` | the write side: `Knowledge`, which creates, attaches, projects and links, and is the only writer of derived columns |
+| `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
+| `link.rs` | the linking executor, and `LinkStats` |
+| `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces` |
 | `merge.rs` | fold one entity into another |
-| `evidence.rs`, `stats.rs` | claims about entities, and the counters a run reports |
+| `evidence.rs` | claims about entities, and the platform key a presence answers to |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | the one definition of "the same name" |
+
+The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
+private modules: nothing in them is `pub`, and callers reach them through `Knowledge`'s methods. The
+graph's health counters are a report over the tables rather than graph work, so they live in
+`crate::stats::knowledge_stats`.
 
 The vocabulary — and the names we rejected — is in `plan/lexicon.md`. The design history, including
 the failures that produced these rules, is in `plan/knowledge-illumination-history.md` and

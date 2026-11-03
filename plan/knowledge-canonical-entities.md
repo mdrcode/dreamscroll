@@ -301,8 +301,9 @@ written by `project()` and by nothing else.
 
 Model files: `src/model/user_observed_entity.rs`, `knowledge_entity.rs`,
 `knowledge_evidence.rs` — each `pub struct Model`, as SeaORM requires, so the layer lives in the
-module path. Logic in `src/knowledge/` (`normalize.rs`, `score.rs`, `link.rs`, `merge.rs`, and
-`resolve/`, which also holds `project`).
+module path. Logic in `src/knowledge/`: `graph.rs` is the `Knowledge` facade, and the write paths
+that carry their own tests live beside it (`link.rs`, `project.rs`, `merge.rs`), with `normalize.rs`,
+`heuristic.rs`, `evidence.rs` and `resolve/` as their supporting pieces.
 
 ### Rust shape
 
