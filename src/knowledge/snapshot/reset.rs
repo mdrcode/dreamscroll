@@ -17,13 +17,15 @@ use sea_orm::{
     Statement, TransactionTrait,
 };
 
-use super::record::{CLAIMS_TABLE, CORE_TABLE, EVIDENCE_TABLE, Snapshot};
+use super::record::{
+    CLAIMS_TABLE, COLLISIONS_TABLE, CORE_TABLE, EVIDENCE_TABLE, MERGES_TABLE, Snapshot,
+};
 
 const OBSERVATION_TABLE: &str = "user_observed_entities";
 use crate::database;
 use crate::model::{
-    knowledge_claims as claims, knowledge_entity as entity, knowledge_evidence as evidence,
-    user_observed_entity as observation,
+    knowledge_claims as claims, knowledge_collisions as collisions, knowledge_entity as entity,
+    knowledge_evidence as evidence, knowledge_merges as merges, user_observed_entity as observation,
 };
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -32,12 +34,16 @@ pub struct Report {
     pub unlinked: u64,
     pub evidence: u64,
     pub claims: u64,
+    pub merges: u64,
+    pub collisions: u64,
     pub entities: u64,
     /// `None` when there was nothing to snapshot.
     pub snapshot: Option<Snapshot>,
     pub snapshot_entities: u64,
     pub snapshot_evidence: u64,
     pub snapshot_claims: u64,
+    pub snapshot_merges: u64,
+    pub snapshot_collisions: u64,
     pub snapshot_members: u64,
 }
 
@@ -59,23 +65,32 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 let snapshot_entities = copy(txn, &snapshot.entities(), CORE_TABLE).await?;
                 let snapshot_evidence = copy(txn, &snapshot.evidence(), EVIDENCE_TABLE).await?;
                 let snapshot_claims = copy(txn, &snapshot.claims(), CLAIMS_TABLE).await?;
+                let snapshot_merges = copy(txn, &snapshot.merges(), MERGES_TABLE).await?;
+                let snapshot_collisions =
+                    copy(txn, &snapshot.collisions(), COLLISIONS_TABLE).await?;
                 let snapshot_members = copy_membership(txn, &snapshot.membership()).await?;
 
                 // Order follows the foreign keys: observations first, then evidence, then entities.
                 let unlinked = unlink(txn).await?;
                 let evidence = remove_evidence(txn).await?;
                 let claims = remove_claims(txn).await?;
+                let merges = remove_merges(txn).await?;
+                let collisions = remove_collisions(txn).await?;
                 let entities = remove_entities(txn).await?;
 
                 Ok(Report {
                     unlinked,
                     evidence,
                     claims,
+                    merges,
+                    collisions,
                     entities,
                     snapshot: Some(snapshot),
                     snapshot_entities,
                     snapshot_evidence,
                     snapshot_claims,
+                    snapshot_merges,
+                    snapshot_collisions,
                     snapshot_members,
                 })
             })
@@ -135,6 +150,20 @@ async fn remove_evidence<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
 
 async fn remove_claims<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
     Ok(claims::Entity::delete_many()
+        .exec(conn)
+        .await?
+        .rows_affected)
+}
+
+async fn remove_merges<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
+    Ok(merges::Entity::delete_many()
+        .exec(conn)
+        .await?
+        .rows_affected)
+}
+
+async fn remove_collisions<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
+    Ok(collisions::Entity::delete_many()
         .exec(conn)
         .await?
         .rows_affected)

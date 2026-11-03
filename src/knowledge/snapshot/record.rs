@@ -15,6 +15,8 @@ use chrono::Utc;
 pub(super) const CORE_TABLE: &str = "knowledge_entities";
 pub(super) const EVIDENCE_TABLE: &str = "knowledge_evidence";
 pub(super) const CLAIMS_TABLE: &str = "knowledge_claims";
+pub(super) const MERGES_TABLE: &str = "knowledge_merges";
+pub(super) const COLLISIONS_TABLE: &str = "knowledge_collisions";
 
 /// A frozen copy of one run, named by the moment it was taken so two runs sort chronologically.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,6 +41,14 @@ impl Snapshot {
 
     pub fn claims(&self) -> String {
         format!("{CLAIMS_TABLE}__{}", self.suffix)
+    }
+
+    pub fn merges(&self) -> String {
+        format!("{MERGES_TABLE}__{}", self.suffix)
+    }
+
+    pub fn collisions(&self) -> String {
+        format!("{COLLISIONS_TABLE}__{}", self.suffix)
     }
 
     /// Which observations belonged to which entity — the only record of that is

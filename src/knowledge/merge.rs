@@ -16,7 +16,7 @@ use sea_orm::{
 
 use crate::model::{
     knowledge_claims as claims, knowledge_entity as entity, knowledge_evidence as evidence,
-    user_observed_entity as observation,
+    knowledge_merges as merges, user_observed_entity as observation,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,22 +225,24 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         .filter(claims::Column::KnowledgeEntityId.eq(loser))
         .exec(conn)
         .await?;
-    // The rest of the old evidence kinds — a merge log row and any collision queue entries — follow
-    // the loser too. They move to their own tables later in this refactor.
+    // Collisions follow the loser: the queue names entities, and the loser is about to become a
+    // tombstone. Merge rows do not — they record what happened, not where things live now.
     evidence::Entity::update_many()
         .col_expr(
             evidence::Column::KnowledgeEntityId,
             Expr::value(Some(winner)),
         )
+        .filter(evidence::Column::Kind.eq("collision"))
         .filter(evidence::Column::KnowledgeEntityId.eq(loser))
         .exec(conn)
         .await?;
 
-    // The audit trail: which entity was folded into which, and why.
-    evidence::Entity::insert(evidence::ActiveModel {
-        knowledge_entity_id: Set(winner),
-        kind: Set("merge".to_string()),
-        value: Set(serde_json::json!({ "child": loser, "method": cause.method() })),
+    // The audit trail: which entity was folded into which, and why. A historical row, so it stays
+    // put when either end is later merged again — unlike the collision queue below.
+    merges::Entity::insert(merges::ActiveModel {
+        loser_id: Set(loser),
+        winner_id: Set(winner),
+        cause: Set(cause.method().to_string()),
         source: Set(cause.source().to_string()),
         ..Default::default()
     })
@@ -304,11 +306,7 @@ mod tests {
             Outcome::AlreadyMerged
         );
         assert_eq!(
-            evidence::Entity::find()
-                .filter(evidence::Column::Kind.eq("merge"))
-                .count(&db.conn)
-                .await
-                .unwrap(),
+            merges::Entity::find().count(&db.conn).await.unwrap(),
             1,
             "one merge, one event"
         );
@@ -502,9 +500,8 @@ mod tests {
             "the claim moved"
         );
         assert_eq!(
-            evidence::Entity::find()
-                .filter(evidence::Column::KnowledgeEntityId.eq(winner))
-                .filter(evidence::Column::Kind.eq("merge"))
+            merges::Entity::find()
+                .filter(merges::Column::WinnerId.eq(winner))
                 .count(&db.conn)
                 .await
                 .unwrap(),
@@ -566,15 +563,14 @@ mod tests {
             let loser = entity_with(&db, "Elon").await;
             merge(&db.conn, loser, winner, cause).await.unwrap();
 
-            let row = evidence::Entity::find()
-                .filter(evidence::Column::KnowledgeEntityId.eq(winner))
-                .filter(evidence::Column::Kind.eq("merge"))
+            let row = merges::Entity::find()
+                .filter(merges::Column::WinnerId.eq(winner))
                 .one(&db.conn)
                 .await
                 .unwrap()
                 .expect("a merge row");
-            assert_eq!(row.value["method"], method);
-            assert_eq!(row.value["child"], serde_json::json!(loser));
+            assert_eq!(row.cause, method);
+            assert_eq!(row.loser_id, loser);
             assert_eq!(row.source, source);
         }
     }
