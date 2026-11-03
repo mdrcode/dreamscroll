@@ -115,7 +115,7 @@ async fn main() -> anyhow::Result<()> {
                 report.considered,
                 report.already_linked,
                 report.attached,
-                report.by_claim,
+                report.attached_by_claim,
                 report.created,
                 report.folded,
                 report.vetoed
@@ -306,7 +306,7 @@ struct LinkAllPendingReport {
     considered: usize,
     already_linked: usize,
     attached: usize,
-    by_claim: usize,
+    attached_by_claim: usize,
     created: usize,
     folded: usize,
     vetoed: u32,
@@ -315,7 +315,7 @@ struct LinkAllPendingReport {
 impl LinkAllPendingReport {
     fn update(&mut self, part: knowledge::link::LinkStats) {
         self.attached += part.attached;
-        self.by_claim += part.by_claim;
+        self.attached_by_claim += part.attached_by_claim;
         self.created += part.created;
         self.folded += part.folded;
         self.vetoed += part.vetoed;

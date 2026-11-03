@@ -14,13 +14,29 @@ use super::{
     link_decider::{self, LinkDecider},
 };
 
+/// What one illumination's decisions actually did.
+///
+/// Deliberately not a report: it does not count what the caller already knows — how many observations
+/// were considered, which illuminations were superseded. It says only what the executor wrote.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct LinkStats {
+    pub attached: usize,
+    /// The part of `attached` where a claim named the entity rather than a score.
+    pub attached_by_claim: usize,
+    pub created: usize,
+    /// Created, then dropped: another entity turned out to hold the claim after all.
+    pub folded: usize,
+    /// The same-illumination veto firing.
+    pub vetoed: u32,
+}
+
 impl LinkStats {
     /// Fold one decision and what came of it into the totals.
     ///
     /// Both halves live here because they are one question: what did this reading do, and why.
     fn record(&mut self, decision: &link_decider::Decision, applied: Applied) {
         match &decision.action {
-            link_decider::Action::Attach { by_claim: true, .. } => self.by_claim += 1,
+            link_decider::Action::Attach { by_claim: true, .. } => self.attached_by_claim += 1,
             link_decider::Action::Create { vetoed: true, .. } => self.vetoed += 1,
             _ => {}
         }
@@ -32,43 +48,11 @@ impl LinkStats {
     }
 }
 
-/// What applying one decision did.
-struct Applied {
-    /// The entity the observation ended up on — the one to re-project.
-    entity: i32,
-    outcome: Outcome,
-}
-
-enum Outcome {
-    /// It joined the entity the decision named.
-    Attached,
-    /// A new entity was created for it.
-    Created,
-    /// A new entity was created and then discarded, because another one already held the claim.
-    Folded,
-}
-
-/// What one illumination's decisions actually did.
-///
-/// Deliberately not a report: there is no `considered`, no `stale`, no notion of a run. Those are
-/// questions the caller asks of its own inputs; this says only what the executor wrote.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct LinkStats {
-    pub attached: usize,
-    /// Attached because a claim named the entity rather than a score.
-    pub by_claim: usize,
-    pub created: usize,
-    /// Created, then dropped: another entity turned out to hold the claim after all.
-    pub folded: usize,
-    /// The same-illumination veto firing.
-    pub vetoed: u32,
-}
-
-/// Link one illumination's observed entities into the knowledge graph.
+/// Link one illumination's observations into the knowledge graph.
 ///
 /// The blocker and the evidence store are passed in because they are the expensive, shareable things:
-/// a caller linking more than one illumination builds them once. This function queries nothing to decide
-/// anything — the reads it does are read-modify-write on the entities it is about to change.
+/// a caller linking more than one illumination builds them once. Nothing here decides anything — the
+/// only reads are the entity about to change and the claim about to be recorded.
 pub async fn link_illumination(
     db: &database::DbHandle,
     blocker: &mut dyn Blocker,
@@ -91,8 +75,23 @@ pub async fn link_illumination(
     Ok(stats)
 }
 
-/// Carry out one decision: give the observation its entity, then record what the capture asserted
-/// against it.
+/// What applying one decision did.
+struct Applied {
+    /// The entity the observation ended up on — the one to update the projection for.
+    entity: i32,
+    outcome: Outcome,
+}
+
+enum Outcome {
+    /// It joined the entity the decision named.
+    Attached,
+    /// A new entity was created for it.
+    Created,
+    /// A new entity was created and then discarded, because another one already held the claim.
+    Folded,
+}
+
+/// Apply a linking decision against the knowledge_entities table.
 async fn apply_decision(
     db: &database::DbHandle,
     blocker: &mut dyn Blocker,
@@ -109,37 +108,43 @@ async fn apply_decision(
 
     // The entity this observation ends up on, resolved once: the one the decision named, or a new
     // one it asked for.
-    let mut entity = match &decision.action {
+    let mut target_entity = match &decision.action {
         link_decider::Action::Attach { entity, .. } => entity::get(&db.conn, *entity).await?,
         link_decider::Action::Create { .. } => entity::create(&db.conn, observation).await?,
     };
-    entity::attach(&db.conn, observation.id, entity.id).await?;
+    entity::attach(&db.conn, observation.id, target_entity.id).await?;
 
-    // A claim held by another entity turns a *created* row into a duplicate: it owns nothing yet, so
-    // it is discarded and the observation joins the entity that got there first. An attach that hits
-    // the same wall is a contradiction, not something to paper over.
+    // The observation may carry its own claim — a handle we inferred from the capture. If another
+    // entity already holds it, the entity just created owns nothing: discard it and point the
+    // observation at the one that does. Usually this is two observations of one illumination that
+    // both asked for a new entity carrying the same claim; occasionally it is another worker.
     let mut folded = false;
     if let Some(claim) = &decision.claim
-        && let ClaimOutcome::HeldBy(owner) = evidence.record(entity.id, claim, observation).await?
+        && let ClaimOutcome::HeldBy(owner) = evidence
+            .record(target_entity.id, claim, observation)
+            .await?
     {
         if matches!(decision.action, link_decider::Action::Attach { .. }) {
             anyhow::bail!(
                 "entities {} and {owner} both hold {}:{}; merging is not implemented yet \
                  (plan/knowledge-canonical-entities.md §Repair)",
-                entity.id,
+                target_entity.id,
                 claim.scheme,
                 claim.id
             );
         }
-        entity::discard(&db.conn, entity.id).await?;
-        entity = entity::get(&db.conn, owner).await?;
+        entity::discard(&db.conn, target_entity.id).await?;
+        target_entity = entity::get(&db.conn, owner).await?;
         entity::attach(&db.conn, observation.id, owner).await?;
         folded = true;
     }
 
-    // Fold what the capture said into whichever entity won, and let the blocker see the result.
-    entity::absorb_observation(&db.conn, &mut entity, observation).await?;
-    blocker.changed(&entity);
+    // Absorb the capture's surfaces and type into the target entity.
+    entity::absorb_observation(&db.conn, &mut target_entity, observation).await?;
+
+    // Notify the blocker that the target entity has been changed so that it can
+    // update its views / indices (if necessary)
+    blocker.changed(&target_entity);
 
     let outcome = if folded {
         Outcome::Folded
@@ -149,7 +154,7 @@ async fn apply_decision(
         Outcome::Created
     };
     Ok(Applied {
-        entity: entity.id,
+        entity: target_entity.id,
         outcome,
     })
 }
