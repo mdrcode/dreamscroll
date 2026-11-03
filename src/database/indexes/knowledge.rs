@@ -8,7 +8,7 @@ ALTER TABLE knowledge_entities ALTER COLUMN alt_names SET DEFAULT '{}';
 ALTER TABLE knowledge_entities ALTER COLUMN alt_types SET DEFAULT '{}';
 ALTER TABLE knowledge_entities ALTER COLUMN alt_descriptions SET DEFAULT '{}';
 ALTER TABLE knowledge_entities ALTER COLUMN alt_search_queries SET DEFAULT '{}';
-ALTER TABLE knowledge_claims ALTER COLUMN classes SET DEFAULT '{}';
+ALTER TABLE knowledge_identities ALTER COLUMN classes SET DEFAULT '{}';
 "#;
 
 /// A `NOT NULL` array column cannot be added to a populated table without a default, and the
@@ -26,14 +26,25 @@ END;
 $sync$;
 "#;
 
-/// The identity invariant, and the only one of the three that lives in `knowledge_claims`.
-///
-/// No two entities may hold a *live* claim to the same `(scheme, external_id)`. Retracting a claim
-/// (`retracted_at`) frees the slot, which is why the predicate is part of the index rather than a
-/// separate table — claims can only be unique while they are believed.
+/// One row per identity, ever. `(scheme, external_id)` is what an identity is.
+const IDENTITIES_UNIQUE: &str = r#"
+CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_identities_identity"
+    ON knowledge_identities (scheme, external_id)
+"#;
+
+/// An entity asserts an identity once. Retracting frees the slot, so the claim is a fact with a
+/// timestamp rather than a status.
 const CLAIMS_UNIQUE: &str = r#"
-CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_identity"
-    ON knowledge_claims (scheme, external_id)
+CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity"
+    ON knowledge_claims (knowledge_entity_id, knowledge_identity_id)
+    WHERE retracted_at IS NULL
+"#;
+
+/// Still one *entity* per identity, for as long as the graph is single-holder: dropped when claims
+/// become many-to-one.
+const CLAIMS_ONE_HOLDER: &str = r#"
+CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_one_holder"
+    ON knowledge_claims (knowledge_identity_id)
     WHERE retracted_at IS NULL
 "#;
 
@@ -41,7 +52,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_identity"
 /// re-asserting the same contradiction must add nothing.
 const COLLISIONS_UNIQUE: &str = r#"
 CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_collisions_pair"
-    ON knowledge_collisions (holder_id, claimant_id, scheme, external_id)
+    ON knowledge_collisions (holder_id, claimant_id, knowledge_identity_id)
     WHERE adjudicated_at IS NULL
 "#;
 
@@ -70,7 +81,9 @@ $sync$;
 const DROP_BEFORE_SYNC: &str = r#"
 DO $sync$
 BEGIN
-    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_identity');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_identity');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_entity_identity');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_one_holder');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_collisions_pair');
 END;
 $sync$;
@@ -83,7 +96,9 @@ pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbEr
 }
 
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(IDENTITIES_UNIQUE).await?;
     conn.execute_unprepared(CLAIMS_UNIQUE).await?;
+    conn.execute_unprepared(CLAIMS_ONE_HOLDER).await?;
     conn.execute_unprepared(COLLISIONS_UNIQUE).await?;
     conn.execute_unprepared(ARRAY_DEFAULTS).await?;
     conn.execute_unprepared(NOT_SELF_MERGED).await?;

@@ -16,7 +16,8 @@
 use std::collections::HashSet;
 
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
+    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, Set, Statement,
 };
 
 use crate::model;
@@ -113,11 +114,27 @@ pub(super) async fn project<C: ConnectionTrait>(
         ),
     };
 
-    let claims = model::knowledge_claims::Entity::find()
-        .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(knowledge_entity_id))
-        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
-        .all(conn)
+    // A claim is the edge; who answered for the identity, and how surely, is on the identity.
+    let claim_rows = conn
+        .query_all_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT i.source, i.method, i.confidence \
+               FROM knowledge_claims c \
+               JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
+              WHERE c.knowledge_entity_id = $1 AND c.retracted_at IS NULL",
+            [knowledge_entity_id.into()],
+        ))
         .await?;
+    let claims: Vec<(String, Option<String>, Option<f32>)> = claim_rows
+        .iter()
+        .map(|row| {
+            Ok((
+                row.try_get_by_index::<String>(0)?,
+                row.try_get_by_index::<Option<String>>(1)?,
+                row.try_get_by_index::<Option<f32>>(2)?,
+            ))
+        })
+        .collect::<Result<Vec<_>, sea_orm::DbErr>>()?;
     // The queue, not evidence: a live collision against this entity makes its identity disputed.
     let contested = model::knowledge_collisions::Entity::find()
         .filter(model::knowledge_collisions::Column::HolderId.eq(knowledge_entity_id))
@@ -140,12 +157,12 @@ pub(super) async fn project<C: ConnectionTrait>(
     // confidence.
     let from_text = claims
         .iter()
-        .any(|claim| claim.source == "wikidata" && claim.method.as_deref() != Some("p2002"));
-    let from_handle = claims.iter().any(|claim| claim.source == "platform");
+        .any(|claim| claim.0 == "wikidata" && claim.1.as_deref() != Some("p2002"));
+    let from_handle = claims.iter().any(|claim| claim.0 == "platform");
     let inputs = usize::from(from_text) + usize::from(from_handle);
     let best = claims
         .iter()
-        .map(|claim| claim.confidence.unwrap_or(0.0))
+        .map(|claim| claim.2.unwrap_or(0.0))
         .fold(0.0f32, f32::max);
     let confidence = if claims.is_empty() {
         None
@@ -239,11 +256,23 @@ mod tests {
 
     async fn collision(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
         let claimant = fixtures::knowledge_entity_with_member(db, "a claimant").await;
+        let identity = crate::knowledge::evidence::Evidence::from_handle(db)
+            .identity(&crate::knowledge::evidence::Identity {
+                scheme: scheme.to_string(),
+                external_id: value.to_string(),
+                source: "test".to_string(),
+                method: None,
+                confidence: None,
+                label: None,
+                description: None,
+                classes: Vec::new(),
+            })
+            .await
+            .unwrap();
         model::knowledge_collisions::Entity::insert(model::knowledge_collisions::ActiveModel {
             holder_id: Set(holder),
             claimant_id: Set(claimant),
-            scheme: Set(scheme.to_string()),
-            external_id: Set(value.to_string()),
+            knowledge_identity_id: Set(identity),
             reason: Set("shared_illumination".to_string()),
             ..Default::default()
         })

@@ -215,7 +215,7 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         "DELETE FROM knowledge_claims l USING knowledge_claims w \
          WHERE l.knowledge_entity_id = $1 AND w.knowledge_entity_id = $2 \
            AND w.retracted_at IS NULL \
-           AND l.scheme = w.scheme AND l.external_id = w.external_id",
+           AND l.knowledge_identity_id = w.knowledge_identity_id",
         [loser.into(), winner.into()],
     ))
     .await?;

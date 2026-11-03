@@ -5,7 +5,34 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 22;
+const REQUIRED_SCHEMA_VERSION: i32 = 23;
+
+/// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
+///
+/// Both tables regenerate from `link` + `resolve`, and the old shape cannot be migrated in place: the
+/// new `knowledge_identity_id` is `NOT NULL` and the old rows have nothing to put in it. Guarded on
+/// the old column, so a synced database is left alone. Runs before the registry, which would
+/// otherwise try to alter a populated table.
+async fn retire_reshaped_claim_tables<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $$ BEGIN \
+           IF EXISTS (SELECT 1 FROM information_schema.columns \
+                       WHERE table_schema = current_schema() \
+                         AND table_name = 'knowledge_claims' \
+                         AND column_name = 'scheme') THEN \
+             DROP TABLE knowledge_claims; \
+           END IF; \
+           IF EXISTS (SELECT 1 FROM information_schema.columns \
+                       WHERE table_schema = current_schema() \
+                         AND table_name = 'knowledge_collisions' \
+                         AND column_name = 'scheme') THEN \
+             DROP TABLE knowledge_collisions; \
+           END IF; \
+         END $$",
+    )
+    .await?;
+    Ok(())
+}
 
 /// Schema 16 retires the staging observation table.
 ///
@@ -84,6 +111,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
                 }
             }
 
+            retire_reshaped_claim_tables(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             indexes::knowledge::before_schema_sync(transaction).await?;
             registry.sync(transaction).await?;

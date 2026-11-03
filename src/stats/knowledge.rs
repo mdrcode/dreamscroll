@@ -88,15 +88,21 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
         }
     }
 
-    let mut with_claim: HashSet<i32> = HashSet::new();
-    for row in model::knowledge_claims::Entity::find()
-        .filter(model::knowledge_claims::Column::Source.ne("platform"))
-        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
-        .all(&db.conn)
-        .await?
-    {
-        with_claim.insert(row.knowledge_entity_id);
-    }
+    // An authority claim is an edge to an identity someone other than the capture answered for.
+    let with_claim: Vec<(i32,)> = sea_orm::ConnectionTrait::query_all_raw(
+        &db.conn,
+        sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT DISTINCT c.knowledge_entity_id \
+               FROM knowledge_claims c \
+               JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
+              WHERE c.retracted_at IS NULL AND i.source <> 'platform'",
+        ),
+    )
+    .await?
+    .into_iter()
+    .map(|row| row.try_get_by_index::<i32>(0).map(|id| (id,)))
+    .collect::<Result<_, _>>()?;
     stats.with_claim = with_claim.len() as u64;
 
     let now = Utc::now();

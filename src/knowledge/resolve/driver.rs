@@ -524,8 +524,8 @@ impl Budget {
     }
 }
 
-/// Store one claim as `ontology` evidence. Returns whether it was accepted; a claim another entity
-/// already holds is a conflict (a merge the graph has not made), not a duplicate.
+/// Store one claim as an edge to its identity. Returns whether it was accepted; a claim another
+/// entity already holds is a conflict (a merge the graph has not made), not a duplicate.
 async fn store_claim(
     db: &database::DbHandle,
     knowledge: &crate::knowledge::Knowledge,
@@ -534,17 +534,23 @@ async fn store_claim(
     claim: Claim,
     report: &mut Report,
 ) -> anyhow::Result<bool> {
-    let (scheme, identity) = (claim.scheme.clone(), claim.id.clone());
+    let evidence = crate::knowledge::evidence::Evidence::new(db.conn.clone());
+    let identity_id = evidence
+        .identity(&crate::knowledge::evidence::Identity {
+            scheme: claim.scheme,
+            external_id: claim.id,
+            source: source.to_string(),
+            method: Some(claim.method),
+            confidence: Some(claim.confidence),
+            label: claim.label,
+            description: claim.description,
+            classes: claim.classes,
+        })
+        .await?;
+
     let insert = model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
         knowledge_entity_id: Set(knowledge_entity_id),
-        scheme: Set(claim.scheme),
-        external_id: Set(claim.id),
-        label: Set(claim.label),
-        description: Set(claim.description),
-        classes: Set(claim.classes),
-        source: Set(source.to_string()),
-        method: Set(Some(claim.method)),
-        confidence: Set(Some(claim.confidence)),
+        knowledge_identity_id: Set(identity_id),
         ..Default::default()
     })
     .exec(&db.conn)
@@ -556,20 +562,13 @@ async fn store_claim(
             Ok(true)
         }
         Err(error) => match crate::knowledge::evidence::unique_violation(&error) {
-            // Another entity already holds this identity, which means the two entities are the same
-            // referent: the graph was told so by the authority. Fold ours into the one that holds it
-            // rather than leaving a duplicate behind.
-            Some("idx-knowledge_claims_identity") => {
-                let claim = crate::knowledge::evidence::Claim {
-                    scheme: scheme.clone(),
-                    external_id: identity.clone(),
-                    surface: None,
-                };
-                if let Some(owner) = crate::knowledge::evidence::Evidence::new(db.conn.clone())
-                    .owner(&claim)
-                    .await?
-                    && owner != knowledge_entity_id
-                {
+            // This entity already asserts the identity: nothing to do, and not an error.
+            Some("idx-knowledge_claims_entity_identity") => Ok(false),
+            // Another entity holds it, which means the two are the same referent: the graph was told
+            // so by the authority. Fold ours into the one that holds it rather than leaving a
+            // duplicate behind.
+            Some(_) => match evidence.holder(identity_id).await? {
+                Some(owner) if owner != knowledge_entity_id => {
                     match knowledge
                         .merge(
                             knowledge_entity_id,
@@ -578,8 +577,12 @@ async fn store_claim(
                         )
                         .await?
                     {
-                        crate::knowledge::merge::Outcome::Merged => report.merges += 1,
-                        crate::knowledge::merge::Outcome::AlreadyMerged => {}
+                        crate::knowledge::merge::Outcome::Merged => {
+                            report.merges += 1;
+                            // Folded into another entity: this entity's claim was not accepted.
+                            Ok(false)
+                        }
+                        crate::knowledge::merge::Outcome::AlreadyMerged => Ok(false),
                         // The veto says these two cannot be one referent, so the authority is
                         // contradicting something we already know. Record it; do not fold.
                         crate::knowledge::merge::Outcome::RefusedSharedIllumination => {
@@ -590,8 +593,7 @@ async fn store_claim(
                                 &db.conn,
                                 owner,
                                 knowledge_entity_id,
-                                &scheme,
-                                &identity,
+                                identity_id,
                             )
                             .await?
                             {
@@ -600,8 +602,7 @@ async fn store_claim(
                                     model::knowledge_collisions::ActiveModel {
                                         holder_id: Set(owner),
                                         claimant_id: Set(knowledge_entity_id),
-                                        scheme: Set(scheme.to_string()),
-                                        external_id: Set(identity.to_string()),
+                                        knowledge_identity_id: Set(identity_id),
                                         reason: Set("shared_illumination".to_string()),
                                         ..Default::default()
                                     },
@@ -609,13 +610,12 @@ async fn store_claim(
                                 .exec(&db.conn)
                                 .await?;
                             }
+                            Ok(false)
                         }
                     }
                 }
-                Ok(false)
-            }
-            // The same fact already recorded for this entity: nothing to do.
-            Some(_) => Ok(false),
+                _ => Err(error.into()),
+            },
             None => Err(error.into()),
         },
     }
@@ -626,21 +626,15 @@ async fn collision_recorded(
     conn: &sea_orm::DatabaseConnection,
     holder: i32,
     claimant: i32,
-    scheme: &str,
-    identity: &str,
+    identity_id: i32,
 ) -> anyhow::Result<bool> {
     let row = conn
         .query_one_raw(sea_orm::Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
             "SELECT count(*) FROM knowledge_collisions \
              WHERE adjudicated_at IS NULL AND holder_id = $1 AND claimant_id = $2 \
-               AND scheme = $3 AND external_id = $4",
-            [
-                holder.into(),
-                claimant.into(),
-                scheme.into(),
-                identity.into(),
-            ],
+               AND knowledge_identity_id = $3",
+            [holder.into(), claimant.into(), identity_id.into()],
         ))
         .await?;
     let count: i64 = row
@@ -658,17 +652,20 @@ async fn candidates(
     limit: Option<usize>,
     only: Option<i32>,
 ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
-    use model::knowledge_claims as claims;
     use model::knowledge_entity as entity;
 
-    let already: HashSet<i32> = claims::Entity::find()
-        .filter(claims::Column::Source.ne("platform"))
-        .filter(claims::Column::RetractedAt.is_null())
-        .all(conn)
+    let already: HashSet<i32> = conn
+        .query_all_raw(sea_orm::Statement::from_string(
+            sea_orm::DatabaseBackend::Postgres,
+            "SELECT DISTINCT c.knowledge_entity_id \
+               FROM knowledge_claims c \
+               JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
+              WHERE c.retracted_at IS NULL AND i.source <> 'platform'",
+        ))
         .await?
         .into_iter()
-        .map(|row| row.knowledge_entity_id)
-        .collect();
+        .map(|row| row.try_get_by_index::<i32>(0))
+        .collect::<Result<_, _>>()?;
 
     let mut entities = entity::Entity::find()
         .filter(entity::Column::MergedIntoId.is_null())

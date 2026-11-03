@@ -17,13 +17,16 @@ use sea_orm::{
     Statement, TransactionTrait,
 };
 
-use super::record::{CLAIMS_TABLE, COLLISIONS_TABLE, CORE_TABLE, MERGES_TABLE, Snapshot};
+use super::record::{
+    CLAIMS_TABLE, COLLISIONS_TABLE, CORE_TABLE, IDENTITIES_TABLE, MERGES_TABLE, Snapshot,
+};
 
 const OBSERVATION_TABLE: &str = "user_observed_entities";
 use crate::database;
 use crate::model::{
     knowledge_claims as claims, knowledge_collisions as collisions, knowledge_entity as entity,
-    knowledge_merges as merges, user_observed_entity as observation,
+    knowledge_identity as identities, knowledge_merges as merges,
+    user_observed_entity as observation,
 };
 
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -31,6 +34,7 @@ pub struct Report {
     /// Observations whose `knowledge_entity_id` was cleared.
     pub unlinked: u64,
     pub claims: u64,
+    pub identities: u64,
     pub merges: u64,
     pub collisions: u64,
     pub entities: u64,
@@ -38,6 +42,7 @@ pub struct Report {
     pub snapshot: Option<Snapshot>,
     pub snapshot_entities: u64,
     pub snapshot_claims: u64,
+    pub snapshot_identities: u64,
     pub snapshot_merges: u64,
     pub snapshot_collisions: u64,
     pub snapshot_members: u64,
@@ -59,6 +64,8 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 }
 
                 let snapshot_entities = copy(txn, &snapshot.entities(), CORE_TABLE).await?;
+                let snapshot_identities =
+                    copy(txn, &snapshot.identities(), IDENTITIES_TABLE).await?;
                 let snapshot_claims = copy(txn, &snapshot.claims(), CLAIMS_TABLE).await?;
                 let snapshot_merges = copy(txn, &snapshot.merges(), MERGES_TABLE).await?;
                 let snapshot_collisions =
@@ -66,21 +73,25 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 let snapshot_members = copy_membership(txn, &snapshot.membership()).await?;
 
                 // Order follows the foreign keys: observations first, then evidence, then entities.
+                // Order follows the foreign keys: edges before the identities they cite.
                 let unlinked = unlink(txn).await?;
                 let claims = remove_claims(txn).await?;
-                let merges = remove_merges(txn).await?;
                 let collisions = remove_collisions(txn).await?;
+                let merges = remove_merges(txn).await?;
+                let identities = remove_identities(txn).await?;
                 let entities = remove_entities(txn).await?;
 
                 Ok(Report {
                     unlinked,
                     claims,
+                    identities,
                     merges,
                     collisions,
                     entities,
                     snapshot: Some(snapshot),
                     snapshot_entities,
                     snapshot_claims,
+                    snapshot_identities,
                     snapshot_merges,
                     snapshot_collisions,
                     snapshot_members,
@@ -131,6 +142,13 @@ async fn unlink<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
         .exec(conn)
         .await?;
     Ok(result.rows_affected)
+}
+
+async fn remove_identities<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
+    Ok(identities::Entity::delete_many()
+        .exec(conn)
+        .await?
+        .rows_affected)
 }
 
 async fn remove_claims<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {

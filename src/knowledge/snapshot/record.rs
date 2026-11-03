@@ -14,6 +14,7 @@ use chrono::Utc;
 
 pub(super) const CORE_TABLE: &str = "knowledge_entities";
 pub(super) const CLAIMS_TABLE: &str = "knowledge_claims";
+pub(super) const IDENTITIES_TABLE: &str = "knowledge_identities";
 pub(super) const MERGES_TABLE: &str = "knowledge_merges";
 pub(super) const COLLISIONS_TABLE: &str = "knowledge_collisions";
 
@@ -36,6 +37,10 @@ impl Snapshot {
 
     pub fn claims(&self) -> String {
         format!("{CLAIMS_TABLE}__{}", self.suffix)
+    }
+
+    pub fn identities(&self) -> String {
+        format!("{IDENTITIES_TABLE}__{}", self.suffix)
     }
 
     pub fn merges(&self) -> String {

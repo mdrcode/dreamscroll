@@ -3,49 +3,28 @@ use sea_orm::entity::prelude::*;
 
 use super::*;
 
-/// A claim: an answer about what this entity is, and who gave it.
+/// A claim: this entity is what that identity names.
 ///
-/// The one kind of evidence that is a fact about the world rather than a judgement about our own
-/// rows. The identity invariant lives here, where the claims are: no two entities may hold a live
-/// claim to the same `(scheme, external_id)`.
+/// The edge of the many-to-many, not the identity itself — the identity and the authority's answer
+/// about it live in `knowledge_identities`, and this row records that *this* entity asserts it, with
+/// the surface as a capture wrote it and who captured it.
 ///
-/// Append-only, with one exception: `retracted_at` records that a claim stopped being believed, and
-/// it is what the unique index is partial on. Retraction is a fact with a timestamp, not a status.
+/// Append-only, with one exception: `retracted_at` records that the claim stopped being believed.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "knowledge_claims")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    pub knowledge_entity_id: i32,
 
-    /// The namespace the identifier lives in: `wikidata`, `wikimedia`, `x_twitter`.
-    pub scheme: String,
-    /// The identifier in its comparable form — `Q104919`, `bandy1803`. Comparable is the point: the
-    /// unique index is what says one account has one handle.
-    pub external_id: String,
+    pub knowledge_entity_id: i32,
+    pub knowledge_identity_id: i32,
+
     /// The identifier as written, when a capture carried it verbatim (`@bandy1803`).
     #[sea_orm(nullable)]
     pub surface: Option<String>,
 
-    /// What the authority said about the thing: its label, description and classes. Null for a
-    /// claim read off a capture. An `enrichment` record is the planned home for this; until then it
-    /// rides on the claim that produced it.
-    #[sea_orm(nullable)]
-    pub label: Option<String>,
-    #[sea_orm(nullable)]
-    pub description: Option<String>,
-    pub classes: Vec<String>,
-
-    /// Who asserted it: `wikidata`, `wikimedia`, `platform`.
-    pub source: String,
-    /// How we got it: `exact_label`, `p2002`, `capture`.
-    #[sea_orm(nullable)]
-    pub method: Option<String>,
-    #[sea_orm(nullable)]
-    pub confidence: Option<f32>,
-
-    /// Provenance when the claim came off a capture.
+    /// Provenance when the claim came off a capture: which observation, whose capture, when.
     #[sea_orm(nullable)]
     pub user_observed_entity_id: Option<i32>,
     #[sea_orm(nullable)]
@@ -57,6 +36,8 @@ pub struct Model {
 
     #[sea_orm(belongs_to, from = "knowledge_entity_id", to = "id")]
     pub knowledge_entity: HasOne<knowledge_entity::Entity>,
+    #[sea_orm(belongs_to, from = "knowledge_identity_id", to = "id")]
+    pub identity: HasOne<knowledge_identity::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}

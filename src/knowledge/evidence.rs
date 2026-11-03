@@ -1,13 +1,15 @@
-//! Claims: what a capture asserted, and who holds it.
+//! Claims and identities: what a capture asserted, what an authority answered, and who holds it.
 //!
-//! A claim is a fact about the world with provenance attached, and the identity index is what makes
-//! it useful: no two entities may hold a *live* claim to the same `(scheme, external_id)`.
-//! Retracting frees the slot, so a claim is a fact with a timestamp rather than a status.
+//! Two rows, two jobs:
 //!
-//! Two questions live here, and nothing else does:
+//! - a [`Identity`] is the thing the world names — `(scheme, external_id)` plus the answer whoever
+//!   gave it (label, description, classes, method, confidence). One row per identity, ever.
+//! - a [`Claim`] is an entity's assertion of it, with the surface as a capture wrote it and which
+//!   capture that was. The edge of the many-to-many.
 //!
-//! - **who holds this claim** ([`Evidence::owner`]) — one indexed lookup;
-//! - **record it against an entity** ([`Evidence::record`]) — insert, or report who got there first.
+//! For now the graph is single-holder — a unique index keeps one live claim per identity, standing
+//! in for "an identity is one thing" — and this module reports the holder so callers can fold or
+//! refuse.
 //!
 //! What a caller does with a refusal is policy and stays with the caller: `link` declines to merge
 //! and leaves the observation provisional; `resolve` folds or records a collision.
@@ -61,7 +63,44 @@ impl Claim {
         )
     }
 
-    /// [`Self::key`] for a claim already built; equal to it for the claim that observation yields.
+    pub fn identity(&self) -> String {
+        format!("{}:{}", self.scheme, self.external_id)
+    }
+}
+
+/// An identity and the answer whoever gave it.
+///
+/// The authority's label, description and classes are properties of the identity, not of any one
+/// claim: an album's article describes the album whether one entity claims it or five do.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Identity {
+    pub scheme: String,
+    pub external_id: String,
+    /// Who answered: `wikidata`, `wikimedia`, `platform`.
+    pub source: String,
+    /// How: `exact_label`, `p2002`, `capture`.
+    pub method: Option<String>,
+    pub confidence: Option<f32>,
+    pub label: Option<String>,
+    pub description: Option<String>,
+    pub classes: Vec<String>,
+}
+
+impl Identity {
+    /// An identity known only from a capture: the handle, and nothing about it.
+    pub fn from_capture(claim: &Claim) -> Self {
+        Self {
+            scheme: claim.scheme.clone(),
+            external_id: claim.external_id.clone(),
+            source: "platform".to_string(),
+            method: Some("capture".to_string()),
+            confidence: None,
+            label: None,
+            description: None,
+            classes: Vec::new(),
+        }
+    }
+
     pub fn identity(&self) -> String {
         format!("{}:{}", self.scheme, self.external_id)
     }
@@ -75,13 +114,11 @@ pub enum ClaimOutcome {
     HeldBy(i32),
 }
 
-/// The evidence table, for claims.
+/// Claims and the identities they cite.
 ///
 /// Holds its own clone of the connection rather than borrowing one: `DatabaseConnection` is a pool
 /// handle behind an `Arc`, so cloning is a pointer copy, and the type can be built once and kept in
 /// a long-lived state — which is the point of it being a parameter.
-/// A handle, not state: cloning one clones the connection handle, which is what `Knowledge` stores so
-/// that a caller linking thousands of illuminations does not build one per link.
 #[derive(Clone)]
 pub struct Evidence {
     conn: sea_orm::DatabaseConnection,
@@ -96,15 +133,75 @@ impl Evidence {
         Self::new(db.conn.clone())
     }
 
-    /// Which entity holds this claim, if any. The identity index serves this lookup.
-    pub async fn owner(&self, claim: &Claim) -> anyhow::Result<Option<i32>> {
+    /// The identity's row, created if this is the first time we have seen it.
+    ///
+    /// Upserts by filling gaps rather than overwriting: a handle first read off a capture has no
+    /// label, and the first authority that answers for it supplies one. Nothing here clears a field
+    /// a previous answer set — an identity is a running record, not a latest-value cache.
+    pub async fn identity(&self, identity: &Identity) -> anyhow::Result<i32> {
+        let row = self
+            .conn
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO knowledge_identities \
+                   (scheme, external_id, label, description, classes, source, method, confidence) \
+                 VALUES ($1, $2, $3, $4, string_to_array($5, chr(31)), $6, $7, $8) \
+                 ON CONFLICT (scheme, external_id) DO UPDATE SET \
+                   label = COALESCE(EXCLUDED.label, knowledge_identities.label), \
+                   description = COALESCE(EXCLUDED.description, knowledge_identities.description), \
+                   classes = CASE WHEN cardinality(EXCLUDED.classes) > 0 \
+                                  THEN EXCLUDED.classes ELSE knowledge_identities.classes END, \
+                   method = COALESCE(EXCLUDED.method, knowledge_identities.method), \
+                   confidence = COALESCE(EXCLUDED.confidence, knowledge_identities.confidence), \
+                   source = CASE WHEN EXCLUDED.label IS NOT NULL \
+                                 THEN EXCLUDED.source ELSE knowledge_identities.source END \
+                 RETURNING id",
+                vec![
+                    sea_orm::Value::String(Some(identity.scheme.clone())),
+                    sea_orm::Value::String(Some(identity.external_id.clone())),
+                    sea_orm::Value::String(identity.label.clone()),
+                    sea_orm::Value::String(identity.description.clone()),
+                    // `classes` is a text array; chr(31) is the unit separator, which no class
+                    // name contains. An empty string splits to an empty array.
+                    sea_orm::Value::String(Some(identity.classes.join(&31u8.to_string()))),
+                    sea_orm::Value::String(Some(identity.source.clone())),
+                    sea_orm::Value::String(identity.method.clone()),
+                    sea_orm::Value::Float(identity.confidence),
+                ],
+            ))
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("identity insert returned no row"))?;
+        Ok(row.try_get_by_index::<i32>(0)?)
+    }
+
+    /// Which entity holds this identity, if any. Unique while the graph is single-holder.
+    pub async fn holder(&self, identity_id: i32) -> anyhow::Result<Option<i32>> {
         let row = self
             .conn
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT knowledge_entity_id FROM knowledge_claims \
-                 WHERE scheme = $1 AND external_id = $2 AND retracted_at IS NULL \
-                 LIMIT 1",
+                 WHERE knowledge_identity_id = $1 AND retracted_at IS NULL LIMIT 1",
+                [identity_id.into()],
+            ))
+            .await?;
+        Ok(match row {
+            Some(row) => Some(row.try_get_by_index::<i32>(0)?),
+            None => None,
+        })
+    }
+
+    /// Which entity holds this claim, if any. Unique while the graph is single-holder.
+    pub async fn owner(&self, claim: &Claim) -> anyhow::Result<Option<i32>> {
+        let row = self
+            .conn
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "SELECT c.knowledge_entity_id \
+                   FROM knowledge_claims c \
+                   JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
+                  WHERE i.scheme = $1 AND i.external_id = $2 AND c.retracted_at IS NULL \
+                  LIMIT 1",
                 [
                     claim.scheme.clone().into(),
                     claim.external_id.clone().into(),
@@ -117,7 +214,7 @@ impl Evidence {
         })
     }
 
-    /// Record a claim against an entity.
+    /// Record a claim against an entity, creating the identity if it is new.
     ///
     /// Held by this same entity already → `Accepted`: the claim is true either way, and a second
     /// observation asserting it is corroboration, not a duplicate to report.
@@ -135,14 +232,12 @@ impl Evidence {
             });
         }
 
+        let identity_id = self.identity(&Identity::from_capture(claim)).await?;
         let insert =
             model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
                 knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
-                scheme: sea_orm::Set(claim.scheme.clone()),
-                external_id: sea_orm::Set(claim.external_id.clone()),
+                knowledge_identity_id: sea_orm::Set(identity_id),
                 surface: sea_orm::Set(claim.surface.clone()),
-                source: sea_orm::Set("platform".to_string()),
-                method: sea_orm::Set(Some("capture".to_string())),
                 user_observed_entity_id: sea_orm::Set(Some(observation.id)),
                 source_user_id: sea_orm::Set(Some(observation.user_id)),
                 ..Default::default()
@@ -155,6 +250,7 @@ impl Evidence {
             // Another worker claimed it between the lookup and the insert. The index said so;
             // report the owner so the caller can fold instead of leaving two referents.
             Err(error) => match unique_violation(&error) {
+                Some("idx-knowledge_claims_entity_identity") => Ok(ClaimOutcome::Accepted),
                 Some(_) => match self.owner(claim).await? {
                     Some(owner) if owner != knowledge_entity_id => Ok(ClaimOutcome::HeldBy(owner)),
                     Some(_) => Ok(ClaimOutcome::Accepted),

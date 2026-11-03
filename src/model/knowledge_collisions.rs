@@ -21,9 +21,9 @@ pub struct Model {
     pub holder_id: i32,
     /// The entity that resolved to the same identity and could not be folded in.
     pub claimant_id: i32,
+    /// The identity both of them hold.
+    pub knowledge_identity_id: i32,
 
-    pub scheme: String,
-    pub external_id: String,
     /// Why the merge was refused: `shared_illumination` today.
     pub reason: String,
 
@@ -42,6 +42,13 @@ pub struct Model {
         to = "id"
     )]
     pub claimant: HasOne<knowledge_entity::Entity>,
+    #[sea_orm(
+        belongs_to,
+        relation_enum = "Identity",
+        from = "knowledge_identity_id",
+        to = "id"
+    )]
+    pub identity: HasOne<knowledge_identity::Entity>,
 }
 
 impl ActiveModelBehavior for ActiveModel {}
