@@ -119,12 +119,12 @@ impl Knowledge {
         Ok(())
     }
 
-    /// The connection the graph writes with.
+    /// The connection the graph writes with, for the one caller that has to read a row before it can
+    /// ask for a write: the link task, which is told "link illumination 7" and must load it.
     ///
-    /// A door, not an invitation: every *write* has a method here, and a caller that reaches for this
-    /// is doing a read the store has no verb for — loading the row a task names, for instance. It
-    /// exists so that the store can be the only place that owns a handle, without every read anyone
-    /// will ever need becoming a method on it.
+    /// Every *write* has a method here, and everything inside `knowledge/` reaches the handle through
+    /// the field rather than through this. If a second outside caller appears, that is the signal that
+    /// the read it needs belongs as a method instead.
     pub fn conn(&self) -> &sea_orm::DatabaseConnection {
         &self.db.conn
     }

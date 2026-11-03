@@ -423,6 +423,7 @@ impl<'a> ResolutionEngine<'a> {
                     continue;
                 }
                 if store_claim(
+                    self.db,
                     &knowledge,
                     resolver.id(),
                     knowledge_entity_id,
@@ -526,6 +527,7 @@ impl Budget {
 /// Store one claim as `ontology` evidence. Returns whether it was accepted; a claim another entity
 /// already holds is a conflict (a merge the graph has not made), not a duplicate.
 async fn store_claim(
+    db: &database::DbHandle,
     knowledge: &crate::knowledge::Knowledge,
     source: &str,
     knowledge_entity_id: i32,
@@ -550,7 +552,7 @@ async fn store_claim(
             confidence: Set(Some(claim.confidence)),
             ..Default::default()
         })
-        .exec(knowledge.conn())
+        .exec(&db.conn)
         .await;
 
     match insert {
@@ -568,10 +570,9 @@ async fn store_claim(
                     id: identity.clone(),
                     handle: None,
                 };
-                if let Some(owner) =
-                    crate::knowledge::evidence::Evidence::new(knowledge.conn().clone())
-                        .owner(&claim)
-                        .await?
+                if let Some(owner) = crate::knowledge::evidence::Evidence::new(db.conn.clone())
+                    .owner(&claim)
+                    .await?
                     && owner != knowledge_entity_id
                 {
                     match knowledge.merge(knowledge_entity_id, owner).await? {
@@ -583,13 +584,8 @@ async fn store_claim(
                             // Recorded once per pair. A resolve run retries every entity without a
                             // claim, so re-asserting the same contradiction would otherwise append
                             // a row per run and turn "3 collisions" into noise.
-                            if !collision_recorded(
-                                knowledge.conn(),
-                                owner,
-                                knowledge_entity_id,
-                                &identity,
-                            )
-                            .await?
+                            if !collision_recorded(&db.conn, owner, knowledge_entity_id, &identity)
+                                .await?
                             {
                                 report.collisions += 1;
                                 model::knowledge_evidence::Entity::insert(
@@ -606,7 +602,7 @@ async fn store_claim(
                                         ..Default::default()
                                     },
                                 )
-                                .exec(knowledge.conn())
+                                .exec(&db.conn)
                                 .await?;
                             }
                         }
