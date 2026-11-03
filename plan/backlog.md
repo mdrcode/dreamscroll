@@ -6,43 +6,11 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
-- [ ] **Let a claim have more than one holder.** The `unique (scheme, external_id)` index is a
-  duplicate *detector*, not a fact about the world: one Wikidata item (an album) can legitimately
-  support several entities (its songs), and 6 of the 8 live collisions are the resolver asserting
-  identity where the truth is coverage or granularity. Drop the uniqueness; keep a plain index.
-  Then: `Evidence::owner` → `owners`, `record` stops returning `HeldBy`, and `decide_link` treats a
-  held claim as **candidate evidence** rather than a decision (the `by_claim: true, score 1.0`
-  shortcut goes away), and a reconcile pass groups claims with more than one holder, attempts
-  merges and records refusals as collisions. Deliberately *not* introducing a relation/coverage
-  column — one shape, detection moved from write time to a pass.
-  The claim lookup stays in the hot path and becomes **candidate generation, not a decision**: a
-  DB-backed `ClaimBlocker` (one indexed lookup per claim-carrying observation) composed with
-  `NameBlocker` behind a `Both(Vec<Box<dyn Blocker>>)` that concatenates and de-dupes by entity id —
-  no trait change, and `changed`/`forget` are no-ops exactly as the trait documents for a blocker
-  that reads the database. Its payoff beyond the design: the claim half cannot go stale, which
-  retires that half of the held-blocker caveat.
-  Also needed: a claim term in `score`, so a holder wins on corroboration rather than on name
-  similarity alone; and a rule for the one case where N candidates must collapse to one — a platform
-  handle is one account, an authority item may cover several. That rule decides whether
-  `decide_link` keeps a claim-attach path at all, so it comes before code.
-  Decided: **normalized**, not flat. `knowledge_identities` (`scheme`, `external_id` unique, plus
-  `label`/`description`/`classes`/`method`/`confidence`) becomes the far side; `knowledge_claims`
-  stays the edge (`knowledge_identity_id`, `surface`, capture-side provenance, `retracted_at`) with
-  `unique (knowledge_entity_id, knowledge_identity_id) WHERE retracted_at IS NULL`. Provenance splits
-  by subject: how the authority answered goes on the identity, who captured it goes on the edge.
-  "Evidence" is rejected as the identity table's name — recorded in `plan/lexicon.md`.
-  Staged so the graph is correct at every commit: (1) add identities and the edge's FK, move the
-  payload, 1:1 still enforced — no behaviour change; (2) readers join through it — no behaviour
-  change; (3) drop exclusivity, retire `HeldBy`, add `ClaimBlocker` and a claim term in `score` —
-  first behaviour change; (4) the reconcile pass.
-  Open: does reconcile run inline at the end of `link`/`resolve` (no visible duplicate window; link
-  then depends on merge) or as a separate pass? Costs to accept: prevention becomes cleanup, merges
-  for what used to be attach, and a winner rule (more members, then confidence) for N-way groups.
-  Blocked on the split's review — it touches the same files.
-- [ ] **Review the evidence-table split before pushing.** `3f23fec..5c47330` is six commits, still
+- [ ] **Review the evidence-table split before pushing.** `3f23fec..HEAD` is eight commits, still
   local: `knowledge_evidence` — one table with a `kind` discriminator and three payload shapes —
-  became `knowledge_claims`, `knowledge_merges` and `knowledge_collisions`, schema 22, localdev
-  rebuilt and `dev-web` restarted on the new binary. Aggregate diff: 1,064 lines across 26 files —
+  became `knowledge_identities`, `knowledge_claims` (an edge), `knowledge_merges` and
+  `knowledge_collisions`; claims then became many-to-one with a reconcile pass deciding sameness.
+  Schema 23, localdev rebuilt. Aggregate diff: 1,064 lines across 26 files —
   prod +431/−213, test +213/−133, docs 74.
   Read in this order: the three model files (what each table can now enforce), `Evidence::record` and
   `owner`, `merge_in_transaction` (claim re-point and de-dupe, the collision deletes and two-end

@@ -45,7 +45,7 @@ observation.
 | --- | --- | --- | --- |
 | **observation** | `UserObservedEntity` | `user_observed_entities` | `id`, `user_id`, `capture_id`, `illumination_id`, `position`, `created_at`, `name`, `entity_type`, `description`, `search_query`, `platform`, `platform_handle`, `platform_display_name`, `knowledge_entity_id` |
 | **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `status`, `confidence`, `merged_into_id`, timestamps |
-| **identity** (planned, schema 23) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `scheme`, `external_id`, `label`, `description`, `classes`, `method`, `confidence`, `first_seen` |
+| **identity** (schema 23) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `scheme`, `external_id`, `label`, `description`, `classes`, `method`, `confidence`, `first_seen` |
 | **claim** | `KnowledgeClaim` | `knowledge_claims` | `id`, `knowledge_entity_id`, `scheme`, `external_id`, `surface`, `label`, `description`, `classes`, `source`, `method`, `confidence`, `user_observed_entity_id`, `source_user_id`, `retracted_at`, `observed_at` |
 | **merge** | `KnowledgeMerge` | `knowledge_merges` | `id`, `loser_id`, `winner_id`, `cause`, `source`, `source_user_id`, `at` |
 | **collision** | `KnowledgeCollision` | `knowledge_collisions` | `id`, `holder_id`, `claimant_id`, `scheme`, `external_id`, `reason`, `detected_at`, `adjudicated_at` |

@@ -171,17 +171,25 @@ payloads for free — that is what `examples/eval_resolve` does.
 
 ## Evidence: why we believe it
 
-Three tables, because they answer three different questions:
+Four tables, because they answer four different questions:
 
 ```
-knowledge_claims       this entity has this identity      (scheme, external id; source, method, confidence)
-knowledge_collisions   two entities hold one identity, and the same-illumination veto
-                       forbids folding them — a queue awaiting a decision
+knowledge_identities   the thing the world names: scheme + external id, and the answer
+                       whoever gave it (label, description, classes, method, confidence)
+knowledge_claims       this entity is that thing — the edge; several entities may claim
+                       one identity, because an album's article covers its songs
+knowledge_collisions   two holders that look like one thing and cannot be folded
+                       (the same-illumination veto) — a queue awaiting a decision
 knowledge_merges       this entity was folded into that one, and why — the log an unmerge reads
 ```
 
-Only the first is evidence: a fact about the world. A collision is a judgement about our own rows,
-and a merge is a mutation of them. `enrichment` and `rejection` stay reserved vocabulary, not tables.
+Only the first two are about the world. A collision is a judgement about our own rows and a merge is a
+mutation of them. `enrichment` and `rejection` stay reserved vocabulary, not tables.
+
+Sharing an identity is a **candidate**, not a verdict — that is why the uniqueness lives on the edge
+(one entity asserts an identity once) rather than on the identity. `reconcile.rs` asks the question:
+for each identity with two or more holders, score the holders pairwise with the linker's weights, fold
+the pairs that look like one thing, and queue the ones the veto refuses.
 
 A partial unique index does the hard part: no two entities may hold a *live* claim to the same
 `(scheme, id)`. Retracting a claim (`retracted_at`) frees the slot — retraction is a fact with a
@@ -224,7 +232,8 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `link.rs` | the linking executor, and `LinkStats` |
 | `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces` |
 | `merge.rs` | fold one entity into another |
-| `evidence.rs` | claims: who holds an identity, and the platform key a presence answers to |
+| `evidence.rs` | claims and identities: who holds one, and the platform key a presence answers to |
+| `reconcile.rs` | the pass that asks whether one identity's holders are one thing |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | `comparable`: the form two surfaces are compared in. The token pipeline is policy, in `heuristic.rs` |
