@@ -67,6 +67,10 @@ pub(crate) async fn create(
         confidence: Set(None),
         merged_into_id: Set(None),
         alt_names: Set(Vec::new()),
+        // Where the entity came from, recorded once. Projection wears this member's values and
+        // treats every other member as an alternative, so losing it silently demotes the entity to
+        // "whatever member happens to be first".
+        origin_observation_id: Set(Some(observation.id)),
         ..Default::default()
     };
     Ok(model::knowledge_entity::Entity::insert(model)
