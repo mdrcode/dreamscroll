@@ -8,7 +8,9 @@
 use std::collections::HashSet;
 
 use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
+};
 
 use crate::database::DbHandle;
 use crate::model;
@@ -57,7 +59,11 @@ impl Knowledge {
     }
 
     /// Throw away an entity that owns nothing — a create that lost its claim to another entity.
-    pub async fn discard(&self, knowledge_entity_id: i32) -> anyhow::Result<()> {
+    ///
+    /// Named for the predicate, and the predicate is checked: an entity that still has members is
+    /// refused rather than deleted. The foreign key would fail the delete anyway, but only after the
+    /// fact and with a message about constraints rather than about this call.
+    pub async fn discard_empty(&self, knowledge_entity_id: i32) -> anyhow::Result<()> {
         discard_empty(&self.db.conn, knowledge_entity_id).await
     }
 
@@ -373,6 +379,15 @@ pub(super) async fn discard_empty<C: ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<()> {
+    let members = model::user_observed_entity::Entity::find()
+        .filter(model::user_observed_entity::Column::KnowledgeEntityId.eq(knowledge_entity_id))
+        .count(conn)
+        .await?;
+    anyhow::ensure!(
+        members == 0,
+        "knowledge entity {knowledge_entity_id} still owns {members} observation(s); it is not empty \
+         and must not be discarded"
+    );
     model::knowledge_entity::Entity::delete_by_id(knowledge_entity_id)
         .exec(conn)
         .await?;
@@ -509,7 +524,7 @@ impl Knowledge {
             // and that foreign key is `NO ACTION`.
             target_entity = self.get(owner).await?;
             self.attach_observation(observation.id, owner).await?;
-            self.discard(created).await?;
+            self.discard_empty(created).await?;
             folded = true;
         }
 
@@ -732,6 +747,22 @@ mod tests {
             Some("Train Dreams Denis Johnson"),
             "the origin decides"
         );
+    }
+
+    /// The name is the contract: an entity that still owns observations is refused, not deleted.
+    /// (The foreign key would fail it too — but on a call that was never meant to reach the database.)
+    #[tokio::test]
+    async fn an_entity_with_members_is_not_discarded() {
+        let Some(db) = test_db::test_db().await else {
+            return;
+        };
+        let db = db.handle();
+        let id = seed(&db, "Train Dreams").await;
+
+        let error = store(&db).discard_empty(id).await.unwrap_err();
+        assert!(error.to_string().contains("still owns"), "{error}");
+
+        assert_eq!(load(&db, id).await.id, id, "the row must survive");
     }
 
     #[tokio::test]
