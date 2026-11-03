@@ -575,7 +575,14 @@ async fn store_claim(
                     .await?
                     && owner != knowledge_entity_id
                 {
-                    match knowledge.merge(knowledge_entity_id, owner).await? {
+                    match knowledge
+                        .merge(
+                            knowledge_entity_id,
+                            owner,
+                            crate::knowledge::merge::Cause::IdentityConflict,
+                        )
+                        .await?
+                    {
                         crate::knowledge::merge::Outcome::Merged => report.merges += 1,
                         crate::knowledge::merge::Outcome::AlreadyMerged => {}
                         // The veto says these two cannot be one referent, so the authority is

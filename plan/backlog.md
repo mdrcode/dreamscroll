@@ -57,7 +57,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `link` still exists as "one blocker, every illumination". A `Blocker` that answers `candidates`
   with a query removes the scan and cannot go stale (the trait's `changed` is a no-op for anything
   reading the database). The obstacle is that the matching keys are not in the database:
-  `normalize::key` and `normalize::token_key` are Rust functions, and they are described as *the*
+  `normalize::comparable` and the token keys in `heuristic.rs` are Rust functions, and they are described as *the*
   definition of "the same name", so re-deriving them in SQL means two definitions that can drift.
   Cheapest shape: generated columns (or expression indexes) over `name`, `alt_names`,
   `platform_handle` and `platform_display_name`, fed by one shared normalisation — plus a check that

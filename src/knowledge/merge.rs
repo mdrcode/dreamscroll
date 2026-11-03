@@ -41,6 +41,35 @@ pub struct Preview {
     pub shared_illuminations: i64,
 }
 
+/// Why a merge happened.
+///
+/// The merge row is the only audit trail there is, so both halves are recorded: `method` says what
+/// decided it, `source` says whose decision it was. Hardcoding either makes a repair by hand
+/// indistinguishable from a resolver conflict, after the fact and permanently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Cause {
+    /// Two entities resolved to one identity: `resolve` found the same claim held twice.
+    IdentityConflict,
+    /// A repair — someone decided these are one thing.
+    Repair,
+}
+
+impl Cause {
+    fn method(self) -> &'static str {
+        match self {
+            Self::IdentityConflict => "identity_conflict",
+            Self::Repair => "repair",
+        }
+    }
+
+    fn source(self) -> &'static str {
+        match self {
+            Self::IdentityConflict => "model",
+            Self::Repair => "user",
+        }
+    }
+}
+
 /// Fold `loser` into `winner`. See [`merge`] for what that means and why it can refuse.
 ///
 /// The blocker is told afterwards, not inside the transaction: projecting the winner happens within
@@ -51,8 +80,9 @@ pub(super) async fn merge_into(
     knowledge: &super::Knowledge,
     loser: i32,
     winner: i32,
+    cause: Cause,
 ) -> anyhow::Result<Outcome> {
-    let outcome = merge(conn, loser, winner).await?;
+    let outcome = merge(conn, loser, winner, cause).await?;
     if outcome == Outcome::Merged {
         knowledge.update_projection(winner).await?;
         knowledge.forget(loser);
@@ -108,12 +138,17 @@ pub(super) async fn preview<C: ConnectionTrait>(
 ///
 /// The unit is the illumination, not the capture: re-illuminating an image is a separate illumination, and
 /// its names may legitimately join the same entity. See `plan/knowledge-illumination-history.md`.
-async fn merge(conn: &DatabaseConnection, loser: i32, winner: i32) -> anyhow::Result<Outcome> {
+async fn merge(
+    conn: &DatabaseConnection,
+    loser: i32,
+    winner: i32,
+    cause: Cause,
+) -> anyhow::Result<Outcome> {
     // Five writes that must all land: repointing observations, dropping the evidence that would
     // collide, moving the rest, recording the merge and tombstoning the loser. A crash between any
     // two of them leaves two live entities claiming one identity, which nothing can repair.
     conn.transaction(move |txn| {
-        Box::pin(async move { merge_in_transaction(txn, loser, winner).await })
+        Box::pin(async move { merge_in_transaction(txn, loser, winner, cause).await })
     })
     .await
     .map_err(|error| anyhow::anyhow!("merge transaction failed: {error}"))
@@ -123,15 +158,32 @@ async fn merge_in_transaction<C: ConnectionTrait>(
     conn: &C,
     loser: i32,
     winner: i32,
+    cause: Cause,
 ) -> anyhow::Result<Outcome> {
     if loser == winner {
         return Ok(Outcome::AlreadyMerged);
     }
-    if entity::Entity::find_by_id(loser)
-        .one(conn)
-        .await?
-        .is_some_and(|row| row.merged_into_id.is_some())
-    {
+    // Both rows in one query. The loser's tombstone is what makes a repeat a no-op; either being
+    // absent is a caller error — a stale id would otherwise "merge" nothing and still record the
+    // event, which is a false success.
+    let rows = entity::Entity::find()
+        .filter(entity::Column::Id.is_in([loser, winner]))
+        .all(conn)
+        .await?;
+    let live = |id: i32| {
+        rows.iter()
+            .find(|row| row.id == id)
+            .map(|row| row.merged_into_id.is_none())
+    };
+    anyhow::ensure!(
+        live(loser).is_some(),
+        "knowledge entity {loser} does not exist"
+    );
+    anyhow::ensure!(
+        live(winner).is_some(),
+        "knowledge entity {winner} does not exist"
+    );
+    if live(loser) == Some(false) {
         return Ok(Outcome::AlreadyMerged);
     }
 
@@ -151,13 +203,15 @@ async fn merge_in_transaction<C: ConnectionTrait>(
 
     // Evidence that duplicates the winner's would violate the identity index on the way over, so it
     // is dropped first. It is the same fact stated twice, and the winner's copy is the one kept.
-    conn.execute_unprepared(&format!(
+    conn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
         "DELETE FROM knowledge_evidence l USING knowledge_evidence w \
-         WHERE l.knowledge_entity_id = {loser} AND w.knowledge_entity_id = {winner} \
+         WHERE l.knowledge_entity_id = $1 AND w.knowledge_entity_id = $2 \
            AND l.kind = 'claim' AND w.kind = 'claim' \
            AND w.retracted_at IS NULL \
            AND l.value->>'scheme' IS NOT DISTINCT FROM w.value->>'scheme' \
-           AND l.value->>'id' IS NOT DISTINCT FROM w.value->>'id'"
+           AND l.value->>'id' IS NOT DISTINCT FROM w.value->>'id'",
+        [loser.into(), winner.into()],
     ))
     .await?;
 
@@ -174,8 +228,8 @@ async fn merge_in_transaction<C: ConnectionTrait>(
     evidence::Entity::insert(evidence::ActiveModel {
         knowledge_entity_id: Set(winner),
         kind: Set("merge".to_string()),
-        value: Set(serde_json::json!({ "child": loser, "method": "identity_conflict" })),
-        source: Set("model".to_string()),
+        value: Set(serde_json::json!({ "child": loser, "method": cause.method() })),
+        source: Set(cause.source().to_string()),
         ..Default::default()
     })
     .exec(conn)
@@ -226,11 +280,15 @@ mod tests {
         let loser = entity_with(&db, "Elon").await;
 
         assert_eq!(
-            merge(&db.conn, loser, winner).await.expect("first"),
+            merge(&db.conn, loser, winner, Cause::IdentityConflict)
+                .await
+                .expect("first"),
             Outcome::Merged
         );
         assert_eq!(
-            merge(&db.conn, loser, winner).await.expect("second"),
+            merge(&db.conn, loser, winner, Cause::IdentityConflict)
+                .await
+                .expect("second"),
             Outcome::AlreadyMerged
         );
         assert_eq!(
@@ -293,7 +351,9 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            merge(&db.conn, loser, winner).await.expect("merge"),
+            merge(&db.conn, loser, winner, Cause::IdentityConflict)
+                .await
+                .expect("merge"),
             Outcome::Merged
         );
 
@@ -347,7 +407,9 @@ mod tests {
             .unwrap();
         }
 
-        let outcome = merge(&db.conn, character, book).await.expect("merge");
+        let outcome = merge(&db.conn, character, book, Cause::Repair)
+            .await
+            .expect("merge");
 
         assert_eq!(outcome, Outcome::RefusedSharedIllumination);
         assert_eq!(
@@ -406,7 +468,9 @@ mod tests {
         .await
         .unwrap();
 
-        let outcome = merge(&db.conn, loser, winner).await.expect("merge");
+        let outcome = merge(&db.conn, loser, winner, Cause::IdentityConflict)
+            .await
+            .expect("merge");
         assert_eq!(outcome, Outcome::Merged);
 
         assert_eq!(
@@ -450,5 +514,59 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(survivor.status, "identified", "the winner was re-projected");
+    }
+
+    /// A stale id — the shape a repair command passes — must not "merge" nothing and record an event
+    /// for an entity that does not exist.
+    #[tokio::test]
+    async fn merging_an_entity_that_does_not_exist_is_an_error() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let winner = entity_with(&db, "Elon Musk").await;
+
+        let error = merge(&db.conn, 999_999, winner, Cause::Repair)
+            .await
+            .expect_err("a missing loser is a caller error");
+        assert!(error.to_string().contains("999999"), "{error}");
+        assert_eq!(
+            evidence::Entity::find()
+                .filter(evidence::Column::Kind.eq("merge"))
+                .count(&db.conn)
+                .await
+                .unwrap(),
+            0,
+            "and nothing was recorded"
+        );
+    }
+
+    /// The merge row is the only audit trail: it has to say what decided the merge and whose
+    /// decision it was, or a repair by hand is indistinguishable from a resolver conflict forever.
+    #[tokio::test]
+    async fn the_merge_row_records_why() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        for (cause, method, source) in [
+            (Cause::IdentityConflict, "identity_conflict", "model"),
+            (Cause::Repair, "repair", "user"),
+        ] {
+            let winner = entity_with(&db, "Elon Musk").await;
+            let loser = entity_with(&db, "Elon").await;
+            merge(&db.conn, loser, winner, cause).await.unwrap();
+
+            let row = evidence::Entity::find()
+                .filter(evidence::Column::KnowledgeEntityId.eq(winner))
+                .filter(evidence::Column::Kind.eq("merge"))
+                .one(&db.conn)
+                .await
+                .unwrap()
+                .expect("a merge row");
+            assert_eq!(row.value["method"], method);
+            assert_eq!(row.value["child"], serde_json::json!(loser));
+            assert_eq!(row.source, source);
+        }
     }
 }

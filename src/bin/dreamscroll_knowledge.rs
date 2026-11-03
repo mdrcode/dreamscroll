@@ -139,7 +139,8 @@ async fn main() -> anyhow::Result<()> {
                 println!("dry run; pass --yes to apply");
                 return Ok(());
             }
-            match store.merge(args.loser, args.winner).await? {
+            let cause = knowledge::merge::Cause::Repair;
+            match store.merge(args.loser, args.winner, cause).await? {
                 knowledge::merge::Outcome::Merged => {
                     println!("merged; {} is now a tombstone", args.loser)
                 }

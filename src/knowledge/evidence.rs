@@ -14,6 +14,7 @@
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
+use crate::knowledge::normalize;
 use crate::model;
 
 /// A platform link, as the capture showed it.
@@ -23,7 +24,7 @@ use crate::model;
 pub struct Claim {
     /// The platform, canonicalised by the illumination lib: `x_twitter`, `reddit`, …
     pub scheme: String,
-    /// The handle, folded by [`crate::knowledge::normalize`] so two spellings agree.
+    /// The handle in its comparable form, so two spellings agree.
     pub id: String,
     /// The handle as written, kept for the evidence payload.
     pub handle: Option<String>,
@@ -39,23 +40,24 @@ impl Claim {
         let platform = observation.platform.as_deref()?;
         let handle = observation.platform_handle.as_deref()?;
         Some(Self {
-            scheme: crate::knowledge::normalize::key(platform),
-            id: crate::knowledge::normalize::key(handle),
+            scheme: normalize::comparable(platform),
+            id: normalize::comparable(handle),
             handle: Some(handle.to_string()),
         })
     }
 
-    /// The key a platform presence answers to: `scheme:handle`, both halves folded by the same rule.
+    /// The key a platform presence answers to: `scheme:handle`, both halves compared in the same
+    /// form.
     ///
     /// One function for the two callers that need it — the identity index ([`Self::of`] then
     /// [`Self::identity`]) and the blocker's key for an entity's projected presence — because when
-    /// they folded the halves differently, a handle could be held by one entity and blocked under
-    /// another.
+    /// they normalized the halves differently, a handle could be held by one entity and blocked
+    /// under another.
     pub fn key(platform: &str, handle: &str) -> String {
         format!(
             "{}:{}",
-            crate::knowledge::normalize::key(platform),
-            crate::knowledge::normalize::key(handle)
+            normalize::comparable(platform),
+            normalize::comparable(handle)
         )
     }
 

@@ -35,30 +35,21 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 #[derive(Clone)]
 pub struct Knowledge {
     db: DbHandle,
-    pub(super) decider: Option<Arc<dyn LinkDecider>>,
-    /// `Arc` because `Knowledge` is `Clone` and the blocker is shared by every writer on it. Held
-    /// rather than rebuilt so it accumulates everything this store writes. No lock here: the
-    /// blocker's methods take `&self` and the implementation synchronizes itself, so a guard never
-    /// outlives one call — which is what used to make a notification during a link deadlock.
     pub(super) blocker: Option<Arc<dyn Blocker>>,
-    /// The claims about entities. Built here rather than per link: it is a handle, not state, and a
-    /// caller that links thousands of illuminations should not be constructing one each time.
+    pub(super) decider: Option<Arc<dyn LinkDecider>>,
     pub(super) evidence: Evidence,
 }
 
 impl Knowledge {
-    /// The graph, for reads and writes. Linking on it fails; see [`Self::with_linking`].
     pub fn new(db: &DbHandle) -> Self {
         Self {
             db: db.clone(),
-            decider: None,
             blocker: None,
+            decider: None,
             evidence: Evidence::from_handle(db),
         }
     }
 
-    /// The graph, with the policy that decides how a reading's observations cluster, and the index
-    /// it asks. `NameBlocker::new(&db)` is the usual blocker.
     pub fn with_linking(
         db: &DbHandle,
         blocker: Box<dyn Blocker>,
@@ -78,14 +69,6 @@ impl Knowledge {
         }
     }
 
-    /// The entity, or an error. Every caller that asks has already decided it exists.
-    pub async fn get(
-        &self,
-        knowledge_entity_id: i32,
-    ) -> anyhow::Result<model::knowledge_entity::Model> {
-        fetch(&self.db.conn, knowledge_entity_id).await
-    }
-
     pub async fn create(
         &self,
         observation: &model::user_observed_entity::Model,
@@ -93,7 +76,14 @@ impl Knowledge {
         insert_new(&self.db.conn, observation).await
     }
 
-    /// Point an observation at the entity it belongs to.
+    pub async fn get(
+        &self,
+        knowledge_entity_id: i32,
+    ) -> anyhow::Result<model::knowledge_entity::Model> {
+        get(&self.db.conn, knowledge_entity_id).await
+    }
+
+    /// Point a user's observation to the Knowledge entity it belongs to.
     pub async fn attach_observation(
         &self,
         observation_id: i32,
@@ -104,9 +94,8 @@ impl Knowledge {
 
     /// Throw away an entity that owns nothing — a create that lost its claim to another entity.
     ///
-    /// Named for the predicate, and the predicate is checked: an entity that still has members is
-    /// refused rather than deleted. The foreign key would fail the delete anyway, but only after the
-    /// fact and with a message about constraints rather than about this call.
+    /// An entity that still has members is refused rather than deleted — the foreign key would
+    /// refuse it too, but after the fact and about constraints rather than about this call.
     pub async fn discard_empty(&self, knowledge_entity_id: i32) -> anyhow::Result<()> {
         discard_empty(&self.db.conn, knowledge_entity_id).await?;
         self.forget(knowledge_entity_id);
@@ -116,8 +105,7 @@ impl Knowledge {
     /// Link one reading into the graph: cluster its observations, record their claims, and project
     /// every entity it touched.
     ///
-    /// The implementation is in [`super::link`]; it is here so the facade reads as one list of what a
-    /// caller can ask the graph to do.
+    /// Implemented in [`super::link`]
     pub async fn link_illumination(
         &self,
         illumination: &model::illumination::ModelEx,
@@ -127,9 +115,8 @@ impl Knowledge {
 
     /// Recompute an entity's projected columns, and tell the blocker what came out.
     ///
-    /// The notification lives with this method rather than in the linker's loop because projection is
-    /// the one place those columns change: linking, resolving and merging all end up here, so a held
-    /// blocker cannot miss one of them. The derivation itself is [`super::project`].
+    /// Every change to those columns funnels through here, so the held blocker hears about all of
+    /// them. Implemented in [`super::project`].
     pub async fn update_projection(
         &self,
         knowledge_entity_id: i32,
@@ -150,33 +137,21 @@ impl Knowledge {
         super::merge::preview(&self.db.conn, loser, winner).await
     }
 
-    /// Fold `loser` into `winner`. See [`super::merge`].
-    pub async fn merge(&self, loser: i32, winner: i32) -> anyhow::Result<super::merge::Outcome> {
-        super::merge::merge_into(&self.db.conn, self, loser, winner).await
+    /// Fold `loser` into `winner`: the loser's observations re-point, the loser becomes a tombstone.
+    /// See [`super::merge`].
+    pub async fn merge(
+        &self,
+        loser: i32,
+        winner: i32,
+        cause: super::merge::Cause,
+    ) -> anyhow::Result<super::merge::Outcome> {
+        super::merge::merge_into(&self.db.conn, self, loser, winner, cause).await
     }
 }
 
 // ---------------------------------------------------------------------------------------------
 // The implementation. Connection-generic, so a caller inside a transaction can share it.
 // ---------------------------------------------------------------------------------------------
-
-/// This is the only place a `knowledge_entity_id` is set. `project` reads the resulting membership
-/// to compute the entity's columns, so nothing else about the move is recorded here.
-async fn attach<C: ConnectionTrait>(
-    conn: &C,
-    observation_id: i32,
-    knowledge_entity_id: i32,
-) -> anyhow::Result<()> {
-    model::user_observed_entity::Entity::update_many()
-        .col_expr(
-            model::user_observed_entity::Column::KnowledgeEntityId,
-            Expr::value(Some(knowledge_entity_id)),
-        )
-        .filter(model::user_observed_entity::Column::Id.eq(observation_id))
-        .exec(conn)
-        .await?;
-    Ok(())
-}
 
 async fn insert_new<C: ConnectionTrait>(
     conn: &C,
@@ -206,7 +181,7 @@ async fn insert_new<C: ConnectionTrait>(
         .await?)
 }
 
-async fn fetch<C: ConnectionTrait>(
+async fn get<C: ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
@@ -214,6 +189,26 @@ async fn fetch<C: ConnectionTrait>(
         .one(conn)
         .await?;
     found.ok_or_else(|| anyhow::anyhow!("knowledge entity {knowledge_entity_id} does not exist"))
+}
+
+/// Attach a user's observation to a knowledge entity.
+///
+/// This is the only place a `knowledge_entity_id` is set. `project` reads the resulting membership
+/// to compute the entity's columns, so nothing else about the move is recorded here.
+async fn attach<C: ConnectionTrait>(
+    conn: &C,
+    observation_id: i32,
+    knowledge_entity_id: i32,
+) -> anyhow::Result<()> {
+    model::user_observed_entity::Entity::update_many()
+        .col_expr(
+            model::user_observed_entity::Column::KnowledgeEntityId,
+            Expr::value(Some(knowledge_entity_id)),
+        )
+        .filter(model::user_observed_entity::Column::Id.eq(observation_id))
+        .exec(conn)
+        .await?;
+    Ok(())
 }
 
 async fn discard_empty<C: ConnectionTrait>(

@@ -1,10 +1,9 @@
-//! The heuristic: everything we guess, in one file.
+//! The heuristic: the default policy, and everything we guess, in one file.
 //!
 //! This module is the *entire* ad hoc policy that turns observations into links. Nothing outside it
 //! knows what a name similarity is, which weights apply, or where a bar sits — the core exposes
-//! `Blocker`, `LinkDecider` and the views, and this file is one implementation of both traits. Delete it
-//! and the graph has no linking policy at all, which is the point: the guess is replaceable, the
-//! contracts are not.
+//! `Blocker` and `LinkDecider`, and this file implements both. Delete it and the graph has no
+//! linking policy at all, which is the point: the guess is replaceable, the contracts are not.
 //!
 //! Three parts, in the order the executor runs them:
 //!
@@ -23,11 +22,11 @@ use super::evidence::{Claim, Evidence};
 use super::link_decider::{Action, Decision, LinkDecider};
 use super::normalize;
 
-pub const W_NAME: f32 = 0.60;
-pub const W_DESCRIPTION: f32 = 0.30;
+pub const WEIGHT_NAME: f32 = 0.60;
+pub const WEIGHT_DESCRIPTION: f32 = 0.30;
 /// Deliberately small: with both types model-assigned, disagreement says more about the extractor
 /// than about the referent (111 of 179 prod collisions are the same thing typed twice).
-pub const W_TYPE: f32 = 0.10;
+pub const WEIGHT_TYPE: f32 = 0.10;
 
 /// The bar for a provisional → provisional merge, which is the only regime that exists until
 /// resolution gives us identifiers.
@@ -39,6 +38,7 @@ pub const NAME_FLOOR: f32 = 0.90;
 /// …and the anchor must agree about *something else* as well.
 pub const AGREEMENT_FLOOR: f32 = 0.50;
 
+/// What one candidate earns against one observation, and the weighted total of it all.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Features {
     pub name: f32,
@@ -49,7 +49,7 @@ pub struct Features {
 
 /// The observation being linked, with its normalized forms precomputed.
 #[derive(Debug, Clone)]
-pub struct Observation {
+pub struct NormalizedObservation {
     pub name_key: String,
     pub name_tokens: Vec<String>,
     pub token_key: String,
@@ -57,21 +57,21 @@ pub struct Observation {
     pub entity_type: String,
 }
 
-impl Observation {
+impl NormalizedObservation {
     pub fn new(name: &str, description: Option<&str>, entity_type: &str) -> Self {
-        let name_key = normalize::key(name);
-        let name_tokens = normalize::tokens_of(&name_key);
+        let name_key = normalize::comparable(name);
+        let name_tokens = tokens_of(&name_key);
         Self {
-            token_key: normalize::token_key_of(&name_tokens),
+            token_key: token_key_of(&name_tokens),
             name_tokens,
             name_key,
-            description_tokens: description.map(normalize::tokens).unwrap_or_default(),
+            description_tokens: description.map(tokens).unwrap_or_default(),
             entity_type: entity_type.to_string(),
         }
     }
 }
 
-impl From<&model::user_observed_entity::Model> for Observation {
+impl From<&model::user_observed_entity::Model> for NormalizedObservation {
     fn from(observation: &model::user_observed_entity::Model) -> Self {
         Self::new(
             &observation.name,
@@ -81,28 +81,9 @@ impl From<&model::user_observed_entity::Model> for Observation {
     }
 }
 
-impl From<&model::knowledge_entity::Model> for Scored {
-    fn from(entity: &model::knowledge_entity::Model) -> Self {
-        let descriptions: Vec<&str> = entity
-            .description
-            .iter()
-            .map(String::as_str)
-            .chain(entity.alt_descriptions.iter().map(String::as_str))
-            .collect();
-        let types: Vec<String> = entity.types().map(str::to_string).collect();
-        Self::new(
-            entity.id,
-            &entity.name,
-            &entity.alt_names,
-            &descriptions,
-            &types,
-        )
-    }
-}
-
 /// A candidate entity, with the label work precomputed so scoring is cheap in a loop.
 #[derive(Debug, Clone)]
-pub struct Scored {
+pub struct NormalizedCandidate {
     pub id: i32,
     pub alt_name_keys: Vec<String>,
     pub alt_name_token_keys: Vec<String>,
@@ -112,7 +93,7 @@ pub struct Scored {
     pub entity_types: Vec<String>,
 }
 
-impl Scored {
+impl NormalizedCandidate {
     /// `name` is the entity's selected surface and must be indexed alongside the alternatives.
     /// `project` deliberately excludes it from `alt_names`, so indexing `alt_names` alone leaves a
     /// persisted entity invisible to blocking on its own name — every later observation that names
@@ -131,11 +112,11 @@ impl Scored {
         let mut alt_name_keys = Vec::with_capacity(names.len());
         let mut alt_name_token_keys = Vec::with_capacity(names.len());
         for name in &names {
-            let key = normalize::key(name);
+            let key = normalize::comparable(name);
             if key.is_empty() {
                 continue;
             }
-            alt_name_token_keys.push(normalize::token_key_of(&normalize::tokens_of(&key)));
+            alt_name_token_keys.push(token_key_of(&tokens_of(&key)));
             alt_name_keys.push(key);
         }
 
@@ -145,11 +126,30 @@ impl Scored {
             alt_name_token_keys,
             description_tokens: descriptions
                 .iter()
-                .map(|description| normalize::tokens(description))
+                .map(|description| tokens(description))
                 .filter(|tokens| !tokens.is_empty())
                 .collect(),
             entity_types: entity_types.to_vec(),
         }
+    }
+}
+
+impl From<&model::knowledge_entity::Model> for NormalizedCandidate {
+    fn from(entity: &model::knowledge_entity::Model) -> Self {
+        let descriptions: Vec<&str> = entity
+            .description
+            .iter()
+            .map(String::as_str)
+            .chain(entity.alt_descriptions.iter().map(String::as_str))
+            .collect();
+        let types: Vec<String> = entity.types().map(str::to_string).collect();
+        Self::new(
+            entity.id,
+            &entity.name,
+            &entity.alt_names,
+            &descriptions,
+            &types,
+        )
     }
 }
 
@@ -162,23 +162,24 @@ pub fn worth_merging(features: &Features) -> bool {
         && (features.type_match >= AGREEMENT_FLOOR || features.description >= AGREEMENT_FLOOR)
 }
 
-pub fn score(observation: &Observation, entity: &Scored) -> Features {
-    let name = name_similarity(observation, entity);
-    // Best fit across every description the entity has accumulated, never their union: a union would
-    // dilute a good match with text from captures that had nothing to do with this observation.
-    let description = entity
+/// Similarity of one observation to one candidate: per feature, and weighted into a total.
+pub fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -> Features {
+    let name = name_similarity(observation, candidate);
+    // Best fit across every description the candidate has accumulated, never their union: a union
+    // would dilute a good match with text from captures that had nothing to do with this observation.
+    let description = candidate
         .description_tokens
         .iter()
         .map(|tokens| jaccard(&observation.description_tokens, tokens))
         .fold(0.0f32, f32::max);
-    // Any agreement counts. A entity whose members were called both `brand` and `organization` must
+    // Any agreement counts. An entity whose members were called both `brand` and `organization` must
     // accept either, or half its own members could not have joined it.
-    let type_match = entity
+    let type_match = candidate
         .entity_types
         .iter()
         .map(|entity_type| type_similarity(&observation.entity_type, entity_type))
         .fold(0.0f32, f32::max);
-    let total = W_NAME * name + W_DESCRIPTION * description + W_TYPE * type_match;
+    let total = WEIGHT_NAME * name + WEIGHT_DESCRIPTION * description + WEIGHT_TYPE * type_match;
     Features {
         name,
         description,
@@ -189,16 +190,20 @@ pub fn score(observation: &Observation, entity: &Scored) -> Features {
 
 /// 1.0 on the same normalized surface, 0.9 when only word order or an article differs, else the
 /// best token overlap. A name never decides on its own — see the vetoes in `link`.
-fn name_similarity(observation: &Observation, entity: &Scored) -> f32 {
-    if entity.alt_name_keys.contains(&observation.name_key) {
+fn name_similarity(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -> f32 {
+    if candidate.alt_name_keys.contains(&observation.name_key) {
         return 1.0;
     }
-    if entity.alt_name_token_keys.contains(&observation.token_key) {
+    if candidate
+        .alt_name_token_keys
+        .contains(&observation.token_key)
+    {
         return 0.9;
     }
     0.0
 }
 
+/// 1.0 for the same type, 0.5 when either is unknown, else 0.
 fn type_similarity(a: &str, b: &str) -> f32 {
     match (a, b) {
         (x, y) if x == y => 1.0,
@@ -277,11 +282,11 @@ impl NameBlocker {
     fn keys_of(entity: &model::knowledge_entity::Model) -> Vec<String> {
         let mut keys: Vec<String> = Vec::new();
         for surface in entity.surfaces() {
-            let key = normalize::key(surface);
+            let key = normalize::comparable(surface);
             if key.is_empty() {
                 continue;
             }
-            let blocking = normalize::token_key_of(&normalize::tokens_of(&key));
+            let blocking = token_key_of(&tokens_of(&key));
             keys.extend([key, blocking]);
         }
         if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle) {
@@ -314,10 +319,10 @@ impl Blocker for NameBlocker {
         &self,
         observation: &model::user_observed_entity::Model,
     ) -> Vec<model::knowledge_entity::Model> {
-        let observation = Observation::from(observation);
+        let view = NormalizedObservation::from(observation);
         let index = self.index();
         let mut found: BTreeSet<i32> = BTreeSet::new();
-        for block in [&observation.name_key, &observation.token_key] {
+        for block in [&view.name_key, &view.token_key] {
             if let Some(hits) = index.blocks.get(block) {
                 found.extend(hits.iter().copied());
             }
@@ -361,6 +366,7 @@ impl LinkDecider for HeuristicLinker {
                 "the illumination's observations are not loaded; fetch it with Entity::load().with(…) "
             );
         }
+        // `ModelEx` rather than `Model`: the relation is loaded, and the linker wants plain rows.
         let mut observations: Vec<model::user_observed_entity::Model> = illumination
             .observations
             .iter()
@@ -399,28 +405,31 @@ impl LinkDecider for HeuristicLinker {
                 continue;
             }
 
-            let scored = Observation::from(&observation);
-            let mut best_free: Option<(i32, f32, bool)> = None;
-            let mut best_any: Option<(i32, f32, bool)> = None;
+            let view = NormalizedObservation::from(&observation);
+            // (entity id, total, clears the bar) for the best candidate still available to this
+            // observation, and for the best anywhere — the latter only the veto reads.
+            let mut best_unclaimed: Option<(i32, f32, bool)> = None;
+            let mut best_overall: Option<(i32, f32, bool)> = None;
 
             for candidate in blocker.candidates(&observation).await {
-                let features = score(&scored, &Scored::from(&candidate));
+                let features = score(&view, &NormalizedCandidate::from(&candidate));
                 let entry = (candidate.id, features.total, worth_merging(&features));
-                if best_any.is_none_or(|best| entry.1 > best.1) {
-                    best_any = Some(entry);
+                if best_overall.is_none_or(|best| entry.1 > best.1) {
+                    best_overall = Some(entry);
                 }
                 if claimed.contains(&candidate.id) {
                     continue;
                 }
-                if best_free.is_none_or(|best| entry.1 > best.1) {
-                    best_free = Some(entry);
+                if best_unclaimed.is_none_or(|best| entry.1 > best.1) {
+                    best_unclaimed = Some(entry);
                 }
             }
 
             // The veto doing something, rather than merely being available to.
-            let vetoed = matches!(best_any, Some((entity, _, true)) if claimed.contains(&entity));
+            let vetoed =
+                matches!(best_overall, Some((entity, _, true)) if claimed.contains(&entity));
 
-            let action = match best_free {
+            let action = match best_unclaimed {
                 Some((entity, score, true)) => {
                     claimed.insert(entity);
                     Action::Attach {
@@ -446,24 +455,53 @@ impl LinkDecider for HeuristicLinker {
     }
 }
 
+// ---------------------------------------------------------------------------------------------
+// The string plumbing the scoring needs. `normalize::comparable` is the core's; these three are the
+// guess's, and nothing outside this file asks for them.
+// ---------------------------------------------------------------------------------------------
+
+/// Dropped from the *token* key only. They are noise for blocking, and never an identity decision.
+const ARTICLES: [&str; 3] = ["the", "a", "an"];
+
+/// The words of a surface, in order, folded the same way `normalize::comparable` folds it.
+fn tokens(surface: &str) -> Vec<String> {
+    tokens_of(&normalize::comparable(surface))
+}
+
+/// The words of a surface already in its comparable form, so a caller that has one does not
+/// normalize it twice.
+fn tokens_of(comparable: &str) -> Vec<String> {
+    comparable.split_whitespace().map(str::to_string).collect()
+}
+
+/// A word-order- and article-insensitive key, for blocking only. Never an identity key.
+fn token_key_of(words: &[String]) -> String {
+    let mut words: Vec<&str> = words.iter().map(String::as_str).collect();
+    if words.len() > 1 && ARTICLES.contains(&words[0]) {
+        words.remove(0);
+    }
+    words.sort_unstable();
+    words.join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn observation(name: &str, description: Option<&str>, ty: &str) -> Observation {
-        Observation::new(name, description, ty)
+    fn observation(name: &str, description: Option<&str>, ty: &str) -> NormalizedObservation {
+        NormalizedObservation::new(name, description, ty)
     }
 
-    fn entity(name: &str, description: Option<&str>, ty: &str) -> Scored {
+    fn entity(name: &str, description: Option<&str>, ty: &str) -> NormalizedCandidate {
         let descriptions: Vec<&str> = description.into_iter().collect();
-        Scored::new(1, name, &[], &descriptions, &[ty.to_string()])
+        NormalizedCandidate::new(1, name, &[], &descriptions, &[ty.to_string()])
     }
 
     /// `brand` and `organization` are the same referent described twice — the taxonomy does not have
     /// to choose for a member to agree.
     #[test]
     fn any_asserted_type_counts_as_agreement() {
-        let entity = Scored::new(
+        let entity = NormalizedCandidate::new(
             1,
             "Nintendo",
             &[],
@@ -528,17 +566,14 @@ mod tests {
         assert_eq!(features.type_match, 0.5);
     }
 
-    fn entity_view(id: i32, name: &str, ty: &str) -> model::knowledge_entity::Model {
+    fn entity_row(id: i32, name: &str, ty: &str) -> model::knowledge_entity::Model {
         crate::test_support::fixtures::stub_entity(id, name, ty)
     }
 
-    fn observation_view(name: &str, ty: &str) -> model::user_observed_entity::Model {
+    fn observation_row(name: &str, ty: &str) -> model::user_observed_entity::Model {
         crate::test_support::fixtures::stub_observation(1, name, ty)
     }
 
-    /// The bug that made every later capture duplicate an existing name: `project` keeps the
-    /// selected surface out of `alt_names`, so an entity with no alternatives must still be
-    /// findable by its own name.
     /// Link one illumination: build the blocker from the corpus and run the linker over it.
     ///
     /// Needs a database now, because the linker asks the evidence store whether a claim is already
@@ -564,18 +599,30 @@ mod tests {
         candidates.iter().map(|entity| entity.id).collect()
     }
 
+    /// The blocking key, spelled the way a caller spells it: fold, split, sort.
+    fn blocking(surface: &str) -> String {
+        token_key_of(&tokens_of(&normalize::comparable(surface)))
+    }
+
+    #[test]
+    fn token_key_ignores_order_and_articles() {
+        assert_eq!(blocking("The Train Dreams"), blocking("train dreams"));
+        assert_eq!(blocking("Dreams Train"), blocking("Train Dreams"));
+        assert_ne!(blocking("C"), blocking("C#"));
+    }
+
     /// The counterpart to `changed`: a held blocker is only ever added to, so an entity that is
     /// discarded or tombstoned has to be told, or it keeps being offered as a candidate.
     #[tokio::test]
     async fn a_forgotten_entity_is_no_longer_proposed() {
         let blocker = NameBlocker::build_entities(&[
-            entity_view(7, "Train Dreams", "book"),
-            entity_view(8, "Dune", "book"),
+            entity_row(7, "Train Dreams", "book"),
+            entity_row(8, "Dune", "book"),
         ]);
 
         assert_eq!(
             ids(&blocker
-                .candidates(&observation_view("Train Dreams", "book"))
+                .candidates(&observation_row("Train Dreams", "book"))
                 .await),
             vec![7]
         );
@@ -584,13 +631,13 @@ mod tests {
 
         assert!(
             blocker
-                .candidates(&observation_view("Train Dreams", "book"))
+                .candidates(&observation_row("Train Dreams", "book"))
                 .await
                 .is_empty(),
             "the name must not resolve to a deleted entity"
         );
         assert_eq!(
-            ids(&blocker.candidates(&observation_view("Dune", "book")).await),
+            ids(&blocker.candidates(&observation_row("Dune", "book")).await),
             vec![8],
             "forgetting one entity leaves the others alone"
         );
@@ -602,20 +649,20 @@ mod tests {
     #[tokio::test]
     async fn the_selected_name_is_a_block_key_on_its_own() {
         let blocker =
-            NameBlocker::build_entities(&[entity_view(7, "Francis Ford Coppola", "real_person")]);
+            NameBlocker::build_entities(&[entity_row(7, "Francis Ford Coppola", "real_person")]);
 
         let candidates = blocker
-            .candidates(&observation_view("Francis Ford Coppola", "real_person"))
+            .candidates(&observation_row("Francis Ford Coppola", "real_person"))
             .await;
         assert_eq!(ids(&candidates), vec![7]);
     }
 
     #[tokio::test]
     async fn word_order_alone_still_blocks() {
-        let blocker = NameBlocker::build_entities(&[entity_view(7, "Train Dreams", "book")]);
+        let blocker = NameBlocker::build_entities(&[entity_row(7, "Train Dreams", "book")]);
 
         let candidates = blocker
-            .candidates(&observation_view("Dreams Train", "book"))
+            .candidates(&observation_row("Dreams Train", "book"))
             .await;
         assert_eq!(
             ids(&candidates),
@@ -626,11 +673,11 @@ mod tests {
 
     #[tokio::test]
     async fn distinct_names_propose_nothing() {
-        let blocker = NameBlocker::build_entities(&[entity_view(7, "Train Dreams", "book")]);
+        let blocker = NameBlocker::build_entities(&[entity_row(7, "Train Dreams", "book")]);
 
         assert!(
             blocker
-                .candidates(&observation_view("Apocalypse Now", "movie"))
+                .candidates(&observation_row("Apocalypse Now", "movie"))
                 .await
                 .is_empty()
         );
@@ -639,11 +686,11 @@ mod tests {
     /// The mid-run path: an entity built after the corpus is findable by it.
     #[tokio::test]
     async fn an_entity_added_mid_run_is_findable() {
-        let blocker = NameBlocker::build_entities(&[entity_view(7, "Train Dreams", "book")]);
-        blocker.changed(&entity_view(9, "Apocalypse Now", "movie"));
+        let blocker = NameBlocker::build_entities(&[entity_row(7, "Train Dreams", "book")]);
+        blocker.changed(&entity_row(9, "Apocalypse Now", "movie"));
 
         let candidates = blocker
-            .candidates(&observation_view("Apocalypse Now", "movie"))
+            .candidates(&observation_row("Apocalypse Now", "movie"))
             .await;
         assert_eq!(ids(&candidates), vec![9]);
     }
@@ -654,9 +701,9 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let weak = entity_view(1, "Train Dreams", "book");
-        let strong = entity_view(2, "Train Dreams", "book");
-        let observation = observation_view("Train Dreams", "book");
+        let weak = entity_row(1, "Train Dreams", "book");
+        let strong = entity_row(2, "Train Dreams", "book");
+        let observation = observation_row("Train Dreams", "book");
 
         let result = link(&db, &[weak, strong], &[observation]).await;
 
@@ -680,7 +727,7 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let only = entity_view(7, "Train Dreams", "book");
+        let only = entity_row(7, "Train Dreams", "book");
         let first = crate::test_support::fixtures::stub_observation(1, "Train Dreams", "book");
         let second = crate::test_support::fixtures::stub_observation(2, "Train Dreams", "book");
 
@@ -710,7 +757,7 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let result = link(&db, &[], &[observation_view("Anything", "unknown")]).await;
+        let result = link(&db, &[], &[observation_row("Anything", "unknown")]).await;
         match result.as_slice() {
             [decision] => match &decision.action {
                 Action::Create { best, .. } => assert!(best.is_none()),

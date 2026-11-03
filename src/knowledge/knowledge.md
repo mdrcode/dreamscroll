@@ -215,7 +215,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | file | what it is |
 |---|---|
 | `blocker.rs`, `link_decider.rs` | the two traits, and nothing else — the contract a linker implements |
-| `heuristic.rs` | our first linker, self-contained: features, weights, bars, `NameBlocker`, `HeuristicLinker` |
+| `heuristic.rs` | our first linker, self-contained: token keys, features, weights, bars, `NameBlocker`, `HeuristicLinker` |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, HTTP in `transport.rs` |
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
@@ -225,7 +225,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `evidence.rs` | claims about entities, and the platform key a presence answers to |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
-| `normalize.rs` | the one definition of "the same name" |
+| `normalize.rs` | `comparable`: the form two surfaces are compared in. The token pipeline is policy, in `heuristic.rs` |
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 private modules: nothing in them is `pub`, and callers reach them through `Knowledge`'s methods. The

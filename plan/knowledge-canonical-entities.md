@@ -234,7 +234,7 @@ contradict the merges the graph is supposed to make. Two users' provisional know
 
 **Alternates are verbatim; keys are derived.** `alt_names` holds every surface the knowledge entity is known by —
 each observation's name, platform display name and handle — as the capture spelled it. The linker
-normalizes on load (`normalize::key`) to get its blocking keys, so nothing is lost to the index and a
+normalises on load (`normalize::comparable`) to get its blocking keys, so nothing is lost to the index and a
 display surface keeps its accents and capitalisation. Today the blocking path is an in-process key map
 built during `link`; the GIN index below is planned, not built.
 
@@ -354,7 +354,7 @@ flowchart TD
 
 Recall-oriented and deliberately over-generating, from three independent sources:
 
-- **`normalize::key(surface)` membership in `alt_names`** (planned: `knowledge entity.alt_names @> array[$verbatim]`
+- **`normalize::comparable(surface)` membership in `alt_names`** (planned: `knowledge entity.alt_names @> array[$verbatim]`
   over a GIN index on normalized keys) — covering the canonical label, every observed surface
   (including each capture's name and platform display name) and every authority alias. This is the whole name path: a provisional knowledge entity is reachable because its own captures put a
   surface in `alt_names`, and a surface the knowledge entity was never observed under is reachable because authority
