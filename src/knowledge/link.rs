@@ -64,11 +64,13 @@ pub async fn link_illumination(
 
     let mut stats = LinkStats::default();
     for decision in &decisions {
-        let applied = apply_decision(db, blocker, evidence, decision).await?;
-        // Projection is a function of the members, so it runs after the writes that changed them.
+        let applied = apply_decision(db, evidence, decision).await?;
+        // Projection is a function of the members, so it runs after the writes that changed them,
+        // and it returns the row it wrote — which is exactly what the blocker needs to re-index.
         // An entity two observations landed on is projected twice; a wasted read is cheaper than
         // remembering which ones were already done.
-        entity::update_projection(&db.conn, applied.entity).await?;
+        let entity = entity::update_projection(&db.conn, applied.entity).await?;
+        blocker.changed(&entity);
         stats.record(decision, applied);
     }
 
@@ -94,7 +96,6 @@ enum Outcome {
 /// Apply a linking decision against the knowledge_entities table.
 async fn apply_decision(
     db: &database::DbHandle,
-    blocker: &mut dyn Blocker,
     evidence: &Evidence,
     decision: &link_decider::Decision,
 ) -> anyhow::Result<Applied> {
@@ -141,13 +142,6 @@ async fn apply_decision(
         entity::discard(&db.conn, created).await?;
         folded = true;
     }
-
-    // Absorb the capture's surfaces and type into the target entity.
-    entity::absorb_observation(&db.conn, &mut target_entity, observation).await?;
-
-    // Notify the blocker that the target entity has been changed so that it can
-    // update its views / indices (if necessary)
-    blocker.changed(&target_entity);
 
     let outcome = if folded {
         Outcome::Folded

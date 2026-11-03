@@ -16,12 +16,12 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 
 use sea_orm::{EntityTrait, QueryOrder};
 
+use crate::model;
+
 use super::blocker::Blocker;
 use super::evidence::{Claim, Evidence};
 use super::link_decider::{Action, Decision, LinkDecider};
 use super::normalize;
-use crate::model;
-
 
 pub const W_NAME: f32 = 0.60;
 pub const W_DESCRIPTION: f32 = 0.30;
@@ -57,6 +57,18 @@ pub struct Observation {
     pub entity_type: String,
 }
 
+impl Observation {
+    pub fn new(name: &str, description: Option<&str>, entity_type: &str) -> Self {
+        Self {
+            name_key: normalize::key(name),
+            name_tokens: normalize::tokens(name),
+            token_key: normalize::token_key(name),
+            description_tokens: description.map(normalize::tokens).unwrap_or_default(),
+            entity_type: entity_type.to_string(),
+        }
+    }
+}
+
 impl From<&model::user_observed_entity::Model> for Observation {
     fn from(observation: &model::user_observed_entity::Model) -> Self {
         Self::new(
@@ -76,19 +88,13 @@ impl From<&model::knowledge_entity::Model> for Scored {
             .chain(entity.alt_descriptions.iter().map(String::as_str))
             .collect();
         let types: Vec<String> = entity.types().map(str::to_string).collect();
-        Self::new(entity.id, &entity.name, &entity.alt_names, &descriptions, &types)
-    }
-}
-
-impl Observation {
-    pub fn new(name: &str, description: Option<&str>, entity_type: &str) -> Self {
-        Self {
-            name_key: normalize::key(name),
-            name_tokens: normalize::tokens(name),
-            token_key: normalize::token_key(name),
-            description_tokens: description.map(normalize::tokens).unwrap_or_default(),
-            entity_type: entity_type.to_string(),
-        }
+        Self::new(
+            entity.id,
+            &entity.name,
+            &entity.alt_names,
+            &descriptions,
+            &types,
+        )
     }
 }
 
@@ -390,10 +396,7 @@ impl LinkDecider for HeuristicLinker {
                     best: Some((entity, score)),
                     vetoed,
                 },
-                None => Action::Create {
-                    best: None,
-                    vetoed,
-                },
+                None => Action::Create { best: None, vetoed },
             };
             decisions.push(Decision {
                 observation,
@@ -545,17 +548,23 @@ mod tests {
         let candidates = blocker
             .candidates(&observation_view("Dreams Train", "book"))
             .await;
-        assert_eq!(ids(&candidates), vec![7], "token-set equality is a block key");
+        assert_eq!(
+            ids(&candidates),
+            vec![7],
+            "token-set equality is a block key"
+        );
     }
 
     #[tokio::test]
     async fn distinct_names_propose_nothing() {
         let blocker = NameBlocker::build_entities(&[entity_view(7, "Train Dreams", "book")]);
 
-        assert!(blocker
-            .candidates(&observation_view("Apocalypse Now", "movie"))
-            .await
-            .is_empty());
+        assert!(
+            blocker
+                .candidates(&observation_view("Apocalypse Now", "movie"))
+                .await
+                .is_empty()
+        );
     }
 
     /// The mid-run path: an entity built after the corpus is findable by it.

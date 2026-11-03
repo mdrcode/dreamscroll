@@ -208,13 +208,14 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 | file | what it is |
 |---|---|
-| `blocking.rs`, `linker.rs` | the two traits, and nothing else — the contract a linker implements |
+| `blocker.rs`, `link_decider.rs` | the two traits, and nothing else — the contract a linker implements |
 | `heuristic.rs` | our first linker, self-contained: features, weights, bars, `NameBlocker`, `HeuristicLinker` |
 | `link.rs` | the linking executor |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, HTTP in `transport.rs` |
-| `knowledge_graph.rs` | the write side: create, attach, absorb, and the only writer of derived columns |
+| `entity.rs` | the write side: create, attach, project, and the only writer of derived columns |
 | `merge.rs` | fold one entity into another |
+| `evidence.rs`, `stats.rs` | claims about entities, and the counters a run reports |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `current.rs` | which illumination a user sees |
 | `cache.rs` | answers, keyed by `(provider, kind, shape, query)` |

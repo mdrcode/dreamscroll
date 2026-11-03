@@ -2,36 +2,12 @@
 use std::collections::HashSet;
 
 use sea_orm::sea_query::Expr;
-use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set,
-};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 
 use crate::model;
 
-use super::normalize;
-
 pub const STATUS_PROVISIONAL: &str = "provisional";
 pub const STATUS_IDENTIFIED: &str = "identified";
-
-/// Add an observed type. Returns whether anything changed: an entity that has accepted `brand`
-/// must accept it for the rest of the run.
-fn absorb_type(entity: &mut model::knowledge_entity::Model, entity_type: &str) -> bool {
-    if entity_type.is_empty() || entity.alt_types.iter().any(|t| t == entity_type) {
-        return false;
-    }
-    entity.alt_types.push(entity_type.to_string());
-    true
-}
-
-/// Add a surface. Returns whether anything changed, so a caller can skip the write.
-fn absorb_surface(entity: &mut model::knowledge_entity::Model, surface: &str) -> bool {
-    let key = normalize::key(surface);
-    if key.is_empty() || entity.surfaces().any(|seen| normalize::key(seen) == key) {
-        return false;
-    }
-    entity.alt_names.push(surface.trim().to_string());
-    true
-}
 
 pub(crate) fn surfaces(
     observation: &model::user_observed_entity::Model,
@@ -43,21 +19,6 @@ pub(crate) fn surfaces(
     ]
     .into_iter()
     .flatten()
-}
-
-fn names_for(observation: &model::user_observed_entity::Model) -> Vec<String> {
-    let mut labels: Vec<String> = Vec::new();
-    let mut keys: Vec<String> = Vec::new();
-    for surface in surfaces(observation) {
-        let label = surface.trim();
-        let key = normalize::key(label);
-        if key.is_empty() || keys.contains(&key) {
-            continue;
-        }
-        keys.push(key);
-        labels.push(label.to_string());
-    }
-    labels
 }
 
 /// Point an observation at the knowledge entity it belongs to.
@@ -78,29 +39,6 @@ pub(crate) async fn attach_observation(
         .exec(conn)
         .await?;
     Ok(())
-}
-
-pub(crate) async fn absorb_observation(
-    conn: &sea_orm::DatabaseConnection,
-    entity: &mut model::knowledge_entity::Model,
-    observation: &model::user_observed_entity::Model,
-) -> anyhow::Result<bool> {
-    let mut changed = false;
-    for surface in surfaces(observation) {
-        changed |= absorb_surface(entity, surface);
-    }
-    changed |= absorb_type(entity, &observation.entity_type);
-    if changed {
-        model::knowledge_entity::ActiveModel {
-            id: Set(entity.id),
-            alt_names: Set(entity.alt_names.clone()),
-            alt_types: Set(entity.alt_types.clone()),
-            ..Default::default()
-        }
-        .update(conn)
-        .await?;
-    }
-    Ok(changed)
 }
 
 /// Record the observation's identifier against its entity. Returns the *other* entity that already
@@ -128,7 +66,7 @@ pub(crate) async fn create(
         status: Set(status.to_string()),
         confidence: Set(None),
         merged_into_id: Set(None),
-        alt_names: Set(names_for(observation)),
+        alt_names: Set(Vec::new()),
         ..Default::default()
     };
     Ok(model::knowledge_entity::Entity::insert(model)
@@ -149,15 +87,13 @@ pub(crate) async fn create(
 pub async fn update_projection<C: sea_orm::ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<model::knowledge_entity::Model> {
     use model::knowledge_evidence as evidence;
 
-    let Some(row) = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+    let row = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
         .one(conn)
         .await?
-    else {
-        return Ok(());
-    };
+        .ok_or_else(|| anyhow::anyhow!("knowledge entity {knowledge_entity_id} does not exist"))?;
 
     // Ordered by member id, so the alternatives come out in the order the members joined.
     let members = model::user_observed_entity::Entity::find()
@@ -167,20 +103,21 @@ pub async fn update_projection<C: sea_orm::ConnectionTrait>(
         .await?;
 
     // An entity that predates the column, or whose origin is gone, falls back to its first member.
-    let Some(origin) = row
+    let origin = row
         .origin_observation_id
         .and_then(|id| members.iter().find(|member| member.id == id))
-        .or_else(|| members.first())
-    else {
-        return Ok(());
-    };
+        .or_else(|| members.first());
 
     let surfaces = gather(
         &members,
         |member| surfaces(member).map(str::to_string).collect(),
         super::normalize::key,
     );
-    let types = gather(&members, |member| vec![member.entity_type.clone()], str::to_string);
+    let types = gather(
+        &members,
+        |member| vec![member.entity_type.clone()],
+        str::to_string,
+    );
     let descriptions = gather(
         &members,
         |member| member.description.clone().into_iter().collect(),
@@ -192,25 +129,30 @@ pub async fn update_projection<C: sea_orm::ConnectionTrait>(
         str::to_string,
     );
 
-    let (name, alt_names) = select(Some(origin.name.trim()), &surfaces);
-    let (entity_type, alt_types) = select(Some(origin.entity_type.trim()), &types);
+    let (name, alt_names) = select(origin.map(|member| member.name.trim()), &surfaces);
+    let (entity_type, alt_types) = select(origin.map(|member| member.entity_type.trim()), &types);
 
     // When no member offers text, keep what is there: an authority-sourced description must not be
     // wiped by a member list that says nothing.
-    let (description, alt_descriptions) = match select(origin.description.as_deref(), &descriptions) {
+    let (description, alt_descriptions) = match select(
+        origin.and_then(|member| member.description.as_deref()),
+        &descriptions,
+    ) {
         (Some(text), alt) => (Some(text), alt),
         (None, _) => (row.description.clone(), row.alt_descriptions.clone()),
     };
-    let (search_query, alt_search_queries) = match select(origin.search_query.as_deref(), &queries) {
+    let (search_query, alt_search_queries) = match select(
+        origin.and_then(|member| member.search_query.as_deref()),
+        &queries,
+    ) {
         (Some(text), alt) => (Some(text), alt),
         (None, _) => (row.search_query.clone(), row.alt_search_queries.clone()),
     };
 
     // The presence the resolver asks by: the origin's if it showed one, else the first member's.
-    let presence = match origin.platform {
-        Some(_) => Some(origin),
-        None => members.iter().find(|member| member.platform.is_some()),
-    };
+    let presence = origin
+        .filter(|member| member.platform.is_some())
+        .or_else(|| members.iter().find(|member| member.platform.is_some()));
     let (platform, platform_handle, platform_display_name) = match presence {
         Some(member) => (
             member.platform.clone(),
@@ -231,7 +173,10 @@ pub async fn update_projection<C: sea_orm::ConnectionTrait>(
         .all(conn)
         .await?;
     let contested = evidence_rows.iter().any(|row| row.kind == "collision");
-    let claims: Vec<_> = evidence_rows.iter().filter(|row| row.kind == "claim").collect();
+    let claims: Vec<_> = evidence_rows
+        .iter()
+        .filter(|row| row.kind == "claim")
+        .collect();
 
     let status = if contested {
         "contested"
@@ -278,8 +223,8 @@ pub async fn update_projection<C: sea_orm::ConnectionTrait>(
         ..Default::default()
     })
     .exec(conn)
-    .await?;
-    Ok(())
+    .await
+    .map_err(Into::into)
 }
 
 /// Every distinct, non-empty value the members offer, in member order.
