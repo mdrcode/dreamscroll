@@ -4,7 +4,7 @@ use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use dreamscroll::knowledge::heuristic::NameBlocker;
 use dreamscroll::model;
-use dreamscroll::{config, database, knowledge, telemetry};
+use dreamscroll::{config, database, knowledge, stats, telemetry};
 
 #[derive(FromArgs)]
 #[argh(description = "offline knowledge-graph tooling: observations, knowledge entities, evidence")]
@@ -269,7 +269,7 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Command::Stats(_) => {
-            let stats = knowledge::stats::stats(&db).await?;
+            let stats = stats::knowledge_stats(&db).await?;
             println!("observations        {:>7}", stats.observations);
             println!("  linked            {:>7}", stats.linked);
             println!("knowledge entities  {:>7}", stats.entities);

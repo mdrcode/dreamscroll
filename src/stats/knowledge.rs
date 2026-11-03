@@ -1,4 +1,7 @@
-//! Counts that tell us whether the graph is working.
+//! Counts that tell us whether the knowledge graph is working.
+//!
+//! Read-only, over `model`: it touches no `knowledge` type, which is why it lives with the other
+//! subsystem reports rather than inside the module it reports on.
 
 use std::collections::HashSet;
 
@@ -8,7 +11,7 @@ use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 use crate::{database, model};
 
 #[derive(Debug, Default)]
-pub struct Stats {
+pub struct KnowledgeStats {
     pub observations: u64,
     pub linked: u64,
     pub entities: u64,
@@ -29,7 +32,7 @@ pub struct Stats {
     pub cache_expired: u64,
 }
 
-impl Stats {
+impl KnowledgeStats {
     /// `1 - distinct_entities / observations`: the share of observations that share a referent.
     pub fn duplicate_rate(&self) -> f64 {
         if self.observations == 0 {
@@ -39,7 +42,7 @@ impl Stats {
     }
 }
 
-pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
+pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<KnowledgeStats> {
     let observations = model::user_observed_entity::Entity::find()
         .count(&db.conn)
         .await?;
@@ -58,14 +61,17 @@ pub async fn stats(db: &database::DbHandle) -> anyhow::Result<Stats> {
         .filter_map(|row| row.knowledge_entity_id)
         .collect();
 
-    let mut stats = Stats {
+    let mut stats = KnowledgeStats {
         observations,
         linked,
         platform_from_members: platform_from_members.len() as u64,
         ..Default::default()
     };
 
-    for entity in model::knowledge_entity::Entity::find().all(&db.conn).await? {
+    for entity in model::knowledge_entity::Entity::find()
+        .all(&db.conn)
+        .await?
+    {
         // A tombstone is history, not an entity: it keeps the columns it had and its members have
         // moved. Counting it inflated every number here by the number of merges.
         if entity.merged_into_id.is_some() {
@@ -126,13 +132,27 @@ mod tests {
         let db = test_db.handle();
 
         let user_id = fixtures::user(&db, "stats").await;
-        for (index, capture_id) in [(0, fixtures::capture(&db, user_id).await),
-                                    (1, fixtures::capture(&db, user_id).await)] {
+        for (index, capture_id) in [
+            (0, fixtures::capture(&db, user_id).await),
+            (1, fixtures::capture(&db, user_id).await),
+        ] {
             let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
-            fixtures::entity(&db, user_id, capture_id, illumination_id, index, "Train Dreams").await;
+            fixtures::entity(
+                &db,
+                user_id,
+                capture_id,
+                illumination_id,
+                index,
+                "Train Dreams",
+            )
+            .await;
         }
-        crate::test_support::link::link_all(&db).await.expect("build should succeed");
-        let stats = super::stats(&db).await.expect("stats should succeed");
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
+        let stats = super::knowledge_stats(&db)
+            .await
+            .expect("stats should succeed");
 
         assert_eq!(stats.observations, 2);
         assert_eq!(stats.linked, 2);

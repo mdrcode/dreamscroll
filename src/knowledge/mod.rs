@@ -14,4 +14,3 @@ pub mod merge;
 pub mod normalize;
 pub mod resolve;
 pub mod snapshot;
-pub mod stats;
