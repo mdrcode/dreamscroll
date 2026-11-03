@@ -40,7 +40,7 @@ impl ServiceApiClient {
         task_run_id: &str,
         inference_meta_id: Option<i32>,
         illumination: illumination::v2::Illumination,
-    ) -> Result<(), ApiError> {
+    ) -> Result<i32, ApiError> {
         super::insert_illumination_v2(
             &self.db,
             capture_info,

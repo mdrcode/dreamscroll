@@ -6,6 +6,7 @@
 // deserializes a task and calls `logic::<task>::exec`.
 mod beacon;
 pub mod illuminate;
+pub mod knowledge_link;
 pub use beacon::Beacon;
 mod logic_state;
 pub use logic_state::LogicState;

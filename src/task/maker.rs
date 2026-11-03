@@ -6,6 +6,7 @@ use google_cloud_tasks_v2::model::OidcToken;
 use crate::config;
 use crate::database::DbHandle;
 use crate::logic::illuminate::IlluminationTask;
+use crate::logic::knowledge_link::KnowledgeLinkTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
 use crate::sse::ServerEventNotifier;
@@ -66,6 +67,18 @@ pub async fn make_task_master(
                 })
             };
 
+            let knowledge_link_queue = {
+                let url = make_prod_webhook_url(
+                    &cfg.task_webhook_base_url,
+                    &cfg.task_queue_name_knowledge_link,
+                );
+                LocalTaskQueue::connect(2, move |task: TaskRun<KnowledgeLinkTask>| {
+                    let client = LocalWebhookClient::new();
+                    let url = url.clone();
+                    async move { client.post_task(&url, &task).await }
+                })
+            };
+
             Ok(Arc::new(
                 TaskMaster::builder()
                     .db(db)
@@ -74,6 +87,7 @@ pub async fn make_task_master(
                     .illuminate_queue(illuminate_queue)
                     .search_index_queue(search_index_queue)
                     .spark_queue(spark_queue)
+                    .knowledge_link_queue(knowledge_link_queue)
                     .build()?,
             ))
         }
@@ -119,6 +133,21 @@ pub async fn make_task_master(
             .await
             .context("Failed to initialize Cloud Tasks Queue: SearchIndex")?;
 
+            let knowledge_link_queue = CloudTaskQueue::connect(
+                make_cloud_tasks_queue_path(
+                    &cfg.gcloud_project_id,
+                    &cfg.gcloud_region,
+                    &cfg.task_queue_name_knowledge_link,
+                ),
+                make_prod_webhook_url(
+                    &cfg.task_webhook_base_url,
+                    &cfg.task_queue_name_knowledge_link,
+                ),
+                oidc_token,
+            )
+            .await
+            .context("Failed to initialize Cloud Tasks Queue: KnowledgeLink")?;
+
             Ok(Arc::new(
                 TaskMaster::builder()
                     .db(db)
@@ -127,6 +156,7 @@ pub async fn make_task_master(
                     .illuminate_queue(illuminate_queue)
                     .search_index_queue(search_index_queue)
                     .spark_queue(spark_queue)
+                    .knowledge_link_queue(knowledge_link_queue)
                     .build()?,
             ))
         }

@@ -33,11 +33,14 @@ impl Beacon {
         Ok(())
     }
 
-    /// A successful projected illumination is persisted before indexing.
-    /// Raw-only tasks (including V1) have no new indexable document.
+    /// A successful projected illumination is persisted before anything downstream sees it.
+    ///
+    /// `illumination_id` is the projection that was written, or `None` for raw-only tasks (including
+    /// V1) — those have no observations to link and no new indexable document.
     pub async fn new_illumination(
         &self,
         illumination_task: &illuminate::IlluminationTask,
+        illumination_id: Option<i32>,
         backfill_id: Option<&str>,
     ) -> anyhow::Result<()> {
         if illumination_task.persist_projection
@@ -59,6 +62,23 @@ impl Beacon {
                 .await?;
 
             Self::log_outcome("search_index", capture_id, outcome);
+        }
+
+        // One illumination is one unit of graph work, and the queue's retry boundary is then the same
+        // as every other operation's: a failed link costs this reading, not the capture's history.
+        if let Some(illumination_id) = illumination_id {
+            let outcome = self
+                .task_master
+                .submit_knowledge_link_from_worker(
+                    knowledge_link::KnowledgeLinkTask {
+                        illumination_id,
+                        entity_owner_id: illumination_task.entity_owner_id,
+                    },
+                    backfill_id,
+                )
+                .await?;
+
+            Self::log_outcome("knowledge_link", illumination_id, outcome);
         }
 
         Ok(())
@@ -99,6 +119,25 @@ mod tests {
 
     #[derive(Debug, Clone, Default)]
     struct RecordingSearchIndexQueue(Arc<Mutex<Vec<task::TaskRun<search_index::SearchIndexTask>>>>);
+
+    #[derive(Debug, Clone, Default)]
+    struct RecordingKnowledgeLinkQueue(
+        Arc<Mutex<Vec<task::TaskRun<knowledge_link::KnowledgeLinkTask>>>>,
+    );
+
+    #[async_trait::async_trait]
+    impl task::TaskQueue<knowledge_link::KnowledgeLinkTask> for RecordingKnowledgeLinkQueue {
+        async fn enqueue(
+            &self,
+            task_run: task::TaskRun<knowledge_link::KnowledgeLinkTask>,
+        ) -> anyhow::Result<()> {
+            self.0
+                .lock()
+                .expect("knowledge-link queue mutex should not be poisoned")
+                .push(task_run);
+            Ok(())
+        }
+    }
 
     #[async_trait::async_trait]
     impl task::TaskQueue<search_index::SearchIndexTask> for RecordingSearchIndexQueue {
@@ -146,26 +185,24 @@ mod tests {
         let mut raw_only_task = v2_task.clone();
         raw_only_task.persist_projection = false;
         beacon
-            .new_illumination(&raw_only_task, None)
+            .new_illumination(&raw_only_task, None, None)
             .await
             .expect("raw-only v2 completion should not enqueue indexing");
         beacon
-            .new_illumination(&raw_only_task, Some("raw-only-backfill"))
+            .new_illumination(&raw_only_task, None, Some("raw-only-backfill"))
             .await
             .expect("raw-only backfill completion should not enqueue indexing");
-        assert!(
-            queued
-                .lock()
-                .expect("queue mutex should not be poisoned")
-                .is_empty()
-        );
+        assert!(queued
+            .lock()
+            .expect("queue mutex should not be poisoned")
+            .is_empty());
 
         beacon
-            .new_illumination(&v1_task, None)
+            .new_illumination(&v1_task, None, None)
             .await
             .expect("v1 completion should not enqueue indexing");
         beacon
-            .new_illumination(&v2_task, None)
+            .new_illumination(&v2_task, Some(7), None)
             .await
             .expect("v2 completion should enqueue indexing");
 
@@ -197,7 +234,7 @@ mod tests {
             crate::illumination::IlluminationVersion::V2,
         );
         beacon
-            .new_illumination(&illumination, Some("test-backfill"))
+            .new_illumination(&illumination, Some(11), Some("test-backfill"))
             .await
             .unwrap();
         let run = queued.lock().expect("queue mutex should not be poisoned")[0].clone();
@@ -208,7 +245,7 @@ mod tests {
             .await
             .unwrap();
         beacon
-            .new_illumination(&illumination, Some("test-backfill"))
+            .new_illumination(&illumination, Some(11), Some("test-backfill"))
             .await
             .unwrap();
         assert_eq!(
@@ -221,7 +258,10 @@ mod tests {
 
         // An ordinary completion is not tagged simply because a backfill has
         // previously indexed this same capture.
-        beacon.new_illumination(&illumination, None).await.unwrap();
+        beacon
+            .new_illumination(&illumination, Some(11), None)
+            .await
+            .unwrap();
         let runs = queued.lock().expect("queue mutex should not be poisoned");
         assert_eq!(runs.len(), 2);
         assert_eq!(runs[1].backfill_id, None);
@@ -248,9 +288,12 @@ mod tests {
             "test-model",
             crate::illumination::IlluminationVersion::V2,
         );
-        beacon.new_illumination(&illumination, None).await.unwrap();
         beacon
-            .new_illumination(&illumination, Some("test-backfill"))
+            .new_illumination(&illumination, Some(11), None)
+            .await
+            .unwrap();
+        beacon
+            .new_illumination(&illumination, Some(11), Some("test-backfill"))
             .await
             .unwrap();
         let run = queued.lock().expect("queue mutex should not be poisoned")[0].clone();
@@ -269,5 +312,49 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(stored.backfill_id, None);
+    }
+
+    /// The hook the queue hangs off: a persisted illumination names the work, and a raw-only one
+    /// has nothing to name.
+    #[tokio::test]
+    async fn a_persisted_illumination_enqueues_its_knowledge_link() {
+        let Some(db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let queued = Arc::new(Mutex::new(Vec::new()));
+        let task_master = Arc::new(
+            task::TaskMaster::builder()
+                .db(db.handle())
+                .knowledge_link_queue(RecordingKnowledgeLinkQueue(Arc::clone(&queued)))
+                .build()
+                .unwrap(),
+        );
+        let beacon = Beacon::new(task_master);
+        let task = illuminate::IlluminationTask::new(
+            42,
+            9,
+            "test-model",
+            crate::illumination::IlluminationVersion::V2,
+        );
+
+        beacon
+            .new_illumination(&task, None, None)
+            .await
+            .expect("a raw-only result must not enqueue a link");
+        assert!(queued
+            .lock()
+            .expect("queue mutex should not be poisoned")
+            .is_empty());
+
+        beacon
+            .new_illumination(&task, Some(77), Some("bf-1"))
+            .await
+            .expect("a persisted illumination should enqueue its link");
+
+        let queued = queued.lock().expect("queue mutex should not be poisoned");
+        assert_eq!(queued.len(), 1);
+        assert_eq!(queued[0].task.illumination_id, 77);
+        assert_eq!(queued[0].task.entity_owner_id, 9);
+        assert_eq!(queued[0].backfill_id.as_deref(), Some("bf-1"));
     }
 }

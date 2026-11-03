@@ -4,6 +4,7 @@ use crate::api;
 use crate::auth;
 use crate::database::DbHandle;
 use crate::logic::illuminate::IlluminationTask;
+use crate::logic::knowledge_link::KnowledgeLinkTask;
 use crate::logic::search_index::SearchIndexTask;
 use crate::logic::spark::SparkTask;
 use crate::model;
@@ -36,6 +37,7 @@ pub struct TaskMaster {
     illuminate_queue: Box<dyn TaskQueue<IlluminationTask>>,
     search_index_queue: Box<dyn TaskQueue<SearchIndexTask>>,
     spark_queue: Box<dyn TaskQueue<SparkTask>>,
+    knowledge_link_queue: Box<dyn TaskQueue<KnowledgeLinkTask>>,
 }
 
 /// The outcome of a Task submission.
@@ -147,6 +149,16 @@ impl TaskMaster {
     }
 
     /// Submit a search-index task from a trusted background worker.
+    /// Enqueue the link of one illumination. Called by the worker that finished illuminating it.
+    pub(crate) async fn submit_knowledge_link_from_worker(
+        &self,
+        task: KnowledgeLinkTask,
+        backfill_id: Option<&str>,
+    ) -> anyhow::Result<SubmitOutcome> {
+        self.submit_inner(self.knowledge_link_queue.as_ref(), task, backfill_id)
+            .await
+    }
+
     pub(crate) async fn submit_search_index_from_worker(
         &self,
         task: SearchIndexTask,
@@ -385,6 +397,7 @@ pub struct TaskMasterBuilder {
     illuminate_queue: Option<Box<dyn TaskQueue<IlluminationTask>>>,
     search_index_queue: Option<Box<dyn TaskQueue<SearchIndexTask>>>,
     spark_queue: Option<Box<dyn TaskQueue<SparkTask>>>,
+    knowledge_link_queue: Option<Box<dyn TaskQueue<KnowledgeLinkTask>>>,
 }
 
 impl TaskMasterBuilder {
@@ -424,16 +437,31 @@ impl TaskMasterBuilder {
         self
     }
 
+    pub fn knowledge_link_queue(
+        mut self,
+        knowledge_link_queue: impl TaskQueue<KnowledgeLinkTask> + 'static,
+    ) -> Self {
+        self.knowledge_link_queue = Some(Box::new(knowledge_link_queue));
+        self
+    }
+
     pub fn build(self) -> anyhow::Result<TaskMaster> {
         let Some(db) = self.db else {
             anyhow::bail!("TaskMaster requires a database handle");
         };
         #[cfg(not(test))]
-        let (Some(illuminate_queue), Some(search_index_queue), Some(spark_queue)) = (
+        let (
+            Some(illuminate_queue),
+            Some(search_index_queue),
+            Some(spark_queue),
+            Some(knowledge_link_queue),
+        ) = (
             self.illuminate_queue,
             self.search_index_queue,
             self.spark_queue,
-        ) else {
+            self.knowledge_link_queue,
+        )
+        else {
             anyhow::bail!("TaskMaster requires all task queues");
         };
 
@@ -448,6 +476,10 @@ impl TaskMasterBuilder {
         #[cfg(test)]
         let spark_queue = self
             .spark_queue
+            .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
+        #[cfg(test)]
+        let knowledge_link_queue = self
+            .knowledge_link_queue
             .unwrap_or_else(|| Box::new(TestNoopQueue::default()));
 
         // One estimator shared by both SSE adapters: it is a stateless handle over
@@ -466,6 +498,7 @@ impl TaskMasterBuilder {
             illuminate_queue,
             search_index_queue,
             spark_queue,
+            knowledge_link_queue,
         })
     }
 }

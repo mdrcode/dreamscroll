@@ -175,6 +175,7 @@ async fn initialize()
             webhook::WebhookState {
                 logic: logic::LogicState {
                     service_api,
+                    db: db.clone(),
                     storage: stg,
                     inference_client: Box::new(inference_client),
                     firestarter,

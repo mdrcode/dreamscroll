@@ -24,6 +24,10 @@ pub fn make_webhook_router(
         .route("/cloudtask/illuminate", post(r_illuminate::post))
         .route("/cloudtask/search-index", post(r_search_index::post))
         .route("/cloudtask/spark", post(r_spark::post))
+        .route(
+            "/cloudtask/knowledge-link-illumination",
+            post(r_knowledge_link::post),
+        )
         .with_state(state);
 
     router = router.layer(DefaultBodyLimit::max(TASK_PAYLOAD_LIMIT));

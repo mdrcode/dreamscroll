@@ -165,6 +165,7 @@ mod tests {
         let state = std::sync::Arc::new(crate::webhook::WebhookState {
             logic: crate::logic::LogicState {
                 service_api,
+                db: db.clone(),
                 storage: Box::new(TestStorageProvider),
                 inference_client: Box::new(TestInferenceClient::new(vec![
                     serde_json::json!({"summary": "missing required fields"}),

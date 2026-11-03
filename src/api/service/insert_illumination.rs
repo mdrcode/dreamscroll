@@ -12,7 +12,7 @@ pub async fn insert_illumination_v2(
     task_run_id: &str,
     inference_meta_id: Option<i32>,
     illumination: v2::Illumination,
-) -> Result<(), ApiError> {
+) -> Result<i32, ApiError> {
     let search_content = format_for_search_v2(&illumination);
     let entities = illumination.entities;
     let suggested_searches = illumination.suggested_searches;
@@ -97,7 +97,7 @@ pub async fn insert_illumination_v2(
         .await?;
 
     tx.commit().await?;
-    Ok(())
+    Ok(illumination_row.id)
 }
 
 /// Upsert one raw illumination result per TaskRun; retries replace its content.

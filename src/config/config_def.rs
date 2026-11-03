@@ -41,6 +41,10 @@ fn default_session_always_save() -> bool {
     true
 }
 
+fn default_task_queue_name_knowledge_link() -> String {
+    "knowledge-link-illumination".to_string()
+}
+
 fn default_task_max_attempts() -> i32 {
     3
 }
@@ -124,6 +128,10 @@ pub struct Config {
     pub task_queue_name_illuminate: String,
     pub task_queue_name_search_index: String,
     pub task_queue_name_spark: String,
+    /// Links one illumination into the knowledge graph. Defaulted rather than required so existing
+    /// environments boot unchanged; it must still match the webhook route suffix.
+    #[serde(default = "default_task_queue_name_knowledge_link")]
+    pub task_queue_name_knowledge_link: String,
 
     #[serde(default = "default_jwt_user_expiration_secs")]
     pub jwt_user_expiration_secs: u64,

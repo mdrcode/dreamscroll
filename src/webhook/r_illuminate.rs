@@ -28,8 +28,8 @@ pub async fn post(
     };
 
     let result = match logic::illuminate::exec(&state.logic, &task_run, attempt).await {
-        Ok(()) => logic::Beacon::new(state.task_master.clone())
-            .new_illumination(task, task_run.backfill_id.as_deref())
+        Ok(illumination_id) => logic::Beacon::new(state.task_master.clone())
+            .new_illumination(task, illumination_id, task_run.backfill_id.as_deref())
             .await
             .map_err(api::ApiError::internal),
         Err(error) => Err(error),
