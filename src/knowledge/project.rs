@@ -190,9 +190,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     .map_err(Into::into)
 }
 
-fn surfaces(
-    observation: &model::user_observed_entity::Model,
-) -> impl Iterator<Item = &str> {
+fn surfaces(observation: &model::user_observed_entity::Model) -> impl Iterator<Item = &str> {
     [
         Some(observation.name.as_str()),
         observation.platform_handle.as_deref(),
