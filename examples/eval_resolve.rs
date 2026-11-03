@@ -37,6 +37,7 @@ fn scratch(id: i32, name: &str, entity_type: &str) -> dreamscroll::model::knowle
         status: "provisional".to_string(),
         confidence: None,
         merged_into_id: None,
+        origin_observation_id: None,
     }
 }
 

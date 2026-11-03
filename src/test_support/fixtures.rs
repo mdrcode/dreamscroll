@@ -106,6 +106,7 @@ pub fn stub_entity(id: i32, name: &str, entity_type: &str) -> model::knowledge_e
         status: "provisional".to_string(),
         confidence: None,
         merged_into_id: None,
+        origin_observation_id: None,
     }
 }
 

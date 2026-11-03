@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set,
 };
 
 use crate::model;
@@ -136,202 +136,102 @@ pub(crate) async fn create(
         .await?)
 }
 
-/// Recompute the columns that are a function of the members and of the evidence. Nothing else writes
-/// `name`, `alt_names`, `description`, `alt_descriptions`, `search_query`, `alt_search_queries`,
-/// `platform`, `platform_handle`, `platform_display_name`, `status` or `confidence`.
+/// Recompute the columns that are a function of the members and of the evidence.
 ///
-/// Deriving the surface and text here rather than at write time is what makes a merge safe: a merge
-/// re-points observations and refreshes the winner's projection, so the loser's names and descriptions are picked
-/// up from the members that moved rather than being lost with the deleted row.
+/// Nothing else writes `name`, `alt_names`, `description`, `alt_descriptions`, `search_query`,
+/// `alt_search_queries`, `platform`, `platform_handle`, `platform_display_name`, `status` or
+/// `confidence`.
+///
+/// The entity **wears the values of its origin** — the member it was created from — and every other
+/// member contributes alternatives. That is what makes a merge safe: the winner keeps its own
+/// surface and text while the loser's arrive as `alt_*`, without anyone having to guess which of
+/// them the current columns came from.
 pub async fn update_projection<C: sea_orm::ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<()> {
     use model::knowledge_evidence as evidence;
 
-    // Ordered by member id, so the result never depends on the order members arrived in.
+    let Some(row) = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+        .one(conn)
+        .await?
+    else {
+        return Ok(());
+    };
+
+    // Ordered by member id, so the alternatives come out in the order the members joined.
     let members = model::user_observed_entity::Entity::find()
         .filter(model::user_observed_entity::Column::KnowledgeEntityId.eq(knowledge_entity_id))
         .order_by_asc(model::user_observed_entity::Column::Id)
         .all(conn)
         .await?;
-    let mut label_keys = HashSet::new();
-    let mut labels: Vec<String> = Vec::new();
-    let mut seen_descriptions = HashSet::new();
-    let mut descriptions: Vec<String> = Vec::new();
-    let mut seen_queries = HashSet::new();
-    let mut queries: Vec<String> = Vec::new();
-    let mut links: Vec<(String, Option<String>, Option<String>)> = Vec::new();
-    let mut types: Vec<String> = Vec::new();
-    for member in &members {
-        if !types.contains(&member.entity_type) {
-            types.push(member.entity_type.clone());
-        }
-        for surface in surfaces(member) {
-            let text = surface.trim();
-            if !text.is_empty() && label_keys.insert(super::normalize::key(text)) {
-                labels.push(text.to_string());
-            }
-        }
-        if let Some(text) = member
-            .description
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            && seen_descriptions.insert(text.to_string())
-        {
-            descriptions.push(text.to_string());
-        }
-        if let Some(text) = member
-            .search_query
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            && seen_queries.insert(text.to_string())
-        {
-            queries.push(text.to_string());
-        }
-        // The platform presence, if this member carried one. One per entity is enough for the
-        // resolver, and a member has at most one.
-        if let Some(platform) = member
-            .platform
-            .as_deref()
-            .map(str::trim)
-            .filter(|text| !text.is_empty())
-            && !links.iter().any(|(seen, _, _)| seen == platform)
-        {
-            links.push((
-                platform.to_string(),
-                member.platform_handle.clone(),
-                member.platform_display_name.clone(),
-            ));
-        }
-    }
 
-    let current = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
-        .one(conn)
-        .await?;
-    let (
-        existing_name,
-        existing_type,
-        existing_description,
-        existing_alt_descriptions,
-        existing_query,
-        existing_alt_queries,
-        existing_link,
-    ) = match &current {
-        Some(row) => (
-            row.name.clone(),
-            row.entity_type.clone(),
-            row.description.clone(),
-            row.alt_descriptions.clone(),
-            row.search_query.clone(),
-            row.alt_search_queries.clone(),
-            (
-                row.platform.clone(),
-                row.platform_handle.clone(),
-                row.platform_display_name.clone(),
-            ),
+    // An entity that predates the column, or whose origin is gone, falls back to its first member.
+    let Some(origin) = row
+        .origin_observation_id
+        .and_then(|id| members.iter().find(|member| member.id == id))
+        .or_else(|| members.first())
+    else {
+        return Ok(());
+    };
+
+    let surfaces = gather(
+        &members,
+        |member| surfaces(member).map(str::to_string).collect(),
+        super::normalize::key,
+    );
+    let types = gather(&members, |member| vec![member.entity_type.clone()], str::to_string);
+    let descriptions = gather(
+        &members,
+        |member| member.description.clone().into_iter().collect(),
+        str::to_string,
+    );
+    let queries = gather(
+        &members,
+        |member| member.search_query.clone().into_iter().collect(),
+        str::to_string,
+    );
+
+    let (name, alt_names) = select(Some(origin.name.trim()), &surfaces);
+    let (entity_type, alt_types) = select(Some(origin.entity_type.trim()), &types);
+
+    // When no member offers text, keep what is there: an authority-sourced description must not be
+    // wiped by a member list that says nothing.
+    let (description, alt_descriptions) = match select(origin.description.as_deref(), &descriptions) {
+        (Some(text), alt) => (Some(text), alt),
+        (None, _) => (row.description.clone(), row.alt_descriptions.clone()),
+    };
+    let (search_query, alt_search_queries) = match select(origin.search_query.as_deref(), &queries) {
+        (Some(text), alt) => (Some(text), alt),
+        (None, _) => (row.search_query.clone(), row.alt_search_queries.clone()),
+    };
+
+    // The presence the resolver asks by: the origin's if it showed one, else the first member's.
+    let presence = match origin.platform {
+        Some(_) => Some(origin),
+        None => members.iter().find(|member| member.platform.is_some()),
+    };
+    let (platform, platform_handle, platform_display_name) = match presence {
+        Some(member) => (
+            member.platform.clone(),
+            member.platform_handle.clone(),
+            member.platform_display_name.clone(),
         ),
         None => (
-            String::new(),
-            String::new(),
-            None,
-            Vec::new(),
-            None,
-            Vec::new(),
-            (None, None, None),
+            row.platform.clone(),
+            row.platform_handle.clone(),
+            row.platform_display_name.clone(),
         ),
     };
 
-    // The selected surface survives a merge as long as a member still carries it.
-    let name = if labels.is_empty() || labels.contains(&existing_name) {
-        existing_name
-    } else {
-        labels[0].clone()
-    };
-    let alt_labels = labels
-        .iter()
-        .filter(|candidate| candidate.as_str() != name)
-        .cloned()
-        .collect();
-
-    let entity_type = if types.is_empty() || types.contains(&existing_type) {
-        existing_type
-    } else {
-        types[0].clone()
-    };
-    let alt_types = types
-        .iter()
-        .filter(|candidate| *candidate != &entity_type)
-        .cloned()
-        .collect();
-
-    // Same rule for the text, and the existing description is preserved when no member has any —
-    // an authority-sourced description must not be wiped by a member list that says nothing.
-    let (description, alt_descriptions) = if descriptions.is_empty() {
-        (existing_description, existing_alt_descriptions)
-    } else {
-        let selected = match existing_description {
-            Some(text) if descriptions.contains(&text) => Some(text),
-            _ => descriptions.first().cloned(),
-        };
-        let alt = descriptions
-            .iter()
-            .filter(|text| Some(text.as_str()) != selected.as_deref())
-            .cloned()
-            .collect();
-        (selected, alt)
-    };
-
-    // The hint is projected exactly like the description: the one already selected survives while a
-    // member still carries it, so a search query is never silently swapped for another member's.
-    let (search_query, alt_search_queries) = if queries.is_empty() {
-        (existing_query, existing_alt_queries)
-    } else {
-        let selected = match existing_query {
-            Some(text) if queries.contains(&text) => Some(text),
-            _ => queries.first().cloned(),
-        };
-        let alt = queries
-            .iter()
-            .filter(|text| Some(text.as_str()) != selected.as_deref())
-            .cloned()
-            .collect();
-        (selected, alt)
-    };
-
-    // The platform presence follows the same rule as everything else here: the one already chosen
-    // survives while a member still carries it, so a merge does not silently swap it.
-    let (platform, platform_handle, platform_display_name) = if links.is_empty() {
-        existing_link
-    } else {
-        let (chosen_platform, chosen_handle, _) = existing_link.clone();
-        let selected = chosen_platform
-            .as_ref()
-            .and_then(|chosen| {
-                links
-                    .iter()
-                    .find(|(p, h, _)| p == chosen && h == &chosen_handle)
-            })
-            .cloned()
-            .unwrap_or_else(|| links[0].clone());
-        (Some(selected.0), selected.1, selected.2)
-    };
-
-    let claims = evidence::Entity::find()
+    let evidence_rows = evidence::Entity::find()
         .filter(evidence::Column::KnowledgeEntityId.eq(knowledge_entity_id))
-        .filter(evidence::Column::Kind.eq("claim"))
+        .filter(evidence::Column::Kind.is_in(["claim", "collision"]))
         .filter(evidence::Column::RetractedAt.is_null())
         .all(conn)
         .await?;
-    let contested = evidence::Entity::find()
-        .filter(evidence::Column::KnowledgeEntityId.eq(knowledge_entity_id))
-        .filter(evidence::Column::Kind.eq("collision"))
-        .filter(evidence::Column::RetractedAt.is_null())
-        .count(conn)
-        .await?
-        > 0;
+    let contested = evidence_rows.iter().any(|row| row.kind == "collision");
+    let claims: Vec<_> = evidence_rows.iter().filter(|row| row.kind == "claim").collect();
 
     let status = if contested {
         "contested"
@@ -341,43 +241,30 @@ pub async fn update_projection<C: sea_orm::ConnectionTrait>(
         "identified"
     };
 
-    // Corroboration: each additional *independent scheme* agreeing raises confidence. Two authorities
-    // asserting the same referent is a stronger claim than either alone.
     // Corroboration counts independent *inputs*, not scheme labels. A `p2002` claim is derived from
     // the handle — the resolver asked Wikidata which item owns that account — so counting it beside
-    // the handle's own `platform_link` row treated one chain as two and gave every handle-resolved
-    // entity the maximum confidence.
+    // the handle's own row treated one chain as two and gave every handle-resolved entity maximum
+    // confidence.
     let from_text = claims
         .iter()
         .any(|claim| claim.source == "wikidata" && claim.method.as_deref() != Some("p2002"));
     let from_handle = claims.iter().any(|claim| claim.source == "platform");
     let inputs = usize::from(from_text) + usize::from(from_handle);
-
-    let mut best = 0.0f32;
-    for claim in &claims {
-        best = best.max(claim.confidence.unwrap_or(0.0));
-    }
-    let corroboration = inputs.saturating_sub(1) as f32 * 0.1;
+    let best = claims
+        .iter()
+        .map(|claim| claim.confidence.unwrap_or(0.0))
+        .fold(0.0f32, f32::max);
     let confidence = if claims.is_empty() {
         None
     } else {
-        Some((best + corroboration).min(1.0))
+        Some((best + inputs.saturating_sub(1) as f32 * 0.1).min(1.0))
     };
 
-    model::knowledge_entity::Entity::update_many()
-        .col_expr(model::knowledge_entity::Column::Status, Expr::value(status))
-        .col_expr(
-            model::knowledge_entity::Column::Confidence,
-            Expr::value(confidence),
-        )
-        .filter(model::knowledge_entity::Column::Id.eq(knowledge_entity_id))
-        .exec(conn)
-        .await?;
     model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),
-        name: Set(name),
-        alt_names: Set(alt_labels),
-        entity_type: Set(entity_type),
+        name: Set(name.unwrap_or_else(|| row.name.clone())),
+        alt_names: Set(alt_names),
+        entity_type: Set(entity_type.unwrap_or_else(|| row.entity_type.clone())),
         alt_types: Set(alt_types),
         description: Set(description),
         alt_descriptions: Set(alt_descriptions),
@@ -386,11 +273,47 @@ pub async fn update_projection<C: sea_orm::ConnectionTrait>(
         platform: Set(platform),
         platform_handle: Set(platform_handle),
         platform_display_name: Set(platform_display_name),
+        status: Set(status.to_string()),
+        confidence: Set(confidence),
         ..Default::default()
     })
     .exec(conn)
     .await?;
     Ok(())
+}
+
+/// Every distinct, non-empty value the members offer, in member order.
+fn gather(
+    members: &[model::user_observed_entity::Model],
+    values: impl Fn(&model::user_observed_entity::Model) -> Vec<String>,
+    key: impl Fn(&str) -> String,
+) -> Vec<String> {
+    let mut seen = HashSet::new();
+    let mut distinct = Vec::new();
+    for member in members {
+        for value in values(member) {
+            let text = value.trim();
+            if !text.is_empty() && seen.insert(key(text)) {
+                distinct.push(text.to_string());
+            }
+        }
+    }
+    distinct
+}
+
+/// Keep `preferred` while the members still offer it; otherwise take the first. Everything else
+/// becomes the alternative list.
+fn select(preferred: Option<&str>, candidates: &[String]) -> (Option<String>, Vec<String>) {
+    let selected = preferred
+        .filter(|text| candidates.iter().any(|candidate| candidate == text))
+        .map(str::to_string)
+        .or_else(|| candidates.first().cloned());
+    let alternatives = candidates
+        .iter()
+        .filter(|candidate| Some(candidate.as_str()) != selected.as_deref())
+        .cloned()
+        .collect();
+    (selected, alternatives)
 }
 
 /// The entity, or an error. Every caller that asks has already decided it exists.
@@ -496,7 +419,12 @@ mod tests {
     }
 
     /// Another member of the same entity, carrying its own hint.
-    async fn attach(db: &crate::database::DbHandle, id: i32, name: &str, query: Option<&str>) {
+    async fn attach(
+        db: &crate::database::DbHandle,
+        id: i32,
+        name: &str,
+        query: Option<&str>,
+    ) -> i32 {
         let user_id = fixtures::user(db, "project").await;
         let capture_id = fixtures::capture(db, user_id).await;
         let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
@@ -515,6 +443,7 @@ mod tests {
             .exec(&db.conn)
             .await
             .unwrap();
+        observation_id
     }
 
     /// A member that carries a platform presence.
@@ -591,20 +520,22 @@ mod tests {
     }
 
     /// A selected hint is not silently swapped for another member's while its own member still
-    /// carries it — the same protection the description has.
+    /// The entity wears its origin's values, whatever the row said before — and the origin is the
+    /// member it was created from, not simply the first one.
     #[tokio::test]
-    async fn a_selected_hint_survives_while_a_member_still_carries_it() {
+    async fn the_origin_member_decides_which_value_is_worn() {
         let Some(db) = test_db::test_db().await else {
             return;
         };
         let db = db.handle();
         let id = seed(&db, "Train Dreams").await;
         attach(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
-        attach(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
+        let second = attach(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
 
+        // The row is told a different member is its origin.
         entity::Entity::update(entity::ActiveModel {
             id: Set(id),
-            search_query: Set(Some("Train Dreams Denis Johnson".to_string())),
+            origin_observation_id: Set(Some(second)),
             ..Default::default()
         })
         .exec(&db.conn)
@@ -617,7 +548,7 @@ mod tests {
         assert_eq!(
             entity.search_query.as_deref(),
             Some("Train Dreams Denis Johnson"),
-            "a hint a member still carries must not be replaced"
+            "the origin decides"
         );
     }
 

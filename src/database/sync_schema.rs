@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 18;
+const REQUIRED_SCHEMA_VERSION: i32 = 19;
 
 /// Schema 16 retires the staging observation table.
 ///

@@ -112,6 +112,7 @@ async fn apply_decision(
         link_decider::Action::Attach { entity, .. } => entity::get(&db.conn, *entity).await?,
         link_decider::Action::Create { .. } => entity::create(&db.conn, observation).await?,
     };
+    let created = target_entity.id;
     entity::attach_observation(&db.conn, observation.id, target_entity.id).await?;
 
     // The observation may carry its own claim — a handle we inferred from the capture. If another
@@ -133,9 +134,11 @@ async fn apply_decision(
                 claim.id
             );
         }
-        entity::discard(&db.conn, target_entity.id).await?;
+        // Re-point before discarding: the observation still references the entity being deleted,
+        // and that foreign key is `NO ACTION`.
         target_entity = entity::get(&db.conn, owner).await?;
         entity::attach_observation(&db.conn, observation.id, owner).await?;
+        entity::discard(&db.conn, created).await?;
         folded = true;
     }
 
@@ -256,6 +259,61 @@ mod tests {
             .expect("build should succeed");
 
         assert_eq!(entity_count(&db).await, 2);
+    }
+
+    /// Two observations of one illumination carrying the same, previously unseen handle. Decisions
+    /// are made before any writes, so neither can see the other's claim: both are told to create.
+    /// The second discovers the first already recorded it and folds — re-pointing the observation
+    /// first, because the row it created cannot be deleted while an observation still references it.
+    #[tokio::test]
+    async fn two_observations_sharing_a_new_handle_fold_into_one_entity() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let same = capture(&db, "link_fold").await;
+        observe(
+            &db,
+            &same,
+            0,
+            "Alexey Kutepov",
+            None,
+            "real_person",
+            Some("x"),
+            Some("tsoding"),
+        )
+        .await;
+        observe(
+            &db,
+            &same,
+            1,
+            "Tsoding",
+            None,
+            "social_media_account",
+            Some("x"),
+            Some("Tsoding"),
+        )
+        .await;
+
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("the second must fold, not trip the foreign key");
+
+        assert_eq!(entity_count(&db).await, 1, "one referent, not two");
+        let linked: Vec<Option<i32>> = observation::Entity::find()
+            .all(&db.conn)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.knowledge_entity_id)
+            .collect();
+        assert_eq!(linked.len(), 2);
+        assert!(linked.iter().all(|id| *id == linked[0] && id.is_some()));
+        assert_eq!(
+            evidence::Entity::find().count(&db.conn).await.unwrap(),
+            1,
+            "one claim, on the entity that survived"
+        );
     }
 
     #[tokio::test]
