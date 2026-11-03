@@ -159,19 +159,20 @@ async fn main() -> anyhow::Result<()> {
             let report = knowledge::snapshot::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
-                    "snapshot {} · entities {} · evidence {} · members {}",
+                    "snapshot {} · entities {} · claims {} · merges {} · collisions {} · members {}",
                     snapshot.suffix,
                     report.snapshot_entities,
-                    report.snapshot_evidence,
+                    report.snapshot_claims,
+                    report.snapshot_merges,
+                    report.snapshot_collisions,
                     report.snapshot_members
                 ),
                 None => println!("nothing to snapshot"),
             }
             println!(
-                "unlinked {} observations · deleted {} evidence rows · deleted {} entities",
-                report.unlinked,
-                report.claims + report.merges + report.collisions + report.evidence,
-                report.entities
+                "unlinked {} observations · deleted {} claims, {} merges, {} collisions · \
+                 deleted {} entities",
+                report.unlinked, report.claims, report.merges, report.collisions, report.entities
             );
         }
         Command::Compare(args) => {

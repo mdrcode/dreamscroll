@@ -11,7 +11,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::cache::{Answer, Cache, Outcome, UNPRODUCTIVE_TTL};
 use crate::{database, model};
@@ -586,21 +586,23 @@ async fn store_claim(
                             // Recorded once per pair. A resolve run retries every entity without a
                             // claim, so re-asserting the same contradiction would otherwise append
                             // a row per run and turn "3 collisions" into noise.
-                            if !collision_recorded(&db.conn, owner, knowledge_entity_id, &identity)
-                                .await?
+                            if !collision_recorded(
+                                &db.conn,
+                                owner,
+                                knowledge_entity_id,
+                                &scheme,
+                                &identity,
+                            )
+                            .await?
                             {
                                 report.collisions += 1;
-                                model::knowledge_evidence::Entity::insert(
-                                    model::knowledge_evidence::ActiveModel {
-                                        knowledge_entity_id: Set(owner),
-                                        kind: Set("collision".to_string()),
-                                        value: Set(json!({
-                                            "reason": "shared illumination",
-                                            "claimant": knowledge_entity_id,
-                                            "scheme": scheme,
-                                            "id": identity,
-                                        })),
-                                        source: Set("model".to_string()),
+                                model::knowledge_collisions::Entity::insert(
+                                    model::knowledge_collisions::ActiveModel {
+                                        holder_id: Set(owner),
+                                        claimant_id: Set(knowledge_entity_id),
+                                        scheme: Set(scheme.to_string()),
+                                        external_id: Set(identity.to_string()),
+                                        reason: Set("shared_illumination".to_string()),
                                         ..Default::default()
                                     },
                                 )
@@ -622,17 +624,23 @@ async fn store_claim(
 /// Whether this pair already carries a live collision for the same identity.
 async fn collision_recorded(
     conn: &sea_orm::DatabaseConnection,
-    owner: i32,
-    other: i32,
+    holder: i32,
+    claimant: i32,
+    scheme: &str,
     identity: &str,
 ) -> anyhow::Result<bool> {
     let row = conn
         .query_one_raw(sea_orm::Statement::from_sql_and_values(
             sea_orm::DatabaseBackend::Postgres,
-            "SELECT count(*) FROM knowledge_evidence WHERE kind = 'collision' \
-             AND retracted_at IS NULL AND knowledge_entity_id = $1 AND (value->>'claimant')::int = $2 \
-             AND value->>'id' = $3",
-            [owner.into(), other.into(), identity.into()],
+            "SELECT count(*) FROM knowledge_collisions \
+             WHERE adjudicated_at IS NULL AND holder_id = $1 AND claimant_id = $2 \
+               AND scheme = $3 AND external_id = $4",
+            [
+                holder.into(),
+                claimant.into(),
+                scheme.into(),
+                identity.into(),
+            ],
         ))
         .await?;
     let count: i64 = row
@@ -681,6 +689,7 @@ async fn candidates(
 #[cfg(test)]
 mod tests {
     use sea_orm::PaginatorTrait;
+    use serde_json::json;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
 

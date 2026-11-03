@@ -14,14 +14,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   Settle first whether the guard belongs here (an `ensure!` on type compatibility, the shape of the
   tombstone guard) or upstream in resolution (a character should not resolve to a work's item). The
   answer decides whether the collision record's `reason` needs a `type_incompatible` value.
-- [ ] **Split `knowledge_evidence` into three tables.** Claims are evidence; collisions are an
-  adjudication queue; merges are a mutation log — one `kind` discriminator, three payload shapes and
-  a partial unique index that applies to one of them is why `method` lives in two places and
-  `retracted_at` has no writer. Three tables: `knowledge_claims` (scheme, external id, source,
-  method, confidence, observed_at, retracted_at; unique on `(scheme, external id)` where live),
-  `knowledge_merges` (loser FK unique, winner FK, cause, source), `knowledge_collisions` (holder FK,
-  claimant FK, scheme, id, reason, adjudicated_at; unique per pair-and-identity where live). Rename
-  decided; the claim's external-id column name is still open.
 - [ ] **Make `link_illumination` transactional.** Linking one reading writes several times per
   decision: create or load the entity, attach the observation, record the claim (or fold and
   discard the row it just made), then project. A crash between any two leaves an entity with

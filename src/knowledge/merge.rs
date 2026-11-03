@@ -15,7 +15,7 @@ use sea_orm::{
 };
 
 use crate::model::{
-    knowledge_claims as claims, knowledge_entity as entity, knowledge_evidence as evidence,
+    knowledge_claims as claims, knowledge_collisions as collisions, knowledge_entity as entity,
     knowledge_merges as merges, user_observed_entity as observation,
 };
 
@@ -225,15 +225,21 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         .filter(claims::Column::KnowledgeEntityId.eq(loser))
         .exec(conn)
         .await?;
-    // Collisions follow the loser: the queue names entities, and the loser is about to become a
-    // tombstone. Merge rows do not — they record what happened, not where things live now.
-    evidence::Entity::update_many()
-        .col_expr(
-            evidence::Column::KnowledgeEntityId,
-            Expr::value(Some(winner)),
-        )
-        .filter(evidence::Column::Kind.eq("collision"))
-        .filter(evidence::Column::KnowledgeEntityId.eq(loser))
+    // A collision naming both ends of this merge is the dispute the merge just settled.
+    collisions::Entity::delete_many()
+        .filter(collisions::Column::HolderId.is_in([loser, winner]))
+        .filter(collisions::Column::ClaimantId.is_in([loser, winner]))
+        .exec(conn)
+        .await?;
+    // The rest follow the loser: the queue names entities, and the loser is about to be a tombstone.
+    collisions::Entity::update_many()
+        .col_expr(collisions::Column::HolderId, Expr::value(winner))
+        .filter(collisions::Column::HolderId.eq(loser))
+        .exec(conn)
+        .await?;
+    collisions::Entity::update_many()
+        .col_expr(collisions::Column::ClaimantId, Expr::value(winner))
+        .filter(collisions::Column::ClaimantId.eq(loser))
         .exec(conn)
         .await?;
 
@@ -537,11 +543,7 @@ mod tests {
             .expect_err("a missing loser is a caller error");
         assert!(error.to_string().contains("999999"), "{error}");
         assert_eq!(
-            evidence::Entity::find()
-                .filter(evidence::Column::Kind.eq("merge"))
-                .count(&db.conn)
-                .await
-                .unwrap(),
+            merges::Entity::find().count(&db.conn).await.unwrap(),
             0,
             "and nothing was recorded"
         );

@@ -45,10 +45,12 @@ observation.
 | --- | --- | --- | --- |
 | **observation** | `UserObservedEntity` | `user_observed_entities` | `id`, `user_id`, `capture_id`, `illumination_id`, `position`, `created_at`, `name`, `entity_type`, `description`, `search_query`, `platform`, `platform_handle`, `platform_display_name`, `knowledge_entity_id` |
 | **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `status`, `confidence`, `merged_into_id`, timestamps |
-| **evidence** | `KnowledgeEvidence` | `knowledge_evidence` | `id`, `knowledge_entity_id`, `kind`, `value`, `source`, `method`, `confidence`, `user_observed_entity_id`, `source_user_id`, `retracted_at`, `observed_at` |
+| **claim** | `KnowledgeClaim` | `knowledge_claims` | `id`, `knowledge_entity_id`, `scheme`, `external_id`, `surface`, `label`, `description`, `classes`, `source`, `method`, `confidence`, `user_observed_entity_id`, `source_user_id`, `retracted_at`, `observed_at` |
+| **merge** | `KnowledgeMerge` | `knowledge_merges` | `id`, `loser_id`, `winner_id`, `cause`, `source`, `source_user_id`, `at` |
+| **collision** | `KnowledgeCollision` | `knowledge_collisions` | `id`, `holder_id`, `claimant_id`, `scheme`, `external_id`, `reason`, `detected_at`, `adjudicated_at` |
 
-Two things have no table: an **identity** is `(scheme, id)` inside a claim's payload, and a
-**snapshot** is what `reset` saves and `compare` diffs.
+Two things have no table: an **identity** is `(scheme, external_id)` on a claim, and a **snapshot**
+is what `reset` saves and `compare` diffs.
 
 ### Column conventions
 
@@ -67,9 +69,11 @@ Two things have no table: an **identity** is `(scheme, id)` inside a claim's pay
 > **Resolve** asks *what can the authorities tell us about this thing?* — it records the answers as
 > evidence.
 
-Resolution emits evidence, not identities: an identity claim is one kind, and enrichment — the
-authority's description, names and types — is another. That is why the container is *evidence* and
-not *claim*.
+Resolution emits claims, and also two things that are **about the graph rather than the world**: a
+collision (two entities holding one identity that cannot be merged, awaiting a decision) and a merge
+(a mutation, recorded for whoever reverses it). Those live in their own tables — see below — because
+one table answering three questions needs a `kind` discriminator, three payload shapes and a
+per-kind index.
 
 ## Verbs
 
@@ -84,18 +88,17 @@ not *claim*.
 | **reset** | drop derived state, keep observations | pure |
 | **compare** | snapshot → snapshot diff | pure |
 
-## Evidence kinds
+## Claims, collisions and merges
 
-| Kind | Means | Written today |
+| Table | Is | Written by |
 | --- | --- | --- |
-| `claim` | this entity has this identity | yes |
-| `collision` | a claim declined; another entity holds it | yes |
-| `merge` | this entity was folded into that one | yes |
-| `enrichment` | the authority's description, names or types | reserved |
-| `rejection` | a candidate considered and refused | reserved |
+| `knowledge_claims` | a fact about the world: this entity has this identity, on whose authority | `link` (a capture's handle), `resolve` (an authority's answer) |
+| `knowledge_collisions` | a judgement about our data: two entities hold one identity, and the same-illumination veto forbids folding them — a queue | `resolve`, when a merge is refused |
+| `knowledge_merges` | a mutation of our data: one entity folded into another, and why — a log | `resolve`, and the repair command |
 
-The reserved kinds are vocabulary, not placeholders: a resolve pass that emits enrichment writes
-`enrichment`, and `project` already consumes it the same way it consumes observation-supplied text.
+`enrichment` and `rejection` remain reserved kinds in the vocabulary, not tables: enrichment is the
+authority's description, names and types — it rides on the claim today as `label`/`description`/
+`classes`, and `project` does not read it yet.
 
 ## Status
 
@@ -108,7 +111,7 @@ live authority claim; it is not the past participle of `resolve`, which may abst
 | --- | --- |
 | *mention* | implies a string whose meaning is fixed by its referent; an observation can be wrong and still be a faithful record |
 | *core* / *CoreEntity* | a cluster has a core; entities are not derived from clusters, and "core" names a mechanism that no longer exists |
-| *CoreKnowledgeEvidence* / *Claim* | evidence is the container because resolution emits more than identities; a claim is one kind inside it |
+| *CoreKnowledgeEvidence* / *evidence* | one table with a `kind` discriminator for three different statements; split into claims, collisions and merges |
 | *label* / *alt_labels* | technical jargon for the same idea; `name`/`alt_names` is plain and keeps the singular/plural pattern |
 | *identify* | presupposes success, and resolution abstains often; also too narrow — it names only one of the kinds |
 | *related_core_id* | one column with two meanings selected by `kind`; deleted, the role lives in the payload |
@@ -121,11 +124,11 @@ live authority claim; it is not the past participle of `resolve`, which may abst
 | `knowledge_user` (legacy) | deleted — folded into `user_observed_entities` |
 | `user_knowledge_entities` | `user_observed_entities` |
 | `core_knowledge_entities` | `knowledge_entities` |
-| `core_knowledge_evidence` | `knowledge_evidence` |
+| `core_knowledge_evidence` | `knowledge_evidence` (later split into the three below) |
 | `model::knowledge_entity` (observation) | `model::user_observed_entity` |
 | `model::user_knowledge_entity` | merged into the above |
 | `model::core_knowledge_entity` | `model::knowledge_entity` |
-| `model::core_knowledge_evidence` | `model::knowledge_evidence` |
+| `model::core_knowledge_evidence` | `model::knowledge_evidence` → split, schema 22 |
 | `core_id` | `knowledge_entity_id` |
 | `user_entity_id` | `user_observed_entity_id` |
 | `label` / `alt_labels` | `name` / `alt_names` |

@@ -171,15 +171,17 @@ payloads for free — that is what `examples/eval_resolve` does.
 
 ## Evidence: why we believe it
 
-Claims live in `knowledge_evidence`, append-only, with provenance:
+Three tables, because they answer three different questions:
 
 ```
-claim       this entity has this identity      (source, method, confidence)
-collision   a claim we declined; another entity holds it
-merge       this entity was folded into that one
-enrichment  the authority's description, names, types      (reserved)
-rejection   a candidate considered and refused             (reserved)
+knowledge_claims       this entity has this identity      (scheme, external id; source, method, confidence)
+knowledge_collisions   two entities hold one identity, and the same-illumination veto
+                       forbids folding them — a queue awaiting a decision
+knowledge_merges       this entity was folded into that one, and why — the log an unmerge reads
 ```
+
+Only the first is evidence: a fact about the world. A collision is a judgement about our own rows,
+and a merge is a mutation of them. `enrichment` and `rejection` stay reserved vocabulary, not tables.
 
 A partial unique index does the hard part: no two entities may hold a *live* claim to the same
 `(scheme, id)`. Retracting a claim (`retracted_at`) frees the slot — retraction is a fact with a
@@ -222,7 +224,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `link.rs` | the linking executor, and `LinkStats` |
 | `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces` |
 | `merge.rs` | fold one entity into another |
-| `evidence.rs` | claims about entities, and the platform key a presence answers to |
+| `evidence.rs` | claims: who holds an identity, and the platform key a presence answers to |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | `comparable`: the form two surfaces are compared in. The token pipeline is policy, in `heuristic.rs` |

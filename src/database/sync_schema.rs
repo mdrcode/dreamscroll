@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 21;
+const REQUIRED_SCHEMA_VERSION: i32 = 22;
 
 /// Schema 16 retires the staging observation table.
 ///
@@ -39,6 +39,7 @@ async fn retire_legacy_observation_tables<C: ConnectionTrait>(conn: &C) -> Resul
              DROP TABLE knowledge_user; \
            END IF; \
            DROP TABLE IF EXISTS core_knowledge_evidence; \
+           DROP TABLE IF EXISTS knowledge_evidence; \
            DROP TABLE IF EXISTS user_knowledge_entities; \
            DROP TABLE IF EXISTS core_knowledge_entities; \
          END $$",
@@ -218,33 +219,6 @@ mod tests {
         );
     }
 
-    /// The model asks for `jsonb`, not `json`: the identity index and any future adjudication query
-    /// the payload by containment (`@>`), and `->>` alone would keep both types working until the
-    /// first containment query silently did not.
-    #[tokio::test]
-    async fn evidence_payload_is_jsonb() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let conn = test_db.handle().conn;
-
-        let column_type = |conn: sea_orm::DatabaseConnection| async move {
-            let row = conn
-                .query_one_raw(Statement::from_string(
-                    DatabaseBackend::Postgres,
-                    "SELECT data_type FROM information_schema.columns \
-                     WHERE table_schema = current_schema() \
-                       AND table_name = 'knowledge_evidence' \
-                       AND column_name = 'value'",
-                ))
-                .await
-                .expect("the column should be queryable")
-                .expect("the column should exist");
-            row.try_get_by_index::<String>(0).expect("data_type is text")
-        };
-
-        assert_eq!(column_type(conn.clone()).await, "jsonb", "the model asks for jsonb");
-    }
 
     /// Schema 16 retires the staging table. The observations are the only irreplaceable data here,
     /// so they move across before `knowledge_user` goes; the entities are rebuilt by `link`.

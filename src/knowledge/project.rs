@@ -37,8 +37,6 @@ pub(super) async fn project<C: ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
-    use model::knowledge_evidence as evidence;
-
     let row = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
         .one(conn)
         .await?
@@ -121,10 +119,9 @@ pub(super) async fn project<C: ConnectionTrait>(
         .all(conn)
         .await?;
     // The queue, not evidence: a live collision against this entity makes its identity disputed.
-    let contested = evidence::Entity::find()
-        .filter(evidence::Column::KnowledgeEntityId.eq(knowledge_entity_id))
-        .filter(evidence::Column::Kind.eq("collision"))
-        .filter(evidence::Column::RetractedAt.is_null())
+    let contested = model::knowledge_collisions::Entity::find()
+        .filter(model::knowledge_collisions::Column::HolderId.eq(knowledge_entity_id))
+        .filter(model::knowledge_collisions::Column::AdjudicatedAt.is_null())
         .count(conn)
         .await?
         > 0;
@@ -229,10 +226,7 @@ mod tests {
     use sea_orm::sea_query::Expr;
 
     use crate::database::DbHandle;
-    use crate::model::{
-        knowledge_entity as entity, knowledge_evidence as evidence,
-        user_observed_entity as observation,
-    };
+    use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
     use crate::test_support::{fixtures, test_db};
 
     fn store(db: &DbHandle) -> crate::knowledge::Knowledge {
@@ -243,12 +237,14 @@ mod tests {
         fixtures::claim(db, id, scheme, value, "test", None, None).await;
     }
 
-    async fn collision(db: &DbHandle, id: i32, scheme: &str, value: &str) {
-        evidence::Entity::insert(evidence::ActiveModel {
-            knowledge_entity_id: Set(id),
-            kind: Set("collision".to_string()),
-            value: Set(serde_json::json!({ "scheme": scheme, "id": value })),
-            source: Set("test".to_string()),
+    async fn collision(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
+        let claimant = fixtures::knowledge_entity_with_member(db, "a claimant").await;
+        model::knowledge_collisions::Entity::insert(model::knowledge_collisions::ActiveModel {
+            holder_id: Set(holder),
+            claimant_id: Set(claimant),
+            scheme: Set(scheme.to_string()),
+            external_id: Set(value.to_string()),
+            reason: Set("shared_illumination".to_string()),
             ..Default::default()
         })
         .exec(&db.conn)

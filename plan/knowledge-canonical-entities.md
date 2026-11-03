@@ -203,6 +203,8 @@ knowledge_entities                    -- the referent; owned by nobody
   -- planned, not built: gin (alt_names) with normalized keys alongside the verbatim surfaces
 
 knowledge_evidence                    -- the justification; append-only
+                                      -- (built, then split in schema 22: see plan/lexicon.md —
+                                      --  knowledge_claims, knowledge_merges, knowledge_collisions)
   id
   knowledge_entity_id              i32 not null -> knowledge_entities.id
   related_knowledge_entity_id      i32 null -> knowledge_entities.id   -- collision other / merge child

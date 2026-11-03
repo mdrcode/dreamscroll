@@ -17,22 +17,19 @@ use sea_orm::{
     Statement, TransactionTrait,
 };
 
-use super::record::{
-    CLAIMS_TABLE, COLLISIONS_TABLE, CORE_TABLE, EVIDENCE_TABLE, MERGES_TABLE, Snapshot,
-};
+use super::record::{CLAIMS_TABLE, COLLISIONS_TABLE, CORE_TABLE, MERGES_TABLE, Snapshot};
 
 const OBSERVATION_TABLE: &str = "user_observed_entities";
 use crate::database;
 use crate::model::{
     knowledge_claims as claims, knowledge_collisions as collisions, knowledge_entity as entity,
-    knowledge_evidence as evidence, knowledge_merges as merges, user_observed_entity as observation,
+    knowledge_merges as merges, user_observed_entity as observation,
 };
 
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Report {
     /// Observations whose `knowledge_entity_id` was cleared.
     pub unlinked: u64,
-    pub evidence: u64,
     pub claims: u64,
     pub merges: u64,
     pub collisions: u64,
@@ -40,7 +37,6 @@ pub struct Report {
     /// `None` when there was nothing to snapshot.
     pub snapshot: Option<Snapshot>,
     pub snapshot_entities: u64,
-    pub snapshot_evidence: u64,
     pub snapshot_claims: u64,
     pub snapshot_merges: u64,
     pub snapshot_collisions: u64,
@@ -63,7 +59,6 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 }
 
                 let snapshot_entities = copy(txn, &snapshot.entities(), CORE_TABLE).await?;
-                let snapshot_evidence = copy(txn, &snapshot.evidence(), EVIDENCE_TABLE).await?;
                 let snapshot_claims = copy(txn, &snapshot.claims(), CLAIMS_TABLE).await?;
                 let snapshot_merges = copy(txn, &snapshot.merges(), MERGES_TABLE).await?;
                 let snapshot_collisions =
@@ -72,7 +67,6 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
 
                 // Order follows the foreign keys: observations first, then evidence, then entities.
                 let unlinked = unlink(txn).await?;
-                let evidence = remove_evidence(txn).await?;
                 let claims = remove_claims(txn).await?;
                 let merges = remove_merges(txn).await?;
                 let collisions = remove_collisions(txn).await?;
@@ -80,14 +74,12 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
 
                 Ok(Report {
                     unlinked,
-                    evidence,
                     claims,
                     merges,
                     collisions,
                     entities,
                     snapshot: Some(snapshot),
                     snapshot_entities,
-                    snapshot_evidence,
                     snapshot_claims,
                     snapshot_merges,
                     snapshot_collisions,
@@ -139,13 +131,6 @@ async fn unlink<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
         .exec(conn)
         .await?;
     Ok(result.rows_affected)
-}
-
-async fn remove_evidence<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
-    Ok(evidence::Entity::delete_many()
-        .exec(conn)
-        .await?
-        .rows_affected)
 }
 
 async fn remove_claims<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
@@ -288,7 +273,6 @@ mod tests {
             "observations must survive a reset"
         );
         assert_eq!(entity::Entity::find().count(&db.conn).await.unwrap(), 0);
-        assert_eq!(evidence::Entity::find().count(&db.conn).await.unwrap(), 0);
 
         let snapshot = report.snapshot.expect("a snapshot should have been taken");
         assert_eq!(
