@@ -423,7 +423,7 @@ impl<'a> ResolutionEngine<'a> {
         }
 
         for knowledge_entity_id in &resolved {
-            crate::knowledge::entity::update_projection(&self.db.conn, *knowledge_entity_id).await?;
+            crate::knowledge::Knowledge::new(self.db).update_projection(*knowledge_entity_id).await?;
         }
         report.entities_resolved = resolved.len();
         ctx.absorb(&mut report);
@@ -887,7 +887,7 @@ mod tests {
         .await
         .unwrap();
 
-        crate::knowledge::entity::update_projection(&db.conn, knowledge_entity_id).await.unwrap();
+        crate::knowledge::Knowledge::new(&db).update_projection(knowledge_entity_id).await.unwrap();
 
         let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
@@ -926,7 +926,7 @@ mod tests {
             .unwrap();
         }
 
-        crate::knowledge::entity::update_projection(&db.conn, knowledge_entity_id).await.unwrap();
+        crate::knowledge::Knowledge::new(&db).update_projection(knowledge_entity_id).await.unwrap();
 
         let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)

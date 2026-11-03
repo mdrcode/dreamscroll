@@ -16,6 +16,7 @@ use crate::model;
 
 /// Link every illumination that still has unlinked observations.
 pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
+    let knowledge = crate::knowledge::Knowledge::new(db);
     let mut blocker = NameBlocker::new(db).await?;
     let evidence = Evidence::from_handle(db);
     let decider = HeuristicLinker;
@@ -36,7 +37,7 @@ pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
         .await?;
 
     for illumination in &illuminations {
-        link_illumination(db, &mut blocker, &evidence, &decider, illumination).await?;
+        link_illumination(&knowledge, &mut blocker, &evidence, &decider, illumination).await?;
     }
     Ok(())
 }

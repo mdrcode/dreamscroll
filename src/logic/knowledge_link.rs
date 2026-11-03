@@ -9,10 +9,9 @@
 //! illumination. That is the price of not sharing mutable state across queue workers, and it is the
 //! thing to revisit if linking ever dominates.
 
-use sea_orm::prelude::*;
 use serde::{Deserialize, Serialize};
 
-use crate::{api, database, knowledge, model, task};
+use crate::{api, task};
 
 /// The concrete task for linking one illumination's observations.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,7 +43,7 @@ pub async fn exec(
     task_run: &task::TaskRun<KnowledgeLinkTask>,
     _attempt: i32,
 ) -> Result<(), api::ApiError> {
-    let stats = link(&state.db, &task_run.task)
+    let stats = link(&state.knowledge, &task_run.task)
         .await
         .map_err(api::ApiError::internal)?;
 
@@ -61,43 +60,22 @@ pub async fn exec(
 }
 
 /// The work itself: the graph and nothing else, so it can be exercised without a `LogicState`.
-///
-/// The owner filter is part of the read, not a check after it: an illumination id belongs to one
-/// user, and a task carrying someone else's id should find nothing rather than link it.
 pub(crate) async fn link(
-    db: &database::DbHandle,
+    knowledge: &crate::knowledge::Knowledge,
     task: &KnowledgeLinkTask,
-) -> anyhow::Result<knowledge::link::LinkStats> {
-    let illumination = model::illumination::Entity::load()
-        .filter(model::illumination::Column::Id.eq(task.illumination_id))
-        .filter(model::illumination::Column::UserId.eq(task.entity_owner_id))
-        .with(model::user_observed_entity::Entity)
-        .one(&db.conn)
-        .await?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "illumination {} not found for user {}",
-                task.illumination_id,
-                task.entity_owner_id
-            )
-        })?;
-
-    let mut blocker = knowledge::heuristic::NameBlocker::new(db).await?;
-    let evidence = knowledge::evidence::Evidence::from_handle(db);
-
-    knowledge::link::link_illumination(
-        db,
-        &mut blocker,
-        &evidence,
-        &knowledge::heuristic::HeuristicLinker,
-        &illumination,
-    )
-    .await
+) -> anyhow::Result<crate::knowledge::link::LinkStats> {
+    knowledge
+        .link_illumination_by_id(task.illumination_id, task.entity_owner_id)
+        .await
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use sea_orm::prelude::*;
+
+    use crate::model;
 
     use crate::test_support::{fixtures, test_db};
 
@@ -120,7 +98,9 @@ mod tests {
         let first = fixtures::illumination(&db, user, capture).await;
         fixtures::entity(&db, user, capture, first, 0, "Train Dreams").await;
 
-        let stats = link(&db, &task(first, user)).await.unwrap();
+        let stats = link(&crate::knowledge::Knowledge::new(&db), &task(first, user))
+            .await
+            .unwrap();
         assert_eq!(stats.created, 1);
         assert_eq!(stats.attached, 0);
 
@@ -129,7 +109,9 @@ mod tests {
         let second = fixtures::illumination(&db, user, capture).await;
         fixtures::entity(&db, user, capture, second, 0, "Train Dreams").await;
 
-        let stats = link(&db, &task(second, user)).await.unwrap();
+        let stats = link(&crate::knowledge::Knowledge::new(&db), &task(second, user))
+            .await
+            .unwrap();
         assert_eq!(stats.created, 0);
         assert_eq!(stats.attached, 1);
 
@@ -158,7 +140,12 @@ mod tests {
         let illumination = fixtures::illumination(&db, owner, capture).await;
         fixtures::entity(&db, owner, capture, illumination, 0, "Train Dreams").await;
 
-        let error = link(&db, &task(illumination, stranger)).await.unwrap_err();
+        let error = link(
+            &crate::knowledge::Knowledge::new(&db),
+            &task(illumination, stranger),
+        )
+        .await
+        .unwrap_err();
         assert!(error.to_string().contains("not found"), "{error}");
 
         let linked = model::user_observed_entity::Entity::find()

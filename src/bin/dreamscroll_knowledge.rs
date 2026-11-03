@@ -343,6 +343,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
         .all(&db.conn)
         .await?;
 
+    let knowledge = knowledge::Knowledge::new(db);
     let mut report = LinkAllPendingReport::default();
     for illumination in &illuminations {
         for observation in illumination.observations.iter() {
@@ -352,7 +353,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
             }
         }
         let applied =
-            link_illumination(db, &mut blocker, &evidence, &decider, illumination).await?;
+            link_illumination(&knowledge, &mut blocker, &evidence, &decider, illumination).await?;
         report.update(applied);
     }
     Ok(report)

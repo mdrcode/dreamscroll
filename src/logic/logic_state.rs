@@ -1,11 +1,11 @@
-use crate::{api, database, ignition, llms, search, storage};
+use crate::{api, ignition, knowledge, llms, search, storage};
 
 /// Dependencies used by background task logic.
 pub struct LogicState {
     pub service_api: api::ServiceApiClient,
-    /// The knowledge graph is written in-process, not through `service_api`: linking is a
-    /// transaction over observations, entities and evidence, and there is no REST surface for it.
-    pub db: database::DbHandle,
+    /// The knowledge graph is written in-process, not through `service_api`: linking is graph work
+    /// over observations, entities and evidence, and there is no REST surface for it.
+    pub knowledge: knowledge::Knowledge,
     pub storage: Box<dyn storage::StorageProvider>,
     pub inference_client: Box<dyn llms::InferenceClient>,
     pub firestarter: Box<dyn ignition::Firestarter>,

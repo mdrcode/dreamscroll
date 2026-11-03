@@ -1,13 +1,123 @@
-//! Logic for managing the knowledge graph via writes to the `knowledge_entities` table.
+//! The knowledge graph's write side.
+//!
+//! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
+//! onto one goes through [`Knowledge`]. The connection-generic functions at the bottom are the
+//! implementation, kept `pub(super)` so `merge` can run them inside its transaction; nothing outside
+//! this module can reach a connection at all.
+
 use std::collections::HashSet;
 
 use sea_orm::sea_query::Expr;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 
+use crate::database::DbHandle;
 use crate::model;
+
+use super::evidence::Evidence;
+use super::heuristic::{HeuristicLinker, NameBlocker};
+use super::link::LinkStats;
 
 pub const STATUS_PROVISIONAL: &str = "provisional";
 pub const STATUS_IDENTIFIED: &str = "identified";
+
+/// The knowledge graph, as seen by anyone who writes to it.
+#[derive(Clone)]
+pub struct Knowledge {
+    db: DbHandle,
+}
+
+impl Knowledge {
+    pub fn new(db: &DbHandle) -> Self {
+        Self { db: db.clone() }
+    }
+
+    /// The entity, or an error. Every caller that asks has already decided it exists.
+    pub async fn get(
+        &self,
+        knowledge_entity_id: i32,
+    ) -> anyhow::Result<model::knowledge_entity::Model> {
+        fetch(&self.db.conn, knowledge_entity_id).await
+    }
+
+    pub async fn create(
+        &self,
+        observation: &model::user_observed_entity::Model,
+    ) -> anyhow::Result<model::knowledge_entity::Model> {
+        insert_new(&self.db.conn, observation).await
+    }
+
+    /// Point an observation at the entity it belongs to.
+    pub async fn attach_observation(
+        &self,
+        observation_id: i32,
+        knowledge_entity_id: i32,
+    ) -> anyhow::Result<()> {
+        attach(&self.db.conn, observation_id, knowledge_entity_id).await
+    }
+
+    /// Throw away an entity that owns nothing — a create that lost its claim to another entity.
+    pub async fn discard(&self, knowledge_entity_id: i32) -> anyhow::Result<()> {
+        discard_empty(&self.db.conn, knowledge_entity_id).await
+    }
+
+    pub async fn update_projection(
+        &self,
+        knowledge_entity_id: i32,
+    ) -> anyhow::Result<model::knowledge_entity::Model> {
+        project(&self.db.conn, knowledge_entity_id).await
+    }
+
+    /// Link one reading into the graph: cluster its observations, record their claims, and project
+    /// every entity it touched.
+    ///
+    /// The blocker is rebuilt per call — it is an in-memory index of every entity, so a long-lived
+    /// one would go stale the moment `resolve` or a merge reshapes the graph. Callers that link many
+    /// illuminations in a row (`link`, `link_all`) build one blocker and use `link::link_illumination`
+    /// directly.
+    pub async fn link_illumination(
+        &self,
+        illumination: &model::illumination::ModelEx,
+    ) -> anyhow::Result<LinkStats> {
+        let mut blocker = NameBlocker::new(&self.db).await?;
+        let evidence = Evidence::from_handle(&self.db);
+        super::link::link_illumination(
+            self,
+            &mut blocker,
+            &evidence,
+            &HeuristicLinker,
+            illumination,
+        )
+        .await
+    }
+
+    /// Link one illumination by id, refusing one that belongs to somebody else.
+    ///
+    /// The owner is part of the read rather than a check after it: an illumination id names exactly
+    /// one user's reading, and a task carrying the wrong owner should find nothing.
+    pub async fn link_illumination_by_id(
+        &self,
+        illumination_id: i32,
+        entity_owner_id: i32,
+    ) -> anyhow::Result<LinkStats> {
+        let illumination = model::illumination::Entity::load()
+            .filter(model::illumination::Column::Id.eq(illumination_id))
+            .filter(model::illumination::Column::UserId.eq(entity_owner_id))
+            .with(model::user_observed_entity::Entity)
+            .one(&self.db.conn)
+            .await?
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "illumination {illumination_id} not found for user {entity_owner_id}"
+                )
+            })?;
+
+        self.link_illumination(&illumination).await
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// The implementation. Connection-generic, so a caller inside a transaction can share it.
+// ---------------------------------------------------------------------------------------------
 
 pub(crate) fn surfaces(
     observation: &model::user_observed_entity::Model,
@@ -21,12 +131,10 @@ pub(crate) fn surfaces(
     .flatten()
 }
 
-/// Point an observation at the knowledge entity it belongs to.
-///
-/// This is the only place a `knowledge_entity_id` is set. `update_projection` reads the resulting
-/// membership to compute the entity's columns, so nothing else about the move is recorded here.
-pub(crate) async fn attach_observation(
-    conn: &sea_orm::DatabaseConnection,
+/// This is the only place a `knowledge_entity_id` is set. `project` reads the resulting membership
+/// to compute the entity's columns, so nothing else about the move is recorded here.
+pub(super) async fn attach<C: ConnectionTrait>(
+    conn: &C,
     observation_id: i32,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<()> {
@@ -41,29 +149,20 @@ pub(crate) async fn attach_observation(
     Ok(())
 }
 
-/// Record the observation's identifier against its entity. Returns the *other* entity that already
-/// claims it, if any — the caller decides what to do, because dropping the claim silently would
-/// leave two entities for one referent and no trace of the race.
-///
-/// The read-back is what makes this race-safe: `ON CONFLICT DO NOTHING` leaves whichever row was
-/// committed first, and comparing its owner is cheaper and clearer than matching a unique-violation
-/// error code.
-pub(crate) async fn create(
-    conn: &sea_orm::DatabaseConnection,
+pub(super) async fn insert_new<C: ConnectionTrait>(
+    conn: &C,
     observation: &model::user_observed_entity::Model,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
-    let description = observation.description.clone();
     // Always provisional: a new entity has nothing proving it yet. If the capture asserted a claim,
-    // it is recorded against this entity and `update_projection` promotes it to `identified` moments later —
+    // it is recorded against this entity and `project` promotes it to `identified` moments later —
     // guessing the status here would be a second writer of a projected column.
-    let status = STATUS_PROVISIONAL;
     let model = model::knowledge_entity::ActiveModel {
         name: Set(observation.name.trim().to_string()),
         entity_type: Set(observation.entity_type.clone()),
         alt_types: Set(Vec::new()),
-        description: Set(description),
+        description: Set(observation.description.clone()),
         alt_descriptions: Set(Vec::new()),
-        status: Set(status.to_string()),
+        status: Set(STATUS_PROVISIONAL.to_string()),
         confidence: Set(None),
         merged_into_id: Set(None),
         alt_names: Set(Vec::new()),
@@ -88,7 +187,7 @@ pub(crate) async fn create(
 /// member contributes alternatives. That is what makes a merge safe: the winner keeps its own
 /// surface and text while the loser's arrive as `alt_*`, without anyone having to guess which of
 /// them the current columns came from.
-pub async fn update_projection<C: sea_orm::ConnectionTrait>(
+pub(super) async fn project<C: ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
@@ -185,9 +284,9 @@ pub async fn update_projection<C: sea_orm::ConnectionTrait>(
     let status = if contested {
         "contested"
     } else if claims.is_empty() {
-        "provisional"
+        STATUS_PROVISIONAL
     } else {
-        "identified"
+        STATUS_IDENTIFIED
     };
 
     // Corroboration counts independent *inputs*, not scheme labels. A `p2002` claim is derived from
@@ -265,9 +364,8 @@ fn select(preferred: Option<&str>, candidates: &[String]) -> (Option<String>, Ve
     (selected, alternatives)
 }
 
-/// The entity, or an error. Every caller that asks has already decided it exists.
-pub(crate) async fn get(
-    conn: &sea_orm::DatabaseConnection,
+pub(super) async fn fetch<C: ConnectionTrait>(
+    conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
     let found = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
@@ -276,9 +374,8 @@ pub(crate) async fn get(
     found.ok_or_else(|| anyhow::anyhow!("knowledge entity {knowledge_entity_id} does not exist"))
 }
 
-/// Throw away an entity that owns nothing — a create that lost its claim to another entity.
-pub(crate) async fn discard(
-    conn: &sea_orm::DatabaseConnection,
+pub(super) async fn discard_empty<C: ConnectionTrait>(
+    conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<()> {
     model::knowledge_entity::Entity::delete_by_id(knowledge_entity_id)
@@ -296,8 +393,12 @@ mod tests {
     };
     use crate::test_support::{fixtures, test_db};
 
+    fn store(db: &DbHandle) -> Knowledge {
+        Knowledge::new(db)
+    }
+
     /// One entity with one observation attached, ready to update.
-    async fn seed(db: &crate::database::DbHandle, name: &str) -> i32 {
+    async fn seed(db: &DbHandle, name: &str) -> i32 {
         let user_id = fixtures::user(db, "project").await;
         let capture_id = fixtures::capture(db, user_id).await;
         let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
@@ -306,7 +407,7 @@ mod tests {
         let knowledge_entity_id = entity::Entity::insert(entity::ActiveModel {
             name: Set(name.to_string()),
             entity_type: Set("real_person".to_string()),
-            status: Set("provisional".to_string()),
+            status: Set(STATUS_PROVISIONAL.to_string()),
             ..Default::default()
         })
         .exec(&db.conn)
@@ -325,7 +426,7 @@ mod tests {
         knowledge_entity_id
     }
 
-    async fn claim(db: &crate::database::DbHandle, id: i32, kind: &str, scheme: &str, value: &str) {
+    async fn claim(db: &DbHandle, id: i32, kind: &str, scheme: &str, value: &str) {
         evidence::Entity::insert(evidence::ActiveModel {
             knowledge_entity_id: Set(id),
             kind: Set(kind.to_string()),
@@ -338,7 +439,7 @@ mod tests {
         .unwrap();
     }
 
-    async fn load(db: &crate::database::DbHandle, id: i32) -> entity::Model {
+    async fn load(db: &DbHandle, id: i32) -> entity::Model {
         entity::Entity::find_by_id(id)
             .one(&db.conn)
             .await
@@ -354,7 +455,7 @@ mod tests {
         let db = db.handle();
         let id = seed(&db, "Train Dreams").await;
 
-        update_projection(&db.conn, id).await.unwrap();
+        store(&db).update_projection(id).await.unwrap();
 
         let entity = load(&db, id).await;
         assert_eq!(entity.name, "Train Dreams");
@@ -363,17 +464,12 @@ mod tests {
             "alt_names is the complement of the selected name: {:?}",
             entity.alt_names
         );
-        assert_eq!(entity.status, "provisional");
+        assert_eq!(entity.status, STATUS_PROVISIONAL);
         assert_eq!(entity.confidence, None);
     }
 
     /// Another member of the same entity, carrying its own hint.
-    async fn attach(
-        db: &crate::database::DbHandle,
-        id: i32,
-        name: &str,
-        query: Option<&str>,
-    ) -> i32 {
+    async fn attach_member(db: &DbHandle, id: i32, name: &str, query: Option<&str>) -> i32 {
         let user_id = fixtures::user(db, "project").await;
         let capture_id = fixtures::capture(db, user_id).await;
         let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
@@ -396,13 +492,7 @@ mod tests {
     }
 
     /// A member that carries a platform presence.
-    async fn attach_link(
-        db: &crate::database::DbHandle,
-        id: i32,
-        name: &str,
-        platform: &str,
-        handle: &str,
-    ) {
+    async fn attach_link(db: &DbHandle, id: i32, name: &str, platform: &str, handle: &str) {
         let user_id = fixtures::user(db, "project").await;
         let capture_id = fixtures::capture(db, user_id).await;
         let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
@@ -437,7 +527,7 @@ mod tests {
         let id = seed(&db, "Tsoding").await;
         attach_link(&db, id, "Tsoding", "x_twitter", "tsoding").await;
 
-        update_projection(&db.conn, id).await.unwrap();
+        store(&db).update_projection(id).await.unwrap();
 
         let entity = load(&db, id).await;
         assert_eq!(entity.platform.as_deref(), Some("x_twitter"));
@@ -454,10 +544,10 @@ mod tests {
         };
         let db = db.handle();
         let id = seed(&db, "Train Dreams").await;
-        attach(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
-        attach(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
+        attach_member(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
+        attach_member(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
 
-        update_projection(&db.conn, id).await.unwrap();
+        store(&db).update_projection(id).await.unwrap();
 
         let entity = load(&db, id).await;
         assert_eq!(entity.search_query.as_deref(), Some("Train Dreams novella"));
@@ -468,7 +558,6 @@ mod tests {
         );
     }
 
-    /// A selected hint is not silently swapped for another member's while its own member still
     /// The entity wears its origin's values, whatever the row said before — and the origin is the
     /// member it was created from, not simply the first one.
     #[tokio::test]
@@ -478,8 +567,9 @@ mod tests {
         };
         let db = db.handle();
         let id = seed(&db, "Train Dreams").await;
-        attach(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
-        let second = attach(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
+        attach_member(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
+        let second =
+            attach_member(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
 
         // The row is told a different member is its origin.
         entity::Entity::update(entity::ActiveModel {
@@ -491,7 +581,7 @@ mod tests {
         .await
         .unwrap();
 
-        update_projection(&db.conn, id).await.unwrap();
+        store(&db).update_projection(id).await.unwrap();
 
         let entity = load(&db, id).await;
         assert_eq!(
@@ -510,10 +600,10 @@ mod tests {
         let id = seed(&db, "Train Dreams").await;
         claim(&db, id, "claim", "wikidata", "Q104919").await;
 
-        update_projection(&db.conn, id).await.unwrap();
+        store(&db).update_projection(id).await.unwrap();
 
         let entity = load(&db, id).await;
-        assert_eq!(entity.status, "identified");
+        assert_eq!(entity.status, STATUS_IDENTIFIED);
         assert!(entity.confidence.is_some(), "a claim carries a confidence");
     }
 
@@ -526,7 +616,7 @@ mod tests {
         let id = seed(&db, "Train Dreams").await;
         claim(&db, id, "collision", "wikidata", "Q104919").await;
 
-        update_projection(&db.conn, id).await.unwrap();
+        store(&db).update_projection(id).await.unwrap();
 
         let entity = load(&db, id).await;
         assert_eq!(entity.status, "contested");
@@ -551,8 +641,8 @@ mod tests {
             .await
             .unwrap();
 
-        update_projection(&db.conn, id).await.unwrap();
+        store(&db).update_projection(id).await.unwrap();
 
-        assert_eq!(load(&db, id).await.status, "provisional");
+        assert_eq!(load(&db, id).await.status, STATUS_PROVISIONAL);
     }
 }

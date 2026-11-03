@@ -5,11 +5,10 @@
 //! claim — and what to do about the answer belongs to a [`LinkDecider`]. Every write is idempotent: a
 //! second run finds nothing to do because every observation already has a `knowledge_entity_id`.
 
-use crate::{database, model};
+use crate::model;
 
 use super::{
     blocker::Blocker,
-    entity,
     evidence::{ClaimOutcome, Evidence},
     link_decider::{self, LinkDecider},
 };
@@ -54,7 +53,7 @@ impl LinkStats {
 /// a caller linking more than one illumination builds them once. Nothing here decides anything — the
 /// only reads are the entity about to change and the claim about to be recorded.
 pub async fn link_illumination(
-    db: &database::DbHandle,
+    knowledge: &super::Knowledge,
     blocker: &mut dyn Blocker,
     evidence: &Evidence,
     decider: &dyn LinkDecider,
@@ -64,12 +63,12 @@ pub async fn link_illumination(
 
     let mut stats = LinkStats::default();
     for decision in &decisions {
-        let applied = apply_decision(db, evidence, decision).await?;
+        let applied = apply_decision(knowledge, evidence, decision).await?;
         // Projection is a function of the members, so it runs after the writes that changed them,
         // and it returns the row it wrote — which is exactly what the blocker needs to re-index.
         // An entity two observations landed on is projected twice; a wasted read is cheaper than
         // remembering which ones were already done.
-        let entity = entity::update_projection(&db.conn, applied.entity).await?;
+        let entity = knowledge.update_projection(applied.entity).await?;
         blocker.changed(&entity);
         stats.record(decision, applied);
     }
@@ -95,7 +94,7 @@ enum Outcome {
 
 /// Apply a linking decision against the knowledge_entities table.
 async fn apply_decision(
-    db: &database::DbHandle,
+    knowledge: &super::Knowledge,
     evidence: &Evidence,
     decision: &link_decider::Decision,
 ) -> anyhow::Result<Applied> {
@@ -110,11 +109,13 @@ async fn apply_decision(
     // The entity this observation ends up on, resolved once: the one the decision named, or a new
     // one it asked for.
     let mut target_entity = match &decision.action {
-        link_decider::Action::Attach { entity, .. } => entity::get(&db.conn, *entity).await?,
-        link_decider::Action::Create { .. } => entity::create(&db.conn, observation).await?,
+        link_decider::Action::Attach { entity, .. } => knowledge.get(*entity).await?,
+        link_decider::Action::Create { .. } => knowledge.create(observation).await?,
     };
     let created = target_entity.id;
-    entity::attach_observation(&db.conn, observation.id, target_entity.id).await?;
+    knowledge
+        .attach_observation(observation.id, target_entity.id)
+        .await?;
 
     // The observation may carry its own claim — a handle we inferred from the capture. If another
     // entity already holds it, the entity just created owns nothing: discard it and point the
@@ -137,9 +138,9 @@ async fn apply_decision(
         }
         // Re-point before discarding: the observation still references the entity being deleted,
         // and that foreign key is `NO ACTION`.
-        target_entity = entity::get(&db.conn, owner).await?;
-        entity::attach_observation(&db.conn, observation.id, owner).await?;
-        entity::discard(&db.conn, created).await?;
+        target_entity = knowledge.get(owner).await?;
+        knowledge.attach_observation(observation.id, owner).await?;
+        knowledge.discard(created).await?;
         folded = true;
     }
 
@@ -161,7 +162,8 @@ mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
     use super::*;
-    use crate::knowledge::entity::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
+    use crate::database;
+    use crate::knowledge::knowledge::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
     use crate::model::{
         knowledge_entity as entity, knowledge_evidence as evidence,
         user_observed_entity as observation,

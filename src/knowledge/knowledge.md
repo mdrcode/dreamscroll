@@ -215,7 +215,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `link.rs` | the linking executor |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, HTTP in `transport.rs` |
-| `entity.rs` | the write side: create, attach, project, and the only writer of derived columns |
+| `knowledge.rs` | the write side: `Knowledge`, which creates, attaches, projects and links, and is the only writer of derived columns |
 | `merge.rs` | fold one entity into another |
 | `evidence.rs`, `stats.rs` | claims about entities, and the counters a run reports |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
