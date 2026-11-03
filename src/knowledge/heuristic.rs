@@ -59,10 +59,12 @@ pub struct Observation {
 
 impl Observation {
     pub fn new(name: &str, description: Option<&str>, entity_type: &str) -> Self {
+        let name_key = normalize::key(name);
+        let name_tokens = normalize::tokens_of(&name_key);
         Self {
-            name_key: normalize::key(name),
-            name_tokens: normalize::tokens(name),
-            token_key: normalize::token_key(name),
+            token_key: normalize::token_key_of(&name_tokens),
+            name_tokens,
+            name_key,
             description_tokens: description.map(normalize::tokens).unwrap_or_default(),
             entity_type: entity_type.to_string(),
         }
@@ -125,18 +127,22 @@ impl Scored {
         let mut names: Vec<String> = Vec::with_capacity(alt_names.len() + 1);
         names.push(name.to_string());
         names.extend_from_slice(alt_names);
+        // One pass per name: the key is folded once, then the blocking key comes from its words.
+        let mut alt_name_keys = Vec::with_capacity(names.len());
+        let mut alt_name_token_keys = Vec::with_capacity(names.len());
+        for name in &names {
+            let key = normalize::key(name);
+            if key.is_empty() {
+                continue;
+            }
+            alt_name_token_keys.push(normalize::token_key_of(&normalize::tokens_of(&key)));
+            alt_name_keys.push(key);
+        }
+
         Self {
             id,
-            alt_name_keys: names
-                .iter()
-                .map(|a| normalize::key(a))
-                .filter(|key| !key.is_empty())
-                .collect(),
-            alt_name_token_keys: names
-                .iter()
-                .map(|a| normalize::token_key(a))
-                .filter(|key| !key.is_empty())
-                .collect(),
+            alt_name_keys,
+            alt_name_token_keys,
             description_tokens: descriptions
                 .iter()
                 .map(|description| normalize::tokens(description))
@@ -253,11 +259,15 @@ impl NameBlocker {
     }
 
     fn keys_of(entity: &model::knowledge_entity::Model) -> Vec<String> {
-        let mut keys: Vec<String> = entity
-            .surfaces()
-            .flat_map(|surface| [normalize::key(surface), normalize::token_key(surface)])
-            .filter(|key| !key.is_empty())
-            .collect();
+        let mut keys: Vec<String> = Vec::new();
+        for surface in entity.surfaces() {
+            let key = normalize::key(surface);
+            if key.is_empty() {
+                continue;
+            }
+            let blocking = normalize::token_key_of(&normalize::tokens_of(&key));
+            keys.extend([key, blocking]);
+        }
         if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle) {
             keys.push(normalize::link_key(platform, handle));
         }

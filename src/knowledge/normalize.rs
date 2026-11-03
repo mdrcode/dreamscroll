@@ -1,5 +1,17 @@
 //! Conservative surface normalization.
 //!
+//! One pipeline, three consumers:
+//!
+//! ```text
+//! surface ──key──▶ folded surface ──tokens_of──▶ words ──token_key_of──▶ sorted words
+//! ```
+//!
+//! - [`key`] is what [`crate::knowledge::graph`] dedupes projections with, and what
+//!   [`crate::knowledge::evidence`] turns a handle into an identity with.
+//! - [`token_key_of`] is the blocking key: word order and a leading article folded away, so it may
+//!   propose candidates but must never decide identity.
+//! - [`link_key`] is the one key that names a platform presence.
+//!
 //! Used for grouping and lookup only. The captured surface is never rewritten; `key` answers
 //! "would a user call these the same string" and nothing more. Inner punctuation is preserved on
 //! purpose: `C`, `C#` and `C++` are three different things, and folding them together is the
@@ -12,41 +24,47 @@ const ARTICLES: [&str; 3] = ["the", "a", "an"];
 
 /// The lookup key for a surface: case, diacritics, surrounding quotes, a leading `@`/`#` and a
 /// trailing period are folded away; everything inside the name stays.
-pub fn key(surface: &str) -> String {
+pub(crate) fn key(surface: &str) -> String {
     let trimmed = surface.trim();
     let unquoted = trimmed.trim_matches(QUOTES);
     let unmarked = unquoted.trim_start_matches(['@', '#']).trim();
     let unterminated = unmarked.strip_suffix('.').unwrap_or(unmarked);
-    collapse(&fold(unterminated))
+    collapse(&fold_case(unterminated))
 }
 
 /// The words of a surface, in order, with the same folding as [`key`].
-pub fn tokens(surface: &str) -> Vec<String> {
-    key(surface)
-        .split_whitespace()
-        .map(str::to_string)
-        .collect()
+pub(crate) fn tokens(surface: &str) -> Vec<String> {
+    tokens_of(&key(surface))
+}
+
+/// The words of an already-folded key — the pipeline's second step, for a caller that computed
+/// [`key`] anyway.
+pub(crate) fn tokens_of(key: &str) -> Vec<String> {
+    key.split_whitespace().map(str::to_string).collect()
+}
+
+/// A word-order- and article-insensitive key, for blocking only. Never an identity key.
+///
+/// The caller tokenizes: every caller has the words already (an `Observation`, a `Scored`, a
+/// `NameBlocker` keying a surface), and a surface-taking variant would fold and split it twice.
+pub(crate) fn token_key_of(words: &[String]) -> String {
+    let mut words: Vec<&str> = words.iter().map(String::as_str).collect();
+    if words.len() > 1 && ARTICLES.contains(&words[0]) {
+        words.remove(0);
+    }
+    words.sort_unstable();
+    words.join(" ")
 }
 
 /// The key a platform presence turns on: `platform:handle`, folded the same way everywhere.
 ///
 /// Illumination canonicalises the platform when it parses model output, so stored values already
 /// agree; this exists so the block key and the evidence identity cannot drift apart again.
-pub fn link_key(platform: &str, handle: &str) -> String {
-    format!("{}:{}", fold(platform.trim()), key(handle))
+pub(crate) fn link_key(platform: &str, handle: &str) -> String {
+    format!("{}:{}", fold_case(platform.trim()), key(handle))
 }
 
-/// A word-order- and article-insensitive key, for blocking only. Never an identity key.
-pub fn token_key(surface: &str) -> String {
-    let mut words = tokens(surface);
-    if words.len() > 1 && ARTICLES.contains(&words[0].as_str()) {
-        words.remove(0);
-    }
-    words.sort();
-    words.join(" ")
-}
-
-fn fold(surface: &str) -> String {
+fn fold_case(surface: &str) -> String {
     let mut out = String::with_capacity(surface.len());
     for c in surface.chars() {
         match latin_base(c) {
@@ -71,7 +89,9 @@ fn latin_base(c: char) -> Option<char> {
         'ì' | 'í' | 'î' | 'ï' | 'ī' | 'į' | 'Ì' | 'Í' | 'Î' | 'Ï' => 'i',
         'ł' | 'Ł' => 'l',
         'ñ' | 'ń' | 'ň' | 'Ñ' | 'Ń' | 'Ň' => 'n',
-        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ő' | 'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' => 'o',
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ő' | 'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' => {
+            'o'
+        }
         'ř' | 'Ř' => 'r',
         'ś' | 'š' | 'ş' | 'Ś' | 'Š' | 'Ş' => 's',
         'ť' | 'Ť' => 't',
@@ -106,10 +126,15 @@ mod tests {
         assert_ne!(key("U.S."), key("US"));
     }
 
+    /// The blocking key, spelled the way a caller spells it: fold, split, sort.
+    fn blocking(surface: &str) -> String {
+        token_key_of(&tokens_of(&key(surface)))
+    }
+
     #[test]
     fn token_key_ignores_order_and_articles() {
-        assert_eq!(token_key("The Train Dreams"), token_key("train dreams"));
-        assert_eq!(token_key("Dreams Train"), token_key("Train Dreams"));
-        assert_ne!(token_key("C"), token_key("C#"));
+        assert_eq!(blocking("The Train Dreams"), blocking("train dreams"));
+        assert_eq!(blocking("Dreams Train"), blocking("Train Dreams"));
+        assert_ne!(blocking("C"), blocking("C#"));
     }
 }
