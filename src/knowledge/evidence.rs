@@ -39,10 +39,29 @@ impl Claim {
         let platform = observation.platform.as_deref()?;
         let handle = observation.platform_handle.as_deref()?;
         Some(Self {
-            scheme: platform.to_lowercase(),
+            scheme: crate::knowledge::normalize::key(platform),
             id: crate::knowledge::normalize::key(handle),
             handle: Some(handle.to_string()),
         })
+    }
+
+    /// The key a platform presence answers to: `scheme:handle`, both halves folded by the same rule.
+    ///
+    /// One function for the two callers that need it — the identity index ([`Self::of`] then
+    /// [`Self::identity`]) and the blocker's key for an entity's projected presence — because when
+    /// they folded the halves differently, a handle could be held by one entity and blocked under
+    /// another.
+    pub fn key(platform: &str, handle: &str) -> String {
+        format!(
+            "{}:{}",
+            crate::knowledge::normalize::key(platform),
+            crate::knowledge::normalize::key(handle)
+        )
+    }
+
+    /// [`Self::key`] for a claim already built; equal to it for the claim that observation yields.
+    pub fn identity(&self) -> String {
+        format!("{}:{}", self.scheme, self.id)
     }
 }
 
@@ -156,5 +175,48 @@ pub fn unique_violation(error: &sea_orm::DbErr) -> Option<&str> {
             .filter(|error| error.code().as_deref() == Some("23505"))
             .and_then(|error| error.constraint()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn observation(platform: &str, handle: &str) -> model::user_observed_entity::Model {
+        model::user_observed_entity::Model {
+            id: 1,
+            user_id: 1,
+            capture_id: 1,
+            illumination_id: 1,
+            position: 0,
+            name: "Someone".to_string(),
+            entity_type: "real_person".to_string(),
+            description: None,
+            search_query: None,
+            platform: Some(platform.to_string()),
+            platform_handle: Some(handle.to_string()),
+            platform_display_name: None,
+            knowledge_entity_id: None,
+            created_at: chrono::Utc::now(),
+        }
+    }
+
+    /// The identity the index enforces and the key the blocker indexes must be the same string, or
+    /// one entity holds a handle another entity is blocked under.
+    #[test]
+    fn the_claim_key_is_the_claim_identity() {
+        for (platform, handle) in [
+            ("x_twitter", "tsoding"),
+            ("x_twitter", "@tsoding"),
+            ("reddit", "Some_User"),
+            ("  x_twitter  ", "tsoding."),
+        ] {
+            let claim = Claim::of(&observation(platform, handle)).expect("a handle");
+            assert_eq!(
+                claim.identity(),
+                Claim::key(platform, handle),
+                "{platform}/{handle}"
+            );
+        }
     }
 }

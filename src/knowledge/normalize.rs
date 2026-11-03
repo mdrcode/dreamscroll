@@ -10,7 +10,9 @@
 //!   [`crate::knowledge::evidence`] turns a handle into an identity with.
 //! - [`token_key_of`] is the blocking key: word order and a leading article folded away, so it may
 //!   propose candidates but must never decide identity.
-//! - [`link_key`] is the one key that names a platform presence.
+//!
+//! Nothing here knows what a platform is. A platform presence has its own key, on the claim that
+//! answers for it: [`crate::knowledge::evidence::Claim::key`].
 //!
 //! Used for grouping and lookup only. The captured surface is never rewritten; `key` answers
 //! "would a user call these the same string" and nothing more. Inner punctuation is preserved on
@@ -54,14 +56,6 @@ pub(crate) fn token_key_of(words: &[String]) -> String {
     }
     words.sort_unstable();
     words.join(" ")
-}
-
-/// The key a platform presence turns on: `platform:handle`, folded the same way everywhere.
-///
-/// Illumination canonicalises the platform when it parses model output, so stored values already
-/// agree; this exists so the block key and the evidence identity cannot drift apart again.
-pub(crate) fn link_key(platform: &str, handle: &str) -> String {
-    format!("{}:{}", fold_case(platform.trim()), key(handle))
 }
 
 fn fold_case(surface: &str) -> String {

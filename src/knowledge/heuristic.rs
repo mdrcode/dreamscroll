@@ -269,7 +269,7 @@ impl NameBlocker {
             keys.extend([key, blocking]);
         }
         if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle) {
-            keys.push(normalize::link_key(platform, handle));
+            keys.push(Claim::key(platform, handle));
         }
         keys
     }
