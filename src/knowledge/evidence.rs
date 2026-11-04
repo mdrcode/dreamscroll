@@ -106,6 +106,25 @@ impl Identity {
     }
 }
 
+/// Why a proximity was raised.
+///
+/// A named type rather than a string at the call sites: the value is stored, compared, and will grow a
+/// second case (entities that look alike without sharing an identity), so a typo should not become a
+/// third basis that every query silently misses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Basis {
+    /// Two entities hold the same identity.
+    SharedId,
+}
+
+impl Basis {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SharedId => "shared_id",
+        }
+    }
+}
+
 /// Claims and the identities they cite.
 ///
 /// Holds its own clone of the connection rather than borrowing one: `DatabaseConnection` is a pool
@@ -196,7 +215,7 @@ impl Evidence {
         holder_id: i32,
         counterpart_id: i32,
         knowledge_identity_id: Option<i32>,
-        basis: &str,
+        basis: Basis,
         score: Option<f32>,
     ) -> anyhow::Result<usize> {
         let result = self
@@ -211,7 +230,7 @@ impl Evidence {
                     holder_id.into(),
                     counterpart_id.into(),
                     knowledge_identity_id.into(),
-                    basis.to_string().into(),
+                    basis.as_str().to_string().into(),
                     score.into(),
                 ],
             ))

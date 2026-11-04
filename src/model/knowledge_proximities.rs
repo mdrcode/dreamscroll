@@ -29,7 +29,7 @@ pub struct Model {
     #[sea_orm(nullable)]
     pub knowledge_identity_id: Option<i32>,
 
-    /// Why the pair was raised: `shared_identity` today.
+    /// Why the pair was raised: `shared_id` today.
     pub basis: String,
     /// How close they looked when raised — the linker's weighted total, so the table can be read in
     /// likelihood order. Null for a pair recorded without scoring.

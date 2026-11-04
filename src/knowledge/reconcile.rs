@@ -68,7 +68,7 @@ pub(super) async fn scan(conn: &DatabaseConnection) -> anyhow::Result<Report> {
                     holder.id,
                     other.id,
                     Some(identity_id),
-                    "shared_identity",
+                    crate::knowledge::evidence::Basis::SharedId,
                     Some(features.total),
                 )
                 .await?;

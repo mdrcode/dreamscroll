@@ -32,6 +32,10 @@ async fn retire_reshaped_claim_tables<C: ConnectionTrait>(conn: &C) -> Result<()
              DROP TABLE knowledge_collisions; \
            END IF; \
            DROP INDEX IF EXISTS \"idx-knowledge_claims_one_holder\"; \
+           IF to_regclass('knowledge_proximities') IS NOT NULL THEN \
+             UPDATE knowledge_proximities SET basis = 'shared_id' \
+              WHERE basis = 'shared_identity'; \
+           END IF; \
            /* collisions became proximities in schema 24; the old table is a record we have not
               kept, and its rows regenerate */ \
            IF to_regclass('knowledge_collisions') IS NOT NULL THEN \

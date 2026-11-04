@@ -266,7 +266,9 @@ mod tests {
             holder_id: Set(holder),
             counterpart_id: Set(claimant),
             knowledge_identity_id: Set(Some(identity)),
-            basis: Set("shared_identity".to_string()),
+            basis: Set(crate::knowledge::evidence::Basis::SharedId
+                .as_str()
+                .to_string()),
             ..Default::default()
         })
         .exec(&db.conn)
