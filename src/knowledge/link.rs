@@ -69,7 +69,7 @@ pub(super) async fn link_illumination(
     knowledge.evidence.import_identities(&pending).await?;
 
     let decisions = decider
-        .decide_link(&**blocker, &knowledge.evidence, illumination)
+        .decide_link(&**blocker, &knowledge.evidence, &knowledge.scoring, illumination)
         .await?;
 
     let mut stats = LinkStats::default();
@@ -139,7 +139,7 @@ mod unit {
         Knowledge::with_linking(
             db,
             Box::new(
-                crate::knowledge::heuristic::NameBlocker::new(db)
+                crate::knowledge::name_blocker::NameBlocker::new(db)
                     .await
                     .unwrap(),
             ),
@@ -157,6 +157,7 @@ mod unit {
             &self,
             _blocker: &dyn Blocker,
             _evidence: &Evidence,
+            _scoring: &crate::knowledge::Scoring,
             _illumination: &model::illumination::ModelEx,
         ) -> anyhow::Result<Vec<link_decider::Decision>> {
             Ok(Vec::new())
@@ -549,7 +550,7 @@ mod corpus {
             .expect("a second holder is not an error: claims are many-to-one");
 
         let holders: Vec<i32> = evidence
-            .held_by_identity(identity_id)
+            .held_by_identity(identity_id, &*crate::knowledge::Scoring::heuristic().worth)
             .await
             .unwrap()
             .into_iter()

@@ -2,7 +2,8 @@
 //!
 //! One function writes `name`, `alt_names`, `description`, `alt_descriptions`, `search_query`,
 //! `alt_search_queries`, `platform`, `platform_handle`, `platform_display_name`, `status` and
-//! `confidence`, and nothing else does. It reads the entity's members and its evidence and derives
+//! `confidence`, and nothing else does. The confidence comes from the store's [`Worth`]: how good a
+//! claim is, and how much an extra independent input adds, is policy, not projection. It reads the entity's members and its evidence and derives
 //! every column from them, so it is safe to run at any time and twice in a row.
 //!
 //! The entity **wears the values of its origin** — the member it was created from — and every other
@@ -23,6 +24,7 @@ use sea_orm::{
 use crate::model;
 
 use super::evidence::ClaimBasis;
+use super::score::Worth;
 use super::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 
 /// Recompute the columns that are a function of the members and of the evidence — the only writer of
@@ -32,6 +34,7 @@ use super::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 /// which is what makes a merge safe: the winner keeps its own surface and text.
 pub(super) async fn project<C: ConnectionTrait>(
     conn: &C,
+    worth: &dyn Worth,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
     let row = super::graph::get(conn, knowledge_entity_id).await?;
@@ -136,7 +139,7 @@ pub(super) async fn project<C: ConnectionTrait>(
         STATUS_IDENTIFIED
     };
 
-    let confidence = super::heuristic::entity_confidence(&claims);
+    let confidence = worth.combine(&claims);
 
     model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),

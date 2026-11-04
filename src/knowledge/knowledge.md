@@ -87,11 +87,12 @@ trait Blocker {                  // recall: find candidates, over-generate
 // All three take `&self`, so the store holds one `Arc<dyn Blocker>` and no lock: an implementation
 // that keeps an index owns its own mutex, and nobody holds a guard across a `candidates` call.
 
-trait LinkDecider {              // precision: decide, and nothing else
+trait LinkDecider {              // the procedure: decide, and nothing else
     async fn decide_link(
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,
+        scoring: &Scoring,          // the measure, borrowed — never owned
         illumination: &Illumination,
     ) -> Result<Vec<Decision>>;
 }
@@ -134,15 +135,23 @@ assert one previously unknown handle are both told to create, and become two ent
 identity. `merge` refuses that pair (shared illumination), so `reconcile` reports it once and it stays
 open — the terminal state the merge-side rule produces everywhere.
 
-**The heuristic is one implementation of that chain — not the chain.** `heuristic.rs` holds our
-first prototype: normalized name keys to block on, weighted features, a bar to clear, and every score
-the rest of the graph asks for — `entity_confidence`, `answer_confidence`, `score_pair`, `wins` — so
-`project`, `reconcile` and the resolver contain no arithmetic of their own. That is the deliberate
-trade: one home for the numbers, at the cost of the file no longer being deletable on its own.
-Replacing it means reimplementing those four functions, not just the linker.
+**The heuristic is one implementation of that chain — not the chain.** The chain is `score.rs`, and
+it is three verbs: [`Similarity`] measures how alike two things are, [`Judge`] says whether that
+likeness is a decision (one pair; enough evidence; a big enough lead), [`Worth`] prices an answer and
+ranks two substantiated things. Four modules ask: the linker (measure and judge), `reconcile` (all
+three), `project` (combine), and the resolver (judge and value). So the policy is the **store's**,
+one `Scoring` handed to every module that measures — a linker carrying its own would leave the
+projection, the merge pass and the resolver on a different one, silently.
 
-A future linker might block on embeddings or decide with a model. It would implement the same two
-traits; what it could not do is skip the arithmetic, because the projection and the merge pass call it.
+`heuristic_score.rs` is today's only answer to those verbs: normalized keys, weights, bars, margins,
+confidence constants. `heuristic.rs` is the **procedure** — take the best candidate that clears the
+bar, else create — and contains no numbers at all. `name_blocker.rs` is recall: names and handles to
+candidates, nothing scored.
+
+That is what makes a second policy possible without a second graph: implement the three verbs, build
+a `Scoring`, hand it to `Knowledge::with_scoring`. The one thing a policy cannot do is disagree with
+itself — the confidence `project` derives, the survivor `merge` keeps and the weight an authority's
+answer carries all come from the same three functions.
 
 ## Resolving: what can the authorities tell us?
 
@@ -248,15 +257,18 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 | file | what it is |
 |---|---|
-| `blocker.rs`, `link_decider.rs` | the two traits, and nothing else — the contract a linker implements |
-| `heuristic.rs` | our first linker, self-contained: token keys, features, weights, bars, `NameBlocker`, `HeuristicLinker` |
+| `score.rs` | the three verbs — `Similarity`, `Judge`, `Worth` — and the `Scoring` bundle |
+| `blocker.rs`, `link_decider.rs` | the two linking traits, and nothing else — the contract a linker implements |
+| `heuristic_score.rs` | the only `Scoring` today: token keys, weights, bars, margins, confidence constants |
+| `name_blocker.rs` | `NameBlocker`: recall by normalized name and platform handle |
+| `heuristic.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, candidate ranking in `ranking.rs`, HTTP in `transport.rs` |
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
 | `link.rs` | the linking executor, and `LinkStats` |
-| `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces` |
+| `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces`; asks `Worth::combine` for confidence |
 | `merge.rs` | fold one entity into another |
-| `evidence.rs` | claims and identities: who holds one, and the platform key a presence answers to |
+| `evidence.rs` | claims and identities: who holds one (ordered by `Worth::order`), and the platform key a presence answers to |
 | `reconcile.rs` | the pass that asks whether one identity's holders are one thing |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |

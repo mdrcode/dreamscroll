@@ -202,18 +202,17 @@ this file (git history keeps it) and recorded in `plan/archive/`.
      `search_ranked` paths those orders differ, so the ambiguity rule is measured against a candidate
      that is not the closest by the measure it uses. `plan/knowledge-resolution.md` reasons about
      margins in fit space, which assumes the fit order.
-  3. **Two orderings for "most substantiated".** `reconcile::merge_open` picks the survivor with
-     `confidence.unwrap_or(0.0) >`, while `evidence::held_by_identity` orders
-     `confidence DESC NULLS LAST, id` and `scan` trusts that order. They disagree only when a holder's
-     confidence is NULL, which needs a stale projection — `resolve` now projects before reconciling,
-     so this is latent, not live. Either adopt one comparator (`heuristic::wins`) and make the SQL
-     contract to it, or document the SQL order as the contract.
+  3. ~~**Two orderings for "most substantiated".**~~ **Fixed by construction** (2026-11-04): the SQL
+     `ORDER BY` is gone, `held_by_identity` sorts with `Worth::order`, and `merge_open` asks the same
+     function — one comparator, no NULL rule to keep in sync.
   4. **The third holder's pair is never asked.** With three or more holders `scan` pairs every other
      holder against `holders.first()`, so `(h2, h3)` never becomes a proximity and that question is
      invisible in `proximity list`. The corpus never exceeds two holders, so nothing is missing yet.
 
   Settle 1 and 2 by choosing which weight set and which ordering is authoritative — both are ranker
-  policy and belong with the resolver, not the linker.
+  policy and belong with the resolver, not the linker. Note that the scoring split (`score.rs` verbs,
+  `heuristic_score.rs` policy) makes 1 cheaper to state: `parse_search` builds `Weights` itself
+  instead of asking the policy, which is now the visible oddity rather than a hidden one.
 
 ## Deferred — already scoped
 

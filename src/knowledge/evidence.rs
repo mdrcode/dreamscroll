@@ -12,6 +12,7 @@ use std::collections::HashSet;
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::knowledge::normalize;
+use crate::knowledge::score::Worth;
 use crate::model;
 
 /// A platform link, as the capture showed it. `link` transcribes it; nothing infers anything here.
@@ -288,10 +289,15 @@ impl Evidence {
     }
 
     /// The entities holding this identity, most substantiated first: the reconcile pass keeps the
-    /// first and asks about the rest.
+    /// first and asks about the rest, and the linker attaches to the first.
+    ///
+    /// The ordering is the policy's, asked here rather than written into the SQL: `merge` picks its
+    /// survivor with the same comparison, and two spellings of "most substantiated" disagreed on
+    /// `NULL` for as long as they existed.
     pub async fn held_by_identity(
         &self,
         identity_id: i32,
+        worth: &dyn Worth,
     ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
         use sea_orm::{ColumnTrait, QueryFilter};
         let rows = self
@@ -303,7 +309,7 @@ impl Evidence {
                    JOIN knowledge_entities e ON e.id = c.knowledge_entity_id \
                   WHERE c.knowledge_identity_id = $1 AND c.retracted_at IS NULL \
                     AND e.merged_into_id IS NULL \
-                  ORDER BY e.confidence DESC NULLS LAST, e.id",
+                  ORDER BY c.knowledge_entity_id",
                 [identity_id.into()],
             ))
             .await?;
@@ -315,13 +321,13 @@ impl Evidence {
             return Ok(Vec::new());
         }
         let mut entities = model::knowledge_entity::Entity::find()
-            .filter(model::knowledge_entity::Column::Id.is_in(ids.clone()))
+            .filter(model::knowledge_entity::Column::Id.is_in(ids))
             .all(&self.conn)
             .await?;
-        entities.sort_by_key(|entity| {
-            ids.iter()
-                .position(|id| *id == entity.id)
-                .unwrap_or(usize::MAX)
+        entities.sort_by(|a, b| {
+            worth
+                .order(b.confidence, a.confidence)
+                .then(a.id.cmp(&b.id))
         });
         Ok(entities)
     }

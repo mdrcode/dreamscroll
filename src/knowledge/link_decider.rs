@@ -6,17 +6,19 @@
 //!
 //! Everything upstream is recall (a blocker proposed candidates). Everything downstream is effect
 //! (the executor writes). This trait turns one illumination into decisions, and it does no IO of
-//! its own beyond the two things it is handed: the blocker, to ask what an observation might be, and
-//! the evidence, to ask what is already held and to name the identity a capture asserted.
+//! its own beyond what it is handed: the blocker, to ask what an observation might be; the evidence,
+//! to ask what is already held and to name the identity a capture asserted; and the store's
+//! [`Scoring`], to measure.
 //!
-//! Note what is *not* here: no features, no score components, no thresholds. Those belong to a
-//! particular linker, and the only thing the core asks for is a decision per observation. The one
+//! Note what is *not* here: no features, no weights, no thresholds. The policy is a parameter, so a
+//! linker is a *procedure* — and the store's policy is the one every other module also uses. The one
 //! implementation is [`crate::knowledge::heuristic::HeuristicLinker`].
 
 use crate::model;
 
 use super::blocker::Blocker;
 use super::evidence::Evidence;
+use super::score::Scoring;
 
 /// What to do with one observation.
 #[derive(Debug, Clone, PartialEq)]
@@ -47,8 +49,8 @@ pub trait LinkDecider: Send + Sync {
     ///
     /// `blocker` is recall and nothing else: it may return nothing, it over-generates by design, and
     /// its order means nothing. `evidence` answers what is already held, and names the identity a
-    /// capture asserted — the executor imported those before calling. Measuring — and concluding that
-    /// nothing fits — is this side's job.
+    /// capture asserted — the executor imported those before calling. `scoring` is the store's
+    /// policy: measure with it, and do not carry a second one.
     ///
     /// The illumination arrives whole, with its observations loaded: a reading is decided as one, and
     /// every observation in a call deliberately comes from one `illumination_id`, so an implementation
@@ -59,6 +61,7 @@ pub trait LinkDecider: Send + Sync {
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,
+        scoring: &Scoring,
         illumination: &model::illumination::ModelEx,
     ) -> anyhow::Result<Vec<Decision>>;
 }

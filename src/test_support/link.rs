@@ -9,7 +9,7 @@ use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
-use crate::knowledge::heuristic::NameBlocker;
+use crate::knowledge::name_blocker::NameBlocker;
 use crate::model;
 
 /// Link every illumination that still has unlinked observations.

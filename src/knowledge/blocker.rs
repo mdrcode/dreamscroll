@@ -1,5 +1,5 @@
 //! Blocking: which entities are worth considering as targets. The one implementation is
-//! [`crate::knowledge::heuristic::NameBlocker`].
+//! [`crate::knowledge::name_blocker::NameBlocker`].
 
 use crate::model;
 

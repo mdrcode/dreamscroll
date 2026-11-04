@@ -2,9 +2,9 @@
 //!
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
 //! onto one goes through [`Knowledge`], and the handle itself never leaves it — the primitives below
-//! are private, and the three collaborators (`decider`, `blocker`, `evidence`) are `pub(super)` only
-//! because the linking code that reads them lives in `link.rs`. Outside `knowledge`, a caller sees
-//! [`Knowledge`]'s methods and nothing else.
+//! are private, and the collaborators (`decider`, `blocker`, `evidence`, `scoring`) are `pub(super)`
+//! only because the code that reads them lives in `link.rs`, `project.rs` and `reconcile.rs`.
+//! Outside `knowledge`, a caller sees [`Knowledge`]'s methods and nothing else.
 
 use std::sync::Arc;
 
@@ -16,6 +16,7 @@ use crate::model;
 use super::blocker::Blocker;
 use super::evidence::Evidence;
 use super::link_decider::LinkDecider;
+use super::score::Scoring;
 
 pub const STATUS_PROVISIONAL: &str = "provisional";
 pub const STATUS_IDENTIFIED: &str = "identified";
@@ -25,6 +26,11 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 /// Most callers are a store: they create, attach, project and merge, and never decide anything. Those
 /// build [`Knowledge::new`]. Linking additionally needs a policy and a blocker, both injected by
 /// [`Knowledge::with_linking`].
+///
+/// The [`Scoring`] is the store's, not the linker's: `project` asks it what a claim is worth,
+/// `reconcile` asks it whether two entities are one thing, and `resolve` asks it what an answer is
+/// worth. One policy for all of them, or the graph disagrees with itself. [`Knowledge::new`] uses the
+/// heuristic; [`Knowledge::with_scoring`] replaces it.
 ///
 /// The blocker is built once and kept, so it accumulates everything this store writes — `project`
 /// tells it about every entity whose columns changed, and a discarded or tombstoned entity is
@@ -37,6 +43,7 @@ pub struct Knowledge {
     pub(super) blocker: Option<Arc<dyn Blocker>>,
     pub(super) decider: Option<Arc<dyn LinkDecider>>,
     pub(super) evidence: Evidence,
+    pub(super) scoring: Scoring,
 }
 
 impl Knowledge {
@@ -46,8 +53,17 @@ impl Knowledge {
             blocker: None,
             decider: None,
             evidence: Evidence::from_handle(db),
+            scoring: Scoring::heuristic(),
         }
     }
+
+    /// Replace the scoring policy. Everything that measures — the linker, the projection, the merge
+    /// pass, the resolver — reads this one, so there is nothing else to swap.
+    pub fn with_scoring(mut self, scoring: Scoring) -> Self {
+        self.scoring = scoring;
+        self
+    }
+
 
     pub fn with_linking(
         db: &DbHandle,
@@ -110,7 +126,12 @@ impl Knowledge {
         &self,
         knowledge_entity_id: i32,
     ) -> anyhow::Result<model::knowledge_entity::Model> {
-        let entity = super::project::project(&self.db.conn, knowledge_entity_id).await?;
+        let entity = super::project::project(
+            &self.db.conn,
+            &*self.scoring.worth,
+            knowledge_entity_id,
+        )
+        .await?;
         if let Some(blocker) = &self.blocker {
             blocker.changed(&entity);
         }
@@ -119,7 +140,7 @@ impl Knowledge {
 
     /// Record every pair that shares an identity. Reads the graph, writes only proximities.
     pub async fn scan_proximities(&self) -> anyhow::Result<super::reconcile::Report> {
-        super::reconcile::scan(&self.db.conn).await
+        super::reconcile::scan(&self.scoring, &self.db.conn).await
     }
 
     /// Fold the open proximities that look like one thing, and leave the rest as questions.

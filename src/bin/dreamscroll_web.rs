@@ -177,7 +177,7 @@ async fn initialize()
                     service_api,
                     knowledge: crate::knowledge::Knowledge::with_linking(
                         &db,
-                        Box::new(crate::knowledge::heuristic::NameBlocker::new(&db).await?),
+                        Box::new(crate::knowledge::name_blocker::NameBlocker::new(&db).await?),
                         std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
                     ),
                     storage: stg,

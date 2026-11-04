@@ -20,13 +20,12 @@ use crate::knowledge::evidence::ClaimBasis;
 use crate::knowledge::resolve::{
     Answers, BATCH, Claim, FetchError, Raw, Request, ResolutionContext, Resolver, Transport,
 };
-use crate::knowledge::heuristic;
+use crate::knowledge::score::{Answer, Scoring};
 use crate::model;
 
 use super::ranking::{
-    CLAIM_BAR, CLAIM_MARGIN, FIT_FLOOR, FIT_MARGIN, HINT_MIN_SUPPORT, NAME_WEIGHT, Ranked,
-    SUPPORT_WEIGHT, Weights, content_tokens, hint_tokens, near_surface, our_tokens, rank,
-    surface_key,
+    CLAIM_BAR, HINT_MIN_SUPPORT, NAME_WEIGHT, Ranked, SUPPORT_WEIGHT, Weights, content_tokens,
+    hint_tokens, near_surface, our_tokens, rank, surface_key,
 };
 
 pub(super) const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
@@ -58,6 +57,10 @@ fn handle_property(platform: &str) -> Option<&'static str> {
 
 pub struct Wikidata {
     pub(super) client: reqwest::Client,
+    /// The store's policy: what a claim is worth, and how much of a lead decides. The *measure* over
+    /// an authority's own candidates is this resolver's (see `ranking.rs`) — no other module has
+    /// those candidates — but the thresholds and the confidence scale are the graph's.
+    pub(super) scoring: Scoring,
 }
 
 impl Wikidata {
@@ -66,7 +69,10 @@ impl Wikidata {
             .user_agent(USER_AGENT)
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
-        Ok(Self { client })
+        Ok(Self {
+            client,
+            scoring: Scoring::heuristic(),
+        })
     }
 
     /// Part of the cache key: how the request is built. Change a parameter and the key changes, so a
@@ -119,11 +125,15 @@ impl Wikidata {
         // `Suspicion` (a Matsumoto novel) claimed a Dürrenmatt one on the word "novel" alone.
         if best.fit < HINT_MIN_SUPPORT
             || best.score < CLAIM_BAR
-            || best.score - runner_up < CLAIM_MARGIN
+            || !self.scoring.judge.leads(best.score - runner_up)
         {
             return Vec::new();
         }
-        vec![claim(best.candidate, "search_hint", heuristic::answer_confidence(best.score).min(0.85))]
+        vec![claim(
+            best.candidate,
+            "search_hint",
+            self.scoring.worth.value(Answer::Hint, best.score),
+        )]
     }
     pub(super) fn property_of(kind: &str) -> Option<&str> {
         kind.strip_prefix("handle:")
@@ -140,7 +150,11 @@ impl Wikidata {
         // One exact label and nothing else claiming it: that is identity, even with no text to
         // corroborate it.
         if ranked.len() == 1 && ranked[0].exact_label {
-            return vec![claim(ranked[0].candidate, "exact_label", heuristic::LONE_LABEL_CONFIDENCE)];
+            return vec![claim(
+                ranked[0].candidate,
+                "exact_label",
+                self.scoring.worth.value(Answer::LoneLabel, 0.0),
+            )];
         }
 
         let best = ranked.remove(0);
@@ -153,11 +167,11 @@ impl Wikidata {
         // all, so requiring a blended score quietly demanded a fixed amount of text overlap — which
         // real, terse Wikidata descriptions cannot supply ("German-born theoretical physicist" vs a
         // capture's six-word description of Einstein).
-        if best.fit < FIT_FLOOR {
-            return self.by_hint(entity, &candidates);
+        if !self.scoring.judge.supported(best.fit) {
+            return self.by_hint(entity, candidates);
         }
         // Two candidates fit and neither wins: genuine ambiguity. The hint must not break this tie.
-        if best.fit - runner_up < FIT_MARGIN {
+        if !self.scoring.judge.leads(best.fit - runner_up) {
             return Vec::new();
         }
         let method = match (request.kind.as_str(), best.exact_label) {
@@ -167,7 +181,11 @@ impl Wikidata {
             (_, true) => "exact_label",
             (_, false) => "ranked",
         };
-        vec![claim(best.candidate, method, heuristic::answer_confidence(best.score))]
+        vec![claim(
+            best.candidate,
+            method,
+            self.scoring.worth.value(Answer::Ranked, best.score),
+        )]
     }
 
     /// The first pass: a handle, then a title, then an exact label. Pure, so the order is testable
@@ -243,7 +261,13 @@ impl Wikidata {
         if let Some(property) = Self::property_of(&request.kind) {
             return candidates
                 .first()
-                .map(|candidate| handle_claim(candidate, property))
+                .map(|candidate| {
+                    handle_claim(
+                        candidate,
+                        property,
+                        self.scoring.worth.value(Answer::Handle, 0.0),
+                    )
+                })
                 .into_iter()
                 .collect();
         }
@@ -315,11 +339,11 @@ impl Wikidata {
                 .iter()
                 .map(|tokens| weights.fit(&theirs, tokens))
                 .fold(0.0f32, f32::max);
-            if fit >= FIT_FLOOR {
+            if self.scoring.judge.supported(fit) {
                 return vec![claim(
                     candidate,
                     "search_lookup",
-                    heuristic::LOOKUP_CONFIDENCE,
+                    self.scoring.worth.value(Answer::Lookup, 0.0),
                 )];
             }
         }
@@ -526,8 +550,8 @@ fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Claim {
 /// A property match: the item *is* the account. The basis is the handle, which is what stops the
 /// answer counting as a second, independent input beside the handle that produced it — however many
 /// platforms the property table grows.
-fn handle_claim(candidate: &Candidate, property: &str) -> Claim {
-    let mut claim = claim(candidate, property, heuristic::HANDLE_CONFIDENCE);
+fn handle_claim(candidate: &Candidate, property: &str, confidence: f32) -> Claim {
+    let mut claim = claim(candidate, property, confidence);
     claim.basis = ClaimBasis::Handle;
     claim
 }

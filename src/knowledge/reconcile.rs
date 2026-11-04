@@ -12,13 +12,14 @@
 //! exist, merges the pairs that score as one thing, and leaves the rest open for a person. A pair the
 //! same-illumination veto refuses stays open — that is a question, not an error.
 
+use std::cmp::Ordering;
+
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
-
-use super::Knowledge;
 use super::evidence::Evidence;
-use super::heuristic;
 use super::merge::{Cause, Outcome};
+use super::score::{Scoring, Subject};
+use super::Knowledge;
 
 /// What one reconcile did.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -40,25 +41,27 @@ pub(super) async fn reconcile(
     knowledge: &Knowledge,
     conn: &DatabaseConnection,
 ) -> anyhow::Result<Report> {
-    let raised = scan(conn).await?.raised;
+    let raised = scan(&knowledge.scoring, conn).await?.raised;
     let mut report = merge_open(knowledge, conn).await?;
     report.raised = raised;
     Ok(report)
 }
 
 /// Find pairs that share an identity and record them. Read-only against the graph.
-pub(super) async fn scan(conn: &DatabaseConnection) -> anyhow::Result<Report> {
+pub(super) async fn scan(scoring: &Scoring, conn: &DatabaseConnection) -> anyhow::Result<Report> {
     let evidence = Evidence::new(conn.clone());
     let mut report = Report::default();
 
     for identity_id in identities_with_several_holders(conn).await? {
         // Most substantiated first: the survivor, and the reading order.
-        let holders = evidence.held_by_identity(identity_id).await?;
+        let holders = evidence.held_by_identity(identity_id, &*scoring.worth).await?;
         let Some(holder) = holders.first() else {
             continue;
         };
         for other in holders.iter().skip(1) {
-            let features = heuristic::score_pair(other, holder);
+            let features = scoring
+                .similarity
+                .pair(&Subject::of_entity(other), holder);
             report.raised += evidence
                 .raise(
                     holder.id,
@@ -93,13 +96,18 @@ pub(super) async fn merge_open(
         }
 
         // The more substantiated side survives; ties go to the lower id.
-        let (winner, loser) = if heuristic::wins(&right, &left) {
+        let scoring = &knowledge.scoring;
+        let (winner, loser) = if scoring.worth.order(right.confidence, left.confidence)
+            == Ordering::Greater
+        {
             (right, left)
         } else {
             (left, right)
         };
-        let features = heuristic::score_pair(&loser, &winner);
-        if !heuristic::worth_merging(&features) {
+        let features = scoring
+            .similarity
+            .pair(&Subject::of_entity(&loser), &winner);
+        if !scoring.judge.same(&features) {
             report.undecided += 1;
             continue;
         }
@@ -240,7 +248,7 @@ mod tests {
         let db = test_db.handle();
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
 
-        let report = scan(&db.conn).await.expect("scan");
+        let report = scan(&crate::knowledge::Scoring::heuristic(), &db.conn).await.expect("scan");
 
         assert_eq!(report.raised, 1, "{report:?}");
         let row = model::knowledge_proximities::Entity::find()
@@ -250,13 +258,13 @@ mod tests {
             .expect("one question, one row");
         assert!(row.verdict.is_none(), "nothing decided yet");
         assert!(
-            row.score.unwrap() >= heuristic::MERGE_BAR,
+            row.score.unwrap() >= crate::knowledge::heuristic_score::MERGE_BAR,
             "{:?}",
             row.score
         );
 
         // Idempotent: the same pair is not raised twice.
-        assert_eq!(scan(&db.conn).await.unwrap().raised, 0);
+        assert_eq!(scan(&crate::knowledge::Scoring::heuristic(), &db.conn).await.unwrap().raised, 0);
     }
 
     /// The merge phase folds the pair the scan recorded, and says so on the row.
@@ -268,7 +276,7 @@ mod tests {
         let db = test_db.handle();
         let store = Knowledge::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
-        scan(&db.conn).await.unwrap();
+        scan(&crate::knowledge::Scoring::heuristic(), &db.conn).await.unwrap();
 
         let report = merge_open(&store, &db.conn).await.expect("merge");
 
@@ -292,7 +300,7 @@ mod tests {
         let store = Knowledge::new(&db);
         let (album, song) = claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
-        scan(&db.conn).await.unwrap();
+        scan(&crate::knowledge::Scoring::heuristic(), &db.conn).await.unwrap();
         let report = merge_open(&store, &db.conn).await.expect("merge");
 
         assert_eq!(report.merged, 0, "{report:?}");

@@ -443,7 +443,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
 
     let knowledge = knowledge::Knowledge::with_linking(
         db,
-        Box::new(knowledge::heuristic::NameBlocker::new(db).await?),
+        Box::new(knowledge::name_blocker::NameBlocker::new(db).await?),
         std::sync::Arc::new(knowledge::heuristic::HeuristicLinker),
     );
     let mut report = LinkAllPendingReport::default();

@@ -54,19 +54,15 @@ fn edit_distance(a: &str, b: &str) -> usize {
     previous[b.len()]
 }
 
-/// How much of the candidate's description must be accounted for by ours before a claim is worth
-/// making. Two shared content words usually clears it; one never does.
-pub(super) const FIT_FLOOR: f32 = 0.20;
-/// …and it must beat the runner-up by this much. A near-tie is not evidence.
-pub(super) const FIT_MARGIN: f32 = 0.10;
+// The floor a fit must clear and the lead it must have are the store's `Scoring`, not this
+// module's: `resolver.rs` asks `Judge::supported` and `Judge::leads`.
 /// Weight of matched evidence at which a claim is half-convincing. A scale, not a threshold: two
 /// common words land well below it, two rare ones well above.
 const EVIDENCE_SCALE: f32 = 3.0;
 /// The hint is only trusted when at least half of its disambiguating words are accounted for.
 pub(super) const HINT_MIN_SUPPORT: f32 = 0.50;
-/// The hint fallback is decided on the same margin.
+/// The hint fallback is gated on the blend: a name plus partial support is not a claim.
 pub(super) const CLAIM_BAR: f32 = 0.60;
-pub(super) const CLAIM_MARGIN: f32 = 0.10;
 /// A name blocks; evidence decides. The name is worth enough to matter and not enough to win alone.
 pub(super) const NAME_WEIGHT: f32 = 0.40;
 pub(super) const SUPPORT_WEIGHT: f32 = 0.60;

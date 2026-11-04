@@ -100,7 +100,7 @@ pub(super) async fn merge_into(
     winner: i32,
     cause: Cause,
 ) -> anyhow::Result<Outcome> {
-    let outcome = merge(conn, loser, winner, cause).await?;
+    let outcome = merge(conn, &knowledge.scoring, loser, winner, cause).await?;
     if outcome == Outcome::Merged {
         knowledge.update_projection(winner).await?;
         knowledge.forget(loser);
@@ -142,6 +142,7 @@ pub(super) async fn preview<C: ConnectionTrait>(
 /// legitimately join. See `plan/knowledge-illumination-history.md`.
 async fn merge(
     conn: &DatabaseConnection,
+    scoring: &super::score::Scoring,
     loser: i32,
     winner: i32,
     cause: Cause,
@@ -149,8 +150,10 @@ async fn merge(
     // Five writes that must all land: repointing observations, dropping the evidence that would
     // collide, moving the rest, recording the merge and tombstoning the loser. A crash between any
     // two of them leaves two live entities claiming one identity, which nothing can repair.
+    // Owned past the transaction: SeaORM's callback outlives this borrow, and a `Scoring` is arcs.
+    let scoring = scoring.clone();
     conn.transaction(move |txn| {
-        Box::pin(async move { merge_in_transaction(txn, loser, winner, cause).await })
+        Box::pin(async move { merge_in_transaction(txn, &scoring, loser, winner, cause).await })
     })
     .await
     .map_err(|error| anyhow::anyhow!("merge transaction failed: {error}"))
@@ -158,6 +161,7 @@ async fn merge(
 
 async fn merge_in_transaction<C: ConnectionTrait>(
     conn: &C,
+    scoring: &super::score::Scoring,
     loser: i32,
     winner: i32,
     cause: Cause,
@@ -261,7 +265,7 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         .exec(conn)
         .await?;
 
-    super::project::project(conn, winner).await?;
+    super::project::project(conn, &*scoring.worth, winner).await?;
     Ok(Outcome::Merged)
 }
 
@@ -299,13 +303,13 @@ mod tests {
         let loser = entity_with(&db, "Elon").await;
 
         assert_eq!(
-            merge(&db.conn, loser, winner, Cause::IdentityConflict)
+            merge(&db.conn, &crate::knowledge::Scoring::heuristic(), loser, winner, Cause::IdentityConflict)
                 .await
                 .expect("first"),
             Outcome::Merged
         );
         assert_eq!(
-            merge(&db.conn, loser, winner, Cause::IdentityConflict)
+            merge(&db.conn, &crate::knowledge::Scoring::heuristic(), loser, winner, Cause::IdentityConflict)
                 .await
                 .expect("second"),
             Outcome::AlreadyMerged
@@ -354,7 +358,7 @@ mod tests {
         .await;
 
         assert_eq!(
-            merge(&db.conn, loser, winner, Cause::IdentityConflict)
+            merge(&db.conn, &crate::knowledge::Scoring::heuristic(), loser, winner, Cause::IdentityConflict)
                 .await
                 .expect("merge"),
             Outcome::Merged
@@ -396,7 +400,7 @@ mod tests {
             fixtures::attached(&db, &capture, position, name, None, "book", knowledge_entity_id).await;
         }
 
-        let outcome = merge(&db.conn, character, book, Cause::Repair)
+        let outcome = merge(&db.conn, &crate::knowledge::Scoring::heuristic(), character, book, Cause::Repair)
             .await
             .expect("merge");
 
@@ -442,7 +446,7 @@ mod tests {
         )
         .await;
 
-        let outcome = merge(&db.conn, loser, winner, Cause::IdentityConflict)
+        let outcome = merge(&db.conn, &crate::knowledge::Scoring::heuristic(), loser, winner, Cause::IdentityConflict)
             .await
             .expect("merge");
         assert_eq!(outcome, Outcome::Merged);
@@ -498,7 +502,7 @@ mod tests {
         let db = test_db.handle();
         let winner = entity_with(&db, "Elon Musk").await;
 
-        let error = merge(&db.conn, 999_999, winner, Cause::Repair)
+        let error = merge(&db.conn, &crate::knowledge::Scoring::heuristic(), 999_999, winner, Cause::Repair)
             .await
             .expect_err("a missing loser is a caller error");
         assert!(error.to_string().contains("999999"), "{error}");
@@ -523,7 +527,7 @@ mod tests {
         ] {
             let winner = entity_with(&db, "Elon Musk").await;
             let loser = entity_with(&db, "Elon").await;
-            merge(&db.conn, loser, winner, cause).await.unwrap();
+            merge(&db.conn, &crate::knowledge::Scoring::heuristic(), loser, winner, cause).await.unwrap();
 
             let row = merges::Entity::find()
                 .filter(merges::Column::WinnerId.eq(winner))
@@ -546,12 +550,12 @@ mod tests {
         let db = test_db.handle();
         let dead = entity_with(&db, "Elon").await;
         let alive = entity_with(&db, "Elon Musk").await;
-        merge(&db.conn, dead, alive, Cause::Repair)
+        merge(&db.conn, &crate::knowledge::Scoring::heuristic(), dead, alive, Cause::Repair)
             .await
             .expect("the first merge is fine");
 
         let other = entity_with(&db, "E. Musk").await;
-        let error = merge(&db.conn, other, dead, Cause::Repair)
+        let error = merge(&db.conn, &crate::knowledge::Scoring::heuristic(), other, dead, Cause::Repair)
             .await
             .expect_err("the winner is a tombstone");
         assert!(error.to_string().contains("tombstone"), "{error}");

@@ -6,16 +6,22 @@
 //! `graph.rs` is the facade — `Knowledge` — and the primitives every write shares. The three write
 //! paths that have their own logic and their own tests live beside it: `link.rs`, `project.rs` and
 //! `merge.rs`. They are private modules; callers reach them through `Knowledge`'s methods.
+//!
+//! Scoring is its own seam: `score.rs` states the verbs, `heuristic_score.rs` is today's only answer
+//! to them, and the store hands one `Scoring` to every module that asks.
 
 pub mod blocker;
 pub mod evidence;
 pub mod graph;
 pub mod heuristic;
+mod heuristic_score;
 pub mod link_decider;
 pub mod merge;
+pub mod name_blocker;
 mod reconcile;
 pub mod normalize;
 pub mod resolve;
+pub mod score;
 pub mod snapshot;
 
 mod link;
@@ -25,3 +31,4 @@ pub use graph::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 pub use reconcile::Report as ReconcileReport;
 pub use reconcile::list as list_proximities;
 pub use link::LinkStats;
+pub use score::{Answer, Features, Judge, Scoring, Similarity, Subject, Worth};

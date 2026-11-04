@@ -895,7 +895,7 @@ mod tests {
         crate::knowledge::Knowledge::with_linking(
             &db,
             Box::new(
-                crate::knowledge::heuristic::NameBlocker::new(&db)
+                crate::knowledge::name_blocker::NameBlocker::new(&db)
                     .await
                     .unwrap(),
             ),
@@ -952,7 +952,7 @@ mod tests {
         crate::knowledge::Knowledge::with_linking(
             &db,
             Box::new(
-                crate::knowledge::heuristic::NameBlocker::new(&db)
+                crate::knowledge::name_blocker::NameBlocker::new(&db)
                     .await
                     .unwrap(),
             ),
