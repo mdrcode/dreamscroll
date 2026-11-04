@@ -39,7 +39,8 @@ pub struct KnowledgeStats {
     pub cache_degraded: u64,
     pub cache_empty: u64,
     pub cache_failed: u64,
-    /// Rows past their expiry: not answers any more, and refetchable.
+    /// Rows past their expiry: not answers any more, and refetchable. Kept for `PRUNE_GRACE`
+    /// after expiry, then pruned by the next online resolve.
     pub cache_expired: u64,
 }
 

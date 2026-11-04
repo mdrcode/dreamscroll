@@ -30,6 +30,11 @@ pub const DEGRADED_TTL: Duration = Duration::minutes(60);
 /// query is cached and the answer was wrong.
 pub const UNPRODUCTIVE_TTL: Duration = Duration::hours(6);
 
+/// Expired rows are kept this long past their expiry before being pruned. Long enough that recent
+/// staleness stays inspectable — "we asked last week and the answer has aged out" is worth seeing —
+/// and short enough that the table does not become an archive of answers nothing reads.
+pub const PRUNE_GRACE: Duration = Duration::days(30);
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Outcome {
     /// The provider answered **with candidates**. Not a claim: whether one of them is the referent
@@ -93,6 +98,20 @@ pub struct Cache<'a> {
 impl<'a> Cache<'a> {
     pub fn new(conn: &'a DatabaseConnection) -> Self {
         Self { conn }
+    }
+
+    /// Drop answers that expired more than [`PRUNE_GRACE`] ago.
+    ///
+    /// A stale row is invisible to [`Self::get_many`] and is only ever rewritten if the same query is
+    /// asked again, so without this the table grows monotonically with every query ever made and holds
+    /// answers nothing can read.
+    pub async fn prune(&self) -> anyhow::Result<u64> {
+        let cutoff = Utc::now() - PRUNE_GRACE;
+        let result = cached::Entity::delete_many()
+            .filter(cached::Column::ExpiresAt.lt(cutoff))
+            .exec(self.conn)
+            .await?;
+        Ok(result.rows_affected)
     }
 
     /// Answers for the queries that are still fresh. Anything absent is a miss, including rows that
@@ -216,6 +235,51 @@ mod tests {
         assert_eq!(Outcome::parse("degraded"), Some(Outcome::Degraded));
     }
 
+    /// Pruning drops what aged out long ago and keeps recent staleness inspectable: an answer that
+    /// expired yesterday is still worth seeing, one from two months ago is an archive nothing reads.
+    #[tokio::test]
+    async fn pruning_keeps_the_recent_past_and_drops_the_ancient() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let conn = test_db.handle().conn;
+        let insert = |query: &'static str, expires_at: chrono::DateTime<Utc>| {
+            let conn = conn.clone();
+            async move {
+                cached::Entity::insert(cached::ActiveModel {
+                    provider: Set("wikidata".to_string()),
+                    kind: Set("search".to_string()),
+                    query: Set(query.to_string()),
+                    shape: Set("label".to_string()),
+                    outcome: Set("found".to_string()),
+                    payload: Set(Some(json!({"claim": "Q1"}))),
+                    expires_at: Set(expires_at),
+                    ..Default::default()
+                })
+                .exec(&conn)
+                .await
+                .unwrap();
+            }
+        };
+        let now = Utc::now();
+        insert("ancient", now - PRUNE_GRACE - Duration::days(1)).await;
+        insert("recently expired", now - Duration::days(1)).await;
+        insert("live", now + Duration::days(1)).await;
+
+        let pruned = Cache::new(&conn).prune().await.expect("prune");
+
+        assert_eq!(pruned, 1, "only the row past the grace window goes");
+        let left: Vec<String> = cached::Entity::find()
+            .all(&conn)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|row| row.query)
+            .collect();
+        assert_eq!(left.len(), 2, "{left:?}");
+        assert!(!left.iter().any(|q| q == "ancient"), "{left:?}");
+    }
+
     fn answer(outcome: Outcome, payload: Option<serde_json::Value>) -> Answer {
         Answer { outcome, payload }
     }
@@ -302,11 +366,13 @@ mod tests {
             .await
             .expect("put should succeed");
 
-        assert!(cache
-            .get_many("wikidata", "label", "shape-a", &queries)
-            .await
-            .unwrap()
-            .contains_key("Dune"));
+        assert!(
+            cache
+                .get_many("wikidata", "label", "shape-a", &queries)
+                .await
+                .unwrap()
+                .contains_key("Dune")
+        );
         assert!(
             cache
                 .get_many("wikidata", "label", "shape-b", &queries)

@@ -409,6 +409,15 @@ impl<'a> ResolutionEngine<'a> {
             offline: self.options.offline,
             ..Default::default()
         };
+        // An online pass is the maintenance moment: drop answers that aged out long ago. Offline runs
+        // leave the table alone, since they neither refresh nor ask anything.
+        if !self.options.offline {
+            let pruned = cache.prune().await?;
+            if pruned > 0 {
+                tracing::info!(pruned, "Pruned expired resolution cache rows");
+            }
+        }
+
         let mut resolved: HashSet<i32> = HashSet::new();
         let knowledge = crate::knowledge::Knowledge::new(self.db);
 
