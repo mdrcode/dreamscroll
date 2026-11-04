@@ -128,19 +128,19 @@ pub struct Scoring {
 }
 
 impl Scoring {
-    /// The heuristic: today's only policy, and the default for every store that does not choose.
-    pub fn heuristic() -> Self {
-        let policy = Arc::new(super::heuristic_scoring::Heuristic);
+    /// One policy, asked the three questions the store needs answered.
+    ///
+    /// Generic over the policy rather than taking a choice of implementation: whoever composes the
+    /// store picks the concrete type, and this module stays a contract. The bounds are the whole
+    /// requirement — a policy that cannot answer one of the three does not compile here.
+    pub fn new<P>(policy: Arc<P>) -> Self
+    where
+        P: Rank<Subject, Entity> + Rank<Entity, Entity> + Similarity<Entity, Entity> + 'static,
+    {
         Self {
             link: policy.clone(),
             merge: policy.clone(),
             pair: policy,
         }
-    }
-}
-
-impl Default for Scoring {
-    fn default() -> Self {
-        Self::heuristic()
     }
 }

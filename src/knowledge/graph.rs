@@ -16,6 +16,7 @@ use crate::model;
 use super::blocker::Blocker;
 use super::evidence::Evidence;
 use super::link_decider::LinkDecider;
+use super::heuristic_scoring::Heuristic;
 use super::scoring::Scoring;
 
 pub const STATUS_PROVISIONAL: &str = "provisional";
@@ -53,7 +54,7 @@ impl Knowledge {
             blocker: None,
             decider: None,
             evidence: Evidence::from_handle(db),
-            scoring: Scoring::heuristic(),
+            scoring: Heuristic::scoring(),
         }
     }
 

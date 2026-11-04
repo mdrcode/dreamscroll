@@ -142,7 +142,7 @@ mod tests {
             .decide_link(
                 &blocker,
                 &evidence,
-                &Scoring::heuristic(),
+                &crate::knowledge::heuristic_scoring::Heuristic::scoring(),
                 &illumination,
             )
             .await

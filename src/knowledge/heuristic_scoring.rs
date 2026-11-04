@@ -20,7 +20,7 @@ use crate::model;
 
 use super::evidence::ClaimBasis;
 use super::normalize;
-use super::scoring::{Rank, Similarity, Subject};
+use super::scoring::{Rank, Scoring, Similarity, Subject};
 
 pub const WEIGHT_NAME: f32 = 0.60;
 pub const WEIGHT_DESCRIPTION: f32 = 0.30;
@@ -51,6 +51,13 @@ pub const CONFIDENCE_CEILING: f32 = 1.0;
 /// The heuristic policy, as one value. Stateless: every number is a constant above.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Heuristic;
+
+impl Heuristic {
+    /// This policy in the shape a store holds: the three questions, boxed.
+    pub(super) fn scoring() -> Scoring {
+        Scoring::new(std::sync::Arc::new(Self))
+    }
+}
 
 impl Similarity<model::knowledge_entity::Model, model::knowledge_entity::Model> for Heuristic {
     fn score(
