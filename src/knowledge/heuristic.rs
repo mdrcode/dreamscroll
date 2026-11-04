@@ -11,7 +11,7 @@
 //! - [`score`] — pure features: name, description, type, weighted into a total.
 //! - [`HeuristicLinker`] — take the best candidate that clears the bar, else create.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 use sea_orm::{EntityTrait, QueryOrder};
 
@@ -189,7 +189,7 @@ pub fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidat
 }
 
 /// 1.0 on the same normalized surface, 0.9 when only word order or an article differs, else the
-/// best token overlap. A name never decides on its own — see the vetoes in `link`.
+/// best token overlap. A name never decides on its own — [`worth_merging`] demands corroboration.
 fn name_similarity(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -> f32 {
     if candidate.alt_name_keys.contains(&observation.name_key) {
         return 1.0;
@@ -356,8 +356,9 @@ impl LinkDecider for HeuristicLinker {
     /// falls through to similarity with its identity carried along — a name match may attach it to an
     /// entity that has the name and was missing the handle.
     ///
-    /// The veto is only about similarity. Two observations from one extraction are two things, but
-    /// two observations asserting one platform link are one account; the identity wins.
+    /// Each observation is decided on its own, against the corpus as it stood before this
+    /// illumination was linked: nothing is set aside for a sibling, and two observations may name the
+    /// same entity. Whether that is right is the extraction's question, not the linker's.
     async fn decide_link(
         &self,
         blocker: &dyn Blocker,
@@ -381,12 +382,6 @@ impl LinkDecider for HeuristicLinker {
         observations.sort_by_key(|observation| (observation.position, observation.id));
 
         let mut decisions = Vec::new();
-        // A sibling that already has an entity — attached before this ran — has spent it for the
-        // illumination. It is context, not work: no decision is owed for it.
-        let mut claimed: HashSet<i32> = observations
-            .iter()
-            .filter_map(|observation| observation.knowledge_entity_id)
-            .collect();
 
         for observation in observations {
             if observation.knowledge_entity_id.is_some() {
@@ -402,7 +397,6 @@ impl LinkDecider for HeuristicLinker {
             if let Some(identity_id) = identity
                 && let Some(best) = evidence.held_by_identity(identity_id).await?.into_iter().next()
             {
-                claimed.insert(best.id);
                 decisions.push(Decision {
                     observation,
                     action: Action::Attach {
@@ -416,31 +410,24 @@ impl LinkDecider for HeuristicLinker {
             }
 
             let view = NormalizedObservation::from(&observation);
-            // (entity id, total, clears the bar) for the best candidate still available to this
-            // observation. A spent one is skipped before it is scored: a sibling from this
-            // illumination already has it, and the veto is not negotiable.
-            let mut best_unclaimed: Option<(i32, f32, bool)> = None;
+            // (entity id, total, clears the bar) for the best candidate: highest total wins, and
+            // whether it is worth merging decides between attaching and creating.
+            let mut best: Option<(i32, f32, bool)> = None;
 
             for candidate in blocker.candidates(&observation).await {
-                if claimed.contains(&candidate.id) {
-                    continue;
-                }
                 let features = score(&view, &NormalizedCandidate::from(&candidate));
                 let entry = (candidate.id, features.total, worth_merging(&features));
-                if best_unclaimed.is_none_or(|best| entry.1 > best.1) {
-                    best_unclaimed = Some(entry);
+                if best.is_none_or(|winner| entry.1 > winner.1) {
+                    best = Some(entry);
                 }
             }
 
-            let action = match best_unclaimed {
-                Some((entity, score, true)) => {
-                    claimed.insert(entity);
-                    Action::Attach {
-                        entity,
-                        score,
-                        by_claim: false,
-                    }
-                }
+            let action = match best {
+                Some((entity, score, true)) => Action::Attach {
+                    entity,
+                    score,
+                    by_claim: false,
+                },
                 Some((entity, score, false)) => Action::Create {
                     best: Some((entity, score)),
                 },
@@ -722,38 +709,6 @@ mod tests {
                 other => panic!("expected an attach, got {other:?}"),
             },
             other => panic!("expected one decision, got {other:?}"),
-        }
-    }
-
-    /// The veto: one illumination that emitted two names meant two things, so an entity taken by one of
-    /// them is not available to the other — however well it scores.
-    #[tokio::test]
-    async fn a_sibling_cannot_take_the_entity_the_illumination_already_spent() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let only = entity_row(7, "Train Dreams", "book");
-        let first = crate::test_support::fixtures::stub_observation(1, "Train Dreams", "book");
-        let second = crate::test_support::fixtures::stub_observation(2, "Train Dreams", "book");
-
-        let result = link(&db, &[only], &[first, second]).await;
-
-        match result.as_slice() {
-            [first_decision, second_decision] => {
-                match &first_decision.action {
-                    Action::Attach { entity, .. } => {
-                        assert_eq!(*entity, 7, "the first to arrive takes the entity")
-                    }
-                    other => panic!("expected the first to attach, got {other:?}"),
-                }
-                assert!(
-                    matches!(second_decision.action, Action::Create { .. }),
-                    "the second creates rather than taking an entity the illumination spent: {:?}",
-                    second_decision.action
-                );
-            }
-            other => panic!("expected two decisions, got {other:?}"),
         }
     }
 

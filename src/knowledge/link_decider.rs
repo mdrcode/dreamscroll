@@ -61,11 +61,11 @@ pub trait LinkDecider: Send + Sync {
     /// capture asserted — the executor imported those before calling. Measuring — and concluding that
     /// nothing fits — is this side's job.
     ///
-    /// The illumination arrives whole, with its observations loaded. That is the contract the veto
-    /// rests on: every observation in a call comes from one `illumination_id`, so "one extraction
-    /// never folds two of its own observations into one entity" is about the arguments rather than
-    /// about the caller's good behaviour. An implementation that wants more context — the illumination's summary and
-    /// details — can ask for it; nothing needs it yet.
+    /// The illumination arrives whole, with its observations loaded: a reading is decided as one, and
+    /// every observation in a call deliberately comes from one `illumination_id`, so an implementation
+    /// that needs the set has it by the arguments rather than by the caller's good behaviour. An
+    /// implementation that wants more context — the illumination's summary and details — can ask for
+    /// it; nothing needs it yet.
     async fn decide_link(
         &self,
         blocker: &dyn Blocker,

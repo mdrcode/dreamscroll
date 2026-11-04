@@ -347,8 +347,11 @@ mod corpus {
         entity::Entity::find().count(&db.conn).await.unwrap()
     }
 
+    /// Nothing exists for either name yet, and every decision is made before any of them is written,
+    /// so neither observation can find the other's entity: the batch is what keeps them apart, with
+    /// no rule needed. An entity that *did* already exist would take both.
     #[tokio::test]
-    async fn one_capture_never_folds_two_observations_together() {
+    async fn two_new_names_in_one_illumination_get_their_own_entities() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };

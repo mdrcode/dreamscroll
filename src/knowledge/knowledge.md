@@ -105,12 +105,12 @@ struct LinkResult {
 }
 ```
 
-**The veto is the linker's, and it is why the batch exists.** One extraction that emitted two names
-meant two things, so an entity a sibling from the same illumination has already taken is not a
-candidate — however well it scores. That is a statement about the *set*, which is why a per
-observation loop could only ever apply it after the fact. Siblings that arrived already linked (by
-an account identifier, before the linker ran) are context: they seed the set, and no decision is owed
-for them.
+**A batch, so a reading is decided as one.** Every observation of an illumination is decided before
+any of them is applied, so the decisions share one view of the corpus and none of them can see the
+others' writes. Two consequences follow, and neither is a rule the linker has to enforce: a new name
+cannot fold into a sibling's new entity, because nothing has been created yet; and two observations
+that name one existing entity both attach to it, because nothing is set aside between them.
+Siblings that arrived already linked are context, not work — no decision is owed for them.
 
 Both traits take **model rows** — `user_observed_entity::Model` and `knowledge_entity::Model` —
 because a separate view layer was a second place for a column to go missing, and it went missing
@@ -124,7 +124,7 @@ an identity by id and leaves `apply` with nothing to create. Every decision is m
 applied, so the illumination's own claims are invisible to its own decisions: two observations that
 assert one previously unknown handle are both told to create, and become two entities holding one
 identity. `merge` refuses that pair (shared illumination), so `reconcile` reports it once and it stays
-open — the same terminal state the veto produces everywhere else.
+open — the terminal state the merge-side rule produces everywhere.
 
 **The heuristic is one implementation of that chain — not the chain.** `heuristic.rs` holds our
 first prototype: normalized name keys to block on, weighted features, a bar to clear. It is
@@ -222,7 +222,10 @@ API decides which one a user sees. Two consequences fall out for free:
 
 Entities are cheap to rebuild and expensive to get wrong, so the model prefers undoable moves:
 
-- `reset` snapshots the projection, then empties it. Observations are untouched; `link` rebuilds.
+- `reset` snapshots the projection, then empties it — entities, claims, identities, merges and
+  proximities, all of it derived. Observations, captures, illuminations and the **resolution cache**
+  are untouched, which is what makes the teardown free: rebuild with `link`, then `resolve --offline`,
+  which re-materialises identities from cached answers and runs `reconcile`. No transport, seconds.
 - `merge` folds one entity into another, tombstones the loser, and runs in a **transaction** — five
   writes that must all land.
 - The **same-illumination veto**: two entities that both appear in one illumination cannot be one
