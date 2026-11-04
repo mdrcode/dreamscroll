@@ -179,7 +179,7 @@ const NOT_LIMITED: u64 = u64::MAX;
 pub struct ResolutionContext<'a> {
     cache: &'a Cache<'a>,
     pacer: tokio::sync::Mutex<Pacer>,
-    budget: tokio::sync::Mutex<Budget>,
+    remaining: tokio::sync::Mutex<usize>,
     offline: bool,
     planned: AtomicUsize,
     cache_hits: AtomicUsize,
@@ -194,7 +194,7 @@ impl<'a> ResolutionContext<'a> {
         Self {
             cache,
             pacer: tokio::sync::Mutex::new(Pacer::new(options.min_interval)),
-            budget: tokio::sync::Mutex::new(Budget::new(options.max_requests)),
+            remaining: tokio::sync::Mutex::new(options.max_requests),
             offline: options.offline,
             planned: AtomicUsize::new(0),
             cache_hits: AtomicUsize::new(0),
@@ -203,6 +203,16 @@ impl<'a> ResolutionContext<'a> {
             budget_exhausted: AtomicBool::new(false),
             rate_limited_after: AtomicU64::new(NOT_LIMITED),
         }
+    }
+
+    /// Take one transport call from the budget; false when it is gone.
+    async fn take_call(&self) -> bool {
+        let mut remaining = self.remaining.lock().await;
+        if *remaining == 0 {
+            return false;
+        }
+        *remaining -= 1;
+        true
     }
 
     /// Whether the provider has told us to stop. Checked between resolvers, not inside one.
@@ -261,7 +271,7 @@ impl<'a> ResolutionContext<'a> {
             }
 
             for chunk in misses.chunks(transport.batch_size(&kind)) {
-                if !self.budget.lock().await.take() {
+                if !self.take_call().await {
                     self.budget_exhausted.store(true, Ordering::Relaxed);
                     break;
                 }
@@ -508,31 +518,6 @@ impl Pacer {
             }
         }
         self.after = Some(std::time::Instant::now());
-    }
-}
-
-/// How many transport calls this run may still make.
-struct Budget {
-    remaining: usize,
-    spent: bool,
-}
-
-impl Budget {
-    fn new(max_requests: usize) -> Self {
-        Self {
-            remaining: max_requests,
-            spent: false,
-        }
-    }
-
-    /// Take one call. Returns false when the budget is gone, having recorded that it is.
-    fn take(&mut self) -> bool {
-        if self.remaining == 0 {
-            self.spent = true;
-            return false;
-        }
-        self.remaining -= 1;
-        true
     }
 }
 
@@ -1290,15 +1275,6 @@ mod tests {
             groups[&("test", "search".into(), "v1".into())],
             vec!["a", "b"]
         );
-    }
-
-    #[test]
-    fn the_budget_stops_when_spent_and_says_so() {
-        let mut budget = Budget::new(2);
-        assert!(budget.take());
-        assert!(budget.take());
-        assert!(!budget.take(), "the third call is refused");
-        assert!(budget.spent, "and the refusal is recorded");
     }
 
     struct AlwaysRateLimited;

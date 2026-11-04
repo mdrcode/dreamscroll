@@ -9,6 +9,25 @@ use super::super::driver::{FetchError, Raw, Request};
 use super::resolver::{Candidate, Wikidata, LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT};
 use crate::knowledge::resolve::cache::Outcome;
 
+/// The response, or why it is unusable. A 429 is an instruction — honour its `Retry-After`,
+/// defaulting to a minute — and any other non-success is a fact about the provider.
+fn checked(response: reqwest::Response, what: &str) -> Result<reqwest::Response, FetchError> {
+    let status = response.status();
+    if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+        let retry_after_secs = response
+            .headers()
+            .get(reqwest::header::RETRY_AFTER)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.trim().parse::<u64>().ok())
+            .unwrap_or(60);
+        return Err(FetchError::RateLimited { retry_after_secs });
+    }
+    if !status.is_success() {
+        return Err(FetchError::Failed(format!("{what} returned {status}")));
+    }
+    Ok(response)
+}
+
 impl Wikidata {
     /// Full-text search over items, through MediaWiki's own search (CirrusSearch).
     ///
@@ -31,15 +50,7 @@ impl Wikidata {
             .send()
             .await
             .map_err(|error| FetchError::Failed(error.to_string()))?;
-        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            return Err(FetchError::RateLimited {
-                retry_after_secs: 60,
-            });
-        }
-        let status = response.status();
-        if !status.is_success() {
-            return Err(FetchError::Failed(format!("wikidata search returned {status}")));
-        }
+        let response = checked(response, "wikidata search")?;
         // CirrusSearch sets this header only when it actually queried Elasticsearch. Its absence is
         // the documented signature of a silently degraded search (Phabricator T284478): HTTP 200,
         // `success: 1`, and a short prefix-only result set that looks exactly like a real answer.
@@ -126,13 +137,7 @@ impl Wikidata {
                 .send()
                 .await
                 .map_err(|error| FetchError::Failed(error.to_string()))?;
-            if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                return Err(FetchError::RateLimited { retry_after_secs: 60 });
-            }
-            let status = response.status();
-            if !status.is_success() {
-                return Err(FetchError::Failed(format!("wikidata entities returned {status}")));
-            }
+            let response = checked(response, "wikidata entities")?;
             let body: Value = response
                 .json()
                 .await
@@ -209,13 +214,7 @@ impl Wikidata {
             .send()
             .await
             .map_err(|error| FetchError::Failed(error.to_string()))?;
-        if response.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            return Err(FetchError::RateLimited { retry_after_secs: 60 });
-        }
-        let status = response.status();
-        if !status.is_success() {
-            return Err(FetchError::Failed(format!("wikipedia search returned {status}")));
-        }
+        let response = checked(response, "wikipedia search")?;
         let body: Value = response
             .json()
             .await
@@ -329,20 +328,7 @@ impl Wikidata {
             .await
             .map_err(|error| FetchError::Failed(error.to_string()))?;
 
-        let status = response.status();
-        // WDQS throttles with 429 and a Retry-After, and bans clients that ignore it.
-        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-            let retry_after_secs = response
-                .headers()
-                .get(reqwest::header::RETRY_AFTER)
-                .and_then(|value| value.to_str().ok())
-                .and_then(|value| value.trim().parse::<u64>().ok())
-                .unwrap_or(60);
-            return Err(FetchError::RateLimited { retry_after_secs });
-        }
-        if !status.is_success() {
-            return Err(FetchError::Failed(format!("wikidata sparql returned {status}")));
-        }
+        let response = checked(response, "wikidata sparql")?;
         let body: Value = response
             .json()
             .await
@@ -398,12 +384,6 @@ impl Wikidata {
             let entry = grouped.entry(query.to_string()).or_default();
             if !entry.iter().any(|existing| existing.id == candidate.id) {
                 entry.push(candidate);
-            }
-            if let Some(class) = row.get("type").and_then(|v| v.get("value")).and_then(Value::as_str)
-                && let Some(class_id) = class.rsplit('/').next()
-                && let Some(existing) = entry.last_mut()
-            {
-                existing.classes.push(class_id.to_string());
             }
         }
 

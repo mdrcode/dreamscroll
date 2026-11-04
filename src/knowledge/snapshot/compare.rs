@@ -91,39 +91,21 @@ pub async fn compare(
         .filter(|id| before_room.get(id) != after_room.get(*id))
         .count();
 
-    let mut examples = Vec::new();
-    for (entity, members) in &before_groups {
-        let into: BTreeSet<i32> = members
-            .iter()
-            .filter_map(|id| after_map.get(id))
-            .copied()
-            .collect();
-        if into.len() > 1 {
-            report.split += 1;
-            examples.push(Example {
-                kind: Kind::Split,
-                label: before_labels.get(entity).cloned().unwrap_or_default(),
-                members: members.len(),
-                into: into.len(),
-            });
-        }
-    }
-    for (entity, members) in &after_groups {
-        let from: BTreeSet<i32> = members
-            .iter()
-            .filter_map(|id| before_map.get(id))
-            .copied()
-            .collect();
-        if from.len() > 1 {
-            report.merged += 1;
-            examples.push(Example {
-                kind: Kind::Merged,
-                label: after_labels.get(entity).cloned().unwrap_or_default(),
-                members: members.len(),
-                into: from.len(),
-            });
-        }
-    }
+    let (split, mut examples) = transitions(
+        &before_groups,
+        &after_map,
+        &before_labels,
+        Kind::Split,
+    );
+    let (merged, merged_examples) = transitions(
+        &after_groups,
+        &before_map,
+        &after_labels,
+        Kind::Merged,
+    );
+    report.split = split;
+    report.merged = merged;
+    examples.extend(merged_examples);
 
     // Biggest changes first; a diff with one interesting group should lead with it.
     examples.sort_by(|a, b| b.members.cmp(&a.members).then(a.label.cmp(&b.label)));
@@ -143,6 +125,30 @@ fn groups(map: &HashMap<i32, i32>) -> BTreeMap<i32, Vec<i32>> {
         members.sort_unstable();
     }
     groups
+}
+
+/// Groups that became several (`Split`) or several that became one (`Merged`), by observation id.
+fn transitions(
+    groups: &BTreeMap<i32, Vec<i32>>,
+    other: &HashMap<i32, i32>,
+    labels: &HashMap<i32, String>,
+    kind: Kind,
+) -> (usize, Vec<Example>) {
+    let mut count = 0;
+    let mut examples = Vec::new();
+    for (entity, members) in groups {
+        let into: BTreeSet<i32> = members.iter().filter_map(|id| other.get(id)).copied().collect();
+        if into.len() > 1 {
+            count += 1;
+            examples.push(Example {
+                kind,
+                label: labels.get(entity).cloned().unwrap_or_default(),
+                members: members.len(),
+                into: into.len(),
+            });
+        }
+    }
+    (count, examples)
 }
 
 /// `observation → sorted group-mates`, for comparing what an observation's group looks like.

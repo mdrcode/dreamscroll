@@ -1,16 +1,10 @@
-//! Blocking: which entities are worth considering as targets for linking an observation into the knowledge graph.
-//!
-//!
-//! The one implementation is [`crate::knowledge::heuristic::NameBlocker`].
+//! Blocking: which entities are worth considering as targets. The one implementation is
+//! [`crate::knowledge::heuristic::NameBlocker`].
 
 use crate::model;
 
-/// The trait takes `&self` even where an implementation mutates. The store shares one blocker across
-/// concurrent writers, and if that sharing were expressed here — `&mut self` behind a lock the store
-/// owns — every caller would serialize on one lock, including the reads: `candidates` is called once
-/// per observation and does the corpus-wide work. An implementation that holds an index therefore
-/// owns its own synchronization and pays for the lock only where it writes. `Send + Sync` keeps that
-/// honest: a `RefCell`-backed index will not compile.
+/// `&self`, not `&mut self`: one blocker is shared across writers, so an in-memory index owns its own
+/// synchronization and pays for the lock only where it writes. `Send + Sync` keeps that honest.
 #[async_trait::async_trait]
 pub trait Blocker: Send + Sync {
     /// Candidates for one observation. Pure: same corpus, same answer.
