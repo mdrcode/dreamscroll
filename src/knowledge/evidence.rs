@@ -108,6 +108,29 @@ impl Identity {
     }
 }
 
+/// What the question was about, for one claim: the identifier, or the text.
+///
+/// Corroboration counts independent *inputs*, and independence is this, not who answered. A capture's
+/// handle and an authority asked about that handle are one chain however many schemes they name; a
+/// name and a handle are two. Recorded when the claim is written, because that is the only moment
+/// anything knows which question produced it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClaimBasis {
+    /// A handle: a capture showed one, or the authority was asked about one.
+    Handle,
+    /// A name, title or description.
+    Text,
+}
+
+impl ClaimBasis {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Handle => "handle",
+            Self::Text => "text",
+        }
+    }
+}
+
 /// Why a proximity was raised.
 ///
 /// A named type rather than a string at the call sites: the value is stored, compared, and will grow a
@@ -335,6 +358,8 @@ impl Evidence {
             model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
                 knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
                 knowledge_identity_id: sea_orm::Set(knowledge_identity_id),
+                // A capture showed a handle: that is what the question was about.
+                basis: sea_orm::Set(ClaimBasis::Handle.as_str().to_string()),
                 surface: sea_orm::Set(observation.platform_handle.clone()),
                 user_observed_entity_id: sea_orm::Set(Some(observation.id)),
                 source_user_id: sea_orm::Set(Some(observation.user_id)),

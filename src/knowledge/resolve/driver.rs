@@ -55,6 +55,8 @@ pub struct Claim {
     pub classes: Vec<String>,
     pub method: String,
     pub confidence: f32,
+    /// What the provider was asked about. The resolver knows, because it chose the question.
+    pub basis: crate::knowledge::evidence::ClaimBasis,
 }
 
 /// What went wrong at the transport. The distinction matters: a `Failed` request is a fact about the
@@ -201,12 +203,6 @@ impl<'a> ResolutionContext<'a> {
             budget_exhausted: AtomicBool::new(false),
             rate_limited_after: AtomicU64::new(NOT_LIMITED),
         }
-    }
-
-    /// Whether the run is prohibited from touching the network. A resolver that plans several passes
-    /// can stop after the first: with nothing fetched, a second pass has nothing new to say.
-    pub fn offline(&self) -> bool {
-        self.offline
     }
 
     /// Whether the provider has told us to stop. Checked between resolvers, not inside one.
@@ -567,6 +563,7 @@ async fn store_claim(
     let insert = model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
         knowledge_entity_id: Set(knowledge_entity_id),
         knowledge_identity_id: Set(identity_id),
+        basis: Set(claim.basis.as_str().to_string()),
         ..Default::default()
     })
     .exec(&db.conn)
@@ -682,6 +679,7 @@ mod tests {
                             classes: Vec::new(),
                             method: "exact_label".to_string(),
                             confidence: 0.9,
+                            basis: crate::knowledge::evidence::ClaimBasis::Text,
                         },
                     ))
                 })
@@ -853,6 +851,7 @@ mod tests {
             "wikidata",
             Some("exact_label"),
             Some(0.8),
+            "text",
         )
         .await;
         crate::test_support::fixtures::claim(
@@ -863,6 +862,7 @@ mod tests {
             "platform",
             None,
             None,
+            "handle",
         )
         .await;
 
@@ -890,9 +890,10 @@ mod tests {
         );
     }
 
-    /// A `p2002` claim *is* the handle — it must not count as a second input beside it.
+    /// A handle from a capture and an authority asked about that handle are one chain, however many
+    /// providers and schemes they name — the claim's basis says so, so nothing has to infer it.
     #[tokio::test]
-    async fn a_handle_derived_claim_is_not_corroboration() {
+    async fn a_handle_basis_claim_is_not_corroboration() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -917,6 +918,7 @@ mod tests {
                 source,
                 method,
                 confidence,
+                crate::knowledge::evidence::ClaimBasis::Handle.as_str(),
             )
             .await;
         }
@@ -1020,6 +1022,7 @@ mod tests {
                                 classes: Vec::new(),
                                 method: "exact_label".to_string(),
                                 confidence: 0.9,
+                                basis: crate::knowledge::evidence::ClaimBasis::Text,
                             },
                         )
                     })
@@ -1133,6 +1136,7 @@ mod tests {
             "wikidata",
             Some("exact_label"),
             Some(0.9),
+            "text",
         )
         .await;
         crate::test_support::fixtures::claim(
@@ -1143,6 +1147,7 @@ mod tests {
             "platform",
             None,
             None,
+            "handle",
         )
         .await;
 

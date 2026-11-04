@@ -16,6 +16,7 @@ use std::collections::HashSet;
 
 use serde_json::{json, Value};
 
+use crate::knowledge::evidence::ClaimBasis;
 use crate::knowledge::resolve::{
     Answers, BATCH, Claim, FetchError, Raw, Request, ResolutionContext, Resolver, Transport,
 };
@@ -245,10 +246,10 @@ impl Wikidata {
 
         // A property match *is* the identity: an item claiming this handle is the account, not
         // something that merely looks like it.
-        if Self::property_of(&request.kind).is_some() {
+        if let Some(property) = Self::property_of(&request.kind) {
             return candidates
                 .first()
-                .map(|candidate| claim(candidate, "p2002", 0.95))
+                .map(|candidate| handle_claim(candidate, property))
                 .into_iter()
                 .collect();
         }
@@ -393,10 +394,9 @@ impl Resolver for Wikidata {
         self.collect(entities, &identity, &answers, ctx, &mut claims, &mut resolved)
             .await;
 
-        // Offline, nothing is fetched, so a second pass has nothing to learn.
-        if ctx.offline() {
-            return claims;
-        }
+        // The fallback runs offline too: `ask` decides what to fetch, so in that mode it serves the
+        // cached search answers and silently fetches nothing. Skipping it here threw those answers
+        // away, which made an offline rebuild reproduce only what the first pass found.
 
         let fallback: Vec<(usize, Request)> = entities
             .iter()
@@ -635,7 +635,17 @@ fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Claim {
         classes: candidate.classes.clone(),
         method: method.to_string(),
         confidence,
+        basis: ClaimBasis::Text,
     }
+}
+
+/// A property match: the item *is* the account. The basis is the handle, which is what stops the
+/// answer counting as a second, independent input beside the handle that produced it — however many
+/// platforms the property table grows.
+fn handle_claim(candidate: &Candidate, property: &str) -> Claim {
+    let mut claim = claim(candidate, property, 0.95);
+    claim.basis = ClaimBasis::Handle;
+    claim
 }
 
 /// The part of `search_query` that the label does not already say.
@@ -867,7 +877,7 @@ mod tests {
             &found(json!([{"id": "Q1234", "label": "Tsoding"}])),
         );
         assert_eq!(claims.len(), 1);
-        assert_eq!(claims[0].method, "p2002");
+        assert_eq!(claims[0].method, "P2002");
         assert_eq!(claims[0].confidence, 0.95);
     }
 

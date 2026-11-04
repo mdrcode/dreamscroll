@@ -273,7 +273,7 @@ mod tests {
             .await
             .unwrap()
             .expect("linking made an entity");
-        fixtures::claim(&db, claimed.id, "wikidata", "Q317521", "test", None, None).await;
+        fixtures::claim(&db, claimed.id, "wikidata", "Q317521", "test", None, None, "text").await;
         let before = live_partition(&db).await;
         assert_eq!(before, vec![vec![1, 2], vec![3]], "{before:?}");
 

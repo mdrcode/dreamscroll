@@ -279,7 +279,7 @@ Two derived signals follow, both projections rather than columns:
 
 | Signal | Rule |
 | --- | --- |
-| **corroboration** | count of *distinct schemes* with a live claim on this knowledge entity; `confidence` rises with each independent authority |
+| **corroboration** | the *kinds of question* answered about a knowledge entity, recorded per claim as `basis` (`text`, `handle`); `confidence` rises with each independent input. Two schemes naming one handle are one chain, however many providers they came from |
 | **wrong incumbent** | the knowledge entity holding an identity is the wrong referent, and the right one is refused by the veto. Measured 2026-11-01: `Q85810391` (*Train Dreams, 2011 novella*) is held by the **movie** knowledge entity and the **book** knowledge entity — the correct referent — cannot claim it. The holder is flagged `contested`, but nothing adjudicates, so the right knowledge entity is locked out permanently |
 | **conflict** | two schemes the authorities themselves disagree about (Wikidata's `P345` points at a different IMDb id than we hold) — a `collision` row, not a merge |
 
@@ -539,7 +539,7 @@ The seeding is the part a human supplies; everything else is mechanical, which i
 | `entity_type` | the selected type, same rule; `alt_types` collects the rest |
 | `description` | the current text while a member still carries it, else the earliest member's; preserved when no member has one |
 | `alt_descriptions` | every other member description, verbatim, ordered by member id |
-| `confidence` | rises with the number of distinct schemes holding a live claim, plus the best identity score |
+| `confidence` | the best claim's score, plus 0.1 per extra independent input (`text` and `handle` are the two), from `knowledge_claims.basis` |
 | `status` | `identified` if any live identity claim exists; `contested` if a `collision` row does; else `provisional` |
 | `merged_into_id` | written by `merge`, and by a repair that replaces a knowledge entity |
 

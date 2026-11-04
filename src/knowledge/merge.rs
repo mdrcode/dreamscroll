@@ -478,6 +478,7 @@ mod tests {
             "wikidata",
             Some("exact_label"),
             Some(0.8),
+            "text",
         )
         .await;
 

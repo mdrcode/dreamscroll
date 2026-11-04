@@ -22,6 +22,7 @@ use sea_orm::{
 
 use crate::model;
 
+use super::evidence::ClaimBasis;
 use super::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 
 /// Recompute the columns that are a function of the members and of the evidence.
@@ -118,20 +119,19 @@ pub(super) async fn project<C: ConnectionTrait>(
     let claim_rows = conn
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT i.source, i.method, i.confidence \
+            "SELECT c.basis, i.confidence \
                FROM knowledge_claims c \
                JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
               WHERE c.knowledge_entity_id = $1 AND c.retracted_at IS NULL",
             [knowledge_entity_id.into()],
         ))
         .await?;
-    let claims: Vec<(String, Option<String>, Option<f32>)> = claim_rows
+    let claims: Vec<(String, Option<f32>)> = claim_rows
         .iter()
         .map(|row| {
             Ok((
                 row.try_get_by_index::<String>(0)?,
-                row.try_get_by_index::<Option<String>>(1)?,
-                row.try_get_by_index::<Option<f32>>(2)?,
+                row.try_get_by_index::<Option<f32>>(1)?,
             ))
         })
         .collect::<Result<Vec<_>, sea_orm::DbErr>>()?;
@@ -144,18 +144,19 @@ pub(super) async fn project<C: ConnectionTrait>(
         STATUS_IDENTIFIED
     };
 
-    // Corroboration counts independent *inputs*, not scheme labels. A `p2002` claim is derived from
-    // the handle — the resolver asked Wikidata which item owns that account — so counting it beside
-    // the handle's own row treated one chain as two and gave every handle-resolved entity maximum
-    // confidence.
+    // Corroboration counts independent *inputs* — what the question was about, which the claim
+    // records — not scheme labels and not who answered. A handle and an authority asked about that
+    // handle are one chain however many providers they name; a name and a handle are two.
     let from_text = claims
         .iter()
-        .any(|claim| claim.0 == "wikidata" && claim.1.as_deref() != Some("p2002"));
-    let from_handle = claims.iter().any(|claim| claim.0 == "platform");
+        .any(|claim| claim.0 == ClaimBasis::Text.as_str());
+    let from_handle = claims
+        .iter()
+        .any(|claim| claim.0 == ClaimBasis::Handle.as_str());
     let inputs = usize::from(from_text) + usize::from(from_handle);
     let best = claims
         .iter()
-        .map(|claim| claim.2.unwrap_or(0.0))
+        .map(|claim| claim.1.unwrap_or(0.0))
         .fold(0.0f32, f32::max);
     let confidence = if claims.is_empty() {
         None
@@ -244,7 +245,7 @@ mod tests {
     }
 
     async fn claim(db: &DbHandle, id: i32, scheme: &str, value: &str) {
-        fixtures::claim(db, id, scheme, value, "test", None, None).await;
+        fixtures::claim(db, id, scheme, value, "test", None, None, "text").await;
     }
 
     async fn proximity(db: &DbHandle, holder: i32, scheme: &str, value: &str) {

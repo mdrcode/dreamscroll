@@ -24,6 +24,10 @@ pub struct Model {
     #[sea_orm(nullable)]
     pub surface: Option<String>,
 
+    /// What the question was about: `handle` or `text`. Corroboration counts one of each, so
+    /// independence is a property of the evidence rather than of which provider answered.
+    pub basis: String,
+
     /// Provenance when the claim came off a capture: which observation, whose capture, when.
     #[sea_orm(nullable)]
     pub user_observed_entity_id: Option<i32>,
