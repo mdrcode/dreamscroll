@@ -6,8 +6,9 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
-- [ ] **Review the graph-model workstream before pushing.** `3f23fec..HEAD` is 21 commits (16 pushed,
-  5 local), 33 files, +1,890/−617. Four things happened, in order: `knowledge_evidence` — one table
+- [ ] **Review the graph-model workstream before pushing.** `3f23fec..HEAD` is 36 commits (16 pushed, the
+  rest local); read the file count and diffstat from `git diff --stat 3f23fec..HEAD` — they move with
+  every commit here. Four things happened, in order: `knowledge_evidence` — one table
   with a `kind` discriminator and three payload shapes — became `knowledge_identities`,
   `knowledge_claims` (an edge), `knowledge_merges` and `knowledge_proximities`; a claim became
   many-to-one, so sharing an identity is a candidate rather than a verdict; `reconcile` split into a
@@ -186,6 +187,33 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
   Moot if the Interactions API has no file-reference input; then the lever is
   shrinking uploads instead. See MEDIA_TRANSCODE in `plan/upload-formats.md`.
+
+- [ ] **Make the scoring agree with itself.** An audit of `src/knowledge` (2026-11-04) found four
+  places where a function contradicts its own rule. None of them changes the corpus today — a rebuild
+  is identical either way — so each needs a before/after diff
+  (`reset` → `link` → `resolve --offline` → `compare`) to prove it moves, not just a unit test.
+
+  1. **Two fits for one candidate.** `wikidata/resolver.rs::parse_search` builds IDF weights over all
+     of the answer's candidates; `decide` builds them over the *admitted* subset. One candidate is
+     therefore scored against two weight sets inside one `parse`, so a search answer can be accepted
+     on one fit and ranked on another.
+  2. **The margin guards the wrong competitor.** `rank` sorts by blended `score`, then `decide` takes
+     `runner_up` as the next entry *in that order* while comparing its `fit`. On the `title` and
+     `search_ranked` paths those orders differ, so the ambiguity rule is measured against a candidate
+     that is not the closest by the measure it uses. `plan/knowledge-resolution.md` reasons about
+     margins in fit space, which assumes the fit order.
+  3. **Two orderings for "most substantiated".** `reconcile::merge_open` picks the survivor with
+     `confidence.unwrap_or(0.0) >`, while `evidence::held_by_identity` orders
+     `confidence DESC NULLS LAST, id` and `scan` trusts that order. They disagree only when a holder's
+     confidence is NULL, which needs a stale projection — `resolve` now projects before reconciling,
+     so this is latent, not live. Either adopt one comparator (`heuristic::wins`) and make the SQL
+     contract to it, or document the SQL order as the contract.
+  4. **The third holder's pair is never asked.** With three or more holders `scan` pairs every other
+     holder against `holders.first()`, so `(h2, h3)` never becomes a proximity and that question is
+     invisible in `proximity list`. The corpus never exceeds two holders, so nothing is missing yet.
+
+  Settle 1 and 2 by choosing which weight set and which ordering is authoritative — both are ranker
+  policy and belong with the resolver, not the linker.
 
 ## Deferred — already scoped
 
