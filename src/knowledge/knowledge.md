@@ -191,9 +191,14 @@ Sharing an identity is a **candidate**, not a verdict — that is why the unique
 for each identity with two or more holders, score the holders pairwise with the linker's weights, fold
 the pairs that look like one thing, and queue the ones the veto refuses.
 
-A partial unique index does the hard part: no two entities may hold a *live* claim to the same
-`(scheme, id)`. Retracting a claim (`retracted_at`) frees the slot — retraction is a fact with a
-timestamp, not a status.
+The only uniqueness is per entity: one live claim per `(entity, identity)`, so retracting frees that
+pair's slot and re-asserting it is a no-op. Nothing forbids two entities holding one identity — that is
+the many-to-one the model exists for.
+
+`reconcile.rs` runs in two phases. **Scan** reads the graph and only writes proximities (idempotent, so
+it runs after a link as well as at the end of a resolve). **Merge** consumes the open rows, re-checks
+that both sides still exist, scores the pair with the linker's own weights and folds the convincing
+ones; the rest stay open for a person, who answers `distinct` or merges by hand.
 
 ## The view boundary
 

@@ -6,18 +6,18 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
-- [ ] **Review the evidence-table split before pushing.** `3f23fec..HEAD` is eight commits, still
-  local: `knowledge_evidence` — one table with a `kind` discriminator and three payload shapes —
-  became `knowledge_identities`, `knowledge_claims` (an edge), `knowledge_merges` and
-  `knowledge_collisions`; claims then became many-to-one with a reconcile pass deciding sameness.
-  Schema 23, localdev rebuilt. Aggregate diff: 1,064 lines across 26 files —
-  prod +431/−213, test +213/−133, docs 74.
-  Read in this order: the three model files (what each table can now enforce), `Evidence::record` and
-  `owner`, `merge_in_transaction` (claim re-point and de-dupe, the collision deletes and two-end
-  re-point, the merge row that no longer moves), `project`'s status derivation, then the index DDL in
-  `database/indexes/knowledge.rs` — two of those four blocks are workarounds worth knowing about.
-  Per-commit: `13b714f` tables only, `09dce4e` claims, `f5a0ea4` merges, `5c47330` collisions + the
-  retirement; each compiles and passes on its own.
+- [ ] **Review the graph-model workstream before pushing.** `3f23fec..HEAD` is 21 commits (16 pushed,
+  5 local), 33 files, +1,890/−617. Four things happened, in order: `knowledge_evidence` — one table
+  with a `kind` discriminator and three payload shapes — became `knowledge_identities`,
+  `knowledge_claims` (an edge), `knowledge_merges` and `knowledge_proximities`; a claim became
+  many-to-one, so sharing an identity is a candidate rather than a verdict; `reconcile` split into a
+  scan that records and a merge pass that decides; and the `contested` status went, because it was a
+  derived boolean stored beside substantiation.
+  Read in this order: the four model files, `evidence.rs` (`Claim`, `Identity`, `Basis`, `holders`,
+  `raise`), `reconcile.rs` (scan + merge_open), `merge.rs` (which now *settles* a proximity instead of
+  deleting it), `project`'s status (two values), then `database/indexes/knowledge.rs` and the migration
+  in `sync_schema.rs` — both contain workarounds worth knowing about.
+  The old vocabulary is gone: `contested`, `collisions`, `shared_identity`, `ClaimOutcome::HeldBy`.
 - [ ] **Refuse a merge between incompatible types.** `merge` is driven by identity equality alone:
   `resolve` finds two entities holding the same `(scheme, id)` and folds them, with no check that they
   agree about what kind of thing they are. Six of the eight live collisions are exactly that — a
