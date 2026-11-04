@@ -393,8 +393,12 @@ async fn main() -> anyhow::Result<()> {
                 stats.with_platform, stats.platform_from_members
             );
             println!(
-                "  cache {} with candidates · {} no match · {} failed · {} expired",
-                stats.cache_found, stats.cache_empty, stats.cache_failed, stats.cache_expired
+                "  cache {} with candidates · {} no match · {} failed · {} degraded · {} expired",
+                stats.cache_found,
+                stats.cache_empty,
+                stats.cache_failed,
+                stats.cache_degraded,
+                stats.cache_expired
             );
         }
     }

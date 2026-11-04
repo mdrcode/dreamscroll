@@ -34,6 +34,9 @@ pub struct KnowledgeStats {
     /// `with_platform`; when it is not, projection has lost something.
     pub platform_from_members: u64,
     pub cache_found: u64,
+    /// Live answers that arrived, but not in a way worth trusting — the category most likely to hide a
+    /// silent provider failure, so it is counted rather than folded into `found`.
+    pub cache_degraded: u64,
     pub cache_empty: u64,
     pub cache_failed: u64,
     /// Rows past their expiry: not answers any more, and refetchable.
@@ -154,6 +157,7 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
             "found" => stats.cache_found += 1,
             "empty" => stats.cache_empty += 1,
             "failed" => stats.cache_failed += 1,
+            "degraded" => stats.cache_degraded += 1,
             _ => {}
         }
     }
