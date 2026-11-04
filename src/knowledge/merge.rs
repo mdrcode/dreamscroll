@@ -328,42 +328,30 @@ mod tests {
         let winner = entity_with(&db, "Elon Musk").await;
         let loser = entity_with(&db, "Elon").await;
 
-        let user_id = fixtures::user(&db, "merge_surfaces").await;
-
-        // Each entity needs its own observation: a merge is refused when both sides appear in one
-        // capture, so the winner's surface has to come from somewhere real.
-        let winner_capture = fixtures::capture(&db, user_id).await;
-        let winner_illumination = fixtures::illumination(&db, user_id, winner_capture).await;
-        obs::Entity::insert(obs::ActiveModel {
-            user_id: Set(user_id),
-            capture_id: Set(winner_capture),
-            illumination_id: Set(winner_illumination),
-            position: Set(0),
-            name: Set("Elon Musk".to_string()),
-            entity_type: Set("real_person".to_string()),
-            knowledge_entity_id: Set(Some(winner)),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .unwrap();
-
-        let capture_id = fixtures::capture(&db, user_id).await;
-        let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
-        obs::Entity::insert(obs::ActiveModel {
-            user_id: Set(user_id),
-            capture_id: Set(capture_id),
-            illumination_id: Set(illumination_id),
-            position: Set(0),
-            name: Set("Elon".to_string()),
-            entity_type: Set("real_person".to_string()),
-            description: Set(Some("the CEO of Tesla".to_string())),
-            knowledge_entity_id: Set(Some(loser)),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .unwrap();
+        // Each entity needs its own capture: a merge is refused when both sides appear in one, so
+        // the winner's surface has to come from somewhere real.
+        let winner_capture = fixtures::Capture::new(&db, "merge_surfaces_winner").await;
+        fixtures::attached(
+            &db,
+            &winner_capture,
+            0,
+            "Elon Musk",
+            None,
+            "real_person",
+            winner,
+        )
+        .await;
+        let loser_capture = fixtures::Capture::new(&db, "merge_surfaces_loser").await;
+        fixtures::attached(
+            &db,
+            &loser_capture,
+            0,
+            "Elon",
+            Some("the CEO of Tesla"),
+            "real_person",
+            loser,
+        )
+        .await;
 
         assert_eq!(
             merge(&db.conn, loser, winner, Cause::IdentityConflict)
@@ -401,25 +389,11 @@ mod tests {
         let book = entity_with(&db, "Corduroy").await;
         let character = entity_with(&db, "Corduroy").await;
 
-        let user_id = fixtures::user(&db, "merge_veto").await;
-        let capture_id = fixtures::capture(&db, user_id).await;
-        let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
+        let capture = fixtures::Capture::new(&db, "merge_veto").await;
         for (position, knowledge_entity_id, name) in
             [(0, book, "Corduroy"), (1, character, "Corduroy")]
         {
-            obs::Entity::insert(obs::ActiveModel {
-                user_id: Set(user_id),
-                capture_id: Set(capture_id),
-                illumination_id: Set(illumination_id),
-                position: Set(position),
-                name: Set(name.to_string()),
-                entity_type: Set("book".to_string()),
-                knowledge_entity_id: Set(Some(knowledge_entity_id)),
-                ..Default::default()
-            })
-            .exec(&db.conn)
-            .await
-            .unwrap();
+            fixtures::attached(&db, &capture, position, name, None, "book", knowledge_entity_id).await;
         }
 
         let outcome = merge(&db.conn, character, book, Cause::Repair)
@@ -453,22 +427,8 @@ mod tests {
         let winner = entity_with(&db, "Elon Musk").await;
         let loser = entity_with(&db, "Elon").await;
 
-        let user_id = fixtures::user(&db, "merge").await;
-        let capture_id = fixtures::capture(&db, user_id).await;
-        let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
-        obs::Entity::insert(obs::ActiveModel {
-            user_id: Set(user_id),
-            capture_id: Set(capture_id),
-            illumination_id: Set(illumination_id),
-            position: Set(0),
-            name: Set("Elon".to_string()),
-            entity_type: Set("real_person".to_string()),
-            knowledge_entity_id: Set(Some(loser)),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .unwrap();
+        let capture = fixtures::Capture::new(&db, "merge").await;
+        fixtures::attached(&db, &capture, 0, "Elon", None, "real_person", loser).await;
 
         fixtures::claim(
             &db,

@@ -10,7 +10,9 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
-use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
+use sea_orm::{
+    ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
 use serde_json::Value;
 
 use super::cache::{Answer, Cache, Outcome, UNPRODUCTIVE_TTL};
@@ -576,34 +578,54 @@ async fn candidates(
     only: Option<i32>,
 ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
     use model::knowledge_entity as entity;
+    use sea_orm::sea_query::{Expr, ExprTrait, Query};
 
-    let already: HashSet<i32> = conn
-        .query_all_raw(sea_orm::Statement::from_string(
-            sea_orm::DatabaseBackend::Postgres,
-            "SELECT DISTINCT c.knowledge_entity_id \
-               FROM knowledge_claims c \
-               JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
-              WHERE c.retracted_at IS NULL AND i.source <> 'platform'",
+    // Asked already: holds a claim an authority made, rather than only the capture's handle.
+    let claimed = Query::select()
+        .distinct()
+        .column((
+            model::knowledge_claims::Entity,
+            model::knowledge_claims::Column::KnowledgeEntityId,
         ))
-        .await?
-        .into_iter()
-        .map(|row| row.try_get_by_index::<i32>(0))
-        .collect::<Result<_, _>>()?;
+        .from(model::knowledge_claims::Entity)
+        .inner_join(
+            model::knowledge_identity::Entity,
+            Expr::col((
+                model::knowledge_claims::Entity,
+                model::knowledge_claims::Column::KnowledgeIdentityId,
+            ))
+            .equals((
+                model::knowledge_identity::Entity,
+                model::knowledge_identity::Column::Id,
+            )),
+        )
+        .and_where(
+            Expr::col((
+                model::knowledge_claims::Entity,
+                model::knowledge_claims::Column::RetractedAt,
+            ))
+            .is_null(),
+        )
+        .and_where(
+            Expr::col((
+                model::knowledge_identity::Entity,
+                model::knowledge_identity::Column::Source,
+            ))
+            .ne("platform"),
+        )
+        .to_owned();
 
-    let mut entities = entity::Entity::find()
+    let mut query = entity::Entity::find()
         .filter(entity::Column::MergedIntoId.is_null())
-        .order_by_asc(entity::Column::Id)
-        .all(conn)
-        .await?;
-    entities.retain(|row| !already.contains(&row.id));
+        .filter(Expr::col(entity::Column::Id).not_in_subquery(claimed))
+        .order_by_asc(entity::Column::Id);
     if let Some(knowledge_entity_id) = only {
-        entities.retain(|row| row.id == knowledge_entity_id);
+        query = query.filter(entity::Column::Id.eq(knowledge_entity_id));
     }
     if let Some(limit) = limit {
-        entities.truncate(limit);
+        query = query.limit(limit as u64);
     }
-
-    Ok(entities)
+    Ok(query.all(conn).await?)
 }
 
 #[cfg(test)]

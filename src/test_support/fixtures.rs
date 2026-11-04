@@ -61,6 +61,35 @@ pub async fn observe(
     .last_insert_id as i32
 }
 
+/// An observation that already belongs to an entity — the state a merge starts from.
+pub async fn attached(
+    db: &DbHandle,
+    capture: &Capture,
+    position: i32,
+    name: &str,
+    description: Option<&str>,
+    entity_type: &str,
+    knowledge_entity_id: i32,
+) -> i32 {
+    model::user_observed_entity::Entity::insert(
+        model::user_observed_entity::ActiveModel {
+            user_id: Set(capture.user_id),
+            capture_id: Set(capture.capture_id),
+            illumination_id: Set(capture.illumination_id),
+            position: Set(position),
+            name: Set(name.to_string()),
+            entity_type: Set(entity_type.to_string()),
+            description: Set(description.map(str::to_string)),
+            knowledge_entity_id: Set(Some(knowledge_entity_id)),
+            ..Default::default()
+        },
+    )
+    .exec(&db.conn)
+    .await
+    .expect("observation should insert")
+    .last_insert_id as i32
+}
+
 /// How many entities exist, for asserting how a reading was clustered.
 pub async fn entity_count(db: &DbHandle) -> u64 {
     model::knowledge_entity::Entity::find()
