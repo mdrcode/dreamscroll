@@ -210,8 +210,8 @@ this file (git history keeps it) and recorded in `plan/archive/`.
      invisible in `proximity list`. The corpus never exceeds two holders, so nothing is missing yet.
 
   Settle 1 and 2 by choosing which weight set and which ordering is authoritative — both are ranker
-  policy and belong with the resolver, not the linker. Note that the scoring split (`score.rs` verbs,
-  `heuristic_score.rs` policy) makes 1 cheaper to state: `parse_search` builds `Weights` itself
+  policy and belong with the resolver, not the linker. Note that the scoring split (`scoring.rs` verbs,
+  `heuristic_scoring.rs` policy) makes 1 cheaper to state: `parse_search` builds `Weights` itself
   instead of asking the policy, which is now the visible oddity rather than a hidden one.
 
 ## Deferred — already scoped

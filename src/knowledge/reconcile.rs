@@ -18,7 +18,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
 use super::evidence::Evidence;
 use super::merge::{Cause, Outcome};
-use super::score::{by_worth, Scoring};
+use super::scoring::{by_worth, Scoring};
 use super::Knowledge;
 
 /// What one reconcile did.
@@ -256,7 +256,7 @@ mod tests {
             .expect("one question, one row");
         assert!(row.verdict.is_none(), "nothing decided yet");
         assert!(
-            row.score.unwrap() >= crate::knowledge::heuristic_score::MERGE_BAR,
+            row.score.unwrap() >= crate::knowledge::heuristic_scoring::MERGE_BAR,
             "{:?}",
             row.score
         );

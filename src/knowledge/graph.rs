@@ -16,7 +16,7 @@ use crate::model;
 use super::blocker::Blocker;
 use super::evidence::Evidence;
 use super::link_decider::LinkDecider;
-use super::score::Scoring;
+use super::scoring::Scoring;
 
 pub const STATUS_PROVISIONAL: &str = "provisional";
 pub const STATUS_IDENTIFIED: &str = "identified";

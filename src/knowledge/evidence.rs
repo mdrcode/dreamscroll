@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::knowledge::normalize;
-use crate::knowledge::score::by_worth;
+use crate::knowledge::scoring::by_worth;
 use crate::model;
 
 /// A platform link, as the capture showed it. `link` transcribes it; nothing infers anything here.

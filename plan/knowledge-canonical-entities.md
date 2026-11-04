@@ -374,7 +374,7 @@ agreed on one name was persisted with `alt_names = {}` and became invisible to b
 single run this hid, because `absorb_names` puts the name into the in-memory `alt_names`; across runs
 it did not, and every capture that repeated a name created a duplicate — the corpus carried ten such
 pairs. Caught by a manual capture: *Francis Ford Coppola* already existed, and linking created a
-second. `score::Core::new` now takes the name and indexes it alongside the alternatives.
+second. `scoring::Core::new` now takes the name and indexes it alongside the alternatives.
 
 ### Scoring
 

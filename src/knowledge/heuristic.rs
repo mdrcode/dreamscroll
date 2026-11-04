@@ -9,7 +9,7 @@ use crate::model;
 
 use super::evidence::Evidence;
 use super::link_decider::{Action, Decision, LinkDecider};
-use super::score::{Scoring, Subject};
+use super::scoring::{Scoring, Subject};
 
 /// Take the highest-scoring candidate that clears the bar; otherwise start a new entity.
 #[derive(Debug, Default, Clone, Copy)]

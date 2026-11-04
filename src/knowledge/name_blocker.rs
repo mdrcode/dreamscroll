@@ -17,7 +17,7 @@ use crate::model;
 
 use super::blocker::Blocker;
 use super::evidence::Claim;
-use super::heuristic_score::block_keys;
+use super::heuristic_scoring::block_keys;
 
 /// Blocks on normalized names and the account a capture showed.
 #[derive(Debug, Default)]

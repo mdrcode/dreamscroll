@@ -18,7 +18,7 @@ use crate::model;
 
 use super::blocker::Blocker;
 use super::evidence::Evidence;
-use super::score::Scoring;
+use super::scoring::Scoring;
 
 /// What to do with one observation.
 #[derive(Debug, Clone, PartialEq)]

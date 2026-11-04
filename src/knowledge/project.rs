@@ -137,7 +137,7 @@ pub(super) async fn project<C: ConnectionTrait>(
         STATUS_IDENTIFIED
     };
 
-    let confidence = super::heuristic_score::combine(&claims);
+    let confidence = super::heuristic_scoring::combine(&claims);
 
     model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),

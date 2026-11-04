@@ -135,7 +135,7 @@ assert one previously unknown handle are both told to create, and become two ent
 identity. `merge` refuses that pair (shared illumination), so `reconcile` reports it once and it stays
 open — the terminal state the merge-side rule produces everywhere.
 
-**The heuristic is one implementation of that chain — not the chain.** The chain is `score.rs`, and
+**The heuristic is one implementation of that chain — not the chain.** The chain is `scoring.rs`, and
 it is two verbs:
 
 - [`Similarity`] measures one pair: how strongly the evidence says these two are one thing.
@@ -152,7 +152,7 @@ scores; `merge` and the holder order ask `by_worth`, a convention about `NULL`. 
 `reconcile` take a `Scoring`, and it is the **store's** — a linker carrying its own would leave the
 merge pass on a different policy, silently.
 
-`heuristic_score.rs` is today's only answer: normalized keys, weights, the bar, the corroboration
+`heuristic_scoring.rs` is today's only answer: normalized keys, weights, the bar, the corroboration
 bonus. `heuristic.rs` is the **procedure** — the best qualifying candidate, else create — and holds
 no numbers. `name_blocker.rs` is recall: names and handles to candidates, nothing scored. The
 resolver keeps its own measure and its own calibration, because its candidate type is private and
@@ -266,9 +266,9 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 | file | what it is |
 |---|---|
-| `score.rs` | the two verbs — `Similarity`, `Rank` — `by_worth`, and the `Scoring` bundle |
+| `scoring.rs` | the two verbs — `Similarity`, `Rank` — `by_worth`, and the `Scoring` bundle |
 | `blocker.rs`, `link_decider.rs` | the two linking traits, and nothing else — the contract a linker implements |
-| `heuristic_score.rs` | the only `Scoring` today: token keys, weights, the bar, the corroboration bonus |
+| `heuristic_scoring.rs` | the only `Scoring` today: token keys, weights, the bar, the corroboration bonus |
 | `name_blocker.rs` | `NameBlocker`: recall by normalized name and platform handle |
 | `heuristic.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |

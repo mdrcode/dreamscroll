@@ -9,11 +9,11 @@
 //!   that separates "same thing" from "similar" is a conjunction over what was compared — a name
 //!   match has to be corroborated — and a number cannot carry its own components.
 //! - **An aggregate** over several claims about one entity is arithmetic, not a judgement; it is
-//!   `heuristic_score::combine`, one function, written once.
+//!   `heuristic_scoring::combine`, one function, written once.
 //! - **An ordering** between two substantiated things is [`by_worth`]: a convention about `None`,
 //!   with no policy in it.
 //!
-//! One implementation covers the graph — `heuristic_score::Heuristic` — and implements both traits
+//! One implementation covers the graph — `heuristic_scoring::Heuristic` — and implements both traits
 //! for each pair it is asked about. An authority implements [`Rank`] for its *own* candidate type,
 //! because its measure is corpus-aware (it weighs terms by rarity among the candidates it got back)
 //! and a pair comparison cannot see the corpus.
@@ -130,7 +130,7 @@ pub struct Scoring {
 impl Scoring {
     /// The heuristic: today's only policy, and the default for every store that does not choose.
     pub fn heuristic() -> Self {
-        let policy = Arc::new(super::heuristic_score::Heuristic);
+        let policy = Arc::new(super::heuristic_scoring::Heuristic);
         Self {
             link: policy.clone(),
             merge: policy.clone(),

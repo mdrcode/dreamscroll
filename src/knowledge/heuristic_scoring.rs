@@ -12,7 +12,7 @@
 //!
 //! Not here: the confidence scale for authority answers (that is the authority's own calibration,
 //! in `resolve/wikidata/ranking.rs`), the aggregate over claims ([`combine`], arithmetic), and the
-//! order between two substantiated things (`score::by_worth`, a convention).
+//! order between two substantiated things (`scoring::by_worth`, a convention).
 
 use std::collections::BTreeSet;
 
@@ -20,7 +20,7 @@ use crate::model;
 
 use super::evidence::ClaimBasis;
 use super::normalize;
-use super::score::{Rank, Similarity, Subject};
+use super::scoring::{Rank, Similarity, Subject};
 
 pub const WEIGHT_NAME: f32 = 0.60;
 pub const WEIGHT_DESCRIPTION: f32 = 0.30;
@@ -285,7 +285,7 @@ fn type_similarity(a: &str, b: &str) -> f32 {
 
 // ---------------------------------------------------------------------------------------------
 // The string plumbing the scoring and the blocker share. `normalize::comparable` is the core's;
-// these are the guess's, and nothing outside `heuristic_score` and `name_blocker` asks for them.
+// these are the guess's, and nothing outside `heuristic_scoring` and `name_blocker` asks for them.
 // ---------------------------------------------------------------------------------------------
 
 /// The two keys one surface answers to: its comparable form, and the order-insensitive token key.
@@ -327,7 +327,7 @@ fn token_key_of(words: &[String]) -> String {
 mod tests {
     use super::*;
 
-    use crate::knowledge::score::{Similarity, Subject};
+    use crate::knowledge::scoring::{Similarity, Subject};
     use crate::test_support::fixtures;
 
     fn subject(name: &str, description: Option<&str>, ty: &str) -> Subject {
@@ -427,7 +427,7 @@ mod tests {
     /// `None` is the least worth there is, and a tie is not a win for either side.
     #[test]
     fn by_worth_puts_nothing_last() {
-        use crate::knowledge::score::by_worth;
+        use crate::knowledge::scoring::by_worth;
         assert_eq!(by_worth(None, Some(0.5)), std::cmp::Ordering::Less);
         assert_eq!(by_worth(Some(0.5), None), std::cmp::Ordering::Greater);
         assert_eq!(by_worth(Some(0.5), Some(0.5)), std::cmp::Ordering::Equal);
