@@ -102,7 +102,6 @@ enum Decision {
 
 struct LinkResult {
     decisions: Vec<(i32, Decision)>,   // observation id → what to do
-    vetoed: u32,                       // how often the rule below actually fired
 }
 ```
 
@@ -119,8 +118,13 @@ twice. What a strategy must not do is *write* one: `update_projection` is the on
 The derived forms the scorer works with (`surfaces()`, `descriptions()`, `types()`) are inherent
 methods on the model, beside its columns.
 
-`link.rs` is the executor: load the rows, drive them through the blocker and linker, apply the
-effects.
+`link.rs` is the executor. It imports the identities the capture asserted, then loads the rows, drives
+them through the blocker and linker, and applies the effects — in that order, because a decision names
+an identity by id and leaves `apply` with nothing to create. Every decision is made before any is
+applied, so the illumination's own claims are invisible to its own decisions: two observations that
+assert one previously unknown handle are both told to create, and become two entities holding one
+identity. `merge` refuses that pair (shared illumination), so `reconcile` reports it once and it stays
+open — the same terminal state the veto produces everywhere else.
 
 **The heuristic is one implementation of that chain — not the chain.** `heuristic.rs` holds our
 first prototype: normalized name keys to block on, weighted features, a bar to clear. It is

@@ -8,10 +8,7 @@
 
 use std::sync::Arc;
 
-use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter, Set,
-    Statement,
-};
+use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Set, Statement};
 
 use crate::database::DbHandle;
 use crate::model;
@@ -92,16 +89,6 @@ impl Knowledge {
         knowledge_entity_id: i32,
     ) -> anyhow::Result<()> {
         attach(&self.db.conn, observation_id, knowledge_entity_id).await
-    }
-
-    /// Throw away an entity that owns nothing — a create that lost its claim to another entity.
-    ///
-    /// An entity that still has members is refused rather than deleted — the foreign key would
-    /// refuse it too, but after the fact and about constraints rather than about this call.
-    pub async fn discard_empty(&self, knowledge_entity_id: i32) -> anyhow::Result<()> {
-        discard_empty(&self.db.conn, knowledge_entity_id).await?;
-        self.forget(knowledge_entity_id);
-        Ok(())
     }
 
     /// Link one reading into the graph: cluster its observations, record their claims, and project
@@ -258,50 +245,11 @@ async fn attach<C: ConnectionTrait>(
     Ok(())
 }
 
-async fn discard_empty<C: ConnectionTrait>(
-    conn: &C,
-    knowledge_entity_id: i32,
-) -> anyhow::Result<()> {
-    let members = model::user_observed_entity::Entity::find()
-        .filter(model::user_observed_entity::Column::KnowledgeEntityId.eq(knowledge_entity_id))
-        .count(conn)
-        .await?;
-    anyhow::ensure!(
-        members == 0,
-        "knowledge entity {knowledge_entity_id} still owns {members} observation(s); it is not empty \
-         and must not be discarded"
-    );
-    model::knowledge_entity::Entity::delete_by_id(knowledge_entity_id)
-        .exec(conn)
-        .await?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     use crate::test_support::{fixtures, test_db};
-
-    /// The name is the contract: an entity that still owns observations is refused, not deleted.
-    /// (The foreign key would fail it too — but on a call that was never meant to reach the database.)
-    #[tokio::test]
-    async fn an_entity_with_members_is_not_discarded() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-
-        let error = Knowledge::new(&db).discard_empty(id).await.unwrap_err();
-        assert!(error.to_string().contains("still owns"), "{error}");
-
-        assert_eq!(
-            Knowledge::new(&db).get(id).await.unwrap().id,
-            id,
-            "the row must survive"
-        );
-    }
 
     /// A stale blocker can hand back an entity another writer has since merged: the write refuses.
     #[tokio::test]

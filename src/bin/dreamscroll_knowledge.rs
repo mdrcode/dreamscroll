@@ -166,13 +166,12 @@ async fn main() -> anyhow::Result<()> {
         Command::Link(_) => {
             let report = link_all_pending(&db).await?;
             println!(
-                "considered {} · already linked {} · linked {} ({} by claim) · created {} · vetoed {}",
+                "considered {} · already linked {} · linked {} ({} by claim) · created {}",
                 report.considered,
                 report.already_linked,
                 report.attached,
                 report.attached_by_claim,
-                report.created,
-                report.vetoed
+                report.created
             );
         }
         Command::Merge(args) => {
@@ -418,7 +417,6 @@ struct LinkAllPendingReport {
     attached: usize,
     attached_by_claim: usize,
     created: usize,
-    vetoed: u32,
 }
 
 impl LinkAllPendingReport {
@@ -426,7 +424,6 @@ impl LinkAllPendingReport {
         self.attached += part.attached;
         self.attached_by_claim += part.attached_by_claim;
         self.created += part.created;
-        self.vetoed += part.vetoed;
     }
 }
 

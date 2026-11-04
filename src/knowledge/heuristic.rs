@@ -345,14 +345,19 @@ pub struct HeuristicLinker;
 impl LinkDecider for HeuristicLinker {
     /// Give the illumination's observations their entities.
     ///
-    /// A claim settles the question before any scoring: an entity that already holds this platform
-    /// link *is* the thing, and asking a name-similarity model to second-guess that is how a handle
-    /// and a real name end up as two entities. Similarity is for the observations no claim speaks
-    /// for — and for the claim that nothing holds yet, which rides along to be recorded once the
-    /// decision picks an entity.
+    /// A held identity settles the question before any scoring: an entity that already claims this
+    /// platform link *is* the thing, and asking a name-similarity model to second-guess that is how a
+    /// handle and a real name end up as two entities. Several entities may hold it, so the most
+    /// substantiated one wins and the rest are left to reconcile, which is where "are these one
+    /// thing?" is asked.
+    ///
+    /// An identity nothing holds yet does *not* settle it: the capture asserted a handle, which is
+    /// strong evidence about the handle and weak evidence about the referent. So the observation
+    /// falls through to similarity with its identity carried along — a name match may attach it to an
+    /// entity that has the name and was missing the handle.
     ///
     /// The veto is only about similarity. Two observations from one extraction are two things, but
-    /// two observations asserting one platform link are one account; the claim wins.
+    /// two observations asserting one platform link are one account; the identity wins.
     async fn decide_link(
         &self,
         blocker: &dyn Blocker,
@@ -387,24 +392,15 @@ impl LinkDecider for HeuristicLinker {
             if observation.knowledge_entity_id.is_some() {
                 continue;
             }
-            let claim = Claim::of(&observation);
+            // Already a row: the executor imported this illumination's identities before deciding.
+            let identity = evidence.identity_of(&observation).await?;
 
-            // A claim the graph already holds is the account itself, not merely a lookalike, so
-            // attaching needs no similarity score. Several entities may hold it now that claims are
-            // many-to-one: attach to the best substantiated one (highest confidence, then lowest id)
-            // and leave the others to reconcile, which is where "are these one thing?" is asked.
-            if let Some(found) = &claim
-                && let Some(best) =
-                    evidence
-                        .held_entities(found)
-                        .await?
-                        .into_iter()
-                        .max_by(|a, b| {
-                            a.confidence
-                                .unwrap_or(0.0)
-                                .total_cmp(&b.confidence.unwrap_or(0.0))
-                                .then(b.id.cmp(&a.id))
-                        })
+            // A held identity is the account itself, not merely a lookalike, so attaching needs no
+            // similarity score. Several entities may hold it, so take the most substantiated one —
+            // `held_by_identity` hands them back in exactly that order — and leave the others to
+            // reconcile, which is where "are these one thing?" is asked.
+            if let Some(identity_id) = identity
+                && let Some(best) = evidence.held_by_identity(identity_id).await?.into_iter().next()
             {
                 claimed.insert(best.id);
                 decisions.push(Decision {
@@ -414,34 +410,27 @@ impl LinkDecider for HeuristicLinker {
                         score: 1.0,
                         by_claim: true,
                     },
-                    claim,
+                    identity,
                 });
                 continue;
             }
 
             let view = NormalizedObservation::from(&observation);
             // (entity id, total, clears the bar) for the best candidate still available to this
-            // observation, and for the best anywhere — the latter only the veto reads.
+            // observation. A spent one is skipped before it is scored: a sibling from this
+            // illumination already has it, and the veto is not negotiable.
             let mut best_unclaimed: Option<(i32, f32, bool)> = None;
-            let mut best_overall: Option<(i32, f32, bool)> = None;
 
             for candidate in blocker.candidates(&observation).await {
-                let features = score(&view, &NormalizedCandidate::from(&candidate));
-                let entry = (candidate.id, features.total, worth_merging(&features));
-                if best_overall.is_none_or(|best| entry.1 > best.1) {
-                    best_overall = Some(entry);
-                }
                 if claimed.contains(&candidate.id) {
                     continue;
                 }
+                let features = score(&view, &NormalizedCandidate::from(&candidate));
+                let entry = (candidate.id, features.total, worth_merging(&features));
                 if best_unclaimed.is_none_or(|best| entry.1 > best.1) {
                     best_unclaimed = Some(entry);
                 }
             }
-
-            // The veto doing something, rather than merely being available to.
-            let vetoed =
-                matches!(best_overall, Some((entity, _, true)) if claimed.contains(&entity));
 
             let action = match best_unclaimed {
                 Some((entity, score, true)) => {
@@ -454,14 +443,13 @@ impl LinkDecider for HeuristicLinker {
                 }
                 Some((entity, score, false)) => Action::Create {
                     best: Some((entity, score)),
-                    vetoed,
                 },
-                None => Action::Create { best: None, vetoed },
+                None => Action::Create { best: None },
             };
             decisions.push(Decision {
                 observation,
                 action,
-                claim,
+                identity,
             });
         }
 
@@ -599,6 +587,10 @@ mod tests {
     ) -> Vec<Decision> {
         let blocker = NameBlocker::build_entities(entities);
         let evidence = Evidence::from_handle(db);
+        evidence
+            .import_identities(observations)
+            .await
+            .expect("importing the assertions should not fail");
         let mut illumination = crate::test_support::fixtures::stub_illumination(1);
         illumination.observations = sea_orm::compound::HasMany::Loaded(
             observations.iter().map(|row| row.clone().into()).collect(),
@@ -756,8 +748,8 @@ mod tests {
                     other => panic!("expected the first to attach, got {other:?}"),
                 }
                 assert!(
-                    matches!(second_decision.action, Action::Create { vetoed: true, .. }),
-                    "the second's best candidate was already spent: {:?}",
+                    matches!(second_decision.action, Action::Create { .. }),
+                    "the second creates rather than taking an entity the illumination spent: {:?}",
                     second_decision.action
                 );
             }

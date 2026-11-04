@@ -14,6 +14,8 @@
 //! What a caller does with a refusal is policy and stays with the caller: `link` declines to merge
 //! and leaves the observation provisional; `resolve` folds or records a collision.
 
+use std::collections::HashSet;
+
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::knowledge::normalize;
@@ -185,27 +187,64 @@ impl Evidence {
         Ok(row.try_get_by_index::<i32>(0)?)
     }
 
-    /// Every entity holding this claim, ordered by id. More than one is possible: an identity can
-    /// be claimed by several entities, and deciding whether they are one thing is a later question.
-    pub async fn holders(&self, claim: &Claim) -> anyhow::Result<Vec<i32>> {
-        let rows = self
+    /// Import every identity this illumination's observations assert.
+    ///
+    /// The executor's first act, before deciding, and a contract rather than a type: the decider reads
+    /// identities back with [`Self::identity_of`], so a caller that skips this leaves them unrecorded.
+    /// Importing first is what makes [`Self::record`] an insert with nothing to create, and what lets
+    /// a decision name an identity by id.
+    ///
+    /// Upserts, so repeating it is free. A link whose decision phase then fails leaves identity rows
+    /// behind — harmless, because an identity is a fact about the world rather than a claim about the
+    /// graph, and the next import finds them.
+    pub async fn import_identities(
+        &self,
+        observations: &[model::user_observed_entity::Model],
+    ) -> anyhow::Result<()> {
+        let mut seen: HashSet<String> = HashSet::new();
+        for observation in observations {
+            let Some(claim) = Claim::of(observation) else {
+                continue;
+            };
+            // Two observations asserting one handle are one identity; the second upsert would be the
+            // row the first just wrote.
+            if !seen.insert(claim.identity()) {
+                continue;
+            }
+            self.identity(&Identity::from_capture(&claim)).await?;
+        }
+        Ok(())
+    }
+
+    /// The identity this claim cites, if a row exists — what a decider names before anything is
+    /// written. Reads only: importing is the caller's job, see [`Self::import_identities`].
+    pub async fn identity_id(&self, claim: &Claim) -> anyhow::Result<Option<i32>> {
+        let row = self
             .conn
-            .query_all_raw(Statement::from_sql_and_values(
+            .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT c.knowledge_entity_id \
-                   FROM knowledge_claims c \
-                   JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
-                  WHERE i.scheme = $1 AND i.external_id = $2 AND c.retracted_at IS NULL \
-                  ORDER BY c.knowledge_entity_id",
+                "SELECT id FROM knowledge_identities WHERE scheme = $1 AND external_id = $2",
                 [
                     claim.scheme.clone().into(),
                     claim.external_id.clone().into(),
                 ],
             ))
             .await?;
-        rows.iter()
-            .map(|row| Ok(row.try_get_by_index::<i32>(0)?))
-            .collect()
+        Ok(match row {
+            Some(row) => Some(row.try_get_by_index::<i32>(0)?),
+            None => None,
+        })
+    }
+
+    /// The identity this observation asserts, if it carries one and it has been imported.
+    pub async fn identity_of(
+        &self,
+        observation: &model::user_observed_entity::Model,
+    ) -> anyhow::Result<Option<i32>> {
+        match Claim::of(observation) {
+            Some(claim) => self.identity_id(&claim).await,
+            None => Ok(None),
+        }
     }
 
     /// Record a proximity: two entities close enough to ask about. A pair is recorded once, for ever —
@@ -236,57 +275,6 @@ impl Evidence {
             ))
             .await?;
         Ok(result.rows_affected() as usize)
-    }
-
-    /// A holder of this claim that already has an observation in `illumination_id`.
-    ///
-    /// The one case where a claim still forces a fold: two observations from one capture asserting
-    /// the same handle are one account, and a merge between them would be refused by the
-    /// same-illumination veto. Everywhere else, sharing an identity is a question for reconcile.
-    pub async fn holder_in_illumination(
-        &self,
-        claim: &Claim,
-        illumination_id: i32,
-    ) -> anyhow::Result<Option<i32>> {
-        let row = self
-            .conn
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT DISTINCT c.knowledge_entity_id \
-                   FROM knowledge_claims c \
-                   JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
-                   JOIN user_observed_entities o ON o.knowledge_entity_id = c.knowledge_entity_id \
-                  WHERE i.scheme = $1 AND i.external_id = $2 AND c.retracted_at IS NULL \
-                    AND o.illumination_id = $3 \
-                  ORDER BY 1 LIMIT 1",
-                [
-                    claim.scheme.clone().into(),
-                    claim.external_id.clone().into(),
-                    illumination_id.into(),
-                ],
-            ))
-            .await?;
-        Ok(match row {
-            Some(row) => Some(row.try_get_by_index::<i32>(0)?),
-            None => None,
-        })
-    }
-
-    /// The entities holding this claim, whole — what a linker scores.
-    pub async fn held_entities(
-        &self,
-        claim: &Claim,
-    ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
-        use sea_orm::{ColumnTrait, QueryFilter};
-        let ids = self.holders(claim).await?;
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
-        Ok(model::knowledge_entity::Entity::find()
-            .filter(model::knowledge_entity::Column::Id.is_in(ids))
-            .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
-            .all(&self.conn)
-            .await?)
     }
 
     /// The entities holding this identity, most substantiated first: the reconcile pass keeps the
@@ -328,47 +316,11 @@ impl Evidence {
         Ok(entities)
     }
 
-    /// Which entity holds this identity, if any. Unique while the graph is single-holder.
-    pub async fn holder(&self, identity_id: i32) -> anyhow::Result<Option<i32>> {
-        let row = self
-            .conn
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT knowledge_entity_id FROM knowledge_claims \
-                 WHERE knowledge_identity_id = $1 AND retracted_at IS NULL LIMIT 1",
-                [identity_id.into()],
-            ))
-            .await?;
-        Ok(match row {
-            Some(row) => Some(row.try_get_by_index::<i32>(0)?),
-            None => None,
-        })
-    }
-
-    /// Which entity holds this claim, if any. Unique while the graph is single-holder.
-    pub async fn owner(&self, claim: &Claim) -> anyhow::Result<Option<i32>> {
-        let row = self
-            .conn
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT c.knowledge_entity_id \
-                   FROM knowledge_claims c \
-                   JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
-                  WHERE i.scheme = $1 AND i.external_id = $2 AND c.retracted_at IS NULL \
-                  LIMIT 1",
-                [
-                    claim.scheme.clone().into(),
-                    claim.external_id.clone().into(),
-                ],
-            ))
-            .await?;
-        Ok(match row {
-            Some(row) => Some(row.try_get_by_index::<i32>(0)?),
-            None => None,
-        })
-    }
-
-    /// Record a claim against an entity, creating the identity if it is new.
+    /// Record that an entity claims an identity the capture asserted.
+    ///
+    /// The identity id was handed over by [`Self::import_identities`], so there is nothing left to
+    /// create or look up here: this is one insert of the edge, and the surface is whatever the
+    /// capture wrote, read off the observation rather than reconstructed.
     ///
     /// Idempotent per entity: asserting an identity twice is corroboration, not a duplicate. Another
     /// entity holding it is not an error either — claims are many-to-one now, and whether the holders
@@ -376,15 +328,14 @@ impl Evidence {
     pub async fn record(
         &self,
         knowledge_entity_id: i32,
-        claim: &Claim,
+        knowledge_identity_id: i32,
         observation: &model::user_observed_entity::Model,
     ) -> anyhow::Result<()> {
-        let identity_id = self.identity(&Identity::from_capture(claim)).await?;
         let insert =
             model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
                 knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
-                knowledge_identity_id: sea_orm::Set(identity_id),
-                surface: sea_orm::Set(claim.surface.clone()),
+                knowledge_identity_id: sea_orm::Set(knowledge_identity_id),
+                surface: sea_orm::Set(observation.platform_handle.clone()),
                 user_observed_entity_id: sea_orm::Set(Some(observation.id)),
                 source_user_id: sea_orm::Set(Some(observation.user_id)),
                 ..Default::default()

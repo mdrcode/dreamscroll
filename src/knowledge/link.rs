@@ -1,7 +1,7 @@
 //! Linking one illumination's observations into entities.
 //!
-//! No network. The blocker is the index the store holds, the evidence store answers exactly one
-//! question — does an entity already hold this claim — and what to do about the answer belongs to the
+//! No network. The blocker is the index the store holds, the evidence store says what an identity is
+//! held by and records the claims the capture asserted, and what to do about all of it belongs to the
 //! [`LinkDecider`] the store was built with. Every write is idempotent: a second run finds nothing to
 //! do because every observation already has a `knowledge_entity_id`.
 //!
@@ -12,8 +12,32 @@ use crate::model;
 
 use super::{Knowledge, link_decider};
 
-// Linking: the one write path that decides before it writes.
+// Linking: the one write path that decides before it applies.
 // ---------------------------------------------------------------------------------------------
+
+/// What one illumination's decisions actually did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct LinkStats {
+    pub attached: usize,
+    /// The part of `attached` where a claim named the entity rather than a score.
+    pub attached_by_claim: usize,
+    pub created: usize,
+}
+
+impl LinkStats {
+    /// Fold one decision and what came of it into the totals.
+    ///
+    /// Both halves live here because they are one question: what did this reading do, and why.
+    fn record(&mut self, decision: &link_decider::Decision, applied: Applied) {
+        if let link_decider::Action::Attach { by_claim: true, .. } = &decision.action {
+            self.attached_by_claim += 1;
+        }
+        match applied.outcome {
+            Outcome::Attached => self.attached += 1,
+            Outcome::Created => self.created += 1,
+        }
+    }
+}
 
 /// Link one reading into the graph: cluster its observations, record their claims, and project every
 /// entity it touched.
@@ -31,9 +55,7 @@ pub(super) async fn link_illumination(
         );
     };
 
-    // The caller's job, checked here: an illumination loaded as a row and nothing else is a reading
-    // with no observations, and a decider would happily decide about it. The decider cannot be relied
-    // on to notice — it is injectable.
+    // If the observations are not "loaded", then nothing to link. Fail early with a clear message.
     anyhow::ensure!(
         illumination.observations.is_loaded(),
         "illumination {} was handed to link_illumination with no observations loaded; fetch it \
@@ -41,8 +63,19 @@ pub(super) async fn link_illumination(
         illumination.id
     );
 
-    // No guard is held across the decision: the blocker synchronizes itself, so the notifications
-    // that `apply_decision` and projection make cannot deadlock against this call.
+    // Only the unlinked ones: a linked observation got its claim when it was linked, so importing it
+    // again would be a write with no effect.
+    let pending: Vec<model::user_observed_entity::Model> = illumination
+        .observations
+        .iter()
+        .filter(|row| row.knowledge_entity_id.is_none())
+        .map(|row| row.clone().into())
+        .collect();
+
+    // Identities first, as one batch: a decision names them by id, so the rows have to exist before
+    // the decider runs — and then `apply_decision` writes edges with nothing left to create.
+    knowledge.evidence.import_identities(&pending).await?;
+
     let decisions = decider
         .decide_link(&**blocker, &knowledge.evidence, illumination)
         .await?;
@@ -50,48 +83,13 @@ pub(super) async fn link_illumination(
     let mut stats = LinkStats::default();
     for decision in &decisions {
         let applied = apply_decision(knowledge, decision).await?;
-        // Projection is a function of the members, so it runs after the writes that changed them,
-        // and it returns the row it wrote — which is exactly what the blocker needs to re-index.
-        // An entity two observations landed on is projected twice; a wasted read is cheaper than
-        // remembering which ones were already done.
+
+        // update_projection accumulates metadata/signal from all linked obs into the entity
         knowledge.update_projection(applied.entity).await?;
         stats.record(decision, applied);
     }
 
     Ok(stats)
-}
-
-/// What one illumination's decisions actually did.
-///
-/// Deliberately not a report: it does not count what the caller already knows — how many observations
-/// were considered, which illuminations were superseded. It says only what the executor wrote.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct LinkStats {
-    pub attached: usize,
-    /// The part of `attached` where a claim named the entity rather than a score.
-    pub attached_by_claim: usize,
-    pub created: usize,
-    /// Created, then discarded: another entity turned out to hold the claim after all, so the row
-    /// that was just made owned nothing. Not a merge — nothing was folded into anything.
-    /// The same-illumination veto firing.
-    pub vetoed: u32,
-}
-
-impl LinkStats {
-    /// Fold one decision and what came of it into the totals.
-    ///
-    /// Both halves live here because they are one question: what did this reading do, and why.
-    fn record(&mut self, decision: &link_decider::Decision, applied: Applied) {
-        match &decision.action {
-            link_decider::Action::Attach { by_claim: true, .. } => self.attached_by_claim += 1,
-            link_decider::Action::Create { vetoed: true, .. } => self.vetoed += 1,
-            _ => {}
-        }
-        match applied.outcome {
-            Outcome::Attached => self.attached += 1,
-            Outcome::Created => self.created += 1,
-        }
-    }
 }
 
 /// What applying one decision did.
@@ -108,7 +106,6 @@ enum Outcome {
     Created,
 }
 
-/// Apply a linking decision against the knowledge_entities table.
 /// Apply one decision against the graph.
 async fn apply_decision(
     knowledge: &Knowledge,
@@ -122,43 +119,20 @@ async fn apply_decision(
         );
     }
 
-    // The entity this observation ends up on, resolved once: the one the decision named, or a new
-    // one it asked for.
     let target_entity = match &decision.action {
         link_decider::Action::Attach { entity, .. } => knowledge.get(*entity).await?,
         link_decider::Action::Create { .. } => knowledge.create(observation).await?,
     };
+
     knowledge
         .attach_observation(observation.id, target_entity.id)
         .await?;
 
-    // The observation may carry its own claim — a handle we inferred from the capture. Two
-    // observations from one capture asserting the same handle are one account, and the
-    // same-illumination veto would refuse the merge that would say so, so the fold happens here and
-    // before anything is written: a claim row on the entity about to be discarded would hold a
-    // foreign key to it.
-    if let Some(claim) = &decision.claim
-        && matches!(decision.action, link_decider::Action::Create { .. })
-        && let Some(holder) = knowledge
-            .evidence
-            .holder_in_illumination(claim, observation.illumination_id)
-            .await?
-        && holder != target_entity.id
-    {
-        // Re-point before discarding: the observation still references the entity being deleted, and
-        // that foreign key is `NO ACTION`.
-        knowledge.attach_observation(observation.id, holder).await?;
-        knowledge.discard_empty(target_entity.id).await?;
-        return Ok(Applied {
-            entity: holder,
-            outcome: Outcome::Attached,
-        });
-    }
-
-    if let Some(claim) = &decision.claim {
+    // The capture claimed an identity for this observation, so claim it on target_entity as well
+    if let Some(identity_id) = decision.identity {
         knowledge
             .evidence
-            .record(target_entity.id, claim, observation)
+            .record(target_entity.id, identity_id, observation)
             .await?;
     }
 
@@ -410,64 +384,6 @@ mod corpus {
         assert_eq!(entity_count(&db).await, 2);
     }
 
-    /// Two observations of one illumination carrying the same, previously unseen handle. Decisions
-    /// are made before any writes, so neither can see the other's claim: both are told to create.
-    /// The second discovers the first already recorded it and folds — re-pointing the observation
-    /// first, because the row it created cannot be deleted while an observation still references it.
-    #[tokio::test]
-    async fn two_observations_sharing_a_new_handle_fold_into_one_entity() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let same = capture(&db, "link_fold").await;
-        observe(
-            &db,
-            &same,
-            0,
-            "Alexey Kutepov",
-            None,
-            "real_person",
-            Some("x"),
-            Some("tsoding"),
-        )
-        .await;
-        observe(
-            &db,
-            &same,
-            1,
-            "Tsoding",
-            None,
-            "social_media_account",
-            Some("x"),
-            Some("Tsoding"),
-        )
-        .await;
-
-        crate::test_support::link::link_all(&db)
-            .await
-            .expect("the second must fold, not trip the foreign key");
-
-        assert_eq!(entity_count(&db).await, 1, "one referent, not two");
-        let linked: Vec<Option<i32>> = observation::Entity::find()
-            .all(&db.conn)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|row| row.knowledge_entity_id)
-            .collect();
-        assert_eq!(linked.len(), 2);
-        assert!(linked.iter().all(|id| *id == linked[0] && id.is_some()));
-        assert_eq!(
-            crate::model::knowledge_claims::Entity::find()
-                .count(&db.conn)
-                .await
-                .unwrap(),
-            1,
-            "one claim, on the entity that survived"
-        );
-    }
-
     #[tokio::test]
     async fn a_second_run_does_nothing() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
@@ -589,7 +505,7 @@ mod corpus {
         assert_eq!(
             entity_count(&db).await,
             1,
-            "the claim discarded the duplicate"
+            "the claim joined the existing entity instead of duplicating it"
         );
         assert_eq!(
             crate::model::knowledge_claims::Entity::find()
@@ -600,10 +516,71 @@ mod corpus {
         );
     }
 
-    /// The concurrency guard, tested directly: a second entity asking for an identifier that is
-    /// already claimed must be told who owns it, not silently ignored.
+    /// A handle arriving for an entity known only by its name. The claim is asserted on that entity;
+    /// no second one is minted for the handle alone.
+    ///
+    /// This is the case an `Attach` carrying an identity exists for. Without the fall-through to
+    /// similarity — "a handle means look it up, else create" — this capture would mint a second
+    /// `Train Dreams` that shares no identity with the first, and `reconcile` only ever asks about
+    /// entities that share one.
     #[tokio::test]
-    async fn an_identifier_claimed_elsewhere_reports_the_owner() {
+    async fn a_handle_joins_the_entity_its_name_names() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let first = capture(&db, "link_handle_late_first").await;
+        observe(
+            &db,
+            &first,
+            0,
+            "Train Dreams",
+            Some("a novella by Denis Johnson"),
+            "book",
+            None,
+            None,
+        )
+        .await;
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
+
+        let second = capture(&db, "link_handle_late_second").await;
+        observe(
+            &db,
+            &second,
+            0,
+            "Train Dreams",
+            Some("a novella by Denis Johnson"),
+            "book",
+            Some("x"),
+            Some("traindreams"),
+        )
+        .await;
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("second build should succeed");
+
+        assert_eq!(
+            entity_count(&db).await,
+            1,
+            "the handle joins the entity its name names"
+        );
+        assert_eq!(
+            crate::model::knowledge_claims::Entity::find()
+                .count(&db.conn)
+                .await
+                .unwrap(),
+            1,
+            "and the claim is asserted on that entity"
+        );
+    }
+
+    /// An identity may have more than one holder. That is not an error — claims are many-to-one, and
+    /// whether the holders are one thing belongs to the reconcile pass — so both claims land and the
+    /// identity stays one row.
+    #[tokio::test]
+    async fn a_second_holder_is_not_an_error() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
@@ -642,15 +619,30 @@ mod corpus {
             .await
             .unwrap()
             .unwrap();
-        let claim = crate::knowledge::evidence::Claim::of(&observation).expect("a handle");
         let evidence = Evidence::from_handle(&db);
         evidence
-            .record(duplicate, &claim, &observation)
+            .import_identities(std::slice::from_ref(&observation))
+            .await
+            .expect("the capture asserted a handle");
+        let identity_id = evidence
+            .identity_of(&observation)
+            .await
+            .expect("the lookup should not fail")
+            .expect("already a row");
+        evidence
+            .record(duplicate, identity_id, &observation)
             .await
             .expect("a second holder is not an error: claims are many-to-one");
 
+        let holders: Vec<i32> = evidence
+            .held_by_identity(identity_id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|entity| entity.id)
+            .collect();
         assert_eq!(
-            evidence.holders(&claim).await.unwrap(),
+            holders,
             vec![owner_core.id, duplicate],
             "both entities hold it, and reconcile decides whether they are one thing"
         );

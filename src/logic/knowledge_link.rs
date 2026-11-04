@@ -61,7 +61,6 @@ pub async fn exec(
         attached = stats.attached,
         attached_by_claim = stats.attached_by_claim,
         created = stats.created,
-        vetoed = stats.vetoed,
         proximities_raised = raised,
         "Knowledge link completed"
     );
