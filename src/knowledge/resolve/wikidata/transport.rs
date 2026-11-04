@@ -3,11 +3,91 @@
 //! Every function here is one HTTP shape and its response walking — no ranking, no decisions, no
 //! knowledge of what a claim means. They live here so `wikidata.rs` can stay about policy.
 
+use std::collections::HashMap;
+
 use serde_json::{json, Value};
 
 use super::super::driver::{FetchError, Raw, Request};
 use super::resolver::{Candidate, Wikidata, LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT};
 use crate::knowledge::resolve::cache::Outcome;
+
+/// Which query a SPARQL row answers, and the candidate it names. Items arrive as entity URLs, and a
+/// repeated item is deduped by the caller.
+fn candidate_from_row(row: &Value) -> Option<(String, Candidate)> {
+    let field = |key: &str| row.get(key).and_then(|v| v.get("value")).and_then(Value::as_str);
+    let query = field("query")?;
+    let id = field("item")?.rsplit('/').next()?;
+    Some((
+        query.to_string(),
+        Candidate {
+            id: id.to_string(),
+            label: field("itemLabel").map(str::to_string),
+            description: field("itemDescription").map(str::to_string),
+            classes: Vec::new(),
+        },
+    ))
+}
+
+/// `page title → wikibase item`, from a `prop=pageprops` answer. Pages that are missing, or that
+/// carry no item, are simply absent.
+fn page_items(query: Option<&Value>) -> HashMap<String, String> {
+    let mut items = HashMap::new();
+    let Some(pages) = query
+        .and_then(|query| query.get("pages"))
+        .and_then(Value::as_object)
+    else {
+        return items;
+    };
+    for page in pages.values() {
+        if page.get("missing").is_some() {
+            continue;
+        }
+        let (Some(title), Some(qid)) = (
+            page.get("title").and_then(Value::as_str),
+            page.get("pageprops")
+                .and_then(|props| props.get("wikibase_item"))
+                .and_then(Value::as_str),
+        ) else {
+            continue;
+        };
+        items.insert(title.to_string(), qid.to_string());
+    }
+    items
+}
+
+/// The `normalized` and `redirects` maps from an answer, each `{from, to}`.
+fn renamed_titles(query: Option<&Value>) -> HashMap<String, String> {
+    let mut renamed = HashMap::new();
+    for key in ["normalized", "redirects"] {
+        let Some(entries) = query
+            .and_then(|query| query.get(key))
+            .and_then(Value::as_array)
+        else {
+            continue;
+        };
+        for entry in entries {
+            if let (Some(from), Some(to)) = (
+                entry.get("from").and_then(Value::as_str),
+                entry.get("to").and_then(Value::as_str),
+            ) {
+                renamed.insert(from.to_string(), to.to_string());
+            }
+        }
+    }
+    renamed
+}
+
+/// Follow a title through renaming and redirects. Bounded: a redirect chain can loop.
+fn follow(title: &str, renamed: &HashMap<String, String>) -> String {
+    let mut current = title.to_string();
+    for _ in 0..4 {
+        match renamed.get(&current) {
+            Some(next) if next != &current => current = next.clone(),
+            _ => break,
+        }
+    }
+    current
+}
 
 /// The response, or why it is unusable. A 429 is an instruction — honour its `Retry-After`,
 /// defaulting to a minute — and any other non-success is a fact about the provider.
@@ -221,52 +301,13 @@ impl Wikidata {
             .map_err(|error| FetchError::Failed(error.to_string()))?;
         let query = body.get("query");
 
-        let mut by_title: HashMap<String, String> = HashMap::new();
-        if let Some(pages) = query.and_then(|query| query.get("pages")).and_then(Value::as_object) {
-            for page in pages.values() {
-                if page.get("missing").is_some() {
-                    continue;
-                }
-                let Some(title) = page.get("title").and_then(Value::as_str) else {
-                    continue;
-                };
-                let Some(qid) = page
-                    .get("pageprops")
-                    .and_then(|props| props.get("wikibase_item"))
-                    .and_then(Value::as_str)
-                else {
-                    continue;
-                };
-                by_title.insert(title.to_string(), qid.to_string());
-            }
-        }
-
-        // `normalized` then `redirects`, each `{from, to}`; following both gives the article title.
-        let mut renamed: HashMap<String, String> = HashMap::new();
-        for key in ["normalized", "redirects"] {
-            if let Some(entries) = query.and_then(|query| query.get(key)).and_then(Value::as_array) {
-                for entry in entries {
-                    if let (Some(from), Some(to)) = (
-                        entry.get("from").and_then(Value::as_str),
-                        entry.get("to").and_then(Value::as_str),
-                    ) {
-                        renamed.insert(from.to_string(), to.to_string());
-                    }
-                }
-            }
-        }
+        let page_items = page_items(query);
+        let renamed = renamed_titles(query);
 
         let mut reached: HashMap<String, String> = HashMap::new();
         let mut ids: Vec<String> = Vec::new();
         for title in &titles {
-            let mut current = title.clone();
-            for _ in 0..4 {
-                match renamed.get(&current) {
-                    Some(next) if next != &current => current = next.clone(),
-                    _ => break,
-                }
-            }
-            if let Some(qid) = by_title.get(&current) {
+            if let Some(qid) = page_items.get(&follow(title, &renamed)) {
                 reached.insert(title.clone(), qid.clone());
                 ids.push(qid.clone());
             }
@@ -356,32 +397,10 @@ impl Wikidata {
             .into_iter()
             .flatten()
         {
-            let Some(query) = row.get("query").and_then(|v| v.get("value")).and_then(Value::as_str)
-            else {
+            let Some((query, candidate)) = candidate_from_row(row) else {
                 continue;
             };
-            let Some(item) = row.get("item").and_then(|v| v.get("value")).and_then(Value::as_str)
-            else {
-                continue;
-            };
-            let Some(id) = item.rsplit('/').next() else {
-                continue;
-            };
-            let candidate = Candidate {
-                id: id.to_string(),
-                label: row
-                    .get("itemLabel")
-                    .and_then(|v| v.get("value"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                description: row
-                    .get("itemDescription")
-                    .and_then(|v| v.get("value"))
-                    .and_then(Value::as_str)
-                    .map(str::to_string),
-                classes: Vec::new(),
-            };
-            let entry = grouped.entry(query.to_string()).or_default();
+            let entry = grouped.entry(query).or_default();
             if !entry.iter().any(|existing| existing.id == candidate.id) {
                 entry.push(candidate);
             }
@@ -435,4 +454,54 @@ pub(super) fn sparql_for_handles(requests: &[Request], property: &str) -> String
 /// SPARQL string literals: backslash and double quote are the only escapes that matter here.
 pub(super) fn escape(value: &str) -> String {
     value.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_redirect_chain_is_followed() {
+        let body = serde_json::json!({"query": {
+            "normalized": [{"from": "jrr tolkien", "to": "Jrr Tolkien"}],
+            "redirects": [{"from": "Jrr Tolkien", "to": "J. R. R. Tolkien"}],
+        }});
+        let renamed = renamed_titles(body.get("query"));
+        assert_eq!(follow("jrr tolkien", &renamed), "J. R. R. Tolkien");
+    }
+
+    /// A redirect that points at itself must not spin.
+    #[test]
+    fn a_self_redirect_is_not_followed() {
+        let body = serde_json::json!({"query": {"redirects": [{"from": "Dune", "to": "Dune"}]}});
+        let renamed = renamed_titles(body.get("query"));
+        assert_eq!(follow("Dune", &renamed), "Dune");
+    }
+
+    #[test]
+    fn a_sparql_row_names_its_query_and_item() {
+        let row = serde_json::json!({
+            "query": {"value": "Train Dreams"},
+            "item": {"value": "http://www.wikidata.org/entity/Q85810391"},
+            "itemLabel": {"value": "Train Dreams"},
+            "itemDescription": {"value": "2011 novella"},
+        });
+        let (query, candidate) = candidate_from_row(&row).expect("a row with an item");
+        assert_eq!(query, "Train Dreams");
+        assert_eq!(candidate.id, "Q85810391");
+        assert_eq!(candidate.description.as_deref(), Some("2011 novella"));
+        assert!(candidate_from_row(&serde_json::json!({"query": {"value": "x"}})).is_none());
+    }
+
+    #[test]
+    fn pages_without_an_item_or_that_are_missing_are_skipped() {
+        let body = serde_json::json!({"query": {"pages": {
+            "1": {"title": "Dune", "pageprops": {"wikibase_item": "Q190192"}},
+            "2": {"title": "No Item", "pageprops": {}},
+            "3": {"title": "Gone", "missing": ""},
+        }}});
+        let items = page_items(body.get("query"));
+        assert_eq!(items.get("Dune").map(String::as_str), Some("Q190192"));
+        assert_eq!(items.len(), 1, "{items:?}");
+    }
 }

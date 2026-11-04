@@ -236,7 +236,11 @@ impl<'a> ResolutionContext<'a> {
     ///
     /// Returns whatever it has. A rate limit stops *further fetching*, never the answers already in
     /// hand — a partial answer is worth more than a tidy one.
-    pub async fn resolve_requests<T: Transport + ?Sized>(&self, transport: &T, requests: &[Request]) -> Answers {
+    pub async fn resolve_requests<T: Transport + ?Sized>(
+        &self,
+        transport: &T,
+        requests: &[Request],
+    ) -> Answers {
         let mut answers = Answers::new();
         if requests.is_empty() {
             return answers;
@@ -244,115 +248,145 @@ impl<'a> ResolutionContext<'a> {
         self.planned.fetch_add(requests.len(), Ordering::Relaxed);
 
         for ((provider, kind, shape), queries) in plan_groups(requests) {
-            let hits = match self.cache.get_many(provider, &kind, &shape, &queries).await {
-                Ok(hits) => hits,
-                Err(error) => {
-                    tracing::warn!(%error, "could not read the cache");
-                    continue;
-                }
-            };
-            self.cache_hits.fetch_add(hits.len(), Ordering::Relaxed);
-            for (query, answer) in hits {
-                answers.insert(
-                    (kind.clone(), shape.clone(), query),
-                    Raw {
-                        outcome: answer.outcome,
-                        payload: answer.payload,
-                    },
-                );
-            }
-
-            let misses: Vec<String> = queries
-                .into_iter()
-                .filter(|query| {
-                    !answers.contains_key(&(kind.clone(), shape.clone(), query.clone()))
-                })
-                .collect();
+            let misses = self.cached(provider, &kind, &shape, queries, &mut answers).await;
             if misses.is_empty() || self.offline {
                 continue;
             }
-
-            for chunk in misses.chunks(transport.batch_size(&kind)) {
-                if !self.take_call().await {
-                    self.budget_exhausted.store(true, Ordering::Relaxed);
-                    break;
-                }
-                let batch: Vec<Request> = chunk
-                    .iter()
-                    .map(|query| Request {
-                        provider,
-                        kind: kind.clone(),
-                        shape: shape.clone(),
-                        query: query.clone(),
-                    })
-                    .collect();
-                self.pacer.lock().await.pace().await;
-                self.fetched.fetch_add(1, Ordering::Relaxed);
-
-                match transport.fetch(&batch).await {
-                    Ok(results) => {
-                        for (query, raw) in results {
-                            if let Err(error) = self
-                                .cache
-                                .put(
-                                    provider,
-                                    &kind,
-                                    &shape,
-                                    &query,
-                                    &Answer {
-                                        outcome: raw.outcome,
-                                        payload: raw.payload.clone(),
-                                    },
-                                )
-                                .await
-                            {
-                                tracing::warn!(%error, "could not write the cache");
-                            }
-                            answers.insert((kind.clone(), shape.clone(), query), raw);
-                        }
-                    }
-                    Err(FetchError::RateLimited { retry_after_secs }) => {
-                        // An instruction, not a fact. Do not cache it, do not retry, do not
-                        // continue: WDQS temporarily bans clients that keep requesting after a 429.
-                        self.rate_limited_after
-                            .store(retry_after_secs, Ordering::Relaxed);
-                        return answers;
-                    }
-                    Err(FetchError::Failed(_)) => {
-                        // Not a fact about the world either: cache it briefly so a sick provider is
-                        // not hammered, then move on.
-                        for query in chunk {
-                            if let Err(error) = self
-                                .cache
-                                .put(
-                                    provider,
-                                    &kind,
-                                    &shape,
-                                    query,
-                                    &Answer {
-                                        outcome: Outcome::Failed,
-                                        payload: None,
-                                    },
-                                )
-                                .await
-                            {
-                                tracing::warn!(%error, "could not write the cache");
-                            }
-                            answers.insert(
-                                (kind.clone(), shape.clone(), query.clone()),
-                                Raw {
-                                    outcome: Outcome::Failed,
-                                    payload: None,
-                                },
-                            );
-                            self.failed.fetch_add(1, Ordering::Relaxed);
-                        }
-                    }
-                }
+            if !self
+                .fetch_misses(transport, provider, &kind, &shape, misses, &mut answers)
+                .await
+            {
+                // Rate limited: an instruction, not a fact. Stop asking anything at all.
+                break;
             }
         }
 
         answers
+    }
+
+    /// Read one group from the cache and return the queries it did not answer.
+    async fn cached(
+        &self,
+        provider: &str,
+        kind: &str,
+        shape: &str,
+        queries: Vec<String>,
+        answers: &mut Answers,
+    ) -> Vec<String> {
+        let hits = match self.cache.get_many(provider, kind, shape, &queries).await {
+            Ok(hits) => hits,
+            Err(error) => {
+                tracing::warn!(%error, "could not read the cache");
+                return Vec::new();
+            }
+        };
+        self.cache_hits.fetch_add(hits.len(), Ordering::Relaxed);
+        for (query, answer) in hits {
+            answers.insert(
+                (kind.to_string(), shape.to_string(), query),
+                Raw {
+                    outcome: answer.outcome,
+                    payload: answer.payload,
+                },
+            );
+        }
+        queries
+            .into_iter()
+            .filter(|query| {
+                !answers.contains_key(&(kind.to_string(), shape.to_string(), query.clone()))
+            })
+            .collect()
+    }
+
+    /// Fetch a group's misses in batches. Returns false when the provider told us to stop.
+    async fn fetch_misses<T: Transport + ?Sized>(
+        &self,
+        transport: &T,
+        provider: &'static str,
+        kind: &str,
+        shape: &str,
+        misses: Vec<String>,
+        answers: &mut Answers,
+    ) -> bool {
+        for chunk in misses.chunks(transport.batch_size(kind)) {
+            if !self.take_call().await {
+                self.budget_exhausted.store(true, Ordering::Relaxed);
+                break;
+            }
+            let batch: Vec<Request> = chunk
+                .iter()
+                .map(|query| Request {
+                    provider,
+                    kind: kind.to_string(),
+                    shape: shape.to_string(),
+                    query: query.clone(),
+                })
+                .collect();
+            self.pacer.lock().await.pace().await;
+            self.fetched.fetch_add(1, Ordering::Relaxed);
+
+            match transport.fetch(&batch).await {
+                Ok(results) => {
+                    for (query, raw) in results {
+                        if let Err(error) = self
+                            .cache
+                            .put(
+                                provider,
+                                kind,
+                                shape,
+                                &query,
+                                &Answer {
+                                    outcome: raw.outcome,
+                                    payload: raw.payload.clone(),
+                                },
+                            )
+                            .await
+                        {
+                            tracing::warn!(%error, "could not write the cache");
+                        }
+                        answers.insert((kind.to_string(), shape.to_string(), query), raw);
+                    }
+                }
+                Err(FetchError::RateLimited { retry_after_secs }) => {
+                    // An instruction, not a fact. Do not cache it, do not retry, do not continue:
+                    // WDQS temporarily bans clients that keep requesting after a 429.
+                    self.rate_limited_after
+                        .store(retry_after_secs, Ordering::Relaxed);
+                    return false;
+                }
+                Err(FetchError::Failed(_)) => {
+                    // Not a fact about the world either: cache it briefly so a sick provider is not
+                    // hammered, then move on.
+                    for query in chunk {
+                        if let Err(error) = self
+                            .cache
+                            .put(
+                                provider,
+                                kind,
+                                shape,
+                                query,
+                                &Answer {
+                                    outcome: Outcome::Failed,
+                                    payload: None,
+                                },
+                            )
+                            .await
+                        {
+                            tracing::warn!(%error, "could not write the cache");
+                        }
+                        answers.insert(
+                            (kind.to_string(), shape.to_string(), query.clone()),
+                            Raw {
+                                outcome: Outcome::Failed,
+                                payload: None,
+                            },
+                        );
+                        self.failed.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+        }
+        true
     }
 
     /// An answer arrived but told us nothing usable. Re-ask it sooner than the default week: a stale

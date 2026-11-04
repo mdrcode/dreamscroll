@@ -229,27 +229,17 @@ impl Wikidata {
         }]
     }
 
-    /// Turn an answer into claims. Pure: same entity plus same answer, same claims. The entity is
-    /// passed because deciding between ambiguous candidates needs its description and type.
-    pub fn parse(&self, entity: &model::knowledge_entity::Model, request: &Request, raw: &Raw) -> Vec<Claim> {
-        // A degraded answer still carries candidates; it is only cached for a shorter time.
-        if !raw.outcome.answered() {
-            return Vec::new();
-        }
-        let Some(payload) = &raw.payload else {
+    /// Turn an answer into claims. Pure: same entity plus same answer, same claims.
+    pub fn parse(
+        &self,
+        entity: &model::knowledge_entity::Model,
+        request: &Request,
+        raw: &Raw,
+    ) -> Vec<Claim> {
+        let Some(candidates) = Self::candidates_of(raw) else {
             return Vec::new();
         };
-        let candidates: Vec<Candidate> = payload
-            .get("candidates")
-            .and_then(Value::as_array)
-            .map(|rows| rows.iter().filter_map(Candidate::from_json).collect())
-            .unwrap_or_default();
-        if candidates.is_empty() {
-            return Vec::new();
-        }
-
-        // A property match *is* the identity: an item claiming this handle is the account, not
-        // something that merely looks like it.
+        // A property match *is* the identity: an item claiming this handle is the account itself.
         if let Some(property) = Self::property_of(&request.kind) {
             return candidates
                 .first()
@@ -257,74 +247,98 @@ impl Wikidata {
                 .into_iter()
                 .collect();
         }
-
-        // A search answer is weaker evidence: accept it only when a single candidate's label is the
-        // *same surface* once punctuation and spacing are ignored. Anything else goes to the ranker.
-        // A title maps to one article. A disambiguation page maps to none: it is a menu, and claiming
-        // it is the trap that produced `Royal Navy` → an aircraft-carrier fleet.
-        if request.kind == "title" {
-            if candidates
-                .iter()
-                .any(|candidate| candidate.classes.iter().any(|class| class == DISAMBIGUATION))
-            {
-                return Vec::new();
-            }
-            return self.decide(entity, &candidates, request);
+        match request.kind.as_str() {
+            "title" => self.parse_title(entity, &candidates, request),
+            "search" => self.parse_search(entity, candidates, request),
+            _ => self.decide(entity, &candidates, request),
         }
+    }
 
-        if request.kind == "search" {
-            let ours = surface_key(&entity.name);
-            let same: Vec<&Candidate> = candidates
-                .iter()
-                .filter(|candidate| {
-                    candidate
-                        .label
-                        .as_deref()
-                        .is_some_and(|label| surface_key(label) == ours)
-                })
-                .collect();
-            // A matching surface is not enough — the description has to corroborate it, exactly as on
-            // the label path. Without this, `Audi` (a car brand) claims a *family name* and
-            // `A Pattern Language` claims a 2011 master's thesis, both of which match the surface.
-            //
-            // Anything short of one corroborated surface falls through to the ranker, which is what
-            // the comment above always claimed. Both non-unique cases are ranker questions, not
-            // reasons to give up: *zero* is the spelling difference (`J.R.R.` vs `J. R. R.`, or
-            // `Dostoevsky` vs `Dostoyevsky`), and *several* is a shared title where only the
-            // description can pick the referent.
-            if let [candidate] = same.as_slice() {
-                let weights = Weights::over(&candidates);
-                let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
-                let ours = our_tokens(entity);
-                let fit = ours
-                    .iter()
-                    .map(|tokens| weights.fit(&theirs, tokens))
-                    .fold(0.0f32, f32::max);
-                if fit >= FIT_FLOOR {
-                    return vec![claim(candidate, "search_lookup", heuristic::LOOKUP_CONFIDENCE)];
-                }
-            }
-            // Zero or several same-surface candidates: a spelling difference, or a shared title.
-            // Either way only candidates that *are* our name — the same surface, or a trivial
-            // respelling — may be considered. An item that merely mentions the name in its label
-            // (`Royal Navy fleet aircraft carrier fleet` for `Royal Navy`) is a different referent,
-            // and its description overlap is exactly what would fool the fit score.
-            let admitted: Vec<Candidate> = candidates
-                .into_iter()
-                .filter(|candidate| {
-                    candidate
-                        .label
-                        .as_deref()
-                        .is_some_and(|label| near_surface(&surface_key(label), &ours))
-                })
-                .collect();
-            if admitted.is_empty() {
-                return Vec::new();
-            }
-            return self.decide(entity, &admitted, request);
+    /// The candidates an answer carries; a degraded answer still has them.
+    fn candidates_of(raw: &Raw) -> Option<Vec<Candidate>> {
+        if !raw.outcome.answered() {
+            return None;
         }
+        let rows = raw.payload.as_ref()?.get("candidates")?.as_array()?;
+        let candidates: Vec<Candidate> = rows.iter().filter_map(Candidate::from_json).collect();
+        (!candidates.is_empty()).then_some(candidates)
+    }
 
-        self.decide(entity, &candidates, request)
+    /// A title maps to one article. A disambiguation page maps to none: it is a menu, and claiming
+    /// it is the trap that produced `Royal Navy` → an aircraft-carrier fleet.
+    fn parse_title(
+        &self,
+        entity: &model::knowledge_entity::Model,
+        candidates: &[Candidate],
+        request: &Request,
+    ) -> Vec<Claim> {
+        if candidates.iter().any(|candidate| {
+            candidate
+                .classes
+                .iter()
+                .any(|class| class == DISAMBIGUATION)
+        }) {
+            return Vec::new();
+        }
+        self.decide(entity, candidates, request)
+    }
+
+    /// A search answer: one corroborated surface is identity, anything else is a ranker question.
+    fn parse_search(
+        &self,
+        entity: &model::knowledge_entity::Model,
+        candidates: Vec<Candidate>,
+        request: &Request,
+    ) -> Vec<Claim> {
+        let ours = surface_key(&entity.name);
+        let same: Vec<&Candidate> = candidates
+            .iter()
+            .filter(|candidate| {
+                candidate
+                    .label
+                    .as_deref()
+                    .is_some_and(|label| surface_key(label) == ours)
+            })
+            .collect();
+        // A matching surface is not enough — the description has to corroborate it, exactly as on
+        // the label path. Without this, `Audi` (a car brand) claims a *family name* and
+        // `A Pattern Language` claims a 2011 master's thesis, both of which match the surface.
+        //
+        // Anything short of one corroborated surface falls through to the ranker: *zero* is a
+        // spelling difference (`J.R.R.` vs `J. R. R.`), *several* is a shared title where only the
+        // description can pick the referent.
+        if let [candidate] = same.as_slice() {
+            let weights = Weights::over(&candidates);
+            let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
+            let ours = our_tokens(entity);
+            let fit = ours
+                .iter()
+                .map(|tokens| weights.fit(&theirs, tokens))
+                .fold(0.0f32, f32::max);
+            if fit >= FIT_FLOOR {
+                return vec![claim(
+                    candidate,
+                    "search_lookup",
+                    heuristic::LOOKUP_CONFIDENCE,
+                )];
+            }
+        }
+        // Only candidates that *are* our name — the same surface, or a trivial respelling — may be
+        // considered. An item that merely mentions it (`Royal Navy fleet aircraft carrier fleet` for
+        // `Royal Navy`) is a different referent.
+        let admitted: Vec<Candidate> = candidates
+            .into_iter()
+            .filter(|candidate| {
+                candidate
+                    .label
+                    .as_deref()
+                    .is_some_and(|label| near_surface(&surface_key(label), &ours))
+            })
+            .collect();
+        if admitted.is_empty() {
+            return Vec::new();
+        }
+        self.decide(entity, &admitted, request)
     }
 
     /// Turn answers into claims. First request to speak wins for an entity, which is why `plan`
