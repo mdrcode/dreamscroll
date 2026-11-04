@@ -253,61 +253,10 @@ mod unit {
 mod corpus {
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
-    use crate::database;
     use crate::knowledge::evidence::Evidence;
     use crate::knowledge::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
     use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
-    use crate::test_support::fixtures;
-
-    struct Capture {
-        user_id: i32,
-        capture_id: i32,
-        illumination_id: i32,
-    }
-
-    async fn capture(db: &database::DbHandle, tag: &str) -> Capture {
-        let user_id = fixtures::user(db, tag).await;
-        let capture_id = fixtures::capture(db, user_id).await;
-        let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-        Capture {
-            user_id,
-            capture_id,
-            illumination_id,
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn observe(
-        db: &database::DbHandle,
-        capture: &Capture,
-        position: i32,
-        name: &str,
-        description: Option<&str>,
-        entity_type: &str,
-        platform: Option<&str>,
-        handle: Option<&str>,
-    ) -> i32 {
-        observation::Entity::insert(observation::ActiveModel {
-            user_id: Set(capture.user_id),
-            capture_id: Set(capture.capture_id),
-            illumination_id: Set(capture.illumination_id),
-            position: Set(position),
-            name: Set(name.to_string()),
-            entity_type: Set(entity_type.to_string()),
-            description: Set(description.map(str::to_string)),
-            platform: Set(platform.map(str::to_string)),
-            platform_handle: Set(handle.map(str::to_string)),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .expect("observation should insert")
-        .last_insert_id as i32
-    }
-
-    async fn entity_count(db: &database::DbHandle) -> u64 {
-        entity::Entity::find().count(&db.conn).await.unwrap()
-    }
+    use crate::test_support::fixtures::{self, entity_count, observe, Capture};
 
     /// Nothing exists for either name yet, and every decision is made before any of them is written,
     /// so neither observation can find the other's entity: the batch is what keeps them apart, with
@@ -318,7 +267,7 @@ mod corpus {
             return;
         };
         let db = test_db.handle();
-        let same = capture(&db, "link_same_capture").await;
+        let same = Capture::new(&db, "link_same_capture").await;
         observe(
             &db,
             &same,
@@ -355,7 +304,7 @@ mod corpus {
             return;
         };
         let db = test_db.handle();
-        let first = capture(&db, "link_idempotent").await;
+        let first = Capture::new(&db, "link_idempotent").await;
         observe(
             &db,
             &first,
@@ -438,8 +387,8 @@ mod corpus {
             return;
         };
         let db = test_db.handle();
-        let first = capture(&db, "link_persona_first").await;
-        let second = capture(&db, "link_persona_second").await;
+        let first = Capture::new(&db, "link_persona_first").await;
+        let second = Capture::new(&db, "link_persona_second").await;
         observe(
             &db,
             &first,
@@ -494,7 +443,7 @@ mod corpus {
             return;
         };
         let db = test_db.handle();
-        let first = capture(&db, "link_handle_late_first").await;
+        let first = Capture::new(&db, "link_handle_late_first").await;
         observe(
             &db,
             &first,
@@ -510,7 +459,7 @@ mod corpus {
             .await
             .expect("build should succeed");
 
-        let second = capture(&db, "link_handle_late_second").await;
+        let second = Capture::new(&db, "link_handle_late_second").await;
         observe(
             &db,
             &second,
@@ -550,7 +499,7 @@ mod corpus {
             return;
         };
         let db = test_db.handle();
-        let first = capture(&db, "link_claim").await;
+        let first = Capture::new(&db, "link_claim").await;
         observe(
             &db,
             &first,
@@ -627,7 +576,7 @@ mod corpus {
             return;
         };
         let db = test_db.handle();
-        let first = capture(&db, "link_status").await;
+        let first = Capture::new(&db, "link_status").await;
         observe(
             &db,
             &first,

@@ -5,9 +5,69 @@
 //! spelling it out. These keep a test about behaviour instead of setup.
 
 use chrono::Utc;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
 use crate::{database::DbHandle, model};
+
+/// One user's capture with its illumination — what observations hang off.
+pub struct Capture {
+    pub user_id: i32,
+    pub capture_id: i32,
+    pub illumination_id: i32,
+}
+
+impl Capture {
+    pub async fn new(db: &DbHandle, tag: &str) -> Self {
+        let user_id = user(db, tag).await;
+        let capture_id = capture(db, user_id).await;
+        let illumination_id = illumination(db, user_id, capture_id).await;
+        Self {
+            user_id,
+            capture_id,
+            illumination_id,
+        }
+    }
+}
+
+/// One thing a reading claimed to see, in a capture.
+#[allow(clippy::too_many_arguments)]
+pub async fn observe(
+    db: &DbHandle,
+    capture: &Capture,
+    position: i32,
+    name: &str,
+    description: Option<&str>,
+    entity_type: &str,
+    platform: Option<&str>,
+    handle: Option<&str>,
+) -> i32 {
+    model::user_observed_entity::Entity::insert(
+        model::user_observed_entity::ActiveModel {
+            user_id: Set(capture.user_id),
+            capture_id: Set(capture.capture_id),
+            illumination_id: Set(capture.illumination_id),
+            position: Set(position),
+            name: Set(name.to_string()),
+            entity_type: Set(entity_type.to_string()),
+            description: Set(description.map(str::to_string)),
+            platform: Set(platform.map(str::to_string)),
+            platform_handle: Set(handle.map(str::to_string)),
+            ..Default::default()
+        },
+    )
+    .exec(&db.conn)
+    .await
+    .expect("observation should insert")
+    .last_insert_id as i32
+}
+
+/// How many entities exist, for asserting how a reading was clustered.
+pub async fn entity_count(db: &DbHandle) -> u64 {
+    model::knowledge_entity::Entity::find()
+        .count(&db.conn)
+        .await
+        .unwrap()
+}
 
 pub async fn user(db: &DbHandle, tag: &str) -> i32 {
     model::user::ActiveModel::builder()

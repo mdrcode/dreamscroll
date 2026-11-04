@@ -691,29 +691,14 @@ mod tests {
 
     /// One observation, linked to an entity by the real linker — the same path production takes.
     async fn seed(db: &database::DbHandle, name: &str) -> i32 {
-        use crate::test_support::fixtures;
-
-        let user_id = fixtures::user(db, "resolve").await;
-        let capture_id = fixtures::capture(db, user_id).await;
-        let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-        let entity_id =
-            model::user_observed_entity::Entity::insert(model::user_observed_entity::ActiveModel {
-                user_id: Set(user_id),
-                capture_id: Set(capture_id),
-                illumination_id: Set(illumination_id),
-                position: Set(0),
-                name: Set(name.to_string()),
-                entity_type: Set("book".to_string()),
-                ..Default::default()
-            })
-            .exec(&db.conn)
-            .await
-            .unwrap()
-            .last_insert_id as i32;
-
+        let capture = crate::test_support::fixtures::Capture::new(db, "resolve").await;
+        let observation = crate::test_support::fixtures::observe(
+            db, &capture, 0, name, None, "book", None, None,
+        )
+        .await;
         crate::test_support::link::link_all(db).await.unwrap();
 
-        model::user_observed_entity::Entity::find_by_id(entity_id)
+        model::user_observed_entity::Entity::find_by_id(observation)
             .one(&db.conn)
             .await
             .unwrap()

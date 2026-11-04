@@ -142,7 +142,7 @@ async fn unlink<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
 mod tests {
     use std::collections::BTreeMap;
 
-    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
     use super::*;
     use crate::test_support::fixtures;
@@ -202,18 +202,12 @@ mod tests {
         for name in ["Train Dreams", "train dreams", "Gravity's Rainbow"] {
             let capture_id = fixtures::capture(db, user_id).await;
             let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-            observation::Entity::insert(observation::ActiveModel {
-                user_id: Set(user_id),
-                capture_id: Set(capture_id),
-                illumination_id: Set(illumination_id),
-                position: Set(0),
-                name: Set(name.to_string()),
-                entity_type: Set("book".to_string()),
-                ..Default::default()
-            })
-            .exec(&db.conn)
-            .await
-            .unwrap();
+            let capture = fixtures::Capture {
+                user_id,
+                capture_id,
+                illumination_id,
+            };
+            fixtures::observe(db, &capture, 0, name, None, "book", None, None).await;
         }
     }
 
