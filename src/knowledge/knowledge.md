@@ -153,7 +153,7 @@ scores; `merge` and the holder order ask `by_worth`, a convention about `NULL`. 
 merge pass on a different policy, silently.
 
 `heuristic_scoring.rs` is today's only answer: normalized keys, weights, the bar, the corroboration
-bonus. `heuristic.rs` is the **procedure** — the best qualifying candidate, else create — and holds
+bonus. `heuristic_linker.rs` is the **procedure** — the best qualifying candidate, else create — and holds
 no numbers. `name_blocker.rs` is recall: names and handles to candidates, nothing scored. The
 resolver keeps its own measure and its own calibration, because its candidate type is private and
 its fit is corpus-aware (terms are weighed by rarity among the answers it got back) — a pair
@@ -270,7 +270,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `blocker.rs`, `link_decider.rs` | the two linking traits, and nothing else — the contract a linker implements |
 | `heuristic_scoring.rs` | the only `Scoring` today: token keys, weights, the bar, the corroboration bonus |
 | `name_blocker.rs` | `NameBlocker`: recall by normalized name and platform handle |
-| `heuristic.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
+| `heuristic_linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, candidate ranking in `ranking.rs`, HTTP in `transport.rs` |
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
@@ -281,7 +281,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `reconcile.rs` | the pass that asks whether one identity's holders are one thing |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
-| `normalize.rs` | `comparable`: the form two surfaces are compared in. The token pipeline is policy, in `heuristic.rs` |
+| `normalize.rs` | `comparable`: the form two surfaces are compared in. The token pipeline is policy, in `heuristic_scoring.rs` |
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 private modules. What escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Cause`,

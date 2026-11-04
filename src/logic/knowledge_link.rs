@@ -127,7 +127,7 @@ mod tests {
                         .await
                         .unwrap(),
                 ),
-                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                std::sync::Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker),
             ),
             &service_api,
             &task(first, user),
@@ -151,7 +151,7 @@ mod tests {
                         .await
                         .unwrap(),
                 ),
-                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                std::sync::Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker),
             ),
             &service_api,
             &task(second, user),
@@ -195,7 +195,7 @@ mod tests {
                         .await
                         .unwrap(),
                 ),
-                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                std::sync::Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker),
             ),
             &service_api,
             &task(illumination, stranger),

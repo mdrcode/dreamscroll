@@ -14,7 +14,7 @@
 pub mod blocker;
 pub mod evidence;
 pub mod graph;
-pub mod heuristic;
+pub mod heuristic_linker;
 mod heuristic_scoring;
 pub mod link_decider;
 pub mod merge;

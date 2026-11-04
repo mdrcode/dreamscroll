@@ -18,7 +18,7 @@ pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
     let knowledge = crate::knowledge::Knowledge::with_linking(
         db,
         Box::new(NameBlocker::new(db).await?),
-        std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+        std::sync::Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker),
     );
 
     let pending = Query::select()

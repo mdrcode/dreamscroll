@@ -899,7 +899,7 @@ mod tests {
                     .await
                     .unwrap(),
             ),
-            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+            std::sync::Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker),
         )
         .update_projection(knowledge_entity_id)
         .await
@@ -956,7 +956,7 @@ mod tests {
                     .await
                     .unwrap(),
             ),
-            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+            std::sync::Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker),
         )
         .update_projection(knowledge_entity_id)
         .await

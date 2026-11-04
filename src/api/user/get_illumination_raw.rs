@@ -172,7 +172,7 @@ mod tests {
                             .await
                             .unwrap(),
                     ),
-                    std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                    std::sync::Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker),
                 ),
                 storage: Box::new(TestStorageProvider),
                 inference_client: Box::new(TestInferenceClient::new(vec![

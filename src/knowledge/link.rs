@@ -191,7 +191,7 @@ mod unit {
 
         let loaded = load_illumination(&db, illumination).await;
         let linking =
-            linking_store(&db, Arc::new(crate::knowledge::heuristic::HeuristicLinker)).await;
+            linking_store(&db, Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker)).await;
         let stats = linking.link_illumination(&loaded).await.unwrap();
         assert_eq!(stats.created, 1, "the linker it was built with decides");
     }
