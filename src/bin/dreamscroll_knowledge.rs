@@ -351,13 +351,13 @@ async fn main() -> anyhow::Result<()> {
                 report.candidates, report.planned, report.cache_hits
             );
             println!(
-                "fetched {} · failed {} · claims {} · entities resolved {} · merges {} · proximities {}",
+                "fetched {} · failed {} · claims {} · entities resolved {} · merges {} · refused {}",
                 report.fetched,
                 report.failed,
                 report.claims,
                 report.entities_resolved,
                 report.merges,
-                report.proximities
+                report.refused
             );
             if report.budget_exhausted {
                 println!("budget exhausted at {max_requests} requests");

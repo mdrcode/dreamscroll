@@ -157,9 +157,9 @@ pub struct Report {
     pub entities_resolved: usize,
     /// Entities folded into the entity that already held their identity.
     pub merges: usize,
-    /// Pairs that shared an identity, looked like one thing, and could not be folded — recorded as
-    /// proximities for adjudication rather than merged.
-    pub proximities: usize,
+    /// Pairs that shared an identity, looked like one thing, and could not be folded — the
+    /// same-illumination rule refused them, so they stay open as proximities rather than merging.
+    pub refused: usize,
     pub budget_exhausted: bool,
     /// Set when the provider asked us to back off: the run stopped instead of risking a ban.
     pub rate_limited_after: Option<u64>,
@@ -445,14 +445,17 @@ impl<'a> ResolutionEngine<'a> {
             }
         }
 
-        // Sharing an identity is a candidate, not a verdict — decide which holders are one thing.
-        let reconciled = knowledge.reconcile().await?;
-        report.merges = reconciled.merged;
-        report.proximities = reconciled.refused;
-
+        // Before any merge decision, not after: `reconcile` picks a survivor by the projected
+        // `confidence`, so an entity that gained its first authority claim a moment ago would still
+        // read as unsubstantiated and lose a fold it should win.
         for knowledge_entity_id in &resolved {
             knowledge.update_projection(*knowledge_entity_id).await?;
         }
+
+        // Sharing an identity is a candidate, not a verdict — decide which holders are one thing.
+        let reconciled = knowledge.reconcile().await?;
+        report.merges = reconciled.merged;
+        report.refused = reconciled.refused;
         report.entities_resolved = resolved.len();
         ctx.absorb(&mut report);
         Ok(report)
@@ -647,8 +650,10 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Resolver for Fake {
+        // The scheme and source the projection counts as text evidence, so a fake resolve produces
+        // the same claims a real one would.
         fn id(&self) -> &'static str {
-            "fake"
+            "wikidata"
         }
 
         async fn resolve(
@@ -670,7 +675,7 @@ mod tests {
                     Some((
                         entity.id,
                         Claim {
-                            scheme: "fake".to_string(),
+                            scheme: "wikidata".to_string(),
                             id: id.to_string(),
                             label: Some(entity.name.clone()),
                             description: None,
@@ -1099,6 +1104,85 @@ mod tests {
                 .unwrap(),
             0,
             "a rate limit must not be recorded as an answer"
+        );
+    }
+
+    /// Substantiation is a *projected* column, and the merge phase picks a survivor by it. So an
+    /// entity that earned its authority claim in this run must be projected before `reconcile` folds
+    /// it — otherwise it still reads as the weaker side and is the one tombstoned.
+    #[tokio::test]
+    async fn the_side_that_earned_a_claim_this_run_survives_the_fold() {
+        let Some(test_db) = crate::test_support::test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+
+        // One name, two entities, different illuminations, so a fold is allowed at all.
+        let resolved_before =
+            crate::test_support::fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let earns_now =
+            crate::test_support::fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+
+        // One already holds the authority claim; the other has only a handle, which is what makes it
+        // a candidate — and a second independent input once the claim arrives.
+        crate::test_support::fixtures::claim(
+            &db,
+            resolved_before,
+            "wikidata",
+            "Q42",
+            "wikidata",
+            Some("exact_label"),
+            Some(0.9),
+        )
+        .await;
+        crate::test_support::fixtures::claim(
+            &db,
+            earns_now,
+            "x_twitter",
+            "traindreams",
+            "platform",
+            None,
+            None,
+        )
+        .await;
+
+        // The state a resolve starts from: both projected, so the claimless one reads as 0.0.
+        let store = crate::knowledge::Knowledge::new(&db);
+        store.update_projection(resolved_before).await.unwrap();
+        store.update_projection(earns_now).await.unwrap();
+
+        let claim = Raw {
+            outcome: Outcome::Found,
+            payload: Some(json!({"claim": "Q42"})),
+        };
+        let report = ResolutionEngine::new(&db, Options::default())
+            .with(Box::new(Fake {
+                answers: HashMap::from([("Train Dreams".to_string(), claim)]),
+                calls: Arc::new(AtomicUsize::new(0)),
+            }))
+            .run()
+            .await
+            .expect("resolve");
+
+        assert_eq!(report.merges, 1, "{report:?}");
+        let survivor = model::knowledge_entity::Entity::find_by_id(earns_now)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(
+            survivor.merged_into_id.is_none(),
+            "the side with two inputs survives: {survivor:?}"
+        );
+        let folded = model::knowledge_entity::Entity::find_by_id(resolved_before)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            folded.merged_into_id,
+            Some(earns_now),
+            "the single-input side is the one folded in"
         );
     }
 
