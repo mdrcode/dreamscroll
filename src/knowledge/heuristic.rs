@@ -446,10 +446,7 @@ impl LinkDecider for HeuristicLinker {
             {
                 decisions.push(Decision {
                     observation,
-                    action: Action::Attach {
-                        entity: best.id,
-                        by_claim: true,
-                    },
+                    action: Action::Attach(best.id),
                     identity,
                 });
                 continue;
@@ -470,10 +467,7 @@ impl LinkDecider for HeuristicLinker {
             }
 
             let action = match best {
-                Some((entity, _, true)) => Action::Attach {
-                    entity,
-                    by_claim: false,
-                },
+                Some((entity, _, true)) => Action::Attach(entity),
                 _ => Action::Create,
             };
             decisions.push(Decision {
@@ -756,7 +750,7 @@ mod tests {
 
         match result.as_slice() {
             [decision] => match &decision.action {
-                Action::Attach { entity, .. } => assert!(*entity == 1 || *entity == 2),
+                Action::Attach(entity) => assert!(*entity == 1 || *entity == 2),
                 other => panic!("expected an attach, got {other:?}"),
             },
             other => panic!("expected one decision, got {other:?}"),

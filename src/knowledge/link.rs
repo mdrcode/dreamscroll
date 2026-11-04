@@ -8,8 +8,6 @@
 //! Callers reach this through [`Knowledge::link_illumination`]. The rest is `pub(super)` or private:
 //! `merge` and `project` do not link, and nothing outside `knowledge` does either.
 
-use std::collections::BTreeSet;
-
 use crate::model;
 
 use super::{Knowledge, link_decider};
@@ -21,20 +19,13 @@ use super::{Knowledge, link_decider};
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct LinkStats {
     pub attached: usize,
-    /// The part of `attached` where a claim named the entity rather than a score.
-    pub attached_by_claim: usize,
     pub created: usize,
 }
 
 impl LinkStats {
     fn record(&mut self, decision: &link_decider::Decision) {
-        match &decision.action {
-            link_decider::Action::Attach { by_claim, .. } => {
-                self.attached += 1;
-                if *by_claim {
-                    self.attached_by_claim += 1;
-                }
-            }
+        match decision.action {
+            link_decider::Action::Attach(_) => self.attached += 1,
             link_decider::Action::Create => self.created += 1,
         }
     }
@@ -82,14 +73,10 @@ pub(super) async fn link_illumination(
         .await?;
 
     let mut stats = LinkStats::default();
-    let mut touched: BTreeSet<i32> = BTreeSet::new();
     for decision in &decisions {
-        touched.insert(apply_decision(knowledge, decision).await?);
+        let entity = apply_decision(knowledge, decision).await?;
+        knowledge.update_projection(entity).await?;
         stats.record(decision);
-    }
-    // Projection is a function of the members, so once per entity once every write has landed.
-    for knowledge_entity_id in touched {
-        knowledge.update_projection(knowledge_entity_id).await?;
     }
 
     Ok(stats)
@@ -109,7 +96,7 @@ async fn apply_decision(
     }
 
     let entity = match &decision.action {
-        link_decider::Action::Attach { entity, .. } => *entity,
+        link_decider::Action::Attach(entity) => *entity,
         link_decider::Action::Create => knowledge.create(observation).await?.id,
     };
 

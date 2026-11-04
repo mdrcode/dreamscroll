@@ -22,12 +22,7 @@ use super::evidence::Evidence;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
     /// Attach the observation to this entity.
-    Attach {
-        entity: i32,
-        /// A claim decided this rather than a score. Not recoverable: an unmatched claim rides on a
-        /// similarity attach too, so `identity.is_some()` says nothing about why.
-        by_claim: bool,
-    },
+    Attach(i32),
     /// Start a new entity.
     Create,
 }

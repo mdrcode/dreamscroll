@@ -166,11 +166,10 @@ async fn main() -> anyhow::Result<()> {
         Command::Link(_) => {
             let report = link_all_pending(&db).await?;
             println!(
-                "considered {} · already linked {} · linked {} ({} by claim) · created {}",
+                "considered {} · already linked {} · linked {} · created {}",
                 report.considered,
                 report.already_linked,
                 report.attached,
-                report.attached_by_claim,
                 report.created
             );
         }
@@ -415,14 +414,12 @@ struct LinkAllPendingReport {
     considered: usize,
     already_linked: usize,
     attached: usize,
-    attached_by_claim: usize,
     created: usize,
 }
 
 impl LinkAllPendingReport {
     fn update(&mut self, part: knowledge::LinkStats) {
         self.attached += part.attached;
-        self.attached_by_claim += part.attached_by_claim;
         self.created += part.created;
     }
 }

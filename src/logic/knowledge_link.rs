@@ -59,7 +59,6 @@ pub async fn exec(
     tracing::info!(
         illumination_id = task_run.task.illumination_id,
         attached = stats.attached,
-        attached_by_claim = stats.attached_by_claim,
         created = stats.created,
         proximities_raised = raised,
         "Knowledge link completed"
