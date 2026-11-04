@@ -36,6 +36,14 @@ Be simple, idiomatic, robust, and flexible (in that order).
 - **Validate Intelligently:** Do not run unit tests for small naming or plumbing
   changes. We will always do a full test pass before merging to main. Do not run
   smoke tests without asking for approval first.
+- **Build Narrowly, Run Debug:** Never reach for `--all-targets` (or a release
+  build) out of habit — it recompiles every binary and test target for a check
+  that almost never needed them. Build what you touched: `cargo check --lib`,
+  `cargo test --lib <module>`, `cargo build --bin <one>`. `--all-targets` only
+  when the change plausibly breaks a target you are not touching (a signature in
+  a shared module, a schema change, a rename across modules), and say why. To
+  exercise something, run the debug binary — `./target/debug/dreamscroll_knowledge`
+  — never `--release` unless the task is about the release artifact.
 - **Stand On the Shoulders of Giants:** Research best practices and existing
   solutions before reinventing the wheel. When you find excellent blogs, guides,
   or technical documentation, share that knowledge.
