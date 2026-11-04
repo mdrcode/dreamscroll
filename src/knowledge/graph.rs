@@ -27,10 +27,10 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 /// build [`Knowledge::new`]. Linking additionally needs a policy and a blocker, both injected by
 /// [`Knowledge::with_linking`].
 ///
-/// The [`Scoring`] is the store's, not the linker's: `project` asks it what a claim is worth,
-/// `reconcile` asks it whether two entities are one thing, and `resolve` asks it what an answer is
-/// worth. One policy for all of them, or the graph disagrees with itself. [`Knowledge::new`] uses the
-/// heuristic; [`Knowledge::with_scoring`] replaces it.
+/// The [`Scoring`] is the store's, not the linker's: `reconcile` asks it whether two entities are one
+/// thing and how alike they are, and the linker asks which candidate a capture belongs to. One policy
+/// for both, or the graph disagrees with itself. [`Knowledge::new`] uses the heuristic;
+/// [`Knowledge::with_scoring`] replaces it.
 ///
 /// The blocker is built once and kept, so it accumulates everything this store writes — `project`
 /// tells it about every entity whose columns changed, and a discarded or tombstoned entity is
@@ -126,12 +126,7 @@ impl Knowledge {
         &self,
         knowledge_entity_id: i32,
     ) -> anyhow::Result<model::knowledge_entity::Model> {
-        let entity = super::project::project(
-            &self.db.conn,
-            &*self.scoring.worth,
-            knowledge_entity_id,
-        )
-        .await?;
+        let entity = super::project::project(&self.db.conn, knowledge_entity_id).await?;
         if let Some(blocker) = &self.blocker {
             blocker.changed(&entity);
         }

@@ -1,28 +1,26 @@
-//! The heuristic: every number we guess, in one file.
+//! The heuristic: every number the graph guesses, in one file.
 //!
-//! This module is the *entire* ad hoc policy behind [`super::score`]: what a name similarity is,
-//! which weights apply, where the bars and margins sit, and what a claim is worth. The core exposes
-//! the verbs; this file is one answer to all of them, and `Scoring::heuristic()` is how the rest of
-//! the graph gets it.
+//! Two verbs, implemented for the pairs the graph asks about:
 //!
-//! Three parts, mirroring the traits it implements:
+//! - [`Similarity`] — the weighted total of `name`, `description` and type agreement.
+//! - [`Rank`] — the same total, filtered by [`worth_merging`] and ordered best first.
 //!
-//! - [`Heuristic::fit`] — pure features: name, description, type, weighted into a total.
-//! - [`Heuristic::same`], [`Heuristic::supported`], [`Heuristic::leads`] — the bars.
-//! - [`Heuristic::value`], [`Heuristic::combine`], [`Heuristic::order`] — what evidence is worth.
+//! The filter is the part a number could not carry: `same` is a conjunction — a name match *and*
+//! something corroborating it — which is why [`Rank`] exists rather than a threshold on the score.
+//! A pair that fails the conjunction still reports its total, so "same name, different type: 0.74"
+//! stays visible on the proximity list even though it will never be folded.
 //!
-//! The normalization it needs — comparable forms, token keys, token sets — lives here too, because
-//! it is this policy's idea of what "the same word" means. The blocking keys [`block_keys`] computes
-//! are shared with [`super::name_blocker`], which is the other half of the same guess.
+//! Not here: the confidence scale for authority answers (that is the authority's own calibration,
+//! in `resolve/wikidata/ranking.rs`), the aggregate over claims ([`combine`], arithmetic), and the
+//! order between two substantiated things (`score::by_worth`, a convention).
 
-use std::cmp::Ordering;
 use std::collections::BTreeSet;
 
 use crate::model;
 
 use super::evidence::ClaimBasis;
 use super::normalize;
-use super::score::{Answer, Features, Judge, Similarity, Subject, Worth};
+use super::score::{Rank, Similarity, Subject};
 
 pub const WEIGHT_NAME: f32 = 0.60;
 pub const WEIGHT_DESCRIPTION: f32 = 0.30;
@@ -46,110 +44,100 @@ const NAME_TOKEN_MATCH: f32 = 0.9;
 /// Two types agreeing when one is `unknown`: an absence of information, not a disagreement.
 const TYPE_UNKNOWN_MATCH: f32 = 0.5;
 
-/// The least similarity that counts as evidence at all — an authority's answer, or a search hit,
-/// is not worth asking about below this.
-const EVIDENCE_FLOOR: f32 = 0.20;
-
-/// The least lead that turns the best candidate into a decision. Two candidates that fit equally
-/// well are ambiguity, not an answer.
-const LEAD_MARGIN: f32 = 0.10;
-
 /// What an extra independent input is worth on top of the best claim's score.
 pub const CORROBORATION_BONUS: f32 = 0.1;
 pub const CONFIDENCE_CEILING: f32 = 1.0;
-
-/// A ranked authority answer, mapped into [0.5, `ANSWER_CEILING`].
-const ANSWER_BASE: f32 = 0.50;
-const ANSWER_SPREAD: f32 = 0.45;
-pub const ANSWER_CEILING: f32 = 0.95;
-/// A guess from the disambiguating words alone is worth less than an exact label.
-pub const HINT_CEILING: f32 = 0.85;
-/// One exact label with nothing competing for it is identity, but nothing corroborates it either.
-pub const LONE_LABEL_CONFIDENCE: f32 = 0.75;
-/// A search answer accepted because exactly one candidate's label is our own surface.
-pub const LOOKUP_CONFIDENCE: f32 = 0.85;
-/// An authority asked about a handle: a property match names the account itself.
-pub const HANDLE_CONFIDENCE: f32 = 0.95;
 
 /// The heuristic policy, as one value. Stateless: every number is a constant above.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct Heuristic;
 
-impl Similarity for Heuristic {
-    fn fit(
+impl Similarity<model::knowledge_entity::Model, model::knowledge_entity::Model> for Heuristic {
+    fn score(
         &self,
-        subject: &Subject<'_>,
+        a: &model::knowledge_entity::Model,
+        b: &model::knowledge_entity::Model,
+    ) -> f32 {
+        features(&Subject::of_entity(a), b).total
+    }
+}
+
+impl Similarity<Subject, model::knowledge_entity::Model> for Heuristic {
+    fn score(&self, subject: &Subject, b: &model::knowledge_entity::Model) -> f32 {
+        features(subject, b).total
+    }
+}
+
+impl Rank<Subject, model::knowledge_entity::Model> for Heuristic {
+    fn rank(
+        &self,
+        subject: &Subject,
         candidates: &[model::knowledge_entity::Model],
-    ) -> Vec<Features> {
-        // The corpus is not consulted: this policy's weights are fixed, not learned from the set.
-        // A policy that needed it (term rarity, say) has it by the argument.
-        let view = NormalizedObservation::new(subject.name, subject.description, subject.entity_type);
-        candidates
+    ) -> Vec<(usize, f32)> {
+        let mut scored: Vec<(usize, f32)> = candidates
             .iter()
-            .map(|candidate| score(&view, &NormalizedCandidate::from(candidate)))
-            .collect()
+            .enumerate()
+            .filter_map(|(index, candidate)| {
+                let features = features(subject, candidate);
+                worth_merging(&features).then_some((index, features.total))
+            })
+            .collect();
+        // Best total first; ties keep the candidate order, which the blocker hands back by id.
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+        scored
     }
 }
 
-impl Judge for Heuristic {
-    /// A weight alone is not enough: the observed Django failure is one exact name, two referents,
-    /// and a description sharing only enough tokens to lift the total over the bar. Without an
-    /// identifier, a name match has to be corroborated by the type or the text.
-    fn same(&self, features: &Features) -> bool {
-        features.name >= NAME_FLOOR
-            && features.total >= MERGE_BAR
-            && (features.type_match >= AGREEMENT_FLOOR || features.description >= AGREEMENT_FLOOR)
-    }
-
-    fn supported(&self, similarity: f32) -> bool {
-        similarity >= EVIDENCE_FLOOR
-    }
-
-    fn leads(&self, gap: f32) -> bool {
-        gap >= LEAD_MARGIN
+impl Rank<model::knowledge_entity::Model, model::knowledge_entity::Model> for Heuristic {
+    fn rank(
+        &self,
+        a: &model::knowledge_entity::Model,
+        candidates: &[model::knowledge_entity::Model],
+    ) -> Vec<(usize, f32)> {
+        self.rank(&Subject::of_entity(a), candidates)
     }
 }
 
-impl Worth for Heuristic {
-    fn value(&self, answer: Answer, score: f32) -> f32 {
-        match answer {
-            Answer::Handle => HANDLE_CONFIDENCE,
-            Answer::LoneLabel => LONE_LABEL_CONFIDENCE,
-            Answer::Lookup => LOOKUP_CONFIDENCE,
-            Answer::Hint => answer_confidence(score).min(HINT_CEILING),
-            Answer::Ranked => answer_confidence(score),
-        }
-    }
-
-    /// The best claim's score, plus a bonus per extra independent input (`text` and `handle` are the
-    /// two). Aggregating by "best + corroboration" rather than a sum is deliberate: two weak
-    /// confirmations of the same fact must not outrank one strong one.
-    fn combine(&self, claims: &[(ClaimBasis, Option<f32>)]) -> Option<f32> {
-        if claims.is_empty() {
-            return None;
-        }
-        let bases: BTreeSet<&str> = claims.iter().map(|claim| claim.0.as_str()).collect();
-        let best = claims
-            .iter()
-            .map(|claim| claim.1.unwrap_or(0.0))
-            .fold(0.0f32, f32::max);
-        let extra = bases.len().saturating_sub(1) as f32 * CORROBORATION_BONUS;
-        Some((best + extra).min(CONFIDENCE_CEILING))
-    }
-
-    fn order(&self, a: Option<f32>, b: Option<f32>) -> Ordering {
-        a.unwrap_or(f32::NEG_INFINITY)
-            .total_cmp(&b.unwrap_or(f32::NEG_INFINITY))
-    }
+/// What one candidate earns against one subject, per feature and in total.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Features {
+    pub name: f32,
+    pub description: f32,
+    pub type_match: f32,
+    pub total: f32,
 }
 
-/// What a ranked authority answer is worth, before corroboration.
-fn answer_confidence(score: f32) -> f32 {
-    let mapped = ANSWER_BASE + ANSWER_SPREAD * score;
-    mapped.min(ANSWER_CEILING)
+/// Whether the features justify calling two things one.
+///
+/// A weight alone is not enough: the observed Django failure is one exact name, two referents, and
+/// a description sharing only enough tokens to lift the total over the bar. Without an identifier, a
+/// name match has to be corroborated by the type or the text — and that conjunction is why this is
+/// a filter on a vector of components rather than a threshold on its sum.
+fn worth_merging(features: &Features) -> bool {
+    features.name >= NAME_FLOOR
+        && features.total >= MERGE_BAR
+        && (features.type_match >= AGREEMENT_FLOOR || features.description >= AGREEMENT_FLOOR)
 }
 
-/// The observation being linked, with its normalized forms precomputed.
+/// How substantiated an entity is: its best claim's score, plus a bonus per extra independent input
+/// (`text` and `handle` are the two). `None` when it holds no claim.
+///
+/// Aggregating by "best + corroboration" rather than a sum is deliberate: two weak confirmations of
+/// the same fact must not outrank one strong one.
+pub(super) fn combine(claims: &[(ClaimBasis, Option<f32>)]) -> Option<f32> {
+    if claims.is_empty() {
+        return None;
+    }
+    let bases: BTreeSet<&str> = claims.iter().map(|claim| claim.0.as_str()).collect();
+    let best = claims
+        .iter()
+        .map(|claim| claim.1.unwrap_or(0.0))
+        .fold(0.0f32, f32::max);
+    let extra = bases.len().saturating_sub(1) as f32 * CORROBORATION_BONUS;
+    Some((best + extra).min(CONFIDENCE_CEILING))
+}
+
+/// The observation being compared, with its normalized forms precomputed.
 #[derive(Debug, Clone)]
 struct NormalizedObservation {
     name_key: String,
@@ -233,7 +221,18 @@ impl From<&model::knowledge_entity::Model> for NormalizedCandidate {
     }
 }
 
-/// Similarity of one observation to one candidate: per feature, and weighted into a total.
+/// Similarity of one subject to one candidate: per feature, and weighted into a total.
+fn features(subject: &Subject, candidate: &model::knowledge_entity::Model) -> Features {
+    let observation = NormalizedObservation::new(
+        &subject.name,
+        subject.description.as_deref(),
+        &subject.entity_type,
+    );
+    let candidate = NormalizedCandidate::from(candidate);
+    score(&observation, &candidate)
+}
+
+/// Similarity of one normalized observation to one candidate: per feature, weighted into a total.
 fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -> Features {
     let name = name_similarity(observation, candidate);
     // Best fit across every description the candidate has accumulated, never their union: a union
@@ -260,7 +259,7 @@ fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -
 }
 
 /// 1.0 on the same normalized surface, 0.9 when only word order or an article differs, else 0.0.
-/// A name never decides on its own — [`Heuristic::same`] demands corroboration.
+/// A name never decides on its own — [`worth_merging`] demands corroboration.
 fn name_similarity(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -> f32 {
     if candidate.alt_name_keys.contains(&observation.name_key) {
         return 1.0;
@@ -328,30 +327,28 @@ fn token_key_of(words: &[String]) -> String {
 mod tests {
     use super::*;
 
-    fn observation(name: &str, description: Option<&str>, ty: &str) -> NormalizedObservation {
-        NormalizedObservation::new(name, description, ty)
+    use crate::knowledge::score::{Similarity, Subject};
+    use crate::test_support::fixtures;
+
+    fn subject(name: &str, description: Option<&str>, ty: &str) -> Subject {
+        let mut row = fixtures::stub_observation(1, name, ty);
+        row.description = description.map(str::to_string);
+        Subject::of_observation(&row)
     }
 
-    fn entity(name: &str, description: Option<&str>, ty: &str) -> NormalizedCandidate {
-        let descriptions: Vec<&str> = description.into_iter().collect();
-        NormalizedCandidate::new(name, &[], &descriptions, &[ty.to_string()])
-    }
-
-    fn features(name: &str, description: Option<&str>, ty: &str, other: &str) -> Features {
-        score(&observation(name, description, ty), &entity(other, description, ty))
+    fn entity(id: i32, name: &str, description: Option<&str>, ty: &str) -> model::knowledge_entity::Model {
+        let mut row = fixtures::stub_entity(id, name, ty);
+        row.description = description.map(str::to_string);
+        row
     }
 
     /// `brand` and `organization` are the same referent described twice — the taxonomy does not have
     /// to choose for a member to agree.
     #[test]
     fn any_asserted_type_counts_as_agreement() {
-        let entity = NormalizedCandidate::new(
-            "Nintendo",
-            &[],
-            &[],
-            &["organization".to_string(), "brand".to_string()],
-        );
-        let typed = |ty: &str| score(&observation("Nintendo", None, ty), &entity).type_match;
+        let mut candidate = fixtures::stub_entity(1, "Nintendo", "organization");
+        candidate.alt_types = vec!["brand".to_string()];
+        let typed = |ty: &str| features(&subject("Nintendo", None, ty), &candidate).type_match;
         assert_eq!(typed("brand"), 1.0);
         assert_eq!(typed("organization"), 1.0);
         assert_eq!(typed("movie"), 0.0);
@@ -359,55 +356,64 @@ mod tests {
 
     #[test]
     fn identical_name_and_type_clears_the_bar() {
-        let features = features(
-            "Train Dreams",
-            Some("a novella by Denis Johnson"),
-            "book",
-            "Train Dreams",
-        );
-        assert_eq!(features.name, 1.0);
-        assert!(Heuristic.same(&features), "{features:?}");
+        let candidate = entity(1, "Train Dreams", Some("a novella by Denis Johnson"), "book");
+        let subject = subject("Train Dreams", Some("a novella by Denis Johnson"), "book");
+        let ranked = Heuristic.rank(&subject, std::slice::from_ref(&candidate));
+        assert_eq!(ranked.len(), 1);
+        assert_eq!(ranked[0].0, 0);
+        assert!(ranked[0].1 > 0.99, "{ranked:?}");
     }
 
     #[test]
     fn article_or_word_order_alone_still_clears() {
-        let features = features("The Train Dreams", None, "book", "Train Dreams");
-        assert_eq!(features.name, 0.9);
-        assert!(Heuristic.same(&features), "{features:?}");
+        let candidate = entity(1, "Train Dreams", None, "book");
+        let ranked = Heuristic.rank(&subject("The Train Dreams", None, "book"), &[candidate]);
+        assert_eq!(ranked.len(), 1, "an article is not a different name: {ranked:?}");
+        assert!(ranked[0].1 > MERGE_BAR, "{ranked:?}");
     }
 
+    /// The pair the graph must never fold, and the number that says why: one exact name, no
+    /// corroboration. The score clears [`MERGE_BAR`] on its own — which is exactly why the filter is
+    /// a conjunction and not a threshold on the total.
     #[test]
     fn a_type_mismatch_without_name_agreement_does_not_clear() {
-        let features = score(
-            &observation("Django", Some("a Python web framework"), "software"),
-            &NormalizedCandidate::new(
-                "Django",
-                &[],
-                &["a 2021 video game"],
-                &["product".to_string()],
-            ),
+        let django = entity(1, "Django", Some("a 2021 video game"), "product");
+        let frame = subject("Django", Some("a Python web framework"), "software");
+        assert!(
+            Heuristic.score(&frame, &django) >= MERGE_BAR,
+            "the total alone would fold this pair"
         );
-        assert_eq!(features.name, 1.0);
-        assert_eq!(features.type_match, 0.0);
-        // One exact name and a description that shares only stopword-ish tokens: this is the case
-        // that made the resolver claim the video game, so it must not merge on weights alone.
-        assert!(!Heuristic.same(&features), "{features:?}");
+        assert!(Heuristic.rank(&frame, &[django]).is_empty());
     }
 
     #[test]
     fn different_names_do_not_clear() {
-        let features = features("Train Dreams", None, "book", "Gravity's Rainbow");
-        assert_eq!(features.name, 0.0);
-        assert!(!Heuristic.same(&features), "{features:?}");
+        let other = entity(1, "Gravity's Rainbow", None, "book");
+        assert!(Heuristic
+            .rank(&subject("Train Dreams", None, "book"), &[other])
+            .is_empty());
     }
 
     #[test]
     fn unknown_type_is_weak_not_negative() {
-        let features = score(
-            &observation("Wojak", None, "unknown"),
-            &entity("Wojak", None, "concept"),
+        let candidate = entity(1, "Wojak", None, "concept");
+        assert_eq!(features(&subject("Wojak", None, "unknown"), &candidate).type_match, 0.5);
+    }
+
+    /// The filter is a filter, not a reordering: the strongest candidate wins, and the ones that do
+    /// not qualify are absent rather than last.
+    #[test]
+    fn rank_keeps_only_qualifying_candidates_best_first() {
+        let weak = entity(1, "Train Dreams", None, "book");
+        let strong = entity(2, "Train Dreams", Some("a novella by Denis Johnson"), "book");
+        let unrelated = entity(3, "Dune", None, "book");
+        let ranked = Heuristic.rank(
+            &subject("Train Dreams", Some("a novella by Denis Johnson"), "book"),
+            &[weak, strong, unrelated],
         );
-        assert_eq!(features.type_match, 0.5);
+        assert_eq!(ranked.len(), 2, "{ranked:?}");
+        assert_eq!(ranked[0].0, 1, "the corroborated one leads: {ranked:?}");
+        assert!(ranked.iter().all(|(index, _)| *index != 2));
     }
 
     #[test]
@@ -420,38 +426,28 @@ mod tests {
 
     /// `None` is the least worth there is, and a tie is not a win for either side.
     #[test]
-    fn order_puts_nothing_last() {
-        assert_eq!(Heuristic.order(None, Some(0.5)), Ordering::Less);
-        assert_eq!(Heuristic.order(Some(0.5), None), Ordering::Greater);
-        assert_eq!(Heuristic.order(Some(0.5), Some(0.5)), Ordering::Equal);
+    fn by_worth_puts_nothing_last() {
+        use crate::knowledge::score::by_worth;
+        assert_eq!(by_worth(None, Some(0.5)), std::cmp::Ordering::Less);
+        assert_eq!(by_worth(Some(0.5), None), std::cmp::Ordering::Greater);
+        assert_eq!(by_worth(Some(0.5), Some(0.5)), std::cmp::Ordering::Equal);
     }
 
-    /// Corroboration is a bonus on the best claim, not a sum: two weak confirmations of one fact
-    /// must not outrank one strong one.
+    /// Corroboration is a bonus on the best claim, not a sum.
     #[test]
     fn combine_adds_one_bonus_per_extra_basis() {
         let text = (ClaimBasis::Text, Some(0.8));
         let handle = (ClaimBasis::Handle, Some(0.9));
-        assert_eq!(Heuristic.combine(&[]), None);
-        assert_eq!(Heuristic.combine(&[text]), Some(0.8));
-        assert_eq!(
-            Heuristic.combine(&[text, handle]),
-            Some(0.9 + CORROBORATION_BONUS)
-        );
+        assert_eq!(combine(&[]), None);
+        assert_eq!(combine(&[text]), Some(0.8));
+        assert_eq!(combine(&[text, handle]), Some(0.9 + CORROBORATION_BONUS));
         // The same basis twice is not a second input.
-        assert_eq!(Heuristic.combine(&[text, text]), Some(0.8));
+        assert_eq!(combine(&[text, text]), Some(0.8));
         // …and the total is capped.
         assert_eq!(
-            Heuristic.combine(&[(ClaimBasis::Text, Some(1.0)), handle]),
+            combine(&[(ClaimBasis::Text, Some(1.0)), handle]),
             Some(CONFIDENCE_CEILING)
         );
-    }
-
-    #[test]
-    fn a_handle_is_worth_more_than_a_ranked_answer() {
-        assert_eq!(Heuristic.value(Answer::Handle, 0.0), HANDLE_CONFIDENCE);
-        assert!(Heuristic.value(Answer::Ranked, 1.0) <= ANSWER_CEILING);
-        assert!(Heuristic.value(Answer::Hint, 1.0) <= HINT_CEILING);
     }
 
     /// The subject carries the whole row; this policy reads three fields of it. A handle, the name it
@@ -459,26 +455,17 @@ mod tests {
     /// measuring, and folding it into the name is how a handle and a real name become two entities.
     #[test]
     fn the_subject_carries_more_than_the_score_reads() {
-        use crate::knowledge::score::Subject;
-
-        let mut plain =
-            crate::test_support::fixtures::stub_observation(1, "Alex Lei", "real_person");
+        let plain = fixtures::stub_observation(1, "Alex Lei", "real_person");
         let mut present = plain.clone();
         present.platform = Some("x_twitter".to_string());
         present.platform_handle = Some("@alexL_E_I".to_string());
         present.platform_display_name = Some("alex lei".to_string());
         present.search_query = Some("Alex Lei photographer".to_string());
 
-        let candidate = crate::test_support::fixtures::stub_entity(9, "Alex Lei", "real_person");
-        let one = std::slice::from_ref(&candidate);
+        let candidate = fixtures::stub_entity(9, "Alex Lei", "real_person");
         assert_eq!(
-            Heuristic.fit(&Subject::of_observation(&plain), one),
-            Heuristic.fit(&Subject::of_observation(&present), one),
-        );
-        plain.search_query = Some("ignored either way".to_string());
-        assert_eq!(
-            Heuristic.fit(&Subject::of_observation(&plain), one),
-            Heuristic.fit(&Subject::of_observation(&present), one),
+            Heuristic.score(&Subject::of_observation(&plain), &candidate),
+            Heuristic.score(&Subject::of_observation(&present), &candidate),
         );
     }
 }

@@ -18,7 +18,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
 use super::evidence::Evidence;
 use super::merge::{Cause, Outcome};
-use super::score::{Scoring, Subject};
+use super::score::{by_worth, Scoring};
 use super::Knowledge;
 
 /// What one reconcile did.
@@ -54,21 +54,19 @@ pub(super) async fn scan(scoring: &Scoring, conn: &DatabaseConnection) -> anyhow
 
     for identity_id in identities_with_several_holders(conn).await? {
         // Most substantiated first: the survivor, and the reading order.
-        let holders = evidence.held_by_identity(identity_id, &*scoring.worth).await?;
+        let holders = evidence.held_by_identity(identity_id).await?;
         let Some(holder) = holders.first() else {
             continue;
         };
         for other in holders.iter().skip(1) {
-            let features = scoring
-                .similarity
-                .pair(&Subject::of_entity(other), holder);
+            let score = scoring.pair.score(other, holder);
             report.raised += evidence
                 .raise(
                     holder.id,
                     other.id,
                     Some(identity_id),
                     crate::knowledge::evidence::Basis::SharedId,
-                    Some(features.total),
+                    Some(score),
                 )
                 .await?;
         }
@@ -97,17 +95,17 @@ pub(super) async fn merge_open(
 
         // The more substantiated side survives; ties go to the lower id.
         let scoring = &knowledge.scoring;
-        let (winner, loser) = if scoring.worth.order(right.confidence, left.confidence)
-            == Ordering::Greater
-        {
+        let (winner, loser) = if by_worth(right.confidence, left.confidence) == Ordering::Greater {
             (right, left)
         } else {
             (left, right)
         };
-        let features = scoring
-            .similarity
-            .pair(&Subject::of_entity(&loser), &winner);
-        if !scoring.judge.same(&features) {
+        // A set of one is the pair question: is there a candidate that is this thing?
+        if scoring
+            .merge
+            .rank(&loser, std::slice::from_ref(&winner))
+            .is_empty()
+        {
             report.undecided += 1;
             continue;
         }

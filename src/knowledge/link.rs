@@ -550,7 +550,7 @@ mod corpus {
             .expect("a second holder is not an error: claims are many-to-one");
 
         let holders: Vec<i32> = evidence
-            .held_by_identity(identity_id, &*crate::knowledge::Scoring::heuristic().worth)
+            .held_by_identity(identity_id)
             .await
             .unwrap()
             .into_iter()

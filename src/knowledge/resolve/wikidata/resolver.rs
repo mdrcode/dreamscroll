@@ -20,12 +20,13 @@ use crate::knowledge::evidence::ClaimBasis;
 use crate::knowledge::resolve::{
     Answers, BATCH, Claim, FetchError, Raw, Request, ResolutionContext, Resolver, Transport,
 };
-use crate::knowledge::score::{Answer, Scoring};
 use crate::model;
 
 use super::ranking::{
-    CLAIM_BAR, HINT_MIN_SUPPORT, NAME_WEIGHT, Ranked, SUPPORT_WEIGHT, Weights, content_tokens,
-    hint_tokens, near_surface, our_tokens, rank, surface_key,
+    CLAIM_BAR, CLAIM_MARGIN, FIT_FLOOR, FIT_MARGIN, HANDLE_CONFIDENCE, HINT_CEILING,
+    HINT_MIN_SUPPORT, LONE_LABEL_CONFIDENCE, LOOKUP_CONFIDENCE, NAME_WEIGHT, Ranked,
+    SUPPORT_WEIGHT, Weights, answer_confidence, content_tokens, hint_tokens, near_surface,
+    our_tokens, rank, surface_key,
 };
 
 pub(super) const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
@@ -57,10 +58,6 @@ fn handle_property(platform: &str) -> Option<&'static str> {
 
 pub struct Wikidata {
     pub(super) client: reqwest::Client,
-    /// The store's policy: what a claim is worth, and how much of a lead decides. The *measure* over
-    /// an authority's own candidates is this resolver's (see `ranking.rs`) — no other module has
-    /// those candidates — but the thresholds and the confidence scale are the graph's.
-    pub(super) scoring: Scoring,
 }
 
 impl Wikidata {
@@ -69,10 +66,7 @@ impl Wikidata {
             .user_agent(USER_AGENT)
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
-        Ok(Self {
-            client,
-            scoring: Scoring::heuristic(),
-        })
+        Ok(Self { client })
     }
 
     /// Part of the cache key: how the request is built. Change a parameter and the key changes, so a
@@ -125,14 +119,14 @@ impl Wikidata {
         // `Suspicion` (a Matsumoto novel) claimed a Dürrenmatt one on the word "novel" alone.
         if best.fit < HINT_MIN_SUPPORT
             || best.score < CLAIM_BAR
-            || !self.scoring.judge.leads(best.score - runner_up)
+            || best.score - runner_up < CLAIM_MARGIN
         {
             return Vec::new();
         }
         vec![claim(
             best.candidate,
             "search_hint",
-            self.scoring.worth.value(Answer::Hint, best.score),
+            answer_confidence(best.score).min(HINT_CEILING),
         )]
     }
     pub(super) fn property_of(kind: &str) -> Option<&str> {
@@ -153,7 +147,7 @@ impl Wikidata {
             return vec![claim(
                 ranked[0].candidate,
                 "exact_label",
-                self.scoring.worth.value(Answer::LoneLabel, 0.0),
+                LONE_LABEL_CONFIDENCE,
             )];
         }
 
@@ -167,11 +161,11 @@ impl Wikidata {
         // all, so requiring a blended score quietly demanded a fixed amount of text overlap — which
         // real, terse Wikidata descriptions cannot supply ("German-born theoretical physicist" vs a
         // capture's six-word description of Einstein).
-        if !self.scoring.judge.supported(best.fit) {
+        if best.fit < FIT_FLOOR {
             return self.by_hint(entity, candidates);
         }
         // Two candidates fit and neither wins: genuine ambiguity. The hint must not break this tie.
-        if !self.scoring.judge.leads(best.fit - runner_up) {
+        if best.fit - runner_up < FIT_MARGIN {
             return Vec::new();
         }
         let method = match (request.kind.as_str(), best.exact_label) {
@@ -184,7 +178,7 @@ impl Wikidata {
         vec![claim(
             best.candidate,
             method,
-            self.scoring.worth.value(Answer::Ranked, best.score),
+            answer_confidence(best.score),
         )]
     }
 
@@ -262,11 +256,7 @@ impl Wikidata {
             return candidates
                 .first()
                 .map(|candidate| {
-                    handle_claim(
-                        candidate,
-                        property,
-                        self.scoring.worth.value(Answer::Handle, 0.0),
-                    )
+                    handle_claim(candidate, property, HANDLE_CONFIDENCE)
                 })
                 .into_iter()
                 .collect();
@@ -339,11 +329,11 @@ impl Wikidata {
                 .iter()
                 .map(|tokens| weights.fit(&theirs, tokens))
                 .fold(0.0f32, f32::max);
-            if self.scoring.judge.supported(fit) {
+            if fit >= FIT_FLOOR {
                 return vec![claim(
                     candidate,
                     "search_lookup",
-                    self.scoring.worth.value(Answer::Lookup, 0.0),
+                    LOOKUP_CONFIDENCE,
                 )];
             }
         }

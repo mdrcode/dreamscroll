@@ -136,22 +136,31 @@ identity. `merge` refuses that pair (shared illumination), so `reconcile` report
 open — the terminal state the merge-side rule produces everywhere.
 
 **The heuristic is one implementation of that chain — not the chain.** The chain is `score.rs`, and
-it is three verbs: [`Similarity`] measures how alike two things are, [`Judge`] says whether that
-likeness is a decision (one pair; enough evidence; a big enough lead), [`Worth`] prices an answer and
-ranks two substantiated things. Four modules ask: the linker (measure and judge), `reconcile` (all
-three), `project` (combine), and the resolver (judge and value). So the policy is the **store's**,
-one `Scoring` handed to every module that measures — a linker carrying its own would leave the
-projection, the merge pass and the resolver on a different one, silently.
+it is two verbs:
 
-`heuristic_score.rs` is today's only answer to those verbs: normalized keys, weights, bars, margins,
-confidence constants. `heuristic.rs` is the **procedure** — take the best candidate that clears the
-bar, else create — and contains no numbers at all. `name_blocker.rs` is recall: names and handles to
-candidates, nothing scored.
+- [`Similarity`] measures one pair: how strongly the evidence says these two are one thing.
+- [`Rank`] says which of a candidate set is *this*, best first — and only the ones worth choosing.
 
-That is what makes a second policy possible without a second graph: implement the three verbs, build
-a `Scoring`, hand it to `Knowledge::with_scoring`. The one thing a policy cannot do is disagree with
-itself — the confidence `project` derives, the survivor `merge` keeps and the weight an authority's
-answer carries all come from the same three functions.
+The filter is the second verb's, and it is not a threshold on the score: the rule is a conjunction —
+a name match has to be corroborated — and a number cannot carry its own components. That is also why
+a rejected pair still reports its score: `Nintendo [organization] ⇄ Nintendo [brand]` at 0.74 is a
+pair that must never merge, and the number is how a person sees why.
+
+Everything else is not a verb. `reconcile` stores the number and asks `Rank` for the verdict; the
+linker asks `Rank` and applies the answer; `project` calls `combine`, which is arithmetic over claim
+scores; `merge` and the holder order ask `by_worth`, a convention about `NULL`. Only the linker and
+`reconcile` take a `Scoring`, and it is the **store's** — a linker carrying its own would leave the
+merge pass on a different policy, silently.
+
+`heuristic_score.rs` is today's only answer: normalized keys, weights, the bar, the corroboration
+bonus. `heuristic.rs` is the **procedure** — the best qualifying candidate, else create — and holds
+no numbers. `name_blocker.rs` is recall: names and handles to candidates, nothing scored. The
+resolver keeps its own measure and its own calibration, because its candidate type is private and
+its fit is corpus-aware (terms are weighed by rarity among the answers it got back) — a pair
+comparison cannot see the corpus.
+
+That is what makes a second policy possible without a second graph: implement the two verbs for the
+pairs the graph asks about, build a `Scoring`, hand it to `Knowledge::with_scoring`.
 
 ## Resolving: what can the authorities tell us?
 
@@ -257,18 +266,18 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 | file | what it is |
 |---|---|
-| `score.rs` | the three verbs — `Similarity`, `Judge`, `Worth` — and the `Scoring` bundle |
+| `score.rs` | the two verbs — `Similarity`, `Rank` — `by_worth`, and the `Scoring` bundle |
 | `blocker.rs`, `link_decider.rs` | the two linking traits, and nothing else — the contract a linker implements |
-| `heuristic_score.rs` | the only `Scoring` today: token keys, weights, bars, margins, confidence constants |
+| `heuristic_score.rs` | the only `Scoring` today: token keys, weights, the bar, the corroboration bonus |
 | `name_blocker.rs` | `NameBlocker`: recall by normalized name and platform handle |
 | `heuristic.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, candidate ranking in `ranking.rs`, HTTP in `transport.rs` |
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
 | `link.rs` | the linking executor, and `LinkStats` |
-| `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces`; asks `Worth::combine` for confidence |
+| `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `merge.rs` | fold one entity into another |
-| `evidence.rs` | claims and identities: who holds one (ordered by `Worth::order`), and the platform key a presence answers to |
+| `evidence.rs` | claims and identities: who holds one (ordered by `by_worth`), and the platform key a presence answers to |
 | `reconcile.rs` | the pass that asks whether one identity's holders are one thing |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |

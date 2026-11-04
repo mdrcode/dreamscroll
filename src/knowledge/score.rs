@@ -1,181 +1,130 @@
-//! Scoring: the verbs a policy provides, and the vocabulary it is asked in.
+//! Scoring: two verbs.
 //!
-//! Three verbs, because they are calibrated against one another and mean nothing apart:
+//! - [`Similarity`] measures one pair: how strongly the evidence says these two are one thing.
+//! - [`Rank`] answers one question: which of these candidates is *this*, best first.
 //!
-//! - [`Similarity`] — how alike are these two things, with every other candidate in view?
-//! - [`Judge`] — is that likeness a decision? One pair; enough evidence; a big enough lead.
-//! - [`Worth`] — what is an answer worth, and which of two substantiated things wins?
+//! Everything else a graph needs from scoring is not a verb:
 //!
-//! Who asks, and why this is not a field of the linker: the linker asks [`Similarity`] and [`Judge`],
-//! `reconcile` asks all three, `project` asks [`Worth::combine`], and `resolve` asks [`Judge`] and
-//! [`Worth::value`]. Four modules consume the policy, so the store owns one [`Scoring`] and hands it
-//! to each of them — a linker that carried its own would leave the projection and the merge pass on
-//! a different policy, silently.
+//! - **A threshold** is [`Rank`]'s filter. It cannot be a constant on the score, because the rule
+//!   that separates "same thing" from "similar" is a conjunction over what was compared — a name
+//!   match has to be corroborated — and a number cannot carry its own components.
+//! - **An aggregate** over several claims about one entity is arithmetic, not a judgement; it is
+//!   `heuristic_score::combine`, one function, written once.
+//! - **An ordering** between two substantiated things is [`by_worth`]: a convention about `None`,
+//!   with no policy in it.
 //!
-//! The one implementation is `heuristic_score::Heuristic`. Swapping it means building a [`Scoring`]
-//! and handing it to [`Knowledge::with_scoring`](super::Knowledge::with_scoring); the linker is a
-//! procedure over the traits, not the policy itself.
+//! One implementation covers the graph — `heuristic_score::Heuristic` — and implements both traits
+//! for each pair it is asked about. An authority implements [`Rank`] for its *own* candidate type,
+//! because its measure is corpus-aware (it weighs terms by rarity among the candidates it got back)
+//! and a pair comparison cannot see the corpus.
+//!
+//! Note the asymmetry this admits: [`Similarity`] reports how alike a pair is *even when it is not
+//! one thing*. That is deliberate — "same name, different type" at 0.74 is how a person spots the
+//! merge that must never happen, and a score gated by its own threshold could not say it.
 
 use std::cmp::Ordering;
 use std::sync::Arc;
 
 use crate::model;
 
-use super::evidence::ClaimBasis;
-
-/// One side of a comparison: a stored row, flattened.
+/// One side of a comparison: a stored row, flattened and owned, so it can cross a trait object.
 ///
-/// Everything here is what the *row* holds, not what today's policy happens to read. That is the
-/// point of the type: a policy is a parameter, so the vocabulary must be the graph's, and hiding a
-/// field is a silent veto on every future policy. The heuristic reads the first three and ignores
-/// the rest; an embedding policy reads the text, a hint-aware one reads `search_query`, a policy
-/// that weighs provenance reads the presence.
-///
-/// The two constructors differ in one honest way: a capture makes one claim, so an observation has
-/// no alternatives — `of_observation` leaves those lists empty rather than inventing a `[name]`.
-#[derive(Debug, Clone, Copy)]
-pub struct Subject<'a> {
-    pub name: &'a str,
-    pub description: Option<&'a str>,
-    pub entity_type: &'a str,
-    /// The illumination's disambiguating words, when the subject carried one.
-    pub search_query: Option<&'a str>,
-    /// The presence a capture showed: the platform, the handle, and the name it displayed.
-    pub platform: Option<&'a str>,
-    pub platform_handle: Option<&'a str>,
-    pub platform_display_name: Option<&'a str>,
-    /// What this entity's *other* members were called. Empty for an observation.
-    pub alt_names: &'a [String],
-    pub alt_types: &'a [String],
-    pub alt_descriptions: &'a [String],
-    pub alt_search_queries: &'a [String],
+/// Everything here is what the *row* holds, not what today's policy reads. A policy that prices a
+/// handle, weighs accumulated surfaces, or consults the illumination's hint gets them without a
+/// trait change. An observation has no alternatives — a capture makes one claim — so those lists
+/// are empty rather than a list of one.
+#[derive(Debug, Clone)]
+pub struct Subject {
+    pub name: String,
+    pub description: Option<String>,
+    pub entity_type: String,
+    pub search_query: Option<String>,
+    pub platform: Option<String>,
+    pub platform_handle: Option<String>,
+    pub platform_display_name: Option<String>,
+    pub alt_names: Vec<String>,
+    pub alt_types: Vec<String>,
+    pub alt_descriptions: Vec<String>,
+    pub alt_search_queries: Vec<String>,
 }
 
-impl<'a> Subject<'a> {
-    pub fn of_observation(row: &'a model::user_observed_entity::Model) -> Self {
+impl Subject {
+    pub fn of_observation(row: &model::user_observed_entity::Model) -> Self {
         Self {
-            name: &row.name,
-            description: row.description.as_deref(),
-            entity_type: &row.entity_type,
-            search_query: row.search_query.as_deref(),
-            platform: row.platform.as_deref(),
-            platform_handle: row.platform_handle.as_deref(),
-            platform_display_name: row.platform_display_name.as_deref(),
-            alt_names: &[],
-            alt_types: &[],
-            alt_descriptions: &[],
-            alt_search_queries: &[],
+            name: row.name.clone(),
+            description: row.description.clone(),
+            entity_type: row.entity_type.clone(),
+            search_query: row.search_query.clone(),
+            platform: row.platform.clone(),
+            platform_handle: row.platform_handle.clone(),
+            platform_display_name: row.platform_display_name.clone(),
+            alt_names: Vec::new(),
+            alt_types: Vec::new(),
+            alt_descriptions: Vec::new(),
+            alt_search_queries: Vec::new(),
         }
     }
 
     /// An entity scored as if it were an observation: its selected values stand in for what a
-    /// capture said, and what its members accumulated becomes the alternatives. This is how
-    /// `reconcile` asks about two entities.
-    pub fn of_entity(row: &'a model::knowledge_entity::Model) -> Self {
+    /// capture said, and what its members accumulated becomes the alternatives.
+    pub fn of_entity(row: &model::knowledge_entity::Model) -> Self {
         Self {
-            name: &row.name,
-            description: row.description.as_deref(),
-            entity_type: &row.entity_type,
-            search_query: row.search_query.as_deref(),
-            platform: row.platform.as_deref(),
-            platform_handle: row.platform_handle.as_deref(),
-            platform_display_name: row.platform_display_name.as_deref(),
-            alt_names: &row.alt_names,
-            alt_types: &row.alt_types,
-            alt_descriptions: &row.alt_descriptions,
-            alt_search_queries: &row.alt_search_queries,
+            name: row.name.clone(),
+            description: row.description.clone(),
+            entity_type: row.entity_type.clone(),
+            search_query: row.search_query.clone(),
+            platform: row.platform.clone(),
+            platform_handle: row.platform_handle.clone(),
+            platform_display_name: row.platform_display_name.clone(),
+            alt_names: row.alt_names.clone(),
+            alt_types: row.alt_types.clone(),
+            alt_descriptions: row.alt_descriptions.clone(),
+            alt_search_queries: row.alt_search_queries.clone(),
         }
     }
 }
 
-/// What one candidate earns against one subject, per feature and in total.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Features {
-    pub name: f32,
-    pub description: f32,
-    pub type_match: f32,
-    pub total: f32,
-}
-
-/// Verbs 1–3: measure, and weigh what is measured.
-pub trait Similarity: Send + Sync {
-    /// Score `subject` against every candidate, one `Features` each, in `candidates` order.
-    ///
-    /// The whole set is handed over rather than one candidate at a time because a policy may weigh
-    /// terms by how rare they are *among these candidates* — a prior no single pair can compute.
-    fn fit(
-        &self,
-        subject: &Subject<'_>,
-        candidates: &[model::knowledge_entity::Model],
-    ) -> Vec<Features>;
-
-    /// One pair, for the callers that have no set to compare against.
-    fn pair(
-        &self,
-        subject: &Subject<'_>,
-        candidate: &model::knowledge_entity::Model,
-    ) -> Features {
-        self.fit(subject, std::slice::from_ref(candidate))
-            .into_iter()
-            .next()
-            .expect("fit returns one entry per candidate")
-    }
-}
-
-/// Verbs 4–6. One trait, because a bar, an ordering and a margin are one calibration: raising the
-/// floor without moving the margin changes which pairs win, not just how many.
-pub trait Judge: Send + Sync {
-    /// Do these features say the two are one thing?
-    fn same(&self, features: &Features) -> bool;
-
-    /// Is this much similarity evidence at all? A floor, not a verdict — "there is something here
-    /// worth asking about", as opposed to "this is the answer".
-    fn supported(&self, similarity: f32) -> bool;
-
-    /// Is the best candidate's lead over the runner-up enough to decide? A near-tie is not evidence,
-    /// however high both sit.
-    fn leads(&self, gap: f32) -> bool;
-}
-
-/// How an answer was reached, on the policy's scale.
+/// How strongly the evidence says these two are one thing, in `[0, 1]`.
 ///
-/// The `method` string stored on a claim stays the resolver's own record of the question it asked;
-/// this is the *kind* of answer the policy is asked to price. Two records because they answer
-/// different questions: `search_ranked` is for us to read, [`Answer::Ranked`] is what the weights see.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Answer {
-    /// An authority's property matched a handle: the item *is* the account.
-    Handle,
-    /// One exact label and nothing competing for it — identity, with nothing corroborating it.
-    LoneLabel,
-    /// A search answer accepted because exactly one candidate's label is our own surface.
-    Lookup,
-    /// The illumination's own disambiguating words, as a last resort.
-    Hint,
-    /// A ranked answer: the description decided.
-    Ranked,
+/// A measurement, never a verdict. The same number is stored on a proximity row, used to order
+/// candidates, and priced into a confidence — so it has to mean the same thing in all three, and
+/// it cannot be pre-filtered by its consumer.
+pub trait Similarity<A, B>: Send + Sync {
+    fn score(&self, a: &A, b: &B) -> f32;
 }
 
-/// Verbs 7–9.
-pub trait Worth: Send + Sync {
-    /// What a claim of this kind, from this score, is worth. `score` is ignored by answers the
-    /// policy does not score (a handle match, a lone label).
-    fn value(&self, answer: Answer, score: f32) -> f32;
-
-    /// How substantiated an entity is, from the claims it holds. `None` when it holds none.
-    fn combine(&self, claims: &[(ClaimBasis, Option<f32>)]) -> Option<f32>;
-
-    /// Which of two substantiated things wins: `Greater` when `a` is the more substantiated.
-    /// `None` is least. Ties are the caller's business — this compares worth only.
-    fn order(&self, a: Option<f32>, b: Option<f32>) -> Ordering;
+/// Which of these candidates is *this*, best first — and only the ones worth choosing.
+///
+/// Two duties in one verb because they cannot be separated: ordering, and the threshold that turns
+/// a candidate into an answer. The filter is why an empty list means "nothing here is this", and it
+/// is where a component-shaped rule lives, since a number cannot carry its own components.
+pub trait Rank<A, B>: Send + Sync {
+    fn rank(&self, a: &A, candidates: &[B]) -> Vec<(usize, f32)>;
 }
 
-/// The three verbs, from one policy.
+/// Which of two substantiated things wins. Not policy: `None` is least, ties stay ties.
+///
+/// One definition, asked by the merge survivor choice and by the identity-holder order — the two
+/// places that used to disagree about `NULL`.
+pub fn by_worth(a: Option<f32>, b: Option<f32>) -> Ordering {
+    a.unwrap_or(f32::NEG_INFINITY)
+        .total_cmp(&b.unwrap_or(f32::NEG_INFINITY))
+}
+
+type Entity = model::knowledge_entity::Model;
+
+/// The two verbs, from one policy, for the pairs the graph asks about.
+///
+/// Three fields because a trait object fixes its type parameters: the same policy is asked three
+/// questions — a capture against entities, two entities as a verdict, two entities as a number.
 #[derive(Clone)]
 pub struct Scoring {
-    pub similarity: Arc<dyn Similarity>,
-    pub judge: Arc<dyn Judge>,
-    pub worth: Arc<dyn Worth>,
+    /// One capture's claim against the graph's entities: `None` means start a new entity.
+    pub link: Arc<dyn Rank<Subject, Entity>>,
+    /// Two entities, for the merge question. A set of one is the pair question.
+    pub merge: Arc<dyn Rank<Entity, Entity>>,
+    /// Two entities, as the number a proximity row stores.
+    pub pair: Arc<dyn Similarity<Entity, Entity>>,
 }
 
 impl Scoring {
@@ -183,9 +132,9 @@ impl Scoring {
     pub fn heuristic() -> Self {
         let policy = Arc::new(super::heuristic_score::Heuristic);
         Self {
-            similarity: policy.clone(),
-            judge: policy.clone(),
-            worth: policy,
+            link: policy.clone(),
+            merge: policy.clone(),
+            pair: policy,
         }
     }
 }

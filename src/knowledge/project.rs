@@ -24,7 +24,6 @@ use sea_orm::{
 use crate::model;
 
 use super::evidence::ClaimBasis;
-use super::score::Worth;
 use super::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 
 /// Recompute the columns that are a function of the members and of the evidence — the only writer of
@@ -34,7 +33,6 @@ use super::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 /// which is what makes a merge safe: the winner keeps its own surface and text.
 pub(super) async fn project<C: ConnectionTrait>(
     conn: &C,
-    worth: &dyn Worth,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
     let row = super::graph::get(conn, knowledge_entity_id).await?;
@@ -139,7 +137,7 @@ pub(super) async fn project<C: ConnectionTrait>(
         STATUS_IDENTIFIED
     };
 
-    let confidence = worth.combine(&claims);
+    let confidence = super::heuristic_score::combine(&claims);
 
     model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),

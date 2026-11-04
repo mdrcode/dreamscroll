@@ -54,8 +54,36 @@ fn edit_distance(a: &str, b: &str) -> usize {
     previous[b.len()]
 }
 
-// The floor a fit must clear and the lead it must have are the store's `Scoring`, not this
-// module's: `resolver.rs` asks `Judge::supported` and `Judge::leads`.
+// The authority's calibration. Not the graph's: every number below prices a *Wikidata answer*, on a
+// scale produced by `fit` and the blend above — so it lives with the measure that produces them, and
+// the graph's `Similarity`/`Rank` cannot state it.
+
+/// How much of the candidate's description must be accounted for by ours before a claim is worth
+/// making. Two shared content words usually clears it; one never does.
+pub(super) const FIT_FLOOR: f32 = 0.20;
+/// …and it must beat the runner-up by this much. A near-tie is not evidence.
+pub(super) const FIT_MARGIN: f32 = 0.10;
+/// The hint fallback is a blend, and is held to the same margin.
+pub(super) const CLAIM_MARGIN: f32 = 0.10;
+
+/// A ranked answer, mapped into `[0.5, ANSWER_CEILING]`.
+const ANSWER_BASE: f32 = 0.50;
+const ANSWER_SPREAD: f32 = 0.45;
+pub(super) const ANSWER_CEILING: f32 = 0.95;
+/// A guess from the disambiguating words alone is worth less than an exact label.
+pub(super) const HINT_CEILING: f32 = 0.85;
+/// One exact label with nothing competing for it is identity, but nothing corroborates it either.
+pub(super) const LONE_LABEL_CONFIDENCE: f32 = 0.75;
+/// A search answer accepted because exactly one candidate's label is our own surface.
+pub(super) const LOOKUP_CONFIDENCE: f32 = 0.85;
+/// A property match: the item *is* the account.
+pub(super) const HANDLE_CONFIDENCE: f32 = 0.95;
+
+/// What a ranked answer is worth, before the graph adds corroboration.
+pub(super) fn answer_confidence(score: f32) -> f32 {
+    (ANSWER_BASE + ANSWER_SPREAD * score).min(ANSWER_CEILING)
+}
+
 /// Weight of matched evidence at which a claim is half-convincing. A scale, not a threshold: two
 /// common words land well below it, two rare ones well above.
 const EVIDENCE_SCALE: f32 = 3.0;

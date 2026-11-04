@@ -1,12 +1,9 @@
 //! The default linker: take the best candidate that clears the bar, otherwise create.
 //!
-//! A procedure, not a policy. Every number it uses comes from the [`Scoring`] it is handed — the
-//! name similarity and weights from [`Similarity`], the bar from [`Judge::same`], and the ordering
-//! of identity holders from [`Worth::order`]. Swap the policy and this file does not change; write a
-//! different procedure (an embedding recall, a model's judgement) and it implements [`LinkDecider`]
-//! instead.
-//!
-//! A name alone never decides: the bar requires corroboration, and that bar is the policy's.
+//! A procedure, not a policy. It asks one question — [`Rank::rank`] — and applies the answer: the
+//! best qualifying candidate is where the observation attaches, and no qualifying candidate is a
+//! new entity. The bar lives in the policy's `rank`, because it is a conjunction over what was
+//! compared and a number cannot carry that.
 
 use crate::model;
 
@@ -71,7 +68,7 @@ impl LinkDecider for HeuristicLinker {
             // `held_by_identity` returns the most substantiated first; the rest go to reconcile.
             if let Some(identity_id) = identity
                 && let Some(best) = evidence
-                    .held_by_identity(identity_id, &*scoring.worth)
+                    .held_by_identity(identity_id)
                     .await?
                     .into_iter()
                     .next()
@@ -85,24 +82,15 @@ impl LinkDecider for HeuristicLinker {
             }
 
             let candidates = blocker.candidates(&observation).await;
-            let features = scoring
-                .similarity
-                .fit(&Subject::of_observation(&observation), &candidates);
+            let ranked = scoring
+                .link
+                .rank(&Subject::of_observation(&observation), &candidates);
 
-            // (entity id, total, clears the bar): highest total wins, and whether it is worth
-            // merging decides between attaching and creating. Ties keep the first candidate, i.e.
-            // the lowest entity id, because the blocker hands them back in id order.
-            let mut best: Option<(i32, f32, bool)> = None;
-            for (candidate, features) in candidates.iter().zip(&features) {
-                let entry = (candidate.id, features.total, scoring.judge.same(features));
-                if best.is_none_or(|winner| entry.1 > winner.1) {
-                    best = Some(entry);
-                }
-            }
-
-            let action = match best {
-                Some((entity, _, true)) => Action::Attach(entity),
-                _ => Action::Create,
+            // The best candidate that qualifies. An empty ranking is a decision too: nothing here
+            // is this observation, so it starts a new entity.
+            let action = match ranked.first() {
+                Some((index, _)) => Action::Attach(candidates[*index].id),
+                None => Action::Create,
             };
             decisions.push(Decision {
                 observation,

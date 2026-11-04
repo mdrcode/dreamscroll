@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::knowledge::normalize;
-use crate::knowledge::score::Worth;
+use crate::knowledge::score::by_worth;
 use crate::model;
 
 /// A platform link, as the capture showed it. `link` transcribes it; nothing infers anything here.
@@ -291,13 +291,12 @@ impl Evidence {
     /// The entities holding this identity, most substantiated first: the reconcile pass keeps the
     /// first and asks about the rest, and the linker attaches to the first.
     ///
-    /// The ordering is the policy's, asked here rather than written into the SQL: `merge` picks its
-    /// survivor with the same comparison, and two spellings of "most substantiated" disagreed on
+    /// The ordering is [`by_worth`], asked here rather than written into the SQL: `merge` picks its
+    /// survivor with the same function, and two spellings of "most substantiated" disagreed on
     /// `NULL` for as long as they existed.
     pub async fn held_by_identity(
         &self,
         identity_id: i32,
-        worth: &dyn Worth,
     ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
         use sea_orm::{ColumnTrait, QueryFilter};
         let rows = self
@@ -324,11 +323,7 @@ impl Evidence {
             .filter(model::knowledge_entity::Column::Id.is_in(ids))
             .all(&self.conn)
             .await?;
-        entities.sort_by(|a, b| {
-            worth
-                .order(b.confidence, a.confidence)
-                .then(a.id.cmp(&b.id))
-        });
+        entities.sort_by(|a, b| by_worth(b.confidence, a.confidence).then(a.id.cmp(&b.id)));
         Ok(entities)
     }
 

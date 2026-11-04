@@ -7,8 +7,9 @@
 //! paths that have their own logic and their own tests live beside it: `link.rs`, `project.rs` and
 //! `merge.rs`. They are private modules; callers reach them through `Knowledge`'s methods.
 //!
-//! Scoring is its own seam: `score.rs` states the verbs, `heuristic_score.rs` is today's only answer
-//! to them, and the store hands one `Scoring` to every module that asks.
+//! Scoring is its own seam: `score.rs` states the two verbs (`Similarity`, `Rank`),
+//! `heuristic_score.rs` is today's only answer to them, and the store hands one `Scoring` to the
+//! linker and to `reconcile`.
 
 pub mod blocker;
 pub mod evidence;
@@ -31,4 +32,4 @@ pub use graph::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 pub use reconcile::Report as ReconcileReport;
 pub use reconcile::list as list_proximities;
 pub use link::LinkStats;
-pub use score::{Answer, Features, Judge, Scoring, Similarity, Subject, Worth};
+pub use score::{by_worth, Rank, Scoring, Similarity, Subject};
