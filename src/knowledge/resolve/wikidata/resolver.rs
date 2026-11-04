@@ -10,7 +10,7 @@
 //!
 //! `plan` and `parse` are pure, so the whole decision can be tested from a fixture and re-run over
 //! cached payloads for free. Only `fetch` touches the network, and nothing here calls it directly:
-//! it goes through `ResolutionContext::ask`, which keeps the cache, the pace and the budget.
+//! it goes through `ResolutionContext::resolve_requests`, which keeps the cache, the pace and the budget.
 
 use std::collections::HashSet;
 
@@ -390,11 +390,11 @@ impl Resolver for Wikidata {
             .iter()
             .map(|(_, request)| request.clone())
             .collect();
-        let answers = ctx.ask(self, &requests).await;
+        let answers = ctx.resolve_requests(self, &requests).await;
         self.collect(entities, &identity, &answers, ctx, &mut claims, &mut resolved)
             .await;
 
-        // The fallback runs offline too: `ask` decides what to fetch, so in that mode it serves the
+        // The fallback runs offline too: `resolve_requests` decides what to fetch, so it serves the
         // cached search answers and silently fetches nothing. Skipping it here threw those answers
         // away, which made an offline rebuild reproduce only what the first pass found.
 
@@ -412,7 +412,7 @@ impl Resolver for Wikidata {
             .iter()
             .map(|(_, request)| request.clone())
             .collect();
-        let answers = ctx.ask(self, &requests).await;
+        let answers = ctx.resolve_requests(self, &requests).await;
         self.collect(entities, &fallback, &answers, ctx, &mut claims, &mut resolved)
             .await;
 

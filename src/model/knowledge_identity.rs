@@ -30,9 +30,13 @@ pub struct Model {
     pub description: Option<String>,
     pub classes: Vec<String>,
 
-    /// Who answered and how: `wikidata` | `wikimedia` | `platform`, plus `exact_label` | `p2002` |
-    /// `capture`.
+    /// Who answered: `wikidata` | `wikimedia` | `platform` (the resolver's own id).
     pub source: String,
+    /// How it was answered, on the first answer only: `capture` when a capture asserted the handle,
+    /// a Wikidata property (`P2002`, `P2003`, …) when the answer came from a handle join, or the
+    /// ladder step (`exact_label`, `wikipedia_title`, `search_lookup`, `search_ranked`, `search_hint`,
+    /// `ranked`). What the *claim* asked is `knowledge_claims.basis`: per edge, because the same
+    /// identity can be reached by text for one entity and by handle for another.
     #[sea_orm(nullable)]
     pub method: Option<String>,
     #[sea_orm(nullable)]

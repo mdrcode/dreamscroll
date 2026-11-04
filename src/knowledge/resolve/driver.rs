@@ -5,7 +5,7 @@
 //! them, one pass or several — is its own business.
 //!
 //! Adding an authority means writing one `Resolver`. It cannot forget the cache, because
-//! `ResolutionContext::ask` is the only way to reach the world: there is no other door.
+//! `ResolutionContext::resolve_requests` is the only way to reach the world: there is no other door.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
@@ -173,9 +173,9 @@ const NOT_LIMITED: u64 = u64::MAX;
 
 /// What a resolver is given.
 ///
-/// It is the only door to the world: a resolver cannot fetch, only ask. That is what lets one own its
-/// own strategy — including several passes — without being able to bypass the cache, the pace or the
-/// budget.
+/// It is the only door to the world: a resolver cannot fetch, only resolve requests. That is what
+/// lets one own its own strategy — including several passes — without being able to bypass the
+/// cache, the pace or the budget.
 pub struct ResolutionContext<'a> {
     cache: &'a Cache<'a>,
     pacer: tokio::sync::Mutex<Pacer>,
@@ -224,7 +224,7 @@ impl<'a> ResolutionContext<'a> {
     ///
     /// Returns whatever it has. A rate limit stops *further fetching*, never the answers already in
     /// hand — a partial answer is worth more than a tidy one.
-    pub async fn ask<T: Transport + ?Sized>(&self, transport: &T, requests: &[Request]) -> Answers {
+    pub async fn resolve_requests<T: Transport + ?Sized>(&self, transport: &T, requests: &[Request]) -> Answers {
         let mut answers = Answers::new();
         if requests.is_empty() {
             return answers;
@@ -659,7 +659,7 @@ mod tests {
             ctx: &ResolutionContext<'_>,
         ) -> Vec<(i32, Claim)> {
             let requests: Vec<Request> = entities.iter().map(fake_request).collect();
-            let answers = ctx.ask(self, &requests).await;
+            let answers = ctx.resolve_requests(self, &requests).await;
             entities
                 .iter()
                 .filter_map(|entity| {
@@ -962,7 +962,7 @@ mod tests {
             ctx: &ResolutionContext<'_>,
         ) -> Vec<(i32, Claim)> {
             let requests: Vec<Request> = entities.iter().map(fake_request).collect();
-            ctx.ask(self, &requests).await;
+            ctx.resolve_requests(self, &requests).await;
             Vec::new()
         }
     }
@@ -1002,7 +1002,7 @@ mod tests {
                     query: entity.name.clone(),
                 })
                 .collect();
-            let answers = ctx.ask(self, &requests).await;
+            let answers = ctx.resolve_requests(self, &requests).await;
             entities
                 .iter()
                 .filter_map(|entity| {
@@ -1328,7 +1328,7 @@ mod tests {
         let ctx = ResolutionContext::new(&cache, &options);
 
         let answers = ctx
-            .ask(
+            .resolve_requests(
                 &AlwaysRateLimited,
                 &[request("label", "v1", "Train Dreams")],
             )
@@ -1361,7 +1361,7 @@ mod tests {
         };
         let ctx = ResolutionContext::new(&cache, &options);
 
-        ctx.ask(
+        ctx.resolve_requests(
             &AlwaysRateLimited,
             &[request("label", "v1", "Train Dreams")],
         )
