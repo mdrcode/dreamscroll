@@ -895,11 +895,11 @@ mod tests {
         crate::knowledge::Knowledge::with_linking(
             &db,
             Box::new(
-                crate::knowledge::name_blocker::NameBlocker::new(&db)
+                crate::knowledge::heuristic::NameBlocker::new(&db)
                     .await
                     .unwrap(),
             ),
-            std::sync::Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker),
+            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
         )
         .update_projection(knowledge_entity_id)
         .await
@@ -952,11 +952,11 @@ mod tests {
         crate::knowledge::Knowledge::with_linking(
             &db,
             Box::new(
-                crate::knowledge::name_blocker::NameBlocker::new(&db)
+                crate::knowledge::heuristic::NameBlocker::new(&db)
                     .await
                     .unwrap(),
             ),
-            std::sync::Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker),
+            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
         )
         .update_projection(knowledge_entity_id)
         .await

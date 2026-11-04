@@ -18,9 +18,9 @@ use std::collections::BTreeSet;
 
 use crate::model;
 
-use super::evidence::ClaimBasis;
-use super::normalize;
-use super::scoring::{Rank, Scoring, Similarity, Subject};
+use crate::knowledge::evidence::ClaimBasis;
+use crate::knowledge::normalize;
+use crate::knowledge::scoring::{Rank, Scoring, Similarity, Subject};
 
 pub const WEIGHT_NAME: f32 = 0.60;
 pub const WEIGHT_DESCRIPTION: f32 = 0.30;
@@ -54,7 +54,7 @@ pub struct Heuristic;
 
 impl Heuristic {
     /// This policy in the shape a store holds: the three questions, boxed.
-    pub(super) fn scoring() -> Scoring {
+    pub(crate) fn scoring() -> Scoring {
         Scoring::new(std::sync::Arc::new(Self))
     }
 }
@@ -131,7 +131,7 @@ fn worth_merging(features: &Features) -> bool {
 ///
 /// Aggregating by "best + corroboration" rather than a sum is deliberate: two weak confirmations of
 /// the same fact must not outrank one strong one.
-pub(super) fn combine(claims: &[(ClaimBasis, Option<f32>)]) -> Option<f32> {
+pub(in crate::knowledge) fn combine(claims: &[(ClaimBasis, Option<f32>)]) -> Option<f32> {
     if claims.is_empty() {
         return None;
     }

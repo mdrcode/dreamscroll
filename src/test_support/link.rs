@@ -9,7 +9,7 @@ use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
-use crate::knowledge::name_blocker::NameBlocker;
+use crate::knowledge::heuristic::NameBlocker;
 use crate::model;
 
 /// Link every illumination that still has unlinked observations.
@@ -18,7 +18,7 @@ pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
     let knowledge = crate::knowledge::Knowledge::with_linking(
         db,
         Box::new(NameBlocker::new(db).await?),
-        std::sync::Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker),
+        std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
     );
 
     let pending = Query::select()

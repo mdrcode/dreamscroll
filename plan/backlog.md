@@ -78,7 +78,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `link` still exists as "one blocker, every illumination". A `Blocker` that answers `candidates`
   with a query removes the scan and cannot go stale (the trait's `changed` is a no-op for anything
   reading the database). The obstacle is that the matching keys are not in the database:
-  `normalize::comparable` and the token keys in `heuristic_scoring.rs` are Rust functions, and they are described as *the*
+  `normalize::comparable` and the token keys in `heuristic/scoring.rs` are Rust functions, and they are described as *the*
   definition of "the same name", so re-deriving them in SQL means two definitions that can drift.
   Cheapest shape: generated columns (or expression indexes) over `name`, `alt_names`,
   `platform_handle` and `platform_display_name`, fed by one shared normalisation — plus a check that
@@ -211,7 +211,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
   Settle 1 and 2 by choosing which weight set and which ordering is authoritative — both are ranker
   policy and belong with the resolver, not the linker. Note that the scoring split (`scoring.rs` verbs,
-  `heuristic_scoring.rs` policy) makes 1 cheaper to state: `parse_search` builds `Weights` itself
+  `heuristic/scoring.rs` policy) makes 1 cheaper to state: `parse_search` builds `Weights` itself
   instead of asking the policy, which is now the visible oddity rather than a hidden one.
 
 ## Deferred — already scoped

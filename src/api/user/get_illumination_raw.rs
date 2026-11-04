@@ -168,11 +168,11 @@ mod tests {
                 knowledge: crate::knowledge::Knowledge::with_linking(
                     &db,
                     Box::new(
-                        crate::knowledge::name_blocker::NameBlocker::new(&db)
+                        crate::knowledge::heuristic::NameBlocker::new(&db)
                             .await
                             .unwrap(),
                     ),
-                    std::sync::Arc::new(crate::knowledge::heuristic_linker::HeuristicLinker),
+                    std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
                 ),
                 storage: Box::new(TestStorageProvider),
                 inference_client: Box::new(TestInferenceClient::new(vec![

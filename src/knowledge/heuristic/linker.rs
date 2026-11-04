@@ -7,9 +7,9 @@
 
 use crate::model;
 
-use super::evidence::Evidence;
-use super::link_decider::{Action, Decision, LinkDecider};
-use super::scoring::{Scoring, Subject};
+use crate::knowledge::evidence::Evidence;
+use crate::knowledge::link_decider::{Action, Decision, LinkDecider};
+use crate::knowledge::scoring::{Scoring, Subject};
 
 /// Take the highest-scoring candidate that clears the bar; otherwise start a new entity.
 #[derive(Debug, Default, Clone, Copy)]
@@ -35,7 +35,7 @@ impl LinkDecider for HeuristicLinker {
     /// same entity. Whether that is right is the extraction's question, not the linker's.
     async fn decide_link(
         &self,
-        blocker: &dyn super::blocker::Blocker,
+        blocker: &dyn crate::knowledge::blocker::Blocker,
         evidence: &Evidence,
         scoring: &Scoring,
         illumination: &model::illumination::ModelEx,
@@ -109,7 +109,7 @@ mod tests {
 
     use crate::model;
 
-    use super::super::name_blocker::NameBlocker;
+    use crate::knowledge::heuristic::NameBlocker;
 
     fn entity_row(id: i32, name: &str, ty: &str) -> model::knowledge_entity::Model {
         crate::test_support::fixtures::stub_entity(id, name, ty)
@@ -142,7 +142,7 @@ mod tests {
             .decide_link(
                 &blocker,
                 &evidence,
-                &crate::knowledge::heuristic_scoring::Heuristic::scoring(),
+                &crate::knowledge::heuristic::Heuristic::scoring(),
                 &illumination,
             )
             .await

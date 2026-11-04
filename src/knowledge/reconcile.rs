@@ -246,7 +246,7 @@ mod tests {
         let db = test_db.handle();
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
 
-        let report = scan(&crate::knowledge::heuristic_scoring::Heuristic::scoring(), &db.conn).await.expect("scan");
+        let report = scan(&crate::knowledge::heuristic::Heuristic::scoring(), &db.conn).await.expect("scan");
 
         assert_eq!(report.raised, 1, "{report:?}");
         let row = model::knowledge_proximities::Entity::find()
@@ -256,13 +256,13 @@ mod tests {
             .expect("one question, one row");
         assert!(row.verdict.is_none(), "nothing decided yet");
         assert!(
-            row.score.unwrap() >= crate::knowledge::heuristic_scoring::MERGE_BAR,
+            row.score.unwrap() >= crate::knowledge::heuristic::scoring::MERGE_BAR,
             "{:?}",
             row.score
         );
 
         // Idempotent: the same pair is not raised twice.
-        assert_eq!(scan(&crate::knowledge::heuristic_scoring::Heuristic::scoring(), &db.conn).await.unwrap().raised, 0);
+        assert_eq!(scan(&crate::knowledge::heuristic::Heuristic::scoring(), &db.conn).await.unwrap().raised, 0);
     }
 
     /// The merge phase folds the pair the scan recorded, and says so on the row.
@@ -274,7 +274,7 @@ mod tests {
         let db = test_db.handle();
         let store = Knowledge::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
-        scan(&crate::knowledge::heuristic_scoring::Heuristic::scoring(), &db.conn).await.unwrap();
+        scan(&crate::knowledge::heuristic::Heuristic::scoring(), &db.conn).await.unwrap();
 
         let report = merge_open(&store, &db.conn).await.expect("merge");
 
@@ -298,7 +298,7 @@ mod tests {
         let store = Knowledge::new(&db);
         let (album, song) = claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
-        scan(&crate::knowledge::heuristic_scoring::Heuristic::scoring(), &db.conn).await.unwrap();
+        scan(&crate::knowledge::heuristic::Heuristic::scoring(), &db.conn).await.unwrap();
         let report = merge_open(&store, &db.conn).await.expect("merge");
 
         assert_eq!(report.merged, 0, "{report:?}");

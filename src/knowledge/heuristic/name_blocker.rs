@@ -2,8 +2,8 @@
 //!
 //! `NameBlocker` puts an entity in front of the linker when a name, or the account a capture showed,
 //! could plausibly be the same thing. It over-generates by design — precision is the linker's job —
-//! and it never scores anything: the candidate set it returns is what [`super::Similarity`] is asked
-//! about.
+//! and it never scores anything: the candidate set it returns is what
+//! [`Similarity`](crate::knowledge::scoring::Similarity) is asked about.
 //!
 //! Both keys are cheap and generous: a shared word-order-insensitive name, or a `(scheme, handle)`
 //! an observation carries. Nothing here knows about identity or type — those narrow, they do not
@@ -15,9 +15,10 @@ use sea_orm::{EntityTrait, QueryOrder};
 
 use crate::model;
 
-use super::blocker::Blocker;
-use super::evidence::Claim;
-use super::heuristic_scoring::block_keys;
+use crate::knowledge::blocker::Blocker;
+use crate::knowledge::evidence::Claim;
+
+use super::scoring::block_keys;
 
 /// Blocks on normalized names and the account a capture showed.
 #[derive(Debug, Default)]
