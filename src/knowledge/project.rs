@@ -25,24 +25,16 @@ use crate::model;
 use super::evidence::ClaimBasis;
 use super::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 
-/// Recompute the columns that are a function of the members and of the evidence.
+/// Recompute the columns that are a function of the members and of the evidence — the only writer of
+/// them after `create`.
 ///
-/// Nothing else writes `name`, `alt_names`, `description`, `alt_descriptions`, `search_query`,
-/// `alt_search_queries`, `platform`, `platform_handle`, `platform_display_name`, `status` or
-/// `confidence`.
-///
-/// The entity **wears the values of its origin** — the member it was created from — and every other
-/// member contributes alternatives. That is what makes a merge safe: the winner keeps its own
-/// surface and text while the loser's arrive as `alt_*`, without anyone having to guess which of
-/// them the current columns came from.
+/// The entity **wears the values of its origin** and every other member contributes alternatives,
+/// which is what makes a merge safe: the winner keeps its own surface and text.
 pub(super) async fn project<C: ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
-    let row = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
-        .one(conn)
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("knowledge entity {knowledge_entity_id} does not exist"))?;
+    let row = super::graph::get(conn, knowledge_entity_id).await?;
 
     // Ordered by member id, so the alternatives come out in the order the members joined.
     let members = model::user_observed_entity::Entity::find()
@@ -126,11 +118,11 @@ pub(super) async fn project<C: ConnectionTrait>(
             [knowledge_entity_id.into()],
         ))
         .await?;
-    let claims: Vec<(String, Option<f32>)> = claim_rows
+    let claims: Vec<(ClaimBasis, Option<f32>)> = claim_rows
         .iter()
         .map(|row| {
             Ok((
-                row.try_get_by_index::<String>(0)?,
+                ClaimBasis::from_db(&row.try_get_by_index::<String>(0)?),
                 row.try_get_by_index::<Option<f32>>(1)?,
             ))
         })
@@ -144,25 +136,7 @@ pub(super) async fn project<C: ConnectionTrait>(
         STATUS_IDENTIFIED
     };
 
-    // Corroboration counts independent *inputs* — what the question was about, which the claim
-    // records — not scheme labels and not who answered. A handle and an authority asked about that
-    // handle are one chain however many providers they name; a name and a handle are two.
-    let from_text = claims
-        .iter()
-        .any(|claim| claim.0 == ClaimBasis::Text.as_str());
-    let from_handle = claims
-        .iter()
-        .any(|claim| claim.0 == ClaimBasis::Handle.as_str());
-    let inputs = usize::from(from_text) + usize::from(from_handle);
-    let best = claims
-        .iter()
-        .map(|claim| claim.1.unwrap_or(0.0))
-        .fold(0.0f32, f32::max);
-    let confidence = if claims.is_empty() {
-        None
-    } else {
-        Some((best + inputs.saturating_sub(1) as f32 * 0.1).min(1.0))
-    };
+    let confidence = super::heuristic::entity_confidence(&claims);
 
     model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),

@@ -4,9 +4,7 @@
 //! re-pointed, its evidence moves, and the loser becomes a tombstone. Nothing is edited and nothing is
 //! deleted, so the decision is one pointer away from being undone.
 //!
-//! This is the first half of §Repair in `plan/knowledge-canonical-entities.md` — the `retire` and
-//! `relink` steps. The CLI that drives a repair by hand comes later; the primitive is what both the
-//! identity-conflict path and that command use.
+//! The primitive behind both the identity-conflict path and `dreamscroll_knowledge merge`.
 
 use sea_orm::sea_query::Expr;
 use sea_orm::{
@@ -26,9 +24,8 @@ pub enum Outcome {
     /// conflict twice — the loser stays in the run's entity list after it has been merged — so a
     /// repeat must not move anything again or record a second merge event.
     AlreadyMerged,
-    /// The two entities have observations in the same capture. The linker's same-capture veto already
-    /// decided that those mentions are different referents, so folding them would contradict a fact
-    /// the graph already holds.
+    /// Both entities have observations in one illumination. One extraction emitting both is its own
+    /// statement that they are two things; folding them would contradict it, so this is reported.
     RefusedSharedIllumination,
 }
 
@@ -37,8 +34,7 @@ pub enum Outcome {
 pub struct Preview {
     pub observations: u64,
     pub evidence: u64,
-    /// Observations the two entities have in the same capture. Nonzero means the merge is refused: the
-    /// linker already decided those mentions are different referents.
+    /// Observations the two entities have in one illumination. Nonzero means the merge is refused.
     pub shared_illuminations: i64,
 }
 
@@ -69,6 +65,27 @@ impl Cause {
             Self::Repair => "user",
         }
     }
+}
+
+/// How many illuminations both entities appear in.
+async fn shared_illuminations<C: ConnectionTrait>(
+    conn: &C,
+    loser: i32,
+    winner: i32,
+) -> anyhow::Result<i64> {
+    let row = conn
+        .query_one_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "SELECT count(*) FROM user_observed_entities l \
+             JOIN user_observed_entities w ON w.illumination_id = l.illumination_id \
+             WHERE l.knowledge_entity_id = $1 AND w.knowledge_entity_id = $2",
+            [loser.into(), winner.into()],
+        ))
+        .await?;
+    Ok(row
+        .map(|row| row.try_get_by_index::<i64>(0))
+        .transpose()?
+        .unwrap_or(0))
 }
 
 /// Fold `loser` into `winner`. See [`merge`] for what that means and why it can refuse.
@@ -105,19 +122,7 @@ pub(super) async fn preview<C: ConnectionTrait>(
         .filter(claims::Column::KnowledgeEntityId.eq(loser))
         .count(conn)
         .await?;
-    let row = conn
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT count(*) FROM user_observed_entities l \
-             JOIN user_observed_entities w ON w.illumination_id = l.illumination_id \
-             WHERE l.knowledge_entity_id = $1 AND w.knowledge_entity_id = $2",
-            [loser.into(), winner.into()],
-        ))
-        .await?;
-    let shared_illuminations = row
-        .map(|row| row.try_get_by_index::<i64>(0))
-        .transpose()?
-        .unwrap_or(0);
+    let shared_illuminations = shared_illuminations(conn, loser, winner).await?;
     Ok(Preview {
         observations,
         evidence: claim_count,
@@ -131,15 +136,10 @@ pub(super) async fn preview<C: ConnectionTrait>(
 /// identity which caused the conflict — and it must be live. A tombstoned *loser* is a no-op; a
 /// tombstoned winner is refused, because the loser's observations would be stranded on a dead row.
 ///
-/// **The same-illumination veto applies here too.** Two entities that both appear in one *illumination*
-/// cannot be one referent: one extractor writing the same string twice in one screenshot means two
-/// things, and the linker refused to fold those observations for exactly that reason. A merge that
-/// ignored it produced four observations on one entity, two of them from the same capture — the state
-/// the veto exists to prevent. In that case the conflict is real and needs adjudication, so it is
-/// reported rather than resolved.
-///
-/// The unit is the illumination, not the capture: re-illuminating an image is a separate illumination, and
-/// its names may legitimately join the same entity. See `plan/knowledge-illumination-history.md`.
+/// Two entities that both appear in one *illumination* cannot be folded: one extractor emitting both
+/// is its own statement that they are two things, and a merge must not contradict it. The unit is the
+/// illumination, not the capture — re-illuminating an image makes a separate one, whose names may
+/// legitimately join. See `plan/knowledge-illumination-history.md`.
 async fn merge(
     conn: &DatabaseConnection,
     loser: i32,
@@ -194,7 +194,7 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         "knowledge entity {winner} is a tombstone; merge into its canonical entity"
     );
 
-    if preview(conn, loser, winner).await?.shared_illuminations > 0 {
+    if shared_illuminations(conn, loser, winner).await? > 0 {
         return Ok(Outcome::RefusedSharedIllumination);
     }
 

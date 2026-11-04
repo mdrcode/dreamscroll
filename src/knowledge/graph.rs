@@ -206,7 +206,7 @@ async fn insert_new<C: ConnectionTrait>(
         .await?)
 }
 
-async fn get<C: ConnectionTrait>(
+pub(super) async fn get<C: ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {

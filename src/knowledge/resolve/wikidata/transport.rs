@@ -26,7 +26,7 @@ impl Wikidata {
                 ("list", "search"),
                 ("srsearch", query),
                 ("srnamespace", "0"),
-                ("srlimit", "10"),
+                ("srlimit", &super::SEARCH_LIMIT.to_string()),
             ])
             .send()
             .await

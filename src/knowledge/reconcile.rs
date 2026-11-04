@@ -14,11 +14,10 @@
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
-use crate::model;
 
 use super::Knowledge;
 use super::evidence::Evidence;
-use super::heuristic::{self, NormalizedCandidate, NormalizedObservation};
+use super::heuristic;
 use super::merge::{Cause, Outcome};
 
 /// What one reconcile did.
@@ -28,7 +27,7 @@ pub struct Report {
     pub raised: usize,
     /// Pairs the merge phase folded.
     pub merged: usize,
-    /// Pairs that looked like one thing and the same-illumination veto refused, left open.
+    /// Pairs that looked like one thing and the shared-illumination rule refused, left open.
     pub refused: usize,
     /// Pairs whose sides had already been resolved by some other path.
     pub moot: usize,
@@ -41,12 +40,9 @@ pub(super) async fn reconcile(
     knowledge: &Knowledge,
     conn: &DatabaseConnection,
 ) -> anyhow::Result<Report> {
-    let mut report = scan(conn).await?;
-    let merged = merge_open(knowledge, conn).await?;
-    report.merged = merged.merged;
-    report.refused = merged.refused;
-    report.moot = merged.moot;
-    report.undecided = merged.undecided;
+    let raised = scan(conn).await?.raised;
+    let mut report = merge_open(knowledge, conn).await?;
+    report.raised = raised;
     Ok(report)
 }
 
@@ -62,7 +58,7 @@ pub(super) async fn scan(conn: &DatabaseConnection) -> anyhow::Result<Report> {
             continue;
         };
         for other in holders.iter().skip(1) {
-            let features = score_pair(other, holder);
+            let features = heuristic::score_pair(other, holder);
             report.raised += evidence
                 .raise(
                     holder.id,
@@ -97,12 +93,12 @@ pub(super) async fn merge_open(
         }
 
         // The more substantiated side survives; ties go to the lower id.
-        let (winner, loser) = if right.confidence.unwrap_or(0.0) > left.confidence.unwrap_or(0.0) {
+        let (winner, loser) = if heuristic::wins(&right, &left) {
             (right, left)
         } else {
             (left, right)
         };
-        let features = score_pair(&loser, &winner);
+        let features = heuristic::score_pair(&loser, &winner);
         if !heuristic::worth_merging(&features) {
             report.undecided += 1;
             continue;
@@ -139,13 +135,11 @@ pub(crate) async fn open_proximities(conn: &DatabaseConnection) -> anyhow::Resul
 
 /// One row per proximity, readable: what the pair is, how close, and what was decided.
 ///
-/// The `note` column says why the pair is worth a second look beyond the shared identity — `same
-/// entity_type` when both sides are the same kind of thing, which is also the grouping the order uses,
-/// and blank otherwise. Free form on purpose: it is a place to explain, not a status. Ordered for
-/// triage, not by score. Score is a similarity, and the highest-scoring pairs are the ones
-/// that must *never* merge: same name, different type (Nintendo the organisation and the brand at 0.74).
-/// The pairs a person can act on are the same-type ones, where the names differ and the claim is all
-/// the evidence there is — those come first, most similar text first inside that group.
+/// The `note` says why a pair is worth a second look — `same entity_type`, or blank — and is also the
+/// grouping. Ordered for triage, not by score: the highest scores are the pairs that must *never*
+/// merge (same name, different type: Nintendo the organisation and the brand sit at 0.74), while the
+/// actionable ones are same-type pairs whose names differ, where the shared identity is all the
+/// evidence there is. Those come first, then score descending.
 pub async fn list(
     conn: &DatabaseConnection,
     include_settled: bool,
@@ -203,21 +197,6 @@ pub async fn list(
         .collect()
 }
 
-/// Score one entity against another with the linker's own weights.
-fn score_pair(
-    observation_of: &model::knowledge_entity::Model,
-    candidate: &model::knowledge_entity::Model,
-) -> heuristic::Features {
-    heuristic::score(
-        &NormalizedObservation::new(
-            &observation_of.name,
-            observation_of.description.as_deref(),
-            &observation_of.entity_type,
-        ),
-        &NormalizedCandidate::from(candidate),
-    )
-}
-
 async fn identities_with_several_holders(conn: &DatabaseConnection) -> anyhow::Result<Vec<i32>> {
     let rows = conn
         .query_all_raw(Statement::from_string(
@@ -238,6 +217,8 @@ async fn identities_with_several_holders(conn: &DatabaseConnection) -> anyhow::R
 #[cfg(test)]
 mod tests {
     use sea_orm::EntityTrait;
+
+    use crate::model;
 
     use super::*;
     use crate::test_support::{fixtures, test_db};

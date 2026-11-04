@@ -4,12 +4,7 @@
 //! while tuning the scorer is *what changed between two runs*, and that needs the previous partition
 //! to still be queryable after the rebuild.
 //!
-//! Snapshotting copies rather than renames. Renaming the live tables would drag the foreign key from
-//! `user_observed_entities.knowledge_entity_id` along with them — Postgres keeps a constraint pointing at the
-//! same table — so the new empty entity table would have nothing referencing it while the archive did,
-//! and the fixed index name on the evidence table would then collide when it was recreated.
-//! `CREATE TABLE AS SELECT` sidesteps all of it: a frozen artifact needs no constraints, and the live
-//! schema is left exactly as it was.
+//! Snapshotting copies rather than renames; [`super::record`] explains why.
 
 use sea_orm::sea_query::Expr;
 use sea_orm::{
@@ -21,7 +16,6 @@ use super::record::{
     CLAIMS_TABLE, CORE_TABLE, IDENTITIES_TABLE, MERGES_TABLE, PROXIMITIES_TABLE, Snapshot,
 };
 
-const OBSERVATION_TABLE: &str = "user_observed_entities";
 use crate::database;
 use crate::model::{
     knowledge_claims as claims, knowledge_entity as entity, knowledge_identity as identities,
@@ -29,12 +23,13 @@ use crate::model::{
     user_observed_entity as observation,
 };
 
+const OBSERVATION_TABLE: &str = "user_observed_entities";
+
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Report {
     /// Observations whose `knowledge_entity_id` was cleared.
     pub unlinked: u64,
     pub claims: u64,
-    pub identities: u64,
     pub merges: u64,
     pub proximities: u64,
     pub entities: u64,
@@ -75,16 +70,15 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 // Order follows the foreign keys: edges before the identities they cite, entities
                 // last because everything points at them.
                 let unlinked = unlink(txn).await?;
-                let claims = remove_claims(txn).await?;
-                let proximities = remove_proximities(txn).await?;
-                let merges = remove_merges(txn).await?;
-                let identities = remove_identities(txn).await?;
-                let entities = remove_entities(txn).await?;
+                let claims = claims::Entity::delete_many().exec(txn).await?.rows_affected;
+                let proximities = proximities::Entity::delete_many().exec(txn).await?.rows_affected;
+                let merges = merges::Entity::delete_many().exec(txn).await?.rows_affected;
+                identities::Entity::delete_many().exec(txn).await?;
+                let entities = entity::Entity::delete_many().exec(txn).await?.rows_affected;
 
                 Ok(Report {
                     unlinked,
                     claims,
-                    identities,
                     merges,
                     proximities,
                     entities,
@@ -142,41 +136,6 @@ async fn unlink<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
         .exec(conn)
         .await?;
     Ok(result.rows_affected)
-}
-
-async fn remove_identities<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
-    Ok(identities::Entity::delete_many()
-        .exec(conn)
-        .await?
-        .rows_affected)
-}
-
-async fn remove_claims<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
-    Ok(claims::Entity::delete_many()
-        .exec(conn)
-        .await?
-        .rows_affected)
-}
-
-async fn remove_merges<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
-    Ok(merges::Entity::delete_many()
-        .exec(conn)
-        .await?
-        .rows_affected)
-}
-
-async fn remove_proximities<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
-    Ok(proximities::Entity::delete_many()
-        .exec(conn)
-        .await?
-        .rows_affected)
-}
-
-async fn remove_entities<C: ConnectionTrait>(conn: &C) -> anyhow::Result<u64> {
-    Ok(entity::Entity::delete_many()
-        .exec(conn)
-        .await?
-        .rows_affected)
 }
 
 #[cfg(test)]

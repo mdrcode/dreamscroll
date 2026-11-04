@@ -8,6 +8,8 @@
 //! Callers reach this through [`Knowledge::link_illumination`]. The rest is `pub(super)` or private:
 //! `merge` and `project` do not link, and nothing outside `knowledge` does either.
 
+use std::collections::BTreeSet;
+
 use crate::model;
 
 use super::{Knowledge, link_decider};
@@ -25,16 +27,15 @@ pub struct LinkStats {
 }
 
 impl LinkStats {
-    /// Fold one decision and what came of it into the totals.
-    ///
-    /// Both halves live here because they are one question: what did this reading do, and why.
-    fn record(&mut self, decision: &link_decider::Decision, applied: Applied) {
-        if let link_decider::Action::Attach { by_claim: true, .. } = &decision.action {
-            self.attached_by_claim += 1;
-        }
-        match applied.outcome {
-            Outcome::Attached => self.attached += 1,
-            Outcome::Created => self.created += 1,
+    fn record(&mut self, decision: &link_decider::Decision) {
+        match &decision.action {
+            link_decider::Action::Attach { by_claim, .. } => {
+                self.attached += 1;
+                if *by_claim {
+                    self.attached_by_claim += 1;
+                }
+            }
+            link_decider::Action::Create => self.created += 1,
         }
     }
 }
@@ -81,36 +82,24 @@ pub(super) async fn link_illumination(
         .await?;
 
     let mut stats = LinkStats::default();
+    let mut touched: BTreeSet<i32> = BTreeSet::new();
     for decision in &decisions {
-        let applied = apply_decision(knowledge, decision).await?;
-
-        // update_projection accumulates metadata/signal from all linked obs into the entity
-        knowledge.update_projection(applied.entity).await?;
-        stats.record(decision, applied);
+        touched.insert(apply_decision(knowledge, decision).await?);
+        stats.record(decision);
+    }
+    // Projection is a function of the members, so once per entity once every write has landed.
+    for knowledge_entity_id in touched {
+        knowledge.update_projection(knowledge_entity_id).await?;
     }
 
     Ok(stats)
 }
 
-/// What applying one decision did.
-struct Applied {
-    /// The entity the observation ended up on — the one to update the projection for.
-    entity: i32,
-    outcome: Outcome,
-}
-
-enum Outcome {
-    /// It joined the entity the decision named.
-    Attached,
-    /// A new entity was created for it.
-    Created,
-}
-
-/// Apply one decision against the graph.
+/// Apply one decision, returning the entity the observation landed on.
 async fn apply_decision(
     knowledge: &Knowledge,
     decision: &link_decider::Decision,
-) -> anyhow::Result<Applied> {
+) -> anyhow::Result<i32> {
     let observation = &decision.observation;
     if observation.knowledge_entity_id.is_some() {
         anyhow::bail!(
@@ -119,32 +108,18 @@ async fn apply_decision(
         );
     }
 
-    let target_entity = match &decision.action {
-        link_decider::Action::Attach { entity, .. } => knowledge.get(*entity).await?,
-        link_decider::Action::Create { .. } => knowledge.create(observation).await?,
+    let entity = match &decision.action {
+        link_decider::Action::Attach { entity, .. } => *entity,
+        link_decider::Action::Create => knowledge.create(observation).await?.id,
     };
 
-    knowledge
-        .attach_observation(observation.id, target_entity.id)
-        .await?;
+    // `attach` refuses a tombstone, so this also covers an entity merged away since the decision.
+    knowledge.attach_observation(observation.id, entity).await?;
 
-    // The capture claimed an identity for this observation, so claim it on target_entity as well
     if let Some(identity_id) = decision.identity {
-        knowledge
-            .evidence
-            .record(target_entity.id, identity_id, observation)
-            .await?;
+        knowledge.evidence.record(entity, identity_id, observation).await?;
     }
-
-    let outcome = if matches!(decision.action, link_decider::Action::Attach { .. }) {
-        Outcome::Attached
-    } else {
-        Outcome::Created
-    };
-    Ok(Applied {
-        entity: target_entity.id,
-        outcome,
-    })
+    Ok(entity)
 }
 
 #[cfg(test)]

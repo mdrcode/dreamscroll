@@ -24,18 +24,12 @@ pub enum Action {
     /// Attach the observation to this entity.
     Attach {
         entity: i32,
-        /// `1.0` when a claim named the entity; a similarity score otherwise.
-        score: f32,
-        /// A claim decided this rather than a score. Carried because it cannot be recovered: an
-        /// unmatched claim travels on a similarity decision too, so `claim.is_some()` says nothing
-        /// about why.
+        /// A claim decided this rather than a score. Not recoverable: an unmatched claim rides on a
+        /// similarity attach too, so `identity.is_some()` says nothing about why.
         by_claim: bool,
     },
     /// Start a new entity.
-    Create {
-        /// The closest candidate that was turned down, kept for diagnosis.
-        best: Option<(i32, f32)>,
-    },
+    Create,
 }
 
 /// What the linker decided about one observation.

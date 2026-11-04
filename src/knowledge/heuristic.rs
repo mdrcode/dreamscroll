@@ -38,6 +38,29 @@ pub const NAME_FLOOR: f32 = 0.90;
 /// …and the anchor must agree about *something else* as well.
 pub const AGREEMENT_FLOOR: f32 = 0.50;
 
+/// Same name once word order and articles are folded.
+const NAME_TOKEN_MATCH: f32 = 0.9;
+
+/// Two types agreeing when one is `unknown`: an absence of information, not a disagreement.
+const TYPE_UNKNOWN_MATCH: f32 = 0.5;
+
+/// What an extra independent input is worth on top of the best claim's score.
+pub const CORROBORATION_BONUS: f32 = 0.1;
+pub const CONFIDENCE_CEILING: f32 = 1.0;
+
+/// A ranked authority answer, mapped into [0.5, `ANSWER_CEILING`].
+const ANSWER_BASE: f32 = 0.50;
+const ANSWER_SPREAD: f32 = 0.45;
+pub const ANSWER_CEILING: f32 = 0.95;
+/// A guess from the disambiguating words alone is worth less than an exact label.
+pub const HINT_CEILING: f32 = 0.85;
+/// One exact label with nothing competing for it is identity, but nothing corroborates it either.
+pub const LONE_LABEL_CONFIDENCE: f32 = 0.75;
+/// A search answer accepted because exactly one candidate's label is our own surface.
+pub const LOOKUP_CONFIDENCE: f32 = 0.85;
+/// An authority asked about a handle: a property match names the account itself.
+pub const HANDLE_CONFIDENCE: f32 = 0.95;
+
 /// What one candidate earns against one observation, and the weighted total of it all.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Features {
@@ -51,7 +74,6 @@ pub struct Features {
 #[derive(Debug, Clone)]
 pub struct NormalizedObservation {
     pub name_key: String,
-    pub name_tokens: Vec<String>,
     pub token_key: String,
     pub description_tokens: Vec<String>,
     pub entity_type: String,
@@ -60,14 +82,24 @@ pub struct NormalizedObservation {
 impl NormalizedObservation {
     pub fn new(name: &str, description: Option<&str>, entity_type: &str) -> Self {
         let name_key = normalize::comparable(name);
-        let name_tokens = tokens_of(&name_key);
+        let token_key = token_key_of(&tokens_of(&name_key));
         Self {
-            token_key: token_key_of(&name_tokens),
-            name_tokens,
+            token_key,
             name_key,
             description_tokens: description.map(tokens).unwrap_or_default(),
             entity_type: entity_type.to_string(),
         }
+    }
+}
+
+impl NormalizedObservation {
+    /// An entity scored as an observation: its selected name, description and type.
+    pub fn of_entity(entity: &model::knowledge_entity::Model) -> Self {
+        Self::new(
+            &entity.name,
+            entity.description.as_deref(),
+            &entity.entity_type,
+        )
     }
 }
 
@@ -105,19 +137,13 @@ impl NormalizedCandidate {
         descriptions: &[&str],
         entity_types: &[String],
     ) -> Self {
-        let mut names: Vec<String> = Vec::with_capacity(alt_names.len() + 1);
-        names.push(name.to_string());
-        names.extend_from_slice(alt_names);
-        // One pass per name: the key is folded once, then the blocking key comes from its words.
-        let mut alt_name_keys = Vec::with_capacity(names.len());
-        let mut alt_name_token_keys = Vec::with_capacity(names.len());
-        for name in &names {
-            let key = normalize::comparable(name);
-            if key.is_empty() {
-                continue;
+        let mut alt_name_keys = Vec::with_capacity(alt_names.len() + 1);
+        let mut alt_name_token_keys = Vec::with_capacity(alt_names.len() + 1);
+        for surface in std::iter::once(name).chain(alt_names.iter().map(String::as_str)) {
+            if let Some((key, blocking)) = block_keys(surface) {
+                alt_name_keys.push(key);
+                alt_name_token_keys.push(blocking);
             }
-            alt_name_token_keys.push(token_key_of(&tokens_of(&key)));
-            alt_name_keys.push(key);
         }
 
         Self {
@@ -162,6 +188,43 @@ pub fn worth_merging(features: &Features) -> bool {
         && (features.type_match >= AGREEMENT_FLOOR || features.description >= AGREEMENT_FLOOR)
 }
 
+/// How substantiated an entity is: its best claim's score, plus a bonus per extra independent input
+/// (`text` and `handle` are the two). `None` when it holds no claim.
+pub fn entity_confidence(claims: &[(super::evidence::ClaimBasis, Option<f32>)]) -> Option<f32> {
+    if claims.is_empty() {
+        return None;
+    }
+    let bases: BTreeSet<&str> = claims.iter().map(|claim| claim.0.as_str()).collect();
+    let best = claims
+        .iter()
+        .map(|claim| claim.1.unwrap_or(0.0))
+        .fold(0.0f32, f32::max);
+    let extra = bases.len().saturating_sub(1) as f32 * CORROBORATION_BONUS;
+    Some((best + extra).min(CONFIDENCE_CEILING))
+}
+
+/// What a ranked authority answer is worth, before corroboration.
+pub fn answer_confidence(score: f32) -> f32 {
+    let mapped = ANSWER_BASE + ANSWER_SPREAD * score;
+    mapped.min(ANSWER_CEILING)
+}
+
+/// Score one entity against another with the linker's own weights.
+pub fn score_pair(
+    observation_of: &model::knowledge_entity::Model,
+    candidate: &model::knowledge_entity::Model,
+) -> Features {
+    score(
+        &NormalizedObservation::of_entity(observation_of),
+        &NormalizedCandidate::from(candidate),
+    )
+}
+
+/// Whether `a` is the more substantiated side. Ties go to `b` (the caller passes the lower id first).
+pub fn wins(a: &model::knowledge_entity::Model, b: &model::knowledge_entity::Model) -> bool {
+    a.confidence.unwrap_or(0.0) > b.confidence.unwrap_or(0.0)
+}
+
 /// Similarity of one observation to one candidate: per feature, and weighted into a total.
 pub fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -> Features {
     let name = name_similarity(observation, candidate);
@@ -170,7 +233,7 @@ pub fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidat
     let description = candidate
         .description_tokens
         .iter()
-        .map(|tokens| jaccard(&observation.description_tokens, tokens))
+        .map(|tokens| normalize::jaccard(&observation.description_tokens, tokens))
         .fold(0.0f32, f32::max);
     // Any agreement counts. An entity whose members were called both `brand` and `organization` must
     // accept either, or half its own members could not have joined it.
@@ -188,8 +251,8 @@ pub fn score(observation: &NormalizedObservation, candidate: &NormalizedCandidat
     }
 }
 
-/// 1.0 on the same normalized surface, 0.9 when only word order or an article differs, else the
-/// best token overlap. A name never decides on its own — [`worth_merging`] demands corroboration.
+/// 1.0 on the same normalized surface, 0.9 when only word order or an article differs, else 0.0.
+/// A name never decides on its own — [`worth_merging`] demands corroboration.
 fn name_similarity(observation: &NormalizedObservation, candidate: &NormalizedCandidate) -> f32 {
     if candidate.alt_name_keys.contains(&observation.name_key) {
         return 1.0;
@@ -198,30 +261,19 @@ fn name_similarity(observation: &NormalizedObservation, candidate: &NormalizedCa
         .alt_name_token_keys
         .contains(&observation.token_key)
     {
-        return 0.9;
+        return NAME_TOKEN_MATCH;
     }
     0.0
 }
 
-/// 1.0 for the same type, 0.5 when either is unknown, else 0.
+/// 1.0 for the same type, `TYPE_UNKNOWN_MATCH` when either is unknown, else 0.
 fn type_similarity(a: &str, b: &str) -> f32 {
     match (a, b) {
         (x, y) if x == y => 1.0,
         // An unknown type is an absence of information, not a disagreement.
-        ("unknown", _) | (_, "unknown") => 0.5,
+        ("unknown", _) | (_, "unknown") => TYPE_UNKNOWN_MATCH,
         _ => 0.0,
     }
-}
-
-pub fn jaccard(a: &[String], b: &[String]) -> f32 {
-    if a.is_empty() || b.is_empty() {
-        return 0.0;
-    }
-    let a: std::collections::BTreeSet<&String> = a.iter().collect();
-    let b: std::collections::BTreeSet<&String> = b.iter().collect();
-    let intersection = a.intersection(&b).count() as f32;
-    let union = a.union(&b).count() as f32;
-    intersection / union
 }
 
 /// Blocks on normalized names and the account a capture showed.
@@ -262,7 +314,8 @@ impl NameBlocker {
         Ok(blocker)
     }
 
-    /// Build the index from a corpus already in hand — tests, and anything that has one.
+    /// Build the index from a corpus already in hand.
+    #[cfg(test)]
     pub fn build_entities(entities: &[model::knowledge_entity::Model]) -> Self {
         let blocker = Self::default();
         for entity in entities {
@@ -282,12 +335,9 @@ impl NameBlocker {
     fn keys_of(entity: &model::knowledge_entity::Model) -> Vec<String> {
         let mut keys: Vec<String> = Vec::new();
         for surface in entity.surfaces() {
-            let key = normalize::comparable(surface);
-            if key.is_empty() {
-                continue;
+            if let Some((key, blocking)) = block_keys(surface) {
+                keys.extend([key, blocking]);
             }
-            let blocking = token_key_of(&tokens_of(&key));
-            keys.extend([key, blocking]);
         }
         if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle) {
             keys.push(Claim::key(platform, handle));
@@ -390,10 +440,7 @@ impl LinkDecider for HeuristicLinker {
             // Already a row: the executor imported this illumination's identities before deciding.
             let identity = evidence.identity_of(&observation).await?;
 
-            // A held identity is the account itself, not merely a lookalike, so attaching needs no
-            // similarity score. Several entities may hold it, so take the most substantiated one —
-            // `held_by_identity` hands them back in exactly that order — and leave the others to
-            // reconcile, which is where "are these one thing?" is asked.
+            // `held_by_identity` returns the most substantiated first; the rest go to reconcile.
             if let Some(identity_id) = identity
                 && let Some(best) = evidence.held_by_identity(identity_id).await?.into_iter().next()
             {
@@ -401,7 +448,6 @@ impl LinkDecider for HeuristicLinker {
                     observation,
                     action: Action::Attach {
                         entity: best.id,
-                        score: 1.0,
                         by_claim: true,
                     },
                     identity,
@@ -412,6 +458,7 @@ impl LinkDecider for HeuristicLinker {
             let view = NormalizedObservation::from(&observation);
             // (entity id, total, clears the bar) for the best candidate: highest total wins, and
             // whether it is worth merging decides between attaching and creating.
+            // Highest total wins; ties keep the first candidate, i.e. the lowest entity id.
             let mut best: Option<(i32, f32, bool)> = None;
 
             for candidate in blocker.candidates(&observation).await {
@@ -423,15 +470,11 @@ impl LinkDecider for HeuristicLinker {
             }
 
             let action = match best {
-                Some((entity, score, true)) => Action::Attach {
+                Some((entity, _, true)) => Action::Attach {
                     entity,
-                    score,
                     by_claim: false,
                 },
-                Some((entity, score, false)) => Action::Create {
-                    best: Some((entity, score)),
-                },
-                None => Action::Create { best: None },
+                _ => Action::Create,
             };
             decisions.push(Decision {
                 observation,
@@ -448,6 +491,17 @@ impl LinkDecider for HeuristicLinker {
 // The string plumbing the scoring needs. `normalize::comparable` is the core's; these three are the
 // guess's, and nothing outside this file asks for them.
 // ---------------------------------------------------------------------------------------------
+
+/// The two keys one surface answers to: its comparable form, and the order-insensitive token key.
+/// `None` for a surface that folds to nothing.
+fn block_keys(surface: &str) -> Option<(String, String)> {
+    let key = normalize::comparable(surface);
+    if key.is_empty() {
+        return None;
+    }
+    let blocking = token_key_of(&tokens_of(&key));
+    Some((key, blocking))
+}
 
 /// Dropped from the *token* key only. They are noise for blocking, and never an identity decision.
 const ARTICLES: [&str; 3] = ["the", "a", "an"];
@@ -702,10 +756,7 @@ mod tests {
 
         match result.as_slice() {
             [decision] => match &decision.action {
-                Action::Attach { entity, score, .. } => {
-                    assert!(*entity == 1 || *entity == 2);
-                    assert!(*score >= 0.6, "{score}");
-                }
+                Action::Attach { entity, .. } => assert!(*entity == 1 || *entity == 2),
                 other => panic!("expected an attach, got {other:?}"),
             },
             other => panic!("expected one decision, got {other:?}"),
@@ -721,7 +772,7 @@ mod tests {
         let result = link(&db, &[], &[observation_row("Anything", "unknown")]).await;
         match result.as_slice() {
             [decision] => match &decision.action {
-                Action::Create { best, .. } => assert!(best.is_none()),
+                Action::Create => {}
                 other => panic!("expected a create, got {other:?}"),
             },
             other => panic!("expected one decision, got {other:?}"),

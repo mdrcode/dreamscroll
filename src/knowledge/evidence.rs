@@ -1,18 +1,11 @@
 //! Claims and identities: what a capture asserted, what an authority answered, and who holds it.
 //!
-//! Two rows, two jobs:
+//! - an [`Identity`] is the thing the world names: `(scheme, external_id)` plus whoever answered.
+//! - a [`Claim`] is an entity's assertion of it — the edge of the many-to-many, carrying what the
+//!   question was about ([`ClaimBasis`]) and which capture asked.
 //!
-//! - a [`Identity`] is the thing the world names — `(scheme, external_id)` plus the answer whoever
-//!   gave it (label, description, classes, method, confidence). One row per identity, ever.
-//! - a [`Claim`] is an entity's assertion of it, with the surface as a capture wrote it and which
-//!   capture that was. The edge of the many-to-many.
-//!
-//! For now the graph is single-holder — a unique index keeps one live claim per identity, standing
-//! in for "an identity is one thing" — and this module reports the holder so callers can fold or
-//! refuse.
-//!
-//! What a caller does with a refusal is policy and stays with the caller: `link` declines to merge
-//! and leaves the observation provisional; `resolve` folds or records a collision.
+//! An identity may have several holders: one Wikidata item can name an album and cover its songs.
+//! This module reports them and leaves "are these one thing?" to `reconcile`.
 
 use std::collections::HashSet;
 
@@ -21,42 +14,30 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 use crate::knowledge::normalize;
 use crate::model;
 
-/// A platform link, as the capture showed it.
-///
-/// The illuminator read this off an image; `link` transcribes it. Nothing infers anything here.
+/// A platform link, as the capture showed it. `link` transcribes it; nothing infers anything here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Claim {
     /// The platform, canonicalised by the illumination lib: `x_twitter`, `reddit`, …
     pub scheme: String,
     /// The identifier in its comparable form, so two spellings agree.
     pub external_id: String,
-    /// The identifier as written, when a capture carried it verbatim.
-    pub surface: Option<String>,
 }
 
 impl Claim {
-    /// The claim an observation carries, if it carries one.
-    ///
-    /// Deliberately permissive: a platform we have no mapping for still yields a claim, because the
-    /// capture asserted it and losing that would be losing evidence. What can be *used* is another
-    /// question, asked later by whatever resolves identities against an authority.
+    /// The claim an observation carries, if it carries one. Permissive: an unmapped platform still
+    /// yields a claim, because the capture asserted it.
     pub fn of(observation: &model::user_observed_entity::Model) -> Option<Self> {
         let platform = observation.platform.as_deref()?;
         let handle = observation.platform_handle.as_deref()?;
         Some(Self {
             scheme: normalize::comparable(platform),
             external_id: normalize::comparable(handle),
-            surface: Some(handle.to_string()),
         })
     }
 
-    /// The key a platform presence answers to: `scheme:handle`, both halves compared in the same
-    /// form.
-    ///
-    /// One function for the two callers that need it — the identity index ([`Self::of`] then
-    /// [`Self::identity`]) and the blocker's key for an entity's projected presence — because when
-    /// they normalized the halves differently, a handle could be held by one entity and blocked
-    /// under another.
+    /// The key a platform presence answers to: `scheme:handle`, both halves in comparable form. One
+    /// function for the two callers — the identity index and the blocker's key — because when they
+    /// folded the halves differently, a handle was held by one entity and blocked under another.
     pub fn key(platform: &str, handle: &str) -> String {
         format!(
             "{}:{}",
@@ -78,9 +59,10 @@ impl Claim {
 pub struct Identity {
     pub scheme: String,
     pub external_id: String,
-    /// Who answered: `wikidata`, `wikimedia`, `platform`.
+    /// Who answered: `wikidata`, `wikimedia`, `platform` (the resolver's own id).
     pub source: String,
-    /// How: `exact_label`, `p2002`, `capture`.
+    /// How it was answered, on the first answer only: `capture`, a Wikidata property (`P2002`, …) for
+    /// a handle join, or the ladder step (`exact_label`, `search_ranked`, …).
     pub method: Option<String>,
     pub confidence: Option<f32>,
     pub label: Option<String>,
@@ -101,10 +83,6 @@ impl Identity {
             description: None,
             classes: Vec::new(),
         }
-    }
-
-    pub fn identity(&self) -> String {
-        format!("{}:{}", self.scheme, self.external_id)
     }
 }
 
@@ -127,6 +105,16 @@ impl ClaimBasis {
         match self {
             Self::Handle => "handle",
             Self::Text => "text",
+        }
+    }
+
+    /// The stored form, back. Anything that is not `handle` reads as text: the column only ever holds
+    /// these two.
+    pub fn from_db(value: &str) -> Self {
+        if value == Self::Handle.as_str() {
+            Self::Handle
+        } else {
+            Self::Text
         }
     }
 }
@@ -239,9 +227,8 @@ impl Evidence {
         Ok(())
     }
 
-    /// The identity this claim cites, if a row exists — what a decider names before anything is
-    /// written. Reads only: importing is the caller's job, see [`Self::import_identities`].
-    pub async fn identity_id(&self, claim: &Claim) -> anyhow::Result<Option<i32>> {
+    /// The identity this claim cites, if a row exists. Reads only; importing is the caller's job.
+    async fn identity_id(&self, claim: &Claim) -> anyhow::Result<Option<i32>> {
         let row = self
             .conn
             .query_one_raw(Statement::from_sql_and_values(

@@ -20,6 +20,8 @@ use crate::knowledge::evidence::ClaimBasis;
 use crate::knowledge::resolve::{
     Answers, BATCH, Claim, FetchError, Raw, Request, ResolutionContext, Resolver, Transport,
 };
+use crate::knowledge::heuristic;
+use crate::knowledge::normalize;
 use crate::model;
 
 pub(super) const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
@@ -30,7 +32,6 @@ pub(super) const WIKIPEDIA_ENDPOINT: &str = "https://en.wikipedia.org/w/api.php"
 const DISAMBIGUATION: &str = "Q4167410";
 const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";
 pub(super) const LANGUAGE: &str = "en";
-const SEARCH_LIMIT: usize = 10;
 
 /// A platform account is an identity, and each platform is a different property. Adding one is a row
 /// in this table, not a new provider.
@@ -74,7 +75,7 @@ impl Wikidata {
         };
         let mut hasher = blake3::Hasher::new();
         hasher.update(
-            format!("{version}|{kind}|lang={LANGUAGE}|limit={SEARCH_LIMIT}").as_bytes(),
+            format!("{version}|{kind}|lang={LANGUAGE}|limit={}", super::SEARCH_LIMIT).as_bytes(),
         );
         let hex = hasher.finalize().to_hex();
         hex.as_str()[..12].to_string()
@@ -101,7 +102,8 @@ impl Wikidata {
                     candidate,
                     score: NAME_WEIGHT + SUPPORT_WEIGHT * support,
                     fit: support,
-                    exact_label: true,
+                    // The hint path gates on fit and support: not an exact-label decision.
+                    exact_label: false,
                 }
             })
             .collect();
@@ -116,12 +118,8 @@ impl Wikidata {
         {
             return Vec::new();
         }
-        vec![claim(best.candidate, "search_hint", confidence(best.score).min(0.85))]
+        vec![claim(best.candidate, "search_hint", heuristic::answer_confidence(best.score).min(0.85))]
     }
-    fn kind_for_handle(platform: &str) -> Option<String> {
-        handle_property(platform).map(|property| format!("handle:{property}"))
-    }
-
     pub(super) fn property_of(kind: &str) -> Option<&str> {
         kind.strip_prefix("handle:")
     }
@@ -137,7 +135,7 @@ impl Wikidata {
         // One exact label and nothing else claiming it: that is identity, even with no text to
         // corroborate it.
         if ranked.len() == 1 && ranked[0].exact_label {
-            return vec![claim(ranked[0].candidate, "exact_label", 0.75)];
+            return vec![claim(ranked[0].candidate, "exact_label", heuristic::LONE_LABEL_CONFIDENCE)];
         }
 
         let best = ranked.remove(0);
@@ -164,7 +162,7 @@ impl Wikidata {
             (_, true) => "exact_label",
             (_, false) => "ranked",
         };
-        vec![claim(best.candidate, method, confidence(best.score))]
+        vec![claim(best.candidate, method, heuristic::answer_confidence(best.score))]
     }
 
     /// The first pass: a handle, then a title, then an exact label. Pure, so the order is testable
@@ -173,8 +171,9 @@ impl Wikidata {
     pub fn plan(&self, entity: &model::knowledge_entity::Model) -> Vec<Request> {
         let mut requests = Vec::new();
         if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle)
-            && let Some(kind) = Self::kind_for_handle(platform)
+            && let Some(property) = handle_property(platform)
         {
+            let kind = format!("handle:{property}");
             requests.push(Request {
                 provider: "wikidata",
                 shape: Self::shape(&kind),
@@ -297,7 +296,7 @@ impl Wikidata {
                     .map(|tokens| weights.fit(&theirs, tokens))
                     .fold(0.0f32, f32::max);
                 if fit >= FIT_FLOOR {
-                    return vec![claim(candidate, "search_lookup", 0.85)];
+                    return vec![claim(candidate, "search_lookup", heuristic::LOOKUP_CONFIDENCE)];
                 }
             }
             // Zero or several same-surface candidates: a spelling difference, or a shared title.
@@ -600,7 +599,7 @@ fn rank<'a>(entity: &model::knowledge_entity::Model, candidates: &'a [Candidate]
             let name = if exact_label {
                 1.0
             } else {
-                overlap(
+                normalize::jaccard(
                     &content_tokens(candidate.label.as_deref().unwrap_or_default()),
                     &content_tokens(&entity.name),
                 )
@@ -622,10 +621,6 @@ fn rank<'a>(entity: &model::knowledge_entity::Model, candidates: &'a [Candidate]
     scored
 }
 
-fn confidence(score: f32) -> f32 {
-    (0.50 + 0.45 * score).min(0.95)
-}
-
 fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Claim {
     Claim {
         scheme: "wikidata".to_string(),
@@ -643,7 +638,7 @@ fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Claim {
 /// answer counting as a second, independent input beside the handle that produced it — however many
 /// platforms the property table grows.
 fn handle_claim(candidate: &Candidate, property: &str) -> Claim {
-    let mut claim = claim(candidate, property, 0.95);
+    let mut claim = claim(candidate, property, heuristic::HANDLE_CONFIDENCE);
     claim.basis = ClaimBasis::Handle;
     claim
 }
@@ -779,15 +774,6 @@ impl Weights {
         let matched_weight: f32 = matched.iter().map(|t| self.of(t)).sum();
         matched_weight / (matched_weight + EVIDENCE_SCALE)
     }
-}
-
-fn overlap(a: &[String], b: &[String]) -> f32 {
-    if a.is_empty() || b.is_empty() {
-        return 0.0;
-    }
-    let a: std::collections::BTreeSet<&String> = a.iter().collect();
-    let b: std::collections::BTreeSet<&String> = b.iter().collect();
-    a.intersection(&b).count() as f32 / a.union(&b).count() as f32
 }
 
 #[cfg(test)]
