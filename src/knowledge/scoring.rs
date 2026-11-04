@@ -10,7 +10,7 @@
 //!   match has to be corroborated — and a number cannot carry its own components.
 //! - **An aggregate** over several claims about one entity is arithmetic, not a judgement; it is
 //!   `heuristic_scoring::combine`, one function, written once.
-//! - **An ordering** between two substantiated things is [`by_worth`]: a convention about `None`,
+//! - **An ordering** between two substantiated things is [`by_confidence`]: a convention about `None`,
 //!   with no policy in it.
 //!
 //! One implementation covers the graph — `heuristic_scoring::Heuristic` — and implements both traits
@@ -106,7 +106,7 @@ pub trait Rank<A, B>: Send + Sync {
 ///
 /// One definition, asked by the merge survivor choice and by the identity-holder order — the two
 /// places that used to disagree about `NULL`.
-pub fn by_worth(a: Option<f32>, b: Option<f32>) -> Ordering {
+pub fn by_confidence(a: Option<f32>, b: Option<f32>) -> Ordering {
     a.unwrap_or(f32::NEG_INFINITY)
         .total_cmp(&b.unwrap_or(f32::NEG_INFINITY))
 }

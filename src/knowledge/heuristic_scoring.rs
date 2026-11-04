@@ -12,7 +12,7 @@
 //!
 //! Not here: the confidence scale for authority answers (that is the authority's own calibration,
 //! in `resolve/wikidata/ranking.rs`), the aggregate over claims ([`combine`], arithmetic), and the
-//! order between two substantiated things (`scoring::by_worth`, a convention).
+//! order between two substantiated things (`scoring::by_confidence`, a convention).
 
 use std::collections::BTreeSet;
 
@@ -433,11 +433,11 @@ mod tests {
 
     /// `None` is the least worth there is, and a tie is not a win for either side.
     #[test]
-    fn by_worth_puts_nothing_last() {
-        use crate::knowledge::scoring::by_worth;
-        assert_eq!(by_worth(None, Some(0.5)), std::cmp::Ordering::Less);
-        assert_eq!(by_worth(Some(0.5), None), std::cmp::Ordering::Greater);
-        assert_eq!(by_worth(Some(0.5), Some(0.5)), std::cmp::Ordering::Equal);
+    fn by_confidence_puts_nothing_last() {
+        use crate::knowledge::scoring::by_confidence;
+        assert_eq!(by_confidence(None, Some(0.5)), std::cmp::Ordering::Less);
+        assert_eq!(by_confidence(Some(0.5), None), std::cmp::Ordering::Greater);
+        assert_eq!(by_confidence(Some(0.5), Some(0.5)), std::cmp::Ordering::Equal);
     }
 
     /// Corroboration is a bonus on the best claim, not a sum.
