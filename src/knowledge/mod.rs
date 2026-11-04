@@ -23,4 +23,5 @@ mod project;
 
 pub use graph::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 pub use reconcile::Report as ReconcileReport;
+pub use reconcile::list as list_proximities;
 pub use link::LinkStats;

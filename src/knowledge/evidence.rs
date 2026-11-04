@@ -189,6 +189,36 @@ impl Evidence {
             .collect()
     }
 
+    /// Record a proximity: two entities close enough to ask about. A pair is recorded once, for ever —
+    /// `ON CONFLICT DO NOTHING` is what makes a settled verdict stick. Returns 1 when a row was added.
+    pub async fn raise(
+        &self,
+        holder_id: i32,
+        counterpart_id: i32,
+        knowledge_identity_id: Option<i32>,
+        basis: &str,
+        score: Option<f32>,
+    ) -> anyhow::Result<usize> {
+        let result = self
+            .conn
+            .execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO knowledge_proximities \
+                   (holder_id, counterpart_id, knowledge_identity_id, basis, score) \
+                 VALUES ($1, $2, $3, $4, $5) \
+                 ON CONFLICT DO NOTHING",
+                [
+                    holder_id.into(),
+                    counterpart_id.into(),
+                    knowledge_identity_id.into(),
+                    basis.to_string().into(),
+                    score.into(),
+                ],
+            ))
+            .await?;
+        Ok(result.rows_affected() as usize)
+    }
+
     /// A holder of this claim that already has an observation in `illumination_id`.
     ///
     /// The one case where a claim still forces a fold: two observations from one capture asserting

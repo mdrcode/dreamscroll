@@ -47,12 +47,22 @@ pub async fn exec(
         .await
         .map_err(api::ApiError::internal)?;
 
+    // Record whatever this capture made close to something else — the scan only writes rows, so it
+    // is safe here and means a duplicate is visible before anyone runs resolution.
+    let raised = state
+        .knowledge
+        .scan_proximities()
+        .await
+        .map_err(api::ApiError::internal)?
+        .raised;
+
     tracing::info!(
         illumination_id = task_run.task.illumination_id,
         attached = stats.attached,
         attached_by_claim = stats.attached_by_claim,
         created = stats.created,
         vetoed = stats.vetoed,
+        proximities_raised = raised,
         "Knowledge link completed"
     );
     Ok(())

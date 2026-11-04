@@ -23,6 +23,7 @@ enum Command {
     Resolve(ResolveArgs),
     Reconcile(ReconcileArgs),
     Distinct(DistinctArgs),
+    Proximity(ProximityArgs),
 }
 
 #[derive(FromArgs)]
@@ -43,6 +44,42 @@ struct MergeArgs {
     #[argh(switch, short = 'y')]
     #[argh(description = "apply the merge (otherwise it is a dry run)")]
     yes: bool,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "proximity")]
+#[argh(description = "pairs of entities the graph considers close, and what was decided")]
+struct ProximityArgs {
+    #[argh(subcommand)]
+    command: ProximityCommand,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum ProximityCommand {
+    Scan(ProximityScanArgs),
+    Merge(ProximityMergeArgs),
+    List(ProximityListArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "scan")]
+#[argh(description = "record every pair that shares an identity; changes nothing else")]
+struct ProximityScanArgs {}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "merge")]
+#[argh(description = "fold the open proximities that look like one thing")]
+struct ProximityMergeArgs {}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "list")]
+#[argh(description = "show what is in the table, most likely first")]
+struct ProximityListArgs {
+    #[argh(switch, description = "include settled rows")]
+    all: bool,
+    #[argh(option, default = "50", description = "maximum rows to show")]
+    limit: usize,
 }
 
 #[derive(FromArgs)]
@@ -179,11 +216,38 @@ async fn main() -> anyhow::Result<()> {
                 .await?;
             println!("settled {settled} outstanding proximities as distinct");
         }
+        Command::Proximity(args) => {
+            let store = knowledge::Knowledge::new(&db);
+            match args.command {
+                ProximityCommand::Scan(_) => {
+                    println!(
+                        "raised {} proximities",
+                        store.scan_proximities().await?.raised
+                    );
+                }
+                ProximityCommand::Merge(_) => {
+                    let report = store.merge_proximities().await?;
+                    println!(
+                        "merged {} · refused {} · moot {} · undecided {}",
+                        report.merged, report.refused, report.moot, report.undecided
+                    );
+                }
+                ProximityCommand::List(args) => {
+                    let rows = knowledge::list_proximities(&db.conn, args.all, args.limit).await?;
+                    for (id, verdict, score, basis, holder, counterpart, identity) in rows {
+                        let score = score.map_or("-".to_string(), |s| format!("{s:.2}"));
+                        println!(
+                            "{id:>5}  {verdict:<8} {score:>5}  {basis:<15}  {holder}  \u{21c4}  {counterpart}  [{identity}]"
+                        );
+                    }
+                }
+            }
+        }
         Command::Reconcile(_) => {
             let report = knowledge::Knowledge::new(&db).reconcile().await?;
             println!(
-                "groups {} · merged {} · refused {} · distinct {}",
-                report.groups, report.merged, report.refused, report.distinct
+                "raised {} · merged {} · refused {} · moot {} · undecided {}",
+                report.raised, report.merged, report.refused, report.moot, report.undecided
             );
         }
         Command::Reset(args) => {

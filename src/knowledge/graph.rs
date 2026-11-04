@@ -130,6 +130,16 @@ impl Knowledge {
         Ok(entity)
     }
 
+    /// Record every pair that shares an identity. Reads the graph, writes only proximities.
+    pub async fn scan_proximities(&self) -> anyhow::Result<super::reconcile::Report> {
+        super::reconcile::scan(self, &self.db.conn).await
+    }
+
+    /// Fold the open proximities that look like one thing, and leave the rest as questions.
+    pub async fn merge_proximities(&self) -> anyhow::Result<super::reconcile::Report> {
+        super::reconcile::merge_open(self, &self.db.conn).await
+    }
+
     /// Fold the holders of each identity that look like one thing, and queue the refusals.
     ///
     /// The pass that answers "these two share an identity — are they the same thing?", which sharing
