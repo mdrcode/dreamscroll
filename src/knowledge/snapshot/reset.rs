@@ -72,8 +72,8 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                     copy(txn, &snapshot.proximities(), PROXIMITIES_TABLE).await?;
                 let snapshot_members = copy_membership(txn, &snapshot.membership()).await?;
 
-                // Order follows the foreign keys: observations first, then evidence, then entities.
-                // Order follows the foreign keys: edges before the identities they cite.
+                // Order follows the foreign keys: edges before the identities they cite, entities
+                // last because everything points at them.
                 let unlinked = unlink(txn).await?;
                 let claims = remove_claims(txn).await?;
                 let proximities = remove_proximities(txn).await?;

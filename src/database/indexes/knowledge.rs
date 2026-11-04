@@ -86,9 +86,27 @@ END;
 $sync$;
 "#;
 
+/// Schema 24 renamed the proximity basis from `shared_identity` to `shared_id`. Runs *after* the
+/// unique index is dropped: two rows that differed only by basis collide once renamed, which is how a
+/// stale writer's rows showed up as duplicates. The dedupe keeps the oldest of an identical pair.
+const MIGRATE_PROXIMITY_BASIS: &str = r#"
+DO $sync$
+BEGIN
+    IF to_regclass('knowledge_proximities') IS NOT NULL THEN
+        UPDATE knowledge_proximities SET basis = 'shared_id' WHERE basis = 'shared_identity';
+        DELETE FROM knowledge_proximities a USING knowledge_proximities b
+         WHERE a.id > b.id AND a.holder_id = b.holder_id AND a.counterpart_id = b.counterpart_id
+           AND a.basis = b.basis
+           AND coalesce(a.knowledge_identity_id, 0) = coalesce(b.knowledge_identity_id, 0);
+    END IF;
+END;
+$sync$;
+"#;
+
 pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(BACKFILL_ALT_SEARCH_QUERIES).await?;
     conn.execute_unprepared(DROP_BEFORE_SYNC).await?;
+    conn.execute_unprepared(MIGRATE_PROXIMITY_BASIS).await?;
     Ok(())
 }
 
