@@ -139,9 +139,10 @@ pub(crate) async fn open_proximities(conn: &DatabaseConnection) -> anyhow::Resul
 
 /// One row per proximity, readable: what the pair is, how close, and what was decided.
 ///
-/// The `kind` column is the grouping the order uses — `same` when both entities share an entity type,
-/// `cross` when they do not — so the sort is visible rather than implied. Ordered for triage, not by
-/// score. Score is a similarity, and the highest-scoring pairs are the ones
+/// The `note` column says why the pair is worth a second look beyond the shared identity — `same
+/// entity_type` when both sides are the same kind of thing, which is also the grouping the order uses,
+/// and blank otherwise. Free form on purpose: it is a place to explain, not a status. Ordered for
+/// triage, not by score. Score is a similarity, and the highest-scoring pairs are the ones
 /// that must *never* merge: same name, different type (Nintendo the organisation and the brand at 0.74).
 /// The pairs a person can act on are the same-type ones, where the names differ and the claim is all
 /// the evidence there is — those come first, most similar text first inside that group.
@@ -154,7 +155,7 @@ pub async fn list(
         i32,
         String,
         Option<f32>,
-        bool,
+        String,
         String,
         String,
         String,
@@ -167,7 +168,8 @@ pub async fn list(
             "SELECT p.id, \
                     coalesce(p.verdict, 'open'), \
                     p.score, \
-                    h.entity_type = c.entity_type, \
+                    CASE WHEN h.entity_type = c.entity_type \
+                         THEN 'same entity_type' ELSE '' END, \
                     p.basis, \
                     h.name || ' [' || h.entity_type || ']', \
                     c.name || ' [' || c.entity_type || ']', \
