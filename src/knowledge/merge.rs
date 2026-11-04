@@ -15,8 +15,8 @@ use sea_orm::{
 };
 
 use crate::model::{
-    knowledge_claims as claims, knowledge_collisions as collisions, knowledge_entity as entity,
-    knowledge_merges as merges, user_observed_entity as observation,
+    knowledge_claims as claims, knowledge_entity as entity, knowledge_merges as merges,
+    user_observed_entity as observation,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -225,23 +225,22 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         .filter(claims::Column::KnowledgeEntityId.eq(loser))
         .exec(conn)
         .await?;
-    // A collision naming both ends of this merge is the dispute the merge just settled.
-    collisions::Entity::delete_many()
-        .filter(collisions::Column::HolderId.is_in([loser, winner]))
-        .filter(collisions::Column::ClaimantId.is_in([loser, winner]))
-        .exec(conn)
-        .await?;
-    // The rest follow the loser: the queue names entities, and the loser is about to be a tombstone.
-    collisions::Entity::update_many()
-        .col_expr(collisions::Column::HolderId, Expr::value(winner))
-        .filter(collisions::Column::HolderId.eq(loser))
-        .exec(conn)
-        .await?;
-    collisions::Entity::update_many()
-        .col_expr(collisions::Column::ClaimantId, Expr::value(winner))
-        .filter(collisions::Column::ClaimantId.eq(loser))
-        .exec(conn)
-        .await?;
+    // Proximities are a record, so they are settled rather than deleted: the pair naming both ends
+    // was the question this merge answers, and any other question about the loser is moot now that
+    // it is a tombstone.
+    conn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE knowledge_proximities \
+            SET verdict = CASE \
+                  WHEN (holder_id = $1 OR counterpart_id = $1) \
+                       AND (holder_id = $2 OR counterpart_id = $2) THEN 'merged' \
+                  ELSE 'moot' \
+                END, \
+                settled_at = now() \
+          WHERE verdict IS NULL AND (holder_id = $1 OR counterpart_id = $1)",
+        [loser.into(), winner.into()],
+    ))
+    .await?;
 
     // The audit trail: which entity was folded into which, and why. A historical row, so it stays
     // put when either end is later merged again — unlike the collision queue below.

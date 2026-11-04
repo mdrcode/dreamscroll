@@ -40,12 +40,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity"
     WHERE retracted_at IS NULL
 "#;
 
-/// One live record per contested pair and identity: the queue is a set, and a second `resolve` run
-/// re-asserting the same contradiction must add nothing.
-const COLLISIONS_UNIQUE: &str = r#"
-CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_collisions_pair"
-    ON knowledge_collisions (holder_id, claimant_id, knowledge_identity_id)
-    WHERE adjudicated_at IS NULL
+/// One record per pair, basis and identity, for ever — not just while open. A settled pair must not
+/// be raised again, which is what makes a verdict stick.
+const PROXIMITIES_UNIQUE: &str = r#"
+CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_proximities_pair"
+    ON knowledge_proximities (holder_id, counterpart_id, coalesce(knowledge_identity_id, 0), basis)
+"#;
+
+/// The open ones, which is how the table is read.
+const PROXIMITIES_OPEN: &str = r#"
+CREATE INDEX IF NOT EXISTS "idx-knowledge_proximities_open"
+    ON knowledge_proximities (holder_id, counterpart_id)
+    WHERE verdict IS NULL
 "#;
 
 /// A tombstone must point at another entity, never at itself: self-merge is a no-op in the code, and
@@ -75,7 +81,7 @@ DO $sync$
 BEGIN
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_identity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_entity_identity');
-    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_collisions_pair');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_proximities_pair');
 END;
 $sync$;
 "#;
@@ -89,7 +95,8 @@ pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbEr
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(IDENTITIES_UNIQUE).await?;
     conn.execute_unprepared(CLAIMS_UNIQUE).await?;
-    conn.execute_unprepared(COLLISIONS_UNIQUE).await?;
+    conn.execute_unprepared(PROXIMITIES_UNIQUE).await?;
+    conn.execute_unprepared(PROXIMITIES_OPEN).await?;
     conn.execute_unprepared(ARRAY_DEFAULTS).await?;
     conn.execute_unprepared(NOT_SELF_MERGED).await?;
     Ok(())

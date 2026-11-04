@@ -138,6 +138,24 @@ impl Knowledge {
         super::reconcile::reconcile(self, &self.db.conn).await
     }
 
+    /// Settle the open proximities between two entities with a verdict — `distinct` when a person
+    /// says they are two things, which no automatic pass can conclude. Returns how many rows closed.
+    pub async fn settle(&self, a: i32, b: i32, verdict: &str) -> anyhow::Result<u64> {
+        let result = self
+            .db
+            .conn
+            .execute_raw(sea_orm::Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "UPDATE knowledge_proximities SET verdict = $1, settled_at = now() \
+                  WHERE verdict IS NULL \
+                    AND ((holder_id = $2 AND counterpart_id = $3) \
+                      OR (holder_id = $3 AND counterpart_id = $2))",
+                [verdict.into(), a.into(), b.into()],
+            ))
+            .await?;
+        Ok(result.rows_affected())
+    }
+
     /// What a merge would do, without doing it. See [`super::merge`].
     pub async fn merge_preview(
         &self,

@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 23;
+const REQUIRED_SCHEMA_VERSION: i32 = 24;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -32,6 +32,11 @@ async fn retire_reshaped_claim_tables<C: ConnectionTrait>(conn: &C) -> Result<()
              DROP TABLE knowledge_collisions; \
            END IF; \
            DROP INDEX IF EXISTS \"idx-knowledge_claims_one_holder\"; \
+           /* collisions became proximities in schema 24; the old table is a record we have not
+              kept, and its rows regenerate */ \
+           IF to_regclass('knowledge_collisions') IS NOT NULL THEN \
+             DROP TABLE knowledge_collisions; \
+           END IF; \
          END $$",
     )
     .await?;

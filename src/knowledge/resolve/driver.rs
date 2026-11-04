@@ -157,9 +157,9 @@ pub struct Report {
     pub entities_resolved: usize,
     /// Entities folded into the entity that already held their identity.
     pub merges: usize,
-    /// Identity conflicts that survived the same-capture veto — real contradictions, kept as
-    /// collisions for adjudication rather than folded.
-    pub collisions: usize,
+    /// Pairs that shared an identity, looked like one thing, and could not be folded — recorded as
+    /// proximities for adjudication rather than merged.
+    pub proximities: usize,
     pub budget_exhausted: bool,
     /// Set when the provider asked us to back off: the run stopped instead of risking a ban.
     pub rate_limited_after: Option<u64>,
@@ -439,7 +439,7 @@ impl<'a> ResolutionEngine<'a> {
         // Sharing an identity is a candidate, not a verdict — decide which holders are one thing.
         let reconciled = knowledge.reconcile().await?;
         report.merges = reconciled.merged;
-        report.collisions = reconciled.refused;
+        report.proximities = reconciled.refused;
 
         for knowledge_entity_id in &resolved {
             knowledge.update_projection(*knowledge_entity_id).await?;

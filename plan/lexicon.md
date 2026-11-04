@@ -48,7 +48,7 @@ observation.
 | **identity** (schema 23) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `scheme`, `external_id`, `label`, `description`, `classes`, `method`, `confidence`, `first_seen` |
 | **claim** | `KnowledgeClaim` | `knowledge_claims` | `id`, `knowledge_entity_id`, `scheme`, `external_id`, `surface`, `label`, `description`, `classes`, `source`, `method`, `confidence`, `user_observed_entity_id`, `source_user_id`, `retracted_at`, `observed_at` |
 | **merge** | `KnowledgeMerge` | `knowledge_merges` | `id`, `loser_id`, `winner_id`, `cause`, `source`, `source_user_id`, `at` |
-| **collision** | `KnowledgeCollision` | `knowledge_collisions` | `id`, `holder_id`, `claimant_id`, `scheme`, `external_id`, `reason`, `detected_at`, `adjudicated_at` |
+| **proximity** | `KnowledgeProximity` | `knowledge_proximities` | `id`, `holder_id`, `counterpart_id`, `knowledge_identity_id`, `basis`, `score`, `verdict`, `raised_at`, `settled_at` |
 
 Two things have no table: an **identity** is `(scheme, external_id)` on a claim, and a **snapshot**
 is what `reset` saves and `compare` diffs.
@@ -89,12 +89,12 @@ per-kind index.
 | **reset** | drop derived state, keep observations | pure |
 | **compare** | snapshot → snapshot diff | pure |
 
-## Claims, collisions and merges
+## Claims, proximities and merges
 
 | Table | Is | Written by |
 | --- | --- | --- |
 | `knowledge_claims` | a fact about the world: this entity has this identity, on whose authority | `link` (a capture's handle), `resolve` (an authority's answer) |
-| `knowledge_collisions` | a judgement about our data: two entities hold one identity, and the same-illumination veto forbids folding them — a queue | `resolve`, when a merge is refused |
+| `knowledge_proximities` | a judgement about our data: two entities look close enough to ask about, and what was decided — a record, never deleted | `reconcile`, when a merge is refused; a human, with a verdict |
 | `knowledge_merges` | a mutation of our data: one entity folded into another, and why — a log | `resolve`, and the repair command |
 
 `enrichment` and `rejection` remain reserved kinds in the vocabulary, not tables: enrichment is the

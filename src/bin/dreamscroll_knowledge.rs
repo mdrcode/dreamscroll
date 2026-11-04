@@ -22,6 +22,7 @@ enum Command {
     Compare(CompareArgs),
     Resolve(ResolveArgs),
     Reconcile(ReconcileArgs),
+    Distinct(DistinctArgs),
 }
 
 #[derive(FromArgs)]
@@ -42,6 +43,18 @@ struct MergeArgs {
     #[argh(switch, short = 'y')]
     #[argh(description = "apply the merge (otherwise it is a dry run)")]
     yes: bool,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "distinct")]
+#[argh(
+    description = "record that two entities are different things, so the pair stops being asked"
+)]
+struct DistinctArgs {
+    #[argh(positional, description = "first knowledge entity")]
+    a: i32,
+    #[argh(positional, description = "second knowledge entity")]
+    b: i32,
 }
 
 #[derive(FromArgs)]
@@ -160,6 +173,12 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        Command::Distinct(args) => {
+            let settled = knowledge::Knowledge::new(&db)
+                .settle(args.a, args.b, "distinct")
+                .await?;
+            println!("settled {settled} outstanding proximities as distinct");
+        }
         Command::Reconcile(_) => {
             let report = knowledge::Knowledge::new(&db).reconcile().await?;
             println!(
@@ -174,21 +193,21 @@ async fn main() -> anyhow::Result<()> {
             let report = knowledge::snapshot::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
-                    "snapshot {} · entities {} · identities {} · claims {} · merges {} · collisions {} · members {}",
+                    "snapshot {} · entities {} · identities {} · claims {} · merges {} · proximities {} · members {}",
                     snapshot.suffix,
                     report.snapshot_entities,
                     report.snapshot_identities,
                     report.snapshot_claims,
                     report.snapshot_merges,
-                    report.snapshot_collisions,
+                    report.snapshot_proximities,
                     report.snapshot_members
                 ),
                 None => println!("nothing to snapshot"),
             }
             println!(
-                "unlinked {} observations · deleted {} claims, {} merges, {} collisions · \
+                "unlinked {} observations · deleted {} claims, {} merges, {} proximities · \
                  deleted {} entities",
-                report.unlinked, report.claims, report.merges, report.collisions, report.entities
+                report.unlinked, report.claims, report.merges, report.proximities, report.entities
             );
         }
         Command::Compare(args) => {
@@ -269,13 +288,13 @@ async fn main() -> anyhow::Result<()> {
                 report.candidates, report.planned, report.cache_hits
             );
             println!(
-                "fetched {} · failed {} · claims {} · entities resolved {} · merges {} · collisions {}",
+                "fetched {} · failed {} · claims {} · entities resolved {} · merges {} · proximities {}",
                 report.fetched,
                 report.failed,
                 report.claims,
                 report.entities_resolved,
                 report.merges,
-                report.collisions
+                report.proximities
             );
             if report.budget_exhausted {
                 println!("budget exhausted at {max_requests} requests");

@@ -178,12 +178,12 @@ knowledge_identities   the thing the world names: scheme + external id, and the 
                        whoever gave it (label, description, classes, method, confidence)
 knowledge_claims       this entity is that thing — the edge; several entities may claim
                        one identity, because an album's article covers its songs
-knowledge_collisions   two holders that look like one thing and cannot be folded
-                       (the same-illumination veto) — a queue awaiting a decision
+knowledge_proximities  two entities the graph considers close, with the score that a pass
+                       computed and the verdict somebody gave — a record, never deleted
 knowledge_merges       this entity was folded into that one, and why — the log an unmerge reads
 ```
 
-Only the first two are about the world. A collision is a judgement about our own rows and a merge is a
+Only the first two are about the world. A proximity is a judgement about our own rows and a merge is a
 mutation of them. `enrichment` and `rejection` stay reserved vocabulary, not tables.
 
 Sharing an identity is a **candidate**, not a verdict — that is why the uniqueness lives on the edge

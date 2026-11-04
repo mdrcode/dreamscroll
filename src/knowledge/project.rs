@@ -136,9 +136,15 @@ pub(super) async fn project<C: ConnectionTrait>(
         })
         .collect::<Result<Vec<_>, sea_orm::DbErr>>()?;
     // The queue, not evidence: a live collision against this entity makes its identity disputed.
-    let contested = model::knowledge_collisions::Entity::find()
-        .filter(model::knowledge_collisions::Column::HolderId.eq(knowledge_entity_id))
-        .filter(model::knowledge_collisions::Column::AdjudicatedAt.is_null())
+    // Contested: shares an identity with another entity and nobody has settled which it is. The row
+    // is directional for reading, so either side counts.
+    let contested = model::knowledge_proximities::Entity::find()
+        .filter(
+            sea_orm::Condition::any()
+                .add(model::knowledge_proximities::Column::HolderId.eq(knowledge_entity_id))
+                .add(model::knowledge_proximities::Column::CounterpartId.eq(knowledge_entity_id)),
+        )
+        .filter(model::knowledge_proximities::Column::Verdict.is_null())
         .count(conn)
         .await?
         > 0;
@@ -254,7 +260,7 @@ mod tests {
         fixtures::claim(db, id, scheme, value, "test", None, None).await;
     }
 
-    async fn collision(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
+    async fn proximity(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
         let claimant = fixtures::knowledge_entity_with_member(db, "a claimant").await;
         let identity = crate::knowledge::evidence::Evidence::from_handle(db)
             .identity(&crate::knowledge::evidence::Identity {
@@ -269,11 +275,11 @@ mod tests {
             })
             .await
             .unwrap();
-        model::knowledge_collisions::Entity::insert(model::knowledge_collisions::ActiveModel {
+        model::knowledge_proximities::Entity::insert(model::knowledge_proximities::ActiveModel {
             holder_id: Set(holder),
-            claimant_id: Set(claimant),
-            knowledge_identity_id: Set(identity),
-            reason: Set("shared_illumination".to_string()),
+            counterpart_id: Set(claimant),
+            knowledge_identity_id: Set(Some(identity)),
+            basis: Set("shared_identity".to_string()),
             ..Default::default()
         })
         .exec(&db.conn)
@@ -456,7 +462,7 @@ mod tests {
         };
         let db = db.handle();
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        collision(&db, id, "wikidata", "Q104919").await;
+        proximity(&db, id, "wikidata", "Q104919").await;
 
         store(&db).update_projection(id).await.unwrap();
 

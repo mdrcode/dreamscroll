@@ -80,7 +80,8 @@ pub(super) async fn reconcile(
                 // The veto says these two cannot be one referent, so the graph holds a real
                 // contradiction: record it for adjudication rather than folding.
                 Outcome::RefusedSharedIllumination => {
-                    record_collision(conn, winner.id, loser.id, identity_id).await?;
+                    record_proximity(conn, winner.id, loser.id, identity_id, features.total)
+                        .await?;
                     report.refused += 1;
                 }
             }
@@ -89,22 +90,27 @@ pub(super) async fn reconcile(
     Ok(report)
 }
 
-/// Queue a refused pair. The partial unique index makes a repeat a no-op.
-async fn record_collision(
+/// Record a refused pair. A pair is recorded once, for ever: `ON CONFLICT DO NOTHING` against the
+/// unique index is what stops a settled verdict being raised again.
+async fn record_proximity(
     conn: &DatabaseConnection,
     holder: i32,
-    claimant: i32,
+    counterpart: i32,
     identity_id: i32,
+    score: f32,
 ) -> anyhow::Result<()> {
     conn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "INSERT INTO knowledge_collisions \
-           (holder_id, claimant_id, knowledge_identity_id, reason) \
-         VALUES ($1, $2, $3, 'shared_illumination') \
-         ON CONFLICT (holder_id, claimant_id, knowledge_identity_id) \
-           WHERE adjudicated_at IS NULL \
-         DO NOTHING",
-        [holder.into(), claimant.into(), identity_id.into()],
+        "INSERT INTO knowledge_proximities \
+           (holder_id, counterpart_id, knowledge_identity_id, basis, score) \
+         VALUES ($1, $2, $3, 'shared_identity', $4) \
+         ON CONFLICT DO NOTHING",
+        [
+            holder.into(),
+            counterpart.into(),
+            identity_id.into(),
+            score.into(),
+        ],
     ))
     .await?;
     Ok(())
