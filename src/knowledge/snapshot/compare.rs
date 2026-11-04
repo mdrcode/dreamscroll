@@ -152,11 +152,11 @@ fn transitions(
 }
 
 /// `observation → sorted group-mates`, for comparing what an observation's group looks like.
-fn group_mates(groups: &BTreeMap<i32, Vec<i32>>) -> HashMap<i32, Vec<i32>> {
+fn group_mates(groups: &BTreeMap<i32, Vec<i32>>) -> HashMap<i32, &Vec<i32>> {
     let mut mates = HashMap::new();
     for members in groups.values() {
         for observation in members {
-            mates.insert(*observation, members.clone());
+            mates.insert(*observation, members);
         }
     }
     mates

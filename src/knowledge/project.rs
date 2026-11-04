@@ -51,22 +51,22 @@ pub(super) async fn project<C: ConnectionTrait>(
 
     let surfaces = gather(
         &members,
-        |member| surfaces(member).map(str::to_string).collect(),
+        |member| surfaces(member).collect(),
         super::normalize::comparable,
     );
     let types = gather(
         &members,
-        |member| vec![member.entity_type.clone()],
+        |member| vec![member.entity_type.as_str()],
         str::to_string,
     );
     let descriptions = gather(
         &members,
-        |member| member.description.clone().into_iter().collect(),
+        |member| member.description.as_deref().into_iter().collect(),
         str::to_string,
     );
     let queries = gather(
         &members,
-        |member| member.search_query.clone().into_iter().collect(),
+        |member| member.search_query.as_deref().into_iter().collect(),
         str::to_string,
     );
 
@@ -171,9 +171,9 @@ fn surfaces(observation: &model::user_observed_entity::Model) -> impl Iterator<I
 }
 
 /// Every distinct, non-empty value the members offer, in member order.
-fn gather(
-    members: &[model::user_observed_entity::Model],
-    values: impl Fn(&model::user_observed_entity::Model) -> Vec<String>,
+fn gather<'a>(
+    members: &'a [model::user_observed_entity::Model],
+    values: impl Fn(&'a model::user_observed_entity::Model) -> Vec<&'a str>,
     key: impl Fn(&str) -> String,
 ) -> Vec<String> {
     let mut seen = HashSet::new();
