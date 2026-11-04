@@ -50,7 +50,7 @@ captures — and the first observation of a thing is always the expensive one.
 
 An entity is the thing itself, shared by every user, in `knowledge_entities`. It is not authored; it
 is **recomputed**: every derived column is a function of the entity's observations and its evidence, so
-a merge or a fresh link simply recomputes them. `update_projection()` is the only writer of `name`, `alt_names`,
+a merge or a fresh link simply recomputes them. After `create`, `update_projection()` is the only writer of `name`, `alt_names`,
 `entity_type`, `alt_types`, `description`, `alt_descriptions`, `search_query`, `alt_search_queries`,
 `status` and `confidence`.
 
@@ -60,6 +60,7 @@ entity_type / alt_types     the chosen type, and every other one asserted
 description / alt_*         same shape: one selected, the rest kept for matching
 search_query / alt_*        the disambiguation hint, projected the same way
 platform / platform_*       the presence one member carried, so the resolver can ask by handle
+confidence                  best claim's score + 0.1 per independent input (text, handle)
 status                      provisional → identified
 merged_into_id              set when this entity was folded into another
 ```
@@ -86,22 +87,29 @@ trait Blocker {                  // recall: find candidates, over-generate
 // All three take `&self`, so the store holds one `Arc<dyn Blocker>` and no lock: an implementation
 // that keeps an index owns its own mutex, and nobody holds a guard across a `candidates` call.
 
-trait Linker {                   // precision: decide, and nothing else
-    async fn link_illuminated_observations(
+trait LinkDecider {              // precision: decide, and nothing else
+    async fn decide_link(
         &self,
         blocker: &dyn Blocker,
+        evidence: &Evidence,
         illumination: &Illumination,
-        observations: &[Observation],
-    ) -> LinkResult;
+    ) -> Result<Vec<Decision>>;
 }
 
-enum Decision {
-    Attach { entity: i32, score: f32 },
-    Create { best: Option<(i32, f32)> },
+struct Decision {
+    observation: Observation,      // the row itself, not its id
+    action: Action,
+    identity: Option<i32>,         // the capture's handle, already imported as a row
 }
 
-struct LinkResult {
-    decisions: Vec<(i32, Decision)>,   // observation id → what to do
+enum Action {
+    Attach(i32),                   // this entity
+    Create,
+}
+
+struct LinkStats {                 // what one illumination's decisions did
+    attached: usize,
+    created: usize,
 }
 ```
 
@@ -127,12 +135,14 @@ identity. `merge` refuses that pair (shared illumination), so `reconcile` report
 open — the terminal state the merge-side rule produces everywhere.
 
 **The heuristic is one implementation of that chain — not the chain.** `heuristic.rs` holds our
-first prototype: normalized name keys to block on, weighted features, a bar to clear. It is
-deliberately self-contained, which is the property worth protecting: everything it needs lives in
-that one file, so it can be tuned, replaced, or deleted without touching the framework. A future
-linker might block on embeddings, decide with a model, or reason over evidence in a way that shares
-nothing with this one — it would implement the same two traits and import not a line of `heuristic`.
-Delete that file today and the lib still compiles; it simply has no policy.
+first prototype: normalized name keys to block on, weighted features, a bar to clear, and every score
+the rest of the graph asks for — `entity_confidence`, `answer_confidence`, `score_pair`, `wins` — so
+`project`, `reconcile` and the resolver contain no arithmetic of their own. That is the deliberate
+trade: one home for the numbers, at the cost of the file no longer being deletable on its own.
+Replacing it means reimplementing those four functions, not just the linker.
+
+A future linker might block on embeddings or decide with a model. It would implement the same two
+traits; what it could not do is skip the arithmetic, because the projection and the merge pass call it.
 
 ## Resolving: what can the authorities tell us?
 
@@ -161,7 +171,8 @@ contract, so **adding an authority means writing one `Resolver`**, and a resolve
 request or a dozen.
 
 The one thing a resolver cannot do is fetch. Its only route to the world is
-`ResolutionContext::ask`, which consults the cache first, charges the budget and paces the call —
+`ResolutionContext::resolve_requests`, which consults the cache first, charges the budget and
+paces the call —
 which is why a resolver can own its own strategy without being able to bypass any of them. (An
 agentic resolver, whose tool calls happen inside a provider's runtime, is the one exception: it uses
 the same context by convention, and it is expected to fail at that rather than to pretend.)
@@ -180,8 +191,9 @@ Four tables, because they answer four different questions:
 ```
 knowledge_identities   the thing the world names: scheme + external id, and the answer
                        whoever gave it (label, description, classes, method, confidence)
-knowledge_claims       this entity is that thing — the edge; several entities may claim
-                       one identity, because an album's article covers its songs
+knowledge_claims       this entity is that thing — the edge, with `basis` (text or handle)
+                       naming what the question was; several entities may claim one identity,
+                       because an album's article covers its songs
 knowledge_proximities  two entities the graph considers close, with the score that a pass
                        computed and the verdict somebody gave — a record, never deleted
 knowledge_merges       this entity was folded into that one, and why — the log an unmerge reads
@@ -193,7 +205,7 @@ mutation of them. `enrichment` and `rejection` stay reserved vocabulary, not tab
 Sharing an identity is a **candidate**, not a verdict — that is why the uniqueness lives on the edge
 (one entity asserts an identity once) rather than on the identity. `reconcile.rs` asks the question:
 for each identity with two or more holders, score the holders pairwise with the linker's weights, fold
-the pairs that look like one thing, and queue the ones the veto refuses.
+the pairs that look like one thing, and queue the ones the shared-illumination rule refuses.
 
 The only uniqueness is per entity: one live claim per `(entity, identity)`, so retracting frees that
 pair's slot and re-asserting it is a no-op. Nothing forbids two entities holding one identity — that is
@@ -228,9 +240,9 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
   which re-materialises identities from cached answers and runs `reconcile`. No transport, seconds.
 - `merge` folds one entity into another, tombstones the loser, and runs in a **transaction** — five
   writes that must all land.
-- The **same-illumination veto**: two entities that both appear in one illumination cannot be one
-  referent, because a single extraction emitting both means two things. The unit is the illumination,
-  not the capture — re-illuminating an image is a separate illumination.
+- The **shared-illumination rule**: `merge` refuses two entities that both appear in one
+  illumination, because a single extraction emitting both means two things. The unit is the
+  illumination, not the capture — re-illuminating an image makes a separate one.
 
 ## Where things live
 
@@ -239,7 +251,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `blocker.rs`, `link_decider.rs` | the two traits, and nothing else — the contract a linker implements |
 | `heuristic.rs` | our first linker, self-contained: token keys, features, weights, bars, `NameBlocker`, `HeuristicLinker` |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
-| `resolve/wikidata/` | one authority: policy in `resolver.rs`, HTTP in `transport.rs` |
+| `resolve/wikidata/` | one authority: policy in `resolver.rs`, candidate ranking in `ranking.rs`, HTTP in `transport.rs` |
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
 | `link.rs` | the linking executor, and `LinkStats` |
 | `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces` |
@@ -251,7 +263,8 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `normalize.rs` | `comparable`: the form two surfaces are compared in. The token pipeline is policy, in `heuristic.rs` |
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
-private modules: nothing in them is `pub`, and callers reach them through `Knowledge`'s methods. The
+private modules. What escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Cause`,
+`Preview` — and every write is reached through `Knowledge`'s methods. The
 graph's health counters are a report over the tables rather than graph work, so they live in
 `crate::stats::knowledge_stats`.
 
