@@ -6,7 +6,10 @@
 use std::collections::HashSet;
 
 use chrono::Utc;
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter,
+    Statement,
+};
 
 use crate::{database, model};
 
@@ -17,7 +20,12 @@ pub struct KnowledgeStats {
     pub entities: u64,
     pub provisional: u64,
     pub identified: u64,
-    pub contested: u64,
+    /// Proximities nobody has settled.
+    pub proximities_open: u64,
+    /// Proximities with a verdict.
+    pub proximities_settled: u64,
+    /// Entities on either side of an open proximity.
+    pub entities_unsettled: u64,
     /// Entities with a live authority claim — the number `resolve` moves.
     pub with_claim: u64,
     /// Entities whose projected platform presence is set. A member had one and `project` kept it.
@@ -80,7 +88,7 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
         stats.entities += 1;
         match entity.status.as_str() {
             "identified" => stats.identified += 1,
-            "contested" => stats.contested += 1,
+
             _ => stats.provisional += 1,
         }
         if entity.platform.is_some() {
@@ -104,6 +112,34 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
     .map(|row| row.try_get_by_index::<i32>(0).map(|id| (id,)))
     .collect::<Result<_, _>>()?;
     stats.with_claim = with_claim.len() as u64;
+
+    // Proximities are a record with a verdict, not a status: count them where they live.
+    let row = db
+        .conn
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT count(*) FILTER (WHERE verdict IS NULL), \
+                    count(*) FILTER (WHERE verdict IS NOT NULL) \
+               FROM knowledge_proximities",
+        ))
+        .await?
+        .expect("count always returns one row");
+    stats.proximities_open = row.try_get_by_index::<i64>(0)? as u64;
+    stats.proximities_settled = row.try_get_by_index::<i64>(1)? as u64;
+
+    let row = db
+        .conn
+        .query_one_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT count(*) FROM ( \
+               SELECT holder_id AS entity FROM knowledge_proximities WHERE verdict IS NULL \
+               UNION \
+               SELECT counterpart_id FROM knowledge_proximities WHERE verdict IS NULL \
+             ) sides",
+        ))
+        .await?
+        .expect("count always returns one row");
+    stats.entities_unsettled = row.try_get_by_index::<i64>(0)? as u64;
 
     let now = Utc::now();
     for row in model::resolution_cache::Entity::find()

@@ -378,8 +378,14 @@ async fn main() -> anyhow::Result<()> {
             println!("knowledge entities  {:>7}", stats.entities);
             println!("  provisional       {:>7}", stats.provisional);
             println!("  identified        {:>7}", stats.identified);
-            println!("  contested         {:>7}", stats.contested);
             println!("duplicate rate      {:>7.3}", stats.duplicate_rate());
+            println!("proximities");
+            println!("  {:<18}{:>7}", "open", stats.proximities_open);
+            println!("  {:<18}{:>7}", "settled", stats.proximities_settled);
+            println!(
+                "  {:<18}{:>7}",
+                "unsettled entities", stats.entities_unsettled
+            );
             println!("resolution");
             println!("  with authority claim {:>5}", stats.with_claim);
             println!(

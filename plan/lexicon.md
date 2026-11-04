@@ -103,8 +103,12 @@ authority's description, names and types — it rides on the claim today as `lab
 
 ## Status
 
-`provisional` → `identified` → `contested`. `identified` describes a knowledge entity that holds a
-live authority claim; it is not the past participle of `resolve`, which may abstain.
+`provisional` → `identified`. `identified` describes a knowledge entity that holds a live authority
+claim; it is not the past participle of `resolve`, which may abstain.
+
+There is no `contested` status. "This entity shares an identity with another and nobody has decided"
+is a **proximity** — a pair-level record with a score and a verdict — and folding it into one field
+alongside substantiation conflated two questions and had to be re-projected on every scan.
 
 ## Names considered and rejected
 
@@ -117,6 +121,7 @@ live authority claim; it is not the past participle of `resolve`, which may abst
 | *label* / *alt_labels* | technical jargon for the same idea; `name`/`alt_names` is plain and keeps the singular/plural pattern |
 | *identify* | presupposes success, and resolution abstains often; also too narrow — it names only one of the kinds |
 | *related_core_id* | one column with two meanings selected by `kind`; deleted, the role lives in the payload |
+| *contested* (status) | a derived boolean stored beside substantiation; the proximity record already says it at pair granularity |
 | *knowledge_id* | names a layer, not a thing; there is no `knowledge` table, and `knowledge_evidence` invites the wrong join |
 
 ## Rename map (schema 16)

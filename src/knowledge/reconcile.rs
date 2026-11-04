@@ -41,7 +41,7 @@ pub(super) async fn reconcile(
     knowledge: &Knowledge,
     conn: &DatabaseConnection,
 ) -> anyhow::Result<Report> {
-    let mut report = scan(knowledge, conn).await?;
+    let mut report = scan(conn).await?;
     let merged = merge_open(knowledge, conn).await?;
     report.merged = merged.merged;
     report.refused = merged.refused;
@@ -50,14 +50,8 @@ pub(super) async fn reconcile(
     Ok(report)
 }
 
-/// Find pairs that share an identity and record them.
-///
-/// It writes rows and, when a row is new, re-projects the two entities: `contested` is derived from
-/// open proximities, so a new question changes both sides' status. Nothing else about the graph moves.
-pub(super) async fn scan(
-    knowledge: &Knowledge,
-    conn: &DatabaseConnection,
-) -> anyhow::Result<Report> {
+/// Find pairs that share an identity and record them. Read-only against the graph.
+pub(super) async fn scan(conn: &DatabaseConnection) -> anyhow::Result<Report> {
     let evidence = Evidence::new(conn.clone());
     let mut report = Report::default();
 
@@ -69,7 +63,7 @@ pub(super) async fn scan(
         };
         for other in holders.iter().skip(1) {
             let features = score_pair(other, holder);
-            let raised = evidence
+            report.raised += evidence
                 .raise(
                     holder.id,
                     other.id,
@@ -78,12 +72,6 @@ pub(super) async fn scan(
                     Some(features.total),
                 )
                 .await?;
-            if raised > 0 {
-                report.raised += raised;
-                // A new question makes both sides contested.
-                knowledge.update_projection(holder.id).await?;
-                knowledge.update_projection(other.id).await?;
-            }
         }
     }
     Ok(report)
@@ -252,10 +240,9 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        let store = Knowledge::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
 
-        let report = scan(&store, &db.conn).await.expect("scan");
+        let report = scan(&db.conn).await.expect("scan");
 
         assert_eq!(report.raised, 1, "{report:?}");
         let row = model::knowledge_proximities::Entity::find()
@@ -271,7 +258,7 @@ mod tests {
         );
 
         // Idempotent: the same pair is not raised twice.
-        assert_eq!(scan(&store, &db.conn).await.unwrap().raised, 0);
+        assert_eq!(scan(&db.conn).await.unwrap().raised, 0);
     }
 
     /// The merge phase folds the pair the scan recorded, and says so on the row.
@@ -283,7 +270,7 @@ mod tests {
         let db = test_db.handle();
         let store = Knowledge::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
-        scan(&store, &db.conn).await.unwrap();
+        scan(&db.conn).await.unwrap();
 
         let report = merge_open(&store, &db.conn).await.expect("merge");
 
@@ -307,7 +294,7 @@ mod tests {
         let store = Knowledge::new(&db);
         let (album, song) = claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
-        scan(&store, &db.conn).await.unwrap();
+        scan(&db.conn).await.unwrap();
         let report = merge_open(&store, &db.conn).await.expect("merge");
 
         assert_eq!(report.merged, 0, "{report:?}");

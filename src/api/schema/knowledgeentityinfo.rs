@@ -33,7 +33,7 @@ pub struct KnowledgeEntityInfo {
     pub platform_handle: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub platform_display_name: Option<String>,
-    /// `provisional` · `identified` · `contested`.
+    /// `provisional` · `identified`. A shared identity is not a status: see the proximity record.
     pub status: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub confidence: Option<f32>,

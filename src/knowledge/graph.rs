@@ -132,7 +132,7 @@ impl Knowledge {
 
     /// Record every pair that shares an identity. Reads the graph, writes only proximities.
     pub async fn scan_proximities(&self) -> anyhow::Result<super::reconcile::Report> {
-        super::reconcile::scan(self, &self.db.conn).await
+        super::reconcile::scan(&self.db.conn).await
     }
 
     /// Fold the open proximities that look like one thing, and leave the rest as questions.

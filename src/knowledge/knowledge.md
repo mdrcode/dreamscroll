@@ -60,7 +60,7 @@ entity_type / alt_types     the chosen type, and every other one asserted
 description / alt_*         same shape: one selected, the rest kept for matching
 search_query / alt_*        the disambiguation hint, projected the same way
 platform / platform_*       the presence one member carried, so the resolver can ask by handle
-status                      provisional → identified → contested
+status                      provisional → identified
 merged_into_id              set when this entity was folded into another
 ```
 

@@ -88,15 +88,15 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   it says nothing about the thing behind it. Two captures claiming `X/@elonmusk` as
   "technologist and inventor" and as "random bullshitter" are today merged silently — the second is
   absorbed as corroboration, `project` picks one description, and nothing records the disagreement.
-  The existing `collision` evidence kind and the `contested` status are the machinery; what is
+  The proximity record is the machinery; what is
   missing is a corroboration bar inside the linker for claim matches, and a decision about what the
-  executor does with a refused match (link and mark contested, or leave unlinked and re-evaluate
+  executor does with a refused match (link and note a proximity, or leave unlinked and re-evaluate
   next run). Needs a real case before designing thresholds — a report-only count of claim matches
   that would fail a corroboration test is the first step. Shape is settled: a refused match needs no
   new decision variant — it is `Create` with the claim withheld and `best` naming the entity
   declined, which `project` then leaves `provisional` for free. Deferred with it: whether a refusal
-  also writes a `collision` row (which would mark the established entity `contested`); today
-  `contested` means "two things we could not merge", and diluting it is a separate decision.
+  also writes a proximity (which would flag the established entity for a look); today
+  "shares an identity" is a proximity, and diluting it is a separatee decision.
 - [ ] **Give evidence claims a repository.** `link` and `resolve` each hand-roll the same
   three outcomes around `idx-knowledge_evidence_identity`: insert, unique violation, and
   "another entity already holds this `(scheme, id)`". Both duplicate the violation check

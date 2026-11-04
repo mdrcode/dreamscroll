@@ -16,8 +16,8 @@
 use std::collections::HashSet;
 
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter,
-    QueryOrder, Set, Statement,
+    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, QueryOrder, Set,
+    Statement,
 };
 
 use crate::model;
@@ -135,23 +135,10 @@ pub(super) async fn project<C: ConnectionTrait>(
             ))
         })
         .collect::<Result<Vec<_>, sea_orm::DbErr>>()?;
-    // The queue, not evidence: a live collision against this entity makes its identity disputed.
-    // Contested: shares an identity with another entity and nobody has settled which it is. The row
-    // is directional for reading, so either side counts.
-    let contested = model::knowledge_proximities::Entity::find()
-        .filter(
-            sea_orm::Condition::any()
-                .add(model::knowledge_proximities::Column::HolderId.eq(knowledge_entity_id))
-                .add(model::knowledge_proximities::Column::CounterpartId.eq(knowledge_entity_id)),
-        )
-        .filter(model::knowledge_proximities::Column::Verdict.is_null())
-        .count(conn)
-        .await?
-        > 0;
-
-    let status = if contested {
-        "contested"
-    } else if claims.is_empty() {
+    // Status is one axis: how well substantiated the entity is. Whether it shares an identity with
+    // another entity is a different question, answered by `knowledge_proximities` at pair granularity —
+    // a third status value conflated the two and had to be re-projected on every scan.
+    let status = if claims.is_empty() {
         STATUS_PROVISIONAL
     } else {
         STATUS_IDENTIFIED
@@ -455,8 +442,10 @@ mod tests {
         assert!(entity.confidence.is_some(), "a claim carries a confidence");
     }
 
+    /// Sharing an identity with another entity is a separate question from how well substantiated
+    /// this one is, so it must not leak into the status.
     #[tokio::test]
-    async fn a_collision_makes_it_contested() {
+    async fn a_proximity_does_not_change_the_status() {
         let Some(db) = test_db::test_db().await else {
             return;
         };
@@ -466,9 +455,7 @@ mod tests {
 
         store(&db).update_projection(id).await.unwrap();
 
-        let entity = load(&db, id).await;
-        assert_eq!(entity.status, "contested");
-        assert_eq!(entity.confidence, None, "a collision is not an identity");
+        assert_eq!(load(&db, id).await.status, STATUS_PROVISIONAL);
     }
 
     #[tokio::test]

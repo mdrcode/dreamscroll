@@ -38,7 +38,8 @@ pub struct Model {
     pub search_query: Option<String>,
     /// Every other hint a member carried. `search_query` is the selected one.
     pub alt_search_queries: Vec<String>,
-    /// provisional | identified | contested. Projected from evidence, never hand-set.
+    /// provisional | identified. Substantiation only — whether the entity shares an identity
+    /// with another one is a proximity, not a status. Projected from evidence, never hand-set.
     pub status: String,
     #[sea_orm(nullable)]
     pub confidence: Option<f32>,
