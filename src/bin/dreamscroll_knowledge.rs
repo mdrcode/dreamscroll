@@ -234,10 +234,13 @@ async fn main() -> anyhow::Result<()> {
                 }
                 ProximityCommand::List(args) => {
                     let rows = knowledge::list_proximities(&db.conn, args.all, args.limit).await?;
-                    for (id, verdict, score, basis, holder, counterpart, identity) in rows {
+                    for (id, verdict, score, same_type, basis, holder, counterpart, identity) in
+                        rows
+                    {
                         let score = score.map_or("-".to_string(), |s| format!("{s:.2}"));
+                        let kind = if same_type { "same" } else { "cross" };
                         println!(
-                            "{id:>5}  {verdict:<8} {score:>5}  {basis:<15}  {holder}  \u{21c4}  {counterpart}  [{identity}]"
+                            "{id:>5}  {verdict:<8} {score:>5}  {kind:<5}  {basis:<15}  {holder}  \u{21c4}  {counterpart}  [{identity}]"
                         );
                     }
                 }

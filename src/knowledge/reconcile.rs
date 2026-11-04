@@ -139,7 +139,9 @@ pub(crate) async fn open_proximities(conn: &DatabaseConnection) -> anyhow::Resul
 
 /// One row per proximity, readable: what the pair is, how close, and what was decided.
 ///
-/// Ordered for triage, not by score. Score is a similarity, and the highest-scoring pairs are the ones
+/// The `kind` column is the grouping the order uses — `same` when both entities share an entity type,
+/// `cross` when they do not — so the sort is visible rather than implied. Ordered for triage, not by
+/// score. Score is a similarity, and the highest-scoring pairs are the ones
 /// that must *never* merge: same name, different type (Nintendo the organisation and the brand at 0.74).
 /// The pairs a person can act on are the same-type ones, where the names differ and the claim is all
 /// the evidence there is — those come first, most similar text first inside that group.
@@ -147,13 +149,25 @@ pub async fn list(
     conn: &DatabaseConnection,
     include_settled: bool,
     limit: usize,
-) -> anyhow::Result<Vec<(i32, String, Option<f32>, String, String, String, String)>> {
+) -> anyhow::Result<
+    Vec<(
+        i32,
+        String,
+        Option<f32>,
+        bool,
+        String,
+        String,
+        String,
+        String,
+    )>,
+> {
     let rows = conn
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT p.id, \
                     coalesce(p.verdict, 'open'), \
                     p.score, \
+                    h.entity_type = c.entity_type, \
                     p.basis, \
                     h.name || ' [' || h.entity_type || ']', \
                     c.name || ' [' || c.entity_type || ']', \
@@ -181,6 +195,7 @@ pub async fn list(
                 row.try_get_by_index(4)?,
                 row.try_get_by_index(5)?,
                 row.try_get_by_index(6)?,
+                row.try_get_by_index(7)?,
             ))
         })
         .collect()
