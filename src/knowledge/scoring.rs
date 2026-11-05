@@ -12,7 +12,7 @@
 //! cannot see the corpus.
 //!
 //! Not verbs: the aggregate over claims is arithmetic (`heuristic::scoring::combine`), and
-//! [`by_confidence`] is a convention about `NULL`.
+//! [`cmp_confidence`] is a convention about `NULL`.
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -40,11 +40,9 @@ pub trait Rank<A, B>: Send + Sync {
     fn rank(&self, a: &A, candidates: &[B]) -> Vec<(usize, f32)>;
 }
 
-/// Which of two substantiated things wins. Not policy: `None` is least, ties stay ties.
-///
-/// One definition, asked by the merge survivor choice and by the identity-holder order — the two
-/// places that used to disagree about `NULL`.
-pub fn by_confidence(a: Option<f32>, b: Option<f32>) -> Ordering {
+/// `Ord::cmp` for a confidence: `total_cmp`, with `None` least. `Option<f32>` has no `Ord` because
+/// `f32` has none, and writing this out at three call sites is how the `NULL` rule drifted once.
+pub fn cmp_confidence(a: Option<f32>, b: Option<f32>) -> Ordering {
     a.unwrap_or(f32::NEG_INFINITY)
         .total_cmp(&b.unwrap_or(f32::NEG_INFINITY))
 }

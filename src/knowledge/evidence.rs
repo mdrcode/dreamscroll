@@ -12,7 +12,7 @@ use std::collections::HashSet;
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::knowledge::normalize;
-use crate::knowledge::scoring::by_confidence;
+use crate::knowledge::scoring::cmp_confidence;
 use crate::model;
 
 /// A platform link, as the capture showed it. `link` transcribes it; nothing infers anything here.
@@ -291,7 +291,7 @@ impl Evidence {
     /// The entities holding this identity, most substantiated first: the reconcile pass keeps the
     /// first and asks about the rest, and the linker attaches to the first.
     ///
-    /// The ordering is [`by_confidence`], asked here rather than written into the SQL: `merge` picks its
+    /// The ordering is [`cmp_confidence`], asked here rather than written into the SQL: `merge` picks its
     /// survivor with the same function, and two spellings of "most substantiated" disagreed on
     /// `NULL` for as long as they existed.
     pub async fn held_by_identity(
@@ -323,7 +323,7 @@ impl Evidence {
             .filter(model::knowledge_entity::Column::Id.is_in(ids))
             .all(&self.conn)
             .await?;
-        entities.sort_by(|a, b| by_confidence(b.confidence, a.confidence).then(a.id.cmp(&b.id)));
+        entities.sort_by(|a, b| cmp_confidence(b.confidence, a.confidence).then(a.id.cmp(&b.id)));
         Ok(entities)
     }
 

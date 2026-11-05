@@ -18,7 +18,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
 use super::evidence::Evidence;
 use super::merge::{Cause, Outcome};
-use super::scoring::{by_confidence, Scoring};
+use super::scoring::{cmp_confidence, Scoring};
 use super::Knowledge;
 
 /// What one reconcile did.
@@ -95,7 +95,7 @@ pub(super) async fn merge_open(
 
         // The more substantiated side survives; ties go to the lower id.
         let scoring = &knowledge.scoring;
-        let (winner, loser) = if by_confidence(right.confidence, left.confidence) == Ordering::Greater {
+        let (winner, loser) = if cmp_confidence(right.confidence, left.confidence) == Ordering::Greater {
             (right, left)
         } else {
             (left, right)

@@ -148,7 +148,7 @@ pair that must never merge, and the number is how a person sees why.
 
 Everything else is not a verb. `reconcile` stores the number and asks `Rank` for the verdict; the
 linker asks `Rank` and applies the answer; `project` calls `combine`, which is arithmetic over claim
-scores; `merge` and the holder order ask `by_confidence`, a convention about `NULL`. Only the linker and
+scores; `merge` and the holder order ask `cmp_confidence`, a convention about `NULL`. Only the linker and
 `reconcile` take a `Scoring`, and it is the **store's** — a linker carrying its own would leave the
 merge pass on a different policy, silently.
 
@@ -266,7 +266,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 | file | what it is |
 |---|---|
-| `scoring.rs` | the two verbs — `Similarity`, `Rank` — `by_confidence`, and the `Scoring` bundle |
+| `scoring.rs` | the two verbs — `Similarity`, `Rank` — `cmp_confidence`, and the `Scoring` bundle |
 | `blocker.rs`, `link_decider.rs` | the two linking traits, and nothing else — the contract a linker implements |
 | `heuristic/scoring.rs` | the only `Scoring` today: token keys, weights, the bar, the corroboration bonus |
 | `heuristic/name_blocker.rs` | `NameBlocker`: recall by normalized name and platform handle |
@@ -277,7 +277,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `link.rs` | the linking executor, and `LinkStats` |
 | `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `merge.rs` | fold one entity into another |
-| `evidence.rs` | claims and identities: who holds one (ordered by `by_confidence`), and the platform key a presence answers to |
+| `evidence.rs` | claims and identities: who holds one (ordered by `cmp_confidence`), and the platform key a presence answers to |
 | `reconcile.rs` | the pass that asks whether one identity's holders are one thing |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
