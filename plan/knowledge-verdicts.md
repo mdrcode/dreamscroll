@@ -17,7 +17,7 @@ Two of those are not the model's output — they are a person's judgement:
 
 | decision | today | lost because |
 | --- | --- | --- |
-| "fold these two entities" (`merge -y`, `cause = repair`) | `knowledge_merges` row | the row names two entity ids, and both rows are deleted |
+| "fold these two entities" (`merge -y`, `cause = repair`) | `knowledge_merges` row (since folded into `knowledge_verdicts`) | the row named two entity ids, and both rows were deleted |
 | "these two are different" (`distinct`) | `knowledge_proximities.verdict` | same, plus the table itself is now replaced every scan |
 
 After a rebuild the graph is the model's opinion again, so a person re-does the same work every time,
@@ -62,30 +62,42 @@ mutated in place. Now:
 `distinct` is not coming back as a status on a derived row. If it returns, it returns as a durable
 verdict kind (below).
 
-## Built: tables
+## Built: one log
+
+`knowledge_verdicts` is the **one modification log**: every fold, whoever made it, and nothing else.
+`knowledge_merges` — the old per-generation audit — is gone; keeping two tables with different
+lifetimes made "which one is the log?" a question nobody could answer from the names.
 
 ```sql
-knowledge_generations (
-  id            serial primary key,
-  started_at    timestamptz not null default now(),
-  superseded_at timestamptz,        -- reset: snapshotted and emptied at this moment
-  snapshot      text,               -- archive suffix; null when the graph was empty
-  entities int, identities int, claims int, merges int, proximities int, members int
-);
-
 knowledge_verdicts (
   id            serial primary key,
-  generation    int not null,       -- provenance, not a gate
+  generation    int not null,       -- when it happened
+  cause         text not null,      -- repair | proximity_auto | replayed
   winner_origin int not null,       -- origin_observation_id of the surviving side
   loser_origin  int not null,       -- origin_observation_id of the side folded away
   winner_label  text, loser_label text,
   decided_at    timestamptz not null default now(),
   note          text
 );
+
+knowledge_generations (
+  id            serial primary key,
+  started_at    timestamptz not null default now(),
+  superseded_at timestamptz,        -- reset: snapshotted and emptied at this moment
+  snapshot      text,               -- archive suffix; null when the graph was empty
+  entities int, identities int, claims int, proximities int, members int
+);
 ```
 
-Direction is in the column names, not a `survivor` field — there is only one kind of verdict, so a
-`kind` column would hold one legal value. When `distinct` arrives it brings `kind` with it.
+`cause` carries the authority, which is the only thing that differs between the three:
+
+| cause | who | lifetime |
+| --- | --- | --- |
+| `repair` | a person | forever; **replay re-applies it in every later generation** |
+| `proximity_auto` | the automatic pass | logged for the generation it happened in, never replayed — the model's opinion is re-derived |
+| `replayed` | the replay, acting for a person | logged per generation, so "what changed in generation N" is complete |
+
+Direction is in the column names, not a `survivor` field.
 
 - **`reset` becomes the generation manager**: it closes the current generation (writing
   `superseded_at`, the snapshot suffix and the counts onto that row), then opens the next. At most
@@ -117,8 +129,10 @@ for each verdict:
 - Idempotent by construction: applying it twice is a no-op the second time.
 - Applies verdicts of any age. There is no "previous generation only" rule; the generation on a
   verdict is provenance, not a gate.
-- Tags the merges it applies `cause = repair`, `source = user`, so `knowledge_merges` stays a
-  truthful per-generation audit of what happened and why.
+- Logs the folds it applies as `cause = replayed`, so the log stays a truthful record of what
+  changed in each generation.
+- Follows tombstones on **both** sides before deciding: if the model folded the person's winner into
+  something else, the decision still means "these two are one" about wherever they are now.
 - Replay touches the graph only — entities, observations, verdicts. It never reads
   `knowledge_proximities`; the batch is a candidate source for the automatic pass, not a durable
   artefact.

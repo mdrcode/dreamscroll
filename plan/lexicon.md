@@ -47,7 +47,7 @@ observation.
 | **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `status`, `confidence`, `merged_into_id`, timestamps |
 | **identity** (schema 23) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `scheme`, `external_id`, `label`, `description`, `classes`, `method`, `confidence`, `first_seen` |
 | **claim** | `KnowledgeClaim` | `knowledge_claims` | `id`, `knowledge_entity_id`, `scheme`, `external_id`, `surface`, `label`, `description`, `classes`, `source`, `method`, `confidence`, `user_observed_entity_id`, `source_user_id`, `retracted_at`, `observed_at` |
-| **merge** | `KnowledgeMerge` | `knowledge_merges` | `id`, `loser_id`, `winner_id`, `cause`, `source`, `source_user_id`, `at` |
+| **merge** | `KnowledgeVerdict` | `knowledge_verdicts` | `id`, `generation`, `cause`, `winner_origin`, `loser_origin`, `winner_label`, `loser_label`, `at` |
 | **proximity** | `KnowledgeProximity` | `knowledge_proximities` | `id`, `holder_id`, `counterpart_id`, `knowledge_identity_id`, `basis`, `score`, `verdict`, `raised_at`, `settled_at` |
 
 Two things have no table: an **identity** is `(scheme, external_id)` on a claim, and a **snapshot**
@@ -95,7 +95,7 @@ per-kind index.
 | --- | --- | --- |
 | `knowledge_claims` | a fact about the world: this entity has this identity, on whose authority | `link` (a capture's handle), `resolve` (an authority's answer) |
 | `knowledge_proximities` | a judgement about our data: two entities look close enough to ask about, and what was decided — a record, never deleted | `proximity::scan`, when a merge is refused; a human, with a verdict |
-| `knowledge_merges` | a mutation of our data: one entity folded into another, and why — a log | `resolve`, and the repair command |
+| `knowledge_verdicts` | a mutation of our data: one thing folded into another, what decided it (`repair`, `proximity_auto`, `replayed`), and which generation — a log, keyed by origin so it survives a rebuild | `resolve`, the repair command, and `verdicts replay` |
 
 `enrichment` and `rejection` remain reserved kinds in the vocabulary, not tables: enrichment is the
 authority's description, names and types — it rides on the claim today as `label`/`description`/

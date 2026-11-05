@@ -44,19 +44,25 @@ pub(crate) fn pair_key(a: i32, b: i32) -> (i32, i32) {
     (a.min(b), a.max(b))
 }
 
-/// Record a person's decision. Idempotent per direction: replaying a verdict does not grow the log.
+/// Record a merge. Idempotent per cause, generation and direction, so replaying a repair does not
+/// grow the log and an automatic fold is only ever noted once in the generation it happened in.
 pub(super) async fn record<C: ConnectionTrait>(
     conn: &C,
+    cause: Cause,
     winner: &model::knowledge_entity::Model,
     loser: &model::knowledge_entity::Model,
 ) -> anyhow::Result<bool> {
     let (Some(winner_origin), Some(loser_origin)) =
         (winner.origin_observation_id, loser.origin_observation_id)
     else {
-        // A row without an origin cannot be named after a rebuild, so it cannot be replayed.
+        // A row without an origin cannot be named after a rebuild. Tests and hand-seeded rows can
+        // lack one; a merge they take part in simply does not enter the log.
         return Ok(false);
     };
+    let generation = current_generation(conn).await?;
     let existing = model::knowledge_verdicts::Entity::find()
+        .filter(model::knowledge_verdicts::Column::Cause.eq(cause.as_str()))
+        .filter(model::knowledge_verdicts::Column::Generation.eq(generation))
         .filter(model::knowledge_verdicts::Column::WinnerOrigin.eq(winner_origin))
         .filter(model::knowledge_verdicts::Column::LoserOrigin.eq(loser_origin))
         .one(conn)
@@ -65,7 +71,8 @@ pub(super) async fn record<C: ConnectionTrait>(
         return Ok(false);
     }
     model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
-        generation: Set(current_generation(conn).await?),
+        generation: Set(generation),
+        cause: Set(cause.as_str().to_string()),
         winner_origin: Set(winner_origin),
         loser_origin: Set(loser_origin),
         winner_label: Set(Some(winner.name.clone())),
@@ -79,7 +86,9 @@ pub(super) async fn record<C: ConnectionTrait>(
 
 /// Apply the recorded verdicts to the current graph, newest verdict per pair first.
 pub async fn replay(knowledge: &Knowledge) -> anyhow::Result<ReplayReport> {
+    // Only a person's decisions are replayed. The model's folds and earlier replays are history.
     let verdicts = model::knowledge_verdicts::Entity::find()
+        .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
         .order_by_asc(model::knowledge_verdicts::Column::Id)
         .all(knowledge.conn())
         .await?;
@@ -103,17 +112,20 @@ pub async fn replay(knowledge: &Knowledge) -> anyhow::Result<ReplayReport> {
             report.gone += 1;
             continue;
         };
-        if loser.id == winner.id || canonical(knowledge, loser.id).await? == Some(winner.id) {
+        // Follow the tombstones: the model may have folded the person's winner into something else,
+        // and the decision still means "these two are one" about wherever they are now.
+        let (Some(winner), Some(loser)) = (
+            canonical(knowledge, winner.id).await?,
+            canonical(knowledge, loser.id).await?,
+        ) else {
+            report.gone += 1;
+            continue;
+        };
+        if winner == loser {
             report.already += 1;
             continue;
         }
-        // A winner that is itself a tombstone, or a loser folded into something else, no longer
-        // names what the person decided about.
-        if winner.merged_into_id.is_some() || loser.merged_into_id.is_some() {
-            report.gone += 1;
-            continue;
-        }
-        match knowledge.merge(loser.id, winner.id, Cause::Repair).await? {
+        match knowledge.merge(loser, winner, Cause::Replayed).await? {
             Outcome::Merged => report.applied += 1,
             Outcome::AlreadyMerged => report.already += 1,
             Outcome::RefusedSharedIllumination => report.refused += 1,
@@ -154,7 +166,7 @@ async fn canonical(knowledge: &Knowledge, id: i32) -> anyhow::Result<Option<i32>
 
 #[cfg(test)]
 mod tests {
-    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
     use crate::test_support::{fixtures, test_db};
 
@@ -188,9 +200,10 @@ mod tests {
         assert_eq!(verdicts[0].winner_origin, winner_origin);
     }
 
-    /// The automatic pass records nothing: those decisions are re-derived every build.
+    /// The automatic pass logs its fold with its own cause, and replay leaves it alone: the model's
+    /// opinion is re-derived every build, never restored.
     #[tokio::test]
-    async fn an_identity_merge_records_nothing() {
+    async fn an_automatic_merge_is_logged_but_not_replayed() {
         let Some(test_db) = test_db::test_db().await else {
             return;
         };
@@ -200,17 +213,19 @@ mod tests {
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
 
         store
-            .merge(loser, winner, Cause::IdentityConflict)
+            .merge(loser, winner, Cause::ProximityAuto)
             .await
             .unwrap();
 
-        assert_eq!(
-            model::knowledge_verdicts::Entity::find()
-                .count(&db.conn)
-                .await
-                .unwrap(),
-            0
-        );
+        let logged = model::knowledge_verdicts::Entity::find()
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(logged.len(), 1);
+        assert_eq!(logged[0].cause, "proximity_auto");
+
+        let report = replay(&store).await.expect("replay");
+        assert_eq!(report, ReplayReport::default(), "nothing to replay");
     }
 
     /// Replay folds what a previous build had merged, by origin.

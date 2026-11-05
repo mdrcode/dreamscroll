@@ -98,7 +98,7 @@ pub async fn merge(knowledge: &Knowledge) -> anyhow::Result<MergeReport> {
             continue;
         }
         match knowledge
-            .merge(loser.id, winner.id, Cause::IdentityConflict)
+            .merge(loser.id, winner.id, Cause::ProximityAuto)
             .await?
         {
             Outcome::Merged => report.merged += 1,

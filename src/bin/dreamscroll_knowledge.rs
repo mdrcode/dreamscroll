@@ -253,12 +253,11 @@ async fn main() -> anyhow::Result<()> {
             let report = knowledge::snapshot::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
-                    "snapshot {} · entities {} · identities {} · claims {} · merges {} · proximities {} · members {}",
+                    "snapshot {} · entities {} · identities {} · claims {} · proximities {} · members {}",
                     snapshot.suffix,
                     report.snapshot_entities,
                     report.snapshot_identities,
                     report.snapshot_claims,
-                    report.snapshot_merges,
                     report.snapshot_proximities,
                     report.snapshot_members
                 ),

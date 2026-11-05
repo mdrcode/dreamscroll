@@ -13,13 +13,13 @@ use sea_orm::{
 };
 
 use super::record::{
-    CLAIMS_TABLE, CORE_TABLE, IDENTITIES_TABLE, MERGES_TABLE, PROXIMITIES_TABLE, Snapshot,
+    CLAIMS_TABLE, CORE_TABLE, IDENTITIES_TABLE, PROXIMITIES_TABLE, Snapshot,
 };
 
 use crate::database;
 use crate::model::{
     knowledge_claims as claims, knowledge_entity as entity, knowledge_identity as identities,
-    knowledge_merges as merges, knowledge_proximities as proximities,
+    knowledge_proximities as proximities,
     user_observed_entity as observation,
 };
 
@@ -30,6 +30,7 @@ pub struct Report {
     /// Observations whose `knowledge_entity_id` was cleared.
     pub unlinked: u64,
     pub claims: u64,
+    /// Merges are not cleared: `knowledge_verdicts` is the durable log.
     pub merges: u64,
     pub proximities: u64,
     pub entities: u64,
@@ -38,7 +39,6 @@ pub struct Report {
     pub snapshot_entities: u64,
     pub snapshot_claims: u64,
     pub snapshot_identities: u64,
-    pub snapshot_merges: u64,
     pub snapshot_proximities: u64,
     pub snapshot_members: u64,
 }
@@ -64,7 +64,6 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 let snapshot_identities =
                     copy(txn, &snapshot.identities(), IDENTITIES_TABLE).await?;
                 let snapshot_claims = copy(txn, &snapshot.claims(), CLAIMS_TABLE).await?;
-                let snapshot_merges = copy(txn, &snapshot.merges(), MERGES_TABLE).await?;
                 let snapshot_proximities =
                     copy(txn, &snapshot.proximities(), PROXIMITIES_TABLE).await?;
                 let snapshot_members = copy_membership(txn, &snapshot.membership()).await?;
@@ -74,7 +73,7 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 let unlinked = unlink(txn).await?;
                 let claims = claims::Entity::delete_many().exec(txn).await?.rows_affected;
                 let proximities = proximities::Entity::delete_many().exec(txn).await?.rows_affected;
-                let merges = merges::Entity::delete_many().exec(txn).await?.rows_affected;
+                let merges = 0;
                 identities::Entity::delete_many().exec(txn).await?;
                 let entities = entity::Entity::delete_many().exec(txn).await?.rows_affected;
 
@@ -100,7 +99,6 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                     snapshot_entities,
                     snapshot_claims,
                     snapshot_identities,
-                    snapshot_merges,
                     snapshot_proximities,
                     snapshot_members,
                 })

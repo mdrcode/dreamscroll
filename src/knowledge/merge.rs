@@ -9,11 +9,11 @@
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryFilter, Set, Statement, TransactionTrait,
+    QueryFilter, Statement, TransactionTrait,
 };
 
 use crate::model::{
-    knowledge_claims as claims, knowledge_entity as entity, knowledge_merges as merges,
+    knowledge_claims as claims, knowledge_entity as entity,
     user_observed_entity as observation,
 };
 
@@ -38,31 +38,23 @@ pub struct Preview {
     pub shared_illuminations: i64,
 }
 
-/// Why a merge happened.
-///
-/// The merge row is the only audit trail there is, so both halves are recorded: `method` says what
-/// decided it, `source` says whose decision it was. Hardcoding either makes a repair by hand
-/// indistinguishable from a resolver conflict, after the fact and permanently.
+/// Why a merge happened — and, because the same word covers both, whose decision it was.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cause {
-    /// Two entities resolved to one identity: `resolve` found the same claim held twice.
-    IdentityConflict,
-    /// A repair — someone decided these are one thing.
+    /// The automatic pass folded a proximity candidate. The model's opinion, re-derived every build.
+    ProximityAuto,
+    /// A person decided these are one thing. Kept, and replayed in every later generation.
     Repair,
+    /// An older repair, applied to this generation by the replay.
+    Replayed,
 }
 
 impl Cause {
-    fn method(self) -> &'static str {
+    pub(super) fn as_str(self) -> &'static str {
         match self {
-            Self::IdentityConflict => "identity_conflict",
+            Self::ProximityAuto => "proximity_auto",
             Self::Repair => "repair",
-        }
-    }
-
-    fn source(self) -> &'static str {
-        match self {
-            Self::IdentityConflict => "model",
-            Self::Repair => "user",
+            Self::Replayed => "replayed",
         }
     }
 }
@@ -225,27 +217,13 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         .filter(claims::Column::KnowledgeEntityId.eq(loser))
         .exec(conn)
         .await?;
-    // The audit trail: which entity was folded into which, and why. A historical row, so it stays
-    // put when either end is later merged again — unlike the collision queue below.
-    merges::Entity::insert(merges::ActiveModel {
-        loser_id: Set(loser),
-        winner_id: Set(winner),
-        cause: Set(cause.method().to_string()),
-        source: Set(cause.source().to_string()),
-        ..Default::default()
-    })
-    .exec(conn)
-    .await?;
-
-    // A repair is a person's decision, so it goes where a rebuild can find it again. The automatic
-    // pass records nothing: those merges are re-derived every build.
-    if cause == Cause::Repair
-        && let (Some(winner_row), Some(loser_row)) = (
-            rows.iter().find(|row| row.id == winner),
-            rows.iter().find(|row| row.id == loser),
-        )
-    {
-        super::verdicts::record(conn, winner_row, loser_row).await?;
+    // The log: which thing was folded into which, and what decided it. One row per merge, keyed by
+    // what survives a rebuild.
+    if let (Some(winner_row), Some(loser_row)) = (
+        rows.iter().find(|row| row.id == winner),
+        rows.iter().find(|row| row.id == loser),
+    ) {
+        super::verdicts::record(conn, cause, winner_row, loser_row).await?;
     }
 
     // Tombstone, never delete: a stale pointer still resolves.
@@ -264,11 +242,12 @@ mod tests {
     use sea_orm::{PaginatorTrait, Set};
 
     use super::*;
+    use crate::model::knowledge_verdicts as verdicts;
     use crate::model::user_observed_entity as obs;
     use crate::test_support::fixtures;
 
     async fn entity_with(db: &crate::database::DbHandle, label: &str) -> i32 {
-        entity::Entity::insert(entity::ActiveModel {
+        let id = entity::Entity::insert(entity::ActiveModel {
             name: Set(label.to_string()),
             entity_type: Set("real_person".to_string()),
             status: Set("provisional".to_string()),
@@ -278,7 +257,28 @@ mod tests {
         .exec(&db.conn)
         .await
         .unwrap()
-        .last_insert_id as i32
+        .last_insert_id as i32;
+        // The log keys a merge by origin, so a test entity needs one.
+        entity::Entity::update_many()
+            .col_expr(
+                entity::Column::OriginObservationId,
+                Expr::value(Some(10_000_000 + id)),
+            )
+            .filter(entity::Column::Id.eq(id))
+            .exec(&db.conn)
+            .await
+            .unwrap();
+        id
+    }
+
+    async fn origin_of(db: &crate::database::DbHandle, id: i32) -> i32 {
+        entity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap()
+            .origin_observation_id
+            .expect("the helper set an origin")
     }
 
     /// The resolution loop can reach one conflict twice, because the loser is still in the run's
@@ -293,19 +293,19 @@ mod tests {
         let loser = entity_with(&db, "Elon").await;
 
         assert_eq!(
-            merge(&db.conn, loser, winner, Cause::IdentityConflict)
+            merge(&db.conn, loser, winner, Cause::ProximityAuto)
                 .await
                 .expect("first"),
             Outcome::Merged
         );
         assert_eq!(
-            merge(&db.conn, loser, winner, Cause::IdentityConflict)
+            merge(&db.conn, loser, winner, Cause::ProximityAuto)
                 .await
                 .expect("second"),
             Outcome::AlreadyMerged
         );
         assert_eq!(
-            merges::Entity::find().count(&db.conn).await.unwrap(),
+            verdicts::Entity::find().count(&db.conn).await.unwrap(),
             1,
             "one merge, one event"
         );
@@ -348,7 +348,7 @@ mod tests {
         .await;
 
         assert_eq!(
-            merge(&db.conn, loser, winner, Cause::IdentityConflict)
+            merge(&db.conn, loser, winner, Cause::ProximityAuto)
                 .await
                 .expect("merge"),
             Outcome::Merged
@@ -436,7 +436,7 @@ mod tests {
         )
         .await;
 
-        let outcome = merge(&db.conn, loser, winner, Cause::IdentityConflict)
+        let outcome = merge(&db.conn, loser, winner, Cause::ProximityAuto)
             .await
             .expect("merge");
         assert_eq!(outcome, Outcome::Merged);
@@ -460,8 +460,8 @@ mod tests {
             "the claim moved"
         );
         assert_eq!(
-            merges::Entity::find()
-                .filter(merges::Column::WinnerId.eq(winner))
+            verdicts::Entity::find()
+                .filter(verdicts::Column::WinnerOrigin.eq(origin_of(&db, winner).await))
                 .count(&db.conn)
                 .await
                 .unwrap(),
@@ -497,37 +497,36 @@ mod tests {
             .expect_err("a missing loser is a caller error");
         assert!(error.to_string().contains("999999"), "{error}");
         assert_eq!(
-            merges::Entity::find().count(&db.conn).await.unwrap(),
+            verdicts::Entity::find().count(&db.conn).await.unwrap(),
             0,
             "and nothing was recorded"
         );
     }
 
-    /// The merge row is the only audit trail: it has to say what decided the merge and whose
-    /// decision it was, or a repair by hand is indistinguishable from a resolver conflict forever.
+    /// The log is the only audit trail: it has to say what decided the merge, or a repair by hand is
+    /// indistinguishable from an automatic fold forever.
     #[tokio::test]
-    async fn the_merge_row_records_why() {
+    async fn the_log_records_why() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {
             return;
         };
         let db = test_db.handle();
-        for (cause, method, source) in [
-            (Cause::IdentityConflict, "identity_conflict", "model"),
-            (Cause::Repair, "repair", "user"),
+        for (cause, method) in [
+            (Cause::ProximityAuto, "proximity_auto"),
+            (Cause::Repair, "repair"),
         ] {
             let winner = entity_with(&db, "Elon Musk").await;
             let loser = entity_with(&db, "Elon").await;
             merge(&db.conn, loser, winner, cause).await.unwrap();
 
-            let row = merges::Entity::find()
-                .filter(merges::Column::WinnerId.eq(winner))
+            let row = verdicts::Entity::find()
+                .filter(verdicts::Column::WinnerOrigin.eq(origin_of(&db, winner).await))
                 .one(&db.conn)
                 .await
                 .unwrap()
-                .expect("a merge row");
+                .expect("a log row");
             assert_eq!(row.cause, method);
-            assert_eq!(row.loser_id, loser);
-            assert_eq!(row.source, source);
+            assert_eq!(row.loser_origin, origin_of(&db, loser).await);
         }
     }
 

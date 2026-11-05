@@ -214,7 +214,7 @@ knowledge_claims       this entity is that thing — the edge, with `basis` (tex
                        because an album's article covers its songs
 knowledge_proximities  two entities the graph considers close, with the score that a pass
                        computed — one scan's batch, replaced wholesale by the next
-knowledge_merges       this entity was folded into that one, and why — the log an unmerge reads
+knowledge_verdicts     one merge that happened, and what decided it — the modification log
 ```
 
 Only the first two are about the world. A proximity is a judgement about our own rows and a merge is a

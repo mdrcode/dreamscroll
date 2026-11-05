@@ -15,7 +15,6 @@ use chrono::Utc;
 pub(super) const CORE_TABLE: &str = "knowledge_entities";
 pub(super) const CLAIMS_TABLE: &str = "knowledge_claims";
 pub(super) const IDENTITIES_TABLE: &str = "knowledge_identities";
-pub(super) const MERGES_TABLE: &str = "knowledge_merges";
 pub(super) const PROXIMITIES_TABLE: &str = "knowledge_proximities";
 
 /// A frozen copy of one run, named by the moment it was taken so two runs sort chronologically.
@@ -41,10 +40,6 @@ impl Snapshot {
 
     pub fn identities(&self) -> String {
         format!("{IDENTITIES_TABLE}__{}", self.suffix)
-    }
-
-    pub fn merges(&self) -> String {
-        format!("{MERGES_TABLE}__{}", self.suffix)
     }
 
     pub fn proximities(&self) -> String {
