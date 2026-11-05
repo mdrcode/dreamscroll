@@ -3,7 +3,7 @@
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
 //! onto one goes through [`Knowledge`], and the handle itself never leaves it — the primitives below
 //! are private, and the collaborators (`decider`, `blocker`, `evidence`, `scoring`) are `pub(super)`
-//! only because the code that reads them lives in `link.rs`, `project.rs` and `reconcile.rs`.
+//! only because the code that reads them lives in `link.rs`, `project.rs` and `proximity.rs`.
 //! Outside `knowledge`, a caller sees [`Knowledge`]'s methods and nothing else.
 
 use std::sync::Arc;
@@ -28,8 +28,8 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 /// build [`Knowledge::new`]. Linking additionally needs a policy and a blocker, both injected by
 /// [`Knowledge::with_linking`].
 ///
-/// The [`Scoring`] is the store's, not the linker's: `reconcile` asks it whether two entities are one
-/// thing and how alike they are, and the linker asks which candidate a capture belongs to. One policy
+/// The [`Scoring`] is the store's, not the linker's: the proximity passes ask it whether two entities
+/// are one thing and how alike they are, and the linker asks which candidate a capture belongs to. One policy
 /// for both, or the graph disagrees with itself. [`Knowledge::new`] uses the heuristic;
 /// [`Knowledge::with_scoring`] replaces it.
 ///
@@ -135,39 +135,18 @@ impl Knowledge {
     }
 
     /// Record every pair that shares an identity. Reads the graph, writes only proximities.
-    pub async fn scan_proximities(&self) -> anyhow::Result<super::reconcile::Report> {
-        super::reconcile::scan(&self.scoring, &self.db.conn).await
+    pub async fn scan_proximities(&self) -> anyhow::Result<super::proximity::Report> {
+        super::proximity::scan(&self.scoring, &self.db.conn).await
     }
 
     /// Fold the open proximities that look like one thing, and leave the rest as questions.
-    pub async fn merge_proximities(&self) -> anyhow::Result<super::reconcile::Report> {
-        super::reconcile::merge_open(self, &self.db.conn).await
+    pub async fn merge_proximities(&self) -> anyhow::Result<super::proximity::Report> {
+        super::proximity::merge(self, &self.db.conn).await
     }
 
-    /// Fold the holders of each identity that look like one thing, and queue the refusals.
-    ///
-    /// The pass that answers "these two share an identity — are they the same thing?", which sharing
-    /// an identity no longer answers on its own. See [`super::reconcile`].
-    pub async fn reconcile(&self) -> anyhow::Result<super::reconcile::Report> {
-        super::reconcile::reconcile(self, &self.db.conn).await
-    }
-
-    /// Settle the open proximities between two entities with a verdict — `distinct` when a person
-    /// says they are two things, which no automatic pass can conclude. Returns how many rows closed.
+    /// Settle the open proximities between two entities with a verdict. Returns how many rows closed.
     pub async fn settle(&self, a: i32, b: i32, verdict: &str) -> anyhow::Result<u64> {
-        let result = self
-            .db
-            .conn
-            .execute_raw(sea_orm::Statement::from_sql_and_values(
-                sea_orm::DatabaseBackend::Postgres,
-                "UPDATE knowledge_proximities SET verdict = $1, settled_at = now() \
-                  WHERE verdict IS NULL \
-                    AND ((holder_id = $2 AND counterpart_id = $3) \
-                      OR (holder_id = $3 AND counterpart_id = $2))",
-                [verdict.into(), a.into(), b.into()],
-            ))
-            .await?;
-        Ok(result.rows_affected())
+        super::proximity::settle(&self.db.conn, a, b, verdict).await
     }
 
     /// What a merge would do, without doing it. See [`super::merge`].

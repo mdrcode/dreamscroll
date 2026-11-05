@@ -9,7 +9,7 @@
 //!
 //! Scoring is its own seam: `scoring.rs` states the two verbs (`Similarity`, `Rank`), `heuristic/`
 //! is today's only answer to them, and the store hands one `Scoring` to the linker and to
-//! `reconcile`.
+//! `proximity`.
 
 pub mod blocker;
 pub mod evidence;
@@ -17,7 +17,7 @@ pub mod graph;
 pub mod heuristic;
 pub mod link_decider;
 pub mod merge;
-mod reconcile;
+mod proximity;
 pub mod normalize;
 pub mod resolve;
 pub mod scoring;
@@ -27,7 +27,6 @@ mod link;
 mod project;
 
 pub use graph::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
-pub use reconcile::Report as ReconcileReport;
-pub use reconcile::list as list_proximities;
+pub use proximity::Report as ProximityReport;
 pub use link::LinkStats;
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};

@@ -436,7 +436,7 @@ mod corpus {
     ///
     /// This is the case an `Attach` carrying an identity exists for. Without the fall-through to
     /// similarity — "a handle means look it up, else create" — this capture would mint a second
-    /// `Train Dreams` that shares no identity with the first, and `reconcile` only ever asks about
+    /// `Train Dreams` that shares no identity with the first, and the scan only ever asks about
     /// entities that share one.
     #[tokio::test]
     async fn a_handle_joins_the_entity_its_name_names() {
@@ -492,7 +492,7 @@ mod corpus {
     }
 
     /// An identity may have more than one holder. That is not an error — claims are many-to-one, and
-    /// whether the holders are one thing belongs to the reconcile pass — so both claims land and the
+    /// whether the holders are one thing belongs to `proximity::merge` — so both claims land and the
     /// identity stays one row.
     #[tokio::test]
     async fn a_second_holder_is_not_an_error() {
@@ -559,7 +559,7 @@ mod corpus {
         assert_eq!(
             holders,
             vec![owner_core.id, duplicate],
-            "both entities hold it, and reconcile decides whether they are one thing"
+            "both entities hold it, and the scan decides whether they are one thing"
         );
         assert_eq!(
             crate::model::knowledge_identity::Entity::find()

@@ -22,7 +22,7 @@ impl LinkDecider for HeuristicLinker {
     /// A held identity settles the question before any scoring: an entity that already claims this
     /// platform link *is* the thing, and asking a name-similarity model to second-guess that is how a
     /// handle and a real name end up as two entities. Several entities may hold it, so the most
-    /// substantiated one wins and the rest are left to reconcile, which is where "are these one
+    /// substantiated one wins and the rest are left to the scan, which is where "are these one
     /// thing?" is asked.
     ///
     /// An identity nothing holds yet does *not* settle it: the capture asserted a handle, which is
@@ -65,7 +65,7 @@ impl LinkDecider for HeuristicLinker {
             // Already a row: the executor imported this illumination's identities before deciding.
             let identity = evidence.identity_of(&observation).await?;
 
-            // `held_by_identity` returns the most substantiated first; the rest go to reconcile.
+            // `held_by_identity` returns the most substantiated first; the rest go to the scan.
             if let Some(identity_id) = identity
                 && let Some(best) = evidence
                     .held_by_identity(identity_id)

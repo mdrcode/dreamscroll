@@ -487,7 +487,7 @@ impl<'a> ResolutionEngine<'a> {
             }
         }
 
-        // Before any merge decision, not after: `reconcile` picks a survivor by the projected
+        // Before any merge decision, not after: `merge` picks a survivor by the projected
         // `confidence`, so an entity that gained its first authority claim a moment ago would still
         // read as unsubstantiated and lose a fold it should win.
         for knowledge_entity_id in &resolved {
@@ -495,9 +495,10 @@ impl<'a> ResolutionEngine<'a> {
         }
 
         // Sharing an identity is a candidate, not a verdict — decide which holders are one thing.
-        let reconciled = knowledge.reconcile().await?;
-        report.merges = reconciled.merged;
-        report.refused = reconciled.refused;
+        knowledge.scan_proximities().await?;
+        let folded = knowledge.merge_proximities().await?;
+        report.merges = folded.merged;
+        report.refused = folded.refused;
         report.entities_resolved = resolved.len();
         ctx.absorb(&mut report);
         Ok(report)
@@ -559,7 +560,7 @@ impl Pacer {
 
 /// Store one claim as an edge to its identity. Returns whether a new claim was written; an identity
 /// another entity already holds is not a conflict, because claims are many-to-one — whether the
-/// holders are one thing is [`crate::knowledge::reconcile`]'s question.
+/// holders are one thing is [`crate::knowledge::proximity`]'s question.
 async fn store_claim(
     db: &database::DbHandle,
     source: &str,
@@ -1137,7 +1138,7 @@ mod tests {
     }
 
     /// Substantiation is a *projected* column, and the merge phase picks a survivor by it. So an
-    /// entity that earned its authority claim in this run must be projected before `reconcile` folds
+    /// entity that earned its authority claim in this run must be projected before `merge` folds
     /// it — otherwise it still reads as the weaker side and is the one tombstoned.
     #[tokio::test]
     async fn the_side_that_earned_a_claim_this_run_survives_the_fold() {
@@ -1219,7 +1220,7 @@ mod tests {
 
     /// Two entities resolving to the same QID are a *candidate* for one thing, not a verdict: an
     /// album's article names the album and covers each of its songs. Names that disagree stay two
-    /// entities, both holding the identity, and reconcile leaves them alone.
+    /// entities, both holding the identity, and `merge` leaves them alone.
     #[tokio::test]
     async fn two_entities_may_resolve_to_one_identity() {
         let Some(test_db) = crate::test_support::test_db::test_db().await else {

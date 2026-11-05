@@ -5,7 +5,7 @@
 //!   question was about ([`ClaimBasis`]) and which capture asked.
 //!
 //! An identity may have several holders: one Wikidata item can name an album and cover its songs.
-//! This module reports them and leaves "are these one thing?" to `reconcile`.
+//! This module reports them and leaves "are these one thing?" to `proximity`.
 
 use std::collections::HashSet;
 
@@ -258,37 +258,7 @@ impl Evidence {
         }
     }
 
-    /// Record a proximity: two entities close enough to ask about. A pair is recorded once, for ever —
-    /// `ON CONFLICT DO NOTHING` is what makes a settled verdict stick. Returns 1 when a row was added.
-    pub async fn raise(
-        &self,
-        holder_id: i32,
-        counterpart_id: i32,
-        knowledge_identity_id: Option<i32>,
-        basis: Basis,
-        score: Option<f32>,
-    ) -> anyhow::Result<usize> {
-        let result = self
-            .conn
-            .execute_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "INSERT INTO knowledge_proximities \
-                   (holder_id, counterpart_id, knowledge_identity_id, basis, score) \
-                 VALUES ($1, $2, $3, $4, $5) \
-                 ON CONFLICT DO NOTHING",
-                [
-                    holder_id.into(),
-                    counterpart_id.into(),
-                    knowledge_identity_id.into(),
-                    basis.as_str().to_string().into(),
-                    score.into(),
-                ],
-            ))
-            .await?;
-        Ok(result.rows_affected() as usize)
-    }
-
-    /// The entities holding this identity, most substantiated first: the reconcile pass keeps the
+    /// The entities holding this identity, most substantiated first: the scan keeps the
     /// first and asks about the rest, and the linker attaches to the first.
     ///
     /// The ordering is [`TotalCmp`], asked here rather than written into the SQL: `merge` picks its
@@ -335,7 +305,7 @@ impl Evidence {
     ///
     /// Idempotent per entity: asserting an identity twice is corroboration, not a duplicate. Another
     /// entity holding it is not an error either — claims are many-to-one now, and whether the holders
-    /// are one thing is the reconcile pass's question, not this call's.
+    /// are one thing is `proximity`'s question, not this call's.
     pub async fn record(
         &self,
         knowledge_entity_id: i32,

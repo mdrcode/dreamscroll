@@ -1,27 +1,24 @@
-//! Reconciliation: identities held by more than one entity, in two phases.
+//! Proximities: two entities the graph thinks might be one thing, and the passes that raise and
+//! settle them.
 //!
 //! Sharing an identity is a candidate, not a verdict. An album's article is the identity of the album
 //! *and* covers each of its songs, so two holders may be one thing or may be a work and the things
 //! inside it. Claims are many-to-one precisely so both readings can be stored.
 //!
-//! **Scan** reads the graph and only writes rows: every pair that shares an identity becomes a
-//! proximity, with the score the linker would give it. It mutates nothing else and is idempotent, so it
-//! can run after a link pass as well as after a resolve.
-//!
-//! **Merge** consumes the open rows and is the only mutating phase: it re-checks that both sides still
-//! exist, merges the pairs that score as one thing, and leaves the rest open for a person. A pair the
-//! same-illumination veto refuses stays open — that is a question, not an error.
+//! [`scan`] reads the graph and only writes rows. [`merge`] consumes the open ones and is the only
+//! mutating pass. Both are idempotent — a pair is recorded once, for ever, so a settled verdict
+//! sticks — and a pair the shared-illumination rule refuses stays open: a question, not an error.
 
 use std::cmp::Ordering;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
-use super::evidence::Evidence;
+use super::evidence::{Basis, Evidence};
 use super::merge::{Cause, Outcome};
 use super::scoring::{Scoring, TotalCmp};
 use super::Knowledge;
 
-/// What one reconcile did.
+/// What one pass did.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Report {
     /// Proximities the scan recorded that were not there before.
@@ -34,17 +31,6 @@ pub struct Report {
     pub moot: usize,
     /// Pairs that share an identity and do not look like one thing.
     pub undecided: usize,
-}
-
-/// Record every proximity the graph implies, then fold the ones that are convincing.
-pub(super) async fn reconcile(
-    knowledge: &Knowledge,
-    conn: &DatabaseConnection,
-) -> anyhow::Result<Report> {
-    let raised = scan(&knowledge.scoring, conn).await?.raised;
-    let mut report = merge_open(knowledge, conn).await?;
-    report.raised = raised;
-    Ok(report)
 }
 
 /// Find pairs that share an identity and record them. Read-only against the graph.
@@ -60,35 +46,35 @@ pub(super) async fn scan(scoring: &Scoring, conn: &DatabaseConnection) -> anyhow
         };
         for other in holders.iter().skip(1) {
             let score = scoring.pair.score(other, holder);
-            report.raised += evidence
-                .raise(
-                    holder.id,
-                    other.id,
-                    Some(identity_id),
-                    crate::knowledge::evidence::Basis::SharedId,
-                    Some(score),
-                )
-                .await?;
+            report.raised += raise(
+                conn,
+                holder.id,
+                other.id,
+                Some(identity_id),
+                Basis::SharedId,
+                Some(score),
+            )
+            .await?;
         }
     }
     Ok(report)
 }
 
-/// Consume the open proximities: fold what is convincing, leave the rest as questions.
-pub(super) async fn merge_open(
+/// Fold the open proximities that look like one thing, and leave the rest as questions.
+pub(super) async fn merge(
     knowledge: &Knowledge,
     conn: &DatabaseConnection,
 ) -> anyhow::Result<Report> {
     let mut report = Report::default();
-    for (a, b) in open_proximities(conn).await? {
+    for (a, b) in open(conn).await? {
         let (Ok(left), Ok(right)) = (knowledge.get(a).await, knowledge.get(b).await) else {
-            knowledge.settle(a, b, "moot").await?;
+            settle(conn, a, b, "moot").await?;
             report.moot += 1;
             continue;
         };
         // A tombstone on either side means some other path already answered this.
         if left.merged_into_id.is_some() || right.merged_into_id.is_some() {
-            knowledge.settle(a, b, "moot").await?;
+            settle(conn, a, b, "moot").await?;
             report.moot += 1;
             continue;
         }
@@ -123,8 +109,58 @@ pub(super) async fn merge_open(
     Ok(report)
 }
 
+/// Record a proximity: two entities close enough to ask about. A pair is recorded once, for ever —
+/// `ON CONFLICT DO NOTHING` is what makes a settled verdict stick. Returns 1 when a row was added.
+pub(super) async fn raise(
+    conn: &DatabaseConnection,
+    holder_id: i32,
+    counterpart_id: i32,
+    knowledge_identity_id: Option<i32>,
+    basis: Basis,
+    score: Option<f32>,
+) -> anyhow::Result<usize> {
+    let result = conn
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "INSERT INTO knowledge_proximities \
+               (holder_id, counterpart_id, knowledge_identity_id, basis, score) \
+             VALUES ($1, $2, $3, $4, $5) \
+             ON CONFLICT DO NOTHING",
+            [
+                holder_id.into(),
+                counterpart_id.into(),
+                knowledge_identity_id.into(),
+                basis.as_str().to_string().into(),
+                score.into(),
+            ],
+        ))
+        .await?;
+    Ok(result.rows_affected() as usize)
+}
+
+/// Settle the open proximities between two entities with a verdict — `distinct` when a person says
+/// they are two things, which no automatic pass can conclude. Returns how many rows closed.
+pub(super) async fn settle(
+    conn: &DatabaseConnection,
+    a: i32,
+    b: i32,
+    verdict: &str,
+) -> anyhow::Result<u64> {
+    let result = conn
+        .execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "UPDATE knowledge_proximities SET verdict = $1, settled_at = now() \
+              WHERE verdict IS NULL \
+                AND ((holder_id = $2 AND counterpart_id = $3) \
+                  OR (holder_id = $3 AND counterpart_id = $2))",
+            [verdict.into(), a.into(), b.into()],
+        ))
+        .await?;
+    Ok(result.rows_affected())
+}
+
 /// The open proximities as pairs, most likely first.
-pub(crate) async fn open_proximities(conn: &DatabaseConnection) -> anyhow::Result<Vec<(i32, i32)>> {
+async fn open(conn: &DatabaseConnection) -> anyhow::Result<Vec<(i32, i32)>> {
     let rows = conn
         .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
@@ -136,70 +172,6 @@ pub(crate) async fn open_proximities(conn: &DatabaseConnection) -> anyhow::Resul
         .await?;
     rows.iter()
         .map(|row| Ok((row.try_get_by_index(0)?, row.try_get_by_index(1)?)))
-        .collect()
-}
-
-/// One row per proximity, readable: what the pair is, how close, and what was decided.
-///
-/// The `note` says why a pair is worth a second look — `same entity_type`, or blank — and is also the
-/// grouping. Ordered for triage, not by score: the highest scores are the pairs that must *never*
-/// merge (same name, different type: Nintendo the organisation and the brand sit at 0.74), while the
-/// actionable ones are same-type pairs whose names differ, where the shared identity is all the
-/// evidence there is. Those come first, then score descending.
-pub async fn list(
-    conn: &DatabaseConnection,
-    include_settled: bool,
-    limit: usize,
-) -> anyhow::Result<
-    Vec<(
-        i32,
-        String,
-        Option<f32>,
-        String,
-        String,
-        String,
-        String,
-        String,
-    )>,
-> {
-    let rows = conn
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT p.id, \
-                    coalesce(p.verdict, 'open'), \
-                    p.score, \
-                    CASE WHEN h.entity_type = c.entity_type \
-                         THEN 'same entity_type' ELSE '' END, \
-                    p.basis, \
-                    h.name || ' [' || h.entity_type || ']', \
-                    c.name || ' [' || c.entity_type || ']', \
-                    coalesce(i.scheme || ':' || i.external_id, '') \
-               FROM knowledge_proximities p \
-               JOIN knowledge_entities h ON h.id = p.holder_id \
-               JOIN knowledge_entities c ON c.id = p.counterpart_id \
-               LEFT JOIN knowledge_identities i ON i.id = p.knowledge_identity_id \
-              WHERE $1 OR p.verdict IS NULL \
-              ORDER BY p.verdict IS NOT NULL, \
-                       (h.entity_type = c.entity_type) DESC, \
-                       p.score DESC NULLS LAST, \
-                       p.id \
-              LIMIT $2",
-            [include_settled.into(), (limit as i64).into()],
-        ))
-        .await?;
-    rows.iter()
-        .map(|row| {
-            Ok((
-                row.try_get_by_index(0)?,
-                row.try_get_by_index(1)?,
-                row.try_get_by_index(2)?,
-                row.try_get_by_index(3)?,
-                row.try_get_by_index(4)?,
-                row.try_get_by_index(5)?,
-                row.try_get_by_index(6)?,
-                row.try_get_by_index(7)?,
-            ))
-        })
         .collect()
 }
 
@@ -229,6 +201,10 @@ mod tests {
     use super::*;
     use crate::test_support::{fixtures, test_db};
 
+    fn scoring() -> Scoring {
+        crate::knowledge::heuristic::Heuristic::scoring()
+    }
+
     async fn claim_pairs(db: &crate::database::DbHandle, names: [&str; 2]) -> (i32, i32) {
         let first = fixtures::knowledge_entity_with_member(db, names[0]).await;
         let second = fixtures::knowledge_entity_with_member(db, names[1]).await;
@@ -246,7 +222,7 @@ mod tests {
         let db = test_db.handle();
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
 
-        let report = scan(&crate::knowledge::heuristic::Heuristic::scoring(), &db.conn).await.expect("scan");
+        let report = scan(&scoring(), &db.conn).await.expect("scan");
 
         assert_eq!(report.raised, 1, "{report:?}");
         let row = model::knowledge_proximities::Entity::find()
@@ -262,7 +238,7 @@ mod tests {
         );
 
         // Idempotent: the same pair is not raised twice.
-        assert_eq!(scan(&crate::knowledge::heuristic::Heuristic::scoring(), &db.conn).await.unwrap().raised, 0);
+        assert_eq!(scan(&scoring(), &db.conn).await.unwrap().raised, 0);
     }
 
     /// The merge phase folds the pair the scan recorded, and says so on the row.
@@ -274,9 +250,9 @@ mod tests {
         let db = test_db.handle();
         let store = Knowledge::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
-        scan(&crate::knowledge::heuristic::Heuristic::scoring(), &db.conn).await.unwrap();
+        scan(&scoring(), &db.conn).await.unwrap();
 
-        let report = merge_open(&store, &db.conn).await.expect("merge");
+        let report = merge(&store, &db.conn).await.expect("merge");
 
         assert_eq!(report.merged, 1, "{report:?}");
         let settled = model::knowledge_proximities::Entity::find()
@@ -298,15 +274,15 @@ mod tests {
         let store = Knowledge::new(&db);
         let (album, song) = claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
-        scan(&crate::knowledge::heuristic::Heuristic::scoring(), &db.conn).await.unwrap();
-        let report = merge_open(&store, &db.conn).await.expect("merge");
+        scan(&scoring(), &db.conn).await.unwrap();
+        let report = merge(&store, &db.conn).await.expect("merge");
 
         assert_eq!(report.merged, 0, "{report:?}");
         assert_eq!(report.undecided, 1, "{report:?}");
-        assert_eq!(open_proximities(&db.conn).await.unwrap().len(), 1);
+        assert_eq!(open(&db.conn).await.unwrap().len(), 1);
 
         // A person says they are two things.
-        assert_eq!(store.settle(album, song, "distinct").await.unwrap(), 1);
-        assert!(open_proximities(&db.conn).await.unwrap().is_empty());
+        assert_eq!(settle(&db.conn, album, song, "distinct").await.unwrap(), 1);
+        assert!(open(&db.conn).await.unwrap().is_empty());
     }
 }

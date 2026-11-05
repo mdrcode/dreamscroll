@@ -21,7 +21,6 @@ enum Command {
     Reset(ResetArgs),
     Compare(CompareArgs),
     Resolve(ResolveArgs),
-    Reconcile(ReconcileArgs),
     Distinct(DistinctArgs),
     Proximity(ProximityArgs),
 }
@@ -93,14 +92,6 @@ struct DistinctArgs {
     #[argh(positional, description = "second knowledge entity")]
     b: i32,
 }
-
-#[derive(FromArgs)]
-#[argh(subcommand, name = "reconcile")]
-#[argh(
-    description = "ask, for every identity with more than one holder, whether the holders are one \
-                   thing; merge the pairs that score, queue the refusals"
-)]
-struct ReconcileArgs {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "reset")]
@@ -231,7 +222,7 @@ async fn main() -> anyhow::Result<()> {
                     );
                 }
                 ProximityCommand::List(args) => {
-                    let rows = knowledge::list_proximities(&db.conn, args.all, args.limit).await?;
+                    let rows = stats::proximities::proximity_list(&db, args.all, args.limit).await?;
                     for (id, verdict, score, note, basis, holder, counterpart, identity) in rows {
                         let score = score.map_or("-".to_string(), |s| format!("{s:.2}"));
                         println!(
@@ -240,13 +231,6 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
             }
-        }
-        Command::Reconcile(_) => {
-            let report = knowledge::Knowledge::new(&db).reconcile().await?;
-            println!(
-                "raised {} · merged {} · refused {} · moot {} · undecided {}",
-                report.raised, report.merged, report.refused, report.moot, report.undecided
-            );
         }
         Command::Reset(args) => {
             if !args.yes {

@@ -132,7 +132,7 @@ them through the blocker and linker, and applies the effects — in that order, 
 an identity by id and leaves `apply` with nothing to create. Every decision is made before any is
 applied, so the illumination's own claims are invisible to its own decisions: two observations that
 assert one previously unknown handle are both told to create, and become two entities holding one
-identity. `merge` refuses that pair (shared illumination), so `reconcile` reports it once and it stays
+identity. `merge` refuses that pair (shared illumination), so the scan records it once and it stays
 open — the terminal state the merge-side rule produces everywhere.
 
 **The heuristic is one implementation of that chain — not the chain.** The chain is `scoring.rs`, and
@@ -146,10 +146,10 @@ a name match has to be corroborated — and a number cannot carry its own compon
 a rejected pair still reports its score: `Nintendo [organization] ⇄ Nintendo [brand]` at 0.74 is a
 pair that must never merge, and the number is how a person sees why.
 
-Everything else is not a verb. `reconcile` stores the number and asks `Rank` for the verdict; the
+Everything else is not a verb. The scan stores the number and `merge` asks `Rank` for the verdict; the
 linker asks `Rank` and applies the answer; `project` calls `combine`, which is arithmetic over claim
 scores; `merge` and the holder order ask `cmp_confidence`, a convention about `NULL`. Only the linker and
-`reconcile` take a `Scoring`, and it is the **store's** — a linker carrying its own would leave the
+the proximity passes take a `Scoring`, and it is the **store's** — a linker carrying its own would leave the
 merge pass on a different policy, silently.
 
 `heuristic/scoring.rs` is today's only answer: normalized keys, weights, the bar, the corroboration
@@ -221,7 +221,7 @@ Only the first two are about the world. A proximity is a judgement about our own
 mutation of them. `enrichment` and `rejection` stay reserved vocabulary, not tables.
 
 Sharing an identity is a **candidate**, not a verdict — that is why the uniqueness lives on the edge
-(one entity asserts an identity once) rather than on the identity. `reconcile.rs` asks the question:
+(one entity asserts an identity once) rather than on the identity. `proximity.rs` asks the question:
 for each identity with two or more holders, score the holders pairwise with the linker's weights, fold
 the pairs that look like one thing, and queue the ones the shared-illumination rule refuses.
 
@@ -229,7 +229,7 @@ The only uniqueness is per entity: one live claim per `(entity, identity)`, so r
 pair's slot and re-asserting it is a no-op. Nothing forbids two entities holding one identity — that is
 the many-to-one the model exists for.
 
-`reconcile.rs` runs in two phases. **Scan** reads the graph and only writes proximities (idempotent, so
+`proximity.rs` runs in two passes. **Scan** reads the graph and only writes proximities (idempotent, so
 it runs after a link as well as at the end of a resolve). **Merge** consumes the open rows, re-checks
 that both sides still exist, scores the pair with the linker's own weights and folds the convincing
 ones; the rest stay open for a person, who answers `distinct` or merges by hand.
@@ -255,7 +255,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 - `reset` snapshots the projection, then empties it — entities, claims, identities, merges and
   proximities, all of it derived. Observations, captures, illuminations and the **resolution cache**
   are untouched, which is what makes the teardown free: rebuild with `link`, then `resolve --offline`,
-  which re-materialises identities from cached answers and runs `reconcile`. No transport, seconds.
+  which re-materialises identities from cached answers and runs the two passes. No transport, seconds.
 - `merge` folds one entity into another, tombstones the loser, and runs in a **transaction** — five
   writes that must all land.
 - The **shared-illumination rule**: `merge` refuses two entities that both appear in one
@@ -278,7 +278,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `merge.rs` | fold one entity into another |
 | `evidence.rs` | claims and identities: who holds one (ordered by `cmp_confidence`), and the platform key a presence answers to |
-| `reconcile.rs` | the pass that asks whether one identity's holders are one thing |
+| `proximity.rs` | the pairs that might be one thing: `raise`, `settle`, and the two passes, `scan` and `merge` |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | `comparable`: the form two surfaces are compared in. The token pipeline is policy, in `heuristic/scoring.rs` |

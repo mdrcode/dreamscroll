@@ -94,7 +94,7 @@ per-kind index.
 | Table | Is | Written by |
 | --- | --- | --- |
 | `knowledge_claims` | a fact about the world: this entity has this identity, on whose authority | `link` (a capture's handle), `resolve` (an authority's answer) |
-| `knowledge_proximities` | a judgement about our data: two entities look close enough to ask about, and what was decided — a record, never deleted | `reconcile`, when a merge is refused; a human, with a verdict |
+| `knowledge_proximities` | a judgement about our data: two entities look close enough to ask about, and what was decided — a record, never deleted | `proximity::scan`, when a merge is refused; a human, with a verdict |
 | `knowledge_merges` | a mutation of our data: one entity folded into another, and why — a log | `resolve`, and the repair command |
 
 `enrichment` and `rejection` remain reserved kinds in the vocabulary, not tables: enrichment is the

@@ -236,7 +236,7 @@ fn features(observation: &Observation, candidate: &Entity) -> Features {
 }
 
 /// An entity scored as if it were an observation: its selected values stand in for what a capture
-/// said. This is how `reconcile` asks about two entities.
+/// said. This is how `proximity::merge` asks about two entities.
 fn features_of_entity(a: &Entity, candidate: &Entity) -> Features {
     let view = NormalizedObservation::new(&a.name, a.description.as_deref(), &a.entity_type);
     score(&view, &NormalizedCandidate::from(candidate))

@@ -11,11 +11,11 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   every commit here. Four things happened, in order: `knowledge_evidence` — one table
   with a `kind` discriminator and three payload shapes — became `knowledge_identities`,
   `knowledge_claims` (an edge), `knowledge_merges` and `knowledge_proximities`; a claim became
-  many-to-one, so sharing an identity is a candidate rather than a verdict; `reconcile` split into a
+  many-to-one, so sharing an identity is a candidate rather than a verdict; `proximity.rs` split into a
   scan that records and a merge pass that decides; and the `contested` status went, because it was a
   derived boolean stored beside substantiation.
-  Read in this order: the four model files, `evidence.rs` (`Claim`, `Identity`, `Basis`, `holders`,
-  `raise`), `reconcile.rs` (scan + merge_open), `merge.rs` (which now *settles* a proximity instead of
+  Read in this order: the four model files, `evidence.rs` (`Claim`, `Identity`, `Basis`, `holders`),
+  `proximity.rs` (`raise`, `settle`, scan + merge), `merge.rs` (which now *settles* a proximity instead of
   deleting it), `project`'s status (two values), then `database/indexes/knowledge.rs` and the migration
   in `sync_schema.rs` — both contain workarounds worth knowing about.
   The old vocabulary is gone: `contested`, `collisions`, `shared_identity`, `ClaimOutcome::HeldBy`.
