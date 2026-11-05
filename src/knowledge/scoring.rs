@@ -20,9 +20,9 @@ use std::sync::Arc;
 use crate::model;
 
 /// The graph's own side of a comparison.
-pub type Entity = model::knowledge_entity::Model;
+pub(crate) type Entity = model::knowledge_entity::Model;
 /// What a capture asserted: one claim, no alternatives.
-pub type Observation = model::user_observed_entity::Model;
+pub(crate) type Observation = model::user_observed_entity::Model;
 
 /// How strongly the evidence says these two are one thing, in `[0, 1]`.
 ///
