@@ -495,8 +495,8 @@ impl<'a> ResolutionEngine<'a> {
         }
 
         // Sharing an identity is a candidate, not a verdict — decide which holders are one thing.
-        knowledge.scan_proximities().await?;
-        let folded = knowledge.merge_proximities().await?;
+        crate::knowledge::proximity::scan(&knowledge).await?;
+        let folded = crate::knowledge::proximity::merge(&knowledge).await?;
         report.merges = folded.merged;
         report.refused = folded.refused;
         report.entities_resolved = resolved.len();

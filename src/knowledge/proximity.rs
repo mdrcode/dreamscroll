@@ -15,7 +15,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
 use super::evidence::{Basis, Evidence};
 use super::merge::{Cause, Outcome};
-use super::scoring::{Scoring, TotalCmp};
+use super::scoring::TotalCmp;
 use super::Knowledge;
 
 /// What one merge did.
@@ -33,7 +33,8 @@ pub struct MergeReport {
 
 /// Find pairs that share an identity and record them, returning how many rows were added. Read-only
 /// against the graph.
-pub(super) async fn scan(scoring: &Scoring, conn: &DatabaseConnection) -> anyhow::Result<usize> {
+pub async fn scan(knowledge: &Knowledge) -> anyhow::Result<usize> {
+    let conn = knowledge.conn();
     let evidence = Evidence::new(conn.clone());
     let mut raised = 0;
 
@@ -44,7 +45,7 @@ pub(super) async fn scan(scoring: &Scoring, conn: &DatabaseConnection) -> anyhow
             continue;
         };
         for other in holders.iter().skip(1) {
-            let score = scoring.pair.score(other, holder);
+            let score = knowledge.scoring.pair.score(other, holder);
             raised += raise(
                 conn,
                 holder.id,
@@ -60,20 +61,18 @@ pub(super) async fn scan(scoring: &Scoring, conn: &DatabaseConnection) -> anyhow
 }
 
 /// Fold the open proximities that look like one thing, and leave the rest as questions.
-pub(super) async fn merge(
-    knowledge: &Knowledge,
-    conn: &DatabaseConnection,
-) -> anyhow::Result<MergeReport> {
+pub async fn merge(knowledge: &Knowledge) -> anyhow::Result<MergeReport> {
+    let conn = knowledge.conn();
     let mut report = MergeReport::default();
     for (a, b) in open(conn).await? {
         let (Ok(left), Ok(right)) = (knowledge.get(a).await, knowledge.get(b).await) else {
-            settle(conn, a, b, "moot").await?;
+            settle(knowledge, a, b, "moot").await?;
             report.moot += 1;
             continue;
         };
         // A tombstone on either side means some other path already answered this.
         if left.merged_into_id.is_some() || right.merged_into_id.is_some() {
-            settle(conn, a, b, "moot").await?;
+            settle(knowledge, a, b, "moot").await?;
             report.moot += 1;
             continue;
         }
@@ -139,13 +138,9 @@ pub(super) async fn raise(
 
 /// Settle the open proximities between two entities with a verdict — `distinct` when a person says
 /// they are two things, which no automatic pass can conclude. Returns how many rows closed.
-pub(super) async fn settle(
-    conn: &DatabaseConnection,
-    a: i32,
-    b: i32,
-    verdict: &str,
-) -> anyhow::Result<u64> {
-    let result = conn
+pub async fn settle(knowledge: &Knowledge, a: i32, b: i32, verdict: &str) -> anyhow::Result<u64> {
+    let result = knowledge
+        .conn()
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "UPDATE knowledge_proximities SET verdict = $1, settled_at = now() \
@@ -200,10 +195,6 @@ mod tests {
     use super::*;
     use crate::test_support::{fixtures, test_db};
 
-    fn scoring() -> Scoring {
-        crate::knowledge::heuristic::Heuristic::scoring()
-    }
-
     async fn claim_pairs(db: &crate::database::DbHandle, names: [&str; 2]) -> (i32, i32) {
         let first = fixtures::knowledge_entity_with_member(db, names[0]).await;
         let second = fixtures::knowledge_entity_with_member(db, names[1]).await;
@@ -219,9 +210,10 @@ mod tests {
             return;
         };
         let db = test_db.handle();
+        let store = Knowledge::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
 
-        let raised = scan(&scoring(), &db.conn).await.expect("scan");
+        let raised = scan(&store).await.expect("scan");
 
         assert_eq!(raised, 1);
         let row = model::knowledge_proximities::Entity::find()
@@ -237,7 +229,7 @@ mod tests {
         );
 
         // Idempotent: the same pair is not raised twice.
-        assert_eq!(scan(&scoring(), &db.conn).await.unwrap(), 0);
+        assert_eq!(scan(&store).await.unwrap(), 0);
     }
 
     /// The merge phase folds the pair the scan recorded, and says so on the row.
@@ -249,9 +241,9 @@ mod tests {
         let db = test_db.handle();
         let store = Knowledge::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
-        scan(&scoring(), &db.conn).await.unwrap();
+        scan(&store).await.unwrap();
 
-        let report = merge(&store, &db.conn).await.expect("merge");
+        let report = merge(&store).await.expect("merge");
 
         assert_eq!(report.merged, 1, "{report:?}");
         let settled = model::knowledge_proximities::Entity::find()
@@ -273,15 +265,15 @@ mod tests {
         let store = Knowledge::new(&db);
         let (album, song) = claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
-        scan(&scoring(), &db.conn).await.unwrap();
-        let report = merge(&store, &db.conn).await.expect("merge");
+        scan(&store).await.unwrap();
+        let report = merge(&store).await.expect("merge");
 
         assert_eq!(report.merged, 0, "{report:?}");
         assert_eq!(report.undecided, 1, "{report:?}");
         assert_eq!(open(&db.conn).await.unwrap().len(), 1);
 
         // A person says they are two things.
-        assert_eq!(settle(&db.conn, album, song, "distinct").await.unwrap(), 1);
+        assert_eq!(settle(&store, album, song, "distinct").await.unwrap(), 1);
         assert!(open(&db.conn).await.unwrap().is_empty());
     }
 }

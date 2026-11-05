@@ -49,9 +49,7 @@ pub async fn exec(
 
     // Record whatever this capture made close to something else — the scan only writes rows, so it
     // is safe here and means a duplicate is visible before anyone runs resolution.
-    let raised = state
-        .knowledge
-        .scan_proximities()
+    let raised = crate::knowledge::proximity::scan(&state.knowledge)
         .await
         .map_err(api::ApiError::internal)?;
 

@@ -3,8 +3,9 @@
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
 //! onto one goes through [`Knowledge`], and the handle itself never leaves it — the primitives below
 //! are private, and the collaborators (`decider`, `blocker`, `evidence`, `scoring`) are `pub(super)`
-//! only because the code that reads them lives in `link.rs`, `project.rs` and `proximity.rs`.
-//! Outside `knowledge`, a caller sees [`Knowledge`]'s methods and nothing else.
+//! only because the code that reads them lives in `link.rs`, `project.rs` and `proximity.rs`. The
+//! connection is the same deal: [`Knowledge::conn`] exists so those passes can run, not as an escape
+//! hatch. Outside `knowledge`, a caller sees [`Knowledge`]'s methods and nothing else.
 
 use std::sync::Arc;
 
@@ -56,6 +57,11 @@ impl Knowledge {
             evidence: Evidence::from_handle(db),
             scoring: Heuristic::scoring(),
         }
+    }
+
+    /// The connection, for the passes in `proximity` that run over this store.
+    pub(super) fn conn(&self) -> &sea_orm::DatabaseConnection {
+        &self.db.conn
     }
 
     /// Replace the scoring policy. Everything that measures — the linker, the projection, the merge
@@ -132,21 +138,6 @@ impl Knowledge {
             blocker.changed(&entity);
         }
         Ok(entity)
-    }
-
-    /// Record every pair that shares an identity. Reads the graph, writes only proximities.
-    pub async fn scan_proximities(&self) -> anyhow::Result<usize> {
-        super::proximity::scan(&self.scoring, &self.db.conn).await
-    }
-
-    /// Fold the open proximities that look like one thing, and leave the rest as questions.
-    pub async fn merge_proximities(&self) -> anyhow::Result<super::proximity::MergeReport> {
-        super::proximity::merge(self, &self.db.conn).await
-    }
-
-    /// Settle the open proximities between two entities with a verdict. Returns how many rows closed.
-    pub async fn settle(&self, a: i32, b: i32, verdict: &str) -> anyhow::Result<u64> {
-        super::proximity::settle(&self.db.conn, a, b, verdict).await
     }
 
     /// What a merge would do, without doing it. See [`super::merge`].

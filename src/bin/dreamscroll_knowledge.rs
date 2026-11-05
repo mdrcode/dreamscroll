@@ -200,9 +200,8 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Command::Distinct(args) => {
-            let settled = knowledge::Knowledge::new(&db)
-                .settle(args.a, args.b, "distinct")
-                .await?;
+            let store = knowledge::Knowledge::new(&db);
+            let settled = knowledge::proximity::settle(&store, args.a, args.b, "distinct").await?;
             println!("settled {settled} outstanding proximities as distinct");
         }
         Command::Proximity(args) => {
@@ -211,11 +210,11 @@ async fn main() -> anyhow::Result<()> {
                 ProximityCommand::Scan(_) => {
                     println!(
                         "raised {} proximities",
-                        store.scan_proximities().await?
+                        knowledge::proximity::scan(&store).await?
                     );
                 }
                 ProximityCommand::Merge(_) => {
-                    let report = store.merge_proximities().await?;
+                    let report = knowledge::proximity::merge(&store).await?;
                     println!(
                         "merged {} · refused {} · moot {} · undecided {}",
                         report.merged, report.refused, report.moot, report.undecided

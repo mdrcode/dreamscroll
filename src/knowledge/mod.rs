@@ -17,7 +17,7 @@ pub mod graph;
 pub mod heuristic;
 pub mod link_decider;
 pub mod merge;
-mod proximity;
+pub mod proximity;
 pub mod normalize;
 pub mod resolve;
 pub mod scoring;
@@ -27,6 +27,5 @@ mod link;
 mod project;
 
 pub use graph::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
-pub use proximity::MergeReport;
 pub use link::LinkStats;
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};
