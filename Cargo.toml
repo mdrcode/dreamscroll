@@ -62,3 +62,8 @@ tracing = "0.1"
 tracing-opentelemetry = "0.33"
 tracing-subscriber = { version = "0.3", features = ["chrono", "env-filter", "json", "registry"] }
 uuid = { version = "1.26", features = ["v4"] }
+
+[dev-dependencies]
+# `start_paused` so tests of deadline pacing assert exact times instead of racing a real clock.
+# Dev-only: `cargo build` does not unify this feature in.
+tokio = { version = "1", features = ["full", "test-util"] }

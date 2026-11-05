@@ -278,38 +278,61 @@ mod tests {
         assert_eq!(result.status, crate::task::TaskRunStatus::InProgress);
     }
 
-    #[tokio::test]
+    /// The wait driven against a clock the test controls, with the run id filled in.
+    async fn wait_with<F, Fut>(
+        timeout: Duration,
+        poll_interval: Duration,
+        fetch_status: F,
+    ) -> anyhow::Result<api::TaskRunInfo>
+    where
+        F: FnMut(String) -> Fut,
+        Fut: Future<Output = anyhow::Result<api::TaskRunInfo>>,
+    {
+        super::wait_for_task_run_with(run_id(), timeout, poll_interval, fetch_status).await
+    }
+
+    /// A paused clock makes the deadline exact: the last sleep must be clamped to what remains, not
+    /// the whole poll interval. With a 60s interval and a 10s budget, overshooting is unmissable.
+    #[tokio::test(start_paused = true)]
     async fn wait_clamps_the_last_sleep_to_the_remaining_budget() {
-        let result = tokio::time::timeout(
-            Duration::from_secs(2),
-            wait_for_task_run_with(
-                run_id(),
-                Duration::from_millis(1),
-                Duration::from_secs(60),
-                |_| async { Ok(status(crate::task::TaskRunStatus::InProgress)) },
-            ),
+        let started = tokio::time::Instant::now();
+        let result = wait_with(
+            Duration::from_secs(10),
+            Duration::from_secs(60),
+            |_| async { Ok(status(crate::task::TaskRunStatus::InProgress)) },
         )
         .await
-        .expect("slept the whole poll interval instead of stopping at the deadline")
         .unwrap();
 
         assert_eq!(result.status, crate::task::TaskRunStatus::InProgress);
+        assert_eq!(
+            tokio::time::Instant::now() - started,
+            Duration::from_secs(10),
+            "the wait ends at the deadline, not one poll interval later"
+        );
     }
 
-    #[tokio::test]
+    /// A status request that hangs is cut off at the deadline rather than hanging the wait.
+    #[tokio::test(start_paused = true)]
     async fn wait_bounds_a_stalled_status_request() {
-        let result = wait_for_task_run_with(
-            run_id(),
+        let started = tokio::time::Instant::now();
+        let error = wait_with(
             Duration::from_millis(10),
             Duration::from_secs(2),
             |_| async {
-                tokio::time::sleep(Duration::from_secs(1)).await;
-                Ok(status(crate::task::TaskRunStatus::Queued))
+                std::future::pending::<()>().await;
+                unreachable!("the deadline must win")
             },
         )
-        .await;
+        .await
+        .expect_err("a request that never answers is a timeout");
 
-        assert!(result.unwrap_err().to_string().contains("timed out"));
+        assert!(error.to_string().contains("timed out"), "{error}");
+        assert_eq!(
+            tokio::time::Instant::now() - started,
+            Duration::from_millis(10),
+            "cut off at the deadline, not left to hang"
+        );
     }
 
     #[tokio::test]
