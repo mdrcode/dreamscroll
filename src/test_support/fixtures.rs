@@ -197,6 +197,7 @@ pub async fn knowledge_entity_with_member(db: &DbHandle, name: &str) -> i32 {
             name: sea_orm::Set(name.to_string()),
             entity_type: sea_orm::Set("real_person".to_string()),
             status: sea_orm::Set("provisional".to_string()),
+            origin_observation_id: sea_orm::Set(Some(observation_id)),
             ..Default::default()
         })
         .exec(&db.conn)

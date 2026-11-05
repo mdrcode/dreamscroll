@@ -1,0 +1,270 @@
+//! Durable human decisions: which two things are one, kept across rebuilds.
+//!
+//! A merge is entity → entity in the present tense. A rebuild renumbers entities, so the record is
+//! keyed by each side's `origin_observation_id` — observations are never deleted or renumbered, and
+//! `link` builds entities in a deterministic order, so the origin is a stable name for a thing.
+//!
+//! Replay asks the graph what each origin names now and folds the pairs that still map. Anything
+//! that does not is reported and dropped: erosion is the price of the key, and a silent wrong merge
+//! is not.
+
+use std::collections::BTreeMap;
+
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
+
+use crate::model;
+
+use super::merge::{Cause, Outcome};
+use super::Knowledge;
+
+/// What one replay did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct ReplayReport {
+    /// Pairs folded onto the current graph.
+    pub applied: usize,
+    /// Pairs the graph already had as one entity.
+    pub already: usize,
+    /// Verdicts whose sides no longer name a live entity each.
+    pub gone: usize,
+    /// Pairs the shared-illumination rule refused.
+    pub refused: usize,
+}
+
+/// The generation the graph is being built in. One is implicit on a database that never reset.
+pub(crate) async fn current_generation<C: ConnectionTrait>(conn: &C) -> anyhow::Result<i32> {
+    Ok(model::knowledge_generations::Entity::find()
+        .order_by_desc(model::knowledge_generations::Column::Id)
+        .one(conn)
+        .await?
+        .map_or(1, |row| row.id))
+}
+
+/// The unordered pair two origins name, as a key.
+pub(crate) fn pair_key(a: i32, b: i32) -> (i32, i32) {
+    (a.min(b), a.max(b))
+}
+
+/// Record a person's decision. Idempotent per direction: replaying a verdict does not grow the log.
+pub(super) async fn record<C: ConnectionTrait>(
+    conn: &C,
+    winner: &model::knowledge_entity::Model,
+    loser: &model::knowledge_entity::Model,
+) -> anyhow::Result<bool> {
+    let (Some(winner_origin), Some(loser_origin)) =
+        (winner.origin_observation_id, loser.origin_observation_id)
+    else {
+        // A row without an origin cannot be named after a rebuild, so it cannot be replayed.
+        return Ok(false);
+    };
+    let existing = model::knowledge_verdicts::Entity::find()
+        .filter(model::knowledge_verdicts::Column::WinnerOrigin.eq(winner_origin))
+        .filter(model::knowledge_verdicts::Column::LoserOrigin.eq(loser_origin))
+        .one(conn)
+        .await?;
+    if existing.is_some() {
+        return Ok(false);
+    }
+    model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
+        generation: Set(current_generation(conn).await?),
+        winner_origin: Set(winner_origin),
+        loser_origin: Set(loser_origin),
+        winner_label: Set(Some(winner.name.clone())),
+        loser_label: Set(Some(loser.name.clone())),
+        ..Default::default()
+    })
+    .exec(conn)
+    .await?;
+    Ok(true)
+}
+
+/// Apply the recorded verdicts to the current graph, newest verdict per pair first.
+pub async fn replay(knowledge: &Knowledge) -> anyhow::Result<ReplayReport> {
+    let verdicts = model::knowledge_verdicts::Entity::find()
+        .order_by_asc(model::knowledge_verdicts::Column::Id)
+        .all(knowledge.conn())
+        .await?;
+
+    // Latest by id wins for a pair, and chains still apply oldest first.
+    let mut latest: BTreeMap<(i32, i32), model::knowledge_verdicts::Model> = BTreeMap::new();
+    for verdict in verdicts {
+        latest.insert(pair_key(verdict.winner_origin, verdict.loser_origin), verdict);
+    }
+    let mut ordered: Vec<model::knowledge_verdicts::Model> = latest.into_values().collect();
+    ordered.sort_by_key(|verdict| verdict.id);
+
+    let mut report = ReplayReport::default();
+    for verdict in ordered {
+        let (Some(winner), Some(loser)) = (
+            live_entity_with_origin(knowledge, verdict.winner_origin).await?,
+            live_entity_with_origin(knowledge, verdict.loser_origin).await?,
+        ) else {
+            report.gone += 1;
+            continue;
+        };
+        if winner.id == loser.id {
+            report.already += 1;
+            continue;
+        }
+        match knowledge.merge(loser.id, winner.id, Cause::Repair).await? {
+            Outcome::Merged => report.applied += 1,
+            Outcome::AlreadyMerged => report.already += 1,
+            Outcome::RefusedSharedIllumination => report.refused += 1,
+        }
+    }
+    Ok(report)
+}
+
+/// The live entity this origin names now, if any.
+async fn live_entity_with_origin(
+    knowledge: &Knowledge,
+    origin: i32,
+) -> anyhow::Result<Option<model::knowledge_entity::Model>> {
+    Ok(model::knowledge_entity::Entity::find()
+        .filter(model::knowledge_entity::Column::OriginObservationId.eq(origin))
+        .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
+        .one(knowledge.conn())
+        .await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+
+    use crate::test_support::{fixtures, test_db};
+
+    use super::*;
+
+    /// A person's merge is kept with both origins, so a rebuild can find it again.
+    #[tokio::test]
+    async fn a_manual_merge_records_a_verdict() {
+        let Some(test_db) = test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let store = Knowledge::new(&db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+
+        store.merge(loser, winner, Cause::Repair).await.unwrap();
+
+        let verdicts = model::knowledge_verdicts::Entity::find()
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(verdicts.len(), 1);
+        let winner_origin = model::knowledge_entity::Entity::find_by_id(winner)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap()
+            .origin_observation_id
+            .expect("fixtures set the origin");
+        assert_eq!(verdicts[0].winner_origin, winner_origin);
+    }
+
+    /// The automatic pass records nothing: those decisions are re-derived every build.
+    #[tokio::test]
+    async fn an_identity_merge_records_nothing() {
+        let Some(test_db) = test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let store = Knowledge::new(&db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+
+        store
+            .merge(loser, winner, Cause::IdentityConflict)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            model::knowledge_verdicts::Entity::find()
+                .count(&db.conn)
+                .await
+                .unwrap(),
+            0
+        );
+    }
+
+    /// Replay folds what a previous build had merged, by origin.
+    #[tokio::test]
+    async fn replay_folds_the_pair_again() {
+        let Some(test_db) = test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let store = Knowledge::new(&db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let winner_origin = origin(&db, winner).await;
+        let loser_origin = origin(&db, loser).await;
+        store.merge(loser, winner, Cause::Repair).await.unwrap();
+
+        // A rebuild: the graph is emptied, the observations and the verdict survive it.
+        crate::knowledge::snapshot::reset(&db).await.unwrap();
+        let reborn_winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let reborn_loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        set_origin(&db, reborn_winner, winner_origin).await;
+        set_origin(&db, reborn_loser, loser_origin).await;
+
+        let report = replay(&store).await.expect("replay");
+
+        assert_eq!(report.applied, 1, "{report:?}");
+        let tombstone = model::knowledge_entity::Entity::find_by_id(reborn_loser)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(tombstone.merged_into_id.is_some(), "the recorded side folded");
+    }
+
+    /// A verdict whose sides are not both live is reported, not guessed.
+    #[tokio::test]
+    async fn replay_reports_sides_that_are_gone() {
+        let Some(test_db) = test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let store = Knowledge::new(&db);
+        let only = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let origin = origin(&db, only).await;
+        model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
+            generation: Set(1),
+            winner_origin: Set(origin),
+            loser_origin: Set(origin + 1000),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap();
+
+        let report = replay(&store).await.expect("replay");
+
+        assert_eq!(report.gone, 1, "{report:?}");
+        assert_eq!(report.applied, 0, "{report:?}");
+    }
+
+    async fn origin(db: &crate::database::DbHandle, id: i32) -> i32 {
+        model::knowledge_entity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap()
+            .origin_observation_id
+            .expect("fixtures set the origin")
+    }
+
+    async fn set_origin(db: &crate::database::DbHandle, id: i32, origin: i32) {
+        model::knowledge_entity::Entity::update_many()
+            .col_expr(
+                model::knowledge_entity::Column::OriginObservationId,
+                sea_orm::sea_query::Expr::value(Some(origin)),
+            )
+            .filter(model::knowledge_entity::Column::Id.eq(id))
+            .exec(&db.conn)
+            .await
+            .unwrap();
+    }
+
+}

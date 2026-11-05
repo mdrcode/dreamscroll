@@ -52,8 +52,10 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
             Box::pin(async move {
                 if entity::Entity::find().count(txn).await? == 0 {
                     // Nothing to preserve: do not leave empty archive tables behind.
+                    let unlinked = unlink(txn).await?;
+                    supersede_generation(txn, None, 0, 0, 0, 0, 0, 0).await?;
                     return Ok(Report {
-                        unlinked: unlink(txn).await?,
+                        unlinked,
                         ..Default::default()
                     });
                 }
@@ -76,6 +78,18 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 identities::Entity::delete_many().exec(txn).await?;
                 let entities = entity::Entity::delete_many().exec(txn).await?.rows_affected;
 
+                supersede_generation(
+                    txn,
+                    Some(&snapshot.suffix),
+                    entities,
+                    snapshot_identities,
+                    claims,
+                    merges,
+                    proximities,
+                    snapshot_members,
+                )
+                .await?;
+
                 Ok(Report {
                     unlinked,
                     claims,
@@ -95,6 +109,55 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
         .await
         .map_err(|error| anyhow::anyhow!("reset failed, nothing was changed: {error}"))?;
     Ok(report)
+}
+
+/// Close the generation the graph belonged to and open the next.
+///
+/// A generation is one build cycle, and reset is the only snapshotter — it empties as it copies — so
+/// this row is also the snapshot's register: at most one snapshot belongs to a generation.
+#[allow(clippy::too_many_arguments)]
+async fn supersede_generation<C: ConnectionTrait>(
+    conn: &C,
+    snapshot: Option<&str>,
+    entities: u64,
+    identities: u64,
+    claims: u64,
+    merges: u64,
+    proximities: u64,
+    members: u64,
+) -> anyhow::Result<()> {
+    let current = crate::knowledge::verdicts::current_generation(conn).await?;
+    conn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO knowledge_generations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING",
+        [current.into()],
+    ))
+    .await?;
+    conn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "UPDATE knowledge_generations \
+            SET superseded_at = now(), snapshot = $2, entities = $3, identities = $4, \
+                claims = $5, merges = $6, proximities = $7, members = $8 \
+          WHERE id = $1",
+        [
+            current.into(),
+            snapshot.map(str::to_string).into(),
+            (entities as i32).into(),
+            (identities as i32).into(),
+            (claims as i32).into(),
+            (merges as i32).into(),
+            (proximities as i32).into(),
+            (members as i32).into(),
+        ],
+    ))
+    .await?;
+    conn.execute_raw(Statement::from_sql_and_values(
+        DatabaseBackend::Postgres,
+        "INSERT INTO knowledge_generations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING",
+        [(current + 1).into()],
+    ))
+    .await?;
+    Ok(())
 }
 
 /// Names are generated here (digits and a `T`), never user input, so quoting them is sufficient.

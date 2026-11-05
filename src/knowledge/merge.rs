@@ -237,6 +237,17 @@ async fn merge_in_transaction<C: ConnectionTrait>(
     .exec(conn)
     .await?;
 
+    // A repair is a person's decision, so it goes where a rebuild can find it again. The automatic
+    // pass records nothing: those merges are re-derived every build.
+    if cause == Cause::Repair
+        && let (Some(winner_row), Some(loser_row)) = (
+            rows.iter().find(|row| row.id == winner),
+            rows.iter().find(|row| row.id == loser),
+        )
+    {
+        super::verdicts::record(conn, winner_row, loser_row).await?;
+    }
+
     // Tombstone, never delete: a stale pointer still resolves.
     entity::Entity::update_many()
         .col_expr(entity::Column::MergedIntoId, Expr::value(Some(winner)))

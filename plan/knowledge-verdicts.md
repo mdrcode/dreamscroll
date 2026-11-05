@@ -1,7 +1,7 @@
 # Rebuilding the graph without losing what a person decided
 
-**Status:** Partly implemented — the proximity batch shipped 2026-11-05 (`9407182`); verdicts,
-generations and replay are designed here and not yet built.
+**Status:** Built 2026-11-05 — the proximity batch (`9407182`), then durable verdicts, generations
+and `verdicts replay`. `distinct` is deliberately not built; see *Decisions*.
 
 > **See also:** `plan/knowledge-canonical-entities.md` (observation → entity → evidence),
 > `plan/knowledge-resolution.md` (claims from authorities), `src/knowledge/knowledge.md` (the
@@ -62,30 +62,30 @@ mutated in place. Now:
 `distinct` is not coming back as a status on a derived row. If it returns, it returns as a durable
 verdict kind (below).
 
-## Designed: tables
+## Built: tables
 
 ```sql
 knowledge_generations (
   id            serial primary key,
   started_at    timestamptz not null default now(),
   superseded_at timestamptz,        -- reset: snapshotted and emptied at this moment
-  snapshot      text,               -- archive-table suffix; null when the graph was empty
+  snapshot      text,               -- archive suffix; null when the graph was empty
   entities int, identities int, claims int, merges int, proximities int, members int
 );
 
 knowledge_verdicts (
   id            serial primary key,
-  generation    int not null references knowledge_generations(id),
-  kind          text not null check (kind in ('same', 'distinct')),
-  left_origin   int not null,       -- origin_observation_id of that side
-  right_origin  int not null,
-  left_label    text, right_label text,
-  survivor      text check (survivor in ('left', 'right')),
+  generation    int not null,       -- provenance, not a gate
+  winner_origin int not null,       -- origin_observation_id of the surviving side
+  loser_origin  int not null,       -- origin_observation_id of the side folded away
+  winner_label  text, loser_label text,
   decided_at    timestamptz not null default now(),
-  note          text,
-  check ((kind = 'same') = (survivor is not null))
+  note          text
 );
 ```
+
+Direction is in the column names, not a `survivor` field — there is only one kind of verdict, so a
+`kind` column would hold one legal value. When `distinct` arrives it brings `kind` with it.
 
 - **`reset` becomes the generation manager**: it closes the current generation (writing
   `superseded_at`, the snapshot suffix and the counts onto that row), then opens the next. At most
@@ -97,10 +97,11 @@ knowledge_verdicts (
 - The schema is `kind`-shaped from the start so `distinct` can arrive as a second kind without a
   migration. It is not implemented, and its semantics are not settled — see *Open questions*.
 
-## Designed: replay
+## Built: replay
 
-A command (`verdicts replay`, or whatever the CLI naming pass lands on) that walks the log oldest
-first and applies what still maps:
+`dreamscroll_knowledge verdicts replay` — a separate command that `resolve` knows nothing about; it
+walks the log and applies what still maps. Newest verdict per pair wins; chains still apply oldest
+first.
 
 ```
 for each verdict:
@@ -134,25 +135,27 @@ presentation and is not shared with replay.
 | both sides resolve to one entity | no-op — already folded, by the model or by an earlier replay |
 | the automatic pass folded the pair with the *other* survivor | no-op — same partition, different survivor; the recorded direction is not enforced |
 | `merge` refuses (shared illumination) | skip with the reason; the pair stays open |
-| `kind = distinct` and the graph already folded them | contradiction, reported loudly; there is no split to undo it |
+| a person's merge was recorded, then the pair was folded the other way round automatically | no-op — same partition; the recorded direction is not enforced on an already-folded pair |
 
-## Open questions
+## Decisions (2026-11-05)
 
-1. **Ordering**: does `resolve` call replay between its scan and merge steps (so a single run leaves
-   the graph consistent and honours verdicts), or is replay always a separate command? Replay after
-   `merge` means the automatic pass may fold a pair a person called distinct before replay ever runs.
-2. **`distinct` semantics, if it returns.** As a durable verdict it has to be consulted by the
-   automatic merge pass — which contradicts "replay never touches proximities" only on paper: the
-   pass would ask the verdict log, not the other way round. Cheap (array/`origin` containment over a
-   handful of pairs), but it is a second place that knows what a verdict is. Deferred until someone
-   actually wants the convenience.
-3. **Repeat verdicts on one pair**: last-wins, or refuse a second verdict that contradicts an
-   existing one and make the person retract first?
-4. **Contradiction handling** for a `same` verdict recorded while a `distinct` exists for overlapping
-   origins.
-5. **Validation builds.** After a replay the graph is intentionally not a clean build, so the
-   `reset → link → resolve → compare` loop must run before replay (or with it disabled). Worth a flag
-   or a line in the smoke procedure.
+1. **Replay is a separate command.** `resolve` knows nothing about verdicts. Simple now; the
+   consequence to remember is that a plain `resolve` may fold a pair that a *future* `distinct`
+   verdict would have prevented, and that a replay is a step a person runs deliberately.
+2. **`distinct` is not built.** The convenience is deferred until the queue is actually annoying.
+   When it comes back, the cheapest shape is a filter in `scan` — a decided-distinct pair never
+   enters the batch — which keeps `merge` and `replay` both verdict-free.
+3. **Latest by id wins** for a repeated pair. Append-only log; `replay` keeps the newest verdict per
+   unordered origin pair before applying, so direction is whatever was decided last.
+4. **Contradictions are not policed at write time** — with one verdict kind there is nothing to
+   contradict; rule 3 covers it once `distinct` exists.
+5. **Validation builds are unaffected**: replay is always explicit, so `reset → link → resolve →
+   compare` measures the model alone.
+
+Verified end to end: a manual merge records a verdict (`cause = repair`), a `reset` keeps it, and
+replay folds the rebuilt pair by origin — `a_manual_merge_records_a_verdict`,
+`replay_folds_the_pair_again`, `replay_reports_sides_that_are_gone`,
+`an_identity_merge_records_nothing`.
 
 ## Non-goals
 

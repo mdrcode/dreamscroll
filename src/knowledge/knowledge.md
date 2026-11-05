@@ -284,6 +284,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `merge.rs` | fold one entity into another |
 | `evidence.rs` | claims and identities: who holds one (ordered by `cmp_confidence`), and the platform key a presence answers to |
 | `proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
+| `verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair, `replay` onto the new graph |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | `comparable`: the form two surfaces are compared in. The token pipeline is policy, in `heuristic/scoring.rs` |

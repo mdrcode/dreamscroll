@@ -22,6 +22,7 @@ enum Command {
     Compare(CompareArgs),
     Resolve(ResolveArgs),
     Proximity(ProximityArgs),
+    Verdicts(VerdictsArgs),
 }
 
 #[derive(FromArgs)]
@@ -77,6 +78,28 @@ struct ProximityListArgs {
     #[argh(option, default = "50", description = "maximum rows to show")]
     limit: usize,
 }
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "verdicts")]
+#[argh(description = "a person's decisions, applied again to the rebuilt graph")]
+struct VerdictsArgs {
+    #[argh(subcommand)]
+    command: VerdictsCommand,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum VerdictsCommand {
+    Replay(VerdictsReplayArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "replay")]
+#[argh(
+    description = "apply recorded verdicts to the current graph; sides that no longer map are \
+                   reported, not guessed"
+)]
+struct VerdictsReplayArgs {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "reset")]
@@ -184,6 +207,16 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        Command::Verdicts(args) => match args.command {
+            VerdictsCommand::Replay(_) => {
+                let store = knowledge::Knowledge::new(&db);
+                let report = knowledge::verdicts::replay(&store).await?;
+                println!(
+                    "applied {} · already {} · gone {} · refused {}",
+                    report.applied, report.already, report.gone, report.refused
+                );
+            }
+        },
         Command::Proximity(args) => {
             let store = knowledge::Knowledge::new(&db);
             match args.command {
@@ -202,10 +235,12 @@ async fn main() -> anyhow::Result<()> {
                 }
                 ProximityCommand::List(args) => {
                     let rows = stats::proximities::proximity_list(&db, args.limit).await?;
-                    for (id, score, note, basis, holder, counterpart, identity) in rows {
-                        let score = score.map_or("-".to_string(), |s| format!("{s:.2}"));
+                    for row in rows {
+                        let score = row.score.map_or("-".to_string(), |s| format!("{s:.2}"));
+                        let decided = if row.decided { "same" } else { "" };
                         println!(
-                            "{id:>5}  {score:>5}  {note:<16}  {basis:<15}  {holder}  \u{21c4}  {counterpart}  [{identity}]"
+                            "{:>5}  {decided:<5}{score:>5}  {:<16}  {:<15}  {}  \u{21c4}  {}  [{}]",
+                            row.id, row.note, row.basis, row.holder, row.counterpart, row.identity
                         );
                     }
                 }
