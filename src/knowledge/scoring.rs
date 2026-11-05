@@ -12,7 +12,7 @@
 //! cannot see the corpus.
 //!
 //! Not verbs: the aggregate over claims is arithmetic (`heuristic::scoring::combine`), and
-//! [`cmp_confidence`] is a convention about `NULL`.
+//! the ordering is [`TotalCmp`], which is `total_cmp` extended over `None`.
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -40,11 +40,19 @@ pub trait Rank<A, B>: Send + Sync {
     fn rank(&self, a: &A, candidates: &[B]) -> Vec<(usize, f32)>;
 }
 
-/// `Ord::cmp` for a confidence: `total_cmp`, with `None` least. `Option<f32>` has no `Ord` because
-/// `f32` has none, and writing this out at three call sites is how the `NULL` rule drifted once.
-pub fn cmp_confidence(a: Option<f32>, b: Option<f32>) -> Ordering {
-    a.unwrap_or(f32::NEG_INFINITY)
-        .total_cmp(&b.unwrap_or(f32::NEG_INFINITY))
+/// `f32::total_cmp`, for `Option<f32>`, with `None` least.
+///
+/// The method std would have if `Option<f32>` were `Ord` — `f32` is not, because of NaN, so the
+/// comparison is [`f32::total_cmp`] over `NEG_INFINITY`-widened values.
+pub trait TotalCmp {
+    fn total_cmp(&self, other: &Self) -> Ordering;
+}
+
+impl TotalCmp for Option<f32> {
+    fn total_cmp(&self, other: &Self) -> Ordering {
+        self.unwrap_or(f32::NEG_INFINITY)
+            .total_cmp(&other.unwrap_or(f32::NEG_INFINITY))
+    }
 }
 
 /// The two verbs, from one policy, for the pairs the graph asks about.
