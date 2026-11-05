@@ -147,40 +147,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn response_schema_uses_unified_entity_and_platform_link_shapes() {
+    fn response_schema_matches_the_entity_shape_the_parser_accepts() {
         let schema = make_schema();
         let entity_schema = &schema["properties"]["entities"]["items"];
-        let entity_types = entity_schema["properties"]["type"]["enum"]
-            .as_array()
-            .expect("entity types should be an enum");
-        let platforms =
-            entity_schema["properties"]["platform_link"]["properties"]["platform"]["enum"]
-                .as_array()
-                .expect("platforms should be an enum");
-
-        assert!(entity_types.contains(&json!("online_community")));
-        assert!(entity_types.contains(&json!("religious_figure")));
-        assert!(entity_types.contains(&json!("event")));
-        assert!(entity_types.contains(&json!("product")));
-        assert!(entity_types.contains(&json!("publication")));
-        assert!(entity_types.contains(&json!("social_media_account")));
-        assert!(platforms.contains(&json!("reddit")));
-        assert_eq!(
-            entity_schema["properties"]["search_query"]["type"],
-            json!("string")
-        );
         let platform_link_schema = &entity_schema["properties"]["platform_link"];
-        assert_eq!(
-            platform_link_schema["properties"]["display_name"]["type"],
-            json!("string")
-        );
-        assert!(platform_link_schema["properties"].get("url").is_none());
+
+        assert_eq!(entity_schema["required"], json!(["name", "type"]));
         assert_eq!(
             platform_link_schema["required"],
             json!(["platform", "handle"])
         );
-        assert!(entity_schema["properties"].get("platform_link").is_some());
+        // `url` is `skip_deserializing`, so the prompt must not ask the model for one.
+        assert!(platform_link_schema["properties"].get("url").is_none());
+        // v1's separate accounts array must not leak into the v2 contract.
         assert!(schema["properties"].get("social_media_accounts").is_none());
-        assert_eq!(entity_schema["required"], json!(["name", "type"]));
+
+        // The enums are built with `AsRefStr` while the parser reads with serde: if the two
+        // spellings diverged, the model would be constrained to values we then reject.
+        let entity_types = entity_schema["properties"]["type"]["enum"]
+            .as_array()
+            .expect("entity types should be an enum");
+        assert!(entity_types.contains(&json!("online_community")));
+        let platforms = platform_link_schema["properties"]["platform"]["enum"]
+            .as_array()
+            .expect("platforms should be an enum");
+        assert!(platforms.contains(&json!("reddit")));
     }
 }

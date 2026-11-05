@@ -151,4 +151,28 @@ mod tests {
         );
         assert_eq!(Measure::QueueWait.to_string(), "queue_wait");
     }
+
+    /// Clients only see an estimate once enough samples back it; the stored
+    /// aggregate below that gate stays hidden.
+    #[test]
+    fn client_estimate_requires_the_minimum_sample_count() {
+        let estimate = |sample_count: i64| TaskTimingEstimate {
+            task_type: "illuminate".to_string(),
+            sample_count,
+            duration_ms_avg: 120,
+            duration_ms_p50: 100,
+            duration_ms_p75: 140,
+            duration_ms_p90: 180,
+        };
+
+        assert_eq!(
+            estimate(MINIMUM_CLIENT_ESTIMATE_SAMPLES - 1).client_processing_duration_ms(),
+            None
+        );
+        assert_eq!(
+            estimate(MINIMUM_CLIENT_ESTIMATE_SAMPLES).client_processing_duration_ms(),
+            Some(100),
+            "the median is the client-facing number"
+        );
+    }
 }

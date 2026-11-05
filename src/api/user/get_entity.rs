@@ -95,9 +95,8 @@ pub async fn get_knowledge_entities_by_type(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sea_orm::sea_query::Expr;
 
-    use crate::test_support::{fixtures, test_db};
+    use crate::test_support::{db_or_skip, fixtures};
 
     /// One active and one archived capture, each with one entity named after
     /// its capture's state.
@@ -115,12 +114,35 @@ mod tests {
         (user, ids)
     }
 
+    /// A knowledge entity inserted directly, with the optional fields these tests vary.
+    async fn knowledge_entity(
+        db: &crate::database::DbHandle,
+        name: &str,
+        platform: Option<(&str, &str)>,
+        merged_into: Option<i32>,
+    ) -> i32 {
+        let (platform, handle) = match platform {
+            Some((platform, handle)) => (Some(platform.to_string()), Some(handle.to_string())),
+            None => (None, None),
+        };
+        model::knowledge_entity::Entity::insert(model::knowledge_entity::ActiveModel {
+            name: sea_orm::Set(name.to_string()),
+            entity_type: sea_orm::Set("unknown".to_string()),
+            status: sea_orm::Set("provisional".to_string()),
+            platform: sea_orm::Set(platform),
+            platform_handle: sea_orm::Set(handle),
+            merged_into_id: sea_orm::Set(merged_into),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap()
+        .last_insert_id as i32
+    }
+
     #[tokio::test]
     async fn entity_type_listing_excludes_archived_captures() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let (user, _) = seed(&db).await;
 
         let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
@@ -140,38 +162,29 @@ mod tests {
     /// platform presence — the column the resolver now reads.
     #[tokio::test]
     async fn the_linked_entity_is_served_with_its_platform_presence() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let (user, ids) = seed(&db).await;
-        let observation_id = ids[0];
+        db_or_skip!(db);
+        let capture = fixtures::Capture::new(&db, "entity_presence").await;
 
-        let knowledge_entity_id =
-            model::knowledge_entity::Entity::insert(model::knowledge_entity::ActiveModel {
-                name: sea_orm::Set("active entity".to_string()),
-                entity_type: sea_orm::Set("unknown".to_string()),
-                status: sea_orm::Set("provisional".to_string()),
-                platform: sea_orm::Set(Some("x_twitter".to_string())),
-                platform_handle: sea_orm::Set(Some("tsoding".to_string())),
-                ..Default::default()
-            })
-            .exec(&db.conn)
-            .await
-            .unwrap()
-            .last_insert_id as i32;
+        let knowledge_entity_id = knowledge_entity(
+            &db,
+            "active entity",
+            Some(("x_twitter", "tsoding")),
+            None,
+        )
+        .await;
+        let observation_id = fixtures::attached(
+            &db,
+            &capture,
+            0,
+            "active entity",
+            None,
+            "unknown",
+            knowledge_entity_id,
+        )
+        .await;
 
-        model::user_observed_entity::Entity::update_many()
-            .col_expr(
-                model::user_observed_entity::Column::KnowledgeEntityId,
-                Expr::value(Some(knowledge_entity_id)),
-            )
-            .filter(model::user_observed_entity::Column::Id.eq(observation_id))
-            .exec(&db.conn)
-            .await
-            .unwrap();
-
-        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
+        let context =
+            auth::Context::from(auth::DreamscrollAuthUser::new_test_session(capture.user_id));
         let observation = get_knowledge_entity(&db, &context, observation_id)
             .await
             .unwrap();
@@ -188,10 +201,7 @@ mod tests {
 
     #[tokio::test]
     async fn entity_lookup_excludes_archived_captures() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let (user, entity_ids) = seed(&db).await;
 
         let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user));
@@ -210,10 +220,7 @@ mod tests {
     /// only ever sees the current one, whether they list by type or hold a stale id.
     #[tokio::test]
     async fn only_the_current_reading_is_visible() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let user = fixtures::user(&db, "entity_current").await;
         let capture = fixtures::capture(&db, user).await;
 
@@ -262,5 +269,37 @@ mod tests {
 
         let live = get_knowledge_entity(&db, &context, current).await.unwrap();
         assert_eq!(live.name, "current reading");
+    }
+
+    /// A merged entity is a tombstone kept for history; the observation's consumer must get no
+    /// referent rather than the absorbed entity's stale surface.
+    #[tokio::test]
+    async fn a_merged_entity_is_not_served() {
+        db_or_skip!(db);
+        let capture = fixtures::Capture::new(&db, "entity_merged").await;
+        let survivor = knowledge_entity(&db, "survivor", None, None).await;
+        let absorbed = knowledge_entity(&db, "absorbed", None, Some(survivor)).await;
+        let observation_id = fixtures::attached(
+            &db,
+            &capture,
+            0,
+            "absorbed",
+            None,
+            "unknown",
+            absorbed,
+        )
+        .await;
+
+        let context =
+            auth::Context::from(auth::DreamscrollAuthUser::new_test_session(capture.user_id));
+        let observation = get_knowledge_entity(&db, &context, observation_id)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            linked_knowledge_entity(&db, &observation).await.unwrap(),
+            None,
+            "a merged entity must not be served as the observation's referent"
+        );
     }
 }

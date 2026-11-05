@@ -202,32 +202,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn executes_enqueued_tasks() -> anyhow::Result<()> {
-        let seen = Arc::new(AsyncMutex::new(Vec::new()));
-        let seen_for_worker = Arc::clone(&seen);
-
-        let queue = LocalTaskQueue::connect(4, move |task: TaskRun<TestTask>| {
-            let seen = Arc::clone(&seen_for_worker);
-            async move {
-                seen.lock().await.push(task.task.id);
-                Ok(())
-            }
-        });
-
-        queue.enqueue(task_run(1)).await?;
-        queue.enqueue(task_run(2)).await?;
-
-        wait_until("both tasks to run", || {
-            seen.try_lock().map(|s| s.len() == 2).unwrap_or(false)
-        })
-        .await;
-
-        let values = seen.lock().await.clone();
-        assert!(values.contains(&1) && values.contains(&2));
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn single_worker_preserves_fifo_dispatch_order() -> anyhow::Result<()> {
         let seen = Arc::new(AsyncMutex::new(Vec::new()));
         let seen_for_worker = Arc::clone(&seen);

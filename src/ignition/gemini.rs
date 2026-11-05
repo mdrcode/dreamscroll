@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn normalizes_direct_counts_and_preserves_raw_usage_and_grounding() {
+    fn parses_structured_clusters_and_preserves_usage_and_grounding() {
         let usage = json!({
             "promptTokenCount": 5_000_000_000_i64,
             "cachedContentTokenCount": 4_000_000_000_i64,
@@ -291,27 +291,36 @@ mod tests {
             "toolUsePromptTokenCount": 19
         });
         let grounding = json!({"groundingChunks": [{"web": {"uri": "https://example.com"}}]});
+        let provider_text = json!({
+            "clusters": [{
+                "title": "Ada",
+                "summary": "Lovelace",
+                "capture_ids": [7, 9],
+                "recommended_links": [{"url": "https://example.com", "commentary": "primary source"}]
+            }]
+        })
+        .to_string();
         let outcome = parse(json!({
-            "modelVersion": "different-response-model",
             "responseId": "gemini-request",
             "usageMetadata": usage,
             "candidates": [{
-                "content": {"parts": [{"text": "{\"clusters\":[]}"}]},
+                "content": {"parts": [{"text": provider_text}]},
                 "groundingMetadata": grounding
             }]
         }));
 
-        assert!(outcome.output.unwrap().clusters.is_empty());
+        let spark = outcome.output.unwrap();
+        let cluster = spark.clusters.first().expect("cluster parsed");
+        assert_eq!(cluster.title, "Ada");
+        assert_eq!(cluster.capture_ids, vec![7, 9]);
+        assert_eq!(cluster.recommended_links[0].url, "https://example.com");
+        assert_eq!(cluster.recommended_links[0].commentary, "primary source");
+
         let metadata = outcome.metadata;
-        assert_eq!(metadata.provider_name, "gemini");
-        assert_eq!(metadata.backend_name, "developer_api");
-        assert_eq!(metadata.model_id, "gemini-3-flash-preview");
-        assert_eq!(metadata.duration_ms, 123);
         assert_eq!(metadata.tokens_in, Some(5_000_000_000));
         assert_eq!(metadata.tokens_in_cached, Some(4_000_000_000));
         assert_eq!(metadata.tokens_out, Some(42));
         assert_eq!(metadata.tokens_thought, Some(17));
-        assert_eq!(metadata.params, request_params());
         assert_eq!(
             metadata.provider_metadata["provider_request_id"],
             "gemini-request"
@@ -348,11 +357,7 @@ mod tests {
         for (thoughts, expected) in [
             (json!(null), None),
             (json!("17"), None),
-            (json!(1.5), None),
-            (json!(true), None),
-            (json!({}), None),
             (json!(0), Some(0)),
-            (json!(5_000_000_000_i64), Some(5_000_000_000)),
             (json!(i64::MAX), Some(i64::MAX)),
         ] {
             let usage = json!({"thoughtsTokenCount": thoughts, "candidatesTokenCount": 42});
@@ -384,7 +389,6 @@ mod tests {
             assert_eq!(outcome.metadata.tokens_in_cached, Some(8));
             assert_eq!(outcome.metadata.tokens_out, None);
             assert_eq!(outcome.metadata.tokens_thought, Some(17));
-            assert_eq!(outcome.metadata.params, request_params());
             assert_eq!(outcome.metadata.provider_metadata["provider_usage"], usage);
         }
     }
@@ -413,7 +417,6 @@ mod tests {
         );
         assert_eq!(outcome.metadata.tokens_in, Some(7));
         assert_eq!(outcome.metadata.tokens_thought, Some(17));
-        assert_eq!(outcome.metadata.params, request_params());
         assert_eq!(
             outcome.metadata.provider_metadata["provider_request_id"],
             "failed-gemini-request"

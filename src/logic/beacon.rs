@@ -115,6 +115,8 @@ impl Beacon {
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use crate::test_support::db_or_skip;
+
     use super::*;
 
     #[derive(Debug, Clone, Default)]
@@ -153,20 +155,25 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn only_projected_v2_illumination_enqueues_search_index() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
+    /// What the recorded search-index queue received, shared with the assertions.
+    type Queued = Arc<Mutex<Vec<task::TaskRun<search_index::SearchIndexTask>>>>;
+
+    fn search_queue_beacon(db: crate::database::DbHandle) -> (Arc<task::TaskMaster>, Beacon, Queued) {
         let queued = Arc::new(Mutex::new(Vec::new()));
         let task_master = Arc::new(
             task::TaskMaster::builder()
-                .db(db.handle())
+                .db(db)
                 .search_index_queue(RecordingSearchIndexQueue(Arc::clone(&queued)))
                 .build()
                 .expect("TaskMaster should build with a database"),
         );
-        let beacon = Beacon::new(task_master);
+        (Arc::clone(&task_master), Beacon::new(task_master), queued)
+    }
+
+    #[tokio::test]
+    async fn only_projected_v2_illumination_enqueues_search_index() {
+        db_or_skip!(db);
+        let (_task_master, beacon, queued) = search_queue_beacon(db);
         let v1_capture_id = (uuid::Uuid::new_v4().as_u128() & i32::MAX as u128).max(1) as i32;
         let v2_capture_id = (uuid::Uuid::new_v4().as_u128() & i32::MAX as u128).max(1) as i32;
         let v1_task = illuminate::IlluminationTask::new(
@@ -215,18 +222,8 @@ mod tests {
 
     #[tokio::test]
     async fn backfill_descendants_keep_metadata_and_deduplicate_after_completion() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let queued = Arc::new(Mutex::new(Vec::new()));
-        let task_master = Arc::new(
-            task::TaskMaster::builder()
-                .db(db.handle())
-                .search_index_queue(RecordingSearchIndexQueue(Arc::clone(&queued)))
-                .build()
-                .unwrap(),
-        );
-        let beacon = Beacon::new(Arc::clone(&task_master));
+        db_or_skip!(db);
+        let (task_master, beacon, queued) = search_queue_beacon(db);
         let illumination = illuminate::IlluminationTask::new(
             42,
             1,
@@ -270,18 +267,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_live_ordinary_descendant_is_not_retagged_by_backfill_completion() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let queued = Arc::new(Mutex::new(Vec::new()));
-        let task_master = Arc::new(
-            task::TaskMaster::builder()
-                .db(db.handle())
-                .search_index_queue(RecordingSearchIndexQueue(Arc::clone(&queued)))
-                .build()
-                .unwrap(),
-        );
-        let beacon = Beacon::new(Arc::clone(&task_master));
+        db_or_skip!(db);
+        let (task_master, beacon, queued) = search_queue_beacon(db);
         let illumination = illuminate::IlluminationTask::new(
             42,
             1,
@@ -318,13 +305,11 @@ mod tests {
     /// has nothing to name.
     #[tokio::test]
     async fn a_persisted_illumination_enqueues_its_knowledge_link() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
+        db_or_skip!(db);
         let queued = Arc::new(Mutex::new(Vec::new()));
         let task_master = Arc::new(
             task::TaskMaster::builder()
-                .db(db.handle())
+                .db(db)
                 .knowledge_link_queue(RecordingKnowledgeLinkQueue(Arc::clone(&queued)))
                 .build()
                 .unwrap(),

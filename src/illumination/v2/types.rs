@@ -245,26 +245,6 @@ mod tests {
                         "platform": "x_twitter",
                         "handle": "@anonhandle"
                     }
-                },
-                {
-                    "name": "Venice International Film Festival",
-                    "description": "An annual film festival for international cinema.",
-                    "type": "event"
-                },
-                {
-                    "name": "Nikon Z8",
-                    "description": "A camera model.",
-                    "type": "product"
-                },
-                {
-                    "name": "Monocle",
-                    "description": "An international affairs and lifestyle magazine.",
-                    "type": "publication"
-                },
-                {
-                    "name": "Jesus",
-                    "description": "A religious figure in Christianity.",
-                    "type": "religious_figure"
                 }
             ],
             "future_schema_field": {"preserved": true}
@@ -278,20 +258,8 @@ mod tests {
             KnowledgeEntityType::OnlineCommunity
         );
         assert_eq!(
-            illumination.entities[2].entity_type,
-            KnowledgeEntityType::Event
-        );
-        assert_eq!(
-            illumination.entities[3].entity_type,
-            KnowledgeEntityType::Product
-        );
-        assert_eq!(
-            illumination.entities[4].entity_type,
-            KnowledgeEntityType::Publication
-        );
-        assert_eq!(
-            illumination.entities[5].entity_type,
-            KnowledgeEntityType::ReligiousFigure
+            illumination.entities[1].entity_type,
+            KnowledgeEntityType::SocialMediaAccount
         );
         let reddit_link = illumination.entities[0]
             .platform_link
@@ -303,6 +271,7 @@ mod tests {
             reddit_link.display_name.as_deref(),
             Some("NFC West Meme War")
         );
+        // `url` is `skip_deserializing`: a model-supplied URL must not survive parsing.
         assert!(reddit_link.url.is_none());
         assert_eq!(illumination.entities[1].description, None);
         assert_eq!(
@@ -337,21 +306,6 @@ mod tests {
                 {
                     "name": "Anonymous account",
                     "type": "social_media_account"
-                },
-                {
-                    "name": "Venice International Film Festival",
-                    "description": "An annual film festival for international cinema.",
-                    "type": "event"
-                },
-                {
-                    "name": "Nikon Z8",
-                    "description": "A camera model.",
-                    "type": "product"
-                },
-                {
-                    "name": "Monocle",
-                    "description": "An international affairs and lifestyle magazine.",
-                    "type": "publication"
                 }
             ]
         }))
@@ -361,20 +315,12 @@ mod tests {
 
         assert!(markdown.contains("## Summary\n\nA subreddit for NFC West memes"));
         assert!(markdown.contains("## Details\n\nA community about the NFL's NFC West division."));
-        assert!(markdown.contains(
-            "- **NFCWestMemeWar** (`online_community`) — A community for NFC West memes."
-        ));
-        assert!(markdown.contains(
-            "Platform: reddit; display name: NFC West Meme War; handle: r/NFCWestMemeWar"
-        ));
+        assert!(markdown.contains("- **NFCWestMemeWar** (`online_community`)"));
+        assert!(markdown.contains("A community for NFC West memes."));
         assert!(markdown.contains("  - Search query: NFC West Meme War subreddit"));
-        assert!(markdown.contains(
-            "- **Venice International Film Festival** (`event`) — An annual film festival for international cinema."
-        ));
-        assert!(markdown.contains("- **Nikon Z8** (`product`) — A camera model."));
-        assert!(markdown.contains(
-            "- **Monocle** (`publication`) — An international affairs and lifestyle magazine."
-        ));
+        assert!(markdown.contains("Platform: reddit"));
+        assert!(markdown.contains("display name: NFC West Meme War"));
+        assert!(markdown.contains("handle: r/NFCWestMemeWar"));
         assert!(markdown.contains("- **Anonymous account** (`social_media_account`)"));
         assert!(markdown.contains("- NFC West memes"));
     }

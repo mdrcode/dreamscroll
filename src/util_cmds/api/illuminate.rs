@@ -279,6 +279,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn wait_clamps_the_last_sleep_to_the_remaining_budget() {
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            wait_for_task_run_with(
+                run_id(),
+                Duration::from_millis(1),
+                Duration::from_secs(60),
+                |_| async { Ok(status(crate::task::TaskRunStatus::InProgress)) },
+            ),
+        )
+        .await
+        .expect("slept the whole poll interval instead of stopping at the deadline")
+        .unwrap();
+
+        assert_eq!(result.status, crate::task::TaskRunStatus::InProgress);
+    }
+
+    #[tokio::test]
     async fn wait_bounds_a_stalled_status_request() {
         let result = wait_for_task_run_with(
             run_id(),
@@ -396,21 +414,6 @@ mod tests {
 
     #[test]
     fn only_successful_task_runs_allow_result_fetching() {
-        let status = |status| api::TaskRunInfo {
-            logical_id: "u7-illuminate-capture42".to_string(),
-            run_id: "3e6d5dd1-4350-49d4-9933-e2de78aab82d".to_string(),
-            run_number: 1,
-            task_type: "illuminate".to_string(),
-            entity_type: "capture".to_string(),
-            entity_id: 42,
-            status,
-            attempts: 1,
-            error_code: None,
-            error_message: None,
-            created_at: chrono::Utc::now(),
-            updated_at: chrono::Utc::now(),
-        };
-
         assert!(ensure_successful_run(&status(TaskRunStatus::CompleteSuccess)).is_ok());
         assert!(
             ensure_successful_run(&status(TaskRunStatus::CompleteFailure))

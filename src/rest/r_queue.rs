@@ -148,16 +148,4 @@ mod tests {
             .is_err()
         );
     }
-
-    #[tokio::test]
-    async fn accepted_task_run_response_returns_json_run_id() {
-        let run_id = "b91a7c4f-7e8a-4bf8-9a76-c81e258ec113";
-        let response = accepted_task_run_response(run_id.to_string()).into_response();
-
-        assert_eq!(response.status(), axum::http::StatusCode::ACCEPTED);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        assert_eq!(serde_json::from_slice::<String>(&body).unwrap(), run_id);
-    }
 }

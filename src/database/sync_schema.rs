@@ -228,45 +228,29 @@ pub async fn check_schema_version(conn: &DatabaseConnection) -> anyhow::Result<(
 mod tests {
     use sea_orm::{ConnectionTrait, DatabaseBackend, DbErr, RuntimeErr, Statement};
 
+    use crate::test_support::db_or_skip;
+
     use super::{check_schema_version, sync_schema};
 
     #[tokio::test]
     async fn repeated_schema_sync_preserves_backfill_task_uniqueness() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let conn = test_db.handle().conn;
+        db_or_skip!(db);
+        let conn = &db.conn;
 
-        sync_schema(&conn)
+        sync_schema(conn)
             .await
             .expect("first explicit schema sync should succeed");
-        sync_schema(&conn)
+        sync_schema(conn)
             .await
             .expect("repeated explicit schema sync should succeed");
-        check_schema_version(&conn)
+        check_schema_version(conn)
             .await
             .expect("sync should record a compatible schema version");
 
-        let index = conn
-            .query_one_raw(Statement::from_string(
-                DatabaseBackend::Postgres,
-                "SELECT indexdef FROM pg_indexes \
-             WHERE schemaname = current_schema() \
-             AND indexname = 'idx-task_runs-backfill_task'",
-            ))
-            .await
-            .expect("querying the backfill index should succeed")
-            .expect("backfill unique index should exist");
-        let index_definition: String = index
-            .try_get_by_index(0)
-            .expect("index definition should be text");
-        assert!(index_definition.starts_with("CREATE UNIQUE INDEX"));
-        assert!(index_definition.contains("(backfill_id, logical_id)"));
-
-        insert_task_run(&conn, 1, "schema-sync-run-1")
+        insert_task_run(conn, 1, "schema-sync-run-1")
             .await
             .expect("first tagged run should insert");
-        let duplicate = insert_task_run(&conn, 2, "schema-sync-run-2")
+        let duplicate = insert_task_run(conn, 2, "schema-sync-run-2")
             .await
             .expect_err("same backfill/logical task must remain unique across run numbers");
         let database_error = match &duplicate {
@@ -283,16 +267,12 @@ mod tests {
         );
     }
 
-
     /// Schema 16 retires the staging table. The observations are the only irreplaceable data here,
     /// so they move across before `knowledge_user` goes; the entities are rebuilt by `link`.
     #[tokio::test]
     async fn legacy_observations_move_into_the_single_table() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let conn = db.conn.clone();
+        db_or_skip!(db);
+        let conn = &db.conn;
 
         let user_id = crate::test_support::fixtures::user(&db, "retire").await;
         let capture_id = crate::test_support::fixtures::capture(&db, user_id).await;
@@ -317,7 +297,7 @@ mod tests {
         .await
         .expect("the legacy row should insert");
 
-        super::retire_legacy_observation_tables(&conn)
+        super::retire_legacy_observation_tables(conn)
             .await
             .expect("retirement should succeed");
 
@@ -336,68 +316,39 @@ mod tests {
         assert!(legacy.is_none(), "the legacy table should be gone");
         assert_eq!(carried.as_deref(), Some("Train Dreams"), "observations must survive");
 
-        super::retire_legacy_observation_tables(&conn)
+        super::retire_legacy_observation_tables(conn)
             .await
             .expect("retirement should be repeatable");
     }
 
     #[tokio::test]
     async fn schema_version_guard_rejects_stale_and_missing_markers() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let conn = test_db.handle().conn;
-
-        check_schema_version(&conn)
-            .await
-            .expect("synced schema version should be accepted");
-        conn.execute_unprepared(&format!(
-            "UPDATE dreamscroll_schema_version SET version = {} WHERE id = 1",
-            super::REQUIRED_SCHEMA_VERSION + 1
-        ))
-        .await
-        .expect("advancing the test marker should succeed");
-        check_schema_version(&conn)
-            .await
-            .expect("a newer compatible schema version should be accepted");
+        db_or_skip!(db);
+        let conn = &db.conn;
 
         conn.execute_unprepared("UPDATE dreamscroll_schema_version SET version = 0 WHERE id = 1")
             .await
             .expect("downgrading the test marker should succeed");
-        let stale_error = check_schema_version(&conn)
+        let stale_error = check_schema_version(conn)
             .await
             .expect_err("an older schema marker must fail the startup check");
-        assert!(stale_error.to_string().contains("below required version"));
-        assert!(
-            stale_error
-                .to_string()
-                .contains("dreamscroll_db sync_schema")
-        );
+        let stale_error = stale_error.to_string();
+        assert!(stale_error.contains("below required version"));
+        assert!(stale_error.contains("dreamscroll_db sync_schema"));
 
         conn.execute_unprepared("DROP TABLE dreamscroll_schema_version")
             .await
             .expect("dropping the test marker should succeed");
-        let missing_error = check_schema_version(&conn)
+        let missing_error = check_schema_version(conn)
             .await
             .expect_err("a missing schema marker must fail the startup check");
-        assert!(
-            missing_error
-                .to_string()
-                .contains("schema version is missing")
-        );
-        assert!(
-            missing_error
-                .to_string()
-                .contains("dreamscroll_db sync_schema")
-        );
+        assert!(missing_error.to_string().contains("schema version is missing"));
     }
 
     #[tokio::test]
     async fn schema_sync_drops_manual_indexes_only_in_current_schema() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let conn = test_db.handle().conn;
+        db_or_skip!(db);
+        let conn = &db.conn;
 
         let current_schema = conn
             .query_one_raw(Statement::from_string(
@@ -435,7 +386,7 @@ mod tests {
         ))
         .await
         .expect("setting the multi-schema search path should succeed");
-        sync_schema(&conn)
+        sync_schema(conn)
             .await
             .expect("schema sync should succeed with a multi-schema search path");
 
@@ -464,10 +415,8 @@ mod tests {
 
     #[tokio::test]
     async fn schema_sync_refuses_to_downgrade_a_newer_marker() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let conn = test_db.handle().conn;
+        db_or_skip!(db);
+        let conn = &db.conn;
 
         conn.execute_unprepared(&format!(
             "UPDATE dreamscroll_schema_version SET version = {} WHERE id = 1",
@@ -475,7 +424,7 @@ mod tests {
         ))
         .await
         .expect("advancing the marker should succeed");
-        let error = sync_schema(&conn)
+        let error = sync_schema(conn)
             .await
             .expect_err("an older binary must not sync over a newer schema marker");
         assert!(
@@ -496,7 +445,7 @@ mod tests {
             .try_get_by_index(0)
             .expect("schema marker version should be an integer");
         assert_eq!(version, super::REQUIRED_SCHEMA_VERSION + 1);
-        check_schema_version(&conn)
+        check_schema_version(conn)
             .await
             .expect("newer schema markers should remain compatible at startup");
     }

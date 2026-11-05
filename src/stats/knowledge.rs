@@ -163,14 +163,11 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
 
 #[cfg(test)]
 mod tests {
-    use crate::test_support::fixtures;
+    use crate::test_support::{db_or_skip, fixtures};
 
     #[tokio::test]
     async fn reports_linked_share_and_duplicate_rate() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
 
         let user_id = fixtures::user(&db, "stats").await;
         for (index, capture_id) in [
@@ -200,5 +197,47 @@ mod tests {
         assert_eq!(stats.entities, 1);
         assert_eq!(stats.provisional, 1);
         assert!((stats.duplicate_rate() - 0.5).abs() < 1e-9, "{stats:?}");
+    }
+
+    #[test]
+    fn duplicate_rate_of_an_empty_graph_is_zero() {
+        assert_eq!(super::KnowledgeStats::default().duplicate_rate(), 0.0);
+    }
+
+    #[tokio::test]
+    async fn projected_platform_presence_matches_the_members() {
+        db_or_skip!(db);
+
+        let user_id = fixtures::user(&db, "platform").await;
+        let capture_id = fixtures::capture(&db, user_id).await;
+        let illumination_id = fixtures::illumination(&db, user_id, capture_id).await;
+        let capture = fixtures::Capture {
+            user_id,
+            capture_id,
+            illumination_id,
+        };
+        fixtures::observe(
+            &db,
+            &capture,
+            0,
+            "Some Person",
+            None,
+            "real_person",
+            Some("instagram"),
+            Some("@some_person"),
+        )
+        .await;
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
+
+        let stats = super::knowledge_stats(&db)
+            .await
+            .expect("stats should succeed");
+        assert_eq!(stats.with_platform, 1);
+        assert_eq!(
+            stats.with_platform, stats.platform_from_members,
+            "projection lost presence a member had"
+        );
     }
 }

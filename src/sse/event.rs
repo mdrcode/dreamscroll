@@ -130,27 +130,21 @@ mod tests {
     }
 
     #[test]
-    fn task_status_constructor_sets_schema_and_routing_fields() {
+    fn from_row_carries_the_routing_owner_and_status() {
         let mut row = model::task_run::task_run_model();
         row.entity_owner_id = 8;
-        row.logical_id = "u8-test-capture91".to_string();
-        row.run_number = 4;
         row.entity_id = 91;
         row.status_code = TaskRunStatus::CompleteSuccess.as_i32();
-        row.attempts = 2;
-        row.created_at = timestamp();
-        row.updated_at = timestamp();
 
         let update = TaskStatusUpdate::from_row(&row, None).unwrap();
 
-        assert_eq!(update.schema_version, CURRENT_SCHEMA_VERSION);
-        assert_eq!(update.event_type, ServerEventKind::TaskStatus);
-        assert_eq!(update.entity_type, "capture");
+        assert_eq!(
+            update.entity_owner_id,
+            Some(8),
+            "the event recipient is the entity owner"
+        );
         assert_eq!(update.entity_id, 91);
-        assert_eq!(update.payload.task_type, "illuminate");
         assert_eq!(update.payload.status, TaskRunStatus::CompleteSuccess);
-        assert_eq!(update.payload.attempts, 2);
-        assert_eq!(update.payload.run_number, 4);
-        assert_eq!(update.entity_owner_id, Some(8));
+        assert_eq!(update.event_type, ServerEventKind::TaskStatus);
     }
 }

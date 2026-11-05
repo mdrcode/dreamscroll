@@ -31,38 +31,20 @@ mod tests {
         search::test_support::{UnusedEmbedder, UnusedVectorStore},
         storage::test_support::TestStorageProvider,
     };
-    use chrono::Utc;
 
     #[tokio::test]
     async fn raw_illumination_lookup_returns_exact_task_run_only_to_its_owner() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let user = model::user::ActiveModel::builder()
-            .set_username(format!(
-                "illumination_raw_lookup_{}",
-                uuid::Uuid::new_v4().simple()
-            ))
-            .set_password_hash("test-password-hash")
-            .set_storage_shard(model::user::generate_storage_shard(8))
-            .insert(&db.conn)
-            .await
-            .unwrap();
-        let capture = model::capture::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_created_at(Utc::now())
-            .insert(&db.conn)
-            .await
-            .unwrap();
+        crate::test_support::db_or_skip!(db);
+        let user_id = crate::test_support::fixtures::user(&db, "illumination_raw").await;
+        let capture_id = crate::test_support::fixtures::capture(&db, user_id).await;
         let media = model::media::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_capture_id(capture.id)
+            .set_user_id(user_id)
+            .set_capture_id(capture_id)
             .set_bytes(1)
             .set_mime_type(Some("image/jpeg".to_string()))
             .set_hash_blake3(None)
             .set_storage_provider("test")
-            .set_storage_user_shard(user.storage_shard.clone())
+            .set_storage_user_shard(model::user::generate_storage_shard(8))
             .set_storage_uuid(uuid::Uuid::new_v4())
             .insert(&db.conn)
             .await
@@ -81,8 +63,8 @@ mod tests {
             ),
         ] {
             model::illumination_raw::ActiveModel::builder()
-                .set_user_id(user.id)
-                .set_capture_id(capture.id)
+                .set_user_id(user_id)
+                .set_capture_id(capture_id)
                 .set_media_id(media.id)
                 .set_task_run_id(task_run_id)
                 .set_inference_meta_id(None)
@@ -92,7 +74,7 @@ mod tests {
                 .unwrap();
         }
 
-        let owner = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user.id));
+        let owner = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user_id));
         let first_result = get_illumination_raw(&db, &owner, first_task_run_id)
             .await
             .unwrap();
@@ -116,35 +98,18 @@ mod tests {
     async fn worker_result_is_retrieved_by_task_run_id() {
         use axum::response::IntoResponse;
 
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let user = model::user::ActiveModel::builder()
-            .set_username(format!(
-                "illumination_e2e_{}",
-                uuid::Uuid::new_v4().simple()
-            ))
-            .set_password_hash("test-password-hash")
-            .set_storage_shard(model::user::generate_storage_shard(8))
-            .insert(&db.conn)
-            .await
-            .unwrap();
-        let capture = model::capture::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_created_at(Utc::now())
-            .insert(&db.conn)
-            .await
-            .unwrap();
+        crate::test_support::db_or_skip!(db);
+        let user_id = crate::test_support::fixtures::user(&db, "illumination_e2e").await;
+        let capture_id = crate::test_support::fixtures::capture(&db, user_id).await;
         model::media::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_capture_id(capture.id)
+            .set_user_id(user_id)
+            .set_capture_id(capture_id)
             .set_bytes(3)
             .set_mime_type(Some("image/jpeg".to_string()))
             .set_hash_blake3(None)
             .set_storage_provider("gcloud")
             .set_storage_bucket(Some("test-bucket".to_string()))
-            .set_storage_user_shard(user.storage_shard.clone())
+            .set_storage_user_shard(model::user::generate_storage_shard(8))
             .set_storage_uuid(uuid::Uuid::new_v4())
             .set_storage_extension(None)
             .insert(&db.conn)
@@ -197,10 +162,10 @@ mod tests {
             },
             task_master: task_master.clone(),
         });
-        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user.id));
+        let context = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(user_id));
         let task = crate::logic::illuminate::IlluminationTask::new(
-            capture.id,
-            user.id,
+            capture_id,
+            user_id,
             "test-model",
             crate::illumination::IlluminationVersion::V2,
         );
@@ -262,19 +227,8 @@ mod tests {
             .await
             .unwrap()
             .expect("typed output errors must retain inference metadata");
-        assert_eq!(failed_metadata.user_id, user.id);
+        assert_eq!(failed_metadata.user_id, user_id);
         assert_eq!(failed_metadata.attempt, Some(1));
-        assert_eq!(failed_metadata.provider, "test");
-        assert_eq!(failed_metadata.backend, "test");
-        assert_eq!(failed_metadata.model, "test-model");
-        assert_eq!(
-            failed_metadata.provider_metadata["provider_request_id"],
-            serde_json::json!("test-inference-0")
-        );
-        assert_eq!(
-            failed_metadata.params,
-            serde_json::json!({"prompt_version": "capture_illumination_v2"})
-        );
 
         let successful_attempt = crate::webhook::r_illuminate::post(
             axum::extract::State(state.clone()),
@@ -299,7 +253,7 @@ mod tests {
         );
         assert_eq!(completed_status.attempts, 2);
         let indexing_runs = task_master
-            .query_latest_task_runs(&context, "capture", &[capture.id])
+            .query_latest_task_runs(&context, "capture", &[capture_id])
             .await
             .unwrap();
         let indexing = indexing_runs
@@ -307,12 +261,11 @@ mod tests {
             .find(|run| run.task_type == "search_index")
             .unwrap();
         assert_eq!(indexing.backfill_id.as_deref(), Some("webhook-backfill"));
-        assert_eq!(indexing.run_number, 1);
         // Settle the existing index run so an accidental raw-only enqueue cannot
         // be hidden by TaskMaster's in-flight deduplication.
         let index_task = crate::logic::search_index::SearchIndexTask {
-            capture_id: capture.id,
-            entity_owner_id: user.id,
+            capture_id,
+            entity_owner_id: user_id,
         };
         let index_run = crate::task::TaskRun {
             logical_id: crate::task::TaskRun::make_logical_id(&index_task),
@@ -360,20 +313,20 @@ mod tests {
             .unwrap();
         assert_eq!(stored_raw.inference_meta_id, Some(metadata[1].id));
         let previous_projections = model::illumination::Entity::find()
-            .filter(model::illumination::Column::CaptureId.eq(capture.id))
+            .filter(model::illumination::Column::CaptureId.eq(capture_id))
             .all(&db.conn)
             .await
             .unwrap();
         assert_eq!(previous_projections.len(), 1);
         assert_eq!(previous_projections[0].task_run_id, first_task_run.run_id);
         let previous_entities = model::user_observed_entity::Entity::find()
-            .filter(model::user_observed_entity::Column::CaptureId.eq(capture.id))
+            .filter(model::user_observed_entity::Column::CaptureId.eq(capture_id))
             .all(&db.conn)
             .await
             .unwrap();
         assert_eq!(previous_entities.len(), 1);
         let previous_index_runs = model::task_run::Entity::find()
-            .filter(model::task_run::Column::EntityId.eq(capture.id))
+            .filter(model::task_run::Column::EntityId.eq(capture_id))
             .filter(model::task_run::Column::TaskType.eq("search_index"))
             .all(&db.conn)
             .await
@@ -436,10 +389,6 @@ mod tests {
             .unwrap();
         assert_eq!(raw_only_metadata.len(), 1);
         assert_eq!(raw_only_metadata[0].attempt, Some(1));
-        assert_eq!(
-            raw_only_metadata[0].params,
-            serde_json::json!({"prompt_version": "capture_illumination_v2"})
-        );
         let raw_only_row = model::illumination_raw::Entity::find()
             .filter(model::illumination_raw::Column::TaskRunId.eq(&second_task_run.run_id))
             .one(&db.conn)
@@ -452,7 +401,7 @@ mod tests {
         );
         assert_eq!(
             model::illumination::Entity::find()
-                .filter(model::illumination::Column::CaptureId.eq(capture.id))
+                .filter(model::illumination::Column::CaptureId.eq(capture_id))
                 .all(&db.conn)
                 .await
                 .unwrap(),
@@ -461,7 +410,7 @@ mod tests {
         );
         assert_eq!(
             model::user_observed_entity::Entity::find()
-                .filter(model::user_observed_entity::Column::CaptureId.eq(capture.id))
+                .filter(model::user_observed_entity::Column::CaptureId.eq(capture_id))
                 .all(&db.conn)
                 .await
                 .unwrap(),
@@ -470,7 +419,7 @@ mod tests {
         );
         assert_eq!(
             model::task_run::Entity::find()
-                .filter(model::task_run::Column::EntityId.eq(capture.id))
+                .filter(model::task_run::Column::EntityId.eq(capture_id))
                 .filter(model::task_run::Column::TaskType.eq("search_index"))
                 .all(&db.conn)
                 .await

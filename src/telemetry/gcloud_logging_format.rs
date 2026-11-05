@@ -130,23 +130,14 @@ mod tests {
     use tracing::Level;
 
     #[test]
-    fn severity_maps_each_tracing_level() {
+    fn severity_maps_onto_cloud_logging_vocabulary() {
         assert_eq!(severity_to_gcp(Level::ERROR), "ERROR");
-        assert_eq!(severity_to_gcp(Level::WARN), "WARNING");
         assert_eq!(severity_to_gcp(Level::INFO), "INFO");
         assert_eq!(severity_to_gcp(Level::DEBUG), "DEBUG");
-    }
-
-    #[test]
-    fn severity_folds_trace_into_debug() {
-        // Cloud Logging has no TRACE severity; emitting an unknown value would
-        // be downgraded to DEFAULT, hiding the logs beneath DEBUG.
-        assert_eq!(severity_to_gcp(Level::TRACE), "DEBUG");
-    }
-
-    #[test]
-    fn severity_warn_uses_cloud_logging_spelling() {
         // Cloud Logging spells it "WARNING"; `tracing` spells it "WARN".
         assert_eq!(severity_to_gcp(Level::WARN), "WARNING");
+        // Cloud Logging has no TRACE; an unknown value would be downgraded to
+        // DEFAULT, hiding the logs beneath DEBUG.
+        assert_eq!(severity_to_gcp(Level::TRACE), "DEBUG");
     }
 }

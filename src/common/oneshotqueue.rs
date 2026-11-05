@@ -166,6 +166,14 @@ mod tests {
         inner.status_map.get(i) == Some(&QueueStatus::Completed)
     }
 
+    /// The queue is empty and every item in `range` reached `Completed`.
+    fn assert_drained_completed(q: &OneShotQueue<i32>, range: std::ops::Range<i32>) {
+        assert_eq!(q.pop_next(), None);
+        assert_eq!(count_for_status(q, QueueStatus::Pending), 0);
+        assert_eq!(count_for_status(q, QueueStatus::Reserved), 0);
+        assert!(range.clone().all(|i| completed_contains(q, &i)), "{range:?}");
+    }
+
     #[test]
     fn test_new_queue_is_empty() {
         let queue: OneShotQueue<i32> = OneShotQueue::new();
@@ -191,30 +199,25 @@ mod tests {
         assert!(queue.enqueue(1));
         assert!(!queue.enqueue(1)); // duplicate
         assert!(queue.enqueue(2));
-        assert!(count_for_status(&queue, QueueStatus::Pending) == 2);
 
         assert_eq!(queue.pop_next(), Some(1));
         assert_eq!(queue.pop_next(), Some(2));
         assert_eq!(queue.pop_next(), None);
 
-        assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
-        assert!(count_for_status(&queue, QueueStatus::Reserved) == 2);
         assert!([1, 2].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
     fn test_enqueue_iter_dupes() {
         let queue = OneShotQueue::new();
-        queue.enqueue_iter([1, 2, 2, 3, 1]);
-        assert!(count_for_status(&queue, QueueStatus::Pending) == 3);
+        // Only the two duplicates are refused; the count reports newly queued items.
+        assert_eq!(queue.enqueue_iter([1, 2, 2, 3, 1]), 3);
 
         assert_eq!(queue.pop_next(), Some(1));
         assert_eq!(queue.pop_next(), Some(2));
         assert_eq!(queue.pop_next(), Some(3));
         assert_eq!(queue.pop_next(), None);
 
-        assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
-        assert!(count_for_status(&queue, QueueStatus::Reserved) == 3);
         assert!([1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
     }
 
@@ -229,8 +232,6 @@ mod tests {
         assert_eq!(queue.pop_next(), Some(2));
         assert_eq!(queue.pop_next(), None);
 
-        assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
-        assert!(count_for_status(&queue, QueueStatus::Reserved) == 2);
         assert!([1, 2].iter().all(|i| reserved_contains(&queue, i)));
     }
 
@@ -248,19 +249,6 @@ mod tests {
 
         assert!(reserved_contains(&queue, &2));
         assert!(completed_contains(&queue, &1));
-    }
-
-    #[test]
-    fn test_enqueue_iter() {
-        let queue = OneShotQueue::new();
-        queue.enqueue_iter([1, 2, 3]);
-
-        assert_eq!(queue.pop_next(), Some(1));
-        assert_eq!(queue.pop_next(), Some(2));
-        assert_eq!(queue.pop_next(), Some(3));
-        assert_eq!(queue.pop_next(), None);
-
-        assert!([1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
     }
 
     #[test]
@@ -284,6 +272,16 @@ mod tests {
     }
 
     #[test]
+    fn test_complete_pending_item_is_refused_and_still_deliverable() {
+        let queue = OneShotQueue::new();
+        assert!(queue.enqueue(7));
+
+        // Completing something no worker reserved must not consume it.
+        assert!(!queue.complete(7));
+        assert_eq!(queue.pop_next(), Some(7));
+    }
+
+    #[test]
     fn test_multiple_reserves_and_completes() {
         let queue = OneShotQueue::new();
         queue.enqueue_iter([1, 2, 3, 4]);
@@ -297,34 +295,12 @@ mod tests {
         queue.complete(item2);
         queue.complete(item3);
 
-        assert!(![1, 2, 3].iter().all(|i| reserved_contains(&queue, i)));
+        // Completed items stay tracked and refuse re-enqueue; the fourth was
+        // never popped, so it is still deliverable.
         assert!([1, 2, 3].iter().all(|i| completed_contains(&queue, i)));
-    }
-
-    #[test]
-    fn test_with_string_type() {
-        let queue = OneShotQueue::new();
-        queue.enqueue("hello");
-        queue.enqueue("world");
-
-        assert_eq!(queue.pop_next(), Some("hello"));
-        assert_eq!(queue.pop_next(), Some("world"));
-
-        assert!(
-            ["hello", "world"]
-                .iter()
-                .all(|i| reserved_contains(&queue, i))
-        );
-
-        queue.complete("hello");
-        assert!(!reserved_contains(&queue, &"hello"));
-        assert!(completed_contains(&queue, &"hello"));
-    }
-
-    #[test]
-    fn test_default_trait() {
-        let queue: OneShotQueue<i32> = OneShotQueue::default();
-        assert!(queue.pop_next().is_none());
+        assert!([1, 2, 3].iter().all(|i| !reserved_contains(&queue, i)));
+        assert!(!queue.enqueue(2));
+        assert_eq!(queue.pop_next(), Some(4));
     }
 
     #[test]
@@ -342,66 +318,52 @@ mod tests {
     #[tokio::test]
     async fn test_concurrent_reserve_and_complete() {
         let queue = Arc::new(OneShotQueue::new());
-        queue.enqueue_iter((0..100).collect::<Vec<_>>());
+        queue.enqueue_iter(0..100);
 
         let mut handles = vec![];
 
-        // Spawn multiple workers that reserve and complete items
+        // Workers reserve an item, yield so the others can reserve concurrently,
+        // then complete it: an item must never be handed to two workers.
         for _ in 0..4 {
             let queue_clone = queue.clone();
-            let handle = tokio::spawn(async move {
+            handles.push(tokio::spawn(async move {
                 while let Some(item) = queue_clone.pop_next() {
-                    // Simulate some work
-                    tokio::time::sleep(tokio::time::Duration::from_millis(5)).await;
+                    tokio::task::yield_now().await;
                     queue_clone.complete(item);
                 }
-            });
-            handles.push(handle);
+            }));
         }
 
-        // Wait for all workers to complete
         for handle in handles {
             handle.await.unwrap();
         }
 
-        assert_eq!(queue.pop_next(), None);
-        assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
-        assert!(count_for_status(&queue, QueueStatus::Reserved) == 0);
-
-        assert!(
-            (0..100)
-                .collect::<Vec<_>>()
-                .iter()
-                .all(|i| completed_contains(&queue, i))
-        );
+        assert_drained_completed(&queue, 0..100);
     }
 
     #[tokio::test]
     async fn test_concurrent_enqueue_and_reserve() {
         let queue = Arc::new(OneShotQueue::new());
 
-        // Spawn producer tasks
+        // Producers overlap: each batch re-sends the tail of the previous one, so
+        // a duplicate racing a first insert must still be refused exactly once.
         let mut producer_handles = vec![];
         for batch in 0..4 {
             let queue_clone = queue.clone();
-            let handle = tokio::spawn(async move {
-                let start = batch * 25;
-                let end = start + 25;
-                queue_clone.enqueue_iter((start..end).collect::<Vec<_>>());
-            });
-            producer_handles.push(handle);
+            producer_handles.push(tokio::spawn(async move {
+                let start = batch * 24;
+                queue_clone.enqueue_iter(start..start + 28);
+            }));
         }
-
-        // Wait for producers to finish
         for handle in producer_handles {
             handle.await.unwrap();
         }
 
-        // Spawn consumer tasks
+        // Consumers hold their reserved items while the others pop.
         let mut consumer_handles = vec![];
         for _ in 0..3 {
             let queue_clone = queue.clone();
-            let handle = tokio::spawn(async move {
+            consumer_handles.push(tokio::spawn(async move {
                 let mut reserved_items = vec![];
                 while let Some(item) = queue_clone.pop_next() {
                     reserved_items.push(item);
@@ -409,24 +371,12 @@ mod tests {
                 for item in reserved_items {
                     queue_clone.complete(item);
                 }
-            });
-            consumer_handles.push(handle);
+            }));
         }
-
-        // Wait for all consumers to complete
         for handle in consumer_handles {
             handle.await.unwrap();
         }
 
-        // Verify all 100 items were processed
-        assert_eq!(queue.pop_next(), None);
-        assert!(count_for_status(&queue, QueueStatus::Pending) == 0);
-        assert!(count_for_status(&queue, QueueStatus::Reserved) == 0);
-        assert!(
-            (0..100)
-                .collect::<Vec<_>>()
-                .iter()
-                .all(|i| completed_contains(&queue, i))
-        );
+        assert_drained_completed(&queue, 0..100);
     }
 }

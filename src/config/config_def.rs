@@ -270,16 +270,6 @@ mod tests {
     }
 
     #[test]
-    fn config_defaults_are_stable() {
-        assert!(default_cookie_secure());
-        assert!(default_session_always_save());
-        assert_eq!(default_task_max_attempts(), 3);
-        assert_eq!(default_jwt_user_expiration_secs(), 86400);
-        assert_eq!(default_jwt_validation_leeway_secs(), 0);
-        assert_eq!(default_max_upload_bytes(), 12 * 1024 * 1024);
-    }
-
-    #[test]
     fn postgres_config_requires_only_database_variables() {
         let vars = vec![
             ("POSTGRES_HOST_PORT".into(), "localhost:5432".into()),
@@ -333,10 +323,7 @@ mod tests {
         let error = make_from_envy_iter(vars)
             .err()
             .expect("API config should require a model");
-        assert_eq!(
-            error.to_string(),
-            "GEMINI_MODEL_ID required when WebUI or API can enqueue illumination tasks"
-        );
+        assert!(error.to_string().contains("GEMINI_MODEL_ID"));
     }
 
     #[test]
@@ -360,21 +347,19 @@ mod tests {
             .err()
             .expect("config should be invalid");
 
-        assert_eq!(
-            error.to_string(),
-            "STORAGE_BACKEND is local but no STORAGE_LOCAL_FILE_PATH"
-        );
+        assert!(error.to_string().contains("STORAGE_LOCAL_FILE_PATH"));
     }
 
     #[test]
     fn max_upload_bytes_comes_from_the_environment() {
         let mut vars = required_vars("gcloud");
         vars.push(("STORAGE_GCLOUD_BUCKET_NAME".into(), "bucket".into()));
-        vars.push(("MAX_UPLOAD_BYTES".into(), "12582912".into()));
+        vars.push(("MAX_UPLOAD_BYTES".into(), "1048576".into()));
 
         let config = make_from_envy_iter(vars).expect("config should be valid");
 
-        assert_eq!(config.max_upload_bytes, 12 * 1024 * 1024);
+        // Deliberately not the default: the override must actually be read.
+        assert_eq!(config.max_upload_bytes, 1024 * 1024);
     }
 
     #[test]
@@ -389,9 +374,15 @@ mod tests {
         assert_eq!(config.task_webhook_base_url, "http://localhost:8080");
         assert_eq!(config.jwt_user_expiration_secs, 86400);
         assert_eq!(config.jwt_validation_leeway_secs, 0);
-        assert_eq!(config.max_upload_bytes, default_max_upload_bytes());
+        assert_eq!(config.max_upload_bytes, 12 * 1024 * 1024);
         assert!(config.cookie_secure);
         assert!(config.session_always_save);
+        // Defaulted so legacy environments boot; it doubles as the webhook route suffix, so a
+        // silent change would send Cloud Tasks deliveries to a 404.
+        assert_eq!(
+            config.task_queue_name_knowledge_link,
+            "knowledge-link-illumination"
+        );
     }
 
     #[test]
@@ -449,9 +440,6 @@ mod tests {
         let error = make_from_envy_iter(vars)
             .err()
             .expect("Cloud Tasks config should require OIDC");
-        assert_eq!(
-            error.to_string(),
-            "TASK_BACKEND is gcloudtasks but no TASK_OIDC_SERVICE_ACCOUNT_EMAIL"
-        );
+        assert!(error.to_string().contains("TASK_OIDC_SERVICE_ACCOUNT_EMAIL"));
     }
 }

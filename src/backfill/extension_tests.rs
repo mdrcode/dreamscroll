@@ -2,15 +2,51 @@ use std::sync::Arc;
 
 use sea_orm::{
     ActiveValue::Set, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, QueryTrait,
-    sea_query::SelectStatement,
+    sea_query::{Expr, SelectStatement},
 };
 
-use crate::{auth, logic, model, task};
+use crate::{auth, database, logic, model, task, test_support::db_or_skip};
 
 use super::{
     definition::{Backfill, BackfillTarget, TargetColumn},
     engine::pump_definition,
 };
+
+/// Records a completed spark run for `entity_id` tagged with `backfill_id`: a prior run the pump
+/// treats as progress only when the tag and task type match its definition.
+async fn spark_marker(
+    db: &database::DbHandle,
+    master: &task::TaskMaster,
+    context: &auth::Context,
+    owner_id: i32,
+    entity_id: i32,
+    backfill_id: &str,
+) {
+    let task::SubmitOutcome::Enqueued { run_id, .. } = master
+        .submit_spark(
+            context,
+            logic::spark::SparkTask {
+                spark_id: entity_id,
+                entity_owner_id: owner_id,
+                capture_ids: vec![1],
+            },
+            Some(backfill_id),
+        )
+        .await
+        .unwrap()
+    else {
+        panic!("marker run for {entity_id} was refused");
+    };
+    model::task_run::Entity::update_many()
+        .col_expr(
+            model::task_run::Column::StatusCode,
+            Expr::value(task::TaskRunStatus::CompleteSuccess.as_i32()),
+        )
+        .filter(model::task_run::Column::RunId.eq(run_id))
+        .exec(&db.conn)
+        .await
+        .unwrap();
+}
 
 struct SelectedSparks;
 
@@ -42,10 +78,7 @@ impl Backfill for SelectedSparks {
 
 #[tokio::test]
 async fn backfill_supports_a_filtered_noncapture_relation_and_excludes_before_limiting() {
-    let Some(test_db) = crate::test_support::test_db::test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
+    db_or_skip!(db);
     let owner = model::user::ActiveModel::builder()
         .set_username("eligible")
         .set_password_hash("unused")
@@ -67,7 +100,7 @@ async fn backfill_supports_a_filtered_noncapture_relation_and_excludes_before_li
         .insert(&db.conn)
         .await
         .unwrap();
-    model::spark::Entity::insert_many((1..=101).map(|id| model::spark::ActiveModel {
+    model::spark::Entity::insert_many((1..=102).map(|id| model::spark::ActiveModel {
         id: Set(id),
         user_id: Set(owner.id),
         ..Default::default()
@@ -97,29 +130,11 @@ async fn backfill_supports_a_filtered_noncapture_relation_and_excludes_before_li
         )
         .await
         .unwrap();
-    let task::SubmitOutcome::Enqueued { run_id, .. } = master
-        .submit_spark(
-            &context,
-            definition.make_task(BackfillTarget {
-                entity_id: 101,
-                owner_id: owner.id,
-            }),
-            Some("another-backfill"),
-        )
-        .await
-        .unwrap()
-    else {
-        panic!("prior backfill refused");
-    };
-    model::task_run::Entity::update_many()
-        .col_expr(
-            model::task_run::Column::StatusCode,
-            sea_orm::sea_query::Expr::value(task::TaskRunStatus::CompleteSuccess.as_i32()),
-        )
-        .filter(model::task_run::Column::RunId.eq(run_id))
-        .exec(&db.conn)
-        .await
-        .unwrap();
+    spark_marker(&db, &master, &context, owner.id, 101, "another-backfill").await;
+
+    // A run for this backfill and task type is a progress marker. Entity 100 sits inside the
+    // descending batch, so if exclusion happened after the limit the batch would hold 99 rows.
+    spark_marker(&db, &master, &context, owner.id, 100, definition.id()).await;
 
     let first = pump_definition(&db, &definition, 100, false, |task, id| {
         master.submit_spark(&context, task, Some(id))
@@ -135,19 +150,29 @@ async fn backfill_supports_a_filtered_noncapture_relation_and_excludes_before_li
         .all(&db.conn)
         .await
         .unwrap();
+    // The 100 pumped runs plus the excluded entity's own marker. Excluding after the limit would
+    // have left 99 pumped rows; the other owner's spark and the other task type are absent.
     assert_eq!(
         first_runs
             .iter()
             .map(|run| run.entity_id)
             .collect::<Vec<_>>(),
-        (2..=101).rev().collect::<Vec<_>>()
+        (2..=102).rev().collect::<Vec<_>>()
     );
     assert!(
         first_runs
             .iter()
             .all(|run| run.entity_type == "spark" && run.entity_owner_id == owner.id)
     );
-    assert_eq!(first_runs[0].run_number, 2);
+    // `logical_id` is owner+task, not backfill+task, so the pump's rerun of 101 is run 2.
+    let resumed = model::task_run::Entity::find()
+        .filter(model::task_run::Column::BackfillId.eq(definition.id()))
+        .filter(model::task_run::Column::EntityId.eq(101))
+        .one(&db.conn)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(resumed.run_number, 2);
 
     let second = pump_definition(&db, &definition, 100, false, |task, id| {
         master.submit_spark(&context, task, Some(id))

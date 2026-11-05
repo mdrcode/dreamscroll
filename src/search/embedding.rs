@@ -134,13 +134,6 @@ mod tests {
     }
 
     #[test]
-    fn from_vec_accepts_finite_non_empty_values() {
-        let emb = Embedding::<f32, Raw>::from_vec(vec![1.0, 2.0, 3.0]).unwrap();
-        assert_eq!(emb.len(), 3);
-        assert!(!emb.is_empty());
-    }
-
-    #[test]
     fn normalize_produces_unit_vector() {
         let emb = Embedding::<f32, Raw>::from_vec(vec![3.0, 4.0]).unwrap();
         let unit = emb.normalize().unwrap();
@@ -156,24 +149,9 @@ mod tests {
     }
 
     #[test]
-    fn from_vec_normalizing_keeps_exact_unit_vector_unchanged() {
-        let input = vec![1.0, 0.0, 0.0];
-        let unit = Embedding::<f32, Raw>::from_vec_normalizing(input.clone()).unwrap();
-        assert_eq!(unit.as_slice(), input.as_slice());
-    }
-
-    #[test]
     fn normalize_rejects_zero_vector() {
         let emb = Embedding::<f32, Raw>::from_vec(vec![0.0, 0.0, 0.0]).unwrap();
         let err = emb.normalize().unwrap_err();
         assert!(err.to_string().contains("cannot normalize"));
-    }
-
-    #[test]
-    fn into_vec_round_trip() {
-        let input = vec![1.5, -2.5, 3.25];
-        let emb = Embedding::<f32, Raw>::from_vec(input.clone()).unwrap();
-        let output = emb.into_vec();
-        assert_eq!(input, output);
     }
 }

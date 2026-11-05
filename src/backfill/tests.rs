@@ -7,6 +7,7 @@ use sea_orm::{
 
 use super::illuminate_v2_backfill::ILLUMINATE_V2_BACKFILL_ID;
 use super::*;
+use crate::test_support::db_or_skip;
 use crate::{api, auth, database, illumination, logic, model, task};
 
 fn admin_context() -> auth::Context {
@@ -23,7 +24,8 @@ fn admin_context() -> auth::Context {
     ))
 }
 
-async fn captures(db: &database::DbHandle, count: i32) {
+/// Inserts `count` archived captures for one new owner; returns that owner's id.
+async fn captures(db: &database::DbHandle, count: i32) -> i32 {
     let owner = model::user::ActiveModel::builder()
         .set_username("capture-owner")
         .set_password_hash("unused")
@@ -40,6 +42,7 @@ async fn captures(db: &database::DbHandle, count: i32) {
         ))
         .await
         .unwrap();
+    owner.id
 }
 
 fn request() -> BackfillPumpRequest {
@@ -96,11 +99,8 @@ async fn settle_with_error(
 
 #[tokio::test]
 async fn bounded_pumps_cover_all_captures_and_do_not_resubmit_failed_targets() {
-    let Some(test_db) = crate::test_support::test_db::test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
-    captures(&db, 101).await;
+    db_or_skip!(db);
+    let owner_id = captures(&db, 101).await;
     let master = Arc::new(task::TaskMaster::builder().db(db.clone()).build().unwrap());
     let client = api::AdminApiClient::new(db.clone(), master);
     let first = client
@@ -119,7 +119,7 @@ async fn bounded_pumps_cover_all_captures_and_do_not_resubmit_failed_targets() {
         runs.iter().map(|run| run.entity_id).collect::<Vec<_>>(),
         (2..=101).rev().collect::<Vec<_>>()
     );
-    assert!(runs.iter().all(|run| run.entity_owner_id == 1));
+    assert!(runs.iter().all(|run| run.entity_owner_id == owner_id));
     settle(&db, &runs[0].run_id, task::TaskRunStatus::CompleteFailure).await;
     settle(&db, &runs[1].run_id, task::TaskRunStatus::SubmissionFailed).await;
 
@@ -144,10 +144,7 @@ async fn bounded_pumps_cover_all_captures_and_do_not_resubmit_failed_targets() {
 
 #[tokio::test]
 async fn failures_report_terminal_runs_with_the_error_each_recorded() {
-    let Some(test_db) = crate::test_support::test_db::test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
+    db_or_skip!(db);
     captures(&db, 3).await;
     let master = Arc::new(task::TaskMaster::builder().db(db.clone()).build().unwrap());
     let client = api::AdminApiClient::new(db.clone(), master);
@@ -176,7 +173,6 @@ async fn failures_report_terminal_runs_with_the_error_each_recorded() {
         .await
         .unwrap();
 
-    assert_eq!(response.backfill_id, ILLUMINATE_V2_BACKFILL_ID);
     assert_eq!(
         response.failures.len(),
         1,
@@ -197,10 +193,7 @@ async fn failures_report_terminal_runs_with_the_error_each_recorded() {
 
 #[tokio::test]
 async fn live_refusal_stays_eligible_and_status_includes_only_tagged_task_types() {
-    let Some(test_db) = crate::test_support::test_db::test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
+    db_or_skip!(db);
     captures(&db, 1).await;
     let master = Arc::new(task::TaskMaster::builder().db(db.clone()).build().unwrap());
     let client = api::AdminApiClient::new(db.clone(), master.clone());
@@ -286,10 +279,7 @@ async fn live_refusal_stays_eligible_and_status_includes_only_tagged_task_types(
 
 #[tokio::test]
 async fn backfill_operations_require_admin_and_a_registered_definition() {
-    let Some(test_db) = crate::test_support::test_db::test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
+    db_or_skip!(db);
     let master = Arc::new(task::TaskMaster::builder().db(db.clone()).build().unwrap());
     let client = api::AdminApiClient::new(db, master);
     let user = auth::Context::from(auth::DreamscrollAuthUser::new_test_session(1));
@@ -368,10 +358,7 @@ impl task::TaskQueue<logic::illuminate::IlluminationTask> for FailOneQueue {
 
 #[tokio::test]
 async fn a_partial_pump_failure_is_reported_and_not_automatically_resubmitted() {
-    let Some(test_db) = crate::test_support::test_db::test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
+    db_or_skip!(db);
     captures(&db, 3).await;
     let master = Arc::new(
         task::TaskMaster::builder()
@@ -439,10 +426,7 @@ async fn a_partial_pump_failure_is_reported_and_not_automatically_resubmitted() 
 
 #[tokio::test]
 async fn candidate_limits_bound_attempts_and_can_exceed_the_default() {
-    let Some(test_db) = crate::test_support::test_db::test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
+    db_or_skip!(db);
     captures(&db, 105).await;
     let master = Arc::new(task::TaskMaster::builder().db(db.clone()).build().unwrap());
     let client = api::AdminApiClient::new(db.clone(), master.clone());
@@ -514,10 +498,7 @@ async fn candidate_limits_bound_attempts_and_can_exceed_the_default() {
 
 #[tokio::test]
 async fn a_zero_candidate_limit_is_rejected_without_consuming_a_target() {
-    let Some(test_db) = crate::test_support::test_db::test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
+    db_or_skip!(db);
     captures(&db, 1).await;
     let master = Arc::new(task::TaskMaster::builder().db(db.clone()).build().unwrap());
     let client = api::AdminApiClient::new(db, master);
@@ -547,10 +528,7 @@ async fn a_zero_candidate_limit_is_rejected_without_consuming_a_target() {
 
 #[tokio::test]
 async fn a_dry_pump_latches_and_force_reopens_only_when_it_finds_work() {
-    let Some(test_db) = crate::test_support::test_db::test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
+    db_or_skip!(db);
     let master = Arc::new(task::TaskMaster::builder().db(db.clone()).build().unwrap());
     let client = api::AdminApiClient::new(db.clone(), master);
     let context = admin_context();

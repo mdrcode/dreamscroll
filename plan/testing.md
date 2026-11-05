@@ -1,6 +1,6 @@
 # Testing philosophy
 
-**Status:** living document. Last updated 2026-10-06.
+**Status:** living document. Last updated 2026-11-05.
 
 > **See also:** `plan/archive/task-status.md` (the framework these tests cover),
 > `plan/pragmatism.md` (tolerated trade-offs), `plan/archive/sse.md` (implemented SSE delivery),
@@ -157,6 +157,35 @@ thing to check.
   under test.
 - **Don't assert on row counts across the whole table.** Assert on the specific
   rows you created. (Isolation makes this safe, but it keeps tests readable.)
+- **Open a DB test with `db_or_skip!(db);`.** One statement that binds `db` or
+  returns when no database is reachable — see *DB tests* for why it is a
+  statement, not an expression.
+- **Name the test for the claim it can fail on.** If the name says "the best
+  candidate wins", the assertion must demand the specific one, not either one.
+
+## What a test has to be able to fail on
+
+An audit of the whole suite (2026-11-05) found the recurring ways a test can hold
+a line count while catching nothing. Each one is worth checking for by name:
+
+- **A tautology.** `identity()` forwarding to `key()`, a function returning the
+  constant it is defined as, `derive(Clone)` then asserting a clone equals its
+  source, asserting a private default function equals the default it is.
+- **A fixture that cannot distinguish.** A parser test with `{"clusters": []}`
+  passes when every field name is renamed. An "excludes before limiting" test
+  whose data never exceeds the limit passes if exclusion happens after. Feed the
+  case that separates correct from incorrect.
+- **An input equal to the default.** `env` var set to exactly the default value
+  cannot detect an ignored variable. Override with something that differs.
+- **A weak assertion.** `assert!(!all(reserved))` accepts items still reserved;
+  `is_ok()` as the only claim; `contains` on a substring implied by an equality.
+- **An unreachable pin.** A test for a path no caller can reach today documents a
+  non-goal; put the rationale in a comment on the code instead.
+- **Duplicate coverage.** The same fact at two layers (a pure helper and the DB
+  path that calls it) is one fact. Keep the layer a consumer actually exercises.
+
+The failure mode these share: **the test would still pass if the behaviour it
+names were deleted.** Ask that question of every test you keep.
 
 ## Deferred coverage gaps — SSE/task ecosystem (updated 2026-10-08)
 

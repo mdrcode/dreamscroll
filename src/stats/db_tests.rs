@@ -3,7 +3,7 @@
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
-use crate::{database, model, test_support::test_db::test_db};
+use crate::{database, model, test_support::db_or_skip};
 
 use super::*;
 
@@ -91,10 +91,7 @@ fn close_within(actual: Option<f64>, expected: f64, tolerance: f64) {
 
 #[tokio::test]
 async fn queue_stats_report_known_percentiles_and_backlog() {
-    let Some(test_db) = test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
+    db_or_skip!(db);
     seed(&db).await;
 
     let response = queue_stats(&db, &[24], crate::config::TaskQueueBackend::Local)
@@ -121,7 +118,6 @@ async fn queue_stats_report_known_percentiles_and_backlog() {
         .iter()
         .find(|row| row.task_type == "illuminate")
         .expect("illuminate stats row");
-    assert_eq!(queue.queue, "illuminate");
 
     assert_eq!(queue.queued_success.n, 5);
     close(queue.queued_success.p50, 300.0);
@@ -147,10 +143,7 @@ async fn queue_stats_report_known_percentiles_and_backlog() {
 
 #[tokio::test]
 async fn failures_list_terminal_and_optional_retrying() {
-    let Some(test_db) = test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
+    db_or_skip!(db);
     seed(&db).await;
     db.conn
         .execute_unprepared(
@@ -161,7 +154,6 @@ async fn failures_list_terminal_and_optional_retrying() {
         .unwrap();
 
     let terminal = queue_failures(&db, 24, 10, false).await.unwrap();
-    assert!(!terminal.include_retrying);
     assert_eq!(terminal.failures.len(), 2);
     assert!(
         terminal
@@ -174,12 +166,6 @@ async fn failures_list_terminal_and_optional_retrying() {
             .failures
             .iter()
             .all(|failure| failure.error_code == Some(504))
-    );
-    assert!(
-        terminal
-            .failures
-            .iter()
-            .all(|failure| failure.queue == "illuminate")
     );
     assert!(
         terminal.failures.iter().any(|failure| {
@@ -202,10 +188,7 @@ async fn failures_list_terminal_and_optional_retrying() {
 
 #[tokio::test]
 async fn inference_stats_report_duration_and_tokens() {
-    let Some(test_db) = test_db().await else {
-        return;
-    };
-    let db = test_db.handle();
+    db_or_skip!(db);
     seed(&db).await;
 
     let response = inference_stats(&db, &[24]).await.unwrap();

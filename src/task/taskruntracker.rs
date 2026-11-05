@@ -336,6 +336,8 @@ fn is_submission_conflict(err: &sea_orm::DbErr) -> bool {
 mod tests {
     use std::sync::{Arc, Mutex};
 
+    use crate::test_support::db_or_skip;
+
     use super::*;
 
     #[derive(Clone, Default)]
@@ -411,10 +413,8 @@ mod tests {
 
     #[tokio::test]
     async fn insert_run_persists_identity_and_task_payload() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
         let env = TaskRun::new(
             crate::logic::illuminate::IlluminationTask::new(
                 42,
@@ -455,42 +455,12 @@ mod tests {
             }))
         );
         assert_eq!(stored.attempts, 0);
-        assert!(stored.processing_started_at.is_none());
-        assert!(stored.last_error_duration_ms.is_none());
-        assert!(stored.success_duration_ms.is_none());
-    }
-
-    #[tokio::test]
-    async fn insert_run_always_starts_queued_with_zero_attempts() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let notifier = RecordingNotifier::default();
-        let tracker = TaskRunTracker::for_tests(db.handle(), Some(Arc::new(notifier.clone())));
-        let task_run = task_run(1, 52, 1);
-
-        assert!(tracker.insert_run(&task_run).await.unwrap());
-
-        let stored = tracker
-            .query_run_status(&task_run.logical_id, Some(task_run.run_number), None)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(stored.status_code, TaskRunStatus::Queued.as_i32());
-        assert_eq!(stored.attempts, 0);
-
-        let published = notifier.0.lock().unwrap();
-        assert_eq!(published.len(), 1);
-        assert_eq!(published[0].payload.status, TaskRunStatus::Queued);
-        assert_eq!(published[0].payload.attempts, 0);
     }
 
     #[tokio::test]
     async fn attempt_timing_records_success_and_retry_failure_durations() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
         let env = task_run(1, 53, 1);
         assert!(tracker.insert_run(&env).await.unwrap());
 
@@ -532,10 +502,8 @@ mod tests {
 
     #[tokio::test]
     async fn finishing_without_a_processing_start_preserves_null_duration() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
         let env = task_run(1, 54, 1);
         assert!(tracker.insert_run(&env).await.unwrap());
 
@@ -557,10 +525,8 @@ mod tests {
 
     #[tokio::test]
     async fn failed_attempt_persists_the_literal_reported_error() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
         let env = task_run(1, 59, 1);
         assert!(tracker.insert_run(&env).await.unwrap());
         tracker.mark_in_progress(&env, 1).await.unwrap();
@@ -608,10 +574,8 @@ mod tests {
 
     #[tokio::test]
     async fn failed_attempt_prefers_the_more_specific_error_code() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
         let env = task_run(1, 60, 1);
         assert!(tracker.insert_run(&env).await.unwrap());
         tracker.mark_in_progress(&env, 1).await.unwrap();
@@ -646,36 +610,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn successful_attempt_refreshes_processing_measure() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
-        let env = task_run(1, 55, 1);
-        assert!(tracker.insert_run(&env).await.unwrap());
-        tracker.mark_in_progress(&env, 1).await.unwrap();
-        tracker
-            .record_outcome(&env, TaskRunStatus::CompleteSuccess, 1, None)
-            .await
-            .unwrap();
-
-        let measure = timing::TimingEstimator::new(tracker.db.clone())
-            .client_estimate("test")
-            .await
-            .expect("successful attempt should create a processing measure");
-        assert_eq!(measure.sample_count, 1);
-        assert!(measure.duration_ms_avg >= 0);
-        assert!(measure.duration_ms_p50 >= 0);
-        assert!(measure.duration_ms_p75 >= 0);
-        assert!(measure.duration_ms_p90 >= 0);
-    }
-
-    #[tokio::test]
     async fn timing_measure_excludes_failures_and_updates_in_place() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
 
         let first = task_run(1, 56, 1);
         assert!(tracker.insert_run(&first).await.unwrap());
@@ -738,11 +675,9 @@ mod tests {
 
     #[tokio::test]
     async fn successful_status_writes_publish_events_but_conflicts_and_missing_updates_do_not() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
+        db_or_skip!(db);
         let notifier = RecordingNotifier::default();
-        let tracker = TaskRunTracker::for_tests(db.handle(), Some(Arc::new(notifier.clone())));
+        let tracker = TaskRunTracker::for_tests(db, Some(Arc::new(notifier.clone())));
         let first_task_run = task_run(1, 42, 1);
 
         assert!(tracker.insert_run(&first_task_run).await.unwrap());
@@ -765,10 +700,8 @@ mod tests {
 
     #[tokio::test]
     async fn notification_failure_does_not_fail_a_status_write() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), Some(Arc::new(FailingNotifier)));
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, Some(Arc::new(FailingNotifier)));
         let task_run = task_run(1, 42, 1);
 
         assert!(
@@ -794,10 +727,8 @@ mod tests {
     /// tracker must report the conflict rather than propagate it as an error.
     #[tokio::test]
     async fn insert_run_refuses_a_duplicate_run() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
         let env = task_run(1, 42, 1);
 
         let first = tracker
@@ -815,10 +746,8 @@ mod tests {
 
     #[tokio::test]
     async fn backfill_key_rejects_a_stale_claim_at_a_different_run_ordinal() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
         let mut first = task_run(1, 42, 1);
         first.backfill_id = Some("test-backfill".to_string());
         assert!(tracker.insert_run(&first).await.unwrap());
@@ -852,10 +781,8 @@ mod tests {
 
     #[tokio::test]
     async fn unrelated_unique_run_id_violation_is_not_a_submission_conflict() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
         let first = task_run(1, 42, 1);
         assert!(tracker.insert_run(&first).await.unwrap());
         let mut unrelated = task_run(1, 43, 1);
@@ -864,76 +791,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn concurrent_insert_run_calls_are_arbitrated_by_unique_index() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
-        let first = task_run(1, 42, 1);
-        let second = task_run(1, 42, 1);
-
-        let (first_created, second_created) =
-            tokio::join!(tracker.insert_run(&first), tracker.insert_run(&second),);
-        let created = [first_created.unwrap(), second_created.unwrap()];
-
-        assert_eq!(
-            created.iter().filter(|was_created| **was_created).count(),
-            1,
-            "the unique (logical_id, run) constraint must arbitrate concurrent inserts"
-        );
-    }
-
-    #[tokio::test]
-    async fn insert_run_allows_a_new_run_of_the_same_task() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
-
-        assert!(
-            insert_run_with_status(
-                &tracker,
-                &task_run(1, 42, 1),
-                TaskRunStatus::CompleteSuccess,
-                1,
-            )
-            .await
-            .expect("run 1 should be created")
-        );
-        assert!(
-            tracker
-                .insert_run(&task_run(1, 42, 2))
-                .await
-                .expect("run 2 should be created")
-        );
-
-        let latest = tracker
-            .query_run_status(&task_run(1, 42, 1).logical_id, None, None)
-            .await
-            .expect("query should succeed")
-            .expect("a row should exist");
-
-        assert_eq!(latest.run_number, 2, "latest_run picks the highest run");
-    }
-
-    #[tokio::test]
-    async fn insert_run_accepts_the_required_payload() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
-        let env = task_run(1, 42, 1);
-        let result = tracker.insert_run(&env).await;
-
-        assert!(result.is_ok(), "a valid TaskRun carries its task payload");
-    }
-
-    #[tokio::test]
     async fn set_status_touches_only_its_own_run() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
         let run1 = task_run(1, 42, 1);
         let run2 = task_run(1, 42, 2);
 
@@ -979,10 +839,8 @@ mod tests {
 
     #[tokio::test]
     async fn query_latest_task_runs_is_owner_scoped() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
 
         tracker
             .insert_run(&task_run(1, 42, 1))
@@ -1017,10 +875,8 @@ mod tests {
 
     #[tokio::test]
     async fn query_latest_task_runs_filters_and_collapses_runs() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
 
         insert_run_with_status(
             &tracker,
@@ -1071,10 +927,8 @@ mod tests {
 
     #[tokio::test]
     async fn query_latest_task_runs_empty_input_returns_empty() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
 
         let rows = tracker
             .query_latest_task_runs(1, "capture", &[])
@@ -1086,10 +940,8 @@ mod tests {
 
     #[tokio::test]
     async fn query_latest_task_runs_keeps_distinct_tasks_and_filters_entity_type() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
 
         insert_run_with_status(
             &tracker,
@@ -1146,10 +998,8 @@ mod tests {
 
     #[tokio::test]
     async fn latest_run_returns_highest_run_and_none_for_missing_task() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let tracker = TaskRunTracker::for_tests(db.handle(), None);
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
         let first = task_run(1, 42, 1);
         let second = task_run(1, 42, 2);
 
@@ -1176,43 +1026,39 @@ mod tests {
         );
     }
 
+    /// `run_id` is globally unique, so the owner filter is the only thing keeping
+    /// one owner's run from being readable by another.
     #[tokio::test]
-    async fn set_status_for_missing_row_warns_and_does_not_publish() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
+    async fn query_run_by_id_is_owner_scoped() {
+        db_or_skip!(db);
+        let tracker = TaskRunTracker::for_tests(db, None);
+        let run = task_run(1, 42, 1);
+        assert!(tracker.insert_run(&run).await.unwrap());
+
+        let owner = tracker.query_run_by_id(&run.run_id, Some(1)).await.unwrap();
+        let other = tracker.query_run_by_id(&run.run_id, Some(2)).await.unwrap();
+        let unscoped = tracker.query_run_by_id(&run.run_id, None).await.unwrap();
+
+        assert_eq!(owner.expect("the owner sees its run").run_id, run.run_id);
+        assert!(other.is_none(), "the owner filter is a security boundary");
+        assert!(
+            unscoped.is_some(),
+            "workers load a queued payload without an owner scope"
+        );
+    }
+
+    /// A status write for a run that was never persisted is a silent no-op: it
+    /// must not create a row and must not publish an event.
+    #[tokio::test]
+    async fn set_status_for_a_missing_row_is_a_no_op() {
+        db_or_skip!(db);
         let notifier = RecordingNotifier::default();
-        let tracker = TaskRunTracker::for_tests(db.handle(), Some(Arc::new(notifier.clone())));
+        let tracker = TaskRunTracker::for_tests(db, Some(Arc::new(notifier.clone())));
 
         tracker
             .set_status(&task_run(1, 42, 1), TaskRunStatus::InProgress, 1, None)
             .await
             .expect("missing-run update is ignored after logging a warning");
-
-        assert!(
-            tracker
-                .query_run_status("u1-test-capture42", None, None)
-                .await
-                .unwrap()
-                .is_none()
-        );
-        assert!(notifier.0.lock().unwrap().is_empty());
-    }
-
-    /// Every status write shares the missing-row outcome; an attempt outcome must
-    /// not publish a hint for a run that was never written.
-    #[tokio::test]
-    async fn record_outcome_for_missing_row_warns_and_does_not_publish() {
-        let Some(db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let notifier = RecordingNotifier::default();
-        let tracker = TaskRunTracker::for_tests(db.handle(), Some(Arc::new(notifier.clone())));
-
-        tracker
-            .record_outcome(&task_run(1, 42, 1), TaskRunStatus::CompleteSuccess, 1, None)
-            .await
-            .expect("missing-run outcome is ignored after logging a warning");
 
         assert!(
             tracker

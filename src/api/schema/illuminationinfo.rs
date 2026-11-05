@@ -104,14 +104,19 @@ mod tests {
         assert!(payload.get("x_queries").is_none());
 
         let text = info.make_text();
-        assert!(text.contains("Summary\nsummary"));
-        assert!(text.contains("Details\ndetails"));
-        assert!(text.contains("Entities"));
-        assert!(text.contains("type: real_person"));
-        assert!(text.contains("description: Pioneer of computing"));
-        assert!(text.contains("canonical search: Ada Lovelace mathematician"));
-        assert!(text.contains("handle: @ada"));
-        assert!(text.contains("Suggested searches\n- related topic"));
+        assert!(text.contains("summary") && text.contains("details"));
+        // Every entity detail reaches the indexed search text.
+        for expected in [
+            "Ada Lovelace",
+            "type: real_person",
+            "description: Pioneer of computing",
+            "canonical search: Ada Lovelace mathematician",
+            "display name: Ada",
+            "handle: @ada",
+            "- related topic",
+        ] {
+            assert!(text.contains(expected), "missing {expected:?} in {text:?}");
+        }
     }
 
     #[test]

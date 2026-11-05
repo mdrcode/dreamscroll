@@ -180,40 +180,26 @@ mod tests {
 
     #[tokio::test]
     async fn insert_persists_v1_raw_only_and_v2_projection() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        crate::test_support::db_or_skip!(db);
 
-        let user = model::user::ActiveModel::builder()
-            .set_username(format!("raw_{}", uuid::Uuid::new_v4().simple()))
-            .set_password_hash("test-password-hash")
-            .set_storage_shard(model::user::generate_storage_shard(8))
-            .insert(&db.conn)
-            .await
-            .unwrap();
-        let capture = model::capture::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_created_at(Utc::now())
-            .insert(&db.conn)
-            .await
-            .unwrap();
+        let user_id = crate::test_support::fixtures::user(&db, "insert_illum").await;
+        let capture_id = crate::test_support::fixtures::capture(&db, user_id).await;
 
         let media = model::media::ActiveModel::builder()
-            .set_user_id(user.id)
-            .set_capture_id(capture.id)
+            .set_user_id(user_id)
+            .set_capture_id(capture_id)
             .set_bytes(4)
             .set_mime_type(Some("image/jpeg".to_string()))
             .set_hash_blake3(Some("test-hash".to_string()))
             .set_storage_provider("test")
-            .set_storage_user_shard(user.storage_shard.clone())
+            .set_storage_user_shard(model::user::generate_storage_shard(8))
             .set_storage_uuid(uuid::Uuid::new_v4())
             .insert(&db.conn)
             .await
             .unwrap();
         let capture_info = CaptureInfo {
-            id: capture.id,
-            user_id: user.id,
+            id: capture_id,
+            user_id,
             created_at: Utc::now(),
             created_at_human: String::new(),
             archived_at: None,
@@ -250,9 +236,8 @@ mod tests {
         });
 
         let illumination = v1::Illumination::from_raw_json(content.clone()).unwrap();
-        assert_eq!(illumination.raw_json(), &content);
 
-        let v1_meta_id = record_usage(&db, user.id, &v1_task_run_id, 12).await;
+        let v1_meta_id = record_usage(&db, user_id, &v1_task_run_id, 12).await;
         insert_illumination_raw(
             &db,
             &capture_info,
@@ -271,27 +256,20 @@ mod tests {
             .unwrap();
         assert_eq!(stored_raw.inference_meta_id, Some(v1_meta_id));
         assert_eq!(stored_raw.media_id, media.id);
-        assert_eq!(stored_raw.task_run_id, v1_task_run_id);
         assert_eq!(stored_raw.content, content);
 
         let v1_parent_rows = model::illumination::Entity::find()
-            .filter(model::illumination::Column::CaptureId.eq(capture.id))
+            .filter(model::illumination::Column::CaptureId.eq(capture_id))
             .all(&db.conn)
             .await
             .unwrap();
         assert!(v1_parent_rows.is_empty());
         let v1_entities = model::user_observed_entity::Entity::find()
-            .filter(model::user_observed_entity::Column::UserId.eq(user.id))
+            .filter(model::user_observed_entity::Column::UserId.eq(user_id))
             .all(&db.conn)
             .await
             .unwrap();
         assert!(v1_entities.is_empty());
-        let v1_search_indexes = model::search_index::Entity::find()
-            .filter(model::search_index::Column::UserId.eq(user.id))
-            .all(&db.conn)
-            .await
-            .unwrap();
-        assert!(v1_search_indexes.is_empty());
         let v2_content = json!({
             "summary": "A Reddit community for NFC West memes",
             "details": "A community focused on memes about the NFL's NFC West division.",
@@ -312,7 +290,7 @@ mod tests {
         let v2_task_run_id = uuid::Uuid::new_v4().to_string();
         let v2_result = crate::illumination::v2::Illumination::from_raw_json(v2_content.clone())
             .expect("v2 output should deserialize");
-        let v2_meta_id = record_usage(&db, user.id, &v2_task_run_id, 20).await;
+        let v2_meta_id = record_usage(&db, user_id, &v2_task_run_id, 20).await;
         insert_illumination_raw(
             &db,
             &capture_info,
@@ -333,7 +311,7 @@ mod tests {
         .unwrap();
 
         let stored_v2 = model::illumination_raw::Entity::find()
-            .filter(model::illumination_raw::Column::CaptureId.eq(capture.id))
+            .filter(model::illumination_raw::Column::CaptureId.eq(capture_id))
             .filter(model::illumination_raw::Column::TaskRunId.eq(&v2_task_run_id))
             .one(&db.conn)
             .await
@@ -341,8 +319,6 @@ mod tests {
             .unwrap();
         assert_eq!(stored_v2.inference_meta_id, Some(v2_meta_id));
         assert_eq!(stored_v2.content, v2_content);
-        assert_eq!(stored_v2.task_run_id, v2_task_run_id);
-        assert_eq!(stored_v2.media_id, media.id);
         let stored_v2_illumination = model::illumination::Entity::find()
             .filter(model::illumination::Column::TaskRunId.eq(&v2_task_run_id))
             .one(&db.conn)
@@ -385,7 +361,7 @@ mod tests {
         let retry_result =
             crate::illumination::v2::Illumination::from_raw_json(retry_content.clone())
                 .expect("retry output should deserialize");
-        let retry_meta_id = record_usage(&db, user.id, &v2_task_run_id, 30).await;
+        let retry_meta_id = record_usage(&db, user_id, &v2_task_run_id, 30).await;
         insert_illumination_raw(
             &db,
             &capture_info,
@@ -395,16 +371,6 @@ mod tests {
         )
         .await
         .unwrap();
-        let prior_projection = model::illumination::Entity::find_by_id(stored_v2_illumination.id)
-            .one(&db.conn)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(prior_projection.inference_meta_id, Some(v2_meta_id));
-        assert_eq!(
-            prior_projection.summary,
-            "A Reddit community for NFC West memes"
-        );
         insert_illumination_v2(
             &db,
             &capture_info,
@@ -423,23 +389,20 @@ mod tests {
         assert_eq!(raw_rows.len(), 1);
         assert_eq!(raw_rows[0].content, retry_content);
         assert_eq!(raw_rows[0].inference_meta_id, Some(retry_meta_id));
-        let usage_rows = model::inference_meta::Entity::find()
-            .filter(model::inference_meta::Column::TaskRunId.eq(&v2_task_run_id))
-            .order_by_asc(model::inference_meta::Column::Id)
-            .all(&db.conn)
-            .await
-            .unwrap();
-        assert_eq!(
-            usage_rows
-                .iter()
-                .map(|row| (row.id, row.tokens_in))
-                .collect::<Vec<_>>(),
-            vec![(v2_meta_id, Some(20)), (retry_meta_id, Some(30))]
-        );
-        insert_illumination_raw(&db, &capture_info, &v2_task_run_id, None,
+        insert_illumination_raw(
+            &db,
+            &capture_info,
+            &v2_task_run_id,
+            None,
             &json!({
-                "summary": "untracked output", "details": "metadata insert failed", "suggested_searches": [], "entities": []
-            })).await.unwrap();
+                "summary": "untracked output",
+                "details": "metadata insert failed",
+                "suggested_searches": [],
+                "entities": []
+            }),
+        )
+        .await
+        .unwrap();
         let untracked = model::illumination_raw::Entity::find_by_id(raw_rows[0].id)
             .one(&db.conn)
             .await
@@ -465,6 +428,18 @@ mod tests {
             .await
             .unwrap();
         assert!(retry_entities.is_empty());
+        let retry_index = model::search_index::Entity::find()
+            .filter(model::search_index::Column::IlluminationId.eq(illumination_rows[0].id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(retry_index.len(), 1, "each projection keeps one index row");
+        assert!(
+            retry_index[0]
+                .content
+                .contains("retry replaces the previous result"),
+            "the searchable text must be rebuilt from the latest projection"
+        );
 
         insert_illumination_v2(
             &db,

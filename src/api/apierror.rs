@@ -210,4 +210,19 @@ mod tests {
 
         assert_eq!(api_error.inner_status_code(), 500);
     }
+
+    #[tokio::test]
+    async fn response_never_echoes_the_internal_error() {
+        let response =
+            ApiError::bad_request(anyhow::anyhow!("upstream said: secret")).into_response();
+
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert!(
+            !String::from_utf8_lossy(&body).contains("secret"),
+            "internal details must not reach the caller"
+        );
+    }
 }
