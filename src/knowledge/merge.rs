@@ -225,23 +225,6 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         .filter(claims::Column::KnowledgeEntityId.eq(loser))
         .exec(conn)
         .await?;
-    // Proximities are a record, so they are settled rather than deleted: the pair naming both ends
-    // was the question this merge answers, and any other question about the loser is moot now that
-    // it is a tombstone.
-    conn.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "UPDATE knowledge_proximities \
-            SET verdict = CASE \
-                  WHEN (holder_id = $1 OR counterpart_id = $1) \
-                       AND (holder_id = $2 OR counterpart_id = $2) THEN 'merged' \
-                  ELSE 'moot' \
-                END, \
-                settled_at = now() \
-          WHERE verdict IS NULL AND (holder_id = $1 OR counterpart_id = $1)",
-        [loser.into(), winner.into()],
-    ))
-    .await?;
-
     // The audit trail: which entity was folded into which, and why. A historical row, so it stays
     // put when either end is later merged again — unlike the collision queue below.
     merges::Entity::insert(merges::ActiveModel {

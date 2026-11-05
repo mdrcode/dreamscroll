@@ -3,14 +3,11 @@ use sea_orm::entity::prelude::*;
 
 use super::*;
 
-/// A proximity: two entities the graph considers close, and what was decided about them.
+/// A candidate: two entities the last scan found close, and why.
 ///
-/// A record, not a work queue. It says *why* the pair was raised (`basis`), how close they looked
-/// (`score`), and what happened (`verdict`) — and rows are never deleted, because "these two turned
-/// out to be one thing" is the most useful row in the table.
-///
-/// `verdict` null means nobody has decided. An entity with an open row is `contested`: it shares an
-/// identity with another entity and the graph has not settled which of them it is.
+/// The table is one scan's output, not a ledger — `scan` replaces it wholesale, so a row means "these
+/// two looked like one thing when the graph was last asked". No status, no verdict, no history: a
+/// pair that keeps looking like one thing keeps reappearing, and one that stops, stops.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
 #[sea_orm(table_name = "knowledge_proximities")]
@@ -24,27 +21,20 @@ pub struct Model {
     /// The other one.
     pub counterpart_id: i32,
 
-    /// The identity they share. Null for a proximity raised by something other than an identity
-    /// — similar names and types, say — which is what `basis` distinguishes.
+    /// The identity they share. Null for a candidate raised by something other than an identity.
     #[sea_orm(nullable)]
     pub knowledge_identity_id: Option<i32>,
 
     /// Why the pair was raised: `shared_id` today.
     pub basis: String,
-    /// How close they looked when raised — the linker's weighted total, so the table can be read in
+    /// How close they looked at this scan — the linker's weighted total, so the batch reads in
     /// likelihood order. Null for a pair recorded without scoring.
     #[sea_orm(nullable)]
     pub score: Option<f32>,
 
-    /// `NULL` open | `merged` folded together | `distinct` a person said two things | `moot` one side
-    /// was folded away by some other path.
-    #[sea_orm(nullable)]
-    pub verdict: Option<String>,
-
+    /// When the scan that produced this row ran. Repeated per row rather than held in a scan table.
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
-    pub raised_at: DateTime<Utc>,
-    #[sea_orm(nullable)]
-    pub settled_at: Option<DateTime<Utc>>,
+    pub scanned_at: DateTime<Utc>,
 
     #[sea_orm(belongs_to, relation_enum = "Holder", from = "holder_id", to = "id")]
     pub holder: HasOne<knowledge_entity::Entity>,

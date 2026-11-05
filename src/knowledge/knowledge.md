@@ -213,7 +213,7 @@ knowledge_claims       this entity is that thing — the edge, with `basis` (tex
                        naming what the question was; several entities may claim one identity,
                        because an album's article covers its songs
 knowledge_proximities  two entities the graph considers close, with the score that a pass
-                       computed and the verdict somebody gave — a record, never deleted
+                       computed — one scan's batch, replaced wholesale by the next
 knowledge_merges       this entity was folded into that one, and why — the log an unmerge reads
 ```
 
@@ -229,10 +229,15 @@ The only uniqueness is per entity: one live claim per `(entity, identity)`, so r
 pair's slot and re-asserting it is a no-op. Nothing forbids two entities holding one identity — that is
 the many-to-one the model exists for.
 
-`proximity.rs` runs in two passes. **Scan** reads the graph and only writes proximities (idempotent, so
-it runs after a link as well as at the end of a resolve). **Merge** consumes the open rows, re-checks
+`proximity.rs` runs in two passes. **Scan** derives the candidate set and replaces the table with
+it in one transaction, so what it holds is always what the graph looked like when it was last asked
+— a scan after a link, and again at the end of a resolve. **Merge** answers the batch: it re-checks
 that both sides still exist, scores the pair with the linker's own weights and folds the convincing
-ones; the rest stay open for a person, who answers `distinct` or merges by hand.
+ones. The rest stay in the batch, which is where a person reads them.
+
+Nothing in that table is a status or a verdict. A pair that keeps looking like one thing keeps
+reappearing; one that stops, stops. Human decisions that must outlive a rebuild go somewhere
+durable instead, keyed by observation ids, and are replayed onto the new graph.
 
 ## The view boundary
 
@@ -278,7 +283,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `merge.rs` | fold one entity into another |
 | `evidence.rs` | claims and identities: who holds one (ordered by `cmp_confidence`), and the platform key a presence answers to |
-| `proximity.rs` | the pairs that might be one thing: `raise`, `settle`, and the two passes, `scan` and `merge` |
+| `proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | `comparable`: the form two surfaces are compared in. The token pipeline is policy, in `heuristic/scoring.rs` |

@@ -40,18 +40,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity"
     WHERE retracted_at IS NULL
 "#;
 
-/// One record per pair, basis and identity, for ever — not just while open. A settled pair must not
-/// be raised again, which is what makes a verdict stick.
-const PROXIMITIES_UNIQUE: &str = r#"
-CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_proximities_pair"
-    ON knowledge_proximities (holder_id, counterpart_id, coalesce(knowledge_identity_id, 0), basis)
-"#;
-
-/// The open ones, which is how the table is read.
-const PROXIMITIES_OPEN: &str = r#"
-CREATE INDEX IF NOT EXISTS "idx-knowledge_proximities_open"
+/// The pair, which is how the batch is read (the merge pass and the list). Not unique: the table is
+/// one scan's output and is replaced wholesale, so a pair can only appear once per scan anyway.
+const PROXIMITIES_PAIR: &str = r#"
+CREATE INDEX IF NOT EXISTS "idx-knowledge_proximities_pair"
     ON knowledge_proximities (holder_id, counterpart_id)
-    WHERE verdict IS NULL
 "#;
 
 /// A tombstone must point at another entity, never at itself: self-merge is a no-op in the code, and
@@ -134,8 +127,9 @@ pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbEr
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(IDENTITIES_UNIQUE).await?;
     conn.execute_unprepared(CLAIMS_UNIQUE).await?;
-    conn.execute_unprepared(PROXIMITIES_UNIQUE).await?;
-    conn.execute_unprepared(PROXIMITIES_OPEN).await?;
+    conn.execute_unprepared(PROXIMITIES_PAIR).await?;
+    conn.execute_unprepared("DROP INDEX IF EXISTS \"idx-knowledge_proximities_open\"")
+        .await?;
     conn.execute_unprepared(ARRAY_DEFAULTS).await?;
     conn.execute_unprepared(NOT_SELF_MERGED).await?;
     Ok(())

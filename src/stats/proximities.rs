@@ -15,12 +15,10 @@ use crate::database;
 /// evidence there is. Those come first, then score descending.
 pub async fn proximity_list(
     db: &database::DbHandle,
-    include_settled: bool,
     limit: usize,
 ) -> anyhow::Result<
     Vec<(
         i32,
-        String,
         Option<f32>,
         String,
         String,
@@ -34,7 +32,6 @@ pub async fn proximity_list(
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
             "SELECT p.id, \
-                    coalesce(p.verdict, 'open'), \
                     p.score, \
                     CASE WHEN h.entity_type = c.entity_type \
                          THEN 'same entity_type' ELSE '' END, \
@@ -46,13 +43,11 @@ pub async fn proximity_list(
                JOIN knowledge_entities h ON h.id = p.holder_id \
                JOIN knowledge_entities c ON c.id = p.counterpart_id \
                LEFT JOIN knowledge_identities i ON i.id = p.knowledge_identity_id \
-              WHERE $1 OR p.verdict IS NULL \
-              ORDER BY p.verdict IS NOT NULL, \
-                       (h.entity_type = c.entity_type) DESC, \
+              ORDER BY (h.entity_type = c.entity_type) DESC, \
                        p.score DESC NULLS LAST, \
                        p.id \
-              LIMIT $2",
-            [include_settled.into(), (limit as i64).into()],
+              LIMIT $1",
+            [(limit as i64).into()],
         ))
         .await?;
     rows.iter()
@@ -65,7 +60,6 @@ pub async fn proximity_list(
                 row.try_get_by_index(4)?,
                 row.try_get_by_index(5)?,
                 row.try_get_by_index(6)?,
-                row.try_get_by_index(7)?,
             ))
         })
         .collect()

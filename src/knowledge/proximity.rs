@@ -1,17 +1,17 @@
-//! Proximities: two entities the graph thinks might be one thing, and the passes that raise and
-//! settle them.
+//! Proximities: the candidates the last scan found, and the passes that produce and answer them.
 //!
 //! Sharing an identity is a candidate, not a verdict. An album's article is the identity of the album
-//! *and* covers each of its songs, so two holders may be one thing or may be a work and the things
+//! *and* covers each of its songs, so two holders may be one thing, or may be a work and the things
 //! inside it. Claims are many-to-one precisely so both readings can be stored.
 //!
-//! [`scan`] reads the graph and only writes rows. [`merge`] consumes the open ones and is the only
-//! mutating pass. Both are idempotent — a pair is recorded once, for ever, so a settled verdict
-//! sticks — and a pair the shared-illumination rule refuses stays open: a question, not an error.
+//! [`scan`] derives the table and replaces it wholesale, so what it holds is always "the candidates
+//! as of the last scan" — no status, no history, no rows to settle. [`merge`] answers them: it folds
+//! the pairs that score as one thing and leaves the rest, which are the questions still owed to a
+//! person.
 
 use std::cmp::Ordering;
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 
 use super::evidence::{Basis, Evidence};
 use super::merge::{Cause, Outcome};
@@ -21,9 +21,9 @@ use super::Knowledge;
 /// What one merge did.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct MergeReport {
-    /// Pairs the merge phase folded.
+    /// Pairs the pass folded.
     pub merged: usize,
-    /// Pairs that looked like one thing and the shared-illumination rule refused, left open.
+    /// Pairs that looked like one thing and the shared-illumination rule refused.
     pub refused: usize,
     /// Pairs whose sides had already been resolved by some other path.
     pub moot: usize,
@@ -31,14 +31,19 @@ pub struct MergeReport {
     pub undecided: usize,
 }
 
-/// Find pairs that share an identity and record them, returning how many rows were added. Read-only
-/// against the graph.
+/// Derive the candidate set and replace the table with it. Returns how many rows the batch holds.
 pub async fn scan(knowledge: &Knowledge) -> anyhow::Result<usize> {
     let conn = knowledge.conn();
     let evidence = Evidence::new(conn.clone());
-    let mut raised = 0;
+    let identities = identities_with_several_holders(conn).await?;
 
-    for identity_id in identities_with_several_holders(conn).await? {
+    // One transaction: the table is one scan's answer, never a mixture of two.
+    let txn = conn.begin().await?;
+    txn.execute_unprepared("DELETE FROM knowledge_proximities")
+        .await?;
+
+    let mut raised = 0;
+    for identity_id in identities {
         // Most substantiated first: the survivor, and the reading order.
         let holders = evidence.held_by_identity(identity_id).await?;
         let Some(holder) = holders.first() else {
@@ -46,8 +51,8 @@ pub async fn scan(knowledge: &Knowledge) -> anyhow::Result<usize> {
         };
         for other in holders.iter().skip(1) {
             let score = knowledge.scoring.pair.score(other, holder);
-            raised += raise(
-                conn,
+            raised += insert(
+                &txn,
                 holder.id,
                 other.id,
                 Some(identity_id),
@@ -57,22 +62,21 @@ pub async fn scan(knowledge: &Knowledge) -> anyhow::Result<usize> {
             .await?;
         }
     }
+    txn.commit().await?;
     Ok(raised)
 }
 
-/// Fold the open proximities that look like one thing, and leave the rest as questions.
+/// Fold the candidates that look like one thing, and leave the rest as questions.
 pub async fn merge(knowledge: &Knowledge) -> anyhow::Result<MergeReport> {
-    let conn = knowledge.conn();
     let mut report = MergeReport::default();
-    for (a, b) in open(conn).await? {
+    for (a, b) in candidates(knowledge.conn()).await? {
         let (Ok(left), Ok(right)) = (knowledge.get(a).await, knowledge.get(b).await) else {
-            settle(knowledge, a, b, "moot").await?;
+            // One side no longer names a row; the next scan will not raise the pair at all.
             report.moot += 1;
             continue;
         };
         // A tombstone on either side means some other path already answered this.
         if left.merged_into_id.is_some() || right.merged_into_id.is_some() {
-            settle(knowledge, a, b, "moot").await?;
             report.moot += 1;
             continue;
         }
@@ -98,19 +102,17 @@ pub async fn merge(knowledge: &Knowledge) -> anyhow::Result<MergeReport> {
             .await?
         {
             Outcome::Merged => report.merged += 1,
-            // The merge settles the row naming both ends as `merged`; nothing more to do.
             Outcome::AlreadyMerged => report.moot += 1,
-            // A question, not an error: leave it open for a person.
+            // A question, not an error: the pair stays in the batch for a person to answer.
             Outcome::RefusedSharedIllumination => report.refused += 1,
         }
     }
     Ok(report)
 }
 
-/// Record a proximity: two entities close enough to ask about. A pair is recorded once, for ever —
-/// `ON CONFLICT DO NOTHING` is what makes a settled verdict stick. Returns 1 when a row was added.
-pub(super) async fn raise(
-    conn: &DatabaseConnection,
+/// Record one candidate. The batch was emptied first, so this is a plain insert.
+async fn insert<C: ConnectionTrait>(
+    conn: &C,
     holder_id: i32,
     counterpart_id: i32,
     knowledge_identity_id: Option<i32>,
@@ -122,8 +124,7 @@ pub(super) async fn raise(
             DatabaseBackend::Postgres,
             "INSERT INTO knowledge_proximities \
                (holder_id, counterpart_id, knowledge_identity_id, basis, score) \
-             VALUES ($1, $2, $3, $4, $5) \
-             ON CONFLICT DO NOTHING",
+             VALUES ($1, $2, $3, $4, $5)",
             [
                 holder_id.into(),
                 counterpart_id.into(),
@@ -136,31 +137,13 @@ pub(super) async fn raise(
     Ok(result.rows_affected() as usize)
 }
 
-/// Settle the open proximities between two entities with a verdict — `distinct` when a person says
-/// they are two things, which no automatic pass can conclude. Returns how many rows closed.
-pub async fn settle(knowledge: &Knowledge, a: i32, b: i32, verdict: &str) -> anyhow::Result<u64> {
-    let result = knowledge
-        .conn()
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "UPDATE knowledge_proximities SET verdict = $1, settled_at = now() \
-              WHERE verdict IS NULL \
-                AND ((holder_id = $2 AND counterpart_id = $3) \
-                  OR (holder_id = $3 AND counterpart_id = $2))",
-            [verdict.into(), a.into(), b.into()],
-        ))
-        .await?;
-    Ok(result.rows_affected())
-}
-
-/// The open proximities as pairs, most likely first.
-async fn open(conn: &DatabaseConnection) -> anyhow::Result<Vec<(i32, i32)>> {
+/// The batch, most likely first.
+async fn candidates(conn: &DatabaseConnection) -> anyhow::Result<Vec<(i32, i32)>> {
     let rows = conn
         .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT holder_id, counterpart_id \
                FROM knowledge_proximities \
-              WHERE verdict IS NULL \
               ORDER BY score DESC NULLS LAST, id",
         ))
         .await?;
@@ -188,7 +171,7 @@ async fn identities_with_several_holders(conn: &DatabaseConnection) -> anyhow::R
 
 #[cfg(test)]
 mod tests {
-    use sea_orm::EntityTrait;
+    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
     use crate::model;
 
@@ -203,7 +186,7 @@ mod tests {
         (first, second)
     }
 
-    /// The scan records the pair and mutates nothing else.
+    /// The scan records the pair and writes nothing else.
     #[tokio::test]
     async fn scanning_records_a_shared_identity() {
         let Some(test_db) = test_db::test_db().await else {
@@ -221,20 +204,20 @@ mod tests {
             .await
             .unwrap()
             .expect("one question, one row");
-        assert!(row.verdict.is_none(), "nothing decided yet");
         assert!(
             row.score.unwrap() >= crate::knowledge::heuristic::scoring::MERGE_BAR,
             "{:?}",
             row.score
         );
 
-        // Idempotent: the same pair is not raised twice.
-        assert_eq!(scan(&store).await.unwrap(), 0);
+        // The batch is replaced, not appended: a second scan leaves exactly one row.
+        assert_eq!(scan(&store).await.unwrap(), 1);
+        assert_eq!(candidates(&db.conn).await.unwrap().len(), 1);
     }
 
-    /// The merge phase folds the pair the scan recorded, and says so on the row.
+    /// The merge pass folds the pair and tombstones the loser; the row stays in the batch.
     #[tokio::test]
-    async fn merging_settles_the_row_it_answers() {
+    async fn merging_folds_the_pair_it_answers() {
         let Some(test_db) = test_db::test_db().await else {
             return;
         };
@@ -246,34 +229,37 @@ mod tests {
         let report = merge(&store).await.expect("merge");
 
         assert_eq!(report.merged, 1, "{report:?}");
-        let settled = model::knowledge_proximities::Entity::find()
-            .one(&db.conn)
+        assert_eq!(
+            model::knowledge_proximities::Entity::find()
+                .count(&db.conn)
+                .await
+                .unwrap(),
+            1,
+            "the candidate is left in the batch for the next scan to replace"
+        );
+        let tombstones = model::knowledge_entity::Entity::find()
+            .filter(model::knowledge_entity::Column::MergedIntoId.is_not_null())
+            .count(&db.conn)
             .await
-            .unwrap()
-            .expect("the row survives the merge");
-        assert_eq!(settled.verdict.as_deref(), Some("merged"));
-        assert!(settled.settled_at.is_some());
+            .unwrap();
+        assert_eq!(tombstones, 1);
     }
 
-    /// Pairs that do not look like one thing stay open, so a person can answer.
+    /// Pairs that do not look like one thing stay in the batch, so a person can answer.
     #[tokio::test]
-    async fn scanning_leaves_distinct_pairs_open() {
+    async fn merging_leaves_a_pair_it_cannot_claim() {
         let Some(test_db) = test_db::test_db().await else {
             return;
         };
         let db = test_db.handle();
         let store = Knowledge::new(&db);
-        let (album, song) = claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
+        claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
         scan(&store).await.unwrap();
         let report = merge(&store).await.expect("merge");
 
         assert_eq!(report.merged, 0, "{report:?}");
         assert_eq!(report.undecided, 1, "{report:?}");
-        assert_eq!(open(&db.conn).await.unwrap().len(), 1);
-
-        // A person says they are two things.
-        assert_eq!(settle(&store, album, song, "distinct").await.unwrap(), 1);
-        assert!(open(&db.conn).await.unwrap().is_empty());
+        assert_eq!(candidates(&db.conn).await.unwrap().len(), 1);
     }
 }

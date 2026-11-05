@@ -21,7 +21,6 @@ enum Command {
     Reset(ResetArgs),
     Compare(CompareArgs),
     Resolve(ResolveArgs),
-    Distinct(DistinctArgs),
     Proximity(ProximityArgs),
 }
 
@@ -75,22 +74,8 @@ struct ProximityMergeArgs {}
 #[argh(subcommand, name = "list")]
 #[argh(description = "show what is in the table, most likely first")]
 struct ProximityListArgs {
-    #[argh(switch, description = "include settled rows")]
-    all: bool,
     #[argh(option, default = "50", description = "maximum rows to show")]
     limit: usize,
-}
-
-#[derive(FromArgs)]
-#[argh(subcommand, name = "distinct")]
-#[argh(
-    description = "record that two entities are different things, so the pair stops being asked"
-)]
-struct DistinctArgs {
-    #[argh(positional, description = "first knowledge entity")]
-    a: i32,
-    #[argh(positional, description = "second knowledge entity")]
-    b: i32,
 }
 
 #[derive(FromArgs)]
@@ -199,11 +184,6 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
-        Command::Distinct(args) => {
-            let store = knowledge::Knowledge::new(&db);
-            let settled = knowledge::proximity::settle(&store, args.a, args.b, "distinct").await?;
-            println!("settled {settled} outstanding proximities as distinct");
-        }
         Command::Proximity(args) => {
             let store = knowledge::Knowledge::new(&db);
             match args.command {
@@ -221,11 +201,11 @@ async fn main() -> anyhow::Result<()> {
                     );
                 }
                 ProximityCommand::List(args) => {
-                    let rows = stats::proximities::proximity_list(&db, args.all, args.limit).await?;
-                    for (id, verdict, score, note, basis, holder, counterpart, identity) in rows {
+                    let rows = stats::proximities::proximity_list(&db, args.limit).await?;
+                    for (id, score, note, basis, holder, counterpart, identity) in rows {
                         let score = score.map_or("-".to_string(), |s| format!("{s:.2}"));
                         println!(
-                            "{id:>5}  {verdict:<8} {score:>5}  {note:<16}  {basis:<15}  {holder}  \u{21c4}  {counterpart}  [{identity}]"
+                            "{id:>5}  {score:>5}  {note:<16}  {basis:<15}  {holder}  \u{21c4}  {counterpart}  [{identity}]"
                         );
                     }
                 }
@@ -361,11 +341,10 @@ async fn main() -> anyhow::Result<()> {
             println!("  identified        {:>7}", stats.identified);
             println!("duplicate rate      {:>7.3}", stats.duplicate_rate());
             println!("proximities");
-            println!("  {:<18}{:>7}", "open", stats.proximities_open);
-            println!("  {:<18}{:>7}", "settled", stats.proximities_settled);
+            println!("  {:<18}{:>7}", "candidates", stats.proximities);
             println!(
                 "  {:<18}{:>7}",
-                "unsettled entities", stats.entities_unsettled
+                "entities in pairs", stats.entities_in_proximity
             );
             println!("resolution");
             println!("  with authority claim {:>5}", stats.with_claim);
