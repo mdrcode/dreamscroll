@@ -268,29 +268,36 @@ impl Evidence {
         &self,
         identity_id: i32,
     ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
+        use sea_orm::sea_query::{Expr, ExprTrait, Query};
         use sea_orm::{ColumnTrait, QueryFilter};
-        let rows = self
-            .conn
-            .query_all_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT c.knowledge_entity_id \
-                   FROM knowledge_claims c \
-                   JOIN knowledge_entities e ON e.id = c.knowledge_entity_id \
-                  WHERE c.knowledge_identity_id = $1 AND c.retracted_at IS NULL \
-                    AND e.merged_into_id IS NULL \
-                  ORDER BY c.knowledge_entity_id",
-                [identity_id.into()],
+
+        // The holders, as a subquery: a live claim on this identity, from a live entity.
+        let claimants = Query::select()
+            .distinct()
+            .column((
+                model::knowledge_claims::Entity,
+                model::knowledge_claims::Column::KnowledgeEntityId,
             ))
-            .await?;
-        let ids: Vec<i32> = rows
-            .iter()
-            .map(|row| row.try_get_by_index::<i32>(0))
-            .collect::<Result<_, _>>()?;
-        if ids.is_empty() {
-            return Ok(Vec::new());
-        }
+            .from(model::knowledge_claims::Entity)
+            .and_where(
+                Expr::col((
+                    model::knowledge_claims::Entity,
+                    model::knowledge_claims::Column::KnowledgeIdentityId,
+                ))
+                .eq(identity_id),
+            )
+            .and_where(
+                Expr::col((
+                    model::knowledge_claims::Entity,
+                    model::knowledge_claims::Column::RetractedAt,
+                ))
+                .is_null(),
+            )
+            .to_owned();
+
         let mut entities = model::knowledge_entity::Entity::find()
-            .filter(model::knowledge_entity::Column::Id.is_in(ids))
+            .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
+            .filter(Expr::col(model::knowledge_entity::Column::Id).in_subquery(claimants))
             .all(&self.conn)
             .await?;
         entities.sort_by(|a, b| b.confidence.total_cmp(&a.confidence).then(a.id.cmp(&b.id)));
