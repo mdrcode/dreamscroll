@@ -94,15 +94,23 @@ pub async fn replay(knowledge: &Knowledge) -> anyhow::Result<ReplayReport> {
 
     let mut report = ReplayReport::default();
     for verdict in ordered {
+        // Tombstones count: a verdict applied in this generation leaves the loser's row behind,
+        // pointing at the winner. "Already" and "gone" must not be confused.
         let (Some(winner), Some(loser)) = (
-            live_entity_with_origin(knowledge, verdict.winner_origin).await?,
-            live_entity_with_origin(knowledge, verdict.loser_origin).await?,
+            entity_with_origin(knowledge, verdict.winner_origin).await?,
+            entity_with_origin(knowledge, verdict.loser_origin).await?,
         ) else {
             report.gone += 1;
             continue;
         };
-        if winner.id == loser.id {
+        if loser.id == winner.id || canonical(knowledge, loser.id).await? == Some(winner.id) {
             report.already += 1;
+            continue;
+        }
+        // A winner that is itself a tombstone, or a loser folded into something else, no longer
+        // names what the person decided about.
+        if winner.merged_into_id.is_some() || loser.merged_into_id.is_some() {
+            report.gone += 1;
             continue;
         }
         match knowledge.merge(loser.id, winner.id, Cause::Repair).await? {
@@ -114,16 +122,34 @@ pub async fn replay(knowledge: &Knowledge) -> anyhow::Result<ReplayReport> {
     Ok(report)
 }
 
-/// The live entity this origin names now, if any.
-async fn live_entity_with_origin(
+/// The entity this origin names now, live or tombstoned.
+async fn entity_with_origin(
     knowledge: &Knowledge,
     origin: i32,
 ) -> anyhow::Result<Option<model::knowledge_entity::Model>> {
     Ok(model::knowledge_entity::Entity::find()
         .filter(model::knowledge_entity::Column::OriginObservationId.eq(origin))
-        .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
         .one(knowledge.conn())
         .await?)
+}
+
+/// Follow tombstones to the live entity a row ends at. Bounded: a cycle is not expressible in the
+/// schema, but the reader must not spin if one somehow appears.
+async fn canonical(knowledge: &Knowledge, id: i32) -> anyhow::Result<Option<i32>> {
+    let mut current = id;
+    for _ in 0..8 {
+        let Some(row) = model::knowledge_entity::Entity::find_by_id(current)
+            .one(knowledge.conn())
+            .await?
+        else {
+            return Ok(None);
+        };
+        match row.merged_into_id {
+            Some(next) => current = next,
+            None => return Ok(Some(current)),
+        }
+    }
+    Ok(None)
 }
 
 #[cfg(test)]
@@ -217,6 +243,25 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(tombstone.merged_into_id.is_some(), "the recorded side folded");
+    }
+
+    /// Applied once, reported as already applied on every later run — a tombstone is not erosion.
+    #[tokio::test]
+    async fn replay_is_idempotent() {
+        let Some(test_db) = test_db::test_db().await else {
+            return;
+        };
+        let db = test_db.handle();
+        let store = Knowledge::new(&db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        store.merge(loser, winner, Cause::Repair).await.unwrap();
+
+        let report = replay(&store).await.expect("replay");
+
+        assert_eq!(report.already, 1, "{report:?}");
+        assert_eq!(report.applied, 0, "{report:?}");
+        assert_eq!(report.gone, 0, "{report:?}");
     }
 
     /// A verdict whose sides are not both live is reported, not guessed.

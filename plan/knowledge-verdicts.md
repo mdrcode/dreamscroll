@@ -154,8 +154,14 @@ presentation and is not shared with replay.
 
 Verified end to end: a manual merge records a verdict (`cause = repair`), a `reset` keeps it, and
 replay folds the rebuilt pair by origin — `a_manual_merge_records_a_verdict`,
-`replay_folds_the_pair_again`, `replay_reports_sides_that_are_gone`,
+`replay_folds_the_pair_again`, `replay_is_idempotent`, `replay_reports_sides_that_are_gone`,
 `an_identity_merge_records_nothing`.
+
+First real run, 2026-11-05: eight manual merges recorded (five same-referent pairs, and three
+aspect pairs resolved toward place/organization), then `reset` → `link` → `resolve --offline` →
+`verdicts replay` reported **applied 8 · already 0 · gone 0 · refused 0**. Every survivor came back
+with the other side's name in `alt_names`, and the candidate batch fell from 21 to 13 — the eight
+pairs never reappear.
 
 ## Non-goals
 
