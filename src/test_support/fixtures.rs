@@ -163,7 +163,7 @@ pub async fn claim(
     basis: &str,
 ) {
     let identity = crate::knowledge::evidence::Evidence::from_handle(db)
-        .identity(&crate::knowledge::evidence::Identity {
+        .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
             scheme: scheme.to_string(),
             external_id: external_id.to_string(),
             source: source.to_string(),

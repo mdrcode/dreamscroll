@@ -570,7 +570,7 @@ async fn store_claim(
 ) -> anyhow::Result<bool> {
     let evidence = crate::knowledge::evidence::Evidence::new(db.conn.clone());
     let identity_id = evidence
-        .identity(&crate::knowledge::evidence::Identity {
+        .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
             scheme: claim.scheme,
             external_id: claim.id,
             source: source.to_string(),

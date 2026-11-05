@@ -1,6 +1,7 @@
 //! Claims and identities: what a capture asserted, what an authority answered, and who holds it.
 //!
-//! - an [`Identity`] is the thing the world names: `(scheme, external_id)` plus whoever answered.
+//! - a [`DraftIdentity`] is a row of `knowledge_identities` before it has an id: the thing the world
+//!   names, `(scheme, external_id)`, plus whoever answered.
 //! - a [`Claim`] is an entity's assertion of it — the edge of the many-to-many, carrying what the
 //!   question was about ([`ClaimBasis`]) and which capture asked.
 //!
@@ -57,7 +58,7 @@ impl Claim {
 /// The authority's label, description and classes are properties of the identity, not of any one
 /// claim: an album's article describes the album whether one entity claims it or five do.
 #[derive(Debug, Clone, PartialEq)]
-pub struct Identity {
+pub struct DraftIdentity {
     pub scheme: String,
     pub external_id: String,
     /// Who answered: `wikidata`, `wikimedia`, `platform` (the resolver's own id).
@@ -71,7 +72,7 @@ pub struct Identity {
     pub classes: Vec<String>,
 }
 
-impl Identity {
+impl DraftIdentity {
     /// An identity known only from a capture: the handle, and nothing about it.
     pub fn from_capture(claim: &Claim) -> Self {
         Self {
@@ -163,7 +164,7 @@ impl Evidence {
     /// Upserts by filling gaps rather than overwriting: a handle first read off a capture has no
     /// label, and the first authority that answers for it supplies one. Nothing here clears a field
     /// a previous answer set — an identity is a running record, not a latest-value cache.
-    pub async fn identity(&self, identity: &Identity) -> anyhow::Result<i32> {
+    pub async fn upsert_identity(&self, identity: &DraftIdentity) -> anyhow::Result<i32> {
         let row = self
             .conn
             .query_one_raw(Statement::from_sql_and_values(
@@ -223,7 +224,7 @@ impl Evidence {
             if !seen.insert(claim.identity()) {
                 continue;
             }
-            self.identity(&Identity::from_capture(&claim)).await?;
+            self.upsert_identity(&DraftIdentity::from_capture(&claim)).await?;
         }
         Ok(())
     }
