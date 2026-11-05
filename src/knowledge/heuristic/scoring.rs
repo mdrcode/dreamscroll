@@ -20,7 +20,7 @@ use crate::model;
 
 use crate::knowledge::evidence::ClaimBasis;
 use crate::knowledge::normalize;
-use crate::knowledge::scoring::{Rank, Scoring, Similarity, Subject};
+use crate::knowledge::scoring::{Entity, Observation, Rank, Scoring, Similarity};
 
 pub const WEIGHT_NAME: f32 = 0.60;
 pub const WEIGHT_DESCRIPTION: f32 = 0.30;
@@ -59,50 +59,47 @@ impl Heuristic {
     }
 }
 
-impl Similarity<model::knowledge_entity::Model, model::knowledge_entity::Model> for Heuristic {
-    fn score(
-        &self,
-        a: &model::knowledge_entity::Model,
-        b: &model::knowledge_entity::Model,
-    ) -> f32 {
-        features(&Subject::of_entity(a), b).total
+impl Similarity<Observation, Entity> for Heuristic {
+    fn score(&self, observation: &Observation, candidate: &Entity) -> f32 {
+        features(observation, candidate).total
     }
 }
 
-impl Similarity<Subject, model::knowledge_entity::Model> for Heuristic {
-    fn score(&self, subject: &Subject, b: &model::knowledge_entity::Model) -> f32 {
-        features(subject, b).total
+impl Similarity<Entity, Entity> for Heuristic {
+    fn score(&self, a: &Entity, b: &Entity) -> f32 {
+        features_of_entity(a, b).total
     }
 }
 
-impl Rank<Subject, model::knowledge_entity::Model> for Heuristic {
-    fn rank(
-        &self,
-        subject: &Subject,
-        candidates: &[model::knowledge_entity::Model],
-    ) -> Vec<(usize, f32)> {
-        let mut scored: Vec<(usize, f32)> = candidates
-            .iter()
-            .enumerate()
-            .filter_map(|(index, candidate)| {
-                let features = features(subject, candidate);
-                worth_merging(&features).then_some((index, features.total))
-            })
-            .collect();
-        // Best total first; ties keep the candidate order, which the blocker hands back by id.
-        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
-        scored
+impl Rank<Observation, Entity> for Heuristic {
+    fn rank(&self, observation: &Observation, candidates: &[Entity]) -> Vec<(usize, f32)> {
+        rank_by(candidates, |candidate| features(observation, candidate))
     }
 }
 
-impl Rank<model::knowledge_entity::Model, model::knowledge_entity::Model> for Heuristic {
-    fn rank(
-        &self,
-        a: &model::knowledge_entity::Model,
-        candidates: &[model::knowledge_entity::Model],
-    ) -> Vec<(usize, f32)> {
-        self.rank(&Subject::of_entity(a), candidates)
+impl Rank<Entity, Entity> for Heuristic {
+    fn rank(&self, a: &Entity, candidates: &[Entity]) -> Vec<(usize, f32)> {
+        rank_by(candidates, |candidate| features_of_entity(a, candidate))
     }
+}
+
+/// Score every candidate, keep the ones worth choosing, best first.
+///
+/// Ties keep the candidate order, which the blocker hands back by id.
+fn rank_by(
+    candidates: &[Entity],
+    features_of: impl Fn(&Entity) -> Features,
+) -> Vec<(usize, f32)> {
+    let mut scored: Vec<(usize, f32)> = candidates
+        .iter()
+        .enumerate()
+        .filter_map(|(index, candidate)| {
+            let features = features_of(candidate);
+            worth_merging(&features).then_some((index, features.total))
+        })
+        .collect();
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+    scored
 }
 
 /// What one candidate earns against one subject, per feature and in total.
@@ -228,15 +225,21 @@ impl From<&model::knowledge_entity::Model> for NormalizedCandidate {
     }
 }
 
-/// Similarity of one subject to one candidate: per feature, and weighted into a total.
-fn features(subject: &Subject, candidate: &model::knowledge_entity::Model) -> Features {
-    let observation = NormalizedObservation::new(
-        &subject.name,
-        subject.description.as_deref(),
-        &subject.entity_type,
+/// Similarity of one observation to one candidate: per feature, and weighted into a total.
+fn features(observation: &Observation, candidate: &Entity) -> Features {
+    let view = NormalizedObservation::new(
+        &observation.name,
+        observation.description.as_deref(),
+        &observation.entity_type,
     );
-    let candidate = NormalizedCandidate::from(candidate);
-    score(&observation, &candidate)
+    score(&view, &NormalizedCandidate::from(candidate))
+}
+
+/// An entity scored as if it were an observation: its selected values stand in for what a capture
+/// said. This is how `reconcile` asks about two entities.
+fn features_of_entity(a: &Entity, candidate: &Entity) -> Features {
+    let view = NormalizedObservation::new(&a.name, a.description.as_deref(), &a.entity_type);
+    score(&view, &NormalizedCandidate::from(candidate))
 }
 
 /// Similarity of one normalized observation to one candidate: per feature, weighted into a total.
@@ -334,13 +337,13 @@ fn token_key_of(words: &[String]) -> String {
 mod tests {
     use super::*;
 
-    use crate::knowledge::scoring::{Similarity, Subject};
+    use crate::knowledge::scoring::Similarity;
     use crate::test_support::fixtures;
 
-    fn subject(name: &str, description: Option<&str>, ty: &str) -> Subject {
+    fn observation(name: &str, description: Option<&str>, ty: &str) -> Observation {
         let mut row = fixtures::stub_observation(1, name, ty);
         row.description = description.map(str::to_string);
-        Subject::of_observation(&row)
+        row
     }
 
     fn entity(id: i32, name: &str, description: Option<&str>, ty: &str) -> model::knowledge_entity::Model {
@@ -355,7 +358,7 @@ mod tests {
     fn any_asserted_type_counts_as_agreement() {
         let mut candidate = fixtures::stub_entity(1, "Nintendo", "organization");
         candidate.alt_types = vec!["brand".to_string()];
-        let typed = |ty: &str| features(&subject("Nintendo", None, ty), &candidate).type_match;
+        let typed = |ty: &str| features(&observation("Nintendo", None, ty), &candidate).type_match;
         assert_eq!(typed("brand"), 1.0);
         assert_eq!(typed("organization"), 1.0);
         assert_eq!(typed("movie"), 0.0);
@@ -364,8 +367,8 @@ mod tests {
     #[test]
     fn identical_name_and_type_clears_the_bar() {
         let candidate = entity(1, "Train Dreams", Some("a novella by Denis Johnson"), "book");
-        let subject = subject("Train Dreams", Some("a novella by Denis Johnson"), "book");
-        let ranked = Heuristic.rank(&subject, std::slice::from_ref(&candidate));
+        let observed = observation("Train Dreams", Some("a novella by Denis Johnson"), "book");
+        let ranked = Heuristic.rank(&observed, std::slice::from_ref(&candidate));
         assert_eq!(ranked.len(), 1);
         assert_eq!(ranked[0].0, 0);
         assert!(ranked[0].1 > 0.99, "{ranked:?}");
@@ -374,7 +377,7 @@ mod tests {
     #[test]
     fn article_or_word_order_alone_still_clears() {
         let candidate = entity(1, "Train Dreams", None, "book");
-        let ranked = Heuristic.rank(&subject("The Train Dreams", None, "book"), &[candidate]);
+        let ranked = Heuristic.rank(&observation("The Train Dreams", None, "book"), &[candidate]);
         assert_eq!(ranked.len(), 1, "an article is not a different name: {ranked:?}");
         assert!(ranked[0].1 > MERGE_BAR, "{ranked:?}");
     }
@@ -385,7 +388,7 @@ mod tests {
     #[test]
     fn a_type_mismatch_without_name_agreement_does_not_clear() {
         let django = entity(1, "Django", Some("a 2021 video game"), "product");
-        let frame = subject("Django", Some("a Python web framework"), "software");
+        let frame = observation("Django", Some("a Python web framework"), "software");
         assert!(
             Heuristic.score(&frame, &django) >= MERGE_BAR,
             "the total alone would fold this pair"
@@ -397,14 +400,14 @@ mod tests {
     fn different_names_do_not_clear() {
         let other = entity(1, "Gravity's Rainbow", None, "book");
         assert!(Heuristic
-            .rank(&subject("Train Dreams", None, "book"), &[other])
+            .rank(&observation("Train Dreams", None, "book"), &[other])
             .is_empty());
     }
 
     #[test]
     fn unknown_type_is_weak_not_negative() {
         let candidate = entity(1, "Wojak", None, "concept");
-        assert_eq!(features(&subject("Wojak", None, "unknown"), &candidate).type_match, 0.5);
+        assert_eq!(features(&observation("Wojak", None, "unknown"), &candidate).type_match, 0.5);
     }
 
     /// The filter is a filter, not a reordering: the strongest candidate wins, and the ones that do
@@ -415,7 +418,7 @@ mod tests {
         let strong = entity(2, "Train Dreams", Some("a novella by Denis Johnson"), "book");
         let unrelated = entity(3, "Dune", None, "book");
         let ranked = Heuristic.rank(
-            &subject("Train Dreams", Some("a novella by Denis Johnson"), "book"),
+            &observation("Train Dreams", Some("a novella by Denis Johnson"), "book"),
             &[weak, strong, unrelated],
         );
         assert_eq!(ranked.len(), 2, "{ranked:?}");
@@ -457,11 +460,10 @@ mod tests {
         );
     }
 
-    /// The subject carries the whole row; this policy reads three fields of it. A handle, the name it
-    /// displayed, or the illumination's hint must not move the score: identity is settled *before*
-    /// measuring, and folding it into the name is how a handle and a real name become two entities.
+    /// A handle is settled *before* measuring; folding it into the name is how a handle and a real
+    /// name become two entities.
     #[test]
-    fn the_subject_carries_more_than_the_score_reads() {
+    fn a_handle_does_not_move_the_score() {
         let plain = fixtures::stub_observation(1, "Alex Lei", "real_person");
         let mut present = plain.clone();
         present.platform = Some("x_twitter".to_string());
@@ -471,8 +473,8 @@ mod tests {
 
         let candidate = fixtures::stub_entity(9, "Alex Lei", "real_person");
         assert_eq!(
-            Heuristic.score(&Subject::of_observation(&plain), &candidate),
-            Heuristic.score(&Subject::of_observation(&present), &candidate),
+            Heuristic.score(&plain, &candidate),
+            Heuristic.score(&present, &candidate),
         );
     }
 }

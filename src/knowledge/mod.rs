@@ -30,4 +30,4 @@ pub use graph::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 pub use reconcile::Report as ReconcileReport;
 pub use reconcile::list as list_proximities;
 pub use link::LinkStats;
-pub use scoring::{by_confidence, Rank, Scoring, Similarity, Subject};
+pub use scoring::{by_confidence, Entity, Observation, Rank, Scoring, Similarity};
