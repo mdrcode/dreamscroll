@@ -135,12 +135,12 @@ impl Knowledge {
     }
 
     /// Record every pair that shares an identity. Reads the graph, writes only proximities.
-    pub async fn scan_proximities(&self) -> anyhow::Result<super::proximity::Report> {
+    pub async fn scan_proximities(&self) -> anyhow::Result<usize> {
         super::proximity::scan(&self.scoring, &self.db.conn).await
     }
 
     /// Fold the open proximities that look like one thing, and leave the rest as questions.
-    pub async fn merge_proximities(&self) -> anyhow::Result<super::proximity::Report> {
+    pub async fn merge_proximities(&self) -> anyhow::Result<super::proximity::MergeReport> {
         super::proximity::merge(self, &self.db.conn).await
     }
 

@@ -27,6 +27,6 @@ mod link;
 mod project;
 
 pub use graph::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
-pub use proximity::Report as ProximityReport;
+pub use proximity::MergeReport;
 pub use link::LinkStats;
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};

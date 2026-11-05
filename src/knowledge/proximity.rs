@@ -18,11 +18,9 @@ use super::merge::{Cause, Outcome};
 use super::scoring::{Scoring, TotalCmp};
 use super::Knowledge;
 
-/// What one pass did.
+/// What one merge did.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct Report {
-    /// Proximities the scan recorded that were not there before.
-    pub raised: usize,
+pub struct MergeReport {
     /// Pairs the merge phase folded.
     pub merged: usize,
     /// Pairs that looked like one thing and the shared-illumination rule refused, left open.
@@ -33,10 +31,11 @@ pub struct Report {
     pub undecided: usize,
 }
 
-/// Find pairs that share an identity and record them. Read-only against the graph.
-pub(super) async fn scan(scoring: &Scoring, conn: &DatabaseConnection) -> anyhow::Result<Report> {
+/// Find pairs that share an identity and record them, returning how many rows were added. Read-only
+/// against the graph.
+pub(super) async fn scan(scoring: &Scoring, conn: &DatabaseConnection) -> anyhow::Result<usize> {
     let evidence = Evidence::new(conn.clone());
-    let mut report = Report::default();
+    let mut raised = 0;
 
     for identity_id in identities_with_several_holders(conn).await? {
         // Most substantiated first: the survivor, and the reading order.
@@ -46,7 +45,7 @@ pub(super) async fn scan(scoring: &Scoring, conn: &DatabaseConnection) -> anyhow
         };
         for other in holders.iter().skip(1) {
             let score = scoring.pair.score(other, holder);
-            report.raised += raise(
+            raised += raise(
                 conn,
                 holder.id,
                 other.id,
@@ -57,15 +56,15 @@ pub(super) async fn scan(scoring: &Scoring, conn: &DatabaseConnection) -> anyhow
             .await?;
         }
     }
-    Ok(report)
+    Ok(raised)
 }
 
 /// Fold the open proximities that look like one thing, and leave the rest as questions.
 pub(super) async fn merge(
     knowledge: &Knowledge,
     conn: &DatabaseConnection,
-) -> anyhow::Result<Report> {
-    let mut report = Report::default();
+) -> anyhow::Result<MergeReport> {
+    let mut report = MergeReport::default();
     for (a, b) in open(conn).await? {
         let (Ok(left), Ok(right)) = (knowledge.get(a).await, knowledge.get(b).await) else {
             settle(conn, a, b, "moot").await?;
@@ -222,9 +221,9 @@ mod tests {
         let db = test_db.handle();
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
 
-        let report = scan(&scoring(), &db.conn).await.expect("scan");
+        let raised = scan(&scoring(), &db.conn).await.expect("scan");
 
-        assert_eq!(report.raised, 1, "{report:?}");
+        assert_eq!(raised, 1);
         let row = model::knowledge_proximities::Entity::find()
             .one(&db.conn)
             .await
@@ -238,7 +237,7 @@ mod tests {
         );
 
         // Idempotent: the same pair is not raised twice.
-        assert_eq!(scan(&scoring(), &db.conn).await.unwrap().raised, 0);
+        assert_eq!(scan(&scoring(), &db.conn).await.unwrap(), 0);
     }
 
     /// The merge phase folds the pair the scan recorded, and says so on the row.

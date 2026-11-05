@@ -211,7 +211,7 @@ async fn main() -> anyhow::Result<()> {
                 ProximityCommand::Scan(_) => {
                     println!(
                         "raised {} proximities",
-                        store.scan_proximities().await?.raised
+                        store.scan_proximities().await?
                     );
                 }
                 ProximityCommand::Merge(_) => {

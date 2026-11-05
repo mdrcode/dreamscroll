@@ -53,8 +53,7 @@ pub async fn exec(
         .knowledge
         .scan_proximities()
         .await
-        .map_err(api::ApiError::internal)?
-        .raised;
+        .map_err(api::ApiError::internal)?;
 
     tracing::info!(
         illumination_id = task_run.task.illumination_id,
