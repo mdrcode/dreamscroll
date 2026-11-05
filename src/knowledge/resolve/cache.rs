@@ -222,6 +222,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::test_support::db_or_skip;
 
     /// A degraded answer is still parsed — it may be right — but it must not stand for a week.
     #[test]
@@ -239,10 +240,8 @@ mod tests {
     /// expired yesterday is still worth seeing, one from two months ago is an archive nothing reads.
     #[tokio::test]
     async fn pruning_keeps_the_recent_past_and_drops_the_ancient() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let conn = test_db.handle().conn;
+        db_or_skip!(db);
+        let conn = db.conn;
         let insert = |query: &'static str, expires_at: chrono::DateTime<Utc>| {
             let conn = conn.clone();
             async move {
@@ -284,12 +283,16 @@ mod tests {
         Answer { outcome, payload }
     }
 
+    async fn put(cache: &Cache<'_>, shape: &str, query: &str, outcome: Outcome) {
+        cache
+            .put("wikidata", "label", shape, query, &answer(outcome, None))
+            .await
+            .expect("put should succeed");
+    }
+
     #[tokio::test]
     async fn stores_reads_and_expires() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let cache = Cache::new(&db.conn);
         let queries = vec!["Train Dreams".to_string(), "Wojak".to_string()];
 
@@ -303,16 +306,7 @@ mod tests {
             )
             .await
             .expect("put should succeed");
-        cache
-            .put(
-                "wikidata",
-                "label",
-                "v1",
-                "Wojak",
-                &answer(Outcome::Empty, None),
-            )
-            .await
-            .expect("put should succeed");
+        put(&cache, "v1", "Wojak", Outcome::Empty).await;
 
         let hits = cache
             .get_many("wikidata", "label", "v1", &queries)
@@ -348,30 +342,20 @@ mod tests {
 
     #[tokio::test]
     async fn a_changed_shape_is_a_different_question() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let cache = Cache::new(&db.conn);
         let queries = vec!["Dune".to_string()];
 
-        cache
-            .put(
-                "wikidata",
-                "label",
-                "shape-a",
-                "Dune",
-                &answer(Outcome::Empty, None),
-            )
-            .await
-            .expect("put should succeed");
+        put(&cache, "shape-a", "Dune", Outcome::Empty).await;
 
-        assert!(
+        assert_eq!(
             cache
                 .get_many("wikidata", "label", "shape-a", &queries)
                 .await
                 .unwrap()
-                .contains_key("Dune")
+                .len(),
+            1,
+            "the row is there, asked for the right way"
         );
         assert!(
             cache
@@ -385,33 +369,12 @@ mod tests {
 
     #[tokio::test]
     async fn refetching_replaces_instead_of_accumulating() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let cache = Cache::new(&db.conn);
         let queries = vec!["Nintendo".to_string()];
 
-        cache
-            .put(
-                "wikidata",
-                "label",
-                "v1",
-                "Nintendo",
-                &answer(Outcome::Empty, None),
-            )
-            .await
-            .expect("put should succeed");
-        cache
-            .put(
-                "wikidata",
-                "label",
-                "v1",
-                "Nintendo",
-                &answer(Outcome::Found, Some(json!({"qid": "Q1"}))),
-            )
-            .await
-            .expect("second put should succeed");
+        put(&cache, "v1", "Nintendo", Outcome::Empty).await;
+        put(&cache, "v1", "Nintendo", Outcome::Found).await;
 
         let hits = cache
             .get_many("wikidata", "label", "v1", &queries)

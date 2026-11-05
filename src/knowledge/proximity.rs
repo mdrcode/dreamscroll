@@ -176,7 +176,7 @@ mod tests {
     use crate::model;
 
     use super::*;
-    use crate::test_support::{fixtures, test_db};
+    use crate::test_support::{db_or_skip, fixtures};
 
     async fn claim_pairs(db: &crate::database::DbHandle, names: [&str; 2]) -> (i32, i32) {
         let first = fixtures::knowledge_entity_with_member(db, names[0]).await;
@@ -189,10 +189,7 @@ mod tests {
     /// The scan records the pair and writes nothing else.
     #[tokio::test]
     async fn scanning_records_a_shared_identity() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let store = Knowledge::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
 
@@ -218,10 +215,7 @@ mod tests {
     /// The merge pass folds the pair and tombstones the loser; the row stays in the batch.
     #[tokio::test]
     async fn merging_folds_the_pair_it_answers() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let store = Knowledge::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
         scan(&store).await.unwrap();
@@ -248,10 +242,7 @@ mod tests {
     /// Pairs that do not look like one thing stay in the batch, so a person can answer.
     #[tokio::test]
     async fn merging_leaves_a_pair_it_cannot_claim() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let store = Knowledge::new(&db);
         claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 

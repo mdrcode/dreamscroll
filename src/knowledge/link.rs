@@ -121,7 +121,7 @@ mod unit {
     use crate::knowledge::evidence::Evidence;
     use crate::knowledge::link_decider::LinkDecider;
     use crate::model::knowledge_entity as entity;
-    use crate::test_support::{fixtures, test_db};
+    use crate::test_support::{db_or_skip, fixtures};
 
     /// The shape `link_illumination` needs: one illumination with its observations loaded.
     async fn load_illumination(db: &DbHandle, id: i32) -> model::illumination::ModelEx {
@@ -166,10 +166,7 @@ mod unit {
 
     #[tokio::test]
     async fn the_linking_policy_is_the_one_it_was_built_with() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let user = fixtures::user(&db, "policy").await;
         let capture = fixtures::capture(&db, user).await;
         let illumination = fixtures::illumination(&db, user, capture).await;
@@ -199,10 +196,7 @@ mod unit {
     /// A store built for writing has no policy, and linking on it says so rather than pretending.
     #[tokio::test]
     async fn a_store_without_a_linker_refuses_to_link() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let user = fixtures::user(&db, "no_linker").await;
         let capture = fixtures::capture(&db, user).await;
         let illumination = fixtures::illumination(&db, user, capture).await;
@@ -220,10 +214,7 @@ mod unit {
     /// checks nothing, so an error naming the missing observations can only come from the store.
     #[tokio::test]
     async fn an_illumination_without_observations_is_refused() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let user = fixtures::user(&db, "unloaded").await;
         let capture = fixtures::capture(&db, user).await;
         let illumination = fixtures::illumination(&db, user, capture).await;
@@ -254,20 +245,17 @@ mod unit {
 mod corpus {
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
-    use crate::knowledge::evidence::Evidence;
-    use crate::knowledge::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
+    use crate::knowledge::STATUS_IDENTIFIED;
     use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
     use crate::test_support::fixtures::{self, entity_count, observe, Capture};
+    use crate::test_support::db_or_skip;
 
     /// Nothing exists for either name yet, and every decision is made before any of them is written,
     /// so neither observation can find the other's entity: the batch is what keeps them apart, with
     /// no rule needed. An entity that *did* already exist would take both.
     #[tokio::test]
     async fn two_new_names_in_one_illumination_get_their_own_entities() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let same = Capture::new(&db, "link_same_capture").await;
         observe(
             &db,
@@ -301,10 +289,7 @@ mod corpus {
 
     #[tokio::test]
     async fn a_second_run_does_nothing() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let first = Capture::new(&db, "link_idempotent").await;
         observe(
             &db,
@@ -343,10 +328,7 @@ mod corpus {
     /// (`api::user::get_entity`), not here.
     #[tokio::test]
     async fn a_superseded_illumination_is_linked_too() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let user_id = fixtures::user(&db, "link_superseded").await;
         let capture_id = fixtures::capture(&db, user_id).await;
         let old = fixtures::illumination(&db, user_id, capture_id).await;
@@ -384,10 +366,7 @@ mod corpus {
     /// name created a duplicate — the local corpus had ten such pairs.
     #[tokio::test]
     async fn a_shared_handle_links_across_captures_and_names() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let first = Capture::new(&db, "link_persona_first").await;
         let second = Capture::new(&db, "link_persona_second").await;
         observe(
@@ -440,10 +419,7 @@ mod corpus {
     /// entities that share one.
     #[tokio::test]
     async fn a_handle_joins_the_entity_its_name_names() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let first = Capture::new(&db, "link_handle_late_first").await;
         observe(
             &db,
@@ -491,92 +467,9 @@ mod corpus {
         );
     }
 
-    /// An identity may have more than one holder. That is not an error — claims are many-to-one, and
-    /// whether the holders are one thing belongs to `proximity::merge` — so both claims land and the
-    /// identity stays one row.
-    #[tokio::test]
-    async fn a_second_holder_is_not_an_error() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let first = Capture::new(&db, "link_claim").await;
-        observe(
-            &db,
-            &first,
-            0,
-            "Tsoding",
-            None,
-            "real_person",
-            Some("x"),
-            Some("tsoding"),
-        )
-        .await;
-        crate::test_support::link::link_all(&db)
-            .await
-            .expect("build should succeed");
-
-        let owner_core = entity::Entity::find().one(&db.conn).await.unwrap().unwrap();
-        let duplicate = entity::Entity::insert(entity::ActiveModel {
-            name: Set("Tsoding".to_string()),
-            entity_type: Set("real_person".to_string()),
-            status: Set(STATUS_PROVISIONAL.to_string()),
-            alt_names: Set(vec!["tsoding".to_string()]),
-            ..Default::default()
-        })
-        .exec(&db.conn)
-        .await
-        .unwrap()
-        .last_insert_id as i32;
-
-        let observation = observation::Entity::find()
-            .one(&db.conn)
-            .await
-            .unwrap()
-            .unwrap();
-        let evidence = Evidence::from_handle(&db);
-        evidence
-            .import_identities(std::slice::from_ref(&observation))
-            .await
-            .expect("the capture asserted a handle");
-        let identity_id = evidence
-            .identity_of(&observation)
-            .await
-            .expect("the lookup should not fail")
-            .expect("already a row");
-        evidence
-            .record(duplicate, identity_id, &observation)
-            .await
-            .expect("a second holder is not an error: claims are many-to-one");
-
-        let holders: Vec<i32> = evidence
-            .held_by_identity(identity_id)
-            .await
-            .unwrap()
-            .into_iter()
-            .map(|entity| entity.id)
-            .collect();
-        assert_eq!(
-            holders,
-            vec![owner_core.id, duplicate],
-            "both entities hold it, and the scan decides whether they are one thing"
-        );
-        assert_eq!(
-            crate::model::knowledge_identity::Entity::find()
-                .count(&db.conn)
-                .await
-                .unwrap(),
-            1,
-            "one identity, however many entities claim it"
-        );
-    }
-
     #[tokio::test]
     async fn a_handle_identified_core_is_not_provisional() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let first = Capture::new(&db, "link_status").await;
         observe(
             &db,

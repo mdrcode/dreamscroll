@@ -236,15 +236,12 @@ async fn attach<C: ConnectionTrait>(
 mod tests {
     use super::*;
 
-    use crate::test_support::{fixtures, test_db};
+    use crate::test_support::{db_or_skip, fixtures};
 
     /// A stale blocker can hand back an entity another writer has since merged: the write refuses.
     #[tokio::test]
     async fn an_observation_is_not_attached_to_a_tombstone() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let store = Knowledge::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train").await;

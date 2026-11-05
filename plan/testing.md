@@ -30,7 +30,10 @@ Examples in the codebase: `TaskRunStatus::is_in_flight`,
 
 ## DB tests
 
-Use the harness in `src/test_support/test_db.rs`:
+Use the harness in `src/test_support/test_db.rs`. The knowledge tests open with one statement —
+`db_or_skip!(db);` — which binds `db` or returns when no database is reachable. It is a *statement*
+on purpose: the checked-out schema is returned to the pool when `TestDb` drops, so the handle must
+outlive the test, not the expression that produced it.
 
 ```rust
 #[tokio::test]

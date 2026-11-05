@@ -671,6 +671,7 @@ mod tests {
     use std::sync::atomic::AtomicUsize;
 
     use super::*;
+    use crate::test_support::db_or_skip;
 
     /// An authority that never touches the network: it answers from a fixed map and counts calls.
     struct Fake {
@@ -766,10 +767,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_claim_identifies_the_core_and_a_second_run_asks_nothing() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let knowledge_entity_id = seed(&db, "Train Dreams").await;
 
         let calls = Arc::new(AtomicUsize::new(0));
@@ -816,10 +814,7 @@ mod tests {
 
     #[tokio::test]
     async fn an_empty_answer_is_cached_and_not_re_asked() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let knowledge_entity_id = seed(&db, "MUME").await;
 
         let calls = Arc::new(AtomicUsize::new(0));
@@ -864,10 +859,7 @@ mod tests {
     /// Two *independent inputs* — a text match and an account link — raise confidence.
     #[tokio::test]
     async fn corroboration_counts_independent_inputs() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let knowledge_entity_id = seed(&db, "Nintendo").await;
 
         crate::test_support::fixtures::claim(
@@ -893,18 +885,10 @@ mod tests {
         )
         .await;
 
-        crate::knowledge::Knowledge::with_linking(
-            &db,
-            Box::new(
-                crate::knowledge::heuristic::NameBlocker::new(&db)
-                    .await
-                    .unwrap(),
-            ),
-            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
-        )
-        .update_projection(knowledge_entity_id)
-        .await
-        .unwrap();
+        crate::knowledge::Knowledge::new(&db)
+            .update_projection(knowledge_entity_id)
+            .await
+            .unwrap();
 
         let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
@@ -921,10 +905,7 @@ mod tests {
     /// providers and schemes they name — the claim's basis says so, so nothing has to infer it.
     #[tokio::test]
     async fn a_handle_basis_claim_is_not_corroboration() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let knowledge_entity_id = seed(&db, "Tsoding").await;
 
         for (source, method, scheme, external_id, confidence) in [
@@ -950,18 +931,10 @@ mod tests {
             .await;
         }
 
-        crate::knowledge::Knowledge::with_linking(
-            &db,
-            Box::new(
-                crate::knowledge::heuristic::NameBlocker::new(&db)
-                    .await
-                    .unwrap(),
-            ),
-            std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
-        )
-        .update_projection(knowledge_entity_id)
-        .await
-        .unwrap();
+        crate::knowledge::Knowledge::new(&db)
+            .update_projection(knowledge_entity_id)
+            .await
+            .unwrap();
 
         let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
             .one(&db.conn)
@@ -1083,10 +1056,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_rate_limit_keeps_the_claims_already_fetched() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         for name in ["Alpha One", "Beta Two", "Gamma Three", "Delta Four"] {
             seed(&db, name).await;
         }
@@ -1112,10 +1082,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_rate_limit_stops_the_run_and_is_not_cached() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         seed(&db, "Train Dreams").await;
 
         let report = ResolutionEngine::new(&db, Options::default())
@@ -1142,10 +1109,7 @@ mod tests {
     /// it — otherwise it still reads as the weaker side and is the one tombstoned.
     #[tokio::test]
     async fn the_side_that_earned_a_claim_this_run_survives_the_fold() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
 
         // One name, two entities, different illuminations, so a fold is allowed at all.
         let resolved_before =
@@ -1223,10 +1187,7 @@ mod tests {
     /// entities, both holding the identity, and `merge` leaves them alone.
     #[tokio::test]
     async fn two_entities_may_resolve_to_one_identity() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         seed(&db, "Alpha One").await;
         seed(&db, "Beta Two").await;
 
@@ -1285,16 +1246,20 @@ mod tests {
 
     /// `title` and `label` ask about the same string and the answers are different things, so the
     /// group key includes the kind — keyed by query alone the label group once swallowed the titles.
+    /// A duplicate within a group is asked once.
     #[test]
-    fn plans_group_by_kind_and_shape() {
+    fn plan_groups_key_by_kind_and_collapse_duplicates() {
         let requests = [
             request("label", "v1", "Train Dreams"),
             request("label", "v1", "Train Dreams"),
             request("title", "v1", "Train Dreams"),
+            request("search", "v1", "b"),
+            request("search", "v1", "a"),
+            request("search", "v1", "b"),
         ];
         let groups = plan_groups(&requests);
 
-        assert_eq!(groups.len(), 2);
+        assert_eq!(groups.len(), 3);
         assert_eq!(
             groups[&("test", "label".into(), "v1".into())],
             vec!["Train Dreams"]
@@ -1303,74 +1268,13 @@ mod tests {
             groups[&("test", "title".into(), "v1".into())],
             vec!["Train Dreams"]
         );
-    }
-
-    #[test]
-    fn duplicates_within_a_group_are_collapsed() {
-        let requests = [
-            request("search", "v1", "b"),
-            request("search", "v1", "a"),
-            request("search", "v1", "b"),
-        ];
-        let groups = plan_groups(&requests);
-        assert_eq!(
-            groups[&("test", "search".into(), "v1".into())],
-            vec!["a", "b"]
-        );
-    }
-
-    struct AlwaysRateLimited;
-
-    #[async_trait::async_trait]
-    impl Transport for AlwaysRateLimited {
-        async fn fetch(&self, _requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
-            Err(FetchError::RateLimited {
-                retry_after_secs: 7,
-            })
-        }
-    }
-
-    /// A 429 is an instruction: stop, cache nothing, report the wait. Caching it would turn a
-    /// temporary throttle into a week-long "no such entity".
-    #[tokio::test]
-    async fn a_rate_limit_stops_the_ask_and_caches_nothing() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let cache = Cache::new(&db.conn);
-        let options = Options {
-            min_interval: std::time::Duration::from_millis(0),
-            ..Default::default()
-        };
-        let ctx = ResolutionContext::new(&cache, &options);
-
-        let answers = ctx
-            .resolve_requests(
-                &AlwaysRateLimited,
-                &[request("label", "v1", "Train Dreams")],
-            )
-            .await;
-
-        assert!(
-            answers.is_empty(),
-            "a 429 must not be recorded as an answer"
-        );
-        assert_eq!(ctx.rate_limited_after(), Some(7));
-        assert_eq!(
-            ctx.fetched.load(Ordering::Relaxed),
-            1,
-            "it stopped after the first call"
-        );
+        assert_eq!(groups[&("test", "search".into(), "v1".into())], vec!["a", "b"]);
     }
 
     /// A spent budget stops issuing calls and says so, rather than silently returning nothing.
     #[tokio::test]
     async fn a_spent_budget_issues_no_calls() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let cache = Cache::new(&db.conn);
         let options = Options {
             max_requests: 0,
@@ -1379,11 +1283,8 @@ mod tests {
         };
         let ctx = ResolutionContext::new(&cache, &options);
 
-        ctx.resolve_requests(
-            &AlwaysRateLimited,
-            &[request("label", "v1", "Train Dreams")],
-        )
-        .await;
+        ctx.resolve_requests(&Limited, &[request("label", "v1", "Train Dreams")])
+            .await;
 
         assert!(ctx.budget_exhausted(), "the refusal is recorded");
         assert_eq!(

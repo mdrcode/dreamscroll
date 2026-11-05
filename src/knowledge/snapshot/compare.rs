@@ -202,6 +202,7 @@ async fn labels(db: &database::DbHandle, table: &str) -> anyhow::Result<HashMap<
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::db_or_skip;
 
     async fn table(db: &database::DbHandle, name: &str, columns: &str, rows: &str) {
         db.conn
@@ -218,10 +219,7 @@ mod tests {
 
     #[tokio::test]
     async fn reports_a_split_and_a_merge() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let before = Snapshot {
             suffix: "cmp_before".to_string(),
         };
@@ -255,10 +253,7 @@ mod tests {
 
     #[tokio::test]
     async fn identical_runs_report_no_differences() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let before = Snapshot {
             suffix: "same_before".to_string(),
         };
@@ -283,10 +278,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_missing_snapshot_names_the_table() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let missing = Snapshot {
             suffix: "cmp_missing".to_string(),
         };

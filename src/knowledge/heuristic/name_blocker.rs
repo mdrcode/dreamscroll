@@ -189,20 +189,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn word_order_alone_still_blocks() {
-        let blocker = NameBlocker::build_entities(&[entity_row(7, "Train Dreams", "book")]);
-
-        let candidates = blocker
-            .candidates(&observation_row("Dreams Train", "book"))
-            .await;
-        assert_eq!(
-            ids(&candidates),
-            vec![7],
-            "token-set equality is a block key"
-        );
-    }
-
-    #[tokio::test]
     async fn distinct_names_propose_nothing() {
         let blocker = NameBlocker::build_entities(&[entity_row(7, "Train Dreams", "book")]);
 

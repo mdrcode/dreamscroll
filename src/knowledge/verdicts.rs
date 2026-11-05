@@ -168,46 +168,15 @@ async fn canonical(knowledge: &Knowledge, id: i32) -> anyhow::Result<Option<i32>
 mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
-    use crate::test_support::{fixtures, test_db};
+    use crate::test_support::{db_or_skip, fixtures};
 
     use super::*;
-
-    /// A person's merge is kept with both origins, so a rebuild can find it again.
-    #[tokio::test]
-    async fn a_manual_merge_records_a_verdict() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        let store = Knowledge::new(&db);
-        let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-
-        store.merge(loser, winner, Cause::Repair).await.unwrap();
-
-        let verdicts = model::knowledge_verdicts::Entity::find()
-            .all(&db.conn)
-            .await
-            .unwrap();
-        assert_eq!(verdicts.len(), 1);
-        let winner_origin = model::knowledge_entity::Entity::find_by_id(winner)
-            .one(&db.conn)
-            .await
-            .unwrap()
-            .unwrap()
-            .origin_observation_id
-            .expect("fixtures set the origin");
-        assert_eq!(verdicts[0].winner_origin, winner_origin);
-    }
 
     /// The automatic pass logs its fold with its own cause, and replay leaves it alone: the model's
     /// opinion is re-derived every build, never restored.
     #[tokio::test]
     async fn an_automatic_merge_is_logged_but_not_replayed() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let store = Knowledge::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
@@ -231,10 +200,7 @@ mod tests {
     /// Replay folds what a previous build had merged, by origin.
     #[tokio::test]
     async fn replay_folds_the_pair_again() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let store = Knowledge::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
@@ -260,13 +226,51 @@ mod tests {
         assert!(tombstone.merged_into_id.is_some(), "the recorded side folded");
     }
 
+    /// The model may fold a person's winner into something else. The decision still means "these two
+    /// are one", so the replay follows the tombstone and folds into wherever the winner ended up.
+    #[tokio::test]
+    async fn replay_follows_a_winner_the_model_folded_away() {
+        db_or_skip!(db);
+        let store = Knowledge::new(&db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let winner_origin = origin(&db, winner).await;
+        let loser_origin = origin(&db, loser).await;
+        store.merge(loser, winner, Cause::Repair).await.unwrap();
+
+        // A rebuild gives the pair back, then the model folds the person's winner into a third
+        // entity: the winner is now a tombstone, and the loser is not.
+        crate::knowledge::snapshot::reset(&db).await.unwrap();
+        let reborn_winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let reborn_loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        set_origin(&db, reborn_winner, winner_origin).await;
+        set_origin(&db, reborn_loser, loser_origin).await;
+        let heir = fixtures::knowledge_entity_with_member(&db, "Train Dreams (film)").await;
+        store
+            .merge(reborn_winner, heir, Cause::ProximityAuto)
+            .await
+            .unwrap();
+
+        let report = replay(&store).await.expect("replay");
+
+        assert_eq!(report.applied, 1, "{report:?}");
+        assert_eq!(report.gone, 0, "{report:?}");
+        let tombstone = model::knowledge_entity::Entity::find_by_id(reborn_loser)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            tombstone.merged_into_id,
+            Some(heir),
+            "the decision retargets through the winner's tombstone"
+        );
+    }
+
     /// Applied once, reported as already applied on every later run — a tombstone is not erosion.
     #[tokio::test]
     async fn replay_is_idempotent() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let store = Knowledge::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
@@ -282,10 +286,7 @@ mod tests {
     /// A verdict whose sides are not both live is reported, not guessed.
     #[tokio::test]
     async fn replay_reports_sides_that_are_gone() {
-        let Some(test_db) = test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let store = Knowledge::new(&db);
         let only = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let origin = origin(&db, only).await;

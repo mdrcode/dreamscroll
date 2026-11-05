@@ -74,6 +74,17 @@ fn latin_base(c: char) -> Option<char> {
     })
 }
 
+
+/// Set overlap: |a ∩ b| / |a ∪ b|. 0.0 when either side is empty.
+pub fn jaccard(a: &[String], b: &[String]) -> f32 {
+    if a.is_empty() || b.is_empty() {
+        return 0.0;
+    }
+    let a: std::collections::BTreeSet<&String> = a.iter().collect();
+    let b: std::collections::BTreeSet<&String> = b.iter().collect();
+    a.intersection(&b).count() as f32 / a.union(&b).count() as f32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -93,14 +104,4 @@ mod tests {
         assert_ne!(comparable("C#"), comparable("C++"));
         assert_ne!(comparable("U.S."), comparable("US"));
     }
-}
-
-/// Set overlap: |a ∩ b| / |a ∪ b|. 0.0 when either side is empty.
-pub fn jaccard(a: &[String], b: &[String]) -> f32 {
-    if a.is_empty() || b.is_empty() {
-        return 0.0;
-    }
-    let a: std::collections::BTreeSet<&String> = a.iter().collect();
-    let b: std::collections::BTreeSet<&String> = b.iter().collect();
-    a.intersection(&b).count() as f32 / a.union(&b).count() as f32
 }

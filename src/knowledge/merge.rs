@@ -245,6 +245,7 @@ mod tests {
     use crate::model::knowledge_verdicts as verdicts;
     use crate::model::user_observed_entity as obs;
     use crate::test_support::fixtures;
+    use crate::test_support::db_or_skip;
 
     async fn entity_with(db: &crate::database::DbHandle, label: &str) -> i32 {
         let id = entity::Entity::insert(entity::ActiveModel {
@@ -259,36 +260,15 @@ mod tests {
         .unwrap()
         .last_insert_id as i32;
         // The log keys a merge by origin, so a test entity needs one.
-        entity::Entity::update_many()
-            .col_expr(
-                entity::Column::OriginObservationId,
-                Expr::value(Some(10_000_000 + id)),
-            )
-            .filter(entity::Column::Id.eq(id))
-            .exec(&db.conn)
-            .await
-            .unwrap();
+        fixtures::set_origin(db, id, 10_000_000 + id).await;
         id
-    }
-
-    async fn origin_of(db: &crate::database::DbHandle, id: i32) -> i32 {
-        entity::Entity::find_by_id(id)
-            .one(&db.conn)
-            .await
-            .unwrap()
-            .unwrap()
-            .origin_observation_id
-            .expect("the helper set an origin")
     }
 
     /// The resolution loop can reach one conflict twice, because the loser is still in the run's
     /// entity list after it has been folded. A repeat must be a no-op, not a second merge event.
     #[tokio::test]
     async fn merging_the_same_pair_twice_records_one_event() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let winner = entity_with(&db, "Elon Musk").await;
         let loser = entity_with(&db, "Elon").await;
 
@@ -315,10 +295,7 @@ mod tests {
     /// moved. Auditing the columns found that labels and descriptions were lost here.
     #[tokio::test]
     async fn the_losers_surfaces_survive_in_the_winner() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let winner = entity_with(&db, "Elon Musk").await;
         let loser = entity_with(&db, "Elon").await;
 
@@ -376,10 +353,7 @@ mod tests {
     /// decided that at link time; a merge must not contradict it.
     #[tokio::test]
     async fn a_shared_capture_blocks_the_merge() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let book = entity_with(&db, "Corduroy").await;
         let character = entity_with(&db, "Corduroy").await;
 
@@ -414,10 +388,7 @@ mod tests {
 
     #[tokio::test]
     async fn merging_moves_everything_and_tombstones_the_loser() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let winner = entity_with(&db, "Elon Musk").await;
         let loser = entity_with(&db, "Elon").await;
 
@@ -461,7 +432,7 @@ mod tests {
         );
         assert_eq!(
             verdicts::Entity::find()
-                .filter(verdicts::Column::WinnerOrigin.eq(origin_of(&db, winner).await))
+                .filter(verdicts::Column::WinnerOrigin.eq(fixtures::origin(&db, winner).await))
                 .count(&db.conn)
                 .await
                 .unwrap(),
@@ -486,10 +457,7 @@ mod tests {
     /// for an entity that does not exist.
     #[tokio::test]
     async fn merging_an_entity_that_does_not_exist_is_an_error() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let winner = entity_with(&db, "Elon Musk").await;
 
         let error = merge(&db.conn, 999_999, winner, Cause::Repair)
@@ -503,40 +471,44 @@ mod tests {
         );
     }
 
-    /// The log is the only audit trail: it has to say what decided the merge, or a repair by hand is
-    /// indistinguishable from an automatic fold forever.
+    /// The log is the only audit trail: it has to say what decided the merge and which way, or a
+    /// repair by hand is indistinguishable from an automatic fold forever.
     #[tokio::test]
-    async fn the_log_records_why() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
-        for (cause, method) in [
-            (Cause::ProximityAuto, "proximity_auto"),
-            (Cause::Repair, "repair"),
-        ] {
-            let winner = entity_with(&db, "Elon Musk").await;
-            let loser = entity_with(&db, "Elon").await;
-            merge(&db.conn, loser, winner, cause).await.unwrap();
+    async fn the_log_records_why_and_which_way() {
+        db_or_skip!(db);
+        let winner = entity_with(&db, "Elon Musk").await;
+        let loser = entity_with(&db, "Elon").await;
 
-            let row = verdicts::Entity::find()
-                .filter(verdicts::Column::WinnerOrigin.eq(origin_of(&db, winner).await))
-                .one(&db.conn)
-                .await
-                .unwrap()
-                .expect("a log row");
-            assert_eq!(row.cause, method);
-            assert_eq!(row.loser_origin, origin_of(&db, loser).await);
+        merge(&db.conn, loser, winner, Cause::Repair)
+            .await
+            .unwrap();
+
+        let row = verdicts::Entity::find()
+            .filter(verdicts::Column::WinnerOrigin.eq(fixtures::origin(&db, winner).await))
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("a log row");
+        assert_eq!(row.cause, "repair");
+        assert_eq!(row.loser_origin, fixtures::origin(&db, loser).await);
+    }
+
+    /// Three causes, three authorities; the column is read by the replay, so the spelling is API.
+    #[test]
+    fn every_cause_names_itself() {
+        for (cause, name) in [
+            (Cause::Repair, "repair"),
+            (Cause::ProximityAuto, "proximity_auto"),
+            (Cause::Replayed, "replayed"),
+        ] {
+            assert_eq!(cause.as_str(), name);
         }
     }
 
     /// Merging into a tombstone would strand the loser's observations, so it is refused.
     #[tokio::test]
     async fn merging_into_a_tombstone_is_refused() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let dead = entity_with(&db, "Elon").await;
         let alive = entity_with(&db, "Elon Musk").await;
         merge(&db.conn, dead, alive, Cause::Repair)

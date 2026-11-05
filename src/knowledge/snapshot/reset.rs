@@ -207,6 +207,7 @@ mod tests {
 
     use super::*;
     use crate::test_support::fixtures;
+    use crate::test_support::db_or_skip;
 
     /// Observation ids grouped by entity, ids of the entities ignored, so two runs can be compared even
     /// though their entity ids differ.
@@ -236,6 +237,28 @@ mod tests {
             .map(|row| (row.id, row.knowledge_entity_id.unwrap()))
             .collect();
         group(rows)
+    }
+
+    /// `(origin, members)` per live entity, ordered — two runs compared without their ids.
+    async fn origins(db: &database::DbHandle) -> Vec<(i32, Vec<i32>)> {
+        let mut groups = Vec::new();
+        for entity in entity::Entity::find().all(&db.conn).await.unwrap() {
+            let mut members: Vec<i32> = observation::Entity::find()
+                .filter(observation::Column::KnowledgeEntityId.eq(entity.id))
+                .all(&db.conn)
+                .await
+                .unwrap()
+                .into_iter()
+                .map(|row| row.id)
+                .collect();
+            members.sort_unstable();
+            groups.push((
+                entity.origin_observation_id.expect("linking set an origin"),
+                members,
+            ));
+        }
+        groups.sort();
+        groups
     }
 
     async fn snapshot_partition(db: &database::DbHandle, table: &str) -> Vec<Vec<i32>> {
@@ -274,10 +297,7 @@ mod tests {
 
     #[tokio::test]
     async fn reset_preserves_the_partition_and_empties_the_graph() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         seed(&db).await;
         crate::test_support::link::link_all(&db)
             .await
@@ -313,22 +333,32 @@ mod tests {
             "the snapshot must reproduce the partition it replaced"
         );
 
+    }
+
+    /// The key a person's decisions are logged under has to come back with the group: entity ids are
+    /// reallocated by a rebuild, origins are not. This is what makes `verdicts replay` possible, and
+    /// it holds only while linking is ordered (illumination, then position).
+    #[tokio::test]
+    async fn a_rebuild_gives_every_group_back_its_origin() {
+        db_or_skip!(db);
+        seed(&db).await;
+        crate::test_support::link::link_all(&db)
+            .await
+            .expect("build should succeed");
+        let before = origins(&db).await;
+        assert_eq!(before.len(), 2, "{before:?}");
+
+        reset(&db).await.expect("reset should succeed");
         crate::test_support::link::link_all(&db)
             .await
             .expect("rebuild should succeed");
-        assert_eq!(
-            live_partition(&db).await,
-            before,
-            "rebuild must be deterministic"
-        );
+
+        assert_eq!(origins(&db).await, before, "each group kept its origin");
     }
 
     #[tokio::test]
     async fn two_resets_keep_two_separate_snapshots() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         seed(&db).await;
 
         crate::test_support::link::link_all(&db)
@@ -351,10 +381,7 @@ mod tests {
 
     #[tokio::test]
     async fn resetting_an_empty_graph_creates_no_snapshot() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
 
         let report = reset(&db).await.expect("reset should succeed");
 

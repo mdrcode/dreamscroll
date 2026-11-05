@@ -365,16 +365,6 @@ mod tests {
     }
 
     #[test]
-    fn identical_name_and_type_clears_the_bar() {
-        let candidate = entity(1, "Train Dreams", Some("a novella by Denis Johnson"), "book");
-        let observed = observation("Train Dreams", Some("a novella by Denis Johnson"), "book");
-        let ranked = Heuristic.rank(&observed, std::slice::from_ref(&candidate));
-        assert_eq!(ranked.len(), 1);
-        assert_eq!(ranked[0].0, 0);
-        assert!(ranked[0].1 > 0.99, "{ranked:?}");
-    }
-
-    #[test]
     fn article_or_word_order_alone_still_clears() {
         let candidate = entity(1, "Train Dreams", None, "book");
         let ranked = Heuristic.rank(&observation("The Train Dreams", None, "book"), &[candidate]);
@@ -396,18 +386,13 @@ mod tests {
         assert!(Heuristic.rank(&frame, &[django]).is_empty());
     }
 
+    /// The extractor could not type either side: that is an absence of information, so an exact
+    /// name still clears, and the unknown type still satisfies the "agree about something" anchor.
     #[test]
-    fn different_names_do_not_clear() {
-        let other = entity(1, "Gravity's Rainbow", None, "book");
-        assert!(Heuristic
-            .rank(&observation("Train Dreams", None, "book"), &[other])
-            .is_empty());
-    }
-
-    #[test]
-    fn unknown_type_is_weak_not_negative() {
+    fn an_unknown_type_does_not_disqualify_a_name() {
         let candidate = entity(1, "Wojak", None, "concept");
-        assert_eq!(features(&observation("Wojak", None, "unknown"), &candidate).type_match, 0.5);
+        let ranked = Heuristic.rank(&observation("Wojak", None, "unknown"), &[candidate]);
+        assert_eq!(ranked.len(), 1, "an unknown type is not a disagreement: {ranked:?}");
     }
 
     /// The filter is a filter, not a reordering: the strongest candidate wins, and the ones that do

@@ -105,6 +105,7 @@ impl LinkDecider for HeuristicLinker {
 mod tests {
     use super::*;
 
+    use crate::test_support::db_or_skip;
     use crate::model;
 
     use crate::knowledge::heuristic::NameBlocker;
@@ -149,19 +150,22 @@ mod tests {
 
     #[tokio::test]
     async fn the_linker_takes_the_best_candidate_that_clears_the_bar() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let weak = entity_row(1, "Train Dreams", "book");
-        let strong = entity_row(2, "Train Dreams", "book");
-        let observation = observation_row("Train Dreams", "book");
+        // The same name and type, and a description that agrees with the capture: strictly better.
+        let mut strong = entity_row(2, "Train Dreams", "book");
+        strong.description = Some("a novella by Denis Johnson".to_string());
+        strong.alt_names = vec!["Train Dreams".to_string()];
+        let mut observation = observation_row("Train Dreams", "book");
+        observation.description = Some("a novella by Denis Johnson".to_string());
 
         let result = link(&db, &[weak, strong], &[observation]).await;
 
         match result.as_slice() {
             [decision] => match &decision.action {
-                Action::Attach(entity) => assert!(*entity == 1 || *entity == 2),
+                Action::Attach(entity) => {
+                    assert_eq!(*entity, 2, "the corroborated candidate wins")
+                }
                 other => panic!("expected an attach, got {other:?}"),
             },
             other => panic!("expected one decision, got {other:?}"),
@@ -170,10 +174,7 @@ mod tests {
 
     #[tokio::test]
     async fn no_candidates_creates_with_nothing_to_report() {
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let result = link(&db, &[], &[observation_row("Anything", "unknown")]).await;
         match result.as_slice() {
             [decision] => match &decision.action {

@@ -218,6 +218,31 @@ pub async fn knowledge_entity_with_member(db: &DbHandle, name: &str) -> i32 {
     knowledge_entity_id
 }
 
+/// The durable key a merge is logged under: the observation the entity was created from.
+pub async fn origin(db: &DbHandle, knowledge_entity_id: i32) -> i32 {
+    model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+        .one(&db.conn)
+        .await
+        .unwrap()
+        .unwrap()
+        .origin_observation_id
+        .expect("the fixture set an origin")
+}
+
+/// Rewrites an entity's origin, standing in for what `link` would have chosen — the way a test
+/// puts a *rebuilt* entity back under an origin a log row was written for.
+pub async fn set_origin(db: &DbHandle, knowledge_entity_id: i32, origin: i32) {
+    model::knowledge_entity::Entity::update_many()
+        .col_expr(
+            model::knowledge_entity::Column::OriginObservationId,
+            sea_orm::sea_query::Expr::value(Some(origin)),
+        )
+        .filter(model::knowledge_entity::Column::Id.eq(knowledge_entity_id))
+        .exec(&db.conn)
+        .await
+        .unwrap();
+}
+
 pub async fn entity(
     db: &DbHandle,
     user_id: i32,

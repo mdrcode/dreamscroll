@@ -281,17 +281,30 @@ mod tests {
         assert_eq!(entity.confidence, None);
     }
 
-    /// Another member of the same entity, carrying its own hint.
-    async fn attach_member(db: &DbHandle, id: i32, name: &str, query: Option<&str>) -> i32 {
-        let user_id = fixtures::user(db, "project").await;
-        let capture_id = fixtures::capture(db, user_id).await;
-        let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-        let observation_id =
-            fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
+    /// Another member of an existing entity: a capture whose row carries `hint` and/or a presence.
+    async fn attach(
+        db: &DbHandle,
+        id: i32,
+        name: &str,
+        hint: Option<&str>,
+        platform: Option<(&str, &str)>,
+    ) -> i32 {
+        let capture = fixtures::Capture::new(db, "project_member").await;
+        let observation_id = fixtures::observe(
+            db,
+            &capture,
+            0,
+            name,
+            None,
+            "book",
+            platform.map(|(platform, _)| platform),
+            platform.map(|(_, handle)| handle),
+        )
+        .await;
         observation::Entity::update_many()
             .col_expr(
                 observation::Column::SearchQuery,
-                Expr::value(query.map(str::to_string)),
+                Expr::value(hint.map(str::to_string)),
             )
             .col_expr(
                 observation::Column::KnowledgeEntityId,
@@ -304,32 +317,6 @@ mod tests {
         observation_id
     }
 
-    /// A member that carries a platform presence.
-    async fn attach_link(db: &DbHandle, id: i32, name: &str, platform: &str, handle: &str) {
-        let user_id = fixtures::user(db, "project").await;
-        let capture_id = fixtures::capture(db, user_id).await;
-        let illumination_id = fixtures::illumination(db, user_id, capture_id).await;
-        let observation_id =
-            fixtures::entity(db, user_id, capture_id, illumination_id, 0, name).await;
-        observation::Entity::update_many()
-            .col_expr(
-                observation::Column::Platform,
-                Expr::value(Some(platform.to_string())),
-            )
-            .col_expr(
-                observation::Column::PlatformHandle,
-                Expr::value(Some(handle.to_string())),
-            )
-            .col_expr(
-                observation::Column::KnowledgeEntityId,
-                Expr::value(Some(id)),
-            )
-            .filter(observation::Column::Id.eq(observation_id))
-            .exec(&db.conn)
-            .await
-            .unwrap();
-    }
-
     /// The platform presence, projected from whichever member carried one.
     #[tokio::test]
     async fn the_platform_presence_is_projected_from_a_member() {
@@ -338,7 +325,7 @@ mod tests {
         };
         let db = db.handle();
         let id = fixtures::knowledge_entity_with_member(&db, "Tsoding").await;
-        attach_link(&db, id, "Tsoding", "x_twitter", "tsoding").await;
+        attach(&db, id, "Tsoding", None, Some(("x_twitter", "tsoding"))).await;
 
         store(&db).update_projection(id).await.unwrap();
 
@@ -357,8 +344,8 @@ mod tests {
         };
         let db = db.handle();
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        attach_member(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
-        attach_member(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
+        attach(&db, id, "Train Dreams", Some("Train Dreams novella"), None).await;
+        attach(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson"), None).await;
 
         store(&db).update_projection(id).await.unwrap();
 
@@ -380,9 +367,8 @@ mod tests {
         };
         let db = db.handle();
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        attach_member(&db, id, "Train Dreams", Some("Train Dreams novella")).await;
-        let second =
-            attach_member(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson")).await;
+        attach(&db, id, "Train Dreams", Some("Train Dreams novella"), None).await;
+        let second = attach(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson"), None).await;
 
         // The row is told a different member is its origin.
         entity::Entity::update(entity::ActiveModel {

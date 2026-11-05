@@ -85,6 +85,10 @@ struct Slot {
 static POOLED: LazyLock<Mutex<Vec<Slot>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 impl TestDb {
+    /// A handle on the schema. The `TestDb` owns it: keep it alive for the whole test. Dropping it
+    /// returns the schema to the pool, where another test may check it out and truncate it while
+    /// this one is still running — so never consume `TestDb` in an expression. `db_or_skip!(db)`
+    /// exists to make that the easy thing to write.
     pub fn handle(&self) -> database::DbHandle {
         self.handle.clone()
     }

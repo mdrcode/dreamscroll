@@ -360,43 +360,69 @@ pub fn unique_violation(error: &sea_orm::DbErr) -> Option<&str> {
 
 #[cfg(test)]
 mod tests {
+    use sea_orm::PaginatorTrait;
+
     use super::*;
+    use crate::test_support::{db_or_skip, fixtures};
 
-    fn observation(platform: &str, handle: &str) -> model::user_observed_entity::Model {
-        model::user_observed_entity::Model {
-            id: 1,
-            user_id: 1,
-            capture_id: 1,
-            illumination_id: 1,
-            position: 0,
-            name: "Someone".to_string(),
-            entity_type: "real_person".to_string(),
-            description: None,
-            search_query: None,
-            platform: Some(platform.to_string()),
-            platform_handle: Some(handle.to_string()),
-            platform_display_name: None,
-            knowledge_entity_id: None,
-            created_at: chrono::Utc::now(),
-        }
-    }
+    /// Two entities may hold one identity — that is what the scan asks about — while each holds it
+    /// once. The second assertion is the unique index's path: a repeat is a no-op, not an error.
+    #[tokio::test]
+    async fn one_identity_many_holders_one_claim_each() {
+        db_or_skip!(db);
+        let capture = fixtures::Capture::new(&db, "evidence_holders").await;
+        let observation = fixtures::observe(
+            &db,
+            &capture,
+            0,
+            "Tsoding",
+            None,
+            "real_person",
+            Some("x"),
+            Some("tsoding"),
+        )
+        .await;
+        let first = fixtures::knowledge_entity_with_member(&db, "Tsoding").await;
+        let second = fixtures::knowledge_entity_with_member(&db, "Alexey Kutepov").await;
 
-    /// The identity the index enforces and the key the blocker indexes must be the same string, or
-    /// one entity holds a handle another entity is blocked under.
-    #[test]
-    fn the_claim_key_is_the_claim_identity() {
-        for (platform, handle) in [
-            ("x_twitter", "tsoding"),
-            ("x_twitter", "@tsoding"),
-            ("reddit", "Some_User"),
-            ("  x_twitter  ", "tsoding."),
-        ] {
-            let claim = Claim::of(&observation(platform, handle)).expect("a handle");
-            assert_eq!(
-                claim.identity(),
-                Claim::key(platform, handle),
-                "{platform}/{handle}"
-            );
-        }
+        let evidence = Evidence::from_handle(&db);
+        let observation = model::user_observed_entity::Entity::find_by_id(observation)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        evidence
+            .import_identities(std::slice::from_ref(&observation))
+            .await
+            .expect("the capture asserted a handle");
+        let identity = evidence
+            .identity_of(&observation)
+            .await
+            .expect("the lookup should not fail")
+            .expect("already a row");
+
+        evidence.record(first, identity, &observation).await.expect("first");
+        evidence
+            .record(first, identity, &observation)
+            .await
+            .expect("the same holder again is one claim, not a violation");
+        evidence
+            .record(second, identity, &observation)
+            .await
+            .expect("a second holder is not an error");
+
+        assert_eq!(
+            evidence.held_by_identity(identity).await.unwrap().len(),
+            2,
+            "both entities hold it, and the scan decides whether they are one thing"
+        );
+        assert_eq!(
+            crate::model::knowledge_claims::Entity::find()
+                .count(&db.conn)
+                .await
+                .unwrap(),
+            2,
+            "one claim per holder"
+        );
     }
 }

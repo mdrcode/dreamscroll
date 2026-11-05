@@ -550,6 +550,7 @@ fn handle_claim(candidate: &Candidate, property: &str, confidence: f32) -> Claim
 mod tests {
     use crate::knowledge::resolve::cache::Outcome;
     use super::*;
+    use crate::test_support::db_or_skip;
 
     fn request(kind: &str, query: &str) -> Request {
         Request {
@@ -606,23 +607,15 @@ mod tests {
         assert!(claims.is_empty(), "{claims:?}");
     }
 
+    /// Not the same surface: no claim, however close the spelling. The label stage does not rank.
     #[test]
-    fn a_label_that_only_fuzzily_matches_is_not_claimed() {
+    fn a_misspelt_label_is_not_claimed() {
         let claims = engine().parse(
-            &entity("Sunset Boulevard", None),
-            &request("label", "Sunset Boulevard"),
-            &found(json!([{"id": "Q1", "label": "Sunset Boulevard", "description": "street"}])),
-        );
-        // One exact match, so it *is* claimed — the wrong-referent filter is a separate concern
-        // (type compatibility), and this asserts we do not invent a match when there is none.
-        assert_eq!(claims.len(), 1);
-
-        let none = engine().parse(
             &entity("Sunset Boulevarde", None),
             &request("label", "Sunset Boulevarde"),
             &found(json!([{"id": "Q1", "label": "Sunset Boulevard"}])),
         );
-        assert!(none.is_empty());
+        assert!(claims.is_empty(), "{claims:?}");
     }
 
     #[test]
@@ -754,17 +747,6 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_answer_claims_nothing() {
-        let mume = entity("MUME", None);
-        assert!(engine()
-            .parse(&mume, &request("label", "MUME"), &Raw { outcome: Outcome::Empty, payload: None })
-            .is_empty());
-        assert!(engine()
-            .parse(&mume, &request("label", "MUME"), &Raw { outcome: Outcome::Failed, payload: None })
-            .is_empty());
-    }
-
-    #[test]
     fn planning_prefers_the_handle_then_a_title_then_the_label() {
         let mut entity = crate::test_support::fixtures::stub_entity(1, "Alexey Kutepov", "real_person");
         entity.search_query = Some("Tsoding".to_string());
@@ -820,32 +802,26 @@ mod tests {
         assert_eq!(claims[0].id, "Q991");
     }
 
-    /// The trap: an item whose *label* contains our name is a different referent, and its description
-    /// overlaps ours precisely because it is about ours. `Royal Navy` must not become the fleet.
+    /// The trap: an item whose *label* merely contains our name is a different referent, and its
+    /// description overlaps ours precisely because it is about ours. A weak lookup must not become a
+    /// weak claim — the search stage accepts a surface match or nothing.
     #[test]
     fn a_search_answer_that_only_mentions_our_name_is_refused() {
-        let claims = engine().parse(
-            &entity("Royal Navy", Some("the United Kingdom's naval warfare force")),
-            &request("search", "Royal Navy"),
-            &found(json!([{
-                "id": "Q63751162",
-                "label": "Royal Navy fleet aircraft carrier fleet",
-                "description": "all fleet aircraft carriers in service with the United Kingdom's Royal Navy"
-            }])),
-        );
-        assert!(claims.is_empty(), "{claims:?}");
-    }
-
-    /// Anything that is not the same surface is left to the ranker, which the search stage does not
-    /// attempt — a weak lookup must not become a weak claim.
-    #[test]
-    fn a_search_answer_without_a_surface_match_claims_nothing() {
-        let claims = engine().parse(
-            &entity("Clawdbot", Some("an open-source personal AI agent harness")),
-            &request("search", "Clawdbot"),
-            &found(json!([{"id": "Q1", "label": "Clawdbot Pro", "description": "something else"}])),
-        );
-        assert!(claims.is_empty(), "{claims:?}");
+        for (name, description, label) in [
+            (
+                "Royal Navy",
+                "the United Kingdom's naval warfare force",
+                "Royal Navy fleet aircraft carrier fleet",
+            ),
+            ("Clawdbot", "an open-source personal AI agent harness", "Clawdbot Pro"),
+        ] {
+            let claims = engine().parse(
+                &entity(name, Some(description)),
+                &request("search", name),
+                &found(json!([{"id": "Q1", "label": label, "description": "something else"}])),
+            );
+            assert!(claims.is_empty(), "{label}: {claims:?}");
+        }
     }
 
     /// A Wikipedia title reaches an item whose Wikidata label is different: the item is
@@ -887,12 +863,6 @@ mod tests {
     }
 
     #[test]
-    fn shapes_differ_per_kind() {
-        assert_ne!(Wikidata::shape("label"), Wikidata::shape("search"));
-        assert_eq!(Wikidata::shape("label"), Wikidata::shape("label"));
-    }
-
-    #[test]
     fn sparql_literals_are_escaped() {
         let requests = vec![request("label", "A \"quoted\" name")];
         let query = crate::knowledge::resolve::wikidata::transport::sparql_for_labels(&requests);
@@ -907,10 +877,7 @@ mod tests {
         use crate::knowledge::resolve::cache::{Answer, Cache};
         use crate::knowledge::resolve::Options;
 
-        let Some(test_db) = crate::test_support::test_db::test_db().await else {
-            return;
-        };
-        let db = test_db.handle();
+        db_or_skip!(db);
         let cache = Cache::new(&db.conn);
 
         let seed = |kind: &str, query: &str, raw: Raw| {
