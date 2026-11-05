@@ -237,7 +237,7 @@ ones. The rest stay in the batch, which is where a person reads them.
 
 Nothing in that table is a status or a verdict. A pair that keeps looking like one thing keeps
 reappearing; one that stops, stops. Human decisions that must outlive a rebuild go somewhere
-durable instead, keyed by observation ids, and are replayed onto the new graph.
+durable instead — `plan/knowledge-verdicts.md` — and are replayed onto the new graph.
 
 ## The view boundary
 
