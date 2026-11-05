@@ -1,7 +1,21 @@
 # Rebuilding the graph without losing what a person decided
 
-**Status:** Built 2026-11-05 — the proximity batch (`9407182`), then durable verdicts, generations
-and `verdicts replay`. `distinct` is deliberately not built; see *Decisions*.
+**Status:** Built 2026-11-05 — the proximity batch (`9407182`), the generation register, one
+modification log (`knowledge_verdicts`), and `verdicts replay` / `verdicts list`. `distinct` is
+deliberately not built; see *Decisions*.
+
+## The two commands
+
+```
+dreamscroll_knowledge verdicts replay
+dreamscroll_knowledge verdicts list [--generation N] [--cause repair|proximity_auto|replayed] [--limit N]
+```
+
+`replay` prints `applied · already · gone · refused`; `gone` drifting upward across rebuilds is the
+signal that linking stopped being deterministic, before anything is lost.
+
+`list` reads newest first. It is the viewer the old `knowledge_merges` table never had, which is part
+of why that table read as dead weight.
 
 > **See also:** `plan/knowledge-canonical-entities.md` (observation → entity → evidence),
 > `plan/knowledge-resolution.md` (claims from authorities), `src/knowledge/knowledge.md` (the
@@ -150,6 +164,13 @@ presentation and is not shared with replay.
 | the automatic pass folded the pair with the *other* survivor | no-op — same partition, different survivor; the recorded direction is not enforced |
 | `merge` refuses (shared illumination) | skip with the reason; the pair stays open |
 | a person's merge was recorded, then the pair was folded the other way round automatically | no-op — same partition; the recorded direction is not enforced on an already-folded pair |
+
+## Tolerated
+
+- **Replay is manual** — see the `pragmatism.md` row. A plain `resolve` neither honours nor repeats a
+  person's decisions; the log keeps them waiting, and the pairs simply reappear as candidates.
+- **`replayed` rows grow** by one per verdict per generation. Fine while rebuilds are rare; a dev
+  database is disposable, and a frequent prod rebuild is the real problem.
 
 ## Decisions (2026-11-05)
 

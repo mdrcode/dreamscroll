@@ -91,6 +91,19 @@ struct VerdictsArgs {
 #[argh(subcommand)]
 enum VerdictsCommand {
     Replay(VerdictsReplayArgs),
+    List(VerdictsListArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "list")]
+#[argh(description = "the modification log: what was folded into what, and what decided it")]
+struct VerdictsListArgs {
+    #[argh(option, description = "only this generation")]
+    generation: Option<i32>,
+    #[argh(option, description = "only this cause: repair, proximity_auto, replayed")]
+    cause: Option<String>,
+    #[argh(option, default = "50", description = "maximum rows to show")]
+    limit: usize,
 }
 
 #[derive(FromArgs)]
@@ -215,6 +228,25 @@ async fn main() -> anyhow::Result<()> {
                     "applied {} · already {} · gone {} · refused {}",
                     report.applied, report.already, report.gone, report.refused
                 );
+            }
+            VerdictsCommand::List(args) => {
+                let rows = stats::verdicts::verdict_list(
+                    &db,
+                    args.generation,
+                    args.cause.as_deref(),
+                    args.limit,
+                )
+                .await?;
+                for row in rows {
+                    println!(
+                        "{:>4}  gen {:<3} {:<15} {}  \u{21c4}  {}",
+                        row.id,
+                        row.generation,
+                        row.cause,
+                        row.winner,
+                        row.loser
+                    );
+                }
             }
         },
         Command::Proximity(args) => {

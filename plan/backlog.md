@@ -224,6 +224,7 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Protected-route tests through real auth middleware | [testing-auth-routes.md](testing-auth-routes.md)                       | Next change to auth or route-level authorization              |
 | Browser tests for SSE/refresh/upload               | [testing-js-and-browser.md](testing-js-and-browser.md)                 | First client bug that unit tests miss                         |
 | Coverage strategy beyond the two tiers             | [testing-coverage.md](testing-coverage.md)                             | Coverage discussions block a change                           |
+| `distinct` verdicts (stop re-asking a pair) | [knowledge-verdicts.md](knowledge-verdicts.md) | The known-distinct pairs keep coming back in `proximity list` often enough to annoy; cheapest shape is a filter in `scan` |
 | Private media URLs                                 | [media-serving.md](media-serving.md)                                   | Multi-user access or CDN/LB work starts                       |
 | Provisioning the schema-sync Cloud Run Job         | [prod-deploy.md](prod-deploy.md)                                       | **Fired** — schema 20 adds the `merged_into_id` FK and CHECK; nothing syncs at boot, so prod stays at 19 until this job runs |
 | API token hardening                                | [api_token_hardening.md](api_token_hardening.md)                       | API usage grows beyond first-party clients                    |
