@@ -34,6 +34,7 @@ rather than rewriting it; history is the point.
 | [testing-auth-routes.md](testing-auth-routes.md) | Planned follow-up | Exercise protected routes through real Axum auth middleware on an isolated Postgres schema. |
 | [testing-js-and-browser.md](testing-js-and-browser.md) | Planned follow-up | Browser-level coverage for SSE connection lifetime, partial refresh, and upload feedback. |
 | [testing-coverage.md](testing-coverage.md) | Planned — initial | Strategy for coverage beyond the current two tiers. |
+| [rest-testing.md](rest-testing.md) | Planned — design only | The REST surface: `test_support::rest` harness, auth matrix, route inventory, per-route contract assertions against the `.http` docs. |
 | [lexicon.md](lexicon.md) | Authoritative — names | The vocabulary: observations, knowledge entities, evidence; the verbs; the rename map and the names considered and rejected. Read before renaming anything in the graph. |
 | [knowledge-illumination-history.md](knowledge-illumination-history.md) | Implemented — 2026-11-01 | The graph keeps every reading of a capture, the view shows one. Trigger: a re-read described the wrong film and the correct reading was the superseded one. |
 | [knowledge-entity-types.md](knowledge-entity-types.md) | Open questions | Current v2 entity shape; next taxonomy pass deferred until the environment is fully v2-backfilled. |
