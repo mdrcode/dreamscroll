@@ -33,6 +33,12 @@ Be simple, idiomatic, robust, and flexible (in that order).
   contents as pending work. Shipping something does not by itself archive its doc:
   one with live open questions stays at top level. Restore a doc from `archive/`
   when its questions become active again.
+- **Restart Local Dev Aggressively:** A long-running local process — `./target/debug/dreamscroll_web`,
+  a worker, a container — is a stale binary the moment you rebuild. Rebuild, restart, *then* observe.
+  Never trust a run of a process you did not just start, and never diagnose "new" behavior from an
+  old process: binary skew looks exactly like a bug in the code you just wrote. This has already cost
+  a debugging session (a task-level `proximity scan` that had been deleted still ran, because the
+  process predated the rebuild).
 - **Validate Intelligently:** Do not run unit tests for small naming or plumbing
   changes. We will always do a full test pass before merging to main. Do not run
   smoke tests without asking for approval first.
