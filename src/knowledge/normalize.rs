@@ -18,18 +18,77 @@
 //! "would a user call these the same string" and nothing more. Inner punctuation is preserved on
 //! purpose: `C`, `C#` and `C++` are three different things, and folding them together is the
 //! mistake the corpus already showed.
+//!
+//! Two things the corpus showed that are *not* identity, and are folded away here: whitespace
+//! beside punctuation (`A. W. Moore` is `A.W. Moore`) and inner double quotes (`"Fast Eddie" Felson`
+//! is `Fast Eddie Felson`). Apostrophes stay — they are part of names. Measured 2026-11-06: the
+//! widenings recover two duplicate entities and cost nothing (`plan/knowledge-blocking.md`).
 
 const QUOTES: &[char] = &['"', '\'', '“', '”', '‘', '’', '«', '»'];
 
-/// The form two surfaces are compared in: case, diacritics, surrounding quotes, a leading `@`/`#`
-/// and a trailing period are folded away; everything inside the name stays. Never stored, never
-/// displayed.
+/// Decoration, removed wherever it appears: a quoted title is still the title.
+const INNER_QUOTES: [char; 5] = ['"', '“', '”', '«', '»'];
+
+/// Punctuation whose surrounding whitespace carries no meaning.
+const TIGHT: [char; 6] = ['.', ',', ';', ':', '!', '?'];
+
+/// The form two surfaces are compared in. Never stored, never displayed.
+///
+/// Case, diacritics and ligatures are folded; surrounding quotes, a leading `@`/`#` and one trailing
+/// period go; inner double quotes go; whitespace collapses, and whitespace beside punctuation
+/// collapses away.
 pub(crate) fn comparable(surface: &str) -> String {
     let trimmed = surface.trim();
     let unquoted = trimmed.trim_matches(QUOTES);
     let unmarked = unquoted.trim_start_matches(['@', '#']).trim();
     let unterminated = unmarked.strip_suffix('.').unwrap_or(unmarked);
-    collapse(&fold_case(unterminated))
+    let folded = collapse(&fold_case(unterminated));
+    expand_ligatures(&tighten(&remove_inner_quotes(&folded)))
+}
+
+fn remove_inner_quotes(surface: &str) -> String {
+    surface
+        .chars()
+        .filter(|character| !INNER_QUOTES.contains(character))
+        .collect()
+}
+
+/// Drop whitespace runs next to [`TIGHT`]; every other run becomes one space.
+fn tighten(surface: &str) -> String {
+    let characters: Vec<char> = surface.chars().collect();
+    let mut out = String::with_capacity(surface.len());
+    let mut index = 0;
+    while index < characters.len() {
+        if !characters[index].is_whitespace() {
+            out.push(characters[index]);
+            index += 1;
+            continue;
+        }
+        while index < characters.len() && characters[index].is_whitespace() {
+            index += 1;
+        }
+        let before = out.chars().last();
+        let after = characters.get(index).copied();
+        let tight = before.is_some_and(|c| TIGHT.contains(&c))
+            || after.is_some_and(|c| TIGHT.contains(&c));
+        if !tight && !out.is_empty() && index < characters.len() {
+            out.push(' ');
+        }
+    }
+    out
+}
+
+fn expand_ligatures(surface: &str) -> String {
+    let mut out = String::with_capacity(surface.len());
+    for character in surface.chars() {
+        match character {
+            'æ' => out.push_str("ae"),
+            'œ' => out.push_str("oe"),
+            'ß' => out.push_str("ss"),
+            _ => out.push(character),
+        }
+    }
+    out
 }
 
 fn collapse(surface: &str) -> String {
@@ -103,5 +162,89 @@ mod tests {
         assert_ne!(comparable("C"), comparable("C#"));
         assert_ne!(comparable("C#"), comparable("C++"));
         assert_ne!(comparable("U.S."), comparable("US"));
+        assert_eq!(comparable("C++"), "c++");
+    }
+
+    /// The two duplicate pairs the corpus showed, and the ligatures that would be next.
+    #[test]
+    fn folds_what_the_corpus_showed_is_not_identity() {
+        assert_eq!(comparable("A. W. Moore"), comparable("A.W. Moore"));
+        assert_eq!(comparable("A. W. Moore"), "a.w.moore");
+        assert_eq!(
+            comparable("\"Fast Eddie\" Felson"),
+            comparable("Fast Eddie Felson")
+        );
+        assert_eq!(comparable("Æon Flux"), comparable("Aeon Flux"));
+        assert_eq!(comparable("Straße"), "strasse");
+    }
+
+    /// Apostrophes are part of names; only double quotes are decoration.
+    #[test]
+    fn keeps_apostrophes() {
+        assert_eq!(comparable("'Tis Pity She's a Whore"), "tis pity she's a whore");
+        assert_eq!(comparable("O'Brien"), "o'brien");
+    }
+
+    #[test]
+    fn folds_to_nothing_for_a_surface_with_no_content() {
+        assert_eq!(comparable("   "), "");
+        assert_eq!(comparable("\"\"\"\""), "");
+        assert_eq!(comparable("@"), "");
+    }
+
+    /// `ds_fold` is this function in SQL; drift between them is a silent recall bug.
+    #[tokio::test]
+    async fn the_sql_fold_matches_the_rust_fold() {
+        use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
+
+        use crate::test_support::db_or_skip;
+
+        db_or_skip!(db);
+
+        let surfaces = [
+            "",
+            "  Pokémon ",
+            "\"Train Dreams\"",
+            "@bandy1803",
+            "#ada lovelace",
+            "  @#  Mixed   CASE  ",
+            "Spider-Man.",
+            "U.S.",
+            "US",
+            "C",
+            "C#",
+            "C++",
+            "A. W. Moore",
+            "A.W. Moore",
+            "\"Fast Eddie\" Felson",
+            "Fast Eddie Felson",
+            "'Tis Pity She's a Whore",
+            "Şeyh Bedreddin",
+            "Dino Kužnik",
+            "Mehmed Paša Sokolović",
+            "Æon Flux",
+            "Aeon Flux",
+            "Straße",
+            "Hearts of Darkness: A Filmmaker's Apocalypse",
+            "R2-D2",
+            "Leon_Defi",
+            "MGM+",
+            "Другая планета",
+        ];
+
+        for surface in surfaces {
+            let row = db
+                .conn
+                .query_one_raw(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "SELECT ds_fold($1)",
+                    [surface.into()],
+                ))
+                .await
+                .expect("ds_fold must exist; it is created by sync_schema")
+                .expect("one row");
+            let sql: String = row.try_get_by_index(0).expect("text");
+            assert_eq!(sql, comparable(surface), "surface {surface:?}");
+        }
     }
 }
