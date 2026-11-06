@@ -370,8 +370,11 @@ impl Wikidata {
                         return true;
                     }
                 }
+                // A one-word name is still a name: `Rare` against `Rare Ltd.`, `Bash` against
+                // `GNU Bash`. Requiring both sides to carry two content words excluded exactly the
+                // short names, and the description is what decides anyway.
                 let theirs = content_tokens(label);
-                if theirs.len() < 2 || mine.len() < 2 {
+                if theirs.is_empty() || mine.is_empty() {
                     return false;
                 }
                 let (small, large) = if theirs.len() <= mine.len() {
