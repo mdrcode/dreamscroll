@@ -84,6 +84,10 @@ pub(super) fn answer_confidence(score: f32) -> f32 {
     (ANSWER_BASE + ANSWER_SPREAD * score).min(ANSWER_CEILING)
 }
 
+/// A description this short has little to say, so one distinctive shared word can be the whole of
+/// the evidence: `Irish writer (1911-1966)` against a capture that calls him an Irish novelist.
+const TERSE_TOKENS: usize = 4;
+
 /// Weight of matched evidence at which a claim is half-convincing. A scale, not a threshold: two
 /// common words land well below it, two rare ones well above.
 const EVIDENCE_SCALE: f32 = 3.0;
@@ -282,7 +286,13 @@ impl Weights {
         let ours_set: std::collections::BTreeSet<&String> = ours.iter().collect();
         let theirs_set: std::collections::BTreeSet<&String> = theirs.iter().collect();
         let matched: Vec<&&String> = theirs_set.intersection(&ours_set).collect();
-        if matched.len() < 2 {
+        // One shared word is normally coincidence. In a terse description it can be the whole
+        // signal — but only when that word is rare among these candidates, because one common word
+        // (`village`, `united`) still says nothing.
+        let terse_and_rare = theirs.len() <= TERSE_TOKENS
+            && matched.len() == 1
+            && self.frequency.get(matched[0].as_str()).copied().unwrap_or(0) <= 1;
+        if matched.len() < 2 && !terse_and_rare {
             return 0.0;
         }
         let matched_weight: f32 = matched.iter().map(|t| self.of(t)).sum();
