@@ -160,27 +160,37 @@ pub async fn test_db() -> Option<TestDb> {
         }
     }
 
-    match build_slot(&cfg).await {
+    // A reachable server is the only condition that may skip a DB test. Everything after this is
+    // our own schema, so a failure is a bug and must fail the test rather than read as a pass — a
+    // broken `sync_schema` once turned every DB test into a silent no-op.
+    let base = match connect_base(&cfg).await {
+        Ok(base) => base,
+        Err(err) => {
+            eprintln!("test_support::test_db: skipping DB test, no database: {err}");
+            return None;
+        }
+    };
+
+    match build_slot(&cfg, &base).await {
         Ok((slot, conn)) => Some(TestDb {
             handle: database::DbHandle::new(conn),
             slot: Some(slot),
         }),
-        Err(err) => {
-            eprintln!("test_support::test_db: skipping DB test, {err}");
-            None
-        }
+        Err(err) => panic!("test_support::test_db: building a test schema failed: {err:#}"),
     }
 }
 
 /// Build a schema, sync the app schema into it, and learn the tables it may need to truncate.
-async fn build_slot(cfg: &config::Config) -> anyhow::Result<(Slot, DatabaseConnection)> {
+async fn build_slot(
+    cfg: &config::Config,
+    base: &DatabaseConnection,
+) -> anyhow::Result<(Slot, DatabaseConnection)> {
     let schema = format!(
         "test_{}_{}",
         std::process::id(),
         uuid::Uuid::new_v4().simple()
     );
 
-    let base = connect_base(cfg).await?;
     base.execute_unprepared(&format!("CREATE SCHEMA {schema}"))
         .await?;
 
