@@ -388,6 +388,28 @@ item's label must equal ours and its description must contain the keyword — so
 dropped rather than counted against the scorer. Of the 25 rows written from memory, 12 were dropped
 that way.
 
+### Replaying the whole corpus
+
+The gold set answers "did this change break a case I care about". The corpus replay answers "what
+would change across everything I have". It walks the same ladder the driver walks — `plan`, then
+`plan_fallback` — over `resolution_cache`, with no transport:
+
+```sh
+cargo run --bin dreamscroll_knowledge -- eval resolve            # counts, by method
+cargo run --bin dreamscroll_knowledge -- eval resolve --verbose  # every claim, by name
+```
+
+Seconds, against the ~640 fetches a live pass cost. This is how the 2026-11-06 admission changes were
+measured: one gate changed at a time, every new claim read, and the two that looked wrong traced to a
+loosened rarity bound rather than shipped (see the commits for `resolve:`).
+
+`src/knowledge/eval/resolve.rs` names the two ways a replay can lie: walking a ladder the driver does
+not walk (the first version skipped `plan_fallback` and reported zero), and counting an uncached
+entity as undecided (it is a gap in the evidence, and is reported separately).
+
+`examples/eval_resolve` still reads `core_knowledge_entities`, a table that no longer exists; the
+gold-set path needs porting before it runs again.
+
 ### What each change bought
 
 | change | gold |

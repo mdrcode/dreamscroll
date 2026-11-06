@@ -21,8 +21,35 @@ enum Command {
     Reset(ResetArgs),
     Compare(CompareArgs),
     Identity(IdentityArgs),
+    Eval(EvalArgs),
     Proximity(ProximityArgs),
     Verdicts(VerdictsArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "eval")]
+#[argh(description = "replay a decision over cached answers, with no transport")]
+struct EvalArgs {
+    #[argh(subcommand)]
+    command: EvalCommand,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum EvalCommand {
+    Resolve(EvalResolveArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "resolve")]
+#[argh(description = "what identity resolve would claim today, replayed from the answer cache")]
+struct EvalResolveArgs {
+    #[argh(switch)]
+    #[argh(description = "list every claim, not just the counts")]
+    verbose: bool,
+    #[argh(option)]
+    #[argh(description = "consider at most this many entities")]
+    limit: Option<usize>,
 }
 
 #[derive(FromArgs)]
@@ -177,6 +204,33 @@ struct ResolveArgs {
 #[argh(subcommand, name = "stats")]
 #[argh(description = "counts: observations, linked share, entities by status, duplicate rate")]
 struct StatsArgs {}
+
+/// `eval resolve`: replay the resolver over the answer cache, with no transport.
+async fn eval_resolve(
+    db: &database::DbHandle,
+    args: EvalResolveArgs,
+) -> anyhow::Result<()> {
+    let report = knowledge::eval::replay(db, args.limit).await?;
+    if args.verbose {
+        for claim in &report.claims {
+            println!("{:<12} {:<14} {}", claim.identity, claim.method, claim.name);
+        }
+        println!();
+    }
+    println!(
+        "candidates {} · claimed {} · undecided {} · not cached {}",
+        report.candidates, report.claimed, report.undecided, report.uncached
+    );
+    if !report.by_method.is_empty() {
+        let methods: Vec<String> = report
+            .by_method
+            .iter()
+            .map(|(method, count)| format!("{method} {count}"))
+            .collect();
+        println!("by method: {}", methods.join(" · "));
+    }
+    Ok(())
+}
 
 /// `identity resolve`: ask the authorities what a thing is, cache first.
 async fn resolve_identity(
@@ -411,6 +465,9 @@ async fn main() -> anyhow::Result<()> {
                 println!("no differences");
             }
         }
+        Command::Eval(args) => match args.command {
+            EvalCommand::Resolve(args) => eval_resolve(&db, args).await?,
+        },
         Command::Identity(args) => match args.command {
             IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
         },

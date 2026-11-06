@@ -12,6 +12,7 @@
 //! `proximity`.
 
 pub mod blocker;
+pub mod eval;
 pub mod evidence;
 pub mod graph;
 pub mod heuristic;
