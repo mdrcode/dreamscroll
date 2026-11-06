@@ -348,7 +348,7 @@ impl Wikidata {
         // runner-up, which is what keeps `Royal Navy fleet aircraft carrier fleet` off `Royal Navy`.
         let mine = content_tokens(&entity.name);
         let admitted: Vec<Candidate> = candidates
-            .into_iter()
+            .iter()
             .filter(|candidate| {
                 let Some(label) = candidate.label.as_deref() else {
                     return false;
@@ -384,9 +384,13 @@ impl Wikidata {
                 };
                 small.iter().all(|token| large.contains(token))
             })
+            .cloned()
             .collect();
         if admitted.is_empty() {
-            return Vec::new();
+            // The name nominated nothing, but the hint may still: `Sten Mk IIS suppressed` is a
+            // model whose label is just `Sten`, and no name rule will connect the two. Admission is
+            // a name test, so the hint path has to be reached before it turns the answer down.
+            return self.by_hint(entity, &candidates);
         }
         self.decide(entity, &admitted, request)
     }
