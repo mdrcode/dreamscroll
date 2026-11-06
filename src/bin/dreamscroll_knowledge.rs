@@ -20,9 +20,23 @@ enum Command {
     Merge(MergeArgs),
     Reset(ResetArgs),
     Compare(CompareArgs),
-    Resolve(ResolveArgs),
+    Identity(IdentityArgs),
     Proximity(ProximityArgs),
     Verdicts(VerdictsArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "identity")]
+#[argh(description = "what the world says a thing is: identities, and the claims behind them")]
+struct IdentityArgs {
+    #[argh(subcommand)]
+    command: IdentityCommand,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum IdentityCommand {
+    Resolve(ResolveArgs),
 }
 
 #[derive(FromArgs)]
@@ -163,6 +177,61 @@ struct ResolveArgs {
 #[argh(subcommand, name = "stats")]
 #[argh(description = "counts: observations, linked share, entities by status, duplicate rate")]
 struct StatsArgs {}
+
+/// `identity resolve`: ask the authorities what a thing is, cache first.
+async fn resolve_identity(
+    db: &database::DbHandle,
+    args: ResolveArgs,
+) -> anyhow::Result<()> {
+    // A budget of zero makes no transport calls, which reads like a successful run that resolved
+    // nothing. That is a mode, not a number.
+    if args.offline && args.max_requests.is_some() {
+        anyhow::bail!("--offline and --max-requests are mutually exclusive");
+    }
+    if args.max_requests == Some(0) {
+        anyhow::bail!("--max-requests 0 makes no transport calls; pass --offline to ask for that");
+    }
+    let max_requests = match (args.offline, args.max_requests) {
+        (true, _) => 0,
+        (false, Some(n)) => n,
+        (false, None) => knowledge::resolve::DEFAULT_MAX_REQUESTS,
+    };
+    let options = knowledge::resolve::Options {
+        limit: args.limit,
+        max_requests,
+        offline: args.offline,
+        only: args.entity,
+        min_interval: std::time::Duration::from_millis(args.min_interval_ms),
+    };
+    let engine = knowledge::resolve::ResolutionEngine::new(db, options)
+        .with(Box::new(knowledge::resolve::wikidata::Wikidata::new()?));
+    let report = engine.run().await?;
+
+    if report.offline {
+        println!("offline — cache only, no transport calls");
+    } else {
+        println!("budget {max_requests} requests");
+    }
+    println!(
+        "candidates {} · planned {} · cache hits {}",
+        report.candidates, report.planned, report.cache_hits
+    );
+    println!(
+        "fetched {} · failed {} · claims {} · entities resolved {}",
+        report.fetched, report.failed, report.claims, report.entities_resolved
+    );
+    if report.budget_exhausted {
+        println!("budget exhausted at {max_requests} requests");
+    }
+    if let Some(seconds) = report.rate_limited_after {
+        // WDQS 429: honour Retry-After rather than risk a temporary ban.
+        println!(
+            "rate limited by the provider — stopped; retry in {seconds}s \
+             (or lower --min-interval-ms / --max-requests)"
+        );
+    }
+    Ok(())
+}
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -342,62 +411,9 @@ async fn main() -> anyhow::Result<()> {
                 println!("no differences");
             }
         }
-        Command::Resolve(args) => {
-            // A budget of zero makes no transport calls, which reads like a successful run that
-            // resolved nothing. That is a mode, not a number.
-            if args.offline && args.max_requests.is_some() {
-                anyhow::bail!("--offline and --max-requests are mutually exclusive");
-            }
-            if args.max_requests == Some(0) {
-                anyhow::bail!(
-                    "--max-requests 0 makes no transport calls; pass --offline to ask for that"
-                );
-            }
-            let max_requests = match (args.offline, args.max_requests) {
-                (true, _) => 0,
-                (false, Some(n)) => n,
-                (false, None) => knowledge::resolve::DEFAULT_MAX_REQUESTS,
-            };
-            let options = knowledge::resolve::Options {
-                limit: args.limit,
-                max_requests,
-                offline: args.offline,
-                only: args.entity,
-                min_interval: std::time::Duration::from_millis(args.min_interval_ms),
-            };
-            let engine = knowledge::resolve::ResolutionEngine::new(&db, options)
-                .with(Box::new(knowledge::resolve::wikidata::Wikidata::new()?));
-            let report = engine.run().await?;
-
-            if report.offline {
-                println!("offline — cache only, no transport calls");
-            } else {
-                println!("budget {} requests", max_requests);
-            }
-            println!(
-                "candidates {} · planned {} · cache hits {}",
-                report.candidates, report.planned, report.cache_hits
-            );
-            println!(
-                "fetched {} · failed {} · claims {} · entities resolved {} · merges {} · refused {}",
-                report.fetched,
-                report.failed,
-                report.claims,
-                report.entities_resolved,
-                report.merges,
-                report.refused
-            );
-            if report.budget_exhausted {
-                println!("budget exhausted at {max_requests} requests");
-            }
-            if let Some(seconds) = report.rate_limited_after {
-                // WDQS 429: honour Retry-After rather than risk a temporary ban.
-                println!(
-                    "rate limited by the provider — stopped; retry in {seconds}s \
-                     (or lower --min-interval-ms / --max-requests)"
-                );
-            }
-        }
+        Command::Identity(args) => match args.command {
+            IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
+        },
         Command::Stats(_) => {
             let stats = stats::knowledge_stats(&db).await?;
             println!("observations        {:>7}", stats.observations);

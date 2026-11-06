@@ -8,6 +8,9 @@
 //! The cost to watch: `NameBlocker` loads every entity in the graph, and this task rebuilds it per
 //! illumination. That is the price of not sharing mutable state across queue workers, and it is the
 //! thing to revisit if linking ever dominates.
+//!
+//! The task links and stops. Resolution and the proximity passes are separate steps, run in the
+//! order `plan/knowledge-blocking.md` records; nothing here may hide one of them.
 
 use serde::{Deserialize, Serialize};
 
@@ -47,17 +50,10 @@ pub async fn exec(
         .await
         .map_err(api::ApiError::internal)?;
 
-    // Record whatever this capture made close to something else — the scan only writes rows, so it
-    // is safe here and means a duplicate is visible before anyone runs resolution.
-    let raised = crate::knowledge::proximity::scan(&state.knowledge)
-        .await
-        .map_err(api::ApiError::internal)?;
-
     tracing::info!(
         illumination_id = task_run.task.illumination_id,
         attached = stats.attached,
         created = stats.created,
-        proximities_raised = raised,
         "Knowledge link completed"
     );
     Ok(())

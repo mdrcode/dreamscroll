@@ -159,11 +159,6 @@ pub struct Report {
     pub claims: usize,
     /// Entities that gained at least one claim.
     pub entities_resolved: usize,
-    /// Entities folded into the entity that already held their identity.
-    pub merges: usize,
-    /// Pairs that shared an identity, looked like one thing, and could not be folded — the
-    /// same-illumination rule refused them, so they stay open as proximities rather than merging.
-    pub refused: usize,
     pub budget_exhausted: bool,
     /// Set when the provider asked us to back off: the run stopped instead of risking a ban.
     pub rate_limited_after: Option<u64>,
@@ -487,18 +482,15 @@ impl<'a> ResolutionEngine<'a> {
             }
         }
 
-        // Before any merge decision, not after: `merge` picks a survivor by the projected
-        // `confidence`, so an entity that gained its first authority claim a moment ago would still
-        // read as unsubstantiated and lose a fold it should win.
+        // A later `proximity merge` picks a survivor by the projected `confidence`, so an entity that
+        // just earned its first claim is projected here — otherwise it still reads as the weaker side
+        // and loses a fold it should win.
         for knowledge_entity_id in &resolved {
             knowledge.update_projection(*knowledge_entity_id).await?;
         }
 
-        // Sharing an identity is a candidate, not a verdict — decide which holders are one thing.
-        crate::knowledge::proximity::scan(&knowledge).await?;
-        let folded = crate::knowledge::proximity::merge(&knowledge).await?;
-        report.merges = folded.merged;
-        report.refused = folded.refused;
+        // Resolving stops at evidence. Which holders of an identity are one thing belongs to
+        // `proximity scan` and `proximity merge`, which are separate commands run after this one.
         report.entities_resolved = resolved.len();
         ctx.absorb(&mut report);
         Ok(report)
@@ -1160,7 +1152,11 @@ mod tests {
             .await
             .expect("resolve");
 
-        assert_eq!(report.merges, 1, "{report:?}");
+        // The passes are separate commands now, so the ordering guarantee is exercised the way the
+        // CLI runs it: resolve projects, then scan raises the pair, then merge folds it.
+        crate::knowledge::proximity::scan(&store).await.expect("scan");
+        let folded = crate::knowledge::proximity::merge(&store).await.expect("merge");
+        assert_eq!(folded.merged, 1, "{folded:?}");
         let survivor = model::knowledge_entity::Entity::find_by_id(earns_now)
             .one(&db.conn)
             .await
@@ -1210,7 +1206,13 @@ mod tests {
             .expect("resolve");
 
         assert_eq!(report.claims, 2, "{report:?}");
-        assert_eq!(report.merges, 0, "sharing an identity does not merge");
+
+        // The proximity passes now run after resolve as separate commands; drive them explicitly so
+        // the assertion is about `merge` refusing a pair, not about an empty batch.
+        let store = crate::knowledge::Knowledge::new(&db);
+        crate::knowledge::proximity::scan(&store).await.expect("scan");
+        let folded = crate::knowledge::proximity::merge(&store).await.expect("merge");
+        assert_eq!(folded.merged, 0, "sharing an identity does not merge");
         let live = model::knowledge_entity::Entity::find()
             .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
             .count(&db.conn)

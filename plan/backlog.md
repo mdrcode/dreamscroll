@@ -191,7 +191,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 - [ ] **Make the scoring agree with itself.** An audit of `src/knowledge` (2026-11-04) found four
   places where a function contradicts its own rule. None of them changes the corpus today — a rebuild
   is identical either way — so each needs a before/after diff
-  (`reset` → `link` → `resolve --offline` → `compare`) to prove it moves, not just a unit test.
+  (`reset` → `link` → `identity resolve --offline` → `compare`) to prove it moves, not just a unit test.
 
   1. **Two fits for one candidate.** `wikidata/resolver.rs::parse_search` builds IDF weights over all
      of the answer's candidates; `decide` builds them over the *admitted* subset. One candidate is
