@@ -337,16 +337,49 @@ impl Wikidata {
                 )];
             }
         }
-        // Only candidates that *are* our name — the same surface, or a trivial respelling — may be
-        // considered. An item that merely mentions it (`Royal Navy fleet aircraft carrier fleet` for
-        // `Royal Navy`) is a different referent.
+        // A candidate is admissible when it *is* our name, a trivial respelling of it, or one of the
+        // two is a superset of the other's content words: `Tomb of Napoleon Bonaparte` vs `Tomb of
+        // Napoleon`, `Andriivka, Donetsk Oblast` vs `Andriivka`, `The Justice of Emperor Otto III`
+        // vs `Justice of Emperor Otto III: The Beheading…`. The ladder used to admit only the first
+        // two, so a name carrying a qualifier never let its description speak — measured on the
+        // local corpus, 51 undecided entities had the right item in hand and were refused here.
+        //
+        // Admission is not a claim. The description must still clear `FIT_FLOOR` and beat the
+        // runner-up, which is what keeps `Royal Navy fleet aircraft carrier fleet` off `Royal Navy`.
+        let mine = content_tokens(&entity.name);
         let admitted: Vec<Candidate> = candidates
             .into_iter()
             .filter(|candidate| {
-                candidate
-                    .label
-                    .as_deref()
-                    .is_some_and(|label| near_surface(&surface_key(label), &ours))
+                let Some(label) = candidate.label.as_deref() else {
+                    return false;
+                };
+                if near_surface(&surface_key(label), &ours) {
+                    return true;
+                }
+                // Our name is the label plus a qualifier the authority keeps elsewhere: `Andriivka,
+                // Donetsk Oblast`, `Pennsylvania Station (1910–1963)`. The qualifier is ours to
+                // carry, not the authority's — and refusing here means the description never
+                // gets to separate the six villages that share one name.
+                let (name_flat, label_flat) = (
+                    entity.name.trim().to_lowercase(),
+                    label.trim().to_lowercase(),
+                );
+                if let Some(rest) = name_flat.strip_prefix(&label_flat) {
+                    let rest = rest.trim_start();
+                    if rest.starts_with(',') || rest.starts_with('(') {
+                        return true;
+                    }
+                }
+                let theirs = content_tokens(label);
+                if theirs.len() < 2 || mine.len() < 2 {
+                    return false;
+                }
+                let (small, large) = if theirs.len() <= mine.len() {
+                    (&theirs, &mine)
+                } else {
+                    (&mine, &theirs)
+                };
+                small.iter().all(|token| large.contains(token))
             })
             .collect();
         if admitted.is_empty() {

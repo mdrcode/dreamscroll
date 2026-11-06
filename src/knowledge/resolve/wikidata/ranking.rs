@@ -62,7 +62,7 @@ fn edit_distance(a: &str, b: &str) -> usize {
 /// making. Two shared content words usually clears it; one never does.
 pub(super) const FIT_FLOOR: f32 = 0.20;
 /// …and it must beat the runner-up by this much. A near-tie is not evidence.
-pub(super) const FIT_MARGIN: f32 = 0.10;
+pub(super) const FIT_MARGIN: f32 = 0.05;
 /// The hint fallback is a blend, and is held to the same margin.
 pub(super) const CLAIM_MARGIN: f32 = 0.10;
 
