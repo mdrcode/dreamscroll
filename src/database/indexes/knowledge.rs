@@ -45,7 +45,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity"
 /// what makes `surfaces && $1` one probe instead of a scan.
 const INDEX_SURFACES: &str = r#"
 CREATE INDEX IF NOT EXISTS "idx-knowledge_index-surfaces"
-    ON knowledge_index USING gin (surfaces)
+    ON knowledge_index USING gin (surfaces);
+CREATE INDEX IF NOT EXISTS "idx-knowledge_index-word_keys"
+    ON knowledge_index USING gin (word_keys)
 "#;
 
 /// The pair, which is how the batch is read (the merge pass and the list). Not unique: the table is
@@ -84,6 +86,7 @@ BEGIN
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_entity_identity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_proximities_pair');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_index-surfaces');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_index-word_keys');
 END;
 $sync$;
 "#;
