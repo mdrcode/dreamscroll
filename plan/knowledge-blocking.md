@@ -94,7 +94,16 @@ CREATE INDEX ... USING gin (surfaces);
   or without it — a fresh link never revisits an observation. It matters incrementally, which is the
   live case: an existing `Train Dreams` plus a later `Dreams Train` attaches with it (name 0.9,
   total 0.64 clears the bar) and creates a duplicate without it. Kept for that, and because parity
-  with the old blocker needs it; `link --surfaces-only` reproduces the without-arm.
+  with the old blocker needs it. The `--surfaces-only` arm was removed 2026-11-07: it had answered
+  its question, and carrying it meant a second SQL string and a second code path in the blocker.
+- **The handle is a key, not just a column** (2026-11-07). `entity.surfaces()` is name + alt_names,
+  and `project` gathers a member's `platform_handle` into those alternatives — so `knowledge_index`
+  already answered a handle probe, and neither blocker ever asked. A capture can name one account by
+  display name in one reading and by handle in another: the graph holds `Andra` (handle
+  `BioavailableNd`) and `@bioavailablend` as two `identified` entities, and no proximity can see it,
+  because the pair shares no identity. Both blockers now probe name *and* handle. Measured: 380 of
+  2,663 observations carry a handle, **3** would have matched an existing entity by it, and
+  `eval blocking` parity is unchanged at 2,706 pairs (0 missing, 0 extra).
 - **Two generations, two columns.** `surfaces` answers "same folded name"; `word_keys` answers
   "same words, any order" — a weaker claim that `Rank` prices at 0.9 rather than 1.0. Merging them
   into one array would still find the candidate, but the blocker could no longer say *which*

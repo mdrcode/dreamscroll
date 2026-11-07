@@ -110,14 +110,25 @@ impl Blocker for NameBlocker {
         &self,
         observation: &model::user_observed_entity::Model,
     ) -> Vec<model::knowledge_entity::Model> {
-        let key = normalize::comparable(&observation.name);
-        if key.is_empty() {
+        // The same keys `SqlBlocker` probes: the name and the handle a capture showed, each in both
+        // generations. The handle is what keeps one account named two ways from splitting in two.
+        let mut blocks: Vec<String> = Vec::new();
+        for surface in [
+            observation.name.as_str(),
+            observation.platform_handle.as_deref().unwrap_or_default(),
+        ] {
+            let key = normalize::comparable(surface);
+            if !key.is_empty() {
+                blocks.push(normalize::word_key(&key));
+                blocks.push(key);
+            }
+        }
+        if blocks.is_empty() {
             return Vec::new();
         }
-        let blocking = normalize::word_key(&key);
         let index = self.index();
         let mut found: BTreeSet<i32> = BTreeSet::new();
-        for block in [&key, &blocking] {
+        for block in &blocks {
             if let Some(hits) = index.blocks.get(block) {
                 found.extend(hits.iter().copied());
             }

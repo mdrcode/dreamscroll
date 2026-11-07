@@ -153,9 +153,6 @@ struct LinkArgs {
     #[argh(switch)]
     #[argh(description = "load the graph into memory instead of reading knowledge_index (debugging)")]
     memory_blocker: bool,
-    #[argh(switch)]
-    #[argh(description = "ignore the word generation, for A/B (plan/backlog.md)")]
-    surfaces_only: bool,
 }
 
 #[derive(FromArgs)]
@@ -488,7 +485,7 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Link(args) => {
-            let report = link_all_pending(&db, args.memory_blocker, args.surfaces_only).await?;
+            let report = link_all_pending(&db, args.memory_blocker).await?;
             println!(
                 "considered {} · already linked {} · linked {} · created {}",
                 report.considered,
@@ -815,7 +812,6 @@ impl LinkAllPendingReport {
 async fn link_all_pending(
     db: &database::DbHandle,
     memory_blocker: bool,
-    surfaces_only: bool,
 ) -> anyhow::Result<LinkAllPendingReport> {
     let unlinked_obs = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
@@ -833,8 +829,6 @@ async fn link_all_pending(
     // Reads `knowledge_index`: nothing is loaded, so a link run costs queries and nothing at boot.
     let blocker: Box<dyn knowledge::blocker::Blocker> = if memory_blocker {
         Box::new(knowledge::heuristic::NameBlocker::new(db).await?)
-    } else if surfaces_only {
-        Box::new(knowledge::sql_blocker::SqlBlocker::surfaces_only(db))
     } else {
         Box::new(knowledge::sql_blocker::SqlBlocker::new(db))
     };

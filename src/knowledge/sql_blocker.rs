@@ -4,114 +4,103 @@
 //! writes and pays a full scan whenever it is built. This one loads nothing: `knowledge_index` is
 //! already folded, indexed, and kept current by `project`, so a probe is one `&&` against a GIN.
 //!
-//! The candidate set is the same by construction — both read the same two key generations, folded
-//! the same way — and `eval blocking` measures that rather than assuming it.
+//! The candidate set is the same by construction — both read the same keys, folded the same way,
+//! including the capture's handle — and `eval blocking` measures that rather than assuming it.
 
-use sea_orm::{DatabaseBackend, EntityTrait, Statement};
+use sea_orm::{
+    ColumnTrait, EntityTrait, ExprTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    RelationTrait, Value,
+    sea_query::Expr,
+};
 
 use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
 use crate::knowledge::normalize;
 use crate::model;
 
-/// Which key generations a probe consults.
-///
-/// `Both` is the shipping behaviour. `Surfaces` exists so the word generation can be A/B'd against
-/// the folded surface alone — it is a weaker claim about identity and has to earn its keep
-/// (plan/backlog.md), not inherit it from parity with the old blocker.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Generations {
-    Both,
-    Surfaces,
-}
-
 /// Reads `knowledge_index` for every candidate.
 #[derive(Clone)]
 pub struct SqlBlocker {
     db: DbHandle,
-    generations: Generations,
 }
 
 impl SqlBlocker {
     pub fn new(db: &DbHandle) -> Self {
-        Self {
-            db: db.clone(),
-            generations: Generations::Both,
-        }
-    }
-
-    /// Folded surfaces only: an order-only or leading-article difference does not match.
-    pub fn surfaces_only(db: &DbHandle) -> Self {
-        Self {
-            db: db.clone(),
-            generations: Generations::Surfaces,
-        }
+        Self { db: db.clone() }
     }
 }
 
-/// Candidates wear a key from either generation. The casts are on the *parameter*: the columns are
-/// `varchar[]` (SeaORM maps `Vec<String>` that way), and casting the indexed side instead would hide
-/// both GIN indexes from the planner.
-const CANDIDATES: &str = "
-SELECT e.* FROM knowledge_entities e
-  JOIN knowledge_index i ON i.knowledge_entity_id = e.id
- WHERE e.merged_into_id IS NULL
-   AND (i.surfaces && $1::varchar[] OR i.word_keys && $2::varchar[])
- ORDER BY e.id";
-
-/// The same, without the word generation.
-const CANDIDATES_SURFACES: &str = "
-SELECT e.* FROM knowledge_entities e
-  JOIN knowledge_index i ON i.knowledge_entity_id = e.id
- WHERE e.merged_into_id IS NULL
-   AND i.surfaces && $1::varchar[]
- ORDER BY e.id";
+/// The one thing the SeaORM query builder cannot say: Postgres's array-overlap operator.
+///
+/// The cast is on the *parameter*. The columns are `varchar[]`, and casting the indexed side instead
+/// would hide the GIN indexes from the planner. Two of them because the index stores two key
+/// generations: the folded surface, and its order- and article-insensitive word key.
+///
+/// `$1`, not `?`: sea-query substitutes the placeholder *style of the backend*, so Postgres wants
+/// `$n` here. The number indexes this expression's own values, not the statement's — each predicate
+/// is rendered with its own bind, whatever the surrounding query numbers it.
+const OVERLAP_SURFACES: &str = "\"knowledge_index\".\"surfaces\" && $1::varchar[]";
+const OVERLAP_WORDS: &str = "\"knowledge_index\".\"word_keys\" && $1::varchar[]";
 
 #[async_trait::async_trait]
 impl Blocker for SqlBlocker {
     /// Candidates for one observation, ordered by id so ties break exactly as they do in memory.
     ///
-    /// Pure and complete for the keys it stores: same corpus, same answer. Nothing is held between
-    /// calls, which is why `changed` and `forget` keep their no-op defaults.
+    /// A capture can name the same account two ways — a display name in one reading, the handle in
+    /// another — and the entity side stores both, so the probe asks for both. Without the handle,
+    /// `Andra` and `@bioavailablend` were two entities of one account, and no proximity could see it:
+    /// that pair shares no identity.
     async fn candidates(
         &self,
         observation: &model::user_observed_entity::Model,
     ) -> Vec<model::knowledge_entity::Model> {
-        self.candidates_for_name(&observation.name).await
+        self.probe([
+            observation.name.as_str(),
+            observation.platform_handle.as_deref().unwrap_or_default(),
+        ])
+        .await
     }
 }
 
 impl SqlBlocker {
     /// Candidates for a bare surface, so an inspector can ask without inventing an observation.
     pub async fn candidates_for_name(&self, name: &str) -> Vec<model::knowledge_entity::Model> {
-        let folded = normalize::comparable(name);
-        if folded.is_empty() {
+        self.probe([name]).await
+    }
+
+    /// One probe: fold each surface, then ask the index for either key generation.
+    async fn probe<'a>(
+        &self,
+        surfaces: impl IntoIterator<Item = &'a str>,
+    ) -> Vec<model::knowledge_entity::Model> {
+        let mut keys: Vec<String> = surfaces
+            .into_iter()
+            .map(normalize::comparable)
+            .filter(|key| !key.is_empty())
+            .collect();
+        keys.sort_unstable();
+        keys.dedup();
+        if keys.is_empty() {
             return Vec::new();
         }
-        let (sql, values) = match self.generations {
-            Generations::Both => (
-                CANDIDATES,
-                vec![
-                    sea_orm::Value::from(vec![folded.clone()]),
-                    sea_orm::Value::from(vec![normalize::word_key(&folded)]),
-                ],
-            ),
-            Generations::Surfaces => (CANDIDATES_SURFACES, vec![sea_orm::Value::from(vec![folded])]),
-        };
-        match model::knowledge_entity::Entity::find()
-            .from_raw_sql(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                sql,
-                values,
-            ))
-            .all(&self.db.conn)
-            .await
-        {
+        let words: Vec<String> = keys.iter().map(|key| normalize::word_key(key)).collect();
+        let query = model::knowledge_entity::Entity::find()
+            .join(
+                JoinType::InnerJoin,
+                model::knowledge_index::Relation::KnowledgeEntity.def().rev(),
+            )
+            .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
+            .filter(
+                Expr::cust_with_values(OVERLAP_SURFACES, [Value::from(keys)])
+                    .or(Expr::cust_with_values(OVERLAP_WORDS, [Value::from(words)])),
+            )
+            .order_by_asc(model::knowledge_entity::Column::Id);
+        match query.all(&self.db.conn).await {
             Ok(rows) => rows,
             Err(error) => {
                 // A blocker has no channel for errors, and an empty set is a decision (create).
                 // Log loudly: silence here looks exactly like "nothing matched".
-                tracing::error!(%error, surface = name, "sql blocker query failed");
+                tracing::error!(%error, "sql blocker query failed");
                 Vec::new()
             }
         }
@@ -179,41 +168,37 @@ mod tests {
         assert_eq!(candidate_ids(&db, &observation).await.unwrap(), vec![id]);
     }
 
-    /// The generation's effect on a *decision*, in the only situation it can have one: an existing
-    /// entity, and a later observation that names it differently. A full rebuild never revisits an
-    /// observation, which is why the corpus A/B shows zero — the difference is incremental.
+    /// A capture can name an account by its handle where another named it by display name. Both
+    /// keys are indexed, so the probe must ask for both: `Andra` and `@bioavailablend` were one
+    /// account split into two entities, and no proximity could catch it — they share no identity.
     #[tokio::test]
-    async fn the_word_generation_can_change_the_decision() {
+    async fn a_handle_finds_an_entity_named_differently() {
         db_or_skip!(db);
-        let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        // The fixture's member reads as `unknown`, and `worth_merging` wants a score above 0.60:
-        // name 0.9 alone plus a 0.5 type lands at 0.59. Give it a real type so the only difference
-        // between the two arms is the key generation.
+        let id = fixtures::knowledge_entity_with_member(&db, "Andra").await;
+        // The handle reaches the index through projection: `entity.surfaces()` is name + alt_names,
+        // so the key is only there because `project` gathered it from the member observation.
         db.conn
             .execute_raw(sea_orm::Statement::from_sql_and_values(
                 sea_orm::DatabaseBackend::Postgres,
-                "UPDATE user_observed_entities SET entity_type = 'book' WHERE knowledge_entity_id = $1",
+                "UPDATE user_observed_entities SET platform = 'x_twitter', platform_handle = 'BioavailableNd' \
+                  WHERE knowledge_entity_id = $1",
                 [id.into()],
             ))
             .await
             .unwrap();
         crate::knowledge::Knowledge::new(&db).update_projection(id).await.unwrap();
 
-        let scoring = crate::knowledge::heuristic::Heuristic::scoring();
-        let observation = fixtures::stub_observation(1, "Dreams Train", "book");
+        let mut observation = fixtures::stub_observation(1, "Andra T.", "real_person");
+        observation.platform = Some("x_twitter".to_string());
+        observation.platform_handle = Some("bioavailablend".to_string());
 
-        let both = SqlBlocker::new(&db).candidates(&observation).await;
-        assert_eq!(
-            scoring.link.rank(&observation, &both).len(),
-            1,
-            "the word generation finds it, so the linker can attach"
-        );
-
-        let surfaces = SqlBlocker::surfaces_only(&db).candidates(&observation).await;
+        let blocker = SqlBlocker::new(&db);
         assert!(
-            scoring.link.rank(&observation, &surfaces).is_empty(),
-            "without it there is no candidate, and the decision is Create"
+            blocker.candidates_for_name("Andra T.").await.is_empty(),
+            "the name alone does not reach it"
         );
+        let found = blocker.candidates(&observation).await;
+        assert_eq!(found.iter().map(|row| row.id).collect::<Vec<_>>(), vec![id]);
     }
 
     /// An observation whose name folds to nothing asks for nothing; it must not return the corpus.
