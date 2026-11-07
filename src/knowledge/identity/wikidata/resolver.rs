@@ -63,24 +63,22 @@ impl Wikidata {
 
     /// Part of the cache key: how the request is built. Change a parameter and the key changes, so a
     /// stale answer cannot be served against a different question.
+    ///
+    /// Readable on purpose. It was a blake3 hash truncated to twelve characters, which has the same
+    /// property — but a row in `resolution_cache` should say which question it answered, and a hash
+    /// says nothing when you are looking at a stale answer.
     fn shape(kind: &Kind) -> String {
-        // The version is per kind, so a transport change invalidates exactly the answers it changes.
-        // v3 for `search`: MediaWiki full-text instead of `wbsearchentities`.
+        // Per kind, so a transport change invalidates exactly the answers it changes. `search` moved
+        // from `wbsearchentities` to MediaWiki full text, hence its own version.
         let version = match kind {
             Kind::Search => "wikidata/v3-search",
             _ => "wikidata/v2",
         };
-        let mut hasher = blake3::Hasher::new();
-        hasher.update(
-            format!(
-                "{version}|{}|lang={LANGUAGE}|limit={}",
-                kind.to_key(),
-                super::SEARCH_LIMIT
-            )
-            .as_bytes(),
-        );
-        let hex = hasher.finalize().to_hex();
-        hex.as_str()[..12].to_string()
+        format!(
+            "{version}/{}|lang={LANGUAGE}|limit={}",
+            kind.to_key(),
+            super::SEARCH_LIMIT
+        )
     }
 
     /// The first pass: a handle, then a title, then an exact label. Pure, so the order is testable
