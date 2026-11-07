@@ -1,5 +1,6 @@
 //! One authority: the policy in `resolver`, the wire in `transport`.
 
+mod answer;
 mod ranking;
 mod resolver;
 mod transport;

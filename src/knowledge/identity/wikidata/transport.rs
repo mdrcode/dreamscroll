@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use serde_json::{json, Value};
 
 use super::super::contract::{FetchError, Raw, Request};
-use super::resolver::{Candidate, Wikidata, LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT};
+use super::answer::Candidate;
+use super::resolver::{Wikidata, LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT};
 use crate::knowledge::identity::cache::Outcome;
 
 /// Which query a SPARQL row answers, and the candidate it names. Items arrive as entity URLs, and a
