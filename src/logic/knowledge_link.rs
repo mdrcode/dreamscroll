@@ -5,9 +5,8 @@
 //! other queued operation. The graph accumulates reading by reading, so a failed link costs one
 //! reading rather than a capture's whole history.
 //!
-//! The blocker is built once per process by `logic_state`, not here: `exec` borrows `&state.knowledge`
-//! and pays only the query. What that costs is measured in `plan/knowledge-blocking.md` §Blocker cost —
-//! O(corpus) time and memory at boot, microseconds per observation after.
+//! The blocker reads `knowledge_index` and holds nothing, so a new instance pays nothing at boot and
+//! a link costs one query per observation. `logic_state` builds it once; `exec` borrows it.
 //!
 //! The task links and stops. Resolution and the proximity passes are separate steps, run in the
 //! order `plan/knowledge-blocking.md` records; nothing here may hide one of them.

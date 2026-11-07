@@ -131,8 +131,10 @@ With a build of ≈0.037 ms per entity and a query difference of ≈0.73 ms, the
 dominates — and every new instance pays it. The difference that is not speed at all: the SQL blocker
 sees another writer's committed rows, which the in-memory one cannot.
 
-Not switched. At 2,138 entities the in-memory blocker is cheaper end to end; the switch waits for
-the corpus to pass the crossover, or for a second writer to make staleness matter.
+**Switched, 2026-11-06.** The graph is built for 100k+ entities, where an O(corpus) boot cost paid by
+every instance is the wrong shape and a 0.7 ms query is noise beside the writes a link already does.
+`SqlBlocker` is the default for the link task and the CLI. `NameBlocker` stays as the oracle
+`eval blocking` measures against, and `link --memory-blocker` still selects it for debugging.
 
 First channel is **surface only** — one scheme, exhaustive within its key space, so the oracle
 comparison is meaningful and there is no fusion to review. RRF arrives with the second channel.

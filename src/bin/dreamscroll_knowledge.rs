@@ -112,8 +112,8 @@ enum IdentityCommand {
 )]
 struct LinkArgs {
     #[argh(switch)]
-    #[argh(description = "read knowledge_index instead of building an in-memory index")]
-    sql_blocker: bool,
+    #[argh(description = "load the graph into memory instead of reading knowledge_index (debugging)")]
+    memory_blocker: bool,
 }
 
 #[derive(FromArgs)]
@@ -342,7 +342,7 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Link(args) => {
-            let report = link_all_pending(&db, args.sql_blocker).await?;
+            let report = link_all_pending(&db, args.memory_blocker).await?;
             println!(
                 "considered {} · already linked {} · linked {} · created {}",
                 report.considered,
@@ -621,7 +621,7 @@ impl LinkAllPendingReport {
 /// After a reset, this rebuilds the entire knowledge graph.
 async fn link_all_pending(
     db: &database::DbHandle,
-    sql_blocker: bool,
+    memory_blocker: bool,
 ) -> anyhow::Result<LinkAllPendingReport> {
     let unlinked_obs = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
@@ -636,10 +636,11 @@ async fn link_all_pending(
         .all(&db.conn)
         .await?;
 
-    let blocker: Box<dyn knowledge::blocker::Blocker> = if sql_blocker {
-        Box::new(knowledge::sql_blocker::SqlBlocker::new(db))
-    } else {
+    // Reads `knowledge_index`: nothing is loaded, so a link run costs queries and nothing at boot.
+    let blocker: Box<dyn knowledge::blocker::Blocker> = if memory_blocker {
         Box::new(knowledge::heuristic::NameBlocker::new(db).await?)
+    } else {
+        Box::new(knowledge::sql_blocker::SqlBlocker::new(db))
     };
     let knowledge = knowledge::Knowledge::with_linking(
         db,
