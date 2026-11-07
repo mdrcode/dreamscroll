@@ -88,11 +88,17 @@ pub(super) fn decide(
         return Vec::new();
     }
 
-    // One exact label and nothing else claiming it: that is identity, even with no text to
-    // corroborate it. The method still names the *rung*, not the shortcut — a title that resolves to
-    // a lone exact label is a title claim, and recording it as `exact_label` inflated that method's
-    // count with every title hit.
-    if ranked.len() == 1 && ranked[0].exact_label {
+    // A lone exact label is evidence *only on the label rung*, because that query enumerates every
+    // item with the string: one result means the name is unique on Wikidata. A title answer always
+    // carries exactly one candidate — a page maps to an item by construction — so counting it there
+    // says nothing, which is how `Orthodoxy` claimed the concept instead of the Chesterton book.
+    //
+    // Scoped by rung, not weakened by description: two true descriptions of one person — "British
+    // filmmaker (1899–1980)" and "English film director" — can share no content word, so demanding
+    // fit here refuses correct answers. Ambiguity is what the shortcut must not survive, and the
+    // label rung already reports it as more than one candidate.
+    let unambiguous = request.kind == Kind::Label && ranked.len() == 1 && ranked[0].exact_label;
+    if unambiguous {
         return vec![answer::claim(
             ranked[0].candidate,
             method_for(&request.kind, true),
@@ -127,6 +133,33 @@ pub(super) fn decide(
         method_for(&request.kind, best.exact_label),
         answer_confidence(best.score),
     )]
+}
+
+/// The article that bears this exact name, offered only after every question that could corroborate
+/// was asked and refused. A title maps one article to one name, so a lone answer says nothing about
+/// ambiguity — which is why this spoke last: as a first answer it made `Dogma` the doctrine and
+/// `Orthodoxy` the concept.
+pub(super) fn surface_only(
+    entity: &model::knowledge_entity::Model,
+    candidates: &[Candidate],
+    request: &Request,
+) -> Option<Claim> {
+    if request.kind != Kind::Title || candidates.len() != 1 {
+        return None;
+    }
+    let candidate = &candidates[0];
+    // The article has to be about our name: Wikipedia redirects otherwise (`The Bounty Hunter Wars`
+    // lands on `Boba Fett`), and this is the last place that can be noticed.
+    if let Some(label) = candidate.label.as_deref() {
+        if surface_key(label) != surface_key(&entity.name) {
+            return None;
+        }
+    }
+    Some(answer::claim(
+        candidate,
+        "wikipedia_title",
+        LONE_LABEL_CONFIDENCE,
+    ))
 }
 
 /// A title maps to one article. A disambiguation page maps to none: it is a menu, and claiming

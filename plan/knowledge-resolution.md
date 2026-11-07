@@ -533,6 +533,42 @@ Re-decided from cache: **`Poetics` → the book by Aristotle, `Liquidation` → 
 series, `Revolver` and `MUME` provisional** (no correct item was offered). The same 82 rows read
 **79 correct (96.3%)**; the three that remain are two same-family collisions and `Orthodoxy`.
 
+### The shortcut now speaks last
+
+The lone-exact-label shortcut claimed the first answer whose label matched our name, on any rung, at
+0.75, with no corroboration. On a *label* query that is evidence — the query enumerates every item
+with the string, so one result means the name is unique. On a *title* query it is vacuous: a page
+maps to one item by construction, so "there was only one answer" says nothing. Wikipedia had already
+resolved the ambiguity by directory (`Orthodoxy (book)`), and we re-resolved it by accident.
+
+Two changes, both in the ordering rather than the weights:
+
+- `decide`'s shortcut is scoped to `Kind::Label`.
+- A new last-resort pass (`policy::surface_only`) claims the exact-title article **after** every
+  corroborating rung has been asked and refused. The title was the first speaker; it is now the last.
+
+Measured by retracting the 1,603 Wikidata claims, re-deciding from cache and reprojecting:
+
+| | before | after |
+|---|---|---|
+| resolved | 1,603 | **1,605** |
+| changed | — | **44** |
+| lost | — | **1** (`VIKARE`) |
+| gained | — | **3** (`Kevin Lamb`, `Revolver`, `Westinghouse`) |
+
+The changed set is the concept-theft class in bulk: `Dogma` was the doctrine, now the 1999 film;
+`Monopoly` the market structure, now the board game; `Science` the concept, now the journal;
+`Sunset Boulevard` a thoroughfare, now the 1950 film; `Stagecoach` a carriage, now the John Ford
+film; `Tokyo Express` a military unit, now the Matsumoto novel; `Freedom of Speech` the right, now
+the Rockwell painting; `Orthodoxy` the concept, now the Chesterton book. `Charlie Rose` was the
+person, `Chinatown` an ethnic enclave, `Corsica`-like place articles were the same shape.
+
+Six went the wrong way, and they share a cause that predates the change — the label rung's fit
+accepts a description that shares a stray word: `Boeing B-17` → a crash *event*, `Industrial
+Revolution` → "Buildings of Scotland in the Industrial Revolution", `Lucifer` → the *Supernatural*
+character, `Monster` → an audio track, `Natural Philosophy` → a Vanity Fair caricature, `Scorched
+Earth` → a video game. The fit gate is the next thing to tighten; the shortcut is no longer hiding it.
+
 The recurring offender is the **lone-exact-label shortcut**: one candidate whose surface matches
 exactly is claimed at 0.75 with no corroboration. `Choo` → a river and `Orthodoxy` → a concept are
 both it. It is the highest-yield policy change left.

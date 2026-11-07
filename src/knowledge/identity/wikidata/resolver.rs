@@ -18,7 +18,7 @@ use super::answer;
 use super::policy;
 use super::types;
 use crate::knowledge::identity::{
-    Answers, BATCH, Claim, FetchError, Gateway, Kind, Raw, Request, Resolver, Transport,
+    Answers, BATCH, Candidate, Claim, FetchError, Gateway, Kind, Raw, Request, Resolver, Transport,
 };
 use crate::model;
 
@@ -155,6 +155,38 @@ impl Wikidata {
         self.parse_explained(entity, request, raw, &mut reason)
     }
 
+    /// The gates every answer passes before a rung decides: a menu is not a referent, and the right
+    /// name can still be the wrong kind of thing. Only recognised classes reject — an unknown one
+    /// passes (see `types`), so the table being incomplete cannot lose a candidate.
+    ///
+    /// Split out because the last-resort pass needs the same gates without a rung's decision.
+    fn admit(
+        &self,
+        entity: &model::knowledge_entity::Model,
+        raw: &Raw,
+    ) -> Result<Vec<Candidate>, &'static str> {
+        if !raw.outcome.answered() {
+            return Err("the answer carried no candidate");
+        }
+        let mut candidates = raw.candidates.clone();
+        // A menu is not a referent, on *every* rung. This used to be checked in `parse_title` only,
+        // and the label rung — which is where all 34 such claims in the corpus came from — never
+        // looked. Filtering at the gate makes the rule a property of an answer rather than of one
+        // caller.
+        candidates.retain(|candidate| !answer::is_menu(candidate));
+        if candidates.is_empty() {
+            return Err("the answer carried only a disambiguation page");
+        }
+        // `Dogma` the film against the concept, `Micah` the prophet against the given name.
+        let before = candidates.len();
+        candidates
+            .retain(|candidate| !types::incompatible(&entity.entity_type, &candidate.classes));
+        if before > 0 && candidates.is_empty() {
+            return Err("every candidate is a different kind of thing");
+        }
+        Ok(candidates)
+    }
+
     /// [`parse`], and *why* it refused. `reason` is empty when a claim came back.
     ///
     /// The refusal is recorded where it happens rather than inferred afterwards: an inspector that
@@ -170,25 +202,13 @@ impl Wikidata {
             *reason = "the answer carried no candidate";
             return Vec::new();
         }
-        let mut candidates = raw.candidates.clone();
-        // A menu is not a referent, on *every* rung. This used to be checked in `parse_title` only,
-        // and the label rung — which is where all 34 such claims in the corpus came from — never
-        // looked. Filtering at the gate makes the rule a property of an answer rather than of one
-        // caller.
-        candidates.retain(|candidate| !answer::is_menu(candidate));
-        if candidates.is_empty() {
-            *reason = "the answer carried only a disambiguation page";
-            return Vec::new();
-        }
-        // The right name can still be the wrong kind of thing: `Dogma` the film against the concept,
-        // `Micah` the prophet against the given name. Only recognised classes reject — an unknown
-        // one passes (see `types`), so the table being incomplete cannot lose a candidate.
-        let before = candidates.len();
-        candidates.retain(|candidate| !types::incompatible(&entity.entity_type, &candidate.classes));
-        if before > 0 && candidates.is_empty() {
-            *reason = "every candidate is a different kind of thing";
-            return Vec::new();
-        }
+        let candidates = match self.admit(entity, raw) {
+            Ok(candidates) => candidates,
+            Err(gate) => {
+                *reason = gate;
+                return Vec::new();
+            }
+        };
         // A property match *is* the identity: an item claiming this handle is the account itself.
         if let Some(property) = request.kind.property() {
             match candidates.first() {
@@ -299,6 +319,49 @@ impl Resolver for Wikidata {
             .await;
         }
 
+        // Last resort, after every corroborating question has been asked and refused: the article
+        // that bears this exact name. It is the weakest thing the ladder can say, so it speaks last.
+        let fallback: Vec<(usize, Request)> = entities
+            .iter()
+            .enumerate()
+            .filter(|(_, entity)| !resolved.contains(&entity.id))
+            .flat_map(|(index, entity)| {
+                Wikidata::plan(self, entity)
+                    .into_iter()
+                    .filter(|request| request.kind == Kind::Title)
+                    .map(move |request| (index, request))
+            })
+            .collect();
+        if !fallback.is_empty() {
+            let requests: Vec<Request> = fallback
+                .iter()
+                .map(|(_, request)| request.clone())
+                .collect();
+            let answers = gateway.resolve_requests(self, &requests).await;
+            for (index, request) in fallback {
+                let entity = &entities[index];
+                if resolved.contains(&entity.id) {
+                    continue;
+                }
+                let key = (
+                    request.provider.to_string(),
+                    request.kind.clone(),
+                    request.shape.clone(),
+                    request.query.clone(),
+                );
+                let Some(raw) = answers.get(&key) else {
+                    continue;
+                };
+                let Ok(candidates) = self.admit(entity, raw) else {
+                    continue;
+                };
+                if let Some(claim) = policy::surface_only(entity, &candidates, &request) {
+                    resolved.insert(entity.id);
+                    claims.push((entity.id, claim));
+                }
+            }
+        }
+
         claims
     }
 }
@@ -372,10 +435,10 @@ mod tests {
     #[test]
     fn a_title_about_another_subject_is_refused() {
         let raw = found(json!([{
-                    "id": "Q51790",
-                    "label": "Boba Fett",
-                    "description": "fictional character from Star Wars",
-                }]));
+            "id": "Q51790",
+            "label": "Boba Fett",
+            "description": "fictional character from Star Wars",
+        }]));
         let claims = engine().parse(
             &entity(
                 "The Bounty Hunter Wars",
@@ -391,10 +454,10 @@ mod tests {
 
         // …while a title whose label is our name still claims.
         let ok = found(json!([{
-                    "id": "Q16010557",
-                    "label": "The Bounty Hunter Wars",
-                    "description": "novel trilogy by K. W. Jeter",
-                }]));
+            "id": "Q16010557",
+            "label": "The Bounty Hunter Wars",
+            "description": "novel trilogy by K. W. Jeter",
+        }]));
         let claims = engine().parse(
             &entity(
                 "The Bounty Hunter Wars",
@@ -408,10 +471,10 @@ mod tests {
 
         // A title answer with no label is not a mismatch — the description still has to corroborate.
         let unlabelled = found(json!([{
-                    "id": "Q42574",
-                    "label": null,
-                    "description": "Canadian filmmaker and explorer (born 1954)",
-                }]));
+            "id": "Q42574",
+            "label": null,
+            "description": "Canadian filmmaker and explorer (born 1954)",
+        }]));
         let claims = engine().parse(
             &entity(
                 "James Cameron",
@@ -441,6 +504,58 @@ mod tests {
             "{:?}",
             claims[0]
         );
+    }
+
+    /// A title answer always carries one candidate, so "only one" is not evidence there: the
+    /// `Orthodoxy` article names the concept, and the book is a different page.
+    #[test]
+    fn a_title_cannot_claim_on_an_exact_label_alone() {
+        let claims = engine().parse(
+            &entity(
+                "Orthodoxy",
+                Some("A 1908 philosophical and apologetic book by G.K. Chesterton"),
+            ),
+            &request(Kind::Title, "Orthodoxy"),
+            &found(json!([{
+                "id": "Q383258",
+                "label": "Orthodoxy",
+                "description": "adherence to the actual accepted belief, especially in religion",
+            }])),
+        );
+        assert!(claims.is_empty(), "{claims:?}");
+    }
+
+    /// On the label rung, one exact match *is* evidence: the query enumerated every holder of the
+    /// string. With nothing to corroborate it — no description on either side — that is identity.
+    #[test]
+    fn a_lone_label_with_nothing_to_contradict_it_claims() {
+        let claims = engine().parse(
+            &entity("Tsoding", None),
+            &request(Kind::Label, "Tsoding"),
+            &found(json!([{"id": "Q1", "label": "Tsoding"}])),
+        );
+        assert_eq!(claims.len(), 1, "{claims:?}");
+        assert_eq!(claims[0].method, "exact_label");
+    }
+
+    /// …and a description that shares no content word does not refute it: "British filmmaker" and
+    /// "English film director" describe one person without agreeing on a single token.
+    #[test]
+    fn a_lone_label_claims_even_when_the_descriptions_share_no_word() {
+        let claims = engine().parse(
+            &entity(
+                "Alfred Hitchcock",
+                Some("English film director and producer"),
+            ),
+            &request(Kind::Label, "Alfred Hitchcock"),
+            &found(json!([{
+                "id": "Q7374",
+                "label": "Alfred Hitchcock",
+                "description": "British filmmaker (1899-1980)",
+            }])),
+        );
+        assert_eq!(claims.len(), 1, "{claims:?}");
+        assert_eq!(claims[0].method, "exact_label");
     }
 
     #[test]
@@ -753,7 +868,6 @@ mod tests {
         assert!(claims.is_empty(), "{claims:?}");
     }
 
-
     /// The ladder, driven end to end. Every answer is already in the cache, so nothing is fetched:
     /// the point is that `resolve` consults the title before the label, and only searches for the
     /// entity the first pass left unresolved.
@@ -768,7 +882,9 @@ mod tests {
         let seed = |kind: Kind, query: &str, raw: Raw| {
             let answer = Answer {
                 outcome: raw.outcome,
-                payload: Some(crate::knowledge::identity::cache::payload_of(&raw.candidates)),
+                payload: Some(crate::knowledge::identity::cache::payload_of(
+                    &raw.candidates,
+                )),
             };
             (kind, query.to_string(), answer)
         };
@@ -833,5 +949,106 @@ mod tests {
             0,
             "everything was answered from the cache"
         );
+    }
+
+    /// The exact title is the last resort, not the first answer. `Orthodoxy` the article is the
+    /// concept; the label rung, which carries the book, must get to speak first. And when no rung
+    /// can corroborate anything — the `Paris` shape, no description, no hint — the title still
+    /// answers, because a surface this exact is better than nothing at all.
+    #[tokio::test]
+    async fn a_surface_only_title_waits_for_every_other_rung() {
+        use crate::knowledge::identity::Options;
+        use crate::knowledge::identity::cache::{Answer, Cache};
+
+        db_or_skip!(db);
+        let cache = Cache::new(&db.conn);
+
+        let seed = |kind: Kind, query: &str, raw: Raw| {
+            let answer = Answer {
+                outcome: raw.outcome,
+                payload: Some(crate::knowledge::identity::cache::payload_of(
+                    &raw.candidates,
+                )),
+            };
+            (kind, query.to_string(), answer)
+        };
+        let nothing = Raw {
+            outcome: Outcome::Empty,
+            candidates: Vec::new(),
+        };
+
+        let concept = json!({
+            "id": "Q100",
+            "label": "Orthodoxy",
+            "description": "adherence to the actual accepted belief, especially in religion",
+            "classes": []
+        });
+        for (kind, query, answer) in [
+            seed(Kind::Title, "Orthodoxy", found(json!([concept.clone()]))),
+            seed(
+                Kind::Label,
+                "Orthodoxy",
+                found(json!([
+                    concept,
+                    {
+                        "id": "Q200",
+                        "label": "Orthodoxy",
+                        "description": "Christian apologetics book by G. K. Chesterton",
+                        "classes": []
+                    }
+                ])),
+            ),
+            // `Paris`: the title is the only answer, and nothing contradicts it.
+            seed(
+                Kind::Title,
+                "Paris",
+                found(json!([{
+                    "id": "Q300",
+                    "label": "Paris",
+                    "description": "capital and most populous city in France",
+                    "classes": []
+                }])),
+            ),
+            seed(Kind::Label, "Paris", nothing.clone()),
+            seed(Kind::Search, "Paris", nothing),
+        ] {
+            cache
+                .put(
+                    "wikidata",
+                    &kind.to_key(),
+                    &Wikidata::shape(&kind),
+                    &query,
+                    &answer,
+                )
+                .await
+                .unwrap();
+        }
+
+        let entities = vec![
+            entity(
+                "Orthodoxy",
+                Some("A 1908 philosophical and apologetic book by G. K. Chesterton"),
+            ),
+            {
+                let mut second = entity("Paris", None);
+                second.id = 2;
+                second.entity_type = "place".to_string();
+                second
+            },
+        ];
+
+        let options = Options {
+            min_interval: std::time::Duration::from_millis(0),
+            ..Default::default()
+        };
+        let gateway = Gateway::new(&cache, &options);
+        let claims = engine().resolve(&entities, &gateway).await;
+
+        let ids: Vec<(i32, &str)> = claims
+            .iter()
+            .map(|(id, claim)| (*id, claim.id.as_str()))
+            .collect();
+        assert_eq!(ids, vec![(1, "Q200"), (2, "Q300")], "{claims:?}");
+        assert_eq!(gateway.fetched(), 0);
     }
 }
