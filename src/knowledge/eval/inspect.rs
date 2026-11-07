@@ -13,7 +13,7 @@ use crate::knowledge::heuristic::Heuristic;
 use crate::knowledge::resolve::cache::Outcome;
 use crate::knowledge::resolve::wikidata::Wikidata;
 use crate::knowledge::resolve::Raw;
-use crate::knowledge::scoring::{Rank, Scoring};
+use crate::knowledge::scoring::Scoring;
 use crate::knowledge::sql_blocker::SqlBlocker;
 use crate::knowledge::normalize;
 use crate::model;

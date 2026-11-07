@@ -294,7 +294,28 @@ impl Wikidata {
         }) {
             return Vec::new();
         }
-        self.decide(entity, candidates, request)
+        // A title is a *name* lookup, so the answer has to be about that name. Wikipedia redirects
+        // otherwise: asking for `The Bounty Hunter Wars` lands on the article for `Boba Fett`, and
+        // "one title, one article" then reads as identity. Sharing no word with our name is not an
+        // identity, whatever the title said.
+        let ours = content_tokens(&entity.name);
+        let titled: Vec<Candidate> = candidates
+            .iter()
+            .filter(|candidate| {
+                let Some(label) = candidate.label.as_deref() else {
+                    return false;
+                };
+                if near_surface(&surface_key(label), &surface_key(&entity.name)) {
+                    return true;
+                }
+                content_tokens(label).iter().any(|token| ours.contains(token))
+            })
+            .cloned()
+            .collect();
+        if titled.is_empty() {
+            return Vec::new();
+        }
+        self.decide(entity, &titled, request)
     }
 
     /// A search answer: one corroborated surface is identity, anything else is a ranker question.
@@ -616,6 +637,48 @@ mod tests {
         let mut entity = crate::test_support::fixtures::stub_entity(1, label, "unknown");
         entity.description = description.map(str::to_string);
         entity
+    }
+
+    /// A Wikipedia title can redirect to a different subject: asking for `The Bounty Hunter Wars`
+    /// lands on `Boba Fett`. "One title, one article" then reads as identity, so the answer has to be
+    /// about our name before it is even considered.
+    #[test]
+    fn a_title_about_another_subject_is_refused() {
+        let raw = Raw {
+            outcome: Outcome::Found,
+            payload: Some(json!({
+                "candidates": [{
+                    "id": "Q51790",
+                    "label": "Boba Fett",
+                    "description": "fictional character from Star Wars",
+                }]
+            })),
+        };
+        let claims = engine().parse(
+            &entity("The Bounty Hunter Wars", Some("a trilogy of Star Wars novels")),
+            &request("title", "The Bounty Hunter Wars"),
+            &raw,
+        );
+        assert!(claims.is_empty(), "a redirect is not an identity: {claims:?}");
+
+        // …while a title whose label is our name still claims.
+        let ok = Raw {
+            outcome: Outcome::Found,
+            payload: Some(json!({
+                "candidates": [{
+                    "id": "Q16010557",
+                    "label": "The Bounty Hunter Wars",
+                    "description": "novel trilogy by K. W. Jeter",
+                }]
+            })),
+        };
+        let claims = engine().parse(
+            &entity("The Bounty Hunter Wars", Some("a trilogy of Star Wars novels")),
+            &request("title", "The Bounty Hunter Wars"),
+            &ok,
+        );
+        assert_eq!(claims.len(), 1);
+        assert_eq!(claims[0].id, "Q16010557");
     }
 
     #[test]

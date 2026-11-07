@@ -270,7 +270,12 @@ impl Weights {
         let df = self.frequency.get(gram).copied().unwrap_or(0) as f32;
         // A phrase is worth more than a word: it is evidence about a relationship, not a co-occurrence.
         let boost = if gram.contains(' ') { 2.0 } else { 1.0 };
-        boost * (1.0 + self.documents / (1.0 + df)).ln()
+        // `documents / (1 + df)` is below 1 when a term appears in every candidate — every term,
+        // when the answer carried a single candidate. Log of that is negative, which charged a
+        // candidate for matching the *only* descriptive word it had: `Salamandra · publisher`
+        // scored 0.09 against a 0.20 floor. Flooring the ratio at 1 makes a universal term worth the
+        // minimum instead of less than nothing.
+        boost * (1.0 + (self.documents / (1.0 + df)).max(1.0).ln())
     }
 
     /// The weight of distinctive material this candidate accounts for, saturating.
