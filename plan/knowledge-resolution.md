@@ -525,6 +525,14 @@ CIs overlap the previous three (83.5 → 92.8 → 92.9 → 91.5), so nothing her
 either direction — but the *shape* has changed: earlier samples' errors were disambiguation pages and
 concepts, and now every error has a specific rule or a structural reason.
 
+**Closed the same day.** The four named classes are in the table — `artifact` for *weapon type*,
+`concept` for *organizational life cycle*, *academic discipline*, *academic major* and *literature
+term*, `place` for *kampung of Papua* — and `television_show`, the spelling the graph actually uses
+for its 23 series, joined the work arm (`television_series` was in the table and in no entity).
+Re-decided from cache: **`Poetics` → the book by Aristotle, `Liquidation` → the Russian television
+series, `Revolver` and `MUME` provisional** (no correct item was offered). The same 82 rows read
+**79 correct (96.3%)**; the three that remain are two same-family collisions and `Orthodoxy`.
+
 The recurring offender is the **lone-exact-label shortcut**: one candidate whose surface matches
 exactly is claimed at 0.75 with no corroboration. `Choo` → a river and `Orthodoxy` → a concept are
 both it. It is the highest-yield policy change left.

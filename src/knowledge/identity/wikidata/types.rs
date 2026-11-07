@@ -24,6 +24,8 @@ enum Family {
     Fictional,
     /// An executable thing.
     Software,
+    /// A made object that is not a work of authorship: a weapon, a vehicle, a tool.
+    Artifact,
     /// Somewhere people live or a territory.
     Place,
     /// A collective, business or ensemble.
@@ -55,12 +57,14 @@ impl Family {
             "Q386724" => Self::Work,   // work
             "Q13442814" => Self::Work, // scholarly article
 
-            "Q95074" => Self::Fictional, // fictional character
-            "Q7397" => Self::Software,   // software
+            "Q95074" => Self::Fictional,    // fictional character
+            "Q7397" => Self::Software,      // software
+            "Q124078422" => Self::Artifact, // weapon type
 
-            "Q515" => Self::Place,    // city
-            "Q6256" => Self::Place,   // country
-            "Q486972" => Self::Place, // human settlement
+            "Q515" => Self::Place,      // city
+            "Q6256" => Self::Place,     // country
+            "Q486972" => Self::Place,   // human settlement
+            "Q12488913" => Self::Place, // kampung of Papua
 
             "Q43229" => Self::Organization,    // organization
             "Q4830453" => Self::Organization,  // business
@@ -70,8 +74,12 @@ impl Family {
             "Q1656682" => Self::Event, // planned event
             "Q178561" => Self::Event,  // battle
 
-            "Q151885" => Self::Concept,  // concept
-            "Q1914636" => Self::Concept, // activity
+            "Q151885" => Self::Concept,   // concept
+            "Q1914636" => Self::Concept,  // activity
+            "Q3535173" => Self::Concept,  // organizational life cycle
+            "Q11862829" => Self::Concept, // academic discipline
+            "Q4671286" => Self::Concept,  // academic major
+            "Q19610271" => Self::Concept, // literature term
 
             "Q202444" => Self::Name,   // given name
             "Q12308941" => Self::Name, // male given name
@@ -113,17 +121,20 @@ pub(super) fn incompatible(entity_type: &str, classes: &[String]) -> bool {
         "real_person" | "religious_figure" => !found.contains(&Family::Person),
         // A created work is not a person, a place, a concept, a word, a creature or a program.
         // Organization and event are left out on purpose — see above.
-        "movie" | "book" | "art_work" | "music" | "television_series" => every(|family| {
-            matches!(
-                family,
-                Family::Person
-                    | Family::Place
-                    | Family::Concept
-                    | Family::Name
-                    | Family::Nature
-                    | Family::Software
-            )
-        }),
+        "movie" | "book" | "art_work" | "music" | "television_series" | "television_show" => {
+            every(|family| {
+                matches!(
+                    family,
+                    Family::Person
+                        | Family::Place
+                        | Family::Concept
+                        | Family::Name
+                        | Family::Nature
+                        | Family::Software
+                        | Family::Artifact
+                )
+            })
+        }
         // A character is not a phenomenon, and not the work it appears in: `Irene` the character
         // against the hurricane, `Billy Costigan` against *The Departed*.
         "fictional_character" => every(|family| {
@@ -135,6 +146,7 @@ pub(super) fn incompatible(entity_type: &str, classes: &[String]) -> bool {
                     | Family::Organization
                     | Family::Event
                     | Family::Software
+                    | Family::Artifact
                     | Family::Concept
                     | Family::Name
             )
@@ -188,6 +200,19 @@ mod tests {
         assert!(incompatible("art_work", &classes(&["Q151885"])));
         // The Joy of Cooking against its publisher.
         assert!(!incompatible("book", &classes(&["Q571"])));
+    }
+
+    /// The four class gaps the second sample named, one test each.
+    #[test]
+    fn the_classes_the_sample_named() {
+        // Revolver (the Beatles album) against `Q170382`, a handgun: class `weapon type`.
+        assert!(incompatible("music", &classes(&["Q124078422"])));
+        // Liquidation (a 2007 series) against the corporate concept.
+        assert!(incompatible("television_show", &classes(&["Q3535173"])));
+        // MUME (a MUD) against a Papuan village.
+        assert!(incompatible("software", &classes(&["Q12488913"])));
+        // Poetics (Aristotle) against the discipline.
+        assert!(incompatible("book", &classes(&["Q11862829"])));
     }
 
     /// The class was missing from the table, not from Wikidata: `Micah` is a *male* given name
