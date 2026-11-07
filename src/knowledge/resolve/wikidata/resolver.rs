@@ -91,8 +91,14 @@ impl Wikidata {
     /// lower, and it can never overrule a description that resolved the case — which is what keeps
     /// the `Sunset Boulevard` failure (the hint lifting the musical adaptation above the film) from
     /// recurring, because there the description decides first.
-    fn by_hint(&self, entity: &model::knowledge_entity::Model, candidates: &[Candidate]) -> Vec<Claim> {
+    fn by_hint(
+        &self,
+        entity: &model::knowledge_entity::Model,
+        candidates: &[Candidate],
+        reason: &mut &'static str,
+    ) -> Vec<Claim> {
         let Some(hint) = hint_tokens(entity) else {
+            *reason = "no disambiguation hint to fall back on";
             return Vec::new();
         };
         let mut ranked: Vec<Ranked> = candidates
@@ -121,6 +127,7 @@ impl Wikidata {
             || best.score < CLAIM_BAR
             || best.score - runner_up < CLAIM_MARGIN
         {
+            *reason = "the hint did not clear its bar";
             return Vec::new();
         }
         vec![claim(
@@ -135,9 +142,16 @@ impl Wikidata {
 
     /// Choose a referent from the candidates, or none. Shared by the label path and the search
     /// fallback — the only difference between them is which candidates are admitted.
-    fn decide(&self, entity: &model::knowledge_entity::Model, candidates: &[Candidate], request: &Request) -> Vec<Claim> {
+    fn decide(
+        &self,
+        entity: &model::knowledge_entity::Model,
+        candidates: &[Candidate],
+        request: &Request,
+        reason: &mut &'static str,
+    ) -> Vec<Claim> {
         let mut ranked = rank(entity, candidates);
         if ranked.is_empty() {
+            *reason = "no candidate survived the name test";
             return Vec::new();
         }
 
@@ -162,10 +176,12 @@ impl Wikidata {
         // real, terse Wikidata descriptions cannot supply ("German-born theoretical physicist" vs a
         // capture's six-word description of Einstein).
         if best.fit < FIT_FLOOR {
-            return self.by_hint(entity, candidates);
+            *reason = "the description does not corroborate";
+            return self.by_hint(entity, candidates, reason);
         }
         // Two candidates fit and neither wins: genuine ambiguity. The hint must not break this tie.
         if best.fit - runner_up < FIT_MARGIN {
+            *reason = "two candidates fit and neither wins";
             return Vec::new();
         }
         let method = match (request.kind.as_str(), best.exact_label) {
@@ -248,23 +264,39 @@ impl Wikidata {
         request: &Request,
         raw: &Raw,
     ) -> Vec<Claim> {
+        let mut reason = "";
+        self.parse_explained(entity, request, raw, &mut reason)
+    }
+
+    /// [`parse`], and *why* it refused. `reason` is empty when a claim came back.
+    ///
+    /// The refusal is recorded where it happens rather than inferred afterwards: an inspector that
+    /// guessed at the gate would be a second implementation of the gates.
+    pub fn parse_explained(
+        &self,
+        entity: &model::knowledge_entity::Model,
+        request: &Request,
+        raw: &Raw,
+        reason: &mut &'static str,
+    ) -> Vec<Claim> {
         let Some(candidates) = Self::candidates_of(raw) else {
+            *reason = "the answer carried no candidate";
             return Vec::new();
         };
         // A property match *is* the identity: an item claiming this handle is the account itself.
         if let Some(property) = Self::property_of(&request.kind) {
-            return candidates
-                .first()
-                .map(|candidate| {
-                    handle_claim(candidate, property, HANDLE_CONFIDENCE)
-                })
-                .into_iter()
-                .collect();
+            match candidates.first() {
+                Some(candidate) => return vec![handle_claim(candidate, property, HANDLE_CONFIDENCE)],
+                None => {
+                    *reason = "the handle answer carried no item";
+                    return Vec::new();
+                }
+            }
         }
         match request.kind.as_str() {
-            "title" => self.parse_title(entity, &candidates, request),
-            "search" => self.parse_search(entity, candidates, request),
-            _ => self.decide(entity, &candidates, request),
+            "title" => self.parse_title(entity, &candidates, request, reason),
+            "search" => self.parse_search(entity, candidates, request, reason),
+            _ => self.decide(entity, &candidates, request, reason),
         }
     }
 
@@ -285,6 +317,7 @@ impl Wikidata {
         entity: &model::knowledge_entity::Model,
         candidates: &[Candidate],
         request: &Request,
+        reason: &mut &'static str,
     ) -> Vec<Claim> {
         if candidates.iter().any(|candidate| {
             candidate
@@ -292,6 +325,7 @@ impl Wikidata {
                 .iter()
                 .any(|class| class == DISAMBIGUATION)
         }) {
+            *reason = "the title is a disambiguation page";
             return Vec::new();
         }
         // A title is a *name* lookup, so the answer has to be about that name. Wikipedia redirects
@@ -316,9 +350,10 @@ impl Wikidata {
             .cloned()
             .collect();
         if titled.is_empty() {
+            *reason = "the title is about another subject";
             return Vec::new();
         }
-        self.decide(entity, &titled, request)
+        self.decide(entity, &titled, request, reason)
     }
 
     /// A search answer: one corroborated surface is identity, anything else is a ranker question.
@@ -327,6 +362,7 @@ impl Wikidata {
         entity: &model::knowledge_entity::Model,
         candidates: Vec<Candidate>,
         request: &Request,
+        reason: &mut &'static str,
     ) -> Vec<Claim> {
         let ours = surface_key(&entity.name);
         let same: Vec<&Candidate> = candidates
@@ -411,12 +447,13 @@ impl Wikidata {
             .cloned()
             .collect();
         if admitted.is_empty() {
+            *reason = "nothing in the answer relates to the name";
             // The name nominated nothing, but the hint may still: `Sten Mk IIS suppressed` is a
             // model whose label is just `Sten`, and no name rule will connect the two. Admission is
             // a name test, so the hint path has to be reached before it turns the answer down.
-            return self.by_hint(entity, &candidates);
+            return self.by_hint(entity, &candidates, reason);
         }
-        self.decide(entity, &admitted, request)
+        self.decide(entity, &admitted, request, reason)
     }
 
     /// Turn answers into claims. First request to speak wins for an entity, which is why `plan`

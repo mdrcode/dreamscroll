@@ -54,6 +54,8 @@ pub struct Step {
     pub top: Vec<(String, String, String)>,
     /// `(qid, method)` when this rung produced a claim.
     pub decision: Option<(String, String)>,
+    /// Why it did not, when it did not — recorded by the resolver, not inferred here.
+    pub refusal: &'static str,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -211,6 +213,7 @@ async fn ladder(
                 cache: CacheState::Missing,
                 top: Vec::new(),
                 decision: None,
+                refusal: "not asked",
             });
             continue;
         };
@@ -221,6 +224,7 @@ async fn ladder(
         let top = candidates_of(payload.as_deref());
 
         // An expired row is a miss to the resolver, so it renders no decision here either.
+        let mut refusal = if fresh { "" } else { "the cached answer is expired" };
         let decision = if fresh {
             let raw = Raw {
                 outcome: if outcome == "found" {
@@ -230,11 +234,8 @@ async fn ladder(
                 },
                 payload: payload.as_deref().map(serde_json::from_str).transpose()?,
             };
-            engine
-                .parse(entity, &request, &raw)
-                .into_iter()
-                .next()
-                .map(|claim| (claim.id, claim.method))
+            let claims = engine.parse_explained(entity, &request, &raw, &mut refusal);
+            claims.into_iter().next().map(|claim| (claim.id, claim.method))
         } else {
             None
         };
@@ -249,6 +250,7 @@ async fn ladder(
             },
             top,
             decision: decision.clone(),
+            refusal,
         });
         if decision.is_some() {
             break;

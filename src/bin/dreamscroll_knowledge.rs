@@ -318,7 +318,7 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
         }
         match &step.decision {
             Some((qid, method)) => println!("      → claimed {qid} via {method}"),
-            None => {}
+            None => println!("      ✗ {}", step.refusal),
         }
     }
 

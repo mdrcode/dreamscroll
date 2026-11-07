@@ -286,6 +286,10 @@ impl Weights {
     /// compressed precisely that difference — the president's text carries four further rare words we
     /// do not share (`founding`, `father`, `1732`, `1799`), which lowered its score for being rich.
     pub(super) fn fit(&self, theirs: &[String], ours: &[String]) -> f32 {
+        // Counted before the shadowing below: `grams` turns three tokens into five, so measuring
+        // "is this description terse" afterwards made the limit two words in practice — and
+        // `video game from 1992` was treated as verbose.
+        let terse = theirs.len() <= TERSE_TOKENS;
         let theirs = grams(theirs);
         let ours = grams(ours);
         let ours_set: std::collections::BTreeSet<&String> = ours.iter().collect();
@@ -294,7 +298,7 @@ impl Weights {
         // One shared word is normally coincidence. In a terse description it can be the whole
         // signal — but only when that word is rare among these candidates, because one common word
         // (`village`, `united`) still says nothing.
-        let terse_and_rare = theirs.len() <= TERSE_TOKENS
+        let terse_and_rare = terse
             && matched.len() == 1
             && self.frequency.get(matched[0].as_str()).copied().unwrap_or(0) <= 1;
         if matched.len() < 2 && !terse_and_rare {
