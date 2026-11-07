@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use super::answer;
 use super::policy;
 use crate::knowledge::identity::{
-    Answers, BATCH, Claim, FetchError, Raw, Request, Gateway, Resolver, Transport,
+    Answers, Gateway, Kind, Resolver, Transport, BATCH, Claim, FetchError, Raw, Request,
 };
 use crate::model;
 
@@ -64,16 +64,21 @@ impl Wikidata {
 
     /// Part of the cache key: how the request is built. Change a parameter and the key changes, so a
     /// stale answer cannot be served against a different question.
-    fn shape(kind: &str) -> String {
+    fn shape(kind: &Kind) -> String {
         // The version is per kind, so a transport change invalidates exactly the answers it changes.
         // v3 for `search`: MediaWiki full-text instead of `wbsearchentities`.
         let version = match kind {
-            "search" => "wikidata/v3-search",
+            Kind::Search => "wikidata/v3-search",
             _ => "wikidata/v2",
         };
         let mut hasher = blake3::Hasher::new();
         hasher.update(
-            format!("{version}|{kind}|lang={LANGUAGE}|limit={}", super::SEARCH_LIMIT).as_bytes(),
+            format!(
+                "{version}|{}|lang={LANGUAGE}|limit={}",
+                kind.to_key(),
+                super::SEARCH_LIMIT
+            )
+            .as_bytes(),
         );
         let hex = hasher.finalize().to_hex();
         hex.as_str()[..12].to_string()
@@ -87,7 +92,7 @@ impl Wikidata {
         if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle)
             && let Some(property) = handle_property(platform)
         {
-            let kind = format!("handle:{property}");
+            let kind = Kind::Handle(property);
             requests.push(Request {
                 provider: "wikidata",
                 shape: Self::shape(&kind),
@@ -102,14 +107,14 @@ impl Wikidata {
             // lookup cannot see that; the title can.
             requests.push(Request {
                 provider: "wikidata",
-                shape: Self::shape("title"),
-                kind: "title".to_string(),
+                shape: Self::shape(&Kind::Title),
+                kind: Kind::Title,
                 query: label.to_string(),
             });
             requests.push(Request {
                 provider: "wikidata",
-                shape: Self::shape("label"),
-                kind: "label".to_string(),
+                shape: Self::shape(&Kind::Label),
+                kind: Kind::Label,
                 query: label.to_string(),
             });
         }
@@ -132,8 +137,8 @@ impl Wikidata {
         }
         vec![Request {
             provider: "wikidata",
-            shape: Self::shape("search"),
-            kind: "search".to_string(),
+            shape: Self::shape(&Kind::Search),
+            kind: Kind::Search,
             query: label.to_string(),
         }]
     }
@@ -174,7 +179,7 @@ impl Wikidata {
             return Vec::new();
         }
         // A property match *is* the identity: an item claiming this handle is the account itself.
-        if let Some(property) = policy::property_of(&request.kind) {
+        if let Some(property) = request.kind.property() {
             match candidates.first() {
                 Some(candidate) => return vec![answer::handle_claim(candidate, property, HANDLE_CONFIDENCE)],
                 None => {
@@ -183,10 +188,12 @@ impl Wikidata {
                 }
             }
         }
-        match request.kind.as_str() {
-            "title" => policy::parse_title(entity, &candidates, request, reason),
-            "search" => policy::parse_search(entity, candidates, request, reason),
-            _ => policy::decide(entity, &candidates, request, reason),
+        match &request.kind {
+            Kind::Title => policy::parse_title(entity, &candidates, request, reason),
+            Kind::Search => policy::parse_search(entity, candidates, request, reason),
+            // The handle rung answered above; a label — or anything that is not one of the three —
+            // is a ranking question.
+            Kind::Label | Kind::Handle(_) => policy::decide(entity, &candidates, request, reason),
         }
     }
 
@@ -291,13 +298,11 @@ impl Resolver for Wikidata {
 #[async_trait::async_trait]
 impl Transport for Wikidata {
     /// The search endpoint takes one query per call; only SPARQL batches.
-    fn batch_size(&self, kind: &str) -> usize {
-        if kind == "search" {
-            1
-        } else if kind == "title" {
-            50
-        } else {
-            BATCH
+    fn batch_size(&self, kind: &Kind) -> usize {
+        match kind {
+            Kind::Search => 1,
+            Kind::Title => 50,
+            _ => BATCH,
         }
     }
 
@@ -305,18 +310,18 @@ impl Transport for Wikidata {
         let Some(first) = requests.first() else {
             return Ok(Vec::new());
         };
-        if first.kind == "title" {
-            return self.titles(requests).await;
-        }
-        if first.kind == "search" {
-            let mut answers = Vec::with_capacity(requests.len());
-            for request in requests {
-                answers.push((request.query.clone(), self.search(&request.query).await?));
+        match first.kind {
+            Kind::Title => return self.titles(requests).await,
+            Kind::Search => {
+                let mut answers = Vec::with_capacity(requests.len());
+                for request in requests {
+                    answers.push((request.query.clone(), self.search(&request.query).await?));
+                }
+                return Ok(answers);
             }
-            return Ok(answers);
+            Kind::Label | Kind::Handle(_) => {}
         }
-
-        return self.sparql(requests).await;
+        self.sparql(requests).await
     }
 }
 
@@ -327,11 +332,11 @@ mod tests {
     use super::*;
     use crate::test_support::db_or_skip;
 
-    fn request(kind: &str, query: &str) -> Request {
+    fn request(kind: Kind, query: &str) -> Request {
         Request {
             provider: "wikidata",
-            kind: kind.to_string(),
-            shape: Wikidata::shape(kind),
+            shape: Wikidata::shape(&kind),
+            kind,
             query: query.to_string(),
         }
     }
@@ -370,7 +375,7 @@ mod tests {
         };
         let claims = engine().parse(
             &entity("The Bounty Hunter Wars", Some("a trilogy of Star Wars novels")),
-            &request("title", "The Bounty Hunter Wars"),
+            &request(Kind::Title, "The Bounty Hunter Wars"),
             &raw,
         );
         assert!(claims.is_empty(), "a redirect is not an identity: {claims:?}");
@@ -388,7 +393,7 @@ mod tests {
         };
         let claims = engine().parse(
             &entity("The Bounty Hunter Wars", Some("a trilogy of Star Wars novels")),
-            &request("title", "The Bounty Hunter Wars"),
+            &request(Kind::Title, "The Bounty Hunter Wars"),
             &ok,
         );
         assert_eq!(claims.len(), 1);
@@ -410,7 +415,7 @@ mod tests {
                 "James Cameron",
                 Some("Canadian filmmaker who served as executive producer on Point Break"),
             ),
-            &request("title", "James Cameron"),
+            &request(Kind::Title, "James Cameron"),
             &unlabelled,
         );
         assert_eq!(claims.len(), 1, "a label-less answer can still be right");
@@ -421,7 +426,7 @@ mod tests {
     fn an_exact_label_match_is_claimed() {
         let claims = engine().parse(
             &entity("Train Dreams", None),
-            &request("label", "Train Dreams"),
+            &request(Kind::Label, "Train Dreams"),
             &found(json!([{"id": "Q185971", "label": "Train Dreams", "description": "novella"}])),
         );
         assert_eq!(claims.len(), 1);
@@ -437,7 +442,7 @@ mod tests {
         // The Django case: two items share the surface, so the name cannot decide.
         let claims = engine().parse(
             &entity("Django", None),
-            &request("label", "Django"),
+            &request(Kind::Label, "Django"),
             &found(json!([
                 {"id": "Q1", "label": "Django", "description": "web framework"},
                 {"id": "Q2", "label": "Django", "description": "2021 video game"}
@@ -451,7 +456,7 @@ mod tests {
     fn a_misspelt_label_is_not_claimed() {
         let claims = engine().parse(
             &entity("Sunset Boulevarde", None),
-            &request("label", "Sunset Boulevarde"),
+            &request(Kind::Label, "Sunset Boulevarde"),
             &found(json!([{"id": "Q1", "label": "Sunset Boulevard"}])),
         );
         assert!(claims.is_empty(), "{claims:?}");
@@ -461,7 +466,7 @@ mod tests {
     fn a_handle_match_is_stronger_than_a_label_match() {
         let claims = engine().parse(
             &entity("Tsoding", None),
-            &request("handle:P2002", "tsoding"),
+            &request(Kind::Handle("P2002"), "tsoding"),
             &found(json!([{"id": "Q1234", "label": "Tsoding"}])),
         );
         assert_eq!(claims.len(), 1);
@@ -484,7 +489,7 @@ mod tests {
                 "Sunset Boulevard",
                 Some("1950 American film noir directed by Billy Wilder about a faded silent-screen star"),
             ),
-            &request("label", "Sunset Boulevard"),
+            &request(Kind::Label, "Sunset Boulevard"),
             &found(candidates),
         );
         assert_eq!(claims.len(), 1, "{claims:?}");
@@ -506,7 +511,7 @@ mod tests {
                 "George Washington",
                 Some("An American military general and statesman who served as the first president of the United States"),
             ),
-            &request("label", "George Washington"),
+            &request(Kind::Label, "George Washington"),
             &found(json!([
                 {"id": "Q79035760", "label": "George Washington", "description": "painting by American"},
                 {"id": "Q23", "label": "George Washington", "description": "Founding Father and first U.S. president (1732–1799)"}
@@ -525,7 +530,7 @@ mod tests {
         view.search_query = Some("Stagecoach 1939 film".to_string());
         let claims = engine().parse(
             &view,
-            &request("label", "Stagecoach"),
+            &request(Kind::Label, "Stagecoach"),
             &found(json!([
                 {"id": "Q1", "label": "Stagecoach", "description": "1939 film directed by John Ford"},
                 {"id": "Q2", "label": "Stagecoach", "description": "1986 film"},
@@ -546,7 +551,7 @@ mod tests {
         view.search_query = Some("Dune novel Frank Herbert".to_string());
         let claims = engine().parse(
             &view,
-            &request("label", "Dune"),
+            &request(Kind::Label, "Dune"),
             &found(json!([
                 {"id": "Q1", "label": "Dune", "description": "1965 science fiction novel by Frank Herbert"},
                 {"id": "Q2", "label": "Dune", "description": "1965 science fiction novel by Frank Herbert"}
@@ -560,7 +565,7 @@ mod tests {
     fn a_near_tie_claims_nothing() {
         let claims = engine().parse(
             &entity("Dune", None),
-            &request("label", "Dune"),
+            &request(Kind::Label, "Dune"),
             &found(json!([
                 {"id": "Q1", "label": "Dune", "description": "1965 novel by Frank Herbert"},
                 {"id": "Q2", "label": "Dune", "description": "2021 film by Denis Villeneuve"}
@@ -574,7 +579,7 @@ mod tests {
     fn a_description_breaks_the_dune_tie() {
         let claims = engine().parse(
             &entity("Dune", Some("1965 science fiction novel by Frank Herbert")),
-            &request("label", "Dune"),
+            &request(Kind::Label, "Dune"),
             &found(json!([
                 {"id": "Q1", "label": "Dune", "description": "1965 science fiction novel by Frank Herbert"},
                 {"id": "Q2", "label": "Dune", "description": "2021 film by Denis Villeneuve"}
@@ -593,15 +598,15 @@ mod tests {
         entity.platform_handle = Some("tsoding".to_string());
         let plans = engine().plan(&entity);
         assert_eq!(plans.len(), 3);
-        assert_eq!(plans[0].kind, "handle:P2002");
+        assert_eq!(plans[0].kind, Kind::Handle("P2002"));
         // A title is unique where a label is not, so it is asked first and wins the claim.
-        assert_eq!(plans[1].kind, "title");
-        assert_eq!(plans[2].kind, "label");
+        assert_eq!(plans[1].kind, Kind::Title);
+        assert_eq!(plans[2].kind, Kind::Label);
 
         // Stage two searches for the bare label: that is the lookup blind spot it exists for.
         let fallback = engine().plan_fallback(&entity);
         assert_eq!(fallback.len(), 1);
-        assert_eq!(fallback[0].kind, "search");
+        assert_eq!(fallback[0].kind, Kind::Search);
         assert_eq!(fallback[0].query, "Alexey Kutepov");
     }
 
@@ -611,7 +616,7 @@ mod tests {
     fn a_search_answer_is_accepted_on_a_punctuation_variant() {
         let claims = engine().parse(
             &entity("J.R.R. Tolkien", Some("English author, philologist, and academic")),
-            &request("search", "J.R.R. Tolkien"),
+            &request(Kind::Search, "J.R.R. Tolkien"),
             &found(json!([
                 {"id": "Q892", "label": "J. R. R. Tolkien", "description": "English writer and philologist"},
                 {"id": "Q3805090", "label": "J.R.R. Tolkien's The Lord of the Rings, Vol. I", "description": "DOS game"}
@@ -631,7 +636,7 @@ mod tests {
                 "Fyodor Dostoevsky",
                 Some("19th-century Russian novelist and philosopher renowned for psychological mastery"),
             ),
-            &request("search", "Fyodor Dostoevsky"),
+            &request(Kind::Search, "Fyodor Dostoevsky"),
             &found(json!([
                 {"id": "Q991", "label": "Fyodor Dostoyevsky", "description": "Russian novelist and philosopher (1821–1881)"},
                 {"id": "Q136199557", "label": "Fyodor Dostoevsky–Darkness and Dawn", "description": "book, 2024"}
@@ -656,7 +661,7 @@ mod tests {
         ] {
             let claims = engine().parse(
                 &entity(name, Some(description)),
-                &request("search", name),
+                &request(Kind::Search, name),
                 &found(json!([{"id": "Q1", "label": label, "description": "something else"}])),
             );
             assert!(claims.is_empty(), "{label}: {claims:?}");
@@ -672,7 +677,7 @@ mod tests {
                 "Symphony No. 7 (Sibelius)",
                 Some("The final published symphony by Finnish composer Jean Sibelius"),
             ),
-            &request("title", "Symphony No. 7 (Sibelius)"),
+            &request(Kind::Title, "Symphony No. 7 (Sibelius)"),
             &found(json!([{
                 "id": "Q261122",
                 "label": "Symphony No. 7",
@@ -690,7 +695,7 @@ mod tests {
     fn a_title_that_is_a_disambiguation_page_is_refused() {
         let claims = engine().parse(
             &entity("John Grant", Some("American singer-songwriter")),
-            &request("title", "John Grant"),
+            &request(Kind::Title, "John Grant"),
             &found(json!([{
                 "id": "Q632837",
                 "label": "John Grant",
@@ -707,7 +712,7 @@ mod tests {
     fn a_label_answer_that_is_a_menu_is_refused() {
         let claims = engine().parse(
             &entity("Robert Chandler", Some("British literary translator")),
-            &request("label", "Robert Chandler"),
+            &request(Kind::Label, "Robert Chandler"),
             &found(json!([{
                 "id": "Q7342857",
                 "label": "Robert Chandler",
@@ -723,7 +728,7 @@ mod tests {
     fn a_menu_with_no_classes_is_refused_by_its_description() {
         let claims = engine().parse(
             &entity("Rogue Heroes", Some("British historical drama television series")),
-            &request("label", "Rogue Heroes"),
+            &request(Kind::Label, "Rogue Heroes"),
             &found(json!([{
                 "id": "Q115697563",
                 "label": "Rogue Heroes",
@@ -736,7 +741,7 @@ mod tests {
 
     #[test]
     fn sparql_literals_are_escaped() {
-        let requests = vec![request("label", "A \"quoted\" name")];
+        let requests = vec![request(Kind::Label, "A \"quoted\" name")];
         let query = crate::knowledge::identity::wikidata::transport::sparql_for_labels(&requests);
         assert!(query.contains("\\\"quoted\\\""), "{query}");
     }
@@ -752,12 +757,12 @@ mod tests {
         db_or_skip!(db);
         let cache = Cache::new(&db.conn);
 
-        let seed = |kind: &str, query: &str, raw: Raw| {
+        let seed = |kind: Kind, query: &str, raw: Raw| {
             let answer = Answer {
                 outcome: raw.outcome,
                 payload: raw.payload,
             };
-            (kind.to_string(), query.to_string(), answer)
+            (kind, query.to_string(), answer)
         };
 
         let title_wins = found(json!([
@@ -777,15 +782,15 @@ mod tests {
         // The title answers for the first entity, so its label must never be consulted — and a
         // different QID there makes the ordering visible.
         for (kind, query, answer) in [
-            seed("title", "Train Dreams", title_wins),
-            seed("label", "Train Dreams", label_loses),
+            seed(Kind::Title, "Train Dreams", title_wins),
+            seed(Kind::Label, "Train Dreams", label_loses),
             // The second entity misses both lookups and has to be searched for.
-            seed("title", "J.R.R. Tolkien", nothing.clone()),
-            seed("label", "J.R.R. Tolkien", nothing),
-            seed("search", "J.R.R. Tolkien", by_search),
+            seed(Kind::Title, "J.R.R. Tolkien", nothing.clone()),
+            seed(Kind::Label, "J.R.R. Tolkien", nothing),
+            seed(Kind::Search, "J.R.R. Tolkien", by_search),
         ] {
             cache
-                .put("wikidata", &kind, &Wikidata::shape(&kind), &query, &answer)
+                .put("wikidata", &kind.to_key(), &Wikidata::shape(&kind), &query, &answer)
                 .await
                 .unwrap();
         }

@@ -20,10 +20,45 @@ pub(crate) const BATCH: usize = 50;
 #[cfg(test)]
 pub(crate) const BATCH: usize = 2;
 
+/// What a request asks. The ladder is this enum's order, and every dispatch on it is exhaustive —
+/// a typo can no longer fall through to the label path.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum Kind {
+    /// Exact label, through a SPARQL `VALUES`.
+    Label,
+    /// A Wikipedia article title, which is unique where a label is not.
+    Title,
+    /// MediaWiki full-text search: the expensive fallback.
+    Search,
+    /// A platform account, held by one Wikidata property (`P2002` for X, and so on).
+    Handle(&'static str),
+}
+
+impl Kind {
+    /// The name this kind answers to in the cache and in `shape`. Stored, so changing it invalidates
+    /// answers — the same rule `shape` follows.
+    pub fn to_key(&self) -> String {
+        match self {
+            Self::Label => "label".to_string(),
+            Self::Title => "title".to_string(),
+            Self::Search => "search".to_string(),
+            Self::Handle(property) => format!("handle:{property}"),
+        }
+    }
+
+    /// The property a handle request asks about, if it is one.
+    pub fn property(&self) -> Option<&'static str> {
+        match self {
+            Self::Handle(property) => Some(property),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Request {
     pub provider: &'static str,
-    pub kind: String,
+    pub kind: Kind,
     /// Hash of how the request is built; part of the cache key, so a changed query is a new question.
     pub shape: String,
     pub query: String,
@@ -40,7 +75,7 @@ pub struct Raw {
 /// Every part earns its place: `title` and `label` ask about the same string and the answers are
 /// different things; and two authorities can ask the *same* kind and query, so a map without the
 /// provider would let one resolver overwrite another's answer before it was read.
-pub type Answers = HashMap<(String, String, String, String), Raw>;
+pub type Answers = HashMap<(String, Kind, String, String), Raw>;
 
 /// One identity a provider is willing to assert about an entity.
 #[derive(Debug, Clone, PartialEq)]
@@ -90,7 +125,7 @@ pub trait Transport: Send + Sync {
     /// How many queries this kind can answer in one network call. The engine chunks by this and
     /// paces each call, so a kind that cannot batch is throttled per query instead of fired as a
     /// burst — which is how the search endpoint got us rate limited.
-    fn batch_size(&self, _kind: &str) -> usize {
+    fn batch_size(&self, _kind: &Kind) -> usize {
         BATCH
     }
 }

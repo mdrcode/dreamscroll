@@ -13,7 +13,7 @@ use super::ranking::{
     LONE_LABEL_CONFIDENCE, LOOKUP_CONFIDENCE, NAME_WEIGHT, Ranked, SUPPORT_WEIGHT, Weights,
     answer_confidence, content_tokens, hint_tokens, near_surface, our_tokens, rank, surface_key,
 };
-use crate::knowledge::identity::{Claim, Request};
+use crate::knowledge::identity::{Claim, Kind, Request};
 use crate::model;
 
 /// Last resort: the illumination's own disambiguation, consulted *only* when the description
@@ -65,8 +65,16 @@ pub(super) fn by_hint(
         answer_confidence(best.score).min(HINT_CEILING),
     )]
 }
-pub(super) fn property_of(kind: &str) -> Option<&str> {
-    kind.strip_prefix("handle:")
+/// Which rung produced a claim. Recorded on the claim, so it must name the rung that answered and
+/// not the shortcut that got there.
+fn method_for(kind: &Kind, exact_label: bool) -> &'static str {
+    match (kind, exact_label) {
+        (Kind::Title, _) => "wikipedia_title",
+        (Kind::Search, true) => "search_lookup",
+        (Kind::Search, false) => "search_ranked",
+        (_, true) => "exact_label",
+        (_, false) => "ranked",
+    }
 }
 
 /// Choose a referent from the candidates, or none. Shared by the label path and the search
@@ -84,11 +92,13 @@ pub(super) fn decide(
     }
 
     // One exact label and nothing else claiming it: that is identity, even with no text to
-    // corroborate it.
+    // corroborate it. The method still names the *rung*, not the shortcut — a title that resolves to
+    // a lone exact label is a title claim, and recording it as `exact_label` inflated that method's
+    // count with every title hit.
     if ranked.len() == 1 && ranked[0].exact_label {
         return vec![answer::claim(
             ranked[0].candidate,
-            "exact_label",
+            method_for(&request.kind, true),
             LONE_LABEL_CONFIDENCE,
         )];
     }
@@ -112,16 +122,9 @@ pub(super) fn decide(
         *reason = "two candidates fit and neither wins";
         return Vec::new();
     }
-    let method = match (request.kind.as_str(), best.exact_label) {
-        ("title", _) => "wikipedia_title",
-        ("search", true) => "search_lookup",
-        ("search", false) => "search_ranked",
-        (_, true) => "exact_label",
-        (_, false) => "ranked",
-    };
     vec![answer::claim(
         best.candidate,
-        method,
+        method_for(&request.kind, best.exact_label),
         answer_confidence(best.score),
     )]
 }

@@ -271,7 +271,6 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use crate::knowledge::identity::cache::Outcome;
-    use crate::knowledge::identity::gateway::plan_groups;
     use sea_orm::PaginatorTrait;
     use serde_json::json;
     use std::sync::Arc;
@@ -311,7 +310,7 @@ mod tests {
     fn fake_request(entity: &model::knowledge_entity::Model) -> Request {
         Request {
             provider: "fake",
-            kind: "label".to_string(),
+            kind: Kind::Label,
             shape: "v1".to_string(),
             query: entity.name.clone(),
         }
@@ -337,7 +336,7 @@ mod tests {
                 .filter_map(|entity| {
                     let raw = answers.get(&(
                         "fake".to_string(),
-                        "label".to_string(),
+                        Kind::Label,
                         "v1".to_string(),
                         entity.name.clone(),
                     ))?;
@@ -627,7 +626,7 @@ mod tests {
                 .iter()
                 .map(|entity| Request {
                     provider: "flaky",
-                    kind: "label".to_string(),
+                    kind: Kind::Label,
                     shape: "v1".to_string(),
                     query: entity.name.clone(),
                 })
@@ -638,7 +637,7 @@ mod tests {
                 .filter_map(|entity| {
                     let raw = answers.get(&(
                         "flaky".to_string(),
-                        "label".to_string(),
+                        Kind::Label,
                         "v1".to_string(),
                         entity.name.clone(),
                     ))?;
@@ -876,10 +875,10 @@ mod tests {
         );
     }
 
-    fn request(kind: &str, shape: &str, query: &str) -> Request {
+    fn request(kind: Kind, shape: &str, query: &str) -> Request {
         Request {
             provider: "test",
-            kind: kind.to_string(),
+            kind,
             shape: shape.to_string(),
             query: query.to_string(),
         }
@@ -896,7 +895,7 @@ mod tests {
         };
         let gateway = Gateway::new(&cache, &options);
 
-        gateway.resolve_requests(&Limited, &[request("label", "v1", "Train Dreams")])
+        gateway.resolve_requests(&Limited, &[request(Kind::Label, "v1", "Train Dreams")])
             .await;
 
         assert!(gateway.budget_exhausted(), "the refusal is recorded");

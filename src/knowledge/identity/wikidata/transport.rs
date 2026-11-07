@@ -9,7 +9,6 @@ use serde_json::{json, Value};
 
 use super::super::contract::{FetchError, Raw, Request};
 use super::answer::Candidate;
-use super::policy::property_of;
 use super::resolver::{Wikidata, LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT};
 use crate::knowledge::identity::cache::Outcome;
 
@@ -357,7 +356,7 @@ impl Wikidata {
         let Some(first) = requests.first() else {
             return Ok(Vec::new());
         };
-        let query = if let Some(property) = property_of(&first.kind) {
+        let query = if let Some(property) = first.kind.property() {
             sparql_for_handles(requests, property)
         } else {
             sparql_for_labels(requests)

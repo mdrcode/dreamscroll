@@ -199,7 +199,7 @@ async fn ladder(
                   ORDER BY id DESC LIMIT 1",
                 [
                     request.provider.into(),
-                    request.kind.as_str().into(),
+                    request.kind.to_key().into(),
                     request.shape.as_str().into(),
                     request.query.as_str().into(),
                 ],
@@ -208,7 +208,7 @@ async fn ladder(
 
         let Some(row) = row else {
             steps.push(Step {
-                kind: request.kind.clone(),
+                kind: request.kind.to_key().into(),
                 query: request.query.clone(),
                 cache: CacheState::Missing,
                 top: Vec::new(),
@@ -241,7 +241,7 @@ async fn ladder(
         };
 
         steps.push(Step {
-            kind: request.kind.clone(),
+            kind: request.kind.to_key().into(),
             query: request.query.clone(),
             cache: if fresh {
                 CacheState::Fresh

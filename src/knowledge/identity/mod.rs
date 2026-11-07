@@ -14,7 +14,7 @@ pub mod store;
 pub mod wikidata;
 
 pub use gateway::Gateway;
-pub use contract::{Answers, Claim, FetchError, Raw, Request, Transport};
+pub use contract::{Answers, Claim, FetchError, Kind, Raw, Request, Transport};
 pub use engine::{Options, Report, ResolutionEngine, Resolver, DEFAULT_MAX_REQUESTS};
 
 pub(crate) use contract::BATCH;

@@ -9,7 +9,7 @@ use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use super::cache::{Answer, Cache, Outcome, UNPRODUCTIVE_TTL};
-use super::contract::{Answers, FetchError, Raw, Request, Transport};
+use super::contract::{Answers, FetchError, Kind, Raw, Request, Transport};
 use super::engine::Options;
 
 /// No rate limit seen. Distinguishes "the provider did not ask us to wait" from "wait zero seconds".
@@ -161,12 +161,12 @@ impl<'a> Gateway<'a> {
     async fn cached(
         &self,
         provider: &str,
-        kind: &str,
+        kind: &Kind,
         shape: &str,
         queries: Vec<String>,
         answers: &mut Answers,
     ) -> Vec<String> {
-        let hits = match self.cache.get_many(provider, kind, shape, &queries).await {
+        let hits = match self.cache.get_many(provider, &kind.to_key(), shape, &queries).await {
             Ok(hits) => hits,
             Err(error) => {
                 // A cache is an optimisation, not a source of truth. Returning "no misses" here
@@ -181,7 +181,7 @@ impl<'a> Gateway<'a> {
         self.counters.hit(hits.len());
         for (query, answer) in hits {
             answers.insert(
-                (provider.to_string(), kind.to_string(), shape.to_string(), query),
+                (provider.to_string(), kind.clone(), shape.to_string(), query),
                 Raw {
                     outcome: answer.outcome,
                     payload: answer.payload,
@@ -193,7 +193,7 @@ impl<'a> Gateway<'a> {
             .filter(|query| {
                 !answers.contains_key(&(
                     provider.to_string(),
-                    kind.to_string(),
+                    kind.clone(),
                     shape.to_string(),
                     query.clone(),
                 ))
@@ -206,7 +206,7 @@ impl<'a> Gateway<'a> {
         &self,
         transport: &T,
         provider: &'static str,
-        kind: &str,
+        kind: &Kind,
         shape: &str,
         misses: Vec<String>,
         answers: &mut Answers,
@@ -220,7 +220,7 @@ impl<'a> Gateway<'a> {
                 .iter()
                 .map(|query| Request {
                     provider,
-                    kind: kind.to_string(),
+                    kind: kind.clone(),
                     shape: shape.to_string(),
                     query: query.clone(),
                 })
@@ -235,7 +235,7 @@ impl<'a> Gateway<'a> {
                             .cache
                             .put(
                                 provider,
-                                kind,
+                                &kind.to_key(),
                                 shape,
                                 &query,
                                 &Answer {
@@ -250,7 +250,7 @@ impl<'a> Gateway<'a> {
                         answers.insert(
                             (
                                 provider.to_string(),
-                                kind.to_string(),
+                                kind.clone(),
                                 shape.to_string(),
                                 query,
                             ),
@@ -273,7 +273,7 @@ impl<'a> Gateway<'a> {
                             .cache
                             .put(
                                 provider,
-                                kind,
+                                &kind.to_key(),
                                 shape,
                                 query,
                                 &Answer {
@@ -288,7 +288,7 @@ impl<'a> Gateway<'a> {
                         answers.insert(
                             (
                                 provider.to_string(),
-                                kind.to_string(),
+                                kind.clone(),
                                 shape.to_string(),
                                 query.clone(),
                             ),
@@ -312,7 +312,7 @@ impl<'a> Gateway<'a> {
             .cache
             .shorten(
                 request.provider,
-                &request.kind,
+                &request.kind.to_key(),
                 &request.shape,
                 &request.query,
                 UNPRODUCTIVE_TTL,
@@ -330,8 +330,8 @@ impl<'a> Gateway<'a> {
 /// Keyed by `(provider, kind, shape)`, not by query: `title` and `label` ask about the same string and
 /// the answers are different things. Keyed by query alone, the label group shadowed the title group
 /// and the title requests were never sent.
-pub(crate) fn plan_groups(requests: &[Request]) -> BTreeMap<(&'static str, String, String), Vec<String>> {
-    let mut groups: BTreeMap<(&'static str, String, String), Vec<String>> = BTreeMap::new();
+pub(crate) fn plan_groups(requests: &[Request]) -> BTreeMap<(&'static str, Kind, String), Vec<String>> {
+    let mut groups: BTreeMap<(&'static str, Kind, String), Vec<String>> = BTreeMap::new();
     for request in requests {
         groups
             .entry((
@@ -388,10 +388,10 @@ mod tests {
 
     use super::*;
 
-    fn request(kind: &str, shape: &str, query: &str) -> Request {
+    fn request(kind: Kind, shape: &str, query: &str) -> Request {
         Request {
             provider: "test",
-            kind: kind.to_string(),
+            kind,
             shape: shape.to_string(),
             query: query.to_string(),
         }
@@ -455,25 +455,25 @@ mod tests {
     #[test]
     fn plan_groups_key_by_kind_and_collapse_duplicates() {
         let requests = [
-            request("label", "v1", "Train Dreams"),
-            request("label", "v1", "Train Dreams"),
-            request("title", "v1", "Train Dreams"),
-            request("search", "v1", "b"),
-            request("search", "v1", "a"),
-            request("search", "v1", "b"),
+            request(Kind::Label, "v1", "Train Dreams"),
+            request(Kind::Label, "v1", "Train Dreams"),
+            request(Kind::Title, "v1", "Train Dreams"),
+            request(Kind::Search, "v1", "b"),
+            request(Kind::Search, "v1", "a"),
+            request(Kind::Search, "v1", "b"),
         ];
         let groups = plan_groups(&requests);
 
         assert_eq!(groups.len(), 3);
         assert_eq!(
-            groups[&("test", "label".into(), "v1".into())],
+            groups[&("test", Kind::Label, "v1".into())],
             vec!["Train Dreams"]
         );
         assert_eq!(
-            groups[&("test", "title".into(), "v1".into())],
+            groups[&("test", Kind::Title, "v1".into())],
             vec!["Train Dreams"]
         );
-        assert_eq!(groups[&("test", "search".into(), "v1".into())], vec!["a", "b"]);
+        assert_eq!(groups[&("test", Kind::Search, "v1".into())], vec!["a", "b"]);
     }
 
     /// A hit is answered without asking the provider: that is the whole reason the cache is here.
@@ -500,7 +500,7 @@ mod tests {
         let answers = gateway
             .resolve_requests(
                 &fake,
-                &[request("label", "v1", "hit"), request("label", "v1", "miss")],
+                &[request(Kind::Label, "v1", "hit"), request(Kind::Label, "v1", "miss")],
             )
             .await;
 
@@ -526,7 +526,7 @@ mod tests {
         ]);
         let requests: Vec<Request> = ["rate-a", "rate-b", "rate-c", "rate-d"]
             .iter()
-            .map(|query| request("label", "v1", query))
+            .map(|query| request(Kind::Label, "v1", query))
             .collect();
 
         let answers = gateway.resolve_requests(&fake, &requests).await;
@@ -545,8 +545,8 @@ mod tests {
         let gateway = Gateway::new(&cache, &options());
         let fake = Fake::new(vec![Err(FetchError::Failed("boom".into()))]);
         let requests = [
-            request("label", "v1", "fail-a"),
-            request("label", "v1", "fail-b"),
+            request(Kind::Label, "v1", "fail-a"),
+            request(Kind::Label, "v1", "fail-b"),
         ];
 
         let answers = gateway.resolve_requests(&fake, &requests).await;
@@ -576,7 +576,7 @@ mod tests {
         let fake = Fake::default();
 
         let answers = gateway
-            .resolve_requests(&fake, &[request("label", "v1", "budget")])
+            .resolve_requests(&fake, &[request(Kind::Label, "v1", "budget")])
             .await;
 
         assert!(answers.is_empty());
@@ -617,8 +617,8 @@ mod tests {
             .resolve_requests(
                 &fake,
                 &[
-                    request("label", "v1", "offline-hit"),
-                    request("label", "v1", "offline-miss"),
+                    request(Kind::Label, "v1", "offline-hit"),
+                    request(Kind::Label, "v1", "offline-miss"),
                 ],
             )
             .await;

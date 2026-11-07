@@ -98,7 +98,7 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
                         AND expires_at > now() LIMIT 1",
                     [
                         request.provider.into(),
-                        request.kind.as_str().into(),
+                        request.kind.to_key().into(),
                         request.shape.as_str().into(),
                         request.query.as_str().into(),
                     ],
