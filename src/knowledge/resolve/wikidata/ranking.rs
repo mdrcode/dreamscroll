@@ -308,3 +308,58 @@ impl Weights {
         matched_weight / (matched_weight + EVIDENCE_SCALE)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::knowledge::resolve::wikidata::resolver::Candidate;
+
+    fn weights(descriptions: &[&str]) -> Weights {
+        let candidates: Vec<Candidate> = descriptions
+            .iter()
+            .map(|description| Candidate {
+                id: "Q1".to_string(),
+                label: None,
+                description: Some((*description).to_string()),
+                classes: Vec::new(),
+            })
+            .collect();
+        Weights::over(&candidates)
+    }
+
+    /// A term in every candidate used to be worth *less* than nothing: `N / (1 + df)` is below 1,
+    /// and `ln` of that is negative, so `Salamandra · "publisher"` scored 0.09 against a 0.20 floor
+    /// and a single-candidate answer could never claim on one matched word.
+    #[test]
+    fn a_term_present_in_every_candidate_is_worth_the_minimum() {
+        let weights = weights(&["publisher"]);
+        assert_eq!(weights.of("publisher"), 1.0);
+        let fit = weights.fit(&content_tokens("publisher"), &content_tokens("Spanish publisher"));
+        assert!(fit >= FIT_FLOOR, "one terse shared word must clear the floor, got {fit}");
+    }
+
+    /// `grams` turns three tokens into five, so the terse test used to read the gram count and
+    /// treated every description longer than two words as verbose.
+    #[test]
+    fn three_words_is_still_terse() {
+        let weights = weights(&["video game from 1992"]);
+        let theirs = content_tokens("video game from 1992");
+        let ours = content_tokens("a classic text-based role-playing game founded in 1991");
+        assert_eq!(theirs.len(), 3, "the fixture is the point: three content tokens");
+        assert!(weights.fit(&theirs, &ours) >= FIT_FLOOR, "a three-word description is terse");
+    }
+
+    /// The two-token minimum is what rejects most weak matches, and it is still two tokens: one
+    /// common word in a long description is coincidence.
+    #[test]
+    fn one_shared_word_in_a_long_description_is_not_evidence() {
+        let weights = weights(&["united states navy aircraft carrier fleet"]);
+        let theirs = content_tokens("united states navy aircraft carrier fleet");
+        let ours = content_tokens("a village in the united counties of nowhere");
+        assert!(
+            theirs.len() > TERSE_TOKENS,
+            "the fixture has to be long enough for the terse rule not to apply"
+        );
+        assert_eq!(weights.fit(&theirs, &ours), 0.0);
+    }
+}
