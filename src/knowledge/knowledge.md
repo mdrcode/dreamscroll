@@ -154,7 +154,9 @@ merge pass on a different policy, silently.
 
 `heuristic/scoring.rs` is today's only answer: normalized keys, weights, the bar, the corroboration
 bonus. `heuristic/linker.rs` is the **procedure** — the best qualifying candidate, else create — and holds
-no numbers. `heuristic/name_blocker.rs` is recall: names and handles to candidates, nothing scored. The
+no numbers. `heuristic/name_blocker.rs` is recall: every folded surface, and its word-order-insensitive
+form, to candidates — nothing scored. (A platform handle is recalled through evidence, not through a
+blocking key: `held_by_identity` answers it before any candidate is scored.) The
 resolver keeps its own measure and its own calibration, because its candidate type is private and
 its fit is corpus-aware (terms are weighed by rarity among the answers it got back) — a pair
 comparison cannot see the corpus.
@@ -200,7 +202,7 @@ they answer different questions, so both are kept. The promise is not "the answe
 external evidence that this identity is true*.
 
 `plan` and `parse` inside `Wikidata` are pure, so its whole decision can be re-run over cached
-payloads for free — that is what `examples/eval_resolve` does.
+payloads for free — that is what `dreamscroll_knowledge eval resolve` does.
 
 ## Evidence: why we believe it
 
@@ -257,10 +259,13 @@ API decides which one a user sees. Two consequences fall out for free:
 
 Entities are cheap to rebuild and expensive to get wrong, so the model prefers undoable moves:
 
-- `reset` snapshots the projection, then empties it — entities, claims, identities, merges and
-  proximities, all of it derived. Observations, captures, illuminations and the **resolution cache**
-  are untouched, which is what makes the teardown free: rebuild with `link`, then `resolve --offline`,
-  which re-materialises identities from cached answers and runs the two passes. No transport, seconds.
+- `reset` snapshots the projection, then empties it — entities, claims, identities, merges,
+  proximities and the index rows, all of it derived. Observations, captures, illuminations and the
+  **resolution cache** are untouched. The teardown is therefore free: `reset`, then `link`, then
+  `verdicts replay` (a person's folds, applied to the new ids), then `identity resolve --offline`
+  (identities and claims from cached answers), then `proximity scan` and `proximity merge`. Six
+  commands, each one job, none invoking another — the order and its reasons are in
+  `plan/knowledge-blocking.md` §Rebuild order. No transport, seconds.
 - `merge` folds one entity into another, tombstones the loser, and runs in a **transaction** — five
   writes that must all land.
 - The **shared-illumination rule**: `merge` refuses two entities that both appear in one
@@ -273,21 +278,23 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 |---|---|
 | `scoring.rs` | the two verbs — `Similarity`, `Rank` — `cmp_confidence`, and the `Scoring` bundle |
 | `blocker.rs`, `link_decider.rs` | the two linking traits, and nothing else — the contract a linker implements |
-| `heuristic/scoring.rs` | the only `Scoring` today: token keys, weights, the bar, the corroboration bonus |
-| `heuristic/name_blocker.rs` | `NameBlocker`: recall by normalized name and platform handle |
+| `heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
+| `heuristic/name_blocker.rs` | `NameBlocker`: recall by folded surface and word key, held in memory |
 | `heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, candidate ranking in `ranking.rs`, HTTP in `transport.rs` |
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
 | `link.rs` | the linking executor, and `LinkStats` |
-| `project.rs` | `project`: the only writer of derived columns, with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
+| `project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `merge.rs` | fold one entity into another |
 | `evidence.rs` | claims and identities: who holds one (ordered by `cmp_confidence`), and the platform key a presence answers to |
 | `proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
 | `verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair, `replay` onto the new graph |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
-| `normalize.rs` | `comparable`: the form two surfaces are compared in. The token pipeline is policy, in `heuristic/scoring.rs` |
+| `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by |
+| `index.rs` | `knowledge_index`: the folded keys a blocker reads, written by `project`, rebuilt when the fold changes; `rebuild` and `check` |
+| `eval/` | offline evaluation: `eval resolve` replays the resolver's ladder over the answer cache, with no transport |
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 private modules. What escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Cause`,
