@@ -59,9 +59,34 @@ other answer.
 | `empty` | 7 d | a niche name may gain an item next week |
 | `failed` | **10 min** | a provider that is down is not a fact about the world |
 
+**A cache-only replay is free only while the answers are live.** A search answer that produced no
+claim is stored with `UNPRODUCTIVE_TTL` (6 h), so a replay more than six hours after the last online
+run finds almost nothing. Measured 2026-11-07: `resolve --offline` planned 2,046 requests and matched
+**2** live answers — the two belonging to the two vetoed entities — because the other 2,257 `empty`
+rows had expired overnight. Offline replay is for iterating inside a working session, not for the
+next morning.
+
 Batching is a transport concern, caching is per query: the executor looks up each planned query, groups
 the misses into one call (50 at a time), and writes back one row per query. Partial hits work, and one
 warm query costs nothing.
+
+## Many authorities, one claim edge
+
+Today Wikidata is the only provider, and the claim model must not know that. What is authority-neutral
+already: `knowledge_identities.scheme` names the namespace, `source` names who made the claim, and a
+veto is keyed by `(scheme, external_id)` rather than by a QID. The target is **at least one claim per
+entity**, from whichever authorities recognise it.
+
+Two things were made authority-aware on 2026-11-07, both behaviour-identical with one provider:
+
+- **Planning asks "has *this* provider claimed it?"** — `candidates()` filtered `source != 'platform'`,
+  which means "any authority". With a second authority, an IMDb claim would silently stop Wikidata
+  resolving that entity. It now filters on the configured providers' ids.
+- **A veto is enforced at the claim write** (`store_claim`), not inside the Wikidata parser, so a new
+  provider inherits the rule without knowing it exists.
+
+Baseline to hold the line against: **0.89 claims per live entity, 0.86 authority claims per identified
+entity** (2026-11-07).
 
 ## Providers
 

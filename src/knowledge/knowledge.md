@@ -216,7 +216,8 @@ knowledge_claims       this entity is that thing — the edge, with `basis` (tex
                        because an album's article covers its songs
 knowledge_proximities  two entities the graph considers close, with the score that a pass
                        computed — one scan's batch, replaced wholesale by the next
-knowledge_verdicts     one merge that happened, and what decided it — the modification log
+knowledge_verdicts     a person's decision, and what decided it — the modification log: a
+                       `merge` (two origins) or a `veto` (an entity is not an identity)
 ```
 
 Only the first two are about the world. A proximity is a judgement about our own rows and a merge is a
@@ -289,7 +290,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `merge.rs` | fold one entity into another |
 | `evidence.rs` | claims and identities: who holds one (ordered by `cmp_confidence`), and the platform key a presence answers to |
 | `proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
-| `verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair, `replay` onto the new graph |
+| `verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair or a veto, `replay` onto the new graph — vetoes are also asked at admission, since a claim has one writer |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by |

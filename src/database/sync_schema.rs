@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 28;
+const REQUIRED_SCHEMA_VERSION: i32 = 29;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -19,6 +19,26 @@ const REQUIRED_SCHEMA_VERSION: i32 = 28;
 /// Schema 28 folds the old per-generation merge audit into `knowledge_verdicts`, which is now the
 /// one modification log. The old table's rows are keys into entity ids that a rebuild renumbers, so
 /// there is nothing worth migrating; they were snapshotted by reset anyway.
+/// Schema 29 gives `knowledge_verdicts` a second kind: a `veto` names one entity and one identity, so
+/// the merge columns have nothing to hold. They are relaxed here rather than declared nullable in the
+/// registry, which would try to rewrite a populated table. Guarded, so a synced database is untouched.
+async fn relax_verdict_columns<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $$ BEGIN \
+           IF EXISTS (SELECT 1 FROM information_schema.columns \
+                       WHERE table_schema = current_schema() \
+                         AND table_name = 'knowledge_verdicts' \
+                         AND column_name = 'winner_origin' \
+                         AND is_nullable = 'NO') THEN \
+             ALTER TABLE knowledge_verdicts ALTER COLUMN winner_origin DROP NOT NULL; \
+             ALTER TABLE knowledge_verdicts ALTER COLUMN loser_origin DROP NOT NULL; \
+           END IF; \
+         END $$",
+    )
+    .await?;
+    Ok(())
+}
+
 async fn retire_merge_audit<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared("DROP TABLE IF EXISTS knowledge_merges")
         .await?;
@@ -148,6 +168,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             retire_reshaped_claim_tables(transaction).await?;
             retire_proximity_status(transaction).await?;
             retire_merge_audit(transaction).await?;
+            relax_verdict_columns(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             indexes::knowledge::before_schema_sync(transaction).await?;
             registry.sync(transaction).await?;

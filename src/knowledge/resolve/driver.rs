@@ -167,6 +167,8 @@ pub struct Report {
     pub claims: usize,
     /// Entities that gained at least one claim.
     pub entities_resolved: usize,
+    /// Claims an editor's veto kept out of the graph.
+    pub vetoed: usize,
     pub budget_exhausted: bool,
     /// Set when the provider asked us to back off: the run stopped instead of risking a ban.
     pub rate_limited_after: Option<u64>,
@@ -446,13 +448,21 @@ impl<'a> ResolutionEngine<'a> {
     }
 
     pub async fn run(self) -> anyhow::Result<Report> {
+        // An entity is a candidate for a provider that has not identified it yet. Asking "any
+        // authority" instead would stop Wikidata resolving an entity the moment IMDb had.
+        let sources: Vec<&str> = self.resolvers.iter().map(|resolver| resolver.id()).collect();
         let entities = candidates(
             &self.db.conn,
             self.options.limit,
             self.options.only,
             self.options.newest_first,
+            &sources,
         )
         .await?;
+        let knowledge = crate::knowledge::Knowledge::new(self.db);
+        // Loaded once, not per claim: a veto asked during admission is a claim never written; one
+        // that is only replayed is a claim asserted and then withdrawn.
+        let vetoes = crate::knowledge::verdicts::vetoed(&knowledge).await?;
         let cache = Cache::new(&self.db.conn);
         let ctx = ResolutionContext::new(&cache, &self.options);
         let mut report = Report {
@@ -470,7 +480,6 @@ impl<'a> ResolutionEngine<'a> {
         }
 
         let mut resolved: HashSet<i32> = HashSet::new();
-        let knowledge = crate::knowledge::Knowledge::new(self.db);
 
         for resolver in &self.resolvers {
             if ctx.rate_limited_after().is_some() {
@@ -487,6 +496,7 @@ impl<'a> ResolutionEngine<'a> {
                     resolver.id(),
                     knowledge_entity_id,
                     claim,
+                    &vetoes,
                     &mut report,
                 )
                 .await?
@@ -572,8 +582,15 @@ async fn store_claim(
     source: &str,
     knowledge_entity_id: i32,
     claim: Claim,
+    vetoes: &std::collections::HashSet<(i32, String, String)>,
     report: &mut Report,
 ) -> anyhow::Result<bool> {
+    // Asked at the one place an authority claim becomes a row, so every provider inherits it without
+    // knowing it exists.
+    if vetoes.contains(&(knowledge_entity_id, claim.scheme.clone(), claim.id.clone())) {
+        report.vetoed += 1;
+        return Ok(false);
+    }
     let evidence = crate::knowledge::evidence::Evidence::new(db.conn.clone());
     let identity_id = evidence
         .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
@@ -618,6 +635,7 @@ async fn candidates(
     limit: Option<usize>,
     only: Option<i32>,
     newest_first: bool,
+    sources: &[&str],
 ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
     use model::knowledge_entity as entity;
     use sea_orm::sea_query::{Expr, ExprTrait, Query};
@@ -653,7 +671,7 @@ async fn candidates(
                 model::knowledge_identity::Entity,
                 model::knowledge_identity::Column::Source,
             ))
-            .ne("platform"),
+            .is_in(sources.iter().map(|source| source.to_string()).collect::<Vec<_>>()),
         )
         .to_owned();
 
@@ -696,8 +714,8 @@ mod tests {
         let first = crate::test_support::fixtures::knowledge_entity_with_member(&db, "First").await;
         let second = crate::test_support::fixtures::knowledge_entity_with_member(&db, "Second").await;
 
-        let ascending = candidates(&db.conn, Some(2), None, false).await.unwrap();
-        let descending = candidates(&db.conn, Some(2), None, true).await.unwrap();
+        let ascending = candidates(&db.conn, Some(2), None, false, &["wikidata"]).await.unwrap();
+        let descending = candidates(&db.conn, Some(2), None, true, &["wikidata"]).await.unwrap();
 
         assert_eq!(
             ascending.iter().map(|e| e.id).collect::<Vec<_>>(),

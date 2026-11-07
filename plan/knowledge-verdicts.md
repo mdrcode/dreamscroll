@@ -1,7 +1,8 @@
 # Rebuilding the graph without losing what a person decided
 
 **Status:** Built 2026-11-05 — the proximity batch (`9407182`), the generation register, one
-modification log (`knowledge_verdicts`), and `verdicts replay` / `verdicts list`. `distinct` is
+modification log (`knowledge_verdicts`), and `verdicts replay` / `verdicts list`. Second kind built
+2026-11-07: **`veto`**, an entity is not an identity. `distinct` (a rejected proximity pair) is
 deliberately not built; see *Decisions*.
 
 ## The two commands
@@ -11,7 +12,7 @@ dreamscroll_knowledge verdicts replay
 dreamscroll_knowledge verdicts list [--generation N] [--cause repair|proximity_auto|replayed] [--limit N]
 ```
 
-`replay` prints `applied · already · gone · refused`; `gone` drifting upward across rebuilds is the
+`replay` prints `applied · already · gone · refused · withdrawn`; `gone` drifting upward across rebuilds is the
 signal that linking stopped being deterministic, before anything is lost.
 
 `list` reads newest first. It is the viewer the old `knowledge_merges` table never had, which is part
@@ -87,8 +88,12 @@ knowledge_verdicts (
   id            serial primary key,
   generation    int not null,       -- when it happened
   cause         text not null,      -- repair | proximity_auto | replayed
-  winner_origin int not null,       -- origin_observation_id of the surviving side
-  loser_origin  int not null,       -- origin_observation_id of the side folded away
+  kind          text not null default 'merge',  -- merge | veto
+  winner_origin int,                -- merge only; nullable since schema 29
+  loser_origin  int,                -- merge only
+  subject_origin       int,         -- veto: the entity, by origin_observation_id
+  identity_scheme      text,        -- veto: the identity's natural key —
+  identity_external_id text,        -- a rebuild recreates identity rows, so their ids are unstable
   winner_label  text, loser_label text,
   decided_at    timestamptz not null default now(),
   note          text
@@ -120,8 +125,8 @@ Direction is in the column names, not a `survivor` field.
 - **Verdicts are authored, not derived**: reset never deletes them. `merge -y` with `cause = repair`
   writes a `same` verdict; the survivor side is recorded because the survivor is what keeps the
   name, the origin and the projected columns.
-- The schema is `kind`-shaped from the start so `distinct` can arrive as a second kind without a
-  migration. It is not implemented, and its semantics are not settled — see *Open questions*.
+- The schema was `kind`-shaped from the start; `veto` is the second kind that used it (below).
+  `distinct` remains unbuilt, and its semantics are not settled — see *Open questions*.
 
 ## Built: replay
 
@@ -138,6 +143,9 @@ for each verdict:
             → applied | skipped ("refused: shared illumination")
   distinct: left == right        → contradiction: the graph folded a pair a person called different
             otherwise            → no-op; nothing to write
+  veto:     subject = live entity with this subject_origin    (else skip: "gone")
+            retract the live claims (basis = text) whose identity is scheme:external_id
+            → "withdrawn" (a count: a pair can be re-claimed and withdrawn again)
 ```
 
 - Idempotent by construction: applying it twice is a no-op the second time.
@@ -155,6 +163,39 @@ for each verdict:
 row it resolves the two sides' origins and asks the verdict log. That matching belongs to
 presentation and is not shared with replay.
 
+## Built: a second kind — `veto` (2026-11-07)
+
+A person can say **an entity is not an identity**. The claim is withdrawn, kept out, and the item
+stays valid everywhere else. This is not `distinct`: a veto is about one entity's cross-reference to
+an authority item, not about a proximity pair.
+
+```
+dreamscroll_knowledge identity veto --entity 221194 --identity Q131472411 \
+                   [--scheme wikidata] [--note "a short fiction, not the being"]
+dreamscroll_knowledge identity unveto <verdict id>
+```
+
+Why it cannot be a flag on the claim row, which is the obvious cheaper shape: claims are derived and
+append-only. A flag on row 900 does not gate the row that the next resolve writes for the same pair,
+and there will always be one, because the parser's decision has not changed. Only a decision keyed by
+what survives derivation — entity origin, identity natural key — can gate every future row.
+
+Three consequences that differ from the merge story:
+
+- **Admission, not only replay.** `store_claim` asks a preloaded veto set before writing, so a vetoed
+  claim is never made; replay withdraws any that predate the veto. This is the one place `resolve`
+  knows about verdicts, and it has to: unlike a fold, which a scan can refuse to consider, a claim
+  has exactly one writer.
+- **Basis `handle` is out of scope.** A veto withdraws a cross-reference. A capture's own account is
+  what the source showed, not a cross-reference.
+- **Lifting is deletion.** `unveto` removes the row and restores nothing; claims are append-only and
+  the partial unique index (`WHERE retracted_at IS NULL`) lets the next resolve insert a fresh row.
+
+First use, 2026-11-07: `Q` (the Star Trek being) out of `Q131472411` ("2004 short fiction by John
+Grant"), `Los sorias` out of `Q122707294` ("1998 edition, published by Simurg"). Both withdrew one
+claim, both entities fell back to `provisional`, and the next `resolve --offline` reported
+`vetoed 2` with **no** claims written — the admission path, not a replay aftermath.
+
 ## Failure modes, all reported rather than guessed
 
 | situation | outcome |
@@ -163,20 +204,23 @@ presentation and is not shared with replay.
 | both sides resolve to one entity | no-op — already folded, by the model or by an earlier replay |
 | the automatic pass folded the pair with the *other* survivor | no-op — same partition, different survivor; the recorded direction is not enforced |
 | `merge` refuses (shared illumination) | skip with the reason; the pair stays open |
+| a veto's subject origin no longer names a live entity | skip — "gone", counted like any erosion |
 | a person's merge was recorded, then the pair was folded the other way round automatically | no-op — same partition; the recorded direction is not enforced on an already-folded pair |
 
 ## Tolerated
 
 - **Replay is manual** — see the `pragmatism.md` row. A plain `resolve` neither honours nor repeats a
-  person's decisions; the log keeps them waiting, and the pairs simply reappear as candidates.
+  person's *folds*: the log keeps them waiting and the pairs reappear as candidates. Vetoes are the
+  exception — honoured at admission, with replay only as the backstop for older claims.
 - **`replayed` rows grow** by one per verdict per generation. Fine while rebuilds are rare; a dev
   database is disposable, and a frequent prod rebuild is the real problem.
 
 ## Decisions (2026-11-05)
 
-1. **Replay is a separate command.** `resolve` knows nothing about verdicts. Simple now; the
-   consequence to remember is that a plain `resolve` may fold a pair that a *future* `distinct`
-   verdict would have prevented, and that a replay is a step a person runs deliberately.
+1. **Replay is a separate command — for merges.** A plain `resolve` may still fold a pair that a
+   future `distinct` would have prevented. **Vetoes are the exception and must be**: admission is
+   asked inside `store_claim`, because a claim has exactly one writer while a fold has a scan that
+   can filter. Without it a vetoed claim returns on the next resolve and the decision is decorative.
 2. **`distinct` is not built.** The convenience is deferred until the queue is actually annoying.
    When it comes back, the cheapest shape is a filter in `scan` — a decided-distinct pair never
    enters the batch — which keeps `merge` and `replay` both verdict-free.

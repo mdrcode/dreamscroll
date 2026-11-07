@@ -492,7 +492,7 @@ mod tests {
             .unwrap()
             .expect("a log row");
         assert_eq!(row.cause, "repair");
-        assert_eq!(row.loser_origin, fixtures::origin(&db, loser).await);
+        assert_eq!(row.loser_origin, Some(fixtures::origin(&db, loser).await));
     }
 
     /// Three causes, three authorities; the column is read by the replay, so the spelling is API.

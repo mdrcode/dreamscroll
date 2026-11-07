@@ -113,6 +113,30 @@ struct IdentityArgs {
 enum IdentityCommand {
     Resolve(ResolveArgs),
     Reproject(ReprojectArgs),
+    Veto(VetoArgs),
+    Unveto(UnvetoArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "veto")]
+#[argh(description = "an entity is not an identity: record it and withdraw the claim")]
+struct VetoArgs {
+    #[argh(option, description = "knowledge entity id")]
+    entity: i32,
+    #[argh(option, description = "the identity's external id, e.g. Q122707294")]
+    identity: String,
+    #[argh(option, default = "String::from(\"wikidata\")", description = "identity scheme")]
+    scheme: String,
+    #[argh(option, description = "why — the only place this is recorded")]
+    note: Option<String>,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "unveto")]
+#[argh(description = "lift a veto; the next resolve may claim the identity again")]
+struct UnvetoArgs {
+    #[argh(positional, description = "verdict id (verdicts list)")]
+    id: i32,
 }
 
 #[derive(FromArgs)]
@@ -436,8 +460,8 @@ async fn resolve_identity(
         report.candidates, report.planned, report.cache_hits
     );
     println!(
-        "fetched {} · failed {} · claims {} · entities resolved {}",
-        report.fetched, report.failed, report.claims, report.entities_resolved
+        "fetched {} · failed {} · claims {} · entities resolved {} · vetoed {}",
+        report.fetched, report.failed, report.claims, report.entities_resolved, report.vetoed
     );
     if report.budget_exhausted {
         println!("budget exhausted at {max_requests} requests");
@@ -513,8 +537,8 @@ async fn main() -> anyhow::Result<()> {
                 let store = knowledge::Knowledge::new(&db);
                 let report = knowledge::verdicts::replay(&store).await?;
                 println!(
-                    "applied {} · already {} · gone {} · refused {}",
-                    report.applied, report.already, report.gone, report.refused
+                    "applied {} · already {} · gone {} · refused {} · withdrawn {}",
+                    report.applied, report.already, report.gone, report.refused, report.withdrawn
                 );
             }
             VerdictsCommand::List(args) => {
@@ -526,13 +550,22 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?;
                 for row in rows {
+                    let decided = match row.kind.as_str() {
+                        "veto" => format!("{}  \u{2298}  {}", row.subject, row.identity),
+                        _ => format!("{}  \u{21c4}  {}", row.winner, row.loser),
+                    };
                     println!(
-                        "{:>4}  gen {:<3} {:<15} {}  \u{21c4}  {}",
+                        "{:>4}  gen {:<3} {:<15} {:<5} {}{}",
                         row.id,
                         row.generation,
                         row.cause,
-                        row.winner,
-                        row.loser
+                        row.kind,
+                        decided,
+                        if row.note.is_empty() {
+                            String::new()
+                        } else {
+                            format!("   — {}", row.note)
+                        }
                     );
                 }
             }
@@ -691,6 +724,36 @@ async fn main() -> anyhow::Result<()> {
         Command::Identity(args) => match args.command {
             IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
             IdentityCommand::Reproject(_) => reproject_unclaimed(&db).await?,
+            IdentityCommand::Veto(args) => {
+                let store = knowledge::Knowledge::new(&db);
+                let recorded = knowledge::verdicts::veto(
+                    &store,
+                    args.entity,
+                    &args.scheme,
+                    &args.identity,
+                    args.note.as_deref(),
+                )
+                .await?;
+                let report = knowledge::verdicts::replay(&store).await?;
+                store.update_projection(args.entity).await?;
+                println!(
+                    "{} · withdrawn {} · applied {} · already {} · gone {} · refused {}",
+                    if recorded { "veto recorded" } else { "veto already recorded" },
+                    report.withdrawn,
+                    report.applied,
+                    report.already,
+                    report.gone,
+                    report.refused
+                );
+            }
+            IdentityCommand::Unveto(args) => {
+                let store = knowledge::Knowledge::new(&db);
+                let lifted = knowledge::verdicts::unveto(&store, args.id).await?;
+                println!(
+                    "{} — the next resolve may claim the identity again",
+                    if lifted { "veto lifted" } else { "no such veto" }
+                );
+            }
         },
         Command::Stats(_) => {
             let stats = stats::knowledge_stats(&db).await?;

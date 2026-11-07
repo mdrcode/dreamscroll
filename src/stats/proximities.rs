@@ -64,8 +64,11 @@ pub async fn proximity_list(
         .all(&db.conn)
         .await?
         .into_iter()
-        .map(|verdict| {
-            crate::knowledge::verdicts::pair_key(verdict.winner_origin, verdict.loser_origin)
+        .filter_map(|verdict| {
+            Some(crate::knowledge::verdicts::pair_key(
+                verdict.winner_origin?,
+                verdict.loser_origin?,
+            ))
         })
         .collect();
 

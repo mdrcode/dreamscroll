@@ -7,15 +7,22 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
 use crate::database;
 
-/// One logged merge.
+/// One logged decision: a merge (two entities) or a veto (one entity, one identity).
 #[derive(Debug)]
 pub struct VerdictRow {
     pub id: i32,
     pub generation: i32,
     /// `repair`, `proximity_auto` or `replayed`.
     pub cause: String,
+    /// `merge` or `veto`.
+    pub kind: String,
     pub winner: String,
     pub loser: String,
+    /// The entity a veto is about, by name now or by origin if it no longer exists.
+    pub subject: String,
+    /// `scheme:external_id` a veto excludes.
+    pub identity: String,
+    pub note: String,
     pub decided_at: DateTime<Utc>,
 }
 
@@ -30,12 +37,16 @@ pub async fn verdict_list(
         .conn
         .query_all_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT id, generation, cause, \
-                    coalesce(winner_label, ''), coalesce(loser_label, ''), decided_at \
-               FROM knowledge_verdicts \
-              WHERE ($1::int IS NULL OR generation = $1) \
-                AND ($2::text IS NULL OR cause = $2) \
-              ORDER BY id DESC \
+            "SELECT v.id, v.generation, v.cause, v.kind, \
+                    coalesce(v.winner_label, ''), coalesce(v.loser_label, ''), \
+                    coalesce(e.name, 'origin ' || v.subject_origin::text, ''), \
+                    coalesce(v.identity_scheme || ':' || v.identity_external_id, ''), \
+                    coalesce(v.note, ''), v.decided_at \
+               FROM knowledge_verdicts v \
+               LEFT JOIN knowledge_entities e ON e.origin_observation_id = v.subject_origin \
+              WHERE ($1::int IS NULL OR v.generation = $1) \
+                AND ($2::text IS NULL OR v.cause = $2) \
+              ORDER BY v.id DESC \
               LIMIT $3",
             [
                 generation.into(),
@@ -50,9 +61,13 @@ pub async fn verdict_list(
                 id: row.try_get_by_index(0)?,
                 generation: row.try_get_by_index(1)?,
                 cause: row.try_get_by_index(2)?,
-                winner: row.try_get_by_index(3)?,
-                loser: row.try_get_by_index(4)?,
-                decided_at: row.try_get_by_index(5)?,
+                kind: row.try_get_by_index(3)?,
+                winner: row.try_get_by_index(4)?,
+                loser: row.try_get_by_index(5)?,
+                subject: row.try_get_by_index(6)?,
+                identity: row.try_get_by_index(7)?,
+                note: row.try_get_by_index(8)?,
+                decided_at: row.try_get_by_index(9)?,
             })
         })
         .collect()
@@ -76,8 +91,8 @@ mod tests {
                 crate::model::knowledge_verdicts::ActiveModel {
                     generation: Set(generation),
                     cause: Set(cause.to_string()),
-                    winner_origin: Set(generation),
-                    loser_origin: Set(generation + 100),
+                    winner_origin: Set(Some(generation)),
+                    loser_origin: Set(Some(generation + 100)),
                     winner_label: Set(Some("winner".to_string())),
                     loser_label: Set(Some("loser".to_string())),
                     ..Default::default()
