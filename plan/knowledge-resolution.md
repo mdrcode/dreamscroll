@@ -258,6 +258,49 @@ problem is called.
   honest framing is *surface* — the vocabulary of the source, which may be a Wikipedia title, a shop
   page or a journal, never a promise about Wikidata.
 
+## Precision, measured 2026-11-06
+
+Random sample of **100 of the 1,877 identified entities** (seed `0.20261106`, one claim each), judged by
+reading the stored label and description against the entity's name and description. Nine turned out to
+be handle identities (`scheme = capture`), not Wikidata claims, leaving **91 judged**.
+
+**83.5% correct (76/91), 95% CI [74.6, 89.7].** Counting the nine handles, 85 of 100.
+
+| method | correct | total | |
+| --- | --- | --- | --- |
+| `exact_label` | 62 | 74 | 83.8% |
+| `wikipedia_title` | 10 | 11 | 90.9% |
+| `search_ranked` | 2 | 4 | |
+| `P2002` | 2 | 2 | |
+
+The surprise is the first row: **an exact label is the least reliable method.** A label match says
+nothing about *which sense* of the label the entity is — twelve of the fifteen errors came from it.
+
+| failure | n | example |
+| --- | --- | --- |
+| disambiguation page claimed as an item | 4 | `Rogue Heroes` → a menu page |
+| concept instead of the work | 8 | `Dogma` → the concept, not the 1999 film |
+| container instead of part | 2 | `Frontiers in Human Neuroscience` → `Frontiers Media` |
+| a different work | 1 | `Suspicion` → Dürrenmatt's novel, not Matsumoto's |
+
+Two of these are arguable as related-sense rather than wrong (`BBC` → `BBC News`; `The Summit of the
+Gods` → the manga the film adapts). One reader's judgement; the sample supports ±7.5 points.
+
+### The disambiguation check compares the wrong class
+
+`parse_title` refuses a candidate whose `class == Q4167410`. That misses the subclass: three of the four
+sampled pages carry **`Q22808320`** ("Wikimedia human name disambiguation page"), and `Q115697563`
+carried no classes at all. Population-wide, **34 of the 1,877 identified entities hold a disambiguation
+page** — definitionally wrong claims, and a `description ILIKE '%disambiguation%'` test catches every one
+of them, because it is in the description we already store. The `classes` test is the one that misses.
+
+### The other eight are the case for `type` as an input
+
+Nothing lexical separates `Dogma` the film from `dogma` the concept; `P31` does, immediately. **1,365 of
+1,948 identities already carry a class list** — fetched alongside every description, and used for
+nothing. This is the argument two sections below, now with a population measurement behind it instead
+of an example.
+
 ## The shape this should take
 
 Entity reconciliation has a published contract: the [W3C Entity Reconciliation Community Group
