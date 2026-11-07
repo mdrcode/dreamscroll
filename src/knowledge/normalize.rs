@@ -91,6 +91,52 @@ fn expand_ligatures(surface: &str) -> String {
     out
 }
 
+/// Every branch the fold has: case, wrapping quotes, a leading `@`/`#`, one trailing period,
+/// whitespace, inner double quotes, spacing at punctuation, diacritics, ligatures — and the
+/// distinctions the fold must *preserve*. Add a probe when you add a branch; the fingerprint can
+/// only see what is in here.
+const PROBE: &[&str] = &[
+    "  Pokémon ",
+    "\"Train Dreams\"",
+    "@bandy1803",
+    "#ada lovelace",
+    "Spider-Man.",
+    "  @#  Mixed   CASE  ",
+    "A. W. Moore",
+    "A.W. Moore",
+    "\"Fast Eddie\" Felson",
+    "'Tis Pity She's a Whore",
+    "Şeyh Bedreddin",
+    "Æon Flux",
+    "Straße",
+    "Œuvre",
+    "C",
+    "C#",
+    "C++",
+    "U.S.",
+    "US",
+    "",
+];
+
+/// A fingerprint of what the fold *does*: the same probe inputs, folded, hashed.
+///
+/// Any change to the policy moves this on its own, so nothing depends on someone remembering a
+/// version number. FNV-1a rather than `DefaultHasher`, whose output is not specified to be stable
+/// across Rust releases. Computed once per process.
+pub(crate) fn fingerprint() -> &'static str {
+    static ONCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    ONCE.get_or_init(|| {
+        let mut hash = 0xcbf2_9ce4_8422_2325u64;
+        for probe in PROBE {
+            for byte in comparable(probe).bytes().chain(std::iter::once(0x1f)) {
+                hash ^= u64::from(byte);
+                hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+            }
+        }
+        format!("fold-{hash:016x}")
+    })
+}
+
 fn collapse(surface: &str) -> String {
     surface.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -183,6 +229,14 @@ mod tests {
     fn keeps_apostrophes() {
         assert_eq!(comparable("'Tis Pity She's a Whore"), "tis pity she's a whore");
         assert_eq!(comparable("O'Brien"), "o'brien");
+    }
+
+    /// The fingerprint has to move when the rule moves. If this fails, the fold changed: update the
+    /// constant *and* rebuild `knowledge_index`. The constant is not load-bearing — `project` stores
+    /// whatever the code computes — it exists so the change appears in the diff.
+    #[test]
+    fn the_fold_fingerprint_moves_only_deliberately() {
+        assert_eq!(fingerprint(), "fold-5ba3c5a4965a5043");
     }
 
     #[test]

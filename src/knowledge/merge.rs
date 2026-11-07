@@ -232,6 +232,8 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         .filter(entity::Column::Id.eq(loser))
         .exec(conn)
         .await?;
+    // A tombstone has no surfaces to block on, so its retrieval material goes with it.
+    super::index::forget(conn, loser).await?;
 
     super::project::project(conn, winner).await?;
     Ok(Outcome::Merged)

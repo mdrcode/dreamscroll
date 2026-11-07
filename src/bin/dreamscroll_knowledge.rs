@@ -22,9 +22,35 @@ enum Command {
     Compare(CompareArgs),
     Identity(IdentityArgs),
     Eval(EvalArgs),
+    Index(IndexArgs),
     Proximity(ProximityArgs),
     Verdicts(VerdictsArgs),
 }
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "index")]
+#[argh(description = "knowledge_index: the folded forms a blocker matches on")]
+struct IndexArgs {
+    #[argh(subcommand)]
+    command: IndexCommand,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum IndexCommand {
+    Rebuild(IndexRebuildArgs),
+    Check(IndexCheckArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "rebuild")]
+#[argh(description = "recompute every index row from the entity columns")]
+struct IndexRebuildArgs {}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "check")]
+#[argh(description = "rows built with an older fold, and live entities with no row")]
+struct IndexCheckArgs {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "eval")]
@@ -465,6 +491,22 @@ async fn main() -> anyhow::Result<()> {
                 println!("no differences");
             }
         }
+        Command::Index(args) => match args.command {
+            IndexCommand::Rebuild(_) => {
+                let rows = knowledge::index::rebuild(&db).await?;
+                println!("rebuilt {rows} index rows");
+            }
+            IndexCommand::Check(_) => {
+                let report = knowledge::index::check(&db).await?;
+                println!(
+                    "indexed {} · stale {} · missing {} · {}",
+                    report.indexed,
+                    report.stale,
+                    report.missing,
+                    if report.is_current() { "current" } else { "REBUILD NEEDED" }
+                );
+            }
+        },
         Command::Eval(args) => match args.command {
             EvalCommand::Resolve(args) => eval_resolve(&db, args).await?,
         },

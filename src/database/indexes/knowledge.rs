@@ -40,6 +40,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity"
     WHERE retracted_at IS NULL
 "#;
 
+/// The blocker's access path: which entities wear any of these folded surfaces. `array_ops` GIN is
+/// what makes `surfaces && $1` one probe instead of a scan.
+const INDEX_SURFACES: &str = r#"
+CREATE INDEX IF NOT EXISTS "idx-knowledge_index-surfaces"
+    ON knowledge_index USING gin (surfaces)
+"#;
+
 /// The pair, which is how the batch is read (the merge pass and the list). Not unique: the table is
 /// one scan's output and is replaced wholesale, so a pair can only appear once per scan anyway.
 const PROXIMITIES_PAIR: &str = r#"
@@ -75,6 +82,7 @@ BEGIN
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_identity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_entity_identity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_proximities_pair');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_index-surfaces');
 END;
 $sync$;
 "#;
@@ -130,6 +138,7 @@ pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr
     conn.execute_unprepared(PROXIMITIES_PAIR).await?;
     conn.execute_unprepared("DROP INDEX IF EXISTS \"idx-knowledge_proximities_open\"")
         .await?;
+    conn.execute_unprepared(INDEX_SURFACES).await?;
     conn.execute_unprepared(ARRAY_DEFAULTS).await?;
     conn.execute_unprepared(NOT_SELF_MERGED).await?;
     Ok(())

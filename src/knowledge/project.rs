@@ -139,7 +139,7 @@ pub(super) async fn project<C: ConnectionTrait>(
 
     let confidence = super::heuristic::scoring::combine(&claims);
 
-    model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
+    let updated = model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),
         name: Set(name.unwrap_or_else(|| row.name.clone())),
         alt_names: Set(alt_names),
@@ -157,8 +157,11 @@ pub(super) async fn project<C: ConnectionTrait>(
         ..Default::default()
     })
     .exec(conn)
-    .await
-    .map_err(Into::into)
+    .await?;
+
+    // The index row is a function of these columns and the current fold, so it moves with them.
+    super::index::write(conn, &updated).await?;
+    Ok(updated)
 }
 
 fn surfaces(observation: &model::user_observed_entity::Model) -> impl Iterator<Item = &str> {
