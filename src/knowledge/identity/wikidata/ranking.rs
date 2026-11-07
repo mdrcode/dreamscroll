@@ -60,9 +60,6 @@ fn edit_distance(a: &str, b: &str) -> usize {
 // scale produced by `fit` and the blend above — so it lives with the measure that produces them, and
 // the graph's `Similarity`/`Rank` cannot state it.
 
-/// How much of the candidate's description must be accounted for by ours before a claim is worth
-/// making. Two shared content words usually clears it; one never does.
-pub(super) const FIT_FLOOR: f32 = 0.20;
 /// …and it must beat the runner-up by this much. A near-tie is not evidence.
 pub(super) const FIT_MARGIN: f32 = 0.05;
 /// The hint fallback is a blend, and is held to the same margin.
@@ -356,10 +353,7 @@ mod tests {
             &content_tokens("publisher"),
             &content_tokens("Spanish publisher"),
         );
-        assert!(
-            fit >= FIT_FLOOR,
-            "one terse shared word must clear the floor, got {fit}"
-        );
+        assert!(fit > 0.0, "one terse shared word is evidence, got {fit}");
     }
 
     /// `grams` turns three tokens into five, so the terse test used to read the gram count and
@@ -375,7 +369,7 @@ mod tests {
             "the fixture is the point: three content tokens"
         );
         assert!(
-            weights.fit(&theirs, &ours) >= FIT_FLOOR,
+            weights.fit(&theirs, &ours) > 0.0,
             "a three-word description is terse"
         );
     }

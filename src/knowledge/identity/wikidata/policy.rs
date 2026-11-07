@@ -9,9 +9,9 @@
 
 use super::answer::{self, Candidate};
 use super::ranking::{
-    CLAIM_BAR, CLAIM_MARGIN, FIT_FLOOR, FIT_MARGIN, HINT_CEILING, HINT_MIN_SUPPORT,
-    LONE_LABEL_CONFIDENCE, LOOKUP_CONFIDENCE, NAME_WEIGHT, Ranked, SUPPORT_WEIGHT, Weights,
-    answer_confidence, content_tokens, hint_tokens, near_surface, our_tokens, rank, surface_key,
+    CLAIM_BAR, CLAIM_MARGIN, FIT_MARGIN, HINT_CEILING, HINT_MIN_SUPPORT, LONE_LABEL_CONFIDENCE,
+    LOOKUP_CONFIDENCE, NAME_WEIGHT, SUPPORT_WEIGHT, Weights, answer_confidence, content_tokens,
+    hint_tokens, near_surface, our_tokens, rank, surface_key,
 };
 use crate::knowledge::identity::{Claim, Kind, Request};
 use crate::model;
@@ -30,7 +30,10 @@ pub(super) fn by_hint(
         *reason = "no disambiguation hint to fall back on";
         return Vec::new();
     };
-    let mut ranked: Vec<Ranked> = candidates
+    // A candidate, its blended score, and the proportion of the hint it accounts for. Not `Ranked`:
+    // that type's `fit` means "description evidence", and an earlier version smuggled the support
+    // proportion into it, so the same field meant two things on two paths.
+    let mut scored: Vec<(&Candidate, f32, f32)> = candidates
         .iter()
         .map(|candidate| {
             let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
@@ -38,31 +41,25 @@ pub(super) fn by_hint(
             // overlap: the hint is short, and every word of it should be findable.
             let matched = hint.iter().filter(|token| theirs.contains(token)).count();
             let support = matched as f32 / hint.len() as f32;
-            Ranked {
-                candidate,
-                score: NAME_WEIGHT + SUPPORT_WEIGHT * support,
-                fit: support,
-                // The hint path gates on fit and support: not an exact-label decision.
-                exact_label: false,
-            }
+            (candidate, NAME_WEIGHT + SUPPORT_WEIGHT * support, support)
         })
         .collect();
-    ranked.sort_by(|a, b| b.score.total_cmp(&a.score));
-    let best = &ranked[0];
-    let runner_up = ranked.get(1).map(|other| other.score).unwrap_or(0.0);
+    scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+    let (best, best_score, best_support) = scored[0];
+    let runner_up = scored.get(1).map(|other| other.1).unwrap_or(0.0);
     // Half the disambiguating words, not a third. One of three cleared the old bar, which is how
     // `Suspicion` (a Matsumoto novel) claimed a Dürrenmatt one on the word "novel" alone.
-    if best.fit < HINT_MIN_SUPPORT
-        || best.score < CLAIM_BAR
-        || best.score - runner_up < CLAIM_MARGIN
+    if best_support < HINT_MIN_SUPPORT
+        || best_score < CLAIM_BAR
+        || best_score - runner_up < CLAIM_MARGIN
     {
         *reason = "the hint did not clear its bar";
         return Vec::new();
     }
     vec![answer::claim(
-        best.candidate,
+        best,
         "search_hint",
-        answer_confidence(best.score).min(HINT_CEILING),
+        answer_confidence(best_score).min(HINT_CEILING),
     )]
 }
 /// Which rung produced a claim. Recorded on the claim, so it must name the rung that answered and
@@ -113,7 +110,10 @@ pub(super) fn decide(
     // all, so requiring a blended score quietly demanded a fixed amount of text overlap — which
     // real, terse Wikidata descriptions cannot supply ("German-born theoretical physicist" vs a
     // capture's six-word description of Einstein).
-    if best.fit < FIT_FLOOR {
+    // `fit` is either exactly zero or at least 0.25: matched weight floors at 1.0 (a term present in
+    // every candidate is worth the minimum, not less) and `EVIDENCE_SCALE` is 3. A named floor
+    // between the two never binds, so the test says what it means — no corroboration at all.
+    if best.fit == 0.0 {
         *reason = "the description does not corroborate";
         return by_hint(entity, candidates, reason);
     }
@@ -199,7 +199,7 @@ pub(super) fn parse_search(
             .iter()
             .map(|tokens| weights.fit(&theirs, tokens))
             .fold(0.0f32, f32::max);
-        if fit >= FIT_FLOOR {
+        if fit > 0.0 {
             return vec![answer::claim(candidate, "search_lookup", LOOKUP_CONFIDENCE)];
         }
     }
@@ -210,7 +210,7 @@ pub(super) fn parse_search(
     // two, so a name carrying a qualifier never let its description speak — measured on the
     // local corpus, 51 undecided entities had the right item in hand and were refused here.
     //
-    // Admission is not a claim. The description must still clear `FIT_FLOOR` and beat the
+    // Admission is not a claim. The description must still corroborate — a non-zero fit — and beat the
     // runner-up, which is what keeps `Royal Navy fleet aircraft carrier fleet` off `Royal Navy`.
     let mine = content_tokens(&entity.name);
     let admitted: Vec<Candidate> = candidates
