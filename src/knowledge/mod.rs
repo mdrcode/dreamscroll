@@ -22,7 +22,7 @@ pub mod merge;
 pub mod proximity;
 pub mod verdicts;
 pub mod normalize;
-pub mod resolve;
+pub mod identity;
 pub mod scoring;
 pub mod snapshot;
 pub mod sql_blocker;

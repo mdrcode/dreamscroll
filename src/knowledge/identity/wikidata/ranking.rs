@@ -312,7 +312,7 @@ impl Weights {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::resolve::wikidata::resolver::Candidate;
+    use crate::knowledge::identity::wikidata::resolver::Candidate;
 
     fn weights(descriptions: &[&str]) -> Weights {
         let candidates: Vec<Candidate> = descriptions

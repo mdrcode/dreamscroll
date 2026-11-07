@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use serde_json::{json, Value};
 
 use crate::knowledge::evidence::ClaimBasis;
-use crate::knowledge::resolve::{
+use crate::knowledge::identity::{
     Answers, BATCH, Claim, FetchError, Raw, Request, ResolutionContext, Resolver, Transport,
 };
 use crate::model;
@@ -670,7 +670,7 @@ fn handle_claim(candidate: &Candidate, property: &str, confidence: f32) -> Claim
 
 #[cfg(test)]
 mod tests {
-    use crate::knowledge::resolve::cache::Outcome;
+    use crate::knowledge::identity::cache::Outcome;
     use super::*;
     use crate::test_support::db_or_skip;
 
@@ -1084,7 +1084,7 @@ mod tests {
     #[test]
     fn sparql_literals_are_escaped() {
         let requests = vec![request("label", "A \"quoted\" name")];
-        let query = crate::knowledge::resolve::wikidata::transport::sparql_for_labels(&requests);
+        let query = crate::knowledge::identity::wikidata::transport::sparql_for_labels(&requests);
         assert!(query.contains("\\\"quoted\\\""), "{query}");
     }
 
@@ -1093,8 +1093,8 @@ mod tests {
     /// entity the first pass left unresolved.
     #[tokio::test]
     async fn resolve_prefers_a_title_and_searches_only_what_is_left() {
-        use crate::knowledge::resolve::cache::{Answer, Cache};
-        use crate::knowledge::resolve::Options;
+        use crate::knowledge::identity::cache::{Answer, Cache};
+        use crate::knowledge::identity::Options;
 
         db_or_skip!(db);
         let cache = Cache::new(&db.conn);

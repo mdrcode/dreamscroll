@@ -417,9 +417,9 @@ async fn resolve_identity(
     let max_requests = match (args.offline, args.max_requests) {
         (true, _) => 0,
         (false, Some(n)) => n,
-        (false, None) => knowledge::resolve::DEFAULT_MAX_REQUESTS,
+        (false, None) => knowledge::identity::DEFAULT_MAX_REQUESTS,
     };
-    let options = knowledge::resolve::Options {
+    let options = knowledge::identity::Options {
         limit: args.limit,
         max_requests,
         offline: args.offline,
@@ -427,8 +427,8 @@ async fn resolve_identity(
         min_interval: std::time::Duration::from_millis(args.min_interval_ms),
         newest_first: args.newest,
     };
-    let engine = knowledge::resolve::ResolutionEngine::new(db, options)
-        .with(Box::new(knowledge::resolve::wikidata::Wikidata::new()?));
+    let engine = knowledge::identity::ResolutionEngine::new(db, options)
+        .with(Box::new(knowledge::identity::wikidata::Wikidata::new()?));
     let report = engine.run().await?;
 
     if report.offline {

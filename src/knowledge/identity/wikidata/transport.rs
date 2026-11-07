@@ -9,7 +9,7 @@ use serde_json::{json, Value};
 
 use super::super::driver::{FetchError, Raw, Request};
 use super::resolver::{Candidate, Wikidata, LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT};
-use crate::knowledge::resolve::cache::Outcome;
+use crate::knowledge::identity::cache::Outcome;
 
 /// Which query a SPARQL row answers, and the candidate it names. Items arrive as entity URLs, and a
 /// repeated item is deduped by the caller.

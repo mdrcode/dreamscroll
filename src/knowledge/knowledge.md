@@ -282,8 +282,8 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
 | `sql_blocker.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
 | `heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
-| `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
-| `resolve/wikidata/` | one authority: policy in `resolver.rs`, candidate ranking in `ranking.rs`, HTTP in `transport.rs` |
+| `identity/driver.rs` | the resolver contract, the engine that runs it, claim storage |
+| `identity/wikidata/` | one authority: policy in `resolver.rs`, candidate ranking in `ranking.rs`, HTTP in `transport.rs` |
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
 | `link.rs` | the linking executor, and `LinkStats` |
 | `project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
@@ -292,7 +292,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
 | `verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair or a veto, `replay` onto the new graph — vetoes are also asked at admission, since a claim has one writer |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `resolve/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
+| `identity/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by |
 | `index.rs` | `knowledge_index`: the folded keys a blocker reads, written by `project`, rebuilt when the fold changes; `rebuild` and `check` |
 | `eval/` | offline evaluation: `eval resolve` replays the resolver's ladder over the answer cache, with no transport |
