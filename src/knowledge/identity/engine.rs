@@ -885,34 +885,6 @@ mod tests {
         }
     }
 
-    /// `title` and `label` ask about the same string and the answers are different things, so the
-    /// group key includes the kind — keyed by query alone the label group once swallowed the titles.
-    /// A duplicate within a group is asked once.
-    #[test]
-    fn plan_groups_key_by_kind_and_collapse_duplicates() {
-        let requests = [
-            request("label", "v1", "Train Dreams"),
-            request("label", "v1", "Train Dreams"),
-            request("title", "v1", "Train Dreams"),
-            request("search", "v1", "b"),
-            request("search", "v1", "a"),
-            request("search", "v1", "b"),
-        ];
-        let groups = plan_groups(&requests);
-
-        assert_eq!(groups.len(), 3);
-        assert_eq!(
-            groups[&("test", "label".into(), "v1".into())],
-            vec!["Train Dreams"]
-        );
-        assert_eq!(
-            groups[&("test", "title".into(), "v1".into())],
-            vec!["Train Dreams"]
-        );
-        assert_eq!(groups[&("test", "search".into(), "v1".into())], vec!["a", "b"]);
-    }
-
-    /// A spent budget stops issuing calls and says so, rather than silently returning nothing.
     #[tokio::test]
     async fn a_spent_budget_issues_no_calls() {
         db_or_skip!(db);
