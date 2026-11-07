@@ -542,6 +542,21 @@ async fn main() -> anyhow::Result<()> {
                     "missing {} · extra {} · surface hits {} · word only {}",
                     report.missing, report.extra, report.surface_hits, report.word_only
                 );
+                // A rebuild is rare; a link run pays a build **once per process** plus one query per
+                // observation. Compare on that axis: the build is O(corpus), the query is not.
+                let obs = report.observations as f64;
+                println!(
+                    "build {:.1}ms once per process · query: memory {:.4}ms · sql {:.3}ms · {:.1} obs/illumination",
+                    report.oracle_build_ms, report.oracle_query_ms, report.sql_query_ms,
+                    report.observations_per_illumination
+                );
+                println!(
+                    "one link pass over {} observations: memory {:.0}ms build + {:.0}ms queries · sql {:.0}ms",
+                    report.observations,
+                    report.oracle_build_ms,
+                    obs * report.oracle_query_ms,
+                    obs * report.sql_query_ms
+                );
             }
         },
         Command::Identity(args) => match args.command {

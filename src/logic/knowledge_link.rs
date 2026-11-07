@@ -5,9 +5,9 @@
 //! other queued operation. The graph accumulates reading by reading, so a failed link costs one
 //! reading rather than a capture's whole history.
 //!
-//! The cost to watch: `NameBlocker` loads every entity in the graph, and this task rebuilds it per
-//! illumination. That is the price of not sharing mutable state across queue workers, and it is the
-//! thing to revisit if linking ever dominates.
+//! The blocker is built once per process by `logic_state`, not here: `exec` borrows `&state.knowledge`
+//! and pays only the query. What that costs is measured in `plan/knowledge-blocking.md` §Blocker cost —
+//! O(corpus) time and memory at boot, microseconds per observation after.
 //!
 //! The task links and stops. Resolution and the proximity passes are separate steps, run in the
 //! order `plan/knowledge-blocking.md` records; nothing here may hide one of them.

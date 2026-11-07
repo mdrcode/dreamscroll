@@ -111,6 +111,29 @@ CREATE INDEX ... USING gin (surfaces);
   `index rebuild` recomputes, `index check` counts rows whose fingerprint disagrees, `stats` reports
   it. A stale index is a recall bug that looks like an empty corpus.
 
+### Blocker cost, measured 2026-11-06
+
+`eval blocking` reports both axes, because a full rebuild is rare and a link run pays something else:
+
+| | in-memory (`NameBlocker`) | SQL (`SqlBlocker`) |
+|---|---|---|
+| build, per **process** | 79.9 ms for 2,138 entities / 5,010 keys, and it holds all of them | none |
+| per **query** | 0.0195 ms | 0.754 ms |
+| per **illumination** (3.79 observations) | 0.07 ms | 2.9 ms |
+
+The blocker lives for the whole process (`logic_state` builds it once); the module comment in
+`knowledge_link.rs` claimed a rebuild per illumination and was stale. That distinction is the whole
+comparison: the in-memory blocker pays O(corpus) time *and RAM* once per process and then answers in
+microseconds; the SQL blocker pays nothing at boot and ~0.75 ms per observation.
+
+With a build of ≈0.037 ms per entity and a query difference of ≈0.73 ms, the crossover is roughly
+**50k entities**: below it the in-memory blocker is cheaper for a pass, above it the boot cost
+dominates — and every new instance pays it. The difference that is not speed at all: the SQL blocker
+sees another writer's committed rows, which the in-memory one cannot.
+
+Not switched. At 2,138 entities the in-memory blocker is cheaper end to end; the switch waits for
+the corpus to pass the crossover, or for a second writer to make staleness matter.
+
 First channel is **surface only** — one scheme, exhaustive within its key space, so the oracle
 comparison is meaningful and there is no fusion to review. RRF arrives with the second channel.
 

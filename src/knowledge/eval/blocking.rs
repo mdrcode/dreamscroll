@@ -21,7 +21,7 @@ use crate::knowledge::sql_blocker::SqlBlocker;
 use crate::model;
 
 /// What one comparison found.
-#[derive(Debug, Default, PartialEq, Eq)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Report {
     pub observations: usize,
     /// Candidate pairs the oracle offered.
@@ -41,11 +41,24 @@ pub struct Report {
     pub word_only: usize,
     /// The first few word-only observations, so the number can be read rather than trusted.
     pub examples: Vec<String>,
+
+    /// Wall time to build the in-memory blocker **once**. That is what a new process pays at
+    /// startup, and what today's link task pays *per illumination* — the cost that scales with the
+    /// corpus, not with the work.
+    pub oracle_build_ms: f64,
+    /// Mean milliseconds per `candidates` call.
+    pub oracle_query_ms: f64,
+    pub sql_query_ms: f64,
+    /// Mean observations in an illumination, so the two can be compared the way the task runs.
+    pub observations_per_illumination: f64,
 }
 
 /// Replay every observation through both blockers and compare.
 pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Report> {
+    let building = std::time::Instant::now();
     let oracle = NameBlocker::new(db).await?;
+    let build = building.elapsed();
+
     let sql = SqlBlocker::new(db);
 
     let observations = model::user_observed_entity::Entity::find()
@@ -53,22 +66,33 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
         .all(&db.conn)
         .await?;
 
-    let mut report = Report::default();
+    let mut report = Report {
+        oracle_build_ms: build.as_secs_f64() * 1e3,
+        ..Default::default()
+    };
+    let (mut oracle_nanos, mut sql_nanos) = (0u128, 0u128);
+    let mut illuminations = std::collections::BTreeSet::new();
     for observation in observations.iter().take(limit.unwrap_or(usize::MAX)) {
+        illuminations.insert(observation.illumination_id);
         report.observations += 1;
 
+        let started = std::time::Instant::now();
         let expected: BTreeSet<i32> = oracle
             .candidates(observation)
             .await
             .into_iter()
             .map(|row| row.id)
             .collect();
+        oracle_nanos += started.elapsed().as_nanos();
+
+        let started = std::time::Instant::now();
         let got: BTreeSet<i32> = sql
             .candidates(observation)
             .await
             .into_iter()
             .map(|row| row.id)
             .collect();
+        sql_nanos += started.elapsed().as_nanos();
 
         report.oracle_pairs += expected.len();
         report.sql_pairs += got.len();
@@ -91,6 +115,11 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
                 report.examples.push(observation.name.clone());
             }
         }
+    }
+    if report.observations > 0 {
+        report.oracle_query_ms = oracle_nanos as f64 / 1e6 / report.observations as f64;
+        report.sql_query_ms = sql_nanos as f64 / 1e6 / report.observations as f64;
+        report.observations_per_illumination = report.observations as f64 / illuminations.len() as f64;
     }
     Ok(report)
 }
