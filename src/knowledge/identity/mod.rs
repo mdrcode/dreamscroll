@@ -9,10 +9,12 @@
 pub mod cache;
 pub mod context;
 pub mod contract;
-pub mod driver;
+pub mod engine;
 pub mod store;
 pub mod wikidata;
 
-pub use context::*;
-pub use contract::*;
-pub use driver::*;
+pub use context::ResolutionContext;
+pub use contract::{Answers, Claim, FetchError, Raw, Request, Transport};
+pub use engine::{Options, Report, ResolutionEngine, Resolver, DEFAULT_MAX_REQUESTS};
+
+pub(crate) use contract::BATCH;

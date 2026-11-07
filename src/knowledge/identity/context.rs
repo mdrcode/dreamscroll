@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use super::cache::{Answer, Cache, Outcome, UNPRODUCTIVE_TTL};
 use super::contract::{Answers, FetchError, Raw, Request, Transport};
-use super::driver::{Options, Report};
+use super::engine::{Options, Report};
 
 /// No rate limit seen. Distinguishes "the provider did not ask us to wait" from "wait zero seconds".
 const NOT_LIMITED: u64 = u64::MAX;

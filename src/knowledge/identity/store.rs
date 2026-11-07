@@ -6,7 +6,7 @@
 use sea_orm::{EntityTrait, Set};
 
 use super::contract::Claim;
-use super::driver::Report;
+use super::engine::Report;
 use crate::{database, model};
 
 /// Store one claim as an edge to its identity. Returns whether a new claim was written; an identity
