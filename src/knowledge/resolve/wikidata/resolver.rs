@@ -302,8 +302,11 @@ impl Wikidata {
         let titled: Vec<Candidate> = candidates
             .iter()
             .filter(|candidate| {
+                // No label is not a mismatch: Wikidata sometimes answers with a description only,
+                // and `Q42574 · "Canadian filmmaker and explorer"` is exactly the right item for
+                // `James Cameron`. `decide` still requires the description to corroborate.
                 let Some(label) = candidate.label.as_deref() else {
-                    return false;
+                    return true;
                 };
                 if near_surface(&surface_key(label), &surface_key(&entity.name)) {
                     return true;
@@ -679,6 +682,28 @@ mod tests {
         );
         assert_eq!(claims.len(), 1);
         assert_eq!(claims[0].id, "Q16010557");
+
+        // A title answer with no label is not a mismatch — the description still has to corroborate.
+        let unlabelled = Raw {
+            outcome: Outcome::Found,
+            payload: Some(json!({
+                "candidates": [{
+                    "id": "Q42574",
+                    "label": null,
+                    "description": "Canadian filmmaker and explorer (born 1954)",
+                }]
+            })),
+        };
+        let claims = engine().parse(
+            &entity(
+                "James Cameron",
+                Some("Canadian filmmaker who served as executive producer on Point Break"),
+            ),
+            &request("title", "James Cameron"),
+            &unlabelled,
+        );
+        assert_eq!(claims.len(), 1, "a label-less answer can still be right");
+        assert_eq!(claims[0].id, "Q42574");
     }
 
     #[test]
