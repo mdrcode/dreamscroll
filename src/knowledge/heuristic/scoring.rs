@@ -296,7 +296,7 @@ fn type_similarity(a: &str, b: &str) -> f32 {
 
 // ---------------------------------------------------------------------------------------------
 // The string plumbing the scoring and the blocker share. `normalize::comparable` is the core's;
-// these are the guess's, and nothing outside `heuristic_scoring` and `name_blocker` asks for them.
+// these are the guess's, and nothing outside `heuristic_scoring` asks for them.
 // ---------------------------------------------------------------------------------------------
 
 /// The words of a surface, in order, folded the same way `normalize::comparable` folds it.

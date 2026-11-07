@@ -1,7 +1,8 @@
 # Blocking: retrieval for linking
 
-Status: Research — design in progress, 2026-11-06. Nothing implemented beyond the
-current `NameBlocker`; no decision frozen.
+Status: Research — design in progress. `SqlBlocker` is shipped with one channel (folded surfaces and
+their word keys, plus the capture's handle); the channel/fusion design below is not started. The
+in-memory blocker that proved the SQL against a map has been removed.
 
 Scope: how the linker gets from one observation to a candidate set. The metric
 retrieval path (channels, fusion, budgets) and the ownership boundary between
@@ -17,8 +18,8 @@ emits comparable-shaped *hits* even though its scores are not comparable.
 
 | layer | responsibility | owner | executes in | today | target |
 |---|---|---|---|---|---|
-| L0 definitions | query shape, index, budget, complete? | `Blocker` | Rust (config) | hardcoded in `NameBlocker` | per-channel definitions |
-| L0 execution | run one channel's query | `Blocker` impl | **SQL** | full table scan in Rust | indexed queries |
+| L0 definitions | query shape, index, budget, complete? | `Blocker` | Rust (config) | hardcoded in `SqlBlocker` | per-channel definitions |
+| L0 execution | run one channel's query | `Blocker` impl | **SQL** | one indexed query (two GIN probes) | indexed queries per channel |
 | L0.1 hits | `(entity_id, channel, rank, raw_score)` | `Blocker` | SQL emits, Rust carries | bare `Vec<i32>` | explicit per-channel hits |
 | L0.2 union | dedupe by entity id, keep provenance | `Blocker` | **SQL** (`UNION ALL` + `GROUP BY`) or Rust merge | n/a — one channel | distinct step, observable |
 | L1 fusion + cap | RRF, global budget, complete-channel exemption | `Blocker` | **Rust** | none; id order, unbounded | RRF + budgets |
@@ -100,7 +101,8 @@ CREATE INDEX ... USING gin (surfaces);
   and `project` gathers a member's `platform_handle` into those alternatives — so `knowledge_index`
   already answered a handle probe, and neither blocker ever asked. Both now probe name *and* handle.
   Measured: 380 of 2,663 observations carry a handle, **3** find an existing entity by it that the
-  name probe misses, and `eval blocking` parity is unchanged at 2,706 pairs (0 missing, 0 extra).
+  name probe misses. Parity with the in-memory blocker was 2,706 pairs (0 missing, 0 extra) when it
+  was measured, before that implementation was deleted.
   What that buys is *recall only* — the decider still decides, and on the one visible case it
   declines: `Andra` (`real_person`, `x_twitter:bioavailablend`) and `@bioavailablend`
   (`social_media_account`, `instagram:bioavailablend`) share a handle and a subject, differ in type,
@@ -130,9 +132,10 @@ CREATE INDEX ... USING gin (surfaces);
 
 ### Blocker cost, measured 2026-11-06
 
-`eval blocking` reports both axes, because a full rebuild is rare and a link run pays something else:
+The comparison that chose the SQL blocker. Its in-memory side has since been removed, so this is a
+record of the measurement, not something the CLI can reproduce:
 
-| | in-memory (`NameBlocker`) | SQL (`SqlBlocker`) |
+| | in-memory (removed) | SQL (`SqlBlocker`) |
 |---|---|---|
 | build, per **process** | 79.9 ms for 2,138 entities / 5,010 keys, and it holds all of them | none |
 | per **query** | 0.0195 ms | 0.754 ms |
@@ -150,8 +153,9 @@ sees another writer's committed rows, which the in-memory one cannot.
 
 **Switched, 2026-11-06.** The graph is built for 100k+ entities, where an O(corpus) boot cost paid by
 every instance is the wrong shape and a 0.7 ms query is noise beside the writes a link already does.
-`SqlBlocker` is the default for the link task and the CLI. `NameBlocker` stays as the oracle
-`eval blocking` measures against, and `link --memory-blocker` still selects it for debugging.
+`SqlBlocker` is the only implementation for the link task and the CLI; parity with the in-memory one
+was 2,706 candidate pairs with 0 missing and 0 extra before it was deleted, which is the assertion that
+let us delete it.
 
 First channel is **surface only** — one scheme, exhaustive within its key space, so the oracle
 comparison is meaningful and there is no fusion to review. RRF arrives with the second channel.
@@ -189,9 +193,10 @@ holds by accident (`blocking && '{}'` is false), so it is stated as a contract.
 A channel is one row in the definition table and one query; it changes no other
 layer. That makes channel value an empirical question, which is the point:
 
-- The existing exhaustive `NameBlocker` over a corpus is the **oracle**. For each
-  observation it enumerates every folded-surface and token-key match, so it defines
-  ground truth for recall without any labelled data.
+- An exhaustive scan over a corpus is the **oracle**. For each observation it enumerates every
+  folded-surface and token-key match, so it defines ground truth for recall without labelled data.
+  The SQL blocker already *is* that scan for the keys it stores, so recall@k below measures channels
+  it does not yet have, not the blocker's own reach.
 - **recall@k per channel** = for each observation, does the oracle's match (the
   entity the exhaustive scan found) appear in that channel's top k? This is the
   measurement that decides whether a channel earns its place, and it needs no graph

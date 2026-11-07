@@ -154,9 +154,9 @@ merge pass on a different policy, silently.
 
 `heuristic/scoring.rs` is today's only answer: normalized keys, weights, the bar, the corroboration
 bonus. `heuristic/linker.rs` is the **procedure** — the best qualifying candidate, else create — and holds
-no numbers. `heuristic/name_blocker.rs` is recall: every folded surface, and its word-order-insensitive
-form, to candidates — nothing scored. (A platform handle is recalled through evidence, not through a
-blocking key: `held_by_identity` answers it before any candidate is scored.) The
+no numbers. `sql_blocker.rs` is recall: every folded surface and its word-order-insensitive form, probed
+out of `knowledge_index` — nothing scored. A platform handle is a surface too, so a capture that named an
+account only by its handle still finds the entity another capture named by hand. The
 resolver keeps its own measure and its own calibration, because its candidate type is private and
 its fit is corpus-aware (terms are weighed by rarity among the answers it got back) — a pair
 comparison cannot see the corpus.
@@ -280,7 +280,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `scoring.rs` | the two verbs — `Similarity`, `Rank` — `cmp_confidence`, and the `Scoring` bundle |
 | `blocker.rs`, `link_decider.rs` | the two linking traits, and nothing else — the contract a linker implements |
 | `heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
-| `heuristic/name_blocker.rs` | `NameBlocker`: recall by folded surface and word key, held in memory |
+| `sql_blocker.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
 | `heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
 | `resolve/driver.rs` | the resolver contract, the engine that runs it, claim storage |
 | `resolve/wikidata/` | one authority: policy in `resolver.rs`, candidate ranking in `ranking.rs`, HTTP in `transport.rs` |

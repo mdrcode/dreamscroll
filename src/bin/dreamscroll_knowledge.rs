@@ -64,7 +64,6 @@ struct EvalArgs {
 #[argh(subcommand)]
 enum EvalCommand {
     Resolve(EvalResolveArgs),
-    Blocking(EvalBlockingArgs),
     Inspect(EvalInspectArgs),
 }
 
@@ -85,18 +84,6 @@ struct EvalResolveArgs {
     verbose: bool,
     #[argh(option)]
     #[argh(description = "consider at most this many entities")]
-    limit: Option<usize>,
-}
-
-#[derive(FromArgs)]
-#[argh(subcommand, name = "blocking")]
-#[argh(description = "compare the SQL blocker with the in-memory one across the corpus")]
-struct EvalBlockingArgs {
-    #[argh(switch)]
-    #[argh(description = "list the observations only the word generation found")]
-    verbose: bool,
-    #[argh(option)]
-    #[argh(description = "consider at most this many observations")]
     limit: Option<usize>,
 }
 
@@ -150,9 +137,6 @@ struct ReprojectArgs {}
     description = "link every unlinked observation to a knowledge entity, creating one as needed"
 )]
 struct LinkArgs {
-    #[argh(switch)]
-    #[argh(description = "load the graph into memory instead of reading knowledge_index (debugging)")]
-    memory_blocker: bool,
 }
 
 #[derive(FromArgs)]
@@ -484,8 +468,8 @@ async fn main() -> anyhow::Result<()> {
     let db = database::DbHandle::new(connection);
 
     match args.command {
-        Command::Link(args) => {
-            let report = link_all_pending(&db, args.memory_blocker).await?;
+        Command::Link(_) => {
+            let report = link_all_pending(&db).await?;
             println!(
                 "considered {} · already linked {} · linked {} · created {}",
                 report.considered,
@@ -685,38 +669,6 @@ async fn main() -> anyhow::Result<()> {
                     None => println!("nothing matches {:?}", args.target),
                 }
             }
-            EvalCommand::Blocking(args) => {
-                let report = knowledge::eval::blocking::replay(&db, args.limit).await?;
-                if args.verbose {
-                    for name in &report.examples {
-                        println!("  word-only  {name}");
-                    }
-                    println!();
-                }
-                println!(
-                    "observations {} · oracle pairs {} · sql pairs {}",
-                    report.observations, report.oracle_pairs, report.sql_pairs
-                );
-                println!(
-                    "missing {} · extra {} · surface hits {} · word only {}",
-                    report.missing, report.extra, report.surface_hits, report.word_only
-                );
-                // A rebuild is rare; a link run pays a build **once per process** plus one query per
-                // observation. Compare on that axis: the build is O(corpus), the query is not.
-                let obs = report.observations as f64;
-                println!(
-                    "build {:.1}ms once per process · query: memory {:.4}ms · sql {:.3}ms · {:.1} obs/illumination",
-                    report.oracle_build_ms, report.oracle_query_ms, report.sql_query_ms,
-                    report.observations_per_illumination
-                );
-                println!(
-                    "one link pass over {} observations: memory {:.0}ms build + {:.0}ms queries · sql {:.0}ms",
-                    report.observations,
-                    report.oracle_build_ms,
-                    obs * report.oracle_query_ms,
-                    obs * report.sql_query_ms
-                );
-            }
         },
         Command::Identity(args) => match args.command {
             IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
@@ -809,10 +761,7 @@ impl LinkAllPendingReport {
 /// Link every illumination that still has unlinked observations.
 ///
 /// After a reset, this rebuilds the entire knowledge graph.
-async fn link_all_pending(
-    db: &database::DbHandle,
-    memory_blocker: bool,
-) -> anyhow::Result<LinkAllPendingReport> {
+async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPendingReport> {
     let unlinked_obs = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
         .from(model::user_observed_entity::Entity)
@@ -827,11 +776,8 @@ async fn link_all_pending(
         .await?;
 
     // Reads `knowledge_index`: nothing is loaded, so a link run costs queries and nothing at boot.
-    let blocker: Box<dyn knowledge::blocker::Blocker> = if memory_blocker {
-        Box::new(knowledge::heuristic::NameBlocker::new(db).await?)
-    } else {
-        Box::new(knowledge::sql_blocker::SqlBlocker::new(db))
-    };
+    let blocker: Box<dyn knowledge::blocker::Blocker> =
+        Box::new(knowledge::sql_blocker::SqlBlocker::new(db));
     let knowledge = knowledge::Knowledge::with_linking(
         db,
         blocker,

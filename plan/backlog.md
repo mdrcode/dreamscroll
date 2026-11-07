@@ -72,19 +72,6 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   Either adopt the formatter repo-wide in a single commit and gate it in CI, or pin a `rustfmt.toml`
   whose style matches what is there closely enough that the first run is small. Formatting only the
   files you touched is the current workaround: it keeps diffs honest and leaves the drift in place.
-- [ ] **Implement `SqlBlocker`.** `NameBlocker` is an in-memory index built by a full scan of
-  `knowledge_entities` (~2.1k rows), so every `Knowledge::link_illumination` pays for the whole graph
-  to link one reading. Fine for a capture arriving at a time; wrong for a backfill, which is why
-  `link` still exists as "one blocker, every illumination". A `Blocker` that answers `candidates`
-  with a query removes the scan and cannot go stale (the trait's `changed` is a no-op for anything
-  reading the database). The obstacle is that the matching keys are not in the database:
-  `normalize::comparable` and the token keys in `heuristic/scoring.rs` are Rust functions, and they are described as *the*
-  definition of "the same name", so re-deriving them in SQL means two definitions that can drift.
-  Cheapest shape: generated columns (or expression indexes) over `name`, `alt_names`,
-  `platform_handle` and `platform_display_name`, fed by one shared normalisation — plus a check that
-  `unnest`-ing `alt_names` per row is still cheaper than the scan it replaces. Pairs with the
-  transaction work on `link_illumination`: both are about the link path no longer being a whole-graph
-  operation.
 - [ ] **Decide whether a claim match can be refused.** A platform link proves the link is the same;
   it says nothing about the thing behind it. Two captures claiming `X/@elonmusk` as
   "technologist and inventor" and as "random bullshitter" are today merged silently — the second is

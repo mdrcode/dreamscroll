@@ -1,5 +1,8 @@
-//! Blocking: which entities are worth considering as targets. The one implementation is
-//! [`crate::knowledge::heuristic::name_blocker::NameBlocker`].
+//! Blocking: which entities are worth considering as targets.
+//!
+//! One implementation, [`crate::knowledge::sql_blocker::SqlBlocker`], answers from
+//! `knowledge_index`. The trait is the seam a second one would use; the in-memory one that proved
+//! the SQL against a map has done its job and is gone.
 
 use crate::model;
 

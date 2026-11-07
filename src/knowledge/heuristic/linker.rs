@@ -108,7 +108,19 @@ mod tests {
     use crate::test_support::db_or_skip;
     use crate::model;
 
-    use crate::knowledge::heuristic::NameBlocker;
+    /// Rows that were never persisted: `SqlBlocker` reads `knowledge_index`, and these stubs have
+    /// no rows to read. The linker only needs something that answers candidates.
+    struct StubBlocker(Vec<model::knowledge_entity::Model>);
+
+    #[async_trait::async_trait]
+    impl crate::knowledge::blocker::Blocker for StubBlocker {
+        async fn candidates(
+            &self,
+            _observation: &model::user_observed_entity::Model,
+        ) -> Vec<model::knowledge_entity::Model> {
+            self.0.clone()
+        }
+    }
 
     fn entity_row(id: i32, name: &str, ty: &str) -> model::knowledge_entity::Model {
         crate::test_support::fixtures::stub_entity(id, name, ty)
@@ -127,7 +139,7 @@ mod tests {
         entities: &[model::knowledge_entity::Model],
         observations: &[model::user_observed_entity::Model],
     ) -> Vec<Decision> {
-        let blocker = NameBlocker::build_entities(entities);
+        let blocker = StubBlocker(entities.to_vec());
         let evidence = Evidence::from_handle(db);
         evidence
             .import_identities(observations)

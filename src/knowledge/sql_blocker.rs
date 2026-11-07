@@ -1,11 +1,8 @@
-//! The blocker that reads the database instead of holding a copy of it.
+//! The blocker: candidates read out of `knowledge_index` instead of a copy of the graph.
 //!
-//! `NameBlocker` loads the whole graph into a map per process, so it knows only this process's
-//! writes and pays a full scan whenever it is built. This one loads nothing: `knowledge_index` is
-//! already folded, indexed, and kept current by `project`, so a probe is one `&&` against a GIN.
-//!
-//! The candidate set is the same by construction — both read the same keys, folded the same way,
-//! including the capture's handle — and `eval blocking` measures that rather than assuming it.
+//! Nothing is loaded and nothing is held between probes. `knowledge_index` is already folded,
+//! indexed and kept current by `project`, so a probe is one `&&` against a GIN — and a second
+//! writer's commits are visible immediately, which an in-memory map could not promise.
 
 use sea_orm::{
     ColumnTrait, EntityTrait, ExprTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
@@ -128,38 +125,9 @@ pub async fn candidate_ids(
 mod tests {
     use super::*;
 
-    use crate::knowledge::heuristic::NameBlocker;
     use sea_orm::ConnectionTrait;
 
     use crate::test_support::{db_or_skip, fixtures};
-
-    /// The same observation, answered by both blockers. The index has to have been written, which
-    /// `project` does when the entity is created.
-    #[tokio::test]
-    async fn the_sql_blocker_matches_the_in_memory_one() {
-        db_or_skip!(db);
-        let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        crate::knowledge::Knowledge::new(&db).update_projection(id).await.unwrap();
-
-        let oracle = NameBlocker::new(&db).await.unwrap();
-        let sql = SqlBlocker::new(&db);
-        for name in ["Train Dreams", "Dreams Train", "train dreams", "Dune"] {
-            let observation = fixtures::stub_observation(1, name, "book");
-            let expected: Vec<i32> = oracle
-                .candidates(&observation)
-                .await
-                .into_iter()
-                .map(|row| row.id)
-                .collect();
-            let got: Vec<i32> = sql
-                .candidates(&observation)
-                .await
-                .into_iter()
-                .map(|row| row.id)
-                .collect();
-            assert_eq!(got, expected, "observation {name:?}");
-        }
-    }
 
     /// The word generation is what connects the two spellings; the folded surface alone does not.
     #[tokio::test]

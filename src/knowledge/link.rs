@@ -138,11 +138,7 @@ mod unit {
     async fn linking_store(db: &DbHandle, decider: Arc<dyn LinkDecider>) -> Knowledge {
         Knowledge::with_linking(
             db,
-            Box::new(
-                crate::knowledge::heuristic::NameBlocker::new(db)
-                    .await
-                    .unwrap(),
-            ),
+            Box::new(crate::knowledge::sql_blocker::SqlBlocker::new(db)),
             decider,
         )
     }
