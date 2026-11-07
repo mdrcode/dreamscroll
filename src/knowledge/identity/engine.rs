@@ -184,7 +184,13 @@ impl<'a> ResolutionEngine<'a> {
         // Resolving stops at evidence. Which holders of an identity are one thing belongs to
         // `proximity scan` and `proximity merge`, which are separate commands run after this one.
         report.entities_resolved = resolved.len();
-        gateway.absorb(&mut report);
+        let stats = gateway.stats();
+        report.planned = stats.planned;
+        report.cache_hits = stats.cache_hits;
+        report.fetched = stats.fetched;
+        report.failed = stats.failed;
+        report.budget_exhausted = gateway.budget_exhausted();
+        report.rate_limited_after = gateway.rate_limited_after();
         Ok(report)
     }
 }

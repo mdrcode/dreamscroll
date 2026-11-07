@@ -10,10 +10,62 @@ use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 
 use super::cache::{Answer, Cache, Outcome, UNPRODUCTIVE_TTL};
 use super::contract::{Answers, FetchError, Raw, Request, Transport};
-use super::engine::{Options, Report};
+use super::engine::Options;
 
 /// No rate limit seen. Distinguishes "the provider did not ask us to wait" from "wait zero seconds".
 const NOT_LIMITED: u64 = u64::MAX;
+
+/// What one run has spent and found, once it is over.
+///
+/// The counters are written by any resolver at any time and read exactly once, at the end of the
+/// run. A named type rather than four loose atomics on the gateway: the report is assembled from one
+/// snapshot, and the gateway no longer needs to know what a report is.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Stats {
+    /// Requests handed to `resolve_requests`, including cache hits.
+    pub planned: usize,
+    /// Answers the cache already had.
+    pub cache_hits: usize,
+    /// Transport *calls*, not queries: one call can carry a batch.
+    pub fetched: usize,
+    /// Queries whose fetch failed.
+    pub failed: usize,
+}
+
+#[derive(Default)]
+struct Counters {
+    planned: AtomicUsize,
+    cache_hits: AtomicUsize,
+    fetched: AtomicUsize,
+    failed: AtomicUsize,
+}
+
+impl Counters {
+    fn plan(&self, queries: usize) {
+        self.planned.fetch_add(queries, Ordering::Relaxed);
+    }
+
+    fn hit(&self, answers: usize) {
+        self.cache_hits.fetch_add(answers, Ordering::Relaxed);
+    }
+
+    fn fetch(&self) {
+        self.fetched.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn fail(&self) {
+        self.failed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn snapshot(&self) -> Stats {
+        Stats {
+            planned: self.planned.load(Ordering::Relaxed),
+            cache_hits: self.cache_hits.load(Ordering::Relaxed),
+            fetched: self.fetched.load(Ordering::Relaxed),
+            failed: self.failed.load(Ordering::Relaxed),
+        }
+    }
+}
 
 /// What a resolver is given.
 ///
@@ -25,10 +77,7 @@ pub struct Gateway<'a> {
     pacer: tokio::sync::Mutex<Pacer>,
     remaining: tokio::sync::Mutex<usize>,
     offline: bool,
-    planned: AtomicUsize,
-    cache_hits: AtomicUsize,
-    fetched: AtomicUsize,
-    failed: AtomicUsize,
+    counters: Counters,
     budget_exhausted: AtomicBool,
     rate_limited_after: AtomicU64,
 }
@@ -40,10 +89,7 @@ impl<'a> Gateway<'a> {
             pacer: tokio::sync::Mutex::new(Pacer::new(options.min_interval)),
             remaining: tokio::sync::Mutex::new(options.max_requests),
             offline: options.offline,
-            planned: AtomicUsize::new(0),
-            cache_hits: AtomicUsize::new(0),
-            fetched: AtomicUsize::new(0),
-            failed: AtomicUsize::new(0),
+            counters: Counters::default(),
             budget_exhausted: AtomicBool::new(false),
             rate_limited_after: AtomicU64::new(NOT_LIMITED),
         }
@@ -71,7 +117,12 @@ impl<'a> Gateway<'a> {
 
     /// How many transport calls this run has made.
     pub fn fetched(&self) -> usize {
-        self.fetched.load(Ordering::Relaxed)
+        self.counters.snapshot().fetched
+    }
+
+    /// Everything the run has spent and found. One read, at the end.
+    pub(crate) fn stats(&self) -> Stats {
+        self.counters.snapshot()
     }
 
     /// Ask the transport: cache first, then only what is missing, in batches, paced and budgeted.
@@ -87,7 +138,7 @@ impl<'a> Gateway<'a> {
         if requests.is_empty() {
             return answers;
         }
-        self.planned.fetch_add(requests.len(), Ordering::Relaxed);
+        self.counters.plan(requests.len());
 
         for ((provider, kind, shape), queries) in plan_groups(requests) {
             let misses = self.cached(provider, &kind, &shape, queries, &mut answers).await;
@@ -127,7 +178,7 @@ impl<'a> Gateway<'a> {
                 return queries;
             }
         };
-        self.cache_hits.fetch_add(hits.len(), Ordering::Relaxed);
+        self.counters.hit(hits.len());
         for (query, answer) in hits {
             answers.insert(
                 (provider.to_string(), kind.to_string(), shape.to_string(), query),
@@ -175,7 +226,7 @@ impl<'a> Gateway<'a> {
                 })
                 .collect();
             self.pacer.lock().await.pace().await;
-            self.fetched.fetch_add(1, Ordering::Relaxed);
+            self.counters.fetch();
 
             match transport.fetch(&batch).await {
                 Ok(results) => {
@@ -246,7 +297,7 @@ impl<'a> Gateway<'a> {
                                 payload: None,
                             },
                         );
-                        self.failed.fetch_add(1, Ordering::Relaxed);
+                        self.counters.fail();
                     }
                 }
             }
@@ -272,14 +323,6 @@ impl<'a> Gateway<'a> {
         }
     }
 
-    pub(crate) fn absorb(&self, report: &mut Report) {
-        report.planned = self.planned.load(Ordering::Relaxed);
-        report.cache_hits = self.cache_hits.load(Ordering::Relaxed);
-        report.fetched = self.fetched.load(Ordering::Relaxed);
-        report.failed = self.failed.load(Ordering::Relaxed);
-        report.budget_exhausted = self.budget_exhausted();
-        report.rate_limited_after = self.rate_limited_after();
-    }
 }
 
 /// Group planned requests by what a provider can answer in one call, deduped.
