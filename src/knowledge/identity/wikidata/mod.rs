@@ -6,6 +6,7 @@ mod query;
 mod ranking;
 mod resolver;
 mod transport;
+mod types;
 
 pub use resolver::Wikidata;
 

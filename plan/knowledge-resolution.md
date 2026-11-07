@@ -449,6 +449,45 @@ and real descriptions paraphrase. `Odessa` is the cleanest example: the title st
 correct city, and the claim was refused because "major historic port city on the Black Sea" and "city in
 Odesa Oblast, Ukraine" share one token. Type would settle it with no overlap at all.
 
+## Built: `P31` as a one-sided filter (2026-11-07)
+
+The resolver now asks for `P31` with the label query (`OPTIONAL`, so an item without a class is still
+a label match — measured cost at 25 labels: 1.9 s against 2.5 s for the plain query, inside the noise)
+and refuses a candidate whose **recognised** classes all belong to another family than its
+`entity_type` expects. `types.rs` holds the table; every QID in it was checked against Wikidata.
+
+Three properties make it safe to keep:
+
+- **Unknown never rejects.** An unrecognised class passes, so the table being incomplete costs a
+  rejection, never a correct claim.
+- **Every recognised class must disagree.** A candidate that asserts `film` and `organization` is not
+  refused for a movie.
+- **Unmapped types never reject.** `publication`, `place`, `organization`, `event`, `brand`, `product`
+  and `meme` are deliberately absent. Measured on the first rebuild, mapping them removed *correct*
+  claims: `Rotten Tomatoes` is a business (`Q4830453`), the `Locarno Film Festival` an organization
+  (`Q43229`), the `Twenty-six Martyrs of Japan` a group of humans (`Q16334295`). A capture's
+  `entity_type` is a guess; Wikidata's classes are precise about a different axis.
+
+**Measured on the full re-decide.** Removed, all correct: `Irene` (a hurricane, not a character),
+`Flamingo` (a bird taxon, not the software), `Kabugo` (a family name, not a person), `Billy Costigan`
+(*The Departed* itself, not a character), `SimClusters` (a scientific article, not the algorithm).
+No correct claim was removed by the filter.
+
+**What it cannot do.** Unrecognised classes pass, and that is where the remaining wrong claims live:
+`Choo` (illustrator) → a river in Gabon (`Q4022`), `Heavy Metal` (1981 film) → the comics magazine
+(`Q867242`), `Aardwolf` (a MUD) → a watercolour (`Q18761202`). Those six were recorded as vetoes
+rather than chased with a longer table. Same-family collisions — two humans, two films — cannot be
+`P31` at all: `Phil Weir` (naval historian) against a Scottish footballer are both `human`.
+
+### Two things the rebuild exposed that are not about `P31`
+
+- **`method` is stored on the identity, not the claim.** After a full re-decide the histogram reads
+  `wikipedia_title` for 1,307 claims because the title rung claims first and the identity row is
+  rewritten by whichever claim lands — not because titles produced them. Per-claim provenance needs
+  `method` on `knowledge_claims`.
+- **A lone exact label is still claimed with no corroboration.** `Choo` → a river is that rule, not
+  the type filter: one candidate matched the name exactly and nothing was left to compete with it.
+
 ## Confidence and status
 
 `status` and `confidence` are written by `project()`, and by nothing else:

@@ -29,7 +29,12 @@ fn candidate_from_row(row: &Value) -> Option<(String, Candidate)> {
             id: id.to_string(),
             label: field("itemLabel").map(str::to_string),
             description: field("itemDescription").map(str::to_string),
-            classes: Vec::new(),
+            // `?class` is present only when the query asked for it (the label rung does); an item
+            // with several classes answers once per class, and `sparql` merges the rows.
+            classes: field("class")
+                .and_then(|class| class.rsplit('/').next())
+                .map(|class| vec![class.to_string()])
+                .unwrap_or_default(),
         },
     ))
 }
@@ -415,8 +420,9 @@ impl Wikidata {
                 continue;
             };
             let entry = grouped.entry(query).or_default();
-            if !entry.iter().any(|existing| existing.id == candidate.id) {
-                entry.push(candidate);
+            match entry.iter_mut().find(|existing| existing.id == candidate.id) {
+                Some(existing) => existing.classes.extend(candidate.classes),
+                None => entry.push(candidate),
             }
         }
 

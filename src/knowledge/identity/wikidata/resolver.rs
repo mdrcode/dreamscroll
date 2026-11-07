@@ -16,6 +16,7 @@ use std::collections::HashSet;
 
 use super::answer;
 use super::policy;
+use super::types;
 use crate::knowledge::identity::{
     Answers, BATCH, Claim, FetchError, Gateway, Kind, Raw, Request, Resolver, Transport,
 };
@@ -70,8 +71,11 @@ impl Wikidata {
     fn shape(kind: &Kind) -> String {
         // Per kind, so a transport change invalidates exactly the answers it changes. `search` moved
         // from `wbsearchentities` to MediaWiki full text, hence its own version.
+        // v3 for `label`: the query now asks for `P31` alongside the label, so an answer fetched
+        // before that is an answer to a different question.
         let version = match kind {
             Kind::Search => "wikidata/v3-search",
+            Kind::Label => "wikidata/v3-label",
             _ => "wikidata/v2",
         };
         format!(
@@ -174,6 +178,15 @@ impl Wikidata {
         candidates.retain(|candidate| !answer::is_menu(candidate));
         if candidates.is_empty() {
             *reason = "the answer carried only a disambiguation page";
+            return Vec::new();
+        }
+        // The right name can still be the wrong kind of thing: `Dogma` the film against the concept,
+        // `Micah` the prophet against the given name. Only recognised classes reject — an unknown
+        // one passes (see `types`), so the table being incomplete cannot lose a candidate.
+        let before = candidates.len();
+        candidates.retain(|candidate| !types::incompatible(&entity.entity_type, &candidate.classes));
+        if before > 0 && candidates.is_empty() {
+            *reason = "every candidate is a different kind of thing";
             return Vec::new();
         }
         // A property match *is* the identity: an item claiming this handle is the account itself.
