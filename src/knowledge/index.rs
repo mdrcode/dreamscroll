@@ -211,6 +211,67 @@ mod tests {
         assert!(after.is_current(), "{after:?}");
     }
 
+    /// A merge tombstones the loser and deletes its row: a tombstone has no surfaces to block on.
+    /// The survivor's row then carries both sides' surfaces, which is how the merged name keeps
+    /// resolving.
+    #[tokio::test]
+    async fn a_merge_drops_the_losers_row_and_widens_the_winners() {
+        db_or_skip!(db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Elon Musk").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Elon").await;
+        let store = crate::knowledge::Knowledge::new(&db);
+        store.update_projection(winner).await.unwrap();
+        store.update_projection(loser).await.unwrap();
+
+        store
+            .merge(loser, winner, crate::knowledge::merge::Cause::Repair)
+            .await
+            .unwrap();
+
+        assert!(
+            model::knowledge_index::Entity::find_by_id(loser)
+                .one(&db.conn)
+                .await
+                .unwrap()
+                .is_none(),
+            "the tombstone keeps no retrieval material"
+        );
+        let survivor = model::knowledge_index::Entity::find_by_id(winner)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("the winner keeps its row");
+        assert!(
+            survivor.surfaces.contains(&"elon".to_string()),
+            "the folded-away name is still reachable: {:?}",
+            survivor.surfaces
+        );
+        assert!(check(&db).await.unwrap().is_current());
+    }
+
+    /// The blocker must not offer a tombstone, even if a stale row somehow survived it.
+    #[tokio::test]
+    async fn a_tombstoned_entity_is_never_offered() {
+        db_or_skip!(db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let store = crate::knowledge::Knowledge::new(&db);
+        store.update_projection(winner).await.unwrap();
+        store.update_projection(loser).await.unwrap();
+        store
+            .merge(loser, winner, crate::knowledge::merge::Cause::Repair)
+            .await
+            .unwrap();
+
+        let offered = crate::knowledge::sql_blocker::candidate_ids(
+            &db,
+            &fixtures::stub_observation(1, "Train Dreams", "book"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(offered, vec![winner], "only the live side is a candidate");
+    }
+
     /// A live entity with no row is reported as missing, which is a different failure from stale.
     #[tokio::test]
     async fn a_live_entity_without_a_row_is_missing() {

@@ -14,15 +14,38 @@ use crate::knowledge::blocker::Blocker;
 use crate::knowledge::normalize;
 use crate::model;
 
+/// Which key generations a probe consults.
+///
+/// `Both` is the shipping behaviour. `Surfaces` exists so the word generation can be A/B'd against
+/// the folded surface alone — it is a weaker claim about identity and has to earn its keep
+/// (plan/backlog.md), not inherit it from parity with the old blocker.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Generations {
+    Both,
+    Surfaces,
+}
+
 /// Reads `knowledge_index` for every candidate.
 #[derive(Clone)]
 pub struct SqlBlocker {
     db: DbHandle,
+    generations: Generations,
 }
 
 impl SqlBlocker {
     pub fn new(db: &DbHandle) -> Self {
-        Self { db: db.clone() }
+        Self {
+            db: db.clone(),
+            generations: Generations::Both,
+        }
+    }
+
+    /// Folded surfaces only: an order-only or leading-article difference does not match.
+    pub fn surfaces_only(db: &DbHandle) -> Self {
+        Self {
+            db: db.clone(),
+            generations: Generations::Surfaces,
+        }
     }
 }
 
@@ -34,6 +57,14 @@ SELECT e.* FROM knowledge_entities e
   JOIN knowledge_index i ON i.knowledge_entity_id = e.id
  WHERE e.merged_into_id IS NULL
    AND (i.surfaces && $1::varchar[] OR i.word_keys && $2::varchar[])
+ ORDER BY e.id";
+
+/// The same, without the word generation.
+const CANDIDATES_SURFACES: &str = "
+SELECT e.* FROM knowledge_entities e
+  JOIN knowledge_index i ON i.knowledge_entity_id = e.id
+ WHERE e.merged_into_id IS NULL
+   AND i.surfaces && $1::varchar[]
  ORDER BY e.id";
 
 #[async_trait::async_trait]
@@ -50,12 +81,21 @@ impl Blocker for SqlBlocker {
         if folded.is_empty() {
             return Vec::new();
         }
-        let words = normalize::word_key(&folded);
+        let (sql, values) = match self.generations {
+            Generations::Both => (
+                CANDIDATES,
+                vec![
+                    sea_orm::Value::from(vec![folded.clone()]),
+                    sea_orm::Value::from(vec![normalize::word_key(&folded)]),
+                ],
+            ),
+            Generations::Surfaces => (CANDIDATES_SURFACES, vec![sea_orm::Value::from(vec![folded])]),
+        };
         match model::knowledge_entity::Entity::find()
             .from_raw_sql(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                CANDIDATES,
-                [vec![folded].into(), vec![words].into()],
+                sql,
+                values,
             ))
             .all(&self.db.conn)
             .await
@@ -89,6 +129,8 @@ mod tests {
     use super::*;
 
     use crate::knowledge::heuristic::NameBlocker;
+    use sea_orm::ConnectionTrait;
+
     use crate::test_support::{db_or_skip, fixtures};
 
     /// The same observation, answered by both blockers. The index has to have been written, which
@@ -128,6 +170,43 @@ mod tests {
 
         let observation = fixtures::stub_observation(1, "Dreams Train", "book");
         assert_eq!(candidate_ids(&db, &observation).await.unwrap(), vec![id]);
+    }
+
+    /// The generation's effect on a *decision*, in the only situation it can have one: an existing
+    /// entity, and a later observation that names it differently. A full rebuild never revisits an
+    /// observation, which is why the corpus A/B shows zero — the difference is incremental.
+    #[tokio::test]
+    async fn the_word_generation_can_change_the_decision() {
+        db_or_skip!(db);
+        let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        // The fixture's member reads as `unknown`, and `worth_merging` wants a score above 0.60:
+        // name 0.9 alone plus a 0.5 type lands at 0.59. Give it a real type so the only difference
+        // between the two arms is the key generation.
+        db.conn
+            .execute_raw(sea_orm::Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "UPDATE user_observed_entities SET entity_type = 'book' WHERE knowledge_entity_id = $1",
+                [id.into()],
+            ))
+            .await
+            .unwrap();
+        crate::knowledge::Knowledge::new(&db).update_projection(id).await.unwrap();
+
+        let scoring = crate::knowledge::heuristic::Heuristic::scoring();
+        let observation = fixtures::stub_observation(1, "Dreams Train", "book");
+
+        let both = SqlBlocker::new(&db).candidates(&observation).await;
+        assert_eq!(
+            scoring.link.rank(&observation, &both).len(),
+            1,
+            "the word generation finds it, so the linker can attach"
+        );
+
+        let surfaces = SqlBlocker::surfaces_only(&db).candidates(&observation).await;
+        assert!(
+            scoring.link.rank(&observation, &surfaces).is_empty(),
+            "without it there is no candidate, and the decision is Create"
+        );
     }
 
     /// An observation whose name folds to nothing asks for nothing; it must not return the corpus.

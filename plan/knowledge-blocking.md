@@ -89,6 +89,12 @@ CREATE TABLE knowledge_index (
 CREATE INDEX ... USING gin (surfaces);
 ```
 
+- **The word generation is measured, not assumed** (2026-11-06). At candidate level it adds two
+  observations across 2,575 (`Bear`, `The Bear`). A full rebuild decides **zero** differently with
+  or without it — a fresh link never revisits an observation. It matters incrementally, which is the
+  live case: an existing `Train Dreams` plus a later `Dreams Train` attaches with it (name 0.9,
+  total 0.64 clears the bar) and creates a duplicate without it. Kept for that, and because parity
+  with the old blocker needs it; `link --surfaces-only` reproduces the without-arm.
 - **Two generations, two columns.** `surfaces` answers "same folded name"; `word_keys` answers
   "same words, any order" — a weaker claim that `Rank` prices at 0.9 rather than 1.0. Merging them
   into one array would still find the candidate, but the blocker could no longer say *which*
