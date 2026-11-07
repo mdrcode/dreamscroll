@@ -77,7 +77,14 @@ impl Blocker for SqlBlocker {
         &self,
         observation: &model::user_observed_entity::Model,
     ) -> Vec<model::knowledge_entity::Model> {
-        let folded = normalize::comparable(&observation.name);
+        self.candidates_for_name(&observation.name).await
+    }
+}
+
+impl SqlBlocker {
+    /// Candidates for a bare surface, so an inspector can ask without inventing an observation.
+    pub async fn candidates_for_name(&self, name: &str) -> Vec<model::knowledge_entity::Model> {
+        let folded = normalize::comparable(name);
         if folded.is_empty() {
             return Vec::new();
         }
@@ -104,7 +111,7 @@ impl Blocker for SqlBlocker {
             Err(error) => {
                 // A blocker has no channel for errors, and an empty set is a decision (create).
                 // Log loudly: silence here looks exactly like "nothing matched".
-                tracing::error!(%error, observation = %observation.name, "sql blocker query failed");
+                tracing::error!(%error, surface = name, "sql blocker query failed");
                 Vec::new()
             }
         }

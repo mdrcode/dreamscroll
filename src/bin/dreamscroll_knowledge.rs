@@ -65,6 +65,15 @@ struct EvalArgs {
 enum EvalCommand {
     Resolve(EvalResolveArgs),
     Blocking(EvalBlockingArgs),
+    Inspect(EvalInspectArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "inspect")]
+#[argh(description = "walk one entity through blocking, ranking and the resolver ladder")]
+struct EvalInspectArgs {
+    #[argh(positional, description = "entity id, or a name that folds to the same surface")]
+    target: String,
 }
 
 #[derive(FromArgs)]
@@ -253,6 +262,78 @@ struct ResolveArgs {
 #[argh(subcommand, name = "stats")]
 #[argh(description = "counts: observations, linked share, entities by status, duplicate rate")]
 struct StatsArgs {}
+
+/// Print one entity's walk through the pipeline.
+fn print_inspection(report: &knowledge::eval::inspect::Report) {
+    let entity = &report.entity;
+    println!(
+        "entity {} · {} [{}] · {}",
+        entity.id, entity.name, entity.entity_type, entity.status
+    );
+    if let Some(description) = &entity.description {
+        println!("  description: {description}");
+    }
+    if let Some(hint) = &entity.search_query {
+        println!("  hint: {hint}");
+    }
+    println!("  surfaces it answers to: {:?}", entity.surfaces().collect::<Vec<_>>());
+
+    println!("\n-- recall (knowledge_index) --");
+    if report.candidates.is_empty() {
+        println!("  no candidates");
+    }
+    for candidate in &report.candidates {
+        let mut via = Vec::new();
+        if candidate.by_surface {
+            via.push("surface");
+        }
+        if candidate.by_words {
+            via.push("words");
+        }
+        let via = if via.is_empty() { "-".to_string() } else { via.join("+") };
+        println!(
+            "  {:>7}  {:<38} [{}] via {via}",
+            candidate.id, candidate.name, candidate.entity_type
+        );
+    }
+
+    println!("\n-- rank (what the linker would attach to) --");
+    if report.ranked.is_empty() {
+        println!("  nothing qualifies → Create");
+    }
+    for (id, name, score) in &report.ranked {
+        println!("  {id:>7}  {name:<38} {score:.3}");
+    }
+
+    println!("\n-- resolve ladder --");
+    for step in &report.steps {
+        let cache = match step.cache {
+            knowledge::eval::inspect::CacheState::Fresh => "cached",
+            knowledge::eval::inspect::CacheState::Expired => "expired → miss",
+            knowledge::eval::inspect::CacheState::Missing => "not asked",
+        };
+        println!("  {:<16} {:?}  [{cache}]", step.kind, step.query);
+        for (id, label, description) in &step.top {
+            println!("      {id:<12} {label:<34} {description}");
+        }
+        match &step.decision {
+            Some((qid, method)) => println!("      → claimed {qid} via {method}"),
+            None => {}
+        }
+    }
+
+    println!("\n-- held now --");
+    match &report.claim {
+        Some(claim) => println!(
+            "  {} {} · source {} · method {}",
+            claim.identity,
+            claim.label.as_deref().unwrap_or("(no label)"),
+            claim.source,
+            claim.method.as_deref().unwrap_or("-")
+        ),
+        None => println!("  no claim"),
+    }
+}
 
 /// `eval resolve`: replay the resolver over the answer cache, with no transport.
 async fn eval_resolve(
@@ -533,6 +614,13 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Eval(args) => match args.command {
             EvalCommand::Resolve(args) => eval_resolve(&db, args).await?,
+            EvalCommand::Inspect(args) => {
+                let report = knowledge::eval::inspect(&db, &args.target).await?;
+                match report {
+                    Some(report) => print_inspection(&report),
+                    None => println!("nothing matches {:?}", args.target),
+                }
+            }
             EvalCommand::Blocking(args) => {
                 let report = knowledge::eval::blocking::replay(&db, args.limit).await?;
                 if args.verbose {
