@@ -52,7 +52,7 @@ pub(super) async fn write<C: ConnectionTrait>(
             entity.id.into(),
             surfaces.into(),
             text.into(),
-            normalize::keys_fingerprint().into(),
+            normalize::norm_fingerprint().into(),
         ],
     ))
     .await?;
@@ -126,7 +126,7 @@ pub async fn check(db: &DbHandle) -> anyhow::Result<Report> {
         indexed: count("SELECT count(*) FROM knowledge_index", vec![]).await? as usize,
         stale: count(
             "SELECT count(*) FROM knowledge_index WHERE built_with <> $1",
-            vec![normalize::keys_fingerprint().into()],
+            vec![normalize::norm_fingerprint().into()],
         )
         .await? as usize,
         missing: count(
@@ -164,7 +164,7 @@ mod tests {
             .unwrap()
             .expect("project must write the index row");
         assert_eq!(row.surfaces, keys(&entity));
-        assert_eq!(row.built_with, normalize::keys_fingerprint());
+        assert_eq!(row.built_with, normalize::norm_fingerprint());
         assert!(row.surfaces.contains(&"train dreams".to_string()));
         assert_eq!(check(&db).await.unwrap(), Report { indexed: 1, stale: 0, missing: 0 });
     }

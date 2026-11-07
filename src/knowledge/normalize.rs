@@ -123,7 +123,7 @@ const PROBE: &[&str] = &[
 /// Any change to the policy moves this on its own, so nothing depends on someone remembering a
 /// version number. FNV-1a rather than `DefaultHasher`, whose output is not specified to be stable
 /// across Rust releases. Computed once per process.
-pub(crate) fn keys_fingerprint() -> &'static str {
+pub(crate) fn norm_fingerprint() -> &'static str {
     static ONCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     ONCE.get_or_init(|| {
         let mut hash = 0xcbf2_9ce4_8422_2325u64;
@@ -133,7 +133,7 @@ pub(crate) fn keys_fingerprint() -> &'static str {
                 hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
             }
         }
-        format!("keys-{hash:016x}")
+        format!("norm-{hash:016x}")
     })
 }
 
@@ -235,8 +235,8 @@ mod tests {
     /// constant *and* rebuild `knowledge_index`. The constant is not load-bearing — `project` stores
     /// whatever the code computes — it exists so the change appears in the diff.
     #[test]
-    fn the_key_pipeline_fingerprint_moves_only_deliberately() {
-        assert_eq!(keys_fingerprint(), "keys-5ba3c5a4965a5043");
+    fn the_normalisation_fingerprint_moves_only_deliberately() {
+        assert_eq!(norm_fingerprint(), "norm-5ba3c5a4965a5043");
     }
 
     #[test]
