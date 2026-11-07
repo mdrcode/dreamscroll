@@ -503,6 +503,32 @@ rather than chased with a longer table. Same-family collisions — two humans, t
 - **A lone exact label is still claimed with no corroboration.** `Choo` → a river is that rule, not
   the type filter: one candidate matched the name exactly and nothing was left to compete with it.
 
+### Sampled again after the rebuild and `P31` — 2026-11-07
+
+Fresh draw (seed `0.20261108`, 100 of 1,871 identified; 18 were capture handles, leaving **82
+judged**): **91.5% correct (75/82), 95% CI [83.4, 95.8]**.
+
+Seven wrong, and every one now has a diagnosis rather than a label:
+
+| entity | claimed | why | what would fix it |
+| --- | --- | --- | --- |
+| `Orthodoxy` (Chesterton) | the *concept* `Q383258` | **no `P31` stored at all** | the lone-exact-label shortcut, below |
+| `Adam Singer` (exec) | `Q110731458`, P31 `Q5` human | a different human | nothing in `P31` — same family |
+| `Revolver` (Beatles album) | a handgun `Q170382` | class `Q124078422` *weapon type* is unrecognised | add a weapon/artifact family |
+| `Liquidation` (2007 series) | corporate concept `Q885621` | class `Q3535173` *organizational life cycle* unrecognised | recognise it as a concept |
+| `MUME` (the MUD) | a Papuan village `Q25906893` | class `Q12488913` *kampung of Papua* unrecognised | recognise it as a place |
+| `The Great Betrayal` (Buchanan) | a book by Naumenko | both written works | nothing in `P31` — same family |
+| `Poetics` (Aristotle) | the discipline `Q835023` | class `Q11862829` *academic discipline* unrecognised | recognise it as a concept |
+
+Five of the seven are table gaps with the class named; two are the structural ceiling. The sample's
+CIs overlap the previous three (83.5 → 92.8 → 92.9 → 91.5), so nothing here establishes a trend in
+either direction — but the *shape* has changed: earlier samples' errors were disambiguation pages and
+concepts, and now every error has a specific rule or a structural reason.
+
+The recurring offender is the **lone-exact-label shortcut**: one candidate whose surface matches
+exactly is claimed at 0.75 with no corroboration. `Choo` → a river and `Orthodoxy` → a concept are
+both it. It is the highest-yield policy change left.
+
 ## Confidence and status
 
 `status` and `confidence` are written by `project()`, and by nothing else:
