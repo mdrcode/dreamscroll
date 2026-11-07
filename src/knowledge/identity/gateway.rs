@@ -20,7 +20,7 @@ const NOT_LIMITED: u64 = u64::MAX;
 /// It is the only door to the world: a resolver cannot fetch, only resolve requests. That is what
 /// lets one own its own strategy — including several passes — without being able to bypass the
 /// cache, the pace or the budget.
-pub struct ResolutionContext<'a> {
+pub struct Gateway<'a> {
     cache: &'a Cache<'a>,
     pacer: tokio::sync::Mutex<Pacer>,
     remaining: tokio::sync::Mutex<usize>,
@@ -33,7 +33,7 @@ pub struct ResolutionContext<'a> {
     rate_limited_after: AtomicU64,
 }
 
-impl<'a> ResolutionContext<'a> {
+impl<'a> Gateway<'a> {
     pub(crate) fn new(cache: &'a Cache<'a>, options: &Options) -> Self {
         Self {
             cache,

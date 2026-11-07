@@ -10,14 +10,14 @@
 //!
 //! `plan` and `parse` are pure, so the whole decision can be tested from a fixture and re-run over
 //! cached payloads for free. Only `fetch` touches the network, and nothing here calls it directly:
-//! it goes through `ResolutionContext::resolve_requests`, which keeps the cache, the pace and the budget.
+//! it goes through `Gateway::resolve_requests`, which keeps the cache, the pace and the budget.
 
 use std::collections::HashSet;
 
 
 use super::answer;
 use crate::knowledge::identity::{
-    Answers, BATCH, Claim, FetchError, Raw, Request, ResolutionContext, Resolver, Transport,
+    Answers, BATCH, Claim, FetchError, Raw, Request, Gateway, Resolver, Transport,
 };
 use crate::model;
 
@@ -196,7 +196,7 @@ impl Wikidata {
         entities: &[model::knowledge_entity::Model],
         plans: &[(usize, Request)],
         answers: &Answers,
-        ctx: &ResolutionContext<'_>,
+        gateway: &Gateway<'_>,
         claims: &mut Vec<(i32, Claim)>,
         resolved: &mut HashSet<i32>,
     ) {
@@ -219,7 +219,7 @@ impl Wikidata {
                 // The answer was not wrong, or at least we cannot show it was — only unhelpful.
                 // Re-ask it sooner than the default week: a stale negative is indistinguishable from
                 // a fact, and a degraded answer looks exactly like a real one.
-                ctx.unproductive(request).await;
+                gateway.unproductive(request).await;
                 continue;
             }
             resolved.insert(entity.id);
@@ -239,7 +239,7 @@ impl Resolver for Wikidata {
     async fn resolve(
         &self,
         entities: &[model::knowledge_entity::Model],
-        ctx: &ResolutionContext<'_>,
+        gateway: &Gateway<'_>,
     ) -> Vec<(i32, Claim)> {
         let mut claims = Vec::new();
         let mut resolved: HashSet<i32> = HashSet::new();
@@ -257,8 +257,8 @@ impl Resolver for Wikidata {
             .iter()
             .map(|(_, request)| request.clone())
             .collect();
-        let answers = ctx.resolve_requests(self, &requests).await;
-        self.collect(entities, &identity, &answers, ctx, &mut claims, &mut resolved)
+        let answers = gateway.resolve_requests(self, &requests).await;
+        self.collect(entities, &identity, &answers, gateway, &mut claims, &mut resolved)
             .await;
 
         // The fallback runs offline too: `resolve_requests` decides what to fetch, so it serves the
@@ -279,8 +279,8 @@ impl Resolver for Wikidata {
             .iter()
             .map(|(_, request)| request.clone())
             .collect();
-        let answers = ctx.resolve_requests(self, &requests).await;
-        self.collect(entities, &fallback, &answers, ctx, &mut claims, &mut resolved)
+        let answers = gateway.resolve_requests(self, &requests).await;
+        self.collect(entities, &fallback, &answers, gateway, &mut claims, &mut resolved)
             .await;
 
         claims
@@ -803,11 +803,11 @@ mod tests {
             min_interval: std::time::Duration::from_millis(0),
             ..Default::default()
         };
-        let ctx = ResolutionContext::new(&cache, &options);
-        let claims = engine().resolve(&entities, &ctx).await;
+        let gateway = Gateway::new(&cache, &options);
+        let claims = engine().resolve(&entities, &gateway).await;
 
         let ids: Vec<(i32, &str)> = claims.iter().map(|(id, claim)| (*id, claim.id.as_str())).collect();
         assert_eq!(ids, vec![(1, "Q2"), (2, "Q892")], "{claims:?}");
-        assert_eq!(ctx.fetched(), 0, "everything was answered from the cache");
+        assert_eq!(gateway.fetched(), 0, "everything was answered from the cache");
     }
 }

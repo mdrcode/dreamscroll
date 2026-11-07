@@ -1,6 +1,6 @@
 //! The engine: it selects candidates, gives each resolver a context, and stores what comes back.
 //!
-//! `ResolutionContext` is the only door to the world. A resolver cannot fetch, only resolve
+//! `Gateway` is the only door to the world. A resolver cannot fetch, only resolve
 //! requests; the context consults the cache first, paces the call and charges the budget.
 
 use std::collections::HashSet;
@@ -9,7 +9,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
 use super::cache::Cache;
 use super::contract::*;
-use super::context::ResolutionContext;
+use super::gateway::Gateway;
 use super::store::store_claim;
 use crate::{database, model};
 
@@ -28,7 +28,7 @@ pub trait Resolver: Send + Sync {
     async fn resolve(
         &self,
         entities: &[model::knowledge_entity::Model],
-        ctx: &ResolutionContext<'_>,
+        gateway: &Gateway<'_>,
     ) -> Vec<(i32, Claim)>;
 }
 
@@ -132,7 +132,7 @@ impl<'a> ResolutionEngine<'a> {
         // that is only replayed is a claim asserted and then withdrawn.
         let vetoes = crate::knowledge::verdicts::vetoed(&knowledge).await?;
         let cache = Cache::new(&self.db.conn);
-        let ctx = ResolutionContext::new(&cache, &self.options);
+        let gateway = Gateway::new(&cache, &self.options);
         let mut report = Report {
             candidates: entities.len(),
             offline: self.options.offline,
@@ -150,12 +150,12 @@ impl<'a> ResolutionEngine<'a> {
         let mut resolved: HashSet<i32> = HashSet::new();
 
         for resolver in &self.resolvers {
-            if ctx.rate_limited_after().is_some() {
+            if gateway.rate_limited_after().is_some() {
                 break;
             }
             // One entity, one identity: the first claim the graph accepts wins, and the rest of that
             // entity's claims are dropped. The resolver's ordering is its own priority.
-            for (knowledge_entity_id, claim) in resolver.resolve(&entities, &ctx).await {
+            for (knowledge_entity_id, claim) in resolver.resolve(&entities, &gateway).await {
                 if resolved.contains(&knowledge_entity_id) {
                     continue;
                 }
@@ -184,7 +184,7 @@ impl<'a> ResolutionEngine<'a> {
         // Resolving stops at evidence. Which holders of an identity are one thing belongs to
         // `proximity scan` and `proximity merge`, which are separate commands run after this one.
         report.entities_resolved = resolved.len();
-        ctx.absorb(&mut report);
+        gateway.absorb(&mut report);
         Ok(report)
     }
 }
@@ -265,7 +265,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use crate::knowledge::identity::cache::Outcome;
-    use crate::knowledge::identity::context::plan_groups;
+    use crate::knowledge::identity::gateway::plan_groups;
     use sea_orm::PaginatorTrait;
     use serde_json::json;
     use std::sync::Arc;
@@ -322,10 +322,10 @@ mod tests {
         async fn resolve(
             &self,
             entities: &[model::knowledge_entity::Model],
-            ctx: &ResolutionContext<'_>,
+            gateway: &Gateway<'_>,
         ) -> Vec<(i32, Claim)> {
             let requests: Vec<Request> = entities.iter().map(fake_request).collect();
-            let answers = ctx.resolve_requests(self, &requests).await;
+            let answers = gateway.resolve_requests(self, &requests).await;
             entities
                 .iter()
                 .filter_map(|entity| {
@@ -583,10 +583,10 @@ mod tests {
         async fn resolve(
             &self,
             entities: &[model::knowledge_entity::Model],
-            ctx: &ResolutionContext<'_>,
+            gateway: &Gateway<'_>,
         ) -> Vec<(i32, Claim)> {
             let requests: Vec<Request> = entities.iter().map(fake_request).collect();
-            ctx.resolve_requests(self, &requests).await;
+            gateway.resolve_requests(self, &requests).await;
             Vec::new()
         }
     }
@@ -615,7 +615,7 @@ mod tests {
         async fn resolve(
             &self,
             entities: &[model::knowledge_entity::Model],
-            ctx: &ResolutionContext<'_>,
+            gateway: &Gateway<'_>,
         ) -> Vec<(i32, Claim)> {
             let requests: Vec<Request> = entities
                 .iter()
@@ -626,7 +626,7 @@ mod tests {
                     query: entity.name.clone(),
                 })
                 .collect();
-            let answers = ctx.resolve_requests(self, &requests).await;
+            let answers = gateway.resolve_requests(self, &requests).await;
             entities
                 .iter()
                 .filter_map(|entity| {
@@ -916,14 +916,14 @@ mod tests {
             min_interval: std::time::Duration::from_millis(0),
             ..Default::default()
         };
-        let ctx = ResolutionContext::new(&cache, &options);
+        let gateway = Gateway::new(&cache, &options);
 
-        ctx.resolve_requests(&Limited, &[request("label", "v1", "Train Dreams")])
+        gateway.resolve_requests(&Limited, &[request("label", "v1", "Train Dreams")])
             .await;
 
-        assert!(ctx.budget_exhausted(), "the refusal is recorded");
+        assert!(gateway.budget_exhausted(), "the refusal is recorded");
         assert_eq!(
-            ctx.fetched(),
+            gateway.fetched(),
             0,
             "and no transport call was made"
         );
