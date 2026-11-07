@@ -13,10 +13,29 @@ use std::cmp::Ordering;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 
-use super::evidence::{Basis, Evidence};
+use super::evidence::Evidence;
 use super::merge::{Cause, Outcome};
 use super::scoring::TotalCmp;
 use super::Knowledge;
+
+/// Why a proximity was raised.
+///
+/// A named type rather than a string at the call sites: the value is stored, compared, and will grow a
+/// second case (entities that look alike without sharing an identity), so a typo should not become a
+/// third basis that every query silently misses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Basis {
+    /// Two entities hold the same identity.
+    SharedId,
+}
+
+impl Basis {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::SharedId => "shared_id",
+        }
+    }
+}
 
 /// What one merge did.
 #[derive(Debug, Default, PartialEq, Eq)]

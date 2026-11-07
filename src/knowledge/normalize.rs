@@ -11,8 +11,8 @@
 //! The token pipeline above it — words, then a word-order-insensitive blocking key — is a guess
 //! about what might be the same thing, so it lives with the heuristic.
 //!
-//! Nothing here knows what a platform is. A platform presence has its own key, on the claim that
-//! answers for it: [`crate::knowledge::evidence::Claim::key`].
+//! Nothing here knows what a platform is. A platform presence is a `(scheme, handle)` pair on
+//! [`crate::knowledge::evidence::PlatformLink`], and both halves are folded here like any surface.
 //!
 //! Used for grouping and lookup only. The captured surface is never rewritten; `comparable` answers
 //! "would a user call these the same string" and nothing more. Inner punctuation is preserved on

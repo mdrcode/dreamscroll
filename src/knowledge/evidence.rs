@@ -2,8 +2,11 @@
 //!
 //! - a [`DraftIdentity`] is a row of `knowledge_identities` before it has an id: the thing the world
 //!   names, `(scheme, external_id)`, plus whoever answered.
-//! - a [`Claim`] is an entity's assertion of it — the edge of the many-to-many, carrying what the
-//!   question was about ([`ClaimBasis`]) and which capture asked.
+//! - a [`PlatformLink`] is a platform presence as a capture showed it — `(scheme, handle)`, both
+//!   folded — before anything knows whether an entity holds it.
+//! - a *claim* is an entity's assertion of an identity — the edge of the many-to-many, carrying what
+//!   the question was about ([`ClaimBasis`]) and which capture asked. [`Evidence::record`] writes the
+//!   capture's; `identity::store` writes a provider's.
 //!
 //! An identity may have several holders: one Wikidata item can name an album and cover its songs.
 //! This module reports them and leaves "are these one thing?" to `proximity`.
@@ -18,14 +21,14 @@ use crate::model;
 
 /// A platform link, as the capture showed it. `link` transcribes it; nothing infers anything here.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Claim {
+pub struct PlatformLink {
     /// The platform, canonicalised by the illumination lib: `x_twitter`, `reddit`, …
     pub scheme: String,
     /// The identifier in its comparable form, so two spellings agree.
     pub external_id: String,
 }
 
-impl Claim {
+impl PlatformLink {
     /// The claim an observation carries, if it carries one. Permissive: an unmapped platform still
     /// yields a claim, because the capture asserted it.
     pub fn of(observation: &model::user_observed_entity::Model) -> Option<Self> {
@@ -35,17 +38,6 @@ impl Claim {
             scheme: normalize::comparable(platform),
             external_id: normalize::comparable(handle),
         })
-    }
-
-    /// The key a platform presence answers to: `scheme:handle`, both halves in comparable form. One
-    /// function for the two callers — the identity index and the blocker's key — because when they
-    /// folded the halves differently, a handle was held by one entity and blocked under another.
-    pub fn key(platform: &str, handle: &str) -> String {
-        format!(
-            "{}:{}",
-            normalize::comparable(platform),
-            normalize::comparable(handle)
-        )
     }
 
     pub fn identity(&self) -> String {
@@ -74,10 +66,10 @@ pub struct DraftIdentity {
 
 impl DraftIdentity {
     /// An identity known only from a capture: the handle, and nothing about it.
-    pub fn from_capture(claim: &Claim) -> Self {
+    pub fn from_capture(link: &PlatformLink) -> Self {
         Self {
-            scheme: claim.scheme.clone(),
-            external_id: claim.external_id.clone(),
+            scheme: link.scheme.clone(),
+            external_id: link.external_id.clone(),
             source: "platform".to_string(),
             method: Some("capture".to_string()),
             confidence: None,
@@ -117,25 +109,6 @@ impl ClaimBasis {
             Self::Handle
         } else {
             Self::Text
-        }
-    }
-}
-
-/// Why a proximity was raised.
-///
-/// A named type rather than a string at the call sites: the value is stored, compared, and will grow a
-/// second case (entities that look alike without sharing an identity), so a typo should not become a
-/// third basis that every query silently misses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Basis {
-    /// Two entities hold the same identity.
-    SharedId,
-}
-
-impl Basis {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::SharedId => "shared_id",
         }
     }
 }
@@ -216,29 +189,29 @@ impl Evidence {
     ) -> anyhow::Result<()> {
         let mut seen: HashSet<String> = HashSet::new();
         for observation in observations {
-            let Some(claim) = Claim::of(observation) else {
+            let Some(link) = PlatformLink::of(observation) else {
                 continue;
             };
             // Two observations asserting one handle are one identity; the second upsert would be the
             // row the first just wrote.
-            if !seen.insert(claim.identity()) {
+            if !seen.insert(link.identity()) {
                 continue;
             }
-            self.upsert_identity(&DraftIdentity::from_capture(&claim)).await?;
+            self.upsert_identity(&DraftIdentity::from_capture(&link)).await?;
         }
         Ok(())
     }
 
     /// The identity this claim cites, if a row exists. Reads only; importing is the caller's job.
-    async fn identity_id(&self, claim: &Claim) -> anyhow::Result<Option<i32>> {
+    async fn identity_id(&self, link: &PlatformLink) -> anyhow::Result<Option<i32>> {
         let row = self
             .conn
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT id FROM knowledge_identities WHERE scheme = $1 AND external_id = $2",
                 [
-                    claim.scheme.clone().into(),
-                    claim.external_id.clone().into(),
+                    link.scheme.clone().into(),
+                    link.external_id.clone().into(),
                 ],
             ))
             .await?;
@@ -253,7 +226,7 @@ impl Evidence {
         &self,
         observation: &model::user_observed_entity::Model,
     ) -> anyhow::Result<Option<i32>> {
-        match Claim::of(observation) {
+        match PlatformLink::of(observation) {
             Some(claim) => self.identity_id(&claim).await,
             None => Ok(None),
         }
