@@ -89,6 +89,11 @@ pub struct Report {
     pub offline: bool,
 }
 
+/// The harness: it holds the resolvers, gives them a context, and stores what they return.
+///
+/// It knows nothing about stages, tiers or ladders. A resolver that wants two passes takes them; the
+/// engine only orders resolvers and merges their claims.
+
 pub struct ResolutionEngine<'a> {
     db: &'a database::DbHandle,
     options: Options,
@@ -325,6 +330,7 @@ mod tests {
                 .iter()
                 .filter_map(|entity| {
                     let raw = answers.get(&(
+                        "fake".to_string(),
                         "label".to_string(),
                         "v1".to_string(),
                         entity.name.clone(),
@@ -625,6 +631,7 @@ mod tests {
                 .iter()
                 .filter_map(|entity| {
                     let raw = answers.get(&(
+                        "flaky".to_string(),
                         "label".to_string(),
                         "v1".to_string(),
                         entity.name.clone(),

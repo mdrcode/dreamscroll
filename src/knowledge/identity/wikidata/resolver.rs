@@ -206,6 +206,7 @@ impl Wikidata {
                 continue;
             }
             let key = (
+                request.provider.to_string(),
                 request.kind.clone(),
                 request.shape.clone(),
                 request.query.clone(),

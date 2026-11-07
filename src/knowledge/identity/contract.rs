@@ -35,9 +35,12 @@ pub struct Raw {
     pub payload: Option<Value>,
 }
 
-/// Answers keyed by `(kind, shape, query)`. `title` and `label` ask about the same string and the
-/// answers are different things, so the kind has to be in the key.
-pub type Answers = HashMap<(String, String, String), Raw>;
+/// Answers keyed by `(provider, kind, shape, query)`.
+///
+/// Every part earns its place: `title` and `label` ask about the same string and the answers are
+/// different things; and two authorities can ask the *same* kind and query, so a map without the
+/// provider would let one resolver overwrite another's answer before it was read.
+pub type Answers = HashMap<(String, String, String, String), Raw>;
 
 /// One identity a provider is willing to assert about an entity.
 #[derive(Debug, Clone, PartialEq)]

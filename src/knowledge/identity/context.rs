@@ -118,14 +118,19 @@ impl<'a> ResolutionContext<'a> {
         let hits = match self.cache.get_many(provider, kind, shape, &queries).await {
             Ok(hits) => hits,
             Err(error) => {
-                tracing::warn!(%error, "could not read the cache");
-                return Vec::new();
+                // A cache is an optimisation, not a source of truth. Returning "no misses" here
+                // dropped the group's whole planned set on the floor: the run reported zero claims
+                // and nothing said why. Treat an unreadable cache as an empty one and let the
+                // provider answer; the write after the fetch will log its own failure if it is
+                // still broken.
+                tracing::warn!(%error, "could not read the cache; treating the group as uncached");
+                return queries;
             }
         };
         self.cache_hits.fetch_add(hits.len(), Ordering::Relaxed);
         for (query, answer) in hits {
             answers.insert(
-                (kind.to_string(), shape.to_string(), query),
+                (provider.to_string(), kind.to_string(), shape.to_string(), query),
                 Raw {
                     outcome: answer.outcome,
                     payload: answer.payload,
@@ -135,7 +140,12 @@ impl<'a> ResolutionContext<'a> {
         queries
             .into_iter()
             .filter(|query| {
-                !answers.contains_key(&(kind.to_string(), shape.to_string(), query.clone()))
+                !answers.contains_key(&(
+                    provider.to_string(),
+                    kind.to_string(),
+                    shape.to_string(),
+                    query.clone(),
+                ))
             })
             .collect()
     }
@@ -186,7 +196,15 @@ impl<'a> ResolutionContext<'a> {
                         {
                             tracing::warn!(%error, "could not write the cache");
                         }
-                        answers.insert((kind.to_string(), shape.to_string(), query), raw);
+                        answers.insert(
+                            (
+                                provider.to_string(),
+                                kind.to_string(),
+                                shape.to_string(),
+                                query,
+                            ),
+                            raw,
+                        );
                     }
                 }
                 Err(FetchError::RateLimited { retry_after_secs }) => {
@@ -217,7 +235,12 @@ impl<'a> ResolutionContext<'a> {
                             tracing::warn!(%error, "could not write the cache");
                         }
                         answers.insert(
-                            (kind.to_string(), shape.to_string(), query.clone()),
+                            (
+                                provider.to_string(),
+                                kind.to_string(),
+                                shape.to_string(),
+                                query.clone(),
+                            ),
                             Raw {
                                 outcome: Outcome::Failed,
                                 payload: None,
@@ -258,11 +281,6 @@ impl<'a> ResolutionContext<'a> {
         report.rate_limited_after = self.rate_limited_after();
     }
 }
-
-/// The harness: it holds the resolvers, gives them a context, and stores what they return.
-///
-/// It knows nothing about stages, tiers or ladders. A resolver that wants two passes takes them; the
-/// engine only orders resolvers and merges their claims.
 
 /// Group planned requests by what a provider can answer in one call, deduped.
 ///
