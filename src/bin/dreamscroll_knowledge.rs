@@ -64,6 +64,7 @@ struct EvalArgs {
 #[argh(subcommand)]
 enum EvalCommand {
     Resolve(EvalResolveArgs),
+    Blocking(EvalBlockingArgs),
 }
 
 #[derive(FromArgs)]
@@ -75,6 +76,18 @@ struct EvalResolveArgs {
     verbose: bool,
     #[argh(option)]
     #[argh(description = "consider at most this many entities")]
+    limit: Option<usize>,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "blocking")]
+#[argh(description = "compare the SQL blocker with the in-memory one across the corpus")]
+struct EvalBlockingArgs {
+    #[argh(switch)]
+    #[argh(description = "list the observations only the word generation found")]
+    verbose: bool,
+    #[argh(option)]
+    #[argh(description = "consider at most this many observations")]
     limit: Option<usize>,
 }
 
@@ -509,6 +522,23 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Eval(args) => match args.command {
             EvalCommand::Resolve(args) => eval_resolve(&db, args).await?,
+            EvalCommand::Blocking(args) => {
+                let report = knowledge::eval::blocking::replay(&db, args.limit).await?;
+                if args.verbose {
+                    for name in &report.examples {
+                        println!("  word-only  {name}");
+                    }
+                    println!();
+                }
+                println!(
+                    "observations {} · oracle pairs {} · sql pairs {}",
+                    report.observations, report.oracle_pairs, report.sql_pairs
+                );
+                println!(
+                    "missing {} · extra {} · surface hits {} · word only {}",
+                    report.missing, report.extra, report.surface_hits, report.word_only
+                );
+            }
         },
         Command::Identity(args) => match args.command {
             IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,

@@ -1143,7 +1143,7 @@ mod tests {
             outcome: Outcome::Found,
             payload: Some(json!({"claim": "Q42"})),
         };
-        let report = ResolutionEngine::new(&db, Options::default())
+        ResolutionEngine::new(&db, Options::default())
             .with(Box::new(Fake {
                 answers: HashMap::from([("Train Dreams".to_string(), claim)]),
                 calls: Arc::new(AtomicUsize::new(0)),

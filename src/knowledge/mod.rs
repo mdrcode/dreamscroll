@@ -25,6 +25,7 @@ pub mod normalize;
 pub mod resolve;
 pub mod scoring;
 pub mod snapshot;
+pub mod sql_blocker;
 
 mod link;
 mod project;
