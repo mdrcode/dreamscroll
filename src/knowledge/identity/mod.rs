@@ -7,7 +7,9 @@
 //! the cache, because there is no other door.
 
 pub mod cache;
+pub mod contract;
 pub mod driver;
 pub mod wikidata;
 
+pub use contract::*;
 pub use driver::*;
