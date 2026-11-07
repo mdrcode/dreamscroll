@@ -98,12 +98,14 @@ CREATE INDEX ... USING gin (surfaces);
   its question, and carrying it meant a second SQL string and a second code path in the blocker.
 - **The handle is a key, not just a column** (2026-11-07). `entity.surfaces()` is name + alt_names,
   and `project` gathers a member's `platform_handle` into those alternatives — so `knowledge_index`
-  already answered a handle probe, and neither blocker ever asked. A capture can name one account by
-  display name in one reading and by handle in another: the graph holds `Andra` (handle
-  `BioavailableNd`) and `@bioavailablend` as two `identified` entities, and no proximity can see it,
-  because the pair shares no identity. Both blockers now probe name *and* handle. Measured: 380 of
-  2,663 observations carry a handle, **3** would have matched an existing entity by it, and
-  `eval blocking` parity is unchanged at 2,706 pairs (0 missing, 0 extra).
+  already answered a handle probe, and neither blocker ever asked. Both now probe name *and* handle.
+  Measured: 380 of 2,663 observations carry a handle, **3** find an existing entity by it that the
+  name probe misses, and `eval blocking` parity is unchanged at 2,706 pairs (0 missing, 0 extra).
+  What that buys is *recall only* — the decider still decides, and on the one visible case it
+  declines: `Andra` (`real_person`, `x_twitter:bioavailablend`) and `@bioavailablend`
+  (`social_media_account`, `instagram:bioavailablend`) share a handle and a subject, differ in type,
+  and stay two entities. Whether a person and their account *should* be one entity is a question
+  about the graph's vocabulary; blocking cannot answer it.
 - **Two generations, two columns.** `surfaces` answers "same folded name"; `word_keys` answers
   "same words, any order" — a weaker claim that `Rank` prices at 0.9 rather than 1.0. Merging them
   into one array would still find the candidate, but the blocker could no longer say *which*

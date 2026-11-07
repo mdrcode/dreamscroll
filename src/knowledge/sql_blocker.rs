@@ -46,10 +46,14 @@ const OVERLAP_WORDS: &str = "\"knowledge_index\".\"word_keys\" && $1::varchar[]"
 impl Blocker for SqlBlocker {
     /// Candidates for one observation, ordered by id so ties break exactly as they do in memory.
     ///
-    /// A capture can name the same account two ways — a display name in one reading, the handle in
-    /// another — and the entity side stores both, so the probe asks for both. Without the handle,
-    /// `Andra` and `@bioavailablend` were two entities of one account, and no proximity could see it:
-    /// that pair shares no identity.
+    /// A capture can name the same thing two ways — a display name in one reading, the handle in
+    /// another — and the entity side stores both, so the probe asks for both. Measured 2026-11-07:
+    /// 380 of 2,663 observations carry a handle and **3** find an entity by it that the name misses.
+    ///
+    /// Recall, not a decision: the decider still decides. `Andra` (`real_person`,
+    /// `x_twitter:bioavailablend`) and `@bioavailablend` (`social_media_account`,
+    /// `instagram:bioavailablend`) are now offered to each other and stay two entities — the pair
+    /// differs in *type*, which is a question about the graph's vocabulary, not about blocking.
     async fn candidates(
         &self,
         observation: &model::user_observed_entity::Model,
