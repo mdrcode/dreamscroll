@@ -13,4 +13,4 @@ pub mod inspect;
 pub mod resolve;
 
 pub use inspect::inspect;
-pub use resolve::{replay, Claimed, Report};
+pub use resolve::{Claimed, Report, replay};

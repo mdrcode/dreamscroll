@@ -7,14 +7,14 @@
 //! the cache, because there is no other door.
 
 pub mod cache;
-pub mod gateway;
 pub mod contract;
 pub mod engine;
+pub mod gateway;
 pub mod store;
 pub mod wikidata;
 
-pub use gateway::Gateway;
 pub use contract::{Answers, Claim, FetchError, Kind, Raw, Request, Transport};
-pub use engine::{Options, Report, ResolutionEngine, Resolver, DEFAULT_MAX_REQUESTS};
+pub use engine::{DEFAULT_MAX_REQUESTS, Options, Report, ResolutionEngine, Resolver};
+pub use gateway::Gateway;
 
 pub(crate) use contract::BATCH;

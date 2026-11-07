@@ -14,11 +14,10 @@
 
 use std::collections::HashSet;
 
-
 use super::answer;
 use super::policy;
 use crate::knowledge::identity::{
-    Answers, Gateway, Kind, Resolver, Transport, BATCH, Claim, FetchError, Raw, Request,
+    Answers, BATCH, Claim, FetchError, Gateway, Kind, Raw, Request, Resolver, Transport,
 };
 use crate::model;
 
@@ -181,7 +180,9 @@ impl Wikidata {
         // A property match *is* the identity: an item claiming this handle is the account itself.
         if let Some(property) = request.kind.property() {
             match candidates.first() {
-                Some(candidate) => return vec![answer::handle_claim(candidate, property, HANDLE_CONFIDENCE)],
+                Some(candidate) => {
+                    return vec![answer::handle_claim(candidate, property, HANDLE_CONFIDENCE)];
+                }
                 None => {
                     *reason = "the handle answer carried no item";
                     return Vec::new();
@@ -266,8 +267,15 @@ impl Resolver for Wikidata {
             .map(|(_, request)| request.clone())
             .collect();
         let answers = gateway.resolve_requests(self, &requests).await;
-        self.collect(entities, &identity, &answers, gateway, &mut claims, &mut resolved)
-            .await;
+        self.collect(
+            entities,
+            &identity,
+            &answers,
+            gateway,
+            &mut claims,
+            &mut resolved,
+        )
+        .await;
 
         // The fallback runs offline too: `resolve_requests` decides what to fetch, so it serves the
         // cached search answers and silently fetches nothing. Skipping it here threw those answers
@@ -288,8 +296,15 @@ impl Resolver for Wikidata {
             .map(|(_, request)| request.clone())
             .collect();
         let answers = gateway.resolve_requests(self, &requests).await;
-        self.collect(entities, &fallback, &answers, gateway, &mut claims, &mut resolved)
-            .await;
+        self.collect(
+            entities,
+            &fallback,
+            &answers,
+            gateway,
+            &mut claims,
+            &mut resolved,
+        )
+        .await;
 
         claims
     }
@@ -327,10 +342,10 @@ impl Transport for Wikidata {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, Value};
-    use crate::knowledge::identity::cache::Outcome;
     use super::*;
+    use crate::knowledge::identity::cache::Outcome;
     use crate::test_support::db_or_skip;
+    use serde_json::{Value, json};
 
     fn request(kind: Kind, query: &str) -> Request {
         Request {
@@ -374,11 +389,17 @@ mod tests {
             })),
         };
         let claims = engine().parse(
-            &entity("The Bounty Hunter Wars", Some("a trilogy of Star Wars novels")),
+            &entity(
+                "The Bounty Hunter Wars",
+                Some("a trilogy of Star Wars novels"),
+            ),
             &request(Kind::Title, "The Bounty Hunter Wars"),
             &raw,
         );
-        assert!(claims.is_empty(), "a redirect is not an identity: {claims:?}");
+        assert!(
+            claims.is_empty(),
+            "a redirect is not an identity: {claims:?}"
+        );
 
         // …while a title whose label is our name still claims.
         let ok = Raw {
@@ -392,7 +413,10 @@ mod tests {
             })),
         };
         let claims = engine().parse(
-            &entity("The Bounty Hunter Wars", Some("a trilogy of Star Wars novels")),
+            &entity(
+                "The Bounty Hunter Wars",
+                Some("a trilogy of Star Wars novels"),
+            ),
             &request(Kind::Title, "The Bounty Hunter Wars"),
             &ok,
         );
@@ -434,7 +458,11 @@ mod tests {
         assert_eq!(claims[0].method, "exact_label");
         // A unique exact label is identity even with nothing to corroborate it — but it does not
         // reach the confidence a description-backed claim gets.
-        assert!((claims[0].confidence - 0.75).abs() < 1e-6, "{:?}", claims[0]);
+        assert!(
+            (claims[0].confidence - 0.75).abs() < 1e-6,
+            "{:?}",
+            claims[0]
+        );
     }
 
     #[test]
@@ -592,7 +620,8 @@ mod tests {
 
     #[test]
     fn planning_prefers_the_handle_then_a_title_then_the_label() {
-        let mut entity = crate::test_support::fixtures::stub_entity(1, "Alexey Kutepov", "real_person");
+        let mut entity =
+            crate::test_support::fixtures::stub_entity(1, "Alexey Kutepov", "real_person");
         entity.search_query = Some("Tsoding".to_string());
         entity.platform = Some("x_twitter".to_string());
         entity.platform_handle = Some("tsoding".to_string());
@@ -657,7 +686,11 @@ mod tests {
                 "the United Kingdom's naval warfare force",
                 "Royal Navy fleet aircraft carrier fleet",
             ),
-            ("Clawdbot", "an open-source personal AI agent harness", "Clawdbot Pro"),
+            (
+                "Clawdbot",
+                "an open-source personal AI agent harness",
+                "Clawdbot Pro",
+            ),
         ] {
             let claims = engine().parse(
                 &entity(name, Some(description)),
@@ -727,7 +760,10 @@ mod tests {
     #[test]
     fn a_menu_with_no_classes_is_refused_by_its_description() {
         let claims = engine().parse(
-            &entity("Rogue Heroes", Some("British historical drama television series")),
+            &entity(
+                "Rogue Heroes",
+                Some("British historical drama television series"),
+            ),
             &request(Kind::Label, "Rogue Heroes"),
             &found(json!([{
                 "id": "Q115697563",
@@ -751,8 +787,8 @@ mod tests {
     /// entity the first pass left unresolved.
     #[tokio::test]
     async fn resolve_prefers_a_title_and_searches_only_what_is_left() {
-        use crate::knowledge::identity::cache::{Answer, Cache};
         use crate::knowledge::identity::Options;
+        use crate::knowledge::identity::cache::{Answer, Cache};
 
         db_or_skip!(db);
         let cache = Cache::new(&db.conn);
@@ -790,20 +826,23 @@ mod tests {
             seed(Kind::Search, "J.R.R. Tolkien", by_search),
         ] {
             cache
-                .put("wikidata", &kind.to_key(), &Wikidata::shape(&kind), &query, &answer)
+                .put(
+                    "wikidata",
+                    &kind.to_key(),
+                    &Wikidata::shape(&kind),
+                    &query,
+                    &answer,
+                )
                 .await
                 .unwrap();
         }
 
-        let entities = vec![
-            entity("Train Dreams", Some("novella by Denis Johnson")),
-            {
-                let mut second = entity("J.R.R. Tolkien", None);
-                second.id = 2;
-                second.description = Some("English author, philologist, and academic".to_string());
-                second
-            },
-        ];
+        let entities = vec![entity("Train Dreams", Some("novella by Denis Johnson")), {
+            let mut second = entity("J.R.R. Tolkien", None);
+            second.id = 2;
+            second.description = Some("English author, philologist, and academic".to_string());
+            second
+        }];
 
         let options = Options {
             min_interval: std::time::Duration::from_millis(0),
@@ -812,8 +851,15 @@ mod tests {
         let gateway = Gateway::new(&cache, &options);
         let claims = engine().resolve(&entities, &gateway).await;
 
-        let ids: Vec<(i32, &str)> = claims.iter().map(|(id, claim)| (*id, claim.id.as_str())).collect();
+        let ids: Vec<(i32, &str)> = claims
+            .iter()
+            .map(|(id, claim)| (*id, claim.id.as_str()))
+            .collect();
         assert_eq!(ids, vec![(1, "Q2"), (2, "Q892")], "{claims:?}");
-        assert_eq!(gateway.fetched(), 0, "everything was answered from the cache");
+        assert_eq!(
+            gateway.fetched(),
+            0,
+            "everything was answered from the cache"
+        );
     }
 }

@@ -61,4 +61,3 @@ pub(crate) async fn store_claim(
         },
     }
 }
-

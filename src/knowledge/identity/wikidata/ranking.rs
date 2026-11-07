@@ -47,7 +47,9 @@ fn edit_distance(a: &str, b: &str) -> usize {
         current[0] = i + 1;
         for (j, cb) in b.iter().enumerate() {
             let cost = usize::from(ca != cb);
-            current[j + 1] = (previous[j] + cost).min(previous[j + 1] + 1).min(current[j] + 1);
+            current[j + 1] = (previous[j] + cost)
+                .min(previous[j + 1] + 1)
+                .min(current[j] + 1);
         }
         std::mem::swap(&mut previous, &mut current);
     }
@@ -126,7 +128,10 @@ pub(super) struct Ranked<'a> {
 /// `Sunset Boulevard (musical film adaptation)` above the 1950 film, because that candidate's
 /// description literally contains the hint's words. A hint drawn from what we saw is not independent
 /// evidence about which candidate we meant.
-pub(super) fn rank<'a>(entity: &model::knowledge_entity::Model, candidates: &'a [Candidate]) -> Vec<Ranked<'a>> {
+pub(super) fn rank<'a>(
+    entity: &model::knowledge_entity::Model,
+    candidates: &'a [Candidate],
+) -> Vec<Ranked<'a>> {
     let ours = our_tokens(entity);
     let weights = Weights::over(candidates);
 
@@ -172,7 +177,8 @@ pub(super) fn hint_tokens(entity: &model::knowledge_entity::Model) -> Option<Vec
     if raw.is_empty() || same_surface(raw, &entity.name) {
         return None;
     }
-    let named: std::collections::BTreeSet<String> = content_tokens(&entity.name).into_iter().collect();
+    let named: std::collections::BTreeSet<String> =
+        content_tokens(&entity.name).into_iter().collect();
     let hint: Vec<String> = content_tokens(raw)
         .into_iter()
         .filter(|token| !named.contains(token))
@@ -214,7 +220,11 @@ pub(super) fn content_tokens(text: &str) -> Vec<String> {
 /// words can be coincidence — our description and a *statue's* both contain `united` and `states`.
 fn grams(tokens: &[String]) -> Vec<String> {
     let mut grams = tokens.to_vec();
-    grams.extend(tokens.windows(2).map(|pair| format!("{} {}", pair[0], pair[1])));
+    grams.extend(
+        tokens
+            .windows(2)
+            .map(|pair| format!("{} {}", pair[0], pair[1])),
+    );
     grams
 }
 
@@ -256,7 +266,10 @@ impl Weights {
         let mut frequency = std::collections::BTreeMap::new();
         for candidate in candidates {
             let tokens = content_tokens(candidate.description.as_deref().unwrap_or_default());
-            for gram in grams(&tokens).into_iter().collect::<std::collections::BTreeSet<_>>() {
+            for gram in grams(&tokens)
+                .into_iter()
+                .collect::<std::collections::BTreeSet<_>>()
+            {
                 *frequency.entry(gram).or_insert(0) += 1;
             }
         }
@@ -300,7 +313,12 @@ impl Weights {
         // (`village`, `united`) still says nothing.
         let terse_and_rare = terse
             && matched.len() == 1
-            && self.frequency.get(matched[0].as_str()).copied().unwrap_or(0) <= 1;
+            && self
+                .frequency
+                .get(matched[0].as_str())
+                .copied()
+                .unwrap_or(0)
+                <= 1;
         if matched.len() < 2 && !terse_and_rare {
             return 0.0;
         }
@@ -334,8 +352,14 @@ mod tests {
     fn a_term_present_in_every_candidate_is_worth_the_minimum() {
         let weights = weights(&["publisher"]);
         assert_eq!(weights.of("publisher"), 1.0);
-        let fit = weights.fit(&content_tokens("publisher"), &content_tokens("Spanish publisher"));
-        assert!(fit >= FIT_FLOOR, "one terse shared word must clear the floor, got {fit}");
+        let fit = weights.fit(
+            &content_tokens("publisher"),
+            &content_tokens("Spanish publisher"),
+        );
+        assert!(
+            fit >= FIT_FLOOR,
+            "one terse shared word must clear the floor, got {fit}"
+        );
     }
 
     /// `grams` turns three tokens into five, so the terse test used to read the gram count and
@@ -345,8 +369,15 @@ mod tests {
         let weights = weights(&["video game from 1992"]);
         let theirs = content_tokens("video game from 1992");
         let ours = content_tokens("a classic text-based role-playing game founded in 1991");
-        assert_eq!(theirs.len(), 3, "the fixture is the point: three content tokens");
-        assert!(weights.fit(&theirs, &ours) >= FIT_FLOOR, "a three-word description is terse");
+        assert_eq!(
+            theirs.len(),
+            3,
+            "the fixture is the point: three content tokens"
+        );
+        assert!(
+            weights.fit(&theirs, &ours) >= FIT_FLOOR,
+            "a three-word description is terse"
+        );
     }
 
     /// The two-token minimum is what rejects most weak matches, and it is still two tokens: one

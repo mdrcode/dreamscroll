@@ -141,7 +141,9 @@ impl<'a> Gateway<'a> {
         self.counters.plan(requests.len());
 
         for ((provider, kind, shape), queries) in plan_groups(requests) {
-            let misses = self.cached(provider, &kind, &shape, queries, &mut answers).await;
+            let misses = self
+                .cached(provider, &kind, &shape, queries, &mut answers)
+                .await;
             if misses.is_empty() || self.offline {
                 continue;
             }
@@ -166,7 +168,11 @@ impl<'a> Gateway<'a> {
         queries: Vec<String>,
         answers: &mut Answers,
     ) -> Vec<String> {
-        let hits = match self.cache.get_many(provider, &kind.to_key(), shape, &queries).await {
+        let hits = match self
+            .cache
+            .get_many(provider, &kind.to_key(), shape, &queries)
+            .await
+        {
             Ok(hits) => hits,
             Err(error) => {
                 // A cache is an optimisation, not a source of truth. Returning "no misses" here
@@ -248,12 +254,7 @@ impl<'a> Gateway<'a> {
                             tracing::warn!(%error, "could not write the cache");
                         }
                         answers.insert(
-                            (
-                                provider.to_string(),
-                                kind.clone(),
-                                shape.to_string(),
-                                query,
-                            ),
+                            (provider.to_string(), kind.clone(), shape.to_string(), query),
                             raw,
                         );
                     }
@@ -322,7 +323,6 @@ impl<'a> Gateway<'a> {
             tracing::warn!(%error, query = %request.query, "could not shorten an unproductive answer");
         }
     }
-
 }
 
 /// Group planned requests by what a provider can answer in one call, deduped.
@@ -330,7 +330,9 @@ impl<'a> Gateway<'a> {
 /// Keyed by `(provider, kind, shape)`, not by query: `title` and `label` ask about the same string and
 /// the answers are different things. Keyed by query alone, the label group shadowed the title group
 /// and the title requests were never sent.
-pub(crate) fn plan_groups(requests: &[Request]) -> BTreeMap<(&'static str, Kind, String), Vec<String>> {
+pub(crate) fn plan_groups(
+    requests: &[Request],
+) -> BTreeMap<(&'static str, Kind, String), Vec<String>> {
     let mut groups: BTreeMap<(&'static str, Kind, String), Vec<String>> = BTreeMap::new();
     for request in requests {
         groups
@@ -378,7 +380,6 @@ impl Pacer {
         self.after = Some(std::time::Instant::now());
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -500,7 +501,10 @@ mod tests {
         let answers = gateway
             .resolve_requests(
                 &fake,
-                &[request(Kind::Label, "v1", "hit"), request(Kind::Label, "v1", "miss")],
+                &[
+                    request(Kind::Label, "v1", "hit"),
+                    request(Kind::Label, "v1", "miss"),
+                ],
             )
             .await;
 

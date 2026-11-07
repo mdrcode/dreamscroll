@@ -10,12 +10,12 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::database::DbHandle;
 use crate::knowledge::heuristic::Heuristic;
+use crate::knowledge::identity::Raw;
 use crate::knowledge::identity::cache::Outcome;
 use crate::knowledge::identity::wikidata::Wikidata;
-use crate::knowledge::identity::Raw;
+use crate::knowledge::normalize;
 use crate::knowledge::scoring::Scoring;
 use crate::knowledge::sql_blocker::SqlBlocker;
-use crate::knowledge::normalize;
 use crate::model;
 
 /// One entity, and everything the pipeline did with it.
@@ -83,9 +83,11 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
     };
 
     let probe = match entity.origin_observation_id {
-        Some(id) => model::user_observed_entity::Entity::find_by_id(id)
-            .one(&db.conn)
-            .await?,
+        Some(id) => {
+            model::user_observed_entity::Entity::find_by_id(id)
+                .one(&db.conn)
+                .await?
+        }
         None => None,
     };
 
@@ -153,7 +155,9 @@ async fn find_entity(
     if wanted.is_empty() {
         return Ok(None);
     }
-    let live = model::knowledge_entity::Entity::find().all(&db.conn).await?;
+    let live = model::knowledge_entity::Entity::find()
+        .all(&db.conn)
+        .await?;
     Ok(live
         .into_iter()
         .find(|row| row.merged_into_id.is_none() && normalize::comparable(&row.name) == wanted))
@@ -224,7 +228,11 @@ async fn ladder(
         let top = candidates_of(payload.as_deref());
 
         // An expired row is a miss to the resolver, so it renders no decision here either.
-        let mut refusal = if fresh { "" } else { "the cached answer is expired" };
+        let mut refusal = if fresh {
+            ""
+        } else {
+            "the cached answer is expired"
+        };
         let decision = if fresh {
             let raw = Raw {
                 outcome: if outcome == "found" {
@@ -235,7 +243,10 @@ async fn ladder(
                 payload: payload.as_deref().map(serde_json::from_str).transpose()?,
             };
             let claims = engine.parse_explained(entity, &request, &raw, &mut refusal);
-            claims.into_iter().next().map(|claim| (claim.id, claim.method))
+            claims
+                .into_iter()
+                .next()
+                .map(|claim| (claim.id, claim.method))
         } else {
             None
         };
@@ -261,7 +272,8 @@ async fn ladder(
 
 /// The first few candidates an answer carried.
 fn candidates_of(payload: Option<&str>) -> Vec<(String, String, String)> {
-    let Some(payload) = payload.and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
+    let Some(payload) =
+        payload.and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
     else {
         return Vec::new();
     };

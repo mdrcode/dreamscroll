@@ -13,7 +13,6 @@ use super::gateway::Gateway;
 use super::store::store_claim;
 use crate::{database, model};
 
-
 /// One authority, and the strategy for asking it.
 ///
 /// `resolve` takes a *batch* of entities rather than one: batching across entities is the difference
@@ -118,7 +117,11 @@ impl<'a> ResolutionEngine<'a> {
     pub async fn run(self) -> anyhow::Result<Report> {
         // An entity is a candidate for a provider that has not identified it yet. Asking "any
         // authority" instead would stop Wikidata resolving an entity the moment IMDb had.
-        let sources: Vec<&str> = self.resolvers.iter().map(|resolver| resolver.id()).collect();
+        let sources: Vec<&str> = self
+            .resolvers
+            .iter()
+            .map(|resolver| resolver.id())
+            .collect();
         let entities = candidates(
             &self.db.conn,
             self.options.limit,
@@ -239,7 +242,12 @@ async fn candidates(
                 model::knowledge_identity::Entity,
                 model::knowledge_identity::Column::Source,
             ))
-            .is_in(sources.iter().map(|source| source.to_string()).collect::<Vec<_>>()),
+            .is_in(
+                sources
+                    .iter()
+                    .map(|source| source.to_string())
+                    .collect::<Vec<_>>(),
+            ),
         )
         .to_owned();
 
@@ -284,10 +292,15 @@ mod tests {
     async fn candidates_are_ordered_by_the_run_not_by_habit() {
         db_or_skip!(db);
         let first = crate::test_support::fixtures::knowledge_entity_with_member(&db, "First").await;
-        let second = crate::test_support::fixtures::knowledge_entity_with_member(&db, "Second").await;
+        let second =
+            crate::test_support::fixtures::knowledge_entity_with_member(&db, "Second").await;
 
-        let ascending = candidates(&db.conn, Some(2), None, false, &["wikidata"]).await.unwrap();
-        let descending = candidates(&db.conn, Some(2), None, true, &["wikidata"]).await.unwrap();
+        let ascending = candidates(&db.conn, Some(2), None, false, &["wikidata"])
+            .await
+            .unwrap();
+        let descending = candidates(&db.conn, Some(2), None, true, &["wikidata"])
+            .await
+            .unwrap();
 
         assert_eq!(
             ascending.iter().map(|e| e.id).collect::<Vec<_>>(),
@@ -379,10 +392,9 @@ mod tests {
     /// One observation, linked to an entity by the real linker — the same path production takes.
     async fn seed(db: &database::DbHandle, name: &str) -> i32 {
         let capture = crate::test_support::fixtures::Capture::new(db, "resolve").await;
-        let observation = crate::test_support::fixtures::observe(
-            db, &capture, 0, name, None, "book", None, None,
-        )
-        .await;
+        let observation =
+            crate::test_support::fixtures::observe(db, &capture, 0, name, None, "book", None, None)
+                .await;
         crate::test_support::link::link_all(db).await.unwrap();
 
         model::user_observed_entity::Entity::find_by_id(observation)
@@ -792,8 +804,12 @@ mod tests {
 
         // The passes are separate commands now, so the ordering guarantee is exercised the way the
         // CLI runs it: resolve projects, then scan raises the pair, then merge folds it.
-        crate::knowledge::proximity::scan(&store).await.expect("scan");
-        let folded = crate::knowledge::proximity::merge(&store).await.expect("merge");
+        crate::knowledge::proximity::scan(&store)
+            .await
+            .expect("scan");
+        let folded = crate::knowledge::proximity::merge(&store)
+            .await
+            .expect("merge");
         assert_eq!(folded.merged, 1, "{folded:?}");
         let survivor = model::knowledge_entity::Entity::find_by_id(earns_now)
             .one(&db.conn)
@@ -848,8 +864,12 @@ mod tests {
         // The proximity passes now run after resolve as separate commands; drive them explicitly so
         // the assertion is about `merge` refusing a pair, not about an empty batch.
         let store = crate::knowledge::Knowledge::new(&db);
-        crate::knowledge::proximity::scan(&store).await.expect("scan");
-        let folded = crate::knowledge::proximity::merge(&store).await.expect("merge");
+        crate::knowledge::proximity::scan(&store)
+            .await
+            .expect("scan");
+        let folded = crate::knowledge::proximity::merge(&store)
+            .await
+            .expect("merge");
         assert_eq!(folded.merged, 0, "sharing an identity does not merge");
         let live = model::knowledge_entity::Entity::find()
             .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
@@ -895,14 +915,11 @@ mod tests {
         };
         let gateway = Gateway::new(&cache, &options);
 
-        gateway.resolve_requests(&Limited, &[request(Kind::Label, "v1", "Train Dreams")])
+        gateway
+            .resolve_requests(&Limited, &[request(Kind::Label, "v1", "Train Dreams")])
             .await;
 
         assert!(gateway.budget_exhausted(), "the refusal is recorded");
-        assert_eq!(
-            gateway.fetched(),
-            0,
-            "and no transport call was made"
-        );
+        assert_eq!(gateway.fetched(), 0, "and no transport call was made");
     }
 }

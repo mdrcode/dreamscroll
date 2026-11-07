@@ -5,17 +5,21 @@
 
 use std::collections::HashMap;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::super::contract::{FetchError, Raw, Request};
 use super::answer::Candidate;
-use super::resolver::{Wikidata, LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT};
+use super::resolver::{LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT, Wikidata};
 use crate::knowledge::identity::cache::Outcome;
 
 /// Which query a SPARQL row answers, and the candidate it names. Items arrive as entity URLs, and a
 /// repeated item is deduped by the caller.
 fn candidate_from_row(row: &Value) -> Option<(String, Candidate)> {
-    let field = |key: &str| row.get(key).and_then(|v| v.get("value")).and_then(Value::as_str);
+    let field = |key: &str| {
+        row.get(key)
+            .and_then(|v| v.get("value"))
+            .and_then(Value::as_str)
+    };
     let query = field("query")?;
     let id = field("item")?.rsplit('/').next()?;
     Some((
@@ -269,7 +273,10 @@ impl Wikidata {
 
     /// `enwiki title -> item`, following normalisation and redirects, then one batched read for
     /// the labels, descriptions and types the caller needs.
-    pub(super) async fn titles(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
+    pub(super) async fn titles(
+        &self,
+        requests: &[Request],
+    ) -> Result<Vec<(String, Raw)>, FetchError> {
         use std::collections::HashMap;
 
         let titles: Vec<String> = requests
@@ -343,7 +350,6 @@ impl Wikidata {
         Ok(answers)
     }
 }
-
 
 const SPARQL_ENDPOINT: &str = "https://query.wikidata.org/sparql";
 

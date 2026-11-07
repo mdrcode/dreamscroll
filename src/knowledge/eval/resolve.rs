@@ -10,9 +10,9 @@ use std::collections::BTreeMap;
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::database::DbHandle;
+use crate::knowledge::identity::Raw;
 use crate::knowledge::identity::cache::Outcome;
 use crate::knowledge::identity::wikidata::Wikidata;
-use crate::knowledge::identity::Raw;
 use crate::model;
 
 /// Entities `identity resolve` would consider: live, and with no ontology claim. A platform handle

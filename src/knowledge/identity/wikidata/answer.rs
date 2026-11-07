@@ -3,7 +3,7 @@
 //! Pure JSON in, candidates or a claim out. Nothing here fetches, and nothing here knows the
 //! request that produced the answer.
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::knowledge::evidence::ClaimBasis;
 use crate::knowledge::identity::{Claim, Raw};
@@ -28,7 +28,10 @@ impl Candidate {
     pub(super) fn from_json(value: &Value) -> Option<Self> {
         Some(Self {
             id: value.get("id")?.as_str()?.to_string(),
-            label: value.get("label").and_then(Value::as_str).map(str::to_string),
+            label: value
+                .get("label")
+                .and_then(Value::as_str)
+                .map(str::to_string),
             description: value
                 .get("description")
                 .and_then(Value::as_str)
@@ -103,4 +106,3 @@ pub(super) fn candidates_of(raw: &Raw) -> Option<Vec<Candidate>> {
     let candidates: Vec<Candidate> = rows.iter().filter_map(Candidate::from_json).collect();
     (!candidates.is_empty()).then_some(candidates)
 }
-
