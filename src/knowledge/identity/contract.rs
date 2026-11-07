@@ -6,7 +6,7 @@
 
 use std::collections::HashMap;
 
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
 
 use super::cache::Outcome;
 
@@ -64,10 +64,26 @@ pub struct Request {
     pub query: String,
 }
 
+/// One item an authority offered, as the authority described it.
+///
+/// Typed, because it used to make the round trip `Candidate -> json -> Value -> Candidate` between
+/// every transport and every decision. `classes` is empty when the request did not ask for `P31`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Candidate {
+    pub id: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub classes: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Raw {
     pub outcome: Outcome,
-    pub payload: Option<Value>,
+    /// What the authority answered with. Empty is a real answer: "nothing has that name".
+    pub candidates: Vec<Candidate>,
 }
 
 /// Answers keyed by `(provider, kind, shape, query)`.

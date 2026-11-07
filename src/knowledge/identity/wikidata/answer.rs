@@ -3,10 +3,8 @@
 //! Pure JSON in, candidates or a claim out. Nothing here fetches, and nothing here knows the
 //! request that produced the answer.
 
-use serde_json::{Value, json};
-
 use crate::knowledge::evidence::ClaimBasis;
-use crate::knowledge::identity::{Claim, Raw};
+use crate::knowledge::identity::{Candidate, Claim};
 
 /// A menu, not a referent. Two classes because Wikidata's own hierarchy defeats equality: `Q22808320`
 /// ("Wikimedia human name disambiguation page") is a *subclass* of `Q4167410`, and every one of the 34
@@ -15,49 +13,6 @@ const MENUS: [&str; 2] = [
     "Q4167410",  // Wikimedia disambiguation page
     "Q22808320", // Wikimedia human name disambiguation page
 ];
-
-#[derive(Debug, Clone, PartialEq)]
-pub(super) struct Candidate {
-    pub(super) id: String,
-    pub(super) label: Option<String>,
-    pub(super) description: Option<String>,
-    pub(super) classes: Vec<String>,
-}
-
-impl Candidate {
-    pub(super) fn from_json(value: &Value) -> Option<Self> {
-        Some(Self {
-            id: value.get("id")?.as_str()?.to_string(),
-            label: value
-                .get("label")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            description: value
-                .get("description")
-                .and_then(Value::as_str)
-                .map(str::to_string),
-            classes: value
-                .get("classes")
-                .and_then(Value::as_array)
-                .map(|rows| {
-                    rows.iter()
-                        .filter_map(Value::as_str)
-                        .map(str::to_string)
-                        .collect()
-                })
-                .unwrap_or_default(),
-        })
-    }
-
-    pub(super) fn to_json(&self) -> Value {
-        json!({
-            "id": self.id,
-            "label": self.label,
-            "description": self.description,
-            "classes": self.classes,
-        })
-    }
-}
 
 pub(super) fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Claim {
     Claim {
@@ -97,12 +52,3 @@ pub(super) fn is_menu(candidate: &Candidate) -> bool {
             .is_some_and(|text| text.to_lowercase().contains("disambiguation"))
 }
 
-/// The candidates an answer carries; a degraded answer still has them.
-pub(super) fn candidates_of(raw: &Raw) -> Option<Vec<Candidate>> {
-    if !raw.outcome.answered() {
-        return None;
-    }
-    let rows = raw.payload.as_ref()?.get("candidates")?.as_array()?;
-    let candidates: Vec<Candidate> = rows.iter().filter_map(Candidate::from_json).collect();
-    (!candidates.is_empty()).then_some(candidates)
-}

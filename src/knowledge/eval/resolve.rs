@@ -110,13 +110,15 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
             };
             let outcome: String = row.try_get_by_index(0)?;
             let payload: Option<String> = row.try_get_by_index(1)?;
+            let stored: Option<serde_json::Value> =
+                payload.as_deref().and_then(|text| serde_json::from_str(text).ok());
             let raw = Raw {
                 outcome: if outcome == "found" {
                     Outcome::Found
                 } else {
                     Outcome::Empty
                 },
-                payload: payload.as_deref().map(serde_json::from_str).transpose()?,
+                candidates: crate::knowledge::identity::cache::candidates(stored.as_ref()),
             };
             if let Some(claim) = engine.parse(&view, &request, &raw).into_iter().next() {
                 claimed = Some((claim.id, claim.method));

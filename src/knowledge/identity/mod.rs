@@ -13,7 +13,7 @@ pub mod gateway;
 pub mod store;
 pub mod wikidata;
 
-pub use contract::{Answers, Claim, FetchError, Kind, Raw, Request, Transport};
+pub use contract::{Answers, Candidate, Claim, FetchError, Kind, Raw, Request, Transport};
 pub use engine::{DEFAULT_MAX_REQUESTS, Options, Report, ResolutionEngine, Resolver};
 pub use gateway::Gateway;
 

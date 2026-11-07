@@ -315,6 +315,19 @@ mod tests {
     }
 
     /// An authority that never touches the network: it answers from a fixed map and counts calls.
+    /// An answer that identified one item, for the fakes below.
+    fn identified(id: &str) -> Raw {
+        Raw {
+            outcome: Outcome::Found,
+            candidates: vec![crate::knowledge::identity::Candidate {
+                id: id.to_string(),
+                label: None,
+                description: None,
+                classes: Vec::new(),
+            }],
+        }
+    }
+
     struct Fake {
         answers: HashMap<String, Raw>,
         calls: Arc<AtomicUsize>,
@@ -353,12 +366,12 @@ mod tests {
                         "v1".to_string(),
                         entity.name.clone(),
                     ))?;
-                    let id = raw.payload.as_ref()?.get("claim")?.as_str()?;
+                    let id = raw.candidates.first()?.id.clone();
                     Some((
                         entity.id,
                         Claim {
                             scheme: "wikidata".to_string(),
-                            id: id.to_string(),
+                            id,
                             label: Some(entity.name.clone()),
                             description: None,
                             classes: Vec::new(),
@@ -381,7 +394,7 @@ mod tests {
                 .map(|request| {
                     let raw = self.answers.get(&request.query).cloned().unwrap_or(Raw {
                         outcome: Outcome::Empty,
-                        payload: None,
+                        candidates: Vec::new(),
                     });
                     (request.query.clone(), raw)
                 })
@@ -414,10 +427,7 @@ mod tests {
         let calls = Arc::new(AtomicUsize::new(0));
         let answers = HashMap::from([(
             "Train Dreams".to_string(),
-            Raw {
-                outcome: Outcome::Found,
-                payload: Some(json!({"claim": "Q185971"})),
-            },
+            identified("Q185971"),
         )]);
 
         let first = ResolutionEngine::new(&db, Options::default())
@@ -686,10 +696,7 @@ mod tests {
                 .map(|request| {
                     (
                         request.query.clone(),
-                        Raw {
-                            outcome: Outcome::Found,
-                            payload: Some(json!({"candidates": []})),
-                        },
+                        Raw { outcome: Outcome::Found, candidates: Vec::new() },
                     )
                 })
                 .collect())
@@ -789,10 +796,7 @@ mod tests {
         store.update_projection(resolved_before).await.unwrap();
         store.update_projection(earns_now).await.unwrap();
 
-        let claim = Raw {
-            outcome: Outcome::Found,
-            payload: Some(json!({"claim": "Q42"})),
-        };
+        let claim = identified("Q42");
         ResolutionEngine::new(&db, Options::default())
             .with(Box::new(Fake {
                 answers: HashMap::from([("Train Dreams".to_string(), claim)]),
@@ -841,10 +845,7 @@ mod tests {
         seed(&db, "Alpha One").await;
         seed(&db, "Beta Two").await;
 
-        let claim = Raw {
-            outcome: Outcome::Found,
-            payload: Some(json!({"claim": "Q42"})),
-        };
+        let claim = identified("Q42");
         let answers = HashMap::from([
             ("Alpha One".to_string(), claim.clone()),
             ("Beta Two".to_string(), claim),

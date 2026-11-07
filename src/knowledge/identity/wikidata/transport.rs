@@ -5,10 +5,10 @@
 
 use std::collections::HashMap;
 
-use serde_json::{Value, json};
+use serde_json::Value;
 
 use super::super::contract::{FetchError, Raw, Request};
-use super::answer::Candidate;
+use crate::knowledge::identity::Candidate;
 use super::resolver::{LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT, Wikidata};
 use crate::knowledge::identity::cache::Outcome;
 
@@ -178,12 +178,12 @@ impl Wikidata {
                 } else {
                     Outcome::Degraded
                 },
-                payload: None,
+                candidates: Vec::new(),
             });
         }
 
         let items = self.items(&ids).await?;
-        let candidates: Vec<Value> = ids.iter().filter_map(|id| items.get(id).cloned()).collect();
+        let candidates: Vec<Candidate> = ids.iter().filter_map(|id| items.get(id).cloned()).collect();
         if candidates.is_empty() {
             return Ok(Raw {
                 outcome: if reached_backend {
@@ -191,12 +191,12 @@ impl Wikidata {
                 } else {
                     Outcome::Degraded
                 },
-                payload: None,
+                candidates: Vec::new(),
             });
         }
         Ok(Raw {
             outcome,
-            payload: Some(json!({"candidates": candidates})),
+            candidates,
         })
     }
 
@@ -204,10 +204,10 @@ impl Wikidata {
     pub(super) async fn items(
         &self,
         ids: &[String],
-    ) -> Result<std::collections::HashMap<String, Value>, FetchError> {
+    ) -> Result<std::collections::HashMap<String, Candidate>, FetchError> {
         use std::collections::HashMap;
 
-        let mut details: HashMap<String, Value> = HashMap::new();
+        let mut details: HashMap<String, Candidate> = HashMap::new();
         for chunk in ids.chunks(50) {
             let response = self
                 .client
@@ -243,7 +243,7 @@ impl Wikidata {
                     .and_then(|descriptions| descriptions.get(LANGUAGE))
                     .and_then(|description| description.get("value"))
                     .and_then(Value::as_str);
-                let classes: Vec<Value> = item
+                let classes: Vec<String> = item
                     .get("claims")
                     .and_then(|claims| claims.get("P31"))
                     .and_then(Value::as_array)
@@ -257,14 +257,19 @@ impl Wikidata {
                                     .and_then(|value| value.get("value"))
                                     .and_then(|value| value.get("id"))
                                     .and_then(Value::as_str)
-                                    .map(|id| Value::String(id.to_string()))
+                                    .map(str::to_string)
                             })
                             .collect()
                     })
                     .unwrap_or_default();
                 details.insert(
                     qid.clone(),
-                    json!({"id": qid, "label": label, "description": description, "classes": classes}),
+                    Candidate {
+                        id: qid.clone(),
+                        label: label.map(str::to_string),
+                        description: description.map(str::to_string),
+                        classes,
+                    },
                 );
             }
         }
@@ -335,14 +340,14 @@ impl Wikidata {
                     request.query.clone(),
                     Raw {
                         outcome: Outcome::Found,
-                        payload: Some(json!({"candidates": [candidate]})),
+                        candidates: vec![candidate.clone()],
                     },
                 ),
                 None => (
                     request.query.clone(),
                     Raw {
                         outcome: Outcome::Empty,
-                        payload: None,
+                        candidates: Vec::new(),
                     },
                 ),
             });
@@ -391,7 +396,7 @@ impl Wikidata {
                     request.query.clone(),
                     Raw {
                         outcome: Outcome::Empty,
-                        payload: None,
+                        candidates: Vec::new(),
                     },
                 )
             })
@@ -417,9 +422,7 @@ impl Wikidata {
             if let Some(slot) = answers.iter_mut().find(|(key, _)| *key == query) {
                 slot.1 = Raw {
                     outcome: Outcome::Found,
-                    payload: Some(json!({
-                        "candidates": candidates.iter().map(Candidate::to_json).collect::<Vec<_>>()
-                    })),
+                    candidates,
                 };
             }
         }

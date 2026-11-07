@@ -162,10 +162,11 @@ impl Wikidata {
         raw: &Raw,
         reason: &mut &'static str,
     ) -> Vec<Claim> {
-        let Some(mut candidates) = answer::candidates_of(raw) else {
+        if !raw.outcome.answered() {
             *reason = "the answer carried no candidate";
             return Vec::new();
-        };
+        }
+        let mut candidates = raw.candidates.clone();
         // A menu is not a referent, on *every* rung. This used to be checked in `parse_title` only,
         // and the label rung — which is where all 34 such claims in the corpus came from — never
         // looked. Filtering at the gate makes the rule a property of an answer rather than of one
@@ -357,7 +358,7 @@ mod tests {
     fn found(candidates: Value) -> Raw {
         Raw {
             outcome: Outcome::Found,
-            payload: Some(json!({"candidates": candidates})),
+            candidates: serde_json::from_value(candidates).expect("fixture candidates"),
         }
     }
 
@@ -376,16 +377,11 @@ mod tests {
     /// about our name before it is even considered.
     #[test]
     fn a_title_about_another_subject_is_refused() {
-        let raw = Raw {
-            outcome: Outcome::Found,
-            payload: Some(json!({
-                "candidates": [{
+        let raw = found(json!([{
                     "id": "Q51790",
                     "label": "Boba Fett",
                     "description": "fictional character from Star Wars",
-                }]
-            })),
-        };
+                }]));
         let claims = engine().parse(
             &entity(
                 "The Bounty Hunter Wars",
@@ -400,16 +396,11 @@ mod tests {
         );
 
         // …while a title whose label is our name still claims.
-        let ok = Raw {
-            outcome: Outcome::Found,
-            payload: Some(json!({
-                "candidates": [{
+        let ok = found(json!([{
                     "id": "Q16010557",
                     "label": "The Bounty Hunter Wars",
                     "description": "novel trilogy by K. W. Jeter",
-                }]
-            })),
-        };
+                }]));
         let claims = engine().parse(
             &entity(
                 "The Bounty Hunter Wars",
@@ -422,16 +413,11 @@ mod tests {
         assert_eq!(claims[0].id, "Q16010557");
 
         // A title answer with no label is not a mismatch — the description still has to corroborate.
-        let unlabelled = Raw {
-            outcome: Outcome::Found,
-            payload: Some(json!({
-                "candidates": [{
+        let unlabelled = found(json!([{
                     "id": "Q42574",
                     "label": null,
                     "description": "Canadian filmmaker and explorer (born 1954)",
-                }]
-            })),
-        };
+                }]));
         let claims = engine().parse(
             &entity(
                 "James Cameron",
@@ -794,7 +780,7 @@ mod tests {
         let seed = |kind: Kind, query: &str, raw: Raw| {
             let answer = Answer {
                 outcome: raw.outcome,
-                payload: raw.payload,
+                payload: Some(crate::knowledge::identity::cache::payload_of(&raw.candidates)),
             };
             (kind, query.to_string(), answer)
         };
@@ -807,7 +793,7 @@ mod tests {
         ]));
         let nothing = Raw {
             outcome: Outcome::Empty,
-            payload: None,
+            candidates: Vec::new(),
         };
         let by_search = found(json!([
             {"id": "Q892", "label": "J. R. R. Tolkien", "description": "English writer and philologist"}

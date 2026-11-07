@@ -225,7 +225,10 @@ async fn ladder(
         let outcome: String = row.try_get_by_index(0)?;
         let payload: Option<String> = row.try_get_by_index(1)?;
         let fresh: bool = row.try_get_by_index(2)?;
-        let top = candidates_of(payload.as_deref());
+        let stored: Option<serde_json::Value> =
+            payload.as_deref().and_then(|text| serde_json::from_str(text).ok());
+        let candidates = crate::knowledge::identity::cache::candidates(stored.as_ref());
+        let top = describe(&candidates);
 
         // An expired row is a miss to the resolver, so it renders no decision here either.
         let mut refusal = if fresh {
@@ -240,7 +243,7 @@ async fn ladder(
                 } else {
                     Outcome::Empty
                 },
-                payload: payload.as_deref().map(serde_json::from_str).transpose()?,
+                candidates: candidates.clone(),
             };
             let claims = engine.parse_explained(entity, &request, &raw, &mut refusal);
             claims
@@ -270,28 +273,17 @@ async fn ladder(
     Ok(steps)
 }
 
-/// The first few candidates an answer carried.
-fn candidates_of(payload: Option<&str>) -> Vec<(String, String, String)> {
-    let Some(payload) =
-        payload.and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok())
-    else {
-        return Vec::new();
-    };
-    payload
-        .get("candidates")
-        .and_then(|value| value.as_array())
-        .into_iter()
-        .flatten()
+/// The first few candidates an answer carried, as the inspection prints them.
+fn describe(candidates: &[crate::knowledge::identity::Candidate]) -> Vec<(String, String, String)> {
+    candidates
+        .iter()
         .take(4)
         .map(|candidate| {
-            let field = |name: &str| {
-                candidate
-                    .get(name)
-                    .and_then(|value| value.as_str())
-                    .unwrap_or_default()
-                    .to_string()
-            };
-            (field("id"), field("label"), field("description"))
+            (
+                candidate.id.clone(),
+                candidate.label.clone().unwrap_or_default(),
+                candidate.description.clone().unwrap_or_default(),
+            )
         })
         .collect()
 }

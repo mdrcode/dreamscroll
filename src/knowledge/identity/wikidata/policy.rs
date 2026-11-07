@@ -7,13 +7,13 @@
 //!
 //! Numbers live in `ranking.rs`; this file owns only the order and the admission rules.
 
-use super::answer::{self, Candidate};
+use super::answer;
 use super::ranking::{
     CLAIM_BAR, CLAIM_MARGIN, FIT_MARGIN, HINT_CEILING, HINT_MIN_SUPPORT, LONE_LABEL_CONFIDENCE,
     LOOKUP_CONFIDENCE, NAME_WEIGHT, SUPPORT_WEIGHT, Weights, answer_confidence, content_tokens,
     hint_tokens, near_surface, our_tokens, rank, surface_key,
 };
-use crate::knowledge::identity::{Claim, Kind, Request};
+use crate::knowledge::identity::{Candidate, Claim, Kind, Request};
 use crate::model;
 
 /// Last resort: the illumination's own disambiguation, consulted *only* when the description

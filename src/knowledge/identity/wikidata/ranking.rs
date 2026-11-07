@@ -1,6 +1,6 @@
 //! Scoring: which of a query's candidates, if any, is the entity we meant.
 
-use super::answer::Candidate;
+use crate::knowledge::identity::Candidate;
 use crate::knowledge::normalize;
 use crate::model;
 
@@ -327,7 +327,7 @@ impl Weights {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::identity::wikidata::answer::Candidate;
+    use crate::knowledge::identity::Candidate;
 
     fn weights(descriptions: &[&str]) -> Weights {
         let candidates: Vec<Candidate> = descriptions

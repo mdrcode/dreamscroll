@@ -10,10 +10,42 @@ use chrono::{DateTime, Duration, Utc};
 use sea_orm::sea_query::{Expr, OnConflict};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 
+use serde_json::Value;
+
+use super::contract::Candidate;
 use crate::model::resolution_cache as cached;
 
 /// Seven days for everything, which is short enough that a name gaining a Wikidata item is noticed
 /// and long enough that a rerun is free.
+/// The candidates a stored payload carried.
+///
+/// The payload is a bare array. Rows written before 2026-11-07 wrapped it in
+/// `{"candidates": [...]}`; those expire within the cache TTL, so the shim below is temporary.
+pub fn candidates(payload: Option<&Value>) -> Vec<Candidate> {
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum Stored {
+        Envelope { candidates: Vec<Candidate> },
+        Array(Vec<Candidate>),
+    }
+
+    let Some(value) = payload else {
+        return Vec::new();
+    };
+    match serde_json::from_value::<Stored>(value.clone()) {
+        Ok(Stored::Envelope { candidates }) | Ok(Stored::Array(candidates)) => candidates,
+        Err(error) => {
+            tracing::warn!(%error, "unreadable cached payload");
+            Vec::new()
+        }
+    }
+}
+
+/// The payload for an answer: its candidates, as a bare array.
+pub fn payload_of(candidates: &[Candidate]) -> Value {
+    serde_json::to_value(candidates).unwrap_or(Value::Null)
+}
+
 pub const DEFAULT_TTL: Duration = Duration::days(7);
 
 /// The one exception: a provider that could not be reached is not a fact about the world, and
@@ -251,7 +283,7 @@ mod tests {
                     query: Set(query.to_string()),
                     shape: Set("label".to_string()),
                     outcome: Set("found".to_string()),
-                    payload: Set(Some(json!({"claim": "Q1"}))),
+                    payload: Set(Some(json!([{"id": "Q1"}]))),
                     expires_at: Set(expires_at),
                     ..Default::default()
                 })

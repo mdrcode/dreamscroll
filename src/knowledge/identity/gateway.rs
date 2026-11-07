@@ -190,7 +190,7 @@ impl<'a> Gateway<'a> {
                 (provider.to_string(), kind.clone(), shape.to_string(), query),
                 Raw {
                     outcome: answer.outcome,
-                    payload: answer.payload,
+                    candidates: super::cache::candidates(answer.payload.as_ref()),
                 },
             );
         }
@@ -246,7 +246,7 @@ impl<'a> Gateway<'a> {
                                 &query,
                                 &Answer {
                                     outcome: raw.outcome,
-                                    payload: raw.payload.clone(),
+                                    payload: Some(super::cache::payload_of(&raw.candidates)),
                                 },
                             )
                             .await
@@ -295,7 +295,7 @@ impl<'a> Gateway<'a> {
                             ),
                             Raw {
                                 outcome: Outcome::Failed,
-                                payload: None,
+                                candidates: Vec::new(),
                             },
                         );
                         self.counters.fail();
@@ -409,7 +409,7 @@ mod tests {
     fn found() -> Raw {
         Raw {
             outcome: Outcome::Found,
-            payload: None,
+            candidates: Vec::new(),
         }
     }
 
