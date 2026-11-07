@@ -9,6 +9,7 @@ ALTER TABLE knowledge_entities ALTER COLUMN alt_types SET DEFAULT '{}';
 ALTER TABLE knowledge_entities ALTER COLUMN alt_descriptions SET DEFAULT '{}';
 ALTER TABLE knowledge_entities ALTER COLUMN alt_search_queries SET DEFAULT '{}';
 ALTER TABLE knowledge_identities ALTER COLUMN classes SET DEFAULT '{}';
+ALTER TABLE knowledge_index ALTER COLUMN word_keys SET DEFAULT '{}';
 "#;
 
 /// A `NOT NULL` array column cannot be added to a populated table without a default, and the

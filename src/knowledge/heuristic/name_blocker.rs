@@ -16,9 +16,9 @@ use sea_orm::{EntityTrait, QueryOrder};
 use crate::model;
 
 use crate::knowledge::blocker::Blocker;
+use crate::knowledge::normalize;
 use crate::knowledge::evidence::Claim;
 
-use super::scoring::block_keys;
 
 /// Blocks on normalized names and the account a capture showed.
 #[derive(Debug, Default)]
@@ -75,8 +75,9 @@ impl NameBlocker {
     fn keys_of(entity: &model::knowledge_entity::Model) -> Vec<String> {
         let mut keys: Vec<String> = Vec::new();
         for surface in entity.surfaces() {
-            if let Some((key, blocking)) = block_keys(surface) {
-                keys.extend([key, blocking]);
+            let key = normalize::comparable(surface);
+            if !key.is_empty() {
+                keys.extend([normalize::word_key(&key), key]);
             }
         }
         if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle) {
@@ -109,9 +110,11 @@ impl Blocker for NameBlocker {
         &self,
         observation: &model::user_observed_entity::Model,
     ) -> Vec<model::knowledge_entity::Model> {
-        let Some((key, blocking)) = block_keys(&observation.name) else {
+        let key = normalize::comparable(&observation.name);
+        if key.is_empty() {
             return Vec::new();
-        };
+        }
+        let blocking = normalize::word_key(&key);
         let index = self.index();
         let mut found: BTreeSet<i32> = BTreeSet::new();
         for block in [&key, &blocking] {

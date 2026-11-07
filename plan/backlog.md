@@ -72,6 +72,15 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   Either adopt the formatter repo-wide in a single commit and gate it in CI, or pin a `rustfmt.toml`
   whose style matches what is there closely enough that the first run is small. Formatting only the
   files you touched is the current workaround: it keeps diffs honest and leaves the drift in place.
+- [ ] **A/B whether the word-key generation earns its place.** `knowledge_index` carries two key
+  generations per surface: `surfaces` (the fold) and `word_keys` (the same words sorted, one leading
+  article dropped). The second exists because `NameBlocker` matches it — `Train Dreams` finds
+  `Dreams Train` — and `name_similarity` scores an order-only difference at 0.9, so parity with the
+  in-memory blocker needs it. Parity is not evidence of value, though. Measure against the
+  `NameBlocker` oracle with two channel setups: `surfaces` alone, then `surfaces ∪ word_keys`. Count
+  the candidate pairs each adds, then the *decisions* that move (`link` + pair comparison over the
+  corpus, `snapshot::compare`). Delete the column and its probe if the extra pairs never survive
+  `Rank`; keep it and give it its own channel weight if they do.
 - [ ] **Implement `SqlBlocker`.** `NameBlocker` is an in-memory index built by a full scan of
   `knowledge_entities` (~2.1k rows), so every `Knowledge::link_illumination` pays for the whole graph
   to link one reading. Fine for a capture arriving at a time; wrong for a backfill, which is why

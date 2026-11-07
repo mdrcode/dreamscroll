@@ -16,26 +16,39 @@ use crate::model;
 
 /// One row per live entity: the folded surfaces, and the same text for full search.
 const UPSERT: &str = "
-INSERT INTO knowledge_index (knowledge_entity_id, surfaces, text, built_with)
-VALUES ($1, $2, $3, $4)
+INSERT INTO knowledge_index (knowledge_entity_id, surfaces, word_keys, text, built_with)
+VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (knowledge_entity_id) DO UPDATE
    SET surfaces = EXCLUDED.surfaces,
+       word_keys = EXCLUDED.word_keys,
        text = EXCLUDED.text,
        built_with = EXCLUDED.built_with,
        built_at = now()";
 
-/// Every folded surface the entity wears, deduped and in the order it wears them.
+/// The two generations the index stores, in the entity's surface order.
+pub(super) struct Keys {
+    /// Folded forms: an exact match on one of these.
+    pub surfaces: Vec<String>,
+    /// Word-order-insensitive forms: `Train Dreams` matches `Dreams Train`.
+    pub word_keys: Vec<String>,
+}
+
+/// Every surface the entity wears, in the order it wears them.
 ///
 /// `alt_names` already carries the member names, the platform handle and the display name, so this
 /// covers what the blocker can be asked about without a second pass over the members.
-pub(super) fn keys(entity: &model::knowledge_entity::Model) -> Vec<String> {
+pub(super) fn keys(entity: &model::knowledge_entity::Model) -> Keys {
     let mut seen = std::collections::BTreeSet::new();
-    entity
+    let surfaces: Vec<String> = entity
         .surfaces()
         .map(normalize::comparable)
         .filter(|key| !key.is_empty())
         .filter(|key| seen.insert(key.clone()))
-        .collect()
+        .collect();
+    Keys {
+        word_keys: surfaces.iter().map(|surface| normalize::word_key(surface)).collect(),
+        surfaces,
+    }
 }
 
 /// Upsert one entity's row. `project` calls this, so it and [`rebuild`] are the only writers.
@@ -43,7 +56,10 @@ pub(super) async fn write<C: ConnectionTrait>(
     conn: &C,
     entity: &model::knowledge_entity::Model,
 ) -> anyhow::Result<()> {
-    let surfaces = keys(entity);
+    let Keys {
+        surfaces,
+        word_keys,
+    } = keys(entity);
     let text = surfaces.join(" ");
     conn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
@@ -51,6 +67,7 @@ pub(super) async fn write<C: ConnectionTrait>(
         [
             entity.id.into(),
             surfaces.into(),
+            word_keys.into(),
             text.into(),
             normalize::norm_fingerprint().into(),
         ],
@@ -163,9 +180,11 @@ mod tests {
             .await
             .unwrap()
             .expect("project must write the index row");
-        assert_eq!(row.surfaces, keys(&entity));
+        assert_eq!(row.surfaces, keys(&entity).surfaces);
+        assert_eq!(row.word_keys, keys(&entity).word_keys);
         assert_eq!(row.built_with, normalize::norm_fingerprint());
         assert!(row.surfaces.contains(&"train dreams".to_string()));
+        assert!(row.word_keys.contains(&"dreams train".to_string()));
         assert_eq!(check(&db).await.unwrap(), Report { indexed: 1, stale: 0, missing: 0 });
     }
 

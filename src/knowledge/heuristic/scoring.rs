@@ -153,7 +153,7 @@ struct NormalizedObservation {
 impl NormalizedObservation {
     fn new(name: &str, description: Option<&str>, entity_type: &str) -> Self {
         let name_key = normalize::comparable(name);
-        let token_key = token_key_of(&tokens_of(&name_key));
+        let token_key = normalize::word_key(&name_key);
         Self {
             token_key,
             name_key,
@@ -188,9 +188,10 @@ impl NormalizedCandidate {
         let mut alt_name_keys = Vec::with_capacity(alt_names.len() + 1);
         let mut alt_name_token_keys = Vec::with_capacity(alt_names.len() + 1);
         for surface in std::iter::once(name).chain(alt_names.iter().map(String::as_str)) {
-            if let Some((key, blocking)) = block_keys(surface) {
+            let key = normalize::comparable(surface);
+            if !key.is_empty() {
+                alt_name_token_keys.push(normalize::word_key(&key));
                 alt_name_keys.push(key);
-                alt_name_token_keys.push(blocking);
             }
         }
 
@@ -298,20 +299,6 @@ fn type_similarity(a: &str, b: &str) -> f32 {
 // these are the guess's, and nothing outside `heuristic_scoring` and `name_blocker` asks for them.
 // ---------------------------------------------------------------------------------------------
 
-/// The two keys one surface answers to: its comparable form, and the order-insensitive token key.
-/// `None` for a surface that folds to nothing.
-pub(super) fn block_keys(surface: &str) -> Option<(String, String)> {
-    let key = normalize::comparable(surface);
-    if key.is_empty() {
-        return None;
-    }
-    let blocking = token_key_of(&tokens_of(&key));
-    Some((key, blocking))
-}
-
-/// Dropped from the *token* key only. They are noise for blocking, and never an identity decision.
-const ARTICLES: [&str; 3] = ["the", "a", "an"];
-
 /// The words of a surface, in order, folded the same way `normalize::comparable` folds it.
 fn tokens(surface: &str) -> Vec<String> {
     tokens_of(&normalize::comparable(surface))
@@ -324,15 +311,6 @@ fn tokens_of(comparable: &str) -> Vec<String> {
 }
 
 /// A word-order- and article-insensitive key, for blocking only. Never an identity key.
-fn token_key_of(words: &[String]) -> String {
-    let mut words: Vec<&str> = words.iter().map(String::as_str).collect();
-    if words.len() > 1 && ARTICLES.contains(&words[0]) {
-        words.remove(0);
-    }
-    words.sort_unstable();
-    words.join(" ")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,13 +389,6 @@ mod tests {
         assert!(ranked.iter().all(|(index, _)| *index != 2));
     }
 
-    #[test]
-    fn token_key_ignores_order_and_articles() {
-        let blocking = |surface: &str| block_keys(surface).expect("a surface").1;
-        assert_eq!(blocking("The Train Dreams"), blocking("train dreams"));
-        assert_eq!(blocking("Dreams Train"), blocking("Train Dreams"));
-        assert_ne!(blocking("C"), blocking("C#"));
-    }
 
     /// `None` is the least worth there is, and a tie is not a win for either side.
     #[test]

@@ -91,6 +91,20 @@ fn expand_ligatures(surface: &str) -> String {
     out
 }
 
+/// Dropped from the word key only. Noise for matching, never an identity decision.
+const ARTICLES: [&str; 3] = ["the", "a", "an"];
+
+/// The word-order-insensitive form of a *comparable* surface: words sorted, one leading article
+/// dropped. `Train Dreams` and `Dreams Train` share it; their folded forms do not.
+pub(crate) fn word_key(comparable: &str) -> String {
+    let mut words: Vec<&str> = comparable.split_whitespace().collect();
+    if words.len() > 1 && ARTICLES.contains(&words[0]) {
+        words.remove(0);
+    }
+    words.sort_unstable();
+    words.join(" ")
+}
+
 /// Every branch the fold has: case, wrapping quotes, a leading `@`/`#`, one trailing period,
 /// whitespace, inner double quotes, spacing at punctuation, diacritics, ligatures — and the
 /// distinctions the fold must *preserve*. Add a probe when you add a branch; the fingerprint can
@@ -127,11 +141,23 @@ pub(crate) fn norm_fingerprint() -> &'static str {
     static ONCE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
     ONCE.get_or_init(|| {
         let mut hash = 0xcbf2_9ce4_8422_2325u64;
-        for probe in PROBE {
-            for byte in comparable(probe).bytes().chain(std::iter::once(0x1f)) {
+        // One fragment per generation, each labelled: adding, renaming or reordering a generation
+        // moves the fingerprint even if its values happen to coincide with an older one.
+        let mut feed = |label: &str, value: &str| {
+            let bytes = label
+                .bytes()
+                .chain([0x1e])
+                .chain(value.bytes())
+                .chain([0x1f]);
+            for byte in bytes {
                 hash ^= u64::from(byte);
                 hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
             }
+        };
+        for probe in PROBE {
+            let folded = comparable(probe);
+            feed("surface", &folded);
+            feed("words", &word_key(&folded));
         }
         format!("norm-{hash:016x}")
     })
@@ -236,7 +262,17 @@ mod tests {
     /// whatever the code computes — it exists so the change appears in the diff.
     #[test]
     fn the_normalisation_fingerprint_moves_only_deliberately() {
-        assert_eq!(norm_fingerprint(), "norm-5ba3c5a4965a5043");
+        assert_eq!(norm_fingerprint(), "norm-4ae1cf4db24e0311");
+    }
+
+    /// The word key ignores order and a leading article; the fold does not, and must not.
+    #[test]
+    fn the_word_key_ignores_order_and_articles() {
+        let key = |surface: &str| word_key(&comparable(surface));
+        assert_eq!(key("The Train Dreams"), key("train dreams"));
+        assert_eq!(key("Dreams Train"), key("Train Dreams"));
+        assert_ne!(key("C"), key("C#"));
+        assert_ne!(key("Dune"), key("Dune Part Two"));
     }
 
     #[test]

@@ -19,6 +19,11 @@ pub struct Model {
     /// Every folded surface, unioned across key generations. A probe is `surfaces && $1`.
     pub surfaces: Vec<String>,
 
+    /// The word-order-insensitive form of each surface. A separate column, not a union with
+    /// `surfaces`: an order-only match is a different (weaker) claim about identity, and a channel
+    /// that cannot tell which generation matched cannot price it.
+    pub word_keys: Vec<String>,
+
     /// The same surfaces as one folded document, for full text search.
     pub text: String,
 

@@ -80,7 +80,8 @@ index. Three reasons, in order of weight:
 ```sql
 CREATE TABLE knowledge_index (
     knowledge_entity_id int PRIMARY KEY,     -- one row per entity
-    surfaces  text[] NOT NULL DEFAULT '{}',  -- folded surfaces, unioned across generations
+    surfaces  text[] NOT NULL DEFAULT '{}',  -- folded forms: an exact match on one of these
+    word_keys text[] NOT NULL DEFAULT '{}',  -- the same, sorted, one leading article dropped
     text      text   NOT NULL DEFAULT '',    -- the same as one document, for full text
     built_with text NOT NULL,                -- the key pipeline's fingerprint (AGENTS.md)
     built_at  timestamptz NOT NULL DEFAULT now()
@@ -88,6 +89,10 @@ CREATE TABLE knowledge_index (
 CREATE INDEX ... USING gin (surfaces);
 ```
 
+- **Two generations, two columns.** `surfaces` answers "same folded name"; `word_keys` answers
+  "same words, any order" — a weaker claim that `Rank` prices at 0.9 rather than 1.0. Merging them
+  into one array would still find the candidate, but the blocker could no longer say *which*
+  hypothesis matched, so the channel could not be budgeted or weighted on its own.
 - **One row per entity, arrays not key rows.** `surfaces && $1` is one GIN probe; key-per-row needs
   `GROUP BY … HAVING count(*)` for AND semantics and multiplies rows by ~6. The array also absorbs
   generations for free: store the union of every generation's keys, and a channel asking for the
@@ -99,9 +104,10 @@ CREATE INDEX ... USING gin (surfaces);
 - **Folded in Rust.** `surfaces` and the probe are both `normalize::comparable`, so `ds_fold` — the
   SQL mirror added for the generated-column option — was deleted with that option. SQL compares
   strings; it never folds them.
-- **`built_with` is a fingerprint, not a hand-bumped version** (see AGENTS.md §Derived Data): it
-  stamps the *whole key pipeline* — fold and token generation — not just `comparable`, because a
-  change to the token rule is just as stale as a change to the fold.
+- **`built_with` is a fingerprint, not a hand-bumped version** (see AGENTS.md §Derived Data): one
+  fragment per generation, chained, so it stamps the *whole* normalisation pipeline — the fold and
+  the word key alike. Adding a generation moves it (`norm-5ba3c5a4…` became `norm-4ae1cf4d…` when
+  `word_keys` landed), which is what makes a stale index a count instead of a mystery.
   `index rebuild` recomputes, `index check` counts rows whose fingerprint disagrees, `stats` reports
   it. A stale index is a recall bug that looks like an empty corpus.
 
