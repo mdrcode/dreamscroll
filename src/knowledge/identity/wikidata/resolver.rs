@@ -16,6 +16,7 @@ use std::collections::HashSet;
 
 
 use super::answer;
+use super::policy;
 use crate::knowledge::identity::{
     Answers, BATCH, Claim, FetchError, Raw, Request, Gateway, Resolver, Transport,
 };
@@ -173,7 +174,7 @@ impl Wikidata {
             return Vec::new();
         }
         // A property match *is* the identity: an item claiming this handle is the account itself.
-        if let Some(property) = Self::property_of(&request.kind) {
+        if let Some(property) = policy::property_of(&request.kind) {
             match candidates.first() {
                 Some(candidate) => return vec![answer::handle_claim(candidate, property, HANDLE_CONFIDENCE)],
                 None => {
@@ -183,9 +184,9 @@ impl Wikidata {
             }
         }
         match request.kind.as_str() {
-            "title" => self.parse_title(entity, &candidates, request, reason),
-            "search" => self.parse_search(entity, candidates, request, reason),
-            _ => self.decide(entity, &candidates, request, reason),
+            "title" => policy::parse_title(entity, &candidates, request, reason),
+            "search" => policy::parse_search(entity, candidates, request, reason),
+            _ => policy::decide(entity, &candidates, request, reason),
         }
     }
 
