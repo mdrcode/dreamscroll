@@ -563,6 +563,20 @@ film; `Tokyo Express` a military unit, now the Matsumoto novel; `Freedom of Spee
 the Rockwell painting; `Orthodoxy` the concept, now the Chesterton book. `Charlie Rose` was the
 person, `Chinatown` an ethnic enclave, `Corsica`-like place articles were the same shape.
 
+### Tried and reverted: a generic-word list
+
+The obvious tightening — refuse the lone-label shortcut when both descriptions are present and
+share no content word, and treat nationality words (`american`, `british`, …) as never-sufficient
+evidence — fixes `Bethlehem Steel` and `Natural Philosophy`. It also costs **27 claims**: 29 lost
+against 2 fixed, because for a person whose name is a Wikipedia disambiguation page the only
+overlap there is *is* a shared nationality adjective (`American author` / `American novelist`),
+and the title fallback cannot answer a menu.
+
+The real defect is upstream: `Weights::frequency` is measured *over the answer's candidates*, so a
+lone candidate makes every word in its description maximally rare and a single shared word clears
+the terse-and-rare gate. A corpus-level frequency (the stored identity descriptions, fingerprinted
+like any other derived data) is the fix; a word list is not.
+
 Six went the wrong way, and they share a cause that predates the change — the label rung's fit
 accepts a description that shares a stray word: `Boeing B-17` → a crash *event*, `Industrial
 Revolution` → "Buildings of Scotland in the Industrial Revolution", `Lucifer` → the *Supernatural*
