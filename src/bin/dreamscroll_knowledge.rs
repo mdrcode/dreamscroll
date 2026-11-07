@@ -110,7 +110,11 @@ enum IdentityCommand {
 #[argh(
     description = "link every unlinked observation to a knowledge entity, creating one as needed"
 )]
-struct LinkArgs {}
+struct LinkArgs {
+    #[argh(switch)]
+    #[argh(description = "read knowledge_index instead of building an in-memory index")]
+    sql_blocker: bool,
+}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "merge")]
@@ -337,8 +341,8 @@ async fn main() -> anyhow::Result<()> {
     let db = database::DbHandle::new(connection);
 
     match args.command {
-        Command::Link(_) => {
-            let report = link_all_pending(&db).await?;
+        Command::Link(args) => {
+            let report = link_all_pending(&db, args.sql_blocker).await?;
             println!(
                 "considered {} · already linked {} · linked {} · created {}",
                 report.considered,
@@ -600,7 +604,10 @@ impl LinkAllPendingReport {
 /// Link every illumination that still has unlinked observations.
 ///
 /// After a reset, this rebuilds the entire knowledge graph.
-async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPendingReport> {
+async fn link_all_pending(
+    db: &database::DbHandle,
+    sql_blocker: bool,
+) -> anyhow::Result<LinkAllPendingReport> {
     let unlinked_obs = Query::select()
         .column(model::user_observed_entity::Column::IlluminationId)
         .from(model::user_observed_entity::Entity)
@@ -614,9 +621,14 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
         .all(&db.conn)
         .await?;
 
+    let blocker: Box<dyn knowledge::blocker::Blocker> = if sql_blocker {
+        Box::new(knowledge::sql_blocker::SqlBlocker::new(db))
+    } else {
+        Box::new(knowledge::heuristic::NameBlocker::new(db).await?)
+    };
     let knowledge = knowledge::Knowledge::with_linking(
         db,
-        Box::new(knowledge::heuristic::NameBlocker::new(db).await?),
+        blocker,
         std::sync::Arc::new(knowledge::heuristic::HeuristicLinker),
     );
     let mut report = LinkAllPendingReport::default();
