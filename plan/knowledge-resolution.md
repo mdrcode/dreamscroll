@@ -473,6 +473,21 @@ Three properties make it safe to keep:
 (*The Departed* itself, not a character), `SimClusters` (a scientific article, not the algorithm).
 No correct claim was removed by the filter.
 
+Two classes were missing from the first table and one type had no rule, found by sampling the
+rebuilt graph (**92.9%, 78 of 84 judged**):
+
+- `male given name` is **`Q12308941`**, not `Q202444` — Wikidata has one class per gender, and the
+  table knew only the neutral one. `Micah` was claiming a given-name page through it; once refused,
+  the next answer offered the prophet (`Q2804969`).
+- `brand` had no rule. `Westinghouse` held a family-name page (`Q110089588`, P31 `Q101352`); a brand
+  is not a word, so a brand now rejects a candidate that only asserts a name.
+
+With those two fixed, the same 84 sampled rows read **80 correct (95.2%)**. The four that remain are
+the shape of the ceiling: three are *same-family* collisions, which `P31` cannot see at all
+(`Brett Scott` the campaigner against an Australian footballer; `From the Earth to the Moon` the
+miniseries against Verne's novel; `Lolita` the 1962 film against the 1955 novel), and one is an item
+with no `P31` stored (`The Ancient City` → `Q15661340`).
+
 **What it cannot do.** Unrecognised classes pass, and that is where the remaining wrong claims live:
 `Choo` (illustrator) → a river in Gabon (`Q4022`), `Heavy Metal` (1981 film) → the comics magazine
 (`Q867242`), `Aardwolf` (a MUD) → a watercolour (`Q18761202`). Those six were recorded as vetoes

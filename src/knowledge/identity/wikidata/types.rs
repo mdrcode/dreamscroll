@@ -73,9 +73,11 @@ impl Family {
             "Q151885" => Self::Concept,  // concept
             "Q1914636" => Self::Concept, // activity
 
-            "Q202444" => Self::Name, // given name
-            "Q101352" => Self::Name, // family name
-            "Q82799" => Self::Name,  // name
+            "Q202444" => Self::Name,   // given name
+            "Q12308941" => Self::Name, // male given name
+            "Q3409032" => Self::Name,  // unisex given name
+            "Q101352" => Self::Name,   // family name
+            "Q82799" => Self::Name,    // name
 
             "Q8092" => Self::Nature,  // tropical cyclone
             "Q16521" => Self::Nature, // taxon
@@ -139,6 +141,9 @@ pub(super) fn incompatible(entity_type: &str, classes: &[String]) -> bool {
         }),
         // A piece of software claiming a bird, a company or an album is another thing entirely.
         "software" => !found.contains(&Family::Software),
+        // A brand is not a word. `Westinghouse` claimed a family-name page (`Q110089588`, P31
+        // `Q101352`) — the only thing that item asserts is that the word is a surname.
+        "brand" => found.iter().all(|family| *family == Family::Name),
         _ => false,
     }
 }
@@ -183,6 +188,22 @@ mod tests {
         assert!(incompatible("art_work", &classes(&["Q151885"])));
         // The Joy of Cooking against its publisher.
         assert!(!incompatible("book", &classes(&["Q571"])));
+    }
+
+    /// The class was missing from the table, not from Wikidata: `Micah` is a *male* given name
+    /// (`Q12308941`), and the table only knew `given name` (`Q202444`).
+    #[test]
+    fn a_male_given_name_is_still_a_name() {
+        assert!(incompatible("religious_figure", &classes(&["Q12308941"])));
+        assert!(incompatible("real_person", &classes(&["Q3409032"])));
+    }
+
+    /// `Westinghouse`: a brand entity against a family-name item.
+    #[test]
+    fn a_brand_is_not_a_surname_page() {
+        assert!(incompatible("brand", &classes(&["Q101352"])));
+        // …but a brand whose class we do not recognise is left alone.
+        assert!(!incompatible("brand", &classes(&["Q99999999"])));
     }
 
     /// A type we have no opinion about is never filtered.
