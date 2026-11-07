@@ -8,8 +8,9 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use super::super::contract::{FetchError, Raw, Request};
-use crate::knowledge::identity::Candidate;
+use super::query;
 use super::resolver::{LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT, Wikidata};
+use crate::knowledge::identity::Candidate;
 use crate::knowledge::identity::cache::Outcome;
 
 /// Which query a SPARQL row answers, and the candidate it names. Items arrive as entity URLs, and a
@@ -183,7 +184,8 @@ impl Wikidata {
         }
 
         let items = self.items(&ids).await?;
-        let candidates: Vec<Candidate> = ids.iter().filter_map(|id| items.get(id).cloned()).collect();
+        let candidates: Vec<Candidate> =
+            ids.iter().filter_map(|id| items.get(id).cloned()).collect();
         if candidates.is_empty() {
             return Ok(Raw {
                 outcome: if reached_backend {
@@ -368,9 +370,9 @@ impl Wikidata {
             return Ok(Vec::new());
         };
         let query = if let Some(property) = first.kind.property() {
-            sparql_for_handles(requests, property)
+            query::for_handles(requests, property)
         } else {
-            sparql_for_labels(requests)
+            query::for_labels(requests)
         };
         let response = self
             .client
@@ -428,42 +430,6 @@ impl Wikidata {
         }
         Ok(answers)
     }
-}
-
-pub(super) fn sparql_for_labels(requests: &[Request]) -> String {
-    let values = requests
-        .iter()
-        .map(|request| format!("\"{}\"@{LANGUAGE}", escape(&request.query)))
-        .collect::<Vec<_>>()
-        .join(" ");
-    format!(
-        // No `P31` here on purpose: classes are not used by the ranking, and the extra join made a
-        // 50-label batch cost enough processing time to hit WDQS's 60-seconds-per-minute budget.
-        // They can come from a separate `VALUES ?item` query when type validation needs them.
-        "SELECT ?query ?item ?itemLabel ?itemDescription WHERE {{\n\
-         VALUES ?query {{ {values} }}\n\
-         ?item rdfs:label ?query .\n\
-         SERVICE wikibase:label {{ bd:serviceParam wikibase:language \"{LANGUAGE}\". }}\n\
-         }}"
-    )
-}
-pub(super) fn sparql_for_handles(requests: &[Request], property: &str) -> String {
-    let values = requests
-        .iter()
-        .map(|request| format!("\"{}\"", escape(&request.query)))
-        .collect::<Vec<_>>()
-        .join(" ");
-    format!(
-        "SELECT ?query ?item WHERE {{\n\
-         VALUES ?query {{ {values} }}\n\
-         ?item wdt:{property} ?query .\n\
-         }}"
-    )
-}
-
-/// SPARQL string literals: backslash and double quote are the only escapes that matter here.
-pub(super) fn escape(value: &str) -> String {
-    value.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
 #[cfg(test)]

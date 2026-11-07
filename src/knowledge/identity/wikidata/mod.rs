@@ -2,6 +2,7 @@
 
 mod answer;
 mod policy;
+mod query;
 mod ranking;
 mod resolver;
 mod transport;

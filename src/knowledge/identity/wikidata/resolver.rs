@@ -252,58 +252,39 @@ impl Resolver for Wikidata {
         let mut claims = Vec::new();
         let mut resolved: HashSet<i32> = HashSet::new();
 
-        let identity: Vec<(usize, Request)> = entities
-            .iter()
-            .enumerate()
-            .flat_map(|(index, entity)| {
-                self.plan(entity)
-                    .into_iter()
-                    .map(move |request| (index, request))
-            })
-            .collect();
-        let requests: Vec<Request> = identity
-            .iter()
-            .map(|(_, request)| request.clone())
-            .collect();
-        let answers = gateway.resolve_requests(self, &requests).await;
-        self.collect(
-            entities,
-            &identity,
-            &answers,
-            gateway,
-            &mut claims,
-            &mut resolved,
-        )
-        .await;
-
-        // The fallback runs offline too: `resolve_requests` decides what to fetch, so it serves the
-        // cached search answers and silently fetches nothing. Skipping it here threw those answers
-        // away, which made an offline rebuild reproduce only what the first pass found.
-
-        let fallback: Vec<(usize, Request)> = entities
-            .iter()
-            .enumerate()
-            .filter(|(_, entity)| !resolved.contains(&entity.id))
-            .flat_map(|(index, entity)| {
-                self.plan_fallback(entity)
-                    .into_iter()
-                    .map(move |request| (index, request))
-            })
-            .collect();
-        let requests: Vec<Request> = fallback
-            .iter()
-            .map(|(_, request)| request.clone())
-            .collect();
-        let answers = gateway.resolve_requests(self, &requests).await;
-        self.collect(
-            entities,
-            &fallback,
-            &answers,
-            gateway,
-            &mut claims,
-            &mut resolved,
-        )
-        .await;
+        // Two stages, one loop. The boundary lives here because no other authority knows that search
+        // is the expensive route, and the fallback must run offline too: `resolve_requests` decides
+        // what to fetch, so it serves cached search answers and silently fetches nothing — skipping
+        // it once threw those answers away, and an offline rebuild then reproduced less than the
+        // cache held.
+        let stages: [fn(&Wikidata, &model::knowledge_entity::Model) -> Vec<Request>; 2] =
+            [Wikidata::plan, Wikidata::plan_fallback];
+        for plan in stages {
+            let plans: Vec<(usize, Request)> = entities
+                .iter()
+                .enumerate()
+                .filter(|(_, entity)| !resolved.contains(&entity.id))
+                .flat_map(|(index, entity)| {
+                    plan(self, entity)
+                        .into_iter()
+                        .map(move |request| (index, request))
+                })
+                .collect();
+            if plans.is_empty() {
+                continue;
+            }
+            let requests: Vec<Request> = plans.iter().map(|(_, request)| request.clone()).collect();
+            let answers = gateway.resolve_requests(self, &requests).await;
+            self.collect(
+                entities,
+                &plans,
+                &answers,
+                gateway,
+                &mut claims,
+                &mut resolved,
+            )
+            .await;
+        }
 
         claims
     }
@@ -759,12 +740,6 @@ mod tests {
         assert!(claims.is_empty(), "{claims:?}");
     }
 
-    #[test]
-    fn sparql_literals_are_escaped() {
-        let requests = vec![request(Kind::Label, "A \"quoted\" name")];
-        let query = crate::knowledge::identity::wikidata::transport::sparql_for_labels(&requests);
-        assert!(query.contains("\\\"quoted\\\""), "{query}");
-    }
 
     /// The ladder, driven end to end. Every answer is already in the cache, so nothing is fetched:
     /// the point is that `resolve` consults the title before the label, and only searches for the
