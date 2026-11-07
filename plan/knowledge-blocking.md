@@ -62,6 +62,50 @@ diacritic table aligned), stored as an expression index, a `STORED` generated co
 or a trigger; nondeterministic ICU collations cover case/accent/punctuation at
 comparison time but ignore inner punctuation; `unaccent` covers diacritics only.
 
+## Storage: `knowledge_index`
+
+Decided 2026-11-06: **a separate table**, not a column on `knowledge_entities` and not an expression
+index. Three reasons, in order of weight:
+
+- **The hot table keeps its shape.** 53 ORM read sites select the model's columns, so a modeled
+  `text[]` would ride along on every read of `knowledge_entities` for no reader's benefit. A
+  generated column cannot be modeled at all — SeaORM's entity macro has no attribute for it — so its
+  only clean form is out-of-model DDL, which buys nothing a table does not.
+- **A fold change is a rebuild, not a table rewrite.** `TRUNCATE` + refill is offline and resumable;
+  `UPDATE` over every entity rewrites the heap and breaks HOT for other indexes. The fold has
+  already changed once, and the article/separator/skeleton generations are still held in reserve.
+- **The next channels need a home.** FTS text is cheap, trigram is cheap, an embedding is ~3 KB per
+  entity and must never live on the hot table.
+
+```sql
+CREATE TABLE knowledge_index (
+    knowledge_entity_id int PRIMARY KEY,     -- one row per entity
+    surfaces  text[] NOT NULL DEFAULT '{}',  -- folded surfaces, unioned across generations
+    text      text   NOT NULL DEFAULT '',    -- the same as one document, for full text
+    folded_with text NOT NULL,               -- the fold's behavioural fingerprint (AGENTS.md)
+    built_at  timestamptz NOT NULL DEFAULT now()
+);
+CREATE INDEX ... USING gin (surfaces);
+```
+
+- **One row per entity, arrays not key rows.** `surfaces && $1` is one GIN probe; key-per-row needs
+  `GROUP BY … HAVING count(*)` for AND semantics and multiplies rows by ~6. The array also absorbs
+  generations for free: store the union of every generation's keys, and a channel asking for the
+  article-dropped form still finds it, because blocking may over-generate.
+- **Written by `project`**, in the same call that writes the other derived columns — not by a
+  trigger, which is the same hidden chaining the rebuild removed from the link task.
+- **FK like its siblings** (`belongs_to` ⇒ `NO ACTION`, as on `knowledge_claims` and
+  `knowledge_proximities`). `reset` deletes it in FK order; `merge` deletes the loser's row.
+- **Folded in Rust.** `surfaces` and the probe are both `normalize::comparable`, so `ds_fold` — the
+  SQL mirror added for the generated-column option — was deleted with that option. SQL compares
+  strings; it never folds them.
+- **`folded_with` is a fingerprint, not a hand-bumped version** (see AGENTS.md §Derived Data):
+  `index rebuild` recomputes, `index check` counts rows whose fingerprint disagrees, `stats` reports
+  it. A stale index is a recall bug that looks like an empty corpus.
+
+First channel is **surface only** — one scheme, exhaustive within its key space, so the oracle
+comparison is meaningful and there is no fusion to review. RRF arrives with the second channel.
+
 ## The query, and what happened to the "splitter"
 
 There is no split stage. What crosses the layer boundary is the observation, raw:

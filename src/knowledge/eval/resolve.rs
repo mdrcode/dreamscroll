@@ -97,10 +97,10 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
                       WHERE provider = $1 AND kind = $2 AND shape = $3 AND query = $4 \
                         AND expires_at > now() LIMIT 1",
                     [
-                        request.provider.clone().into(),
-                        request.kind.clone().into(),
-                        request.shape.clone().into(),
-                        request.query.clone().into(),
+                        request.provider.into(),
+                        request.kind.as_str().into(),
+                        request.shape.as_str().into(),
+                        request.query.as_str().into(),
                     ],
                 ))
                 .await?;

@@ -67,6 +67,25 @@ Be simple, idiomatic, robust, and flexible (in that order).
   comment is more useful and durable than multiple paragraphs. Important decisions and
   logic should be documented so that they are salient and discoverable.
 
+# Derived Data
+Anything computed from other data — a projected column, a cached match key, an index row — carries
+three obligations. Skipping one turns a caching decision into a silent correctness bug:
+
+- **Rebuildable, from the source, in one path.** There must be a way to recompute every row without
+  touching what it was derived from; a column you can only fix with a migration is a copy, not a
+  derivative. `knowledge_index` is rebuilt by truncating it and re-deriving.
+- **Fingerprinted, not versioned by hand.** Record *what rule produced the value*, not when it was
+  written. Fold a fixed corpus of probe strings, hash the result, store the hash: any change to the
+  rule moves the fingerprint on its own, so nothing depends on someone remembering to bump a
+  constant. A timestamp answers "when", never "what". Pin the fingerprint in a test, so a change to
+  the rule appears in the diff instead of being discovered months later as a recall bug.
+- **Checkable.** One query answers "how many rows disagree with the current rule", and a command or
+  a `stats` line reports it. Staleness that cannot be counted surfaces as a mystery, not a bug.
+
+The probe corpus is the one thing a fingerprint cannot protect you from: it has to cover every
+branch the rule has, including the distinctions the rule must *preserve* (`C` / `C#` / `C++` are
+three things). Add a probe when you add a branch.
+
 # Target Environments
 Acknowledged hard dependencies:
 - Postgres

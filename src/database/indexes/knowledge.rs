@@ -116,40 +116,6 @@ END;
 $sync$;
 "#;
 
-/// `normalize::comparable`, the graph's one definition of a surface, mirrored in SQL call for call.
-///
-/// Case, diacritics, ligatures, wrapping quotes, a leading `@`/`#`, one trailing period, inner double
-/// quotes, and whitespace at punctuation — the same steps, in the same order, as the Rust function.
-/// It exists so a query can fold the parameter with the definition that folded the column, and so
-/// an expression index or generated column can hold the result.
-///
-/// Every step is `IMMUTABLE`. The test in `normalize.rs` keeps this and the Rust function identical.
-const BLOCKING_FOLD: &str = r#"
-CREATE OR REPLACE FUNCTION ds_fold(text) RETURNS text
-LANGUAGE sql IMMUTABLE PARALLEL SAFE AS $fold$
-WITH v1 AS (
-    SELECT btrim(btrim($1, E' \t\n\r\f'), '"''“”‘’«»') AS t
-), unmarked AS (
-    SELECT btrim(regexp_replace(t, '^[@#]+', ''), E' \t\n\r\f') AS t FROM v1
-), unterminated AS (
-    SELECT regexp_replace(t, '\.$', '') AS t FROM unmarked
-), folded AS (
-    SELECT translate(
-             lower(t),
-             'àáâãäåāăąçćčďđèéêëēėęěğìíîïīįłñńňòóôõöøōőřśšşťùúûüūůűýÿžźż',
-             'aaaaaaaaacccddeeeeeeeegiiiiiilnnnoooooooorssstuuuuuuuyyzzz') AS t
-    FROM unterminated
-), spaced AS (
-    SELECT regexp_replace(t, '\s+', ' ', 'g') AS t FROM folded
-), unquoted AS (
-    SELECT regexp_replace(t, '["“”«»]', '', 'g') AS t FROM spaced
-), tightened AS (
-    SELECT regexp_replace(t, '\s*([.,;:!?])\s*', '\1', 'g') AS t FROM unquoted
-)
-SELECT replace(replace(replace(t, 'æ', 'ae'), 'œ', 'oe'), 'ß', 'ss') FROM tightened
-$fold$;
-"#;
-
 pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(RETIRE_CLAIMS_WITHOUT_BASIS).await?;
     conn.execute_unprepared(BACKFILL_ALT_SEARCH_QUERIES).await?;
@@ -159,7 +125,6 @@ pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbEr
 }
 
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
-    conn.execute_unprepared(BLOCKING_FOLD).await?;
     conn.execute_unprepared(IDENTITIES_UNIQUE).await?;
     conn.execute_unprepared(CLAIMS_UNIQUE).await?;
     conn.execute_unprepared(PROXIMITIES_PAIR).await?;
