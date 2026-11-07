@@ -301,6 +301,95 @@ Nothing lexical separates `Dogma` the film from `dogma` the concept; `P31` does,
 nothing. This is the argument two sections below, now with a population measurement behind it instead
 of an example.
 
+### Fixed 2026-11-06
+
+The menu check moved from `parse_title` to the gate every rung passes through
+(`parse_explained`), and matches either the class list or the description: `Q22808320` is a subclass
+of `Q4167410`, and three of the pages carried no classes at all, so equality on the parent fired for
+none of the 34.
+
+Repair: the 34 claims were retracted and re-decided offline (`identity resolve --offline`, every
+request already cached), then `identity reproject` — new verb, because `status` is derived from live
+claims and nothing recomputed it for an entity that stopped claiming.
+
+| | before | after |
+| --- | --- | --- |
+| live menu claims | 34 | **0** |
+| claims | 1,960 | 1,954 |
+| identified | 1,877 | 1,873 |
+
+Of the 34: **23 re-claimed by exact label, 3 by capture handle, 8 unresolved.** Judged against the
+entity's own description, 19 of the 23 are right and 4 are not — all four are same-name people picked
+by the evidence: `Arthur Gibson` (aviation photographer) → a 19th-century cricketer, `David Vernon`
+(British academic) → an Australian writer, `Jack O'Connell` (actor) → a footballer, `Colin Adams`
+(Character.ai CEO) → an unnamed "executive". The last three are the `type` case, not the menu case.
+
+On the same 100-entity sample: 76/91 → **79/90 (87.8%)**. `Rogue Heroes` left the identified set
+(its series is a separate entity, `SAS: Rogue Heroes`, already correctly claimed), and no new error
+was introduced among the sampled entities.
+
+### Rebuilt 2026-11-06
+
+The 1,609 resolver-owned claims were retracted and replayed under the current parser (fold v2, title
+guard, IDF floor, terse rule, menu gate); the 345 `capture` handle claims were left alone, because a
+capture's own account is not a decision the resolver can re-derive.
+
+| | before | after |
+| --- | --- | --- |
+| claims | 1,609 | 1,609 |
+| identified | 1,873 | 1,873 |
+| `wikipedia_title` | 117 | 128 |
+| `exact_label` | 1,383 | 1,379 |
+| `search_hint` | 22 | 17 |
+
+**Eleven entities changed referent, and nine of them are strictly better.** Every gain came from the
+title rung now winning where the label rung used to: `Jane Eyre` → the 1847 novel (was a 2006 TV
+adaptation), `Dustin Hoffman` → the actor (was an SNL sketch), `Andrey Markov` → the elder (was his
+son), `Instagram` → the network (was "Instagram post"), `John Singer Sargent` → the painter (was a
+catalogue raisonné), `Back to the Future Part II` → the film (was a 1990 video game), `MS-DOS` → the
+operating system (was "DOS"), `Age of Empires` → the series, `Starlink` → the constellation.
+
+One is worse: `Los sorias` moved from the novel to its *1998 edition* — a granularity step down that
+the title rung cannot see. One is still wrong in both directions: `Q` (the Star Trek being) → a
+2004 short fiction by John Grant.
+
+The lesson is the precision sample's, confirmed at scale: **the exact label is not evidence of
+sense.** Nine of eleven corrections came from preferring the *article* over the *string*.
+
+### Sampled again after the rebuild — 2026-11-06
+
+Same seed, same method, fresh draw over the rebuilt 1,873. Seventeen were capture handles, leaving
+**83 judged**.
+
+**92.8% correct (77/83), 95% CI [85.1, 96.6].** Counting the seventeen handles, 94 of 100.
+
+| method | correct | total |
+| --- | --- | --- |
+| `wikipedia_title` | 10 | 10 |
+| `exact_label` | 63 | 68 |
+| `search_ranked` | 2 | 2 |
+| `search_lookup` | 0 | 1 |
+| `P2002` | 2 | 2 |
+
+Six errors, and every one is sense or granularity — **no menu claims**:
+
+| entity | claimed | should be |
+| --- | --- | --- |
+| Linkup | a French band | a web-search API provider |
+| Los sorias | its 1998 edition | the novel |
+| Micah | a male given name | the prophet |
+| STUNNER | a 2025 EP by Ten | an X account |
+| Phil Weir | a Scottish footballer (1901–1963) | a British naval historian |
+| Freedom of Speech | the *concept* | the Rockwell painting |
+
+The intervals overlap ([74.6, 89.7] before, [85.1, 96.6] now), so the +9.3 points is not established by
+sampling alone. What establishes it is the exhaustive delta above: 34 claims that were definitionally
+wrong are gone, nine were corrected, one got worse. The sample agrees with the audit rather than
+proving it independently.
+
+`exact_label` is still the rung to distrust — 5 of the 6 errors, and the one `search_lookup` error is the
+edition.
+
 ## The shape this should take
 
 Entity reconciliation has a published contract: the [W3C Entity Reconciliation Community Group

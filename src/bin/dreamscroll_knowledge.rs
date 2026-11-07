@@ -112,7 +112,13 @@ struct IdentityArgs {
 #[argh(subcommand)]
 enum IdentityCommand {
     Resolve(ResolveArgs),
+    Reproject(ReprojectArgs),
 }
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "reproject")]
+#[argh(description = "recompute projections for live entities holding no live claim")]
+struct ReprojectArgs {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "link")]
@@ -363,6 +369,34 @@ async fn eval_resolve(
 }
 
 /// `identity resolve`: ask the authorities what a thing is, cache first.
+/// `status` and the selected surface are derived from live claims, so a retraction leaves them stale —
+/// and nothing recomputes them for an entity that stops claiming. This is that half of the rule.
+async fn reproject_unclaimed(db: &database::DbHandle) -> anyhow::Result<()> {
+    use sea_orm::EntityTrait;
+
+    use model::knowledge_claims as claims;
+    use model::knowledge_entity as entity;
+
+    let claimed = Query::select()
+        .distinct()
+        .column((claims::Entity, claims::Column::KnowledgeEntityId))
+        .from(claims::Entity)
+        .and_where(Expr::col((claims::Entity, claims::Column::RetractedAt)).is_null())
+        .to_owned();
+    let stale = entity::Entity::find()
+        .filter(entity::Column::MergedIntoId.is_null())
+        .filter(Expr::col(entity::Column::Id).not_in_subquery(claimed))
+        .all(&db.conn)
+        .await?;
+    let store = knowledge::Knowledge::new(db);
+    let total = stale.len();
+    for row in &stale {
+        store.update_projection(row.id).await?;
+    }
+    println!("reprojected {total} live entities holding no live claim");
+    Ok(())
+}
+
 async fn resolve_identity(
     db: &database::DbHandle,
     args: ResolveArgs,
@@ -656,6 +690,7 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Identity(args) => match args.command {
             IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
+            IdentityCommand::Reproject(_) => reproject_unclaimed(&db).await?,
         },
         Command::Stats(_) => {
             let stats = stats::knowledge_stats(&db).await?;
