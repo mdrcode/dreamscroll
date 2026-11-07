@@ -282,17 +282,16 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
 | `sql_blocker.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
 | `heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
-| `identity/driver.rs` | the resolver contract, the engine that runs it, claim storage |
-| `identity/wikidata/` | one authority: policy in `resolver.rs`, candidate ranking in `ranking.rs`, HTTP in `transport.rs` |
+| `identity/` | `contract` (request, answer, claim, the transport trait) · `context` (cache, pace, budget — the only door to the world) · `engine` (the run loop) · `store` (where a claim becomes a row) · `cache` (answers keyed by `(provider, kind, shape, query)`) |
+| `identity/wikidata/` | one authority: the gates in `policy.rs`, answer parsing in `answer.rs`, the provider and its request shapes in `resolver.rs`, candidate scoring in `ranking.rs`, HTTP in `transport.rs` |
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
 | `link.rs` | the linking executor, and `LinkStats` |
 | `project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `merge.rs` | fold one entity into another |
-| `evidence.rs` | claims and identities: who holds one (ordered by `cmp_confidence`), and the platform key a presence answers to |
+| `evidence.rs` | claims and identities: who holds one (ordered by `cmp_confidence`), and the `PlatformLink` a capture showed |
 | `proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
 | `verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair or a veto, `replay` onto the new graph — vetoes are also asked at admission, since a claim has one writer |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `identity/cache.rs` | answers, keyed by `(provider, kind, shape, query)` |
 | `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by |
 | `index.rs` | `knowledge_index`: the folded keys a blocker reads, written by `project`, rebuilt when the fold changes; `rebuild` and `check` |
 | `eval/` | offline evaluation: `eval resolve` replays the resolver's ladder over the answer cache, with no transport |
