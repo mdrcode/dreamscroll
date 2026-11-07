@@ -10,6 +10,7 @@ pub mod cache;
 pub mod context;
 pub mod contract;
 pub mod driver;
+pub mod store;
 pub mod wikidata;
 
 pub use context::*;
