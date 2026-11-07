@@ -579,7 +579,7 @@ async fn main() -> anyhow::Result<()> {
                 ProximityCommand::Merge(_) => {
                     let report = knowledge::proximity::merge(&store).await?;
                     println!(
-                        "merged {} · refused {} · moot {} · undecided {}",
+                        "auto-merged {} · refused {} · moot {} · undecided {}",
                         report.merged, report.refused, report.moot, report.undecided
                     );
                 }

@@ -21,7 +21,8 @@ use super::Knowledge;
 /// What one merge did.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct MergeReport {
-    /// Pairs the pass folded.
+    /// Pairs this pass merged on its own — logged `proximity_auto`, re-derived every build. A
+    /// person's fold is `cause = repair` and is replayed; the two must not read the same.
     pub merged: usize,
     /// Pairs that looked like one thing and the shared-illumination rule refused.
     pub refused: usize,
