@@ -244,6 +244,9 @@ struct ResolveArgs {
     #[argh(option, default = "1000")]
     #[argh(description = "minimum milliseconds between transport calls")]
     min_interval_ms: u64,
+    #[argh(switch)]
+    #[argh(description = "consider the newest entities first, so a short run serves fresh captures")]
+    newest: bool,
 }
 
 #[derive(FromArgs)]
@@ -302,6 +305,7 @@ async fn resolve_identity(
         offline: args.offline,
         only: args.entity,
         min_interval: std::time::Duration::from_millis(args.min_interval_ms),
+        newest_first: args.newest,
     };
     let engine = knowledge::resolve::ResolutionEngine::new(db, options)
         .with(Box::new(knowledge::resolve::wikidata::Wikidata::new()?));

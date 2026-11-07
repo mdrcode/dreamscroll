@@ -134,6 +134,13 @@ pub struct Options {
     pub offline: bool,
     /// Resolve only this entity — for debugging one case without walking the corpus.
     pub only: Option<i32>,
+    /// Consider the newest entities first.
+    ///
+    /// The budget is finite, so *which* candidates it reaches decides what a short run achieves.
+    /// Ascending id is right for a rebuild (deterministic, and the oldest entities have waited
+    /// longest); newest-first is right when captures just arrived, because otherwise a run spends
+    /// its 200 requests on candidates that have failed every previous pass.
+    pub newest_first: bool,
 }
 
 impl Default for Options {
@@ -144,6 +151,7 @@ impl Default for Options {
             min_interval: std::time::Duration::from_secs(1),
             offline: false,
             only: None,
+            newest_first: false,
         }
     }
 }
@@ -438,7 +446,13 @@ impl<'a> ResolutionEngine<'a> {
     }
 
     pub async fn run(self) -> anyhow::Result<Report> {
-        let entities = candidates(&self.db.conn, self.options.limit, self.options.only).await?;
+        let entities = candidates(
+            &self.db.conn,
+            self.options.limit,
+            self.options.only,
+            self.options.newest_first,
+        )
+        .await?;
         let cache = Cache::new(&self.db.conn);
         let ctx = ResolutionContext::new(&cache, &self.options);
         let mut report = Report {
@@ -603,6 +617,7 @@ async fn candidates(
     conn: &sea_orm::DatabaseConnection,
     limit: Option<usize>,
     only: Option<i32>,
+    newest_first: bool,
 ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
     use model::knowledge_entity as entity;
     use sea_orm::sea_query::{Expr, ExprTrait, Query};
@@ -645,7 +660,16 @@ async fn candidates(
     let mut query = entity::Entity::find()
         .filter(entity::Column::MergedIntoId.is_null())
         .filter(Expr::col(entity::Column::Id).not_in_subquery(claimed))
-        .order_by_asc(entity::Column::Id);
+        // Which candidates a finite budget reaches is a policy, not a detail: ascending is the
+        // rebuild order, descending is "what just arrived".
+        .order_by(
+            entity::Column::Id,
+            if newest_first {
+                sea_orm::Order::Desc
+            } else {
+                sea_orm::Order::Asc
+            },
+        );
     if let Some(knowledge_entity_id) = only {
         query = query.filter(entity::Column::Id.eq(knowledge_entity_id));
     }
@@ -664,6 +688,28 @@ mod tests {
 
     use super::*;
     use crate::test_support::db_or_skip;
+
+    /// Which candidates a finite budget reaches is a policy, so pin both orders.
+    #[tokio::test]
+    async fn candidates_are_ordered_by_the_run_not_by_habit() {
+        db_or_skip!(db);
+        let first = crate::test_support::fixtures::knowledge_entity_with_member(&db, "First").await;
+        let second = crate::test_support::fixtures::knowledge_entity_with_member(&db, "Second").await;
+
+        let ascending = candidates(&db.conn, Some(2), None, false).await.unwrap();
+        let descending = candidates(&db.conn, Some(2), None, true).await.unwrap();
+
+        assert_eq!(
+            ascending.iter().map(|e| e.id).collect::<Vec<_>>(),
+            vec![first, second],
+            "a rebuild walks from the oldest"
+        );
+        assert_eq!(
+            descending.iter().map(|e| e.id).collect::<Vec<_>>(),
+            vec![second, first],
+            "a run that serves fresh captures starts at the newest"
+        );
+    }
 
     /// An authority that never touches the network: it answers from a fixed map and counts calls.
     struct Fake {
