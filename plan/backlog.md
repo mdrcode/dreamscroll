@@ -214,6 +214,33 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `heuristic/scoring.rs` policy) makes 1 cheaper to state: `parse_search` builds `Weights` itself
   instead of asking the policy, which is now the visible oddity rather than a hidden one.
 
+- [ ] **Decide how admin privilege reaches the common APIs.** Today an admin can do a thing only if a
+  route was written for it. `POST /api/queues/illuminate` resolves the capture through the caller's own
+  list, so an admin asking for someone else's capture gets a 404 — *before*
+  `ensure_task_submission_allowed` (`is_admin() || owner`) is ever consulted. The authority already
+  exists; the lookup above it hides the capture. A parallel route
+  (`POST /api/admin/captures/{id}/illuminate`) was prototyped on 2026-11-07, worked end to end, and
+  was **abandoned**: it cost a client method, a CLI flag, a route handler, a model-id field threaded
+  through `AdminApiClient` and eight test constructors, for one operation. Reverted rather than
+  carried.
+  **Debate:** parallel `/admin` routes per operation (explicit; duplicates each handler and drifts), or
+  admin credentials accepted on the base routes with the ownership lookup made admin-aware (one
+  handler; every read path must then know about admin). The second matches where the authority already
+  lives — the task layer. Not urgent until a second admin-only operation appears; that one will show
+  which shape repeats.
+
+- [ ] **Decide whether a person and their social account are one entity.** `social_media_account` is
+  a type of its own (148 live entities), distinct from `real_person`, so a capture that names the
+  person and one that names the account become two entities. Live case: `Andra` (`real_person`,
+  claim `x_twitter:bioavailablend`) and `@bioavailablend` (`social_media_account`, claim
+  `instagram:bioavailablend`) — same handle, same subject, two entities, and `proximity` cannot pair
+  them because the claims are in different platform namespaces. Blocking now offers each to the other
+  and the link decider declines **on type**, which is consistent rather than buggy.
+  Settle the vocabulary before any mechanism. If they are one thing, the type signal is wrong for a
+  whole class, and the typing rule (not the decider) is what has to change. If they are two, the split
+  stays, and `alt_types` is where "this person's item also covers their account" should be recorded.
+  Do not special-case the link decider for one handle — that is the hack this item exists to avoid.
+
 ## Deferred — already scoped
 
 Promote an item into **Next** when its trigger fires or it becomes the focus.
