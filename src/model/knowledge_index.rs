@@ -6,7 +6,7 @@ use super::*;
 /// Derived retrieval material for one entity: the folded forms a blocker matches on.
 ///
 /// Nothing here is truth. It is a function of `name` and `alt_names`, it is rebuilt wholesale when
-/// the fold changes — `folded_with` says which fold produced the row — and a missing row must never
+/// the fold changes — `built_with` says which fold produced the row — and a missing row must never
 /// be read as "this entity has no surfaces". See AGENTS.md §Derived Data.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
@@ -22,9 +22,9 @@ pub struct Model {
     /// The same surfaces as one folded document, for full text search.
     pub text: String,
 
-    /// The fold's behavioural fingerprint: what rule produced this row, not when.
+    /// The key pipeline's behavioural fingerprint: what rule produced this row, not when.
     #[sea_orm(default_value = "")]
-    pub folded_with: String,
+    pub built_with: String,
 
     #[sea_orm(default_expr = "Expr::current_timestamp()")]
     pub built_at: DateTime<Utc>,

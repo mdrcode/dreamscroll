@@ -2,8 +2,8 @@
 //!
 //! A function of `name` and `alt_names` and nothing else. Written by [`crate::knowledge::project`]
 //! whenever an entity's derived columns change, forgotten when the entity stops being live, and
-//! rebuilt wholesale when the fold changes — `folded_with` records which fold produced a row, so a
-//! stale index is countable instead of being discovered later as a recall bug.
+//! rebuilt wholesale when the key rule changes — `built_with` records which rule produced a row,
+//! so a stale index is countable instead of being discovered later as a recall bug.
 //!
 //! See AGENTS.md §Derived Data for why the version is a behavioural fingerprint rather than a
 //! hand-bumped number, and `plan/knowledge-blocking.md` §Storage for why this is a table.
@@ -16,12 +16,12 @@ use crate::model;
 
 /// One row per live entity: the folded surfaces, and the same text for full search.
 const UPSERT: &str = "
-INSERT INTO knowledge_index (knowledge_entity_id, surfaces, text, folded_with)
+INSERT INTO knowledge_index (knowledge_entity_id, surfaces, text, built_with)
 VALUES ($1, $2, $3, $4)
 ON CONFLICT (knowledge_entity_id) DO UPDATE
    SET surfaces = EXCLUDED.surfaces,
        text = EXCLUDED.text,
-       folded_with = EXCLUDED.folded_with,
+       built_with = EXCLUDED.built_with,
        built_at = now()";
 
 /// Every folded surface the entity wears, deduped and in the order it wears them.
@@ -52,7 +52,7 @@ pub(super) async fn write<C: ConnectionTrait>(
             entity.id.into(),
             surfaces.into(),
             text.into(),
-            normalize::fingerprint().into(),
+            normalize::keys_fingerprint().into(),
         ],
     ))
     .await?;
@@ -75,7 +75,7 @@ pub(super) async fn forget<C: ConnectionTrait>(conn: &C, knowledge_entity_id: i3
 pub struct Report {
     /// Rows present.
     pub indexed: usize,
-    /// Rows whose `folded_with` is not the current fingerprint — built by an older fold.
+    /// Rows whose `built_with` is not the current fingerprint — built by an older rule.
     pub stale: usize,
     /// Live entities with no row at all: a writer was skipped, or a rebuild was interrupted.
     pub missing: usize,
@@ -125,8 +125,8 @@ pub async fn check(db: &DbHandle) -> anyhow::Result<Report> {
     Ok(Report {
         indexed: count("SELECT count(*) FROM knowledge_index", vec![]).await? as usize,
         stale: count(
-            "SELECT count(*) FROM knowledge_index WHERE folded_with <> $1",
-            vec![normalize::fingerprint().into()],
+            "SELECT count(*) FROM knowledge_index WHERE built_with <> $1",
+            vec![normalize::keys_fingerprint().into()],
         )
         .await? as usize,
         missing: count(
@@ -164,7 +164,7 @@ mod tests {
             .unwrap()
             .expect("project must write the index row");
         assert_eq!(row.surfaces, keys(&entity));
-        assert_eq!(row.folded_with, normalize::fingerprint());
+        assert_eq!(row.built_with, normalize::keys_fingerprint());
         assert!(row.surfaces.contains(&"train dreams".to_string()));
         assert_eq!(check(&db).await.unwrap(), Report { indexed: 1, stale: 0, missing: 0 });
     }
@@ -178,7 +178,7 @@ mod tests {
         db.conn
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "UPDATE knowledge_index SET folded_with = 'fold-0000000000000000' WHERE knowledge_entity_id = $1",
+                "UPDATE knowledge_index SET built_with = 'fold-0000000000000000' WHERE knowledge_entity_id = $1",
                 [id.into()],
             ))
             .await

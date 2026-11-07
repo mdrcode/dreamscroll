@@ -82,7 +82,7 @@ CREATE TABLE knowledge_index (
     knowledge_entity_id int PRIMARY KEY,     -- one row per entity
     surfaces  text[] NOT NULL DEFAULT '{}',  -- folded surfaces, unioned across generations
     text      text   NOT NULL DEFAULT '',    -- the same as one document, for full text
-    folded_with text NOT NULL,               -- the fold's behavioural fingerprint (AGENTS.md)
+    built_with text NOT NULL,                -- the key pipeline's fingerprint (AGENTS.md)
     built_at  timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX ... USING gin (surfaces);
@@ -99,7 +99,9 @@ CREATE INDEX ... USING gin (surfaces);
 - **Folded in Rust.** `surfaces` and the probe are both `normalize::comparable`, so `ds_fold` — the
   SQL mirror added for the generated-column option — was deleted with that option. SQL compares
   strings; it never folds them.
-- **`folded_with` is a fingerprint, not a hand-bumped version** (see AGENTS.md §Derived Data):
+- **`built_with` is a fingerprint, not a hand-bumped version** (see AGENTS.md §Derived Data): it
+  stamps the *whole key pipeline* — fold and token generation — not just `comparable`, because a
+  change to the token rule is just as stale as a change to the fold.
   `index rebuild` recomputes, `index check` counts rows whose fingerprint disagrees, `stats` reports
   it. A stale index is a recall bug that looks like an empty corpus.
 
