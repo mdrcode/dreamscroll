@@ -87,7 +87,7 @@ trait Blocker {                  // recall: find candidates, over-generate
 // All three take `&self`, so the store holds one `Arc<dyn Blocker>` and no lock: an implementation
 // that keeps an index owns its own mutex, and nobody holds a guard across a `candidates` call.
 
-trait LinkDecider {              // the procedure: decide, and nothing else
+trait Linker {              // the procedure: decide, and nothing else
     async fn decide_link(
         &self,
         blocker: &dyn Blocker,
@@ -278,7 +278,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | file | what it is |
 |---|---|
 | `scoring.rs` | the two verbs — `Similarity`, `Rank` — `cmp_confidence`, and the `Scoring` bundle |
-| `blocker.rs`, `link_decider.rs` | the two linking traits, and nothing else — the contract a linker implements |
+| `blocker.rs`, `linker.rs` | the two linking traits, and nothing else — the contract a linker implements |
 | `heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
 | `sql_blocker.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
 | `heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |

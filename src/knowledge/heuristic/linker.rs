@@ -8,7 +8,7 @@
 use crate::model;
 
 use crate::knowledge::evidence::Evidence;
-use crate::knowledge::link_decider::{Action, Decision, LinkDecider};
+use crate::knowledge::linker::{Action, Decision, Linker};
 use crate::knowledge::scoring::Scoring;
 
 /// Take the highest-scoring candidate that clears the bar; otherwise start a new entity.
@@ -16,7 +16,7 @@ use crate::knowledge::scoring::Scoring;
 pub struct HeuristicLinker;
 
 #[async_trait::async_trait]
-impl LinkDecider for HeuristicLinker {
+impl Linker for HeuristicLinker {
     /// Give the illumination's observations their entities.
     ///
     /// A held identity settles the question before any scoring: an entity that already claims this

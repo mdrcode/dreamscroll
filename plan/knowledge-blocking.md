@@ -6,7 +6,7 @@ in-memory blocker that proved the SQL against a map has been removed.
 
 Scope: how the linker gets from one observation to a candidate set. The metric
 retrieval path (channels, fusion, budgets) and the ownership boundary between
-`Blocker`, `LinkDecider`, `Scoring` and the executor. Not the decision model's
+`Blocker`, `Linker`, `Scoring` and the executor. Not the decision model's
 internals, and not the evidence/proximity subsystems.
 
 ## The layer model
@@ -23,8 +23,8 @@ emits comparable-shaped *hits* even though its scores are not comparable.
 | L0.1 hits | `(entity_id, channel, rank, raw_score)` | `Blocker` | SQL emits, Rust carries | bare `Vec<i32>` | explicit per-channel hits |
 | L0.2 union | dedupe by entity id, keep provenance | `Blocker` | **SQL** (`UNION ALL` + `GROUP BY`) or Rust merge | n/a — one channel | distinct step, observable |
 | L1 fusion + cap | RRF, global budget, complete-channel exemption | `Blocker` | **Rust** | none; id order, unbounded | RRF + budgets |
-| L2 features | comparison vector for one pair | `LinkDecider` + `Scoring` | **Rust** (full rows) | `Features { name, description, ty }` | full vector |
-| L3 decision | attach-or-create, and which entity | `LinkDecider` + `Rank` | **Rust** | `worth_merging` conjunction | calibrated model |
+| L2 features | comparison vector for one pair | `Linker` + `Scoring` | **Rust** (full rows) | `Features { name, description, ty }` | full vector |
+| L3 decision | attach-or-create, and which entity | `Linker` + `Rank` | **Rust** | `worth_merging` conjunction | calibrated model |
 | L4 record | why it attached | `link.rs` executor | Rust → **SQL write** | `Decision { observation, action, identity }` | + features, channel, ranks |
 
 **Ownership boundary: the blocker owns L0–L1; the decider and scoring own L2–L3;

@@ -16,7 +16,7 @@ use crate::model;
 
 use super::blocker::Blocker;
 use super::evidence::Evidence;
-use super::link_decider::LinkDecider;
+use super::linker::Linker;
 use super::heuristic::Heuristic;
 use super::scoring::Scoring;
 
@@ -43,7 +43,7 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 pub struct Knowledge {
     db: DbHandle,
     pub(super) blocker: Option<Arc<dyn Blocker>>,
-    pub(super) decider: Option<Arc<dyn LinkDecider>>,
+    pub(super) decider: Option<Arc<dyn Linker>>,
     pub(super) evidence: Evidence,
     pub(super) scoring: Scoring,
 }
@@ -75,7 +75,7 @@ impl Knowledge {
     pub fn with_linking(
         db: &DbHandle,
         blocker: Box<dyn Blocker>,
-        decider: Arc<dyn LinkDecider>,
+        decider: Arc<dyn Linker>,
     ) -> Self {
         Self {
             decider: Some(decider),

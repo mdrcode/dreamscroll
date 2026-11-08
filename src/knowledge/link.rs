@@ -2,7 +2,7 @@
 //!
 //! No network. The blocker is the index the store holds, the evidence store says what an identity is
 //! held by and records the claims the capture asserted, and what to do about all of it belongs to the
-//! [`LinkDecider`] the store was built with. Every write is idempotent: a second run finds nothing to
+//! [`Linker`] the store was built with. Every write is idempotent: a second run finds nothing to
 //! do because every observation already has a `knowledge_entity_id`.
 //!
 //! Callers reach this through [`Knowledge::link_illumination`]. The rest is `pub(super)` or private:
@@ -10,7 +10,7 @@
 
 use crate::model;
 
-use super::{Knowledge, link_decider};
+use super::{Knowledge, linker};
 
 // Linking: the one write path that decides before it applies.
 // ---------------------------------------------------------------------------------------------
@@ -23,10 +23,10 @@ pub struct LinkStats {
 }
 
 impl LinkStats {
-    fn record(&mut self, decision: &link_decider::Decision) {
+    fn record(&mut self, decision: &linker::Decision) {
         match decision.action {
-            link_decider::Action::Attach(_) => self.attached += 1,
-            link_decider::Action::Create => self.created += 1,
+            linker::Action::Attach(_) => self.attached += 1,
+            linker::Action::Create => self.created += 1,
         }
     }
 }
@@ -85,7 +85,7 @@ pub(super) async fn link_illumination(
 /// Apply one decision, returning the entity the observation landed on.
 async fn apply_decision(
     knowledge: &Knowledge,
-    decision: &link_decider::Decision,
+    decision: &linker::Decision,
 ) -> anyhow::Result<i32> {
     let observation = &decision.observation;
     if observation.knowledge_entity_id.is_some() {
@@ -96,8 +96,8 @@ async fn apply_decision(
     }
 
     let entity = match &decision.action {
-        link_decider::Action::Attach(entity) => *entity,
-        link_decider::Action::Create => knowledge.create(observation).await?.id,
+        linker::Action::Attach(entity) => *entity,
+        linker::Action::Create => knowledge.create(observation).await?.id,
     };
 
     // `attach` refuses a tombstone, so this also covers an entity merged away since the decision.
@@ -119,7 +119,7 @@ mod unit {
     use crate::database::DbHandle;
     use crate::knowledge::blocker::Blocker;
     use crate::knowledge::evidence::Evidence;
-    use crate::knowledge::link_decider::LinkDecider;
+    use crate::knowledge::linker::Linker;
     use crate::model::knowledge_entity as entity;
     use crate::test_support::{db_or_skip, fixtures};
 
@@ -135,7 +135,7 @@ mod unit {
     }
 
     /// The store with a linker and a fresh blocker, for the tests that actually link.
-    async fn linking_store(db: &DbHandle, decider: Arc<dyn LinkDecider>) -> Knowledge {
+    async fn linking_store(db: &DbHandle, decider: Arc<dyn Linker>) -> Knowledge {
         Knowledge::with_linking(
             db,
             Box::new(crate::knowledge::sql_blocker::SqlBlocker::new(db)),
@@ -148,14 +148,14 @@ mod unit {
     struct NoDecisions;
 
     #[async_trait::async_trait]
-    impl LinkDecider for NoDecisions {
+    impl Linker for NoDecisions {
         async fn decide_link(
             &self,
             _blocker: &dyn Blocker,
             _evidence: &Evidence,
             _scoring: &crate::knowledge::Scoring,
             _illumination: &model::illumination::ModelEx,
-        ) -> anyhow::Result<Vec<link_decider::Decision>> {
+        ) -> anyhow::Result<Vec<linker::Decision>> {
             Ok(Vec::new())
         }
     }

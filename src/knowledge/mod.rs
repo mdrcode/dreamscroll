@@ -17,7 +17,7 @@ pub mod evidence;
 pub mod graph;
 pub mod index;
 pub mod heuristic;
-pub mod link_decider;
+pub mod linker;
 pub mod merge;
 pub mod proximity;
 pub mod verdicts;
