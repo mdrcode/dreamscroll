@@ -9,8 +9,10 @@
 //! the answers it has already seen. An entity whose answers are not cached is reported separately —
 //! "could not be replayed" is not the same as "would not be claimed".
 
+pub mod blocker;
 pub mod inspect;
 pub mod resolve;
 
+pub use blocker::replay as replay_blocker;
 pub use inspect::inspect;
 pub use resolve::{Claimed, Report, replay};

@@ -65,15 +65,24 @@ struct EvalArgs {
 enum EvalCommand {
     Resolve(EvalResolveArgs),
     Inspect(EvalInspectArgs),
+    Blocker(EvalBlockerArgs),
 }
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "inspect")]
 #[argh(description = "walk one entity through blocking, ranking and the resolver ladder")]
 struct EvalInspectArgs {
-    #[argh(positional, description = "entity id, or a name that folds to the same surface")]
+    #[argh(
+        positional,
+        description = "entity id, or a name that folds to the same surface"
+    )]
     target: String,
 }
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "blocker")]
+#[argh(description = "did the blocker offer the entity each observation ended up in?")]
+struct EvalBlockerArgs {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "resolve")]
@@ -112,7 +121,11 @@ struct VetoArgs {
     entity: i32,
     #[argh(option, description = "the identity's external id, e.g. Q122707294")]
     identity: String,
-    #[argh(option, default = "String::from(\"wikidata\")", description = "identity scheme")]
+    #[argh(
+        option,
+        default = "String::from(\"wikidata\")",
+        description = "identity scheme"
+    )]
     scheme: String,
     #[argh(option, description = "why — the only place this is recorded")]
     note: Option<String>,
@@ -136,8 +149,7 @@ struct ReprojectArgs {}
 #[argh(
     description = "link every unlinked observation to a knowledge entity, creating one as needed"
 )]
-struct LinkArgs {
-}
+struct LinkArgs {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "merge")]
@@ -207,7 +219,10 @@ enum VerdictsCommand {
 struct VerdictsListArgs {
     #[argh(option, description = "only this generation")]
     generation: Option<i32>,
-    #[argh(option, description = "only this cause: repair, proximity_auto, replayed")]
+    #[argh(
+        option,
+        description = "only this cause: repair, proximity_auto, replayed"
+    )]
     cause: Option<String>,
     #[argh(option, default = "50", description = "maximum rows to show")]
     limit: usize,
@@ -265,7 +280,9 @@ struct ResolveArgs {
     #[argh(description = "minimum milliseconds between transport calls")]
     min_interval_ms: u64,
     #[argh(switch)]
-    #[argh(description = "consider the newest entities first, so a short run serves fresh captures")]
+    #[argh(
+        description = "consider the newest entities first, so a short run serves fresh captures"
+    )]
     newest: bool,
 }
 
@@ -287,7 +304,10 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
     if let Some(hint) = &entity.search_query {
         println!("  hint: {hint}");
     }
-    println!("  surfaces it answers to: {:?}", entity.surfaces().collect::<Vec<_>>());
+    println!(
+        "  surfaces it answers to: {:?}",
+        entity.surfaces().collect::<Vec<_>>()
+    );
 
     println!("\n-- recall (knowledge_index) --");
     if report.candidates.is_empty() {
@@ -301,7 +321,11 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
         if candidate.by_words {
             via.push("words");
         }
-        let via = if via.is_empty() { "-".to_string() } else { via.join("+") };
+        let via = if via.is_empty() {
+            "-".to_string()
+        } else {
+            via.join("+")
+        };
         println!(
             "  {:>7}  {:<38} [{}] via {via}",
             candidate.id, candidate.name, candidate.entity_type
@@ -347,10 +371,7 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
 }
 
 /// `eval resolve`: replay the resolver over the answer cache, with no transport.
-async fn eval_resolve(
-    db: &database::DbHandle,
-    args: EvalResolveArgs,
-) -> anyhow::Result<()> {
+async fn eval_resolve(db: &database::DbHandle, args: EvalResolveArgs) -> anyhow::Result<()> {
     let report = knowledge::eval::replay(db, args.limit).await?;
     if args.verbose {
         for claim in &report.claims {
@@ -402,10 +423,7 @@ async fn reproject_unclaimed(db: &database::DbHandle) -> anyhow::Result<()> {
     Ok(())
 }
 
-async fn resolve_identity(
-    db: &database::DbHandle,
-    args: ResolveArgs,
-) -> anyhow::Result<()> {
+async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow::Result<()> {
     // A budget of zero makes no transport calls, which reads like a successful run that resolved
     // nothing. That is a mode, not a number.
     if args.offline && args.max_requests.is_some() {
@@ -457,6 +475,54 @@ async fn resolve_identity(
     Ok(())
 }
 
+/// `eval blocker`: the blocking replay. Recall is measured leave-future-out — a candidate only
+/// counts if its entity already had an earlier member — so this answers "was the right thing on
+/// the table when it mattered", not "can the index still find it now".
+async fn eval_blocker(db: &database::DbHandle) -> anyhow::Result<()> {
+    let report = knowledge::eval::replay_blocker(db).await?;
+    println!(
+        "observations {} · first member {} · eligible {}",
+        report.observations, report.new_entity, report.eligible
+    );
+    let pct = if report.eligible == 0 {
+        0.0
+    } else {
+        report.hit as f32 * 100.0 / report.eligible as f32
+    };
+    println!(
+        "live-index recall {}/{} ({pct:.1}%) · starved {} · ambiguous {}",
+        report.hit, report.eligible, report.starved, report.ambiguous
+    );
+    let prior_pct = if report.eligible == 0 {
+        0.0
+    } else {
+        report.prior_hit as f32 * 100.0 / report.eligible as f32
+    };
+    println!(
+        "earlier-members recall {}/{} ({prior_pct:.1}%)",
+        report.prior_hit, report.eligible
+    );
+    for miss in report.prior_misses.iter().take(25) {
+        println!(
+            "  blocked  {:<32} -> #{} {}",
+            miss.name, miss.expected, miss.expected_name
+        );
+    }
+    let sizes: Vec<String> = report
+        .sizes
+        .iter()
+        .map(|(size, count)| format!("{size}:{count}"))
+        .collect();
+    println!("candidates per eligible observation: {}", sizes.join(" · "));
+    for miss in report.misses.iter().take(20) {
+        println!(
+            "  miss  {:<30} -> #{} {} (offered {})",
+            miss.name, miss.expected, miss.expected_name, miss.offered
+        );
+    }
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     config::populate_env_if_test_or_dev();
@@ -472,10 +538,7 @@ async fn main() -> anyhow::Result<()> {
             let report = link_all_pending(&db).await?;
             println!(
                 "considered {} · already linked {} · linked {} · created {}",
-                report.considered,
-                report.already_linked,
-                report.attached,
-                report.created
+                report.considered, report.already_linked, report.attached, report.created
             );
         }
         Command::Merge(args) => {
@@ -656,12 +719,17 @@ async fn main() -> anyhow::Result<()> {
                     report.indexed,
                     report.stale,
                     report.missing,
-                    if report.is_current() { "current" } else { "REBUILD NEEDED" }
+                    if report.is_current() {
+                        "current"
+                    } else {
+                        "REBUILD NEEDED"
+                    }
                 );
             }
         },
         Command::Eval(args) => match args.command {
             EvalCommand::Resolve(args) => eval_resolve(&db, args).await?,
+            EvalCommand::Blocker(_) => eval_blocker(&db).await?,
             EvalCommand::Inspect(args) => {
                 let report = knowledge::eval::inspect(&db, &args.target).await?;
                 match report {
@@ -687,7 +755,11 @@ async fn main() -> anyhow::Result<()> {
                 store.update_projection(args.entity).await?;
                 println!(
                     "{} · withdrawn {} · applied {} · already {} · gone {} · refused {}",
-                    if recorded { "veto recorded" } else { "veto already recorded" },
+                    if recorded {
+                        "veto recorded"
+                    } else {
+                        "veto already recorded"
+                    },
                     report.withdrawn,
                     report.applied,
                     report.already,
@@ -700,7 +772,11 @@ async fn main() -> anyhow::Result<()> {
                 let lifted = knowledge::verdicts::unveto(&store, args.id).await?;
                 println!(
                     "{} — the next resolve may claim the identity again",
-                    if lifted { "veto lifted" } else { "no such veto" }
+                    if lifted {
+                        "veto lifted"
+                    } else {
+                        "no such veto"
+                    }
                 );
             }
         },

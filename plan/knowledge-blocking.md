@@ -417,3 +417,30 @@ Later:
 - [pg_trgm](https://www.postgresql.org/docs/18/pgtrgm.html), [unaccent](https://www.postgresql.org/docs/18/unaccent.html), [fuzzystrmatch](https://www.postgresql.org/docs/18/fuzzystrmatch.html)
 - [pgvector](https://github.com/pgvector/pgvector) — ANN indexing, vacuum, reindex
 - [GIN indexes](https://www.postgresql.org/docs/18/gin.html) — pending list, `fastupdate`
+
+## Blocking recall, measured 2026-11-07 (`eval blocker`)
+
+The final graph cannot answer "did the blocker offer the right candidate": every entity is findable
+by its own members' surfaces, so probing with an entity's own observation is a tautology. `eval
+blocker` replays instead — observations in capture order, and a candidate only counts if its entity
+already had an **earlier member**. The true answer is the entity the observation actually joined.
+
+| | |
+| --- | --- |
+| linked observations | 2,663 |
+| first member of their entity (nothing to find) | 2,211 |
+| later member, so blocking was asked | **452** |
+| live-index recall (upper bound; the index knows every member) | 452/452 = 100% |
+| **earlier-members recall** (the honest number) | **445/452 = 98.5%** |
+| starved (no candidate at all) | **0** |
+| ambiguous (>1 candidate) | 17 of 452, and never more than 2 |
+
+All 7 misses are surface differences the rule cannot bridge, not bugs: an honorific (`Dr. Dominic
+Ng` vs `Dominic Ng`), a middle initial (`Donald J. Trump`), a leading article plus a synonym (`The
+Holy Bible` vs `Bible`), an acronym (`OECD` vs `Organisation for Economic Co-operation and
+Development`), a handle probing a name (`Román` vs `@Zmei_Hhsss`), and two where the entity's
+selected name came from the later member itself.
+
+**Conclusion: blocking is not the constraint.** Recall is 98.5% and nothing is starved, while the
+decider is handed a single candidate 96% of the time (435 of 452) and two the rest. Accuracy work
+belongs in the decision layer and in which questions the resolver asks — not here.
