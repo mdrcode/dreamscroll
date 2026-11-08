@@ -669,6 +669,31 @@ such, not as a reason to re-revert.
 at all (`Commission of Tears Antonio Lobo Antunes` → nothing). The endpoint is the limit; a text search
 (`list=search`) is still the open item.
 
+### The class veto, removed and measured (no-veto A/B)
+
+`types::incompatible` deletes a candidate whose `P31` is confidently a kind of thing the entity cannot
+be. Removing it entirely, with the cache held still (offline both sides), moved **10 entities**:
+
+| | |
+| --- | --- |
+| claims | 1,615 → 1,612 |
+| changed entities | 10 |
+| judge: without the veto is right | **5** |
+| judge: with the veto is right | **5** |
+
+So the veto is **net-neutral on this corpus**: it prevents five wrong claims and causes five. It catches
+them (`Charlie Rose` a show claiming the *person*, `Boeing B-17` a product claiming a crash *event*,
+`Lord Humungus` a character claiming the film) and it costs them (`Corduroy` a character blocked from
+the book it comes from, `Wez`, `Vyse`, `Moebius`, `Westinghouse` left wrong or empty).
+
+Two conclusions, and the second is the architectural one:
+
+- The gate's whole influence is 10 entities in 2,213. It is not carrying the resolver, and the five it
+  blocks are the five that justify demoting it from veto to signal.
+- Its cost is invisible in accuracy but real in design: the left side is our vocabulary, the right side
+  is one provider's. A second provider cannot express its opinion, and no measurement here justifies
+  paying that.
+
 ### The title name-test: right three times out of four
 
 34 unclaimed entities hit "the title is about another subject". Sampled four:
