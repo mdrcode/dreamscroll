@@ -650,6 +650,30 @@ appears in a crash report. Mapping `Q3002150` (aviation accident) as an event an
 lost and zero gained. The narrow arm is deliberate: a product's own classes are broad and unmapped,
 and the rule only has to catch a kind of thing a product cannot be.
 
+### Tried and reverted: the hint as a search query
+
+1,322 of 2,211 live entities carry a `search_query`, and 257 of the unclaimed ones did — a
+disambiguating phrase we held and never sent, because `plan_fallback` searched the bare label and the
+hint was only ever a *scoring* signal. Emitting it as a second `search` request looked like the
+cheapest recall win available.
+
+Measured: **242 requests, 9 claims, 3 of them wrong** (67% against a 91.6% baseline).
+
+| claimed | item | |
+| --- | --- | --- |
+| `Los sorias`, `DICOM`, `Shimahara`→Shimabara, `Democratic Party`, `Rogue Heroes`, `Fabrik von Loewe…` | correct | ✓ |
+| `Hittite Empire` | `Hittitology` — the field, not the empire | ✗ |
+| `Extropians` | an acronym-expansion item | ✗ |
+| `Earendil` | "open-source AI coding agent" | ✗ |
+
+The cause is the endpoint, not the idea: `wbsearchentities` matches **labels and aliases**, not text.
+`Commission of Tears Antonio Lobo Antunes` returns *no candidates at all*, and the nine that did
+resolve were hints that happen to sit near a label. A phrase like that needs full-text search
+(`list=search`) or a shortened type-qualified query — a different request shape, not a second query
+on the same one.
+
+Reverted; the graph was re-decided back to 1,605 claims.
+
 ### Tried and reverted: a generic-word list
 
 The obvious tightening — refuse the lone-label shortcut when both descriptions are present and
