@@ -452,3 +452,33 @@ verdict at blocking time, and nothing should: blocking offers, the decider decid
 **Conclusion: blocking is not the constraint.** Recall is 98.5% and nothing is starved, while the
 decider is handed a single candidate 96% of the time (435 of 452) and two the rest. Accuracy work
 belongs in the decision layer and in which questions the resolver asks — not here.
+
+## Linker accuracy, measured 2026-11-08
+
+Blocking recall says the right entity was *offered*; it says nothing about whether the linker
+attached correctly. That needs pairs, in both directions.
+
+**Over-merge (did it join things that are not the same?).** Every pair of members inside one entity,
+judged against what the two observations actually describe:
+
+| pairs | judged | same | different | precision |
+| --- | --- | --- | --- | --- |
+| different captures (887 exist, 500 sampled) | 498 | 497 | 1 | **99.8%** |
+| same capture, i.e. re-illuminated readings (134) | 133 | 131 | 2 | **98.5%** |
+
+**Under-merge (did it leave the same thing apart?).** 14 entity pairs share a folded surface yet remain
+two entities. Eleven are correctly separate; **three are genuine duplicates split by entity *type***:
+
+| entity | left type | right type |
+| --- | --- | --- |
+| The Criterion Collection | organization | brand |
+| Pokémon Pokopia | software | product |
+| Lucifer | fictional_character | religious_figure |
+
+Same surface, same thing, two entities — because the types disagree. That is the graph's vocabulary
+problem surfacing in the linker, exactly as the blocker's own note predicts (`Andra` as `real_person`
+against `@bioavailablend` as `social_media_account`): blocking offers the pair, and the link decision
+declines it on type.
+
+So the linker is ~99% precise, and its residual defect is **three type-collision duplicates in 2,213
+entities** — not a recall or blocking problem.
