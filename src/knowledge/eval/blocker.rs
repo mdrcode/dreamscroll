@@ -26,6 +26,9 @@ pub struct Miss {
     pub expected: i32,
     pub expected_name: String,
     pub offered: usize,
+    /// A merge verdict says a person later decided these are one thing. The blocker was never going
+    /// to see that: the merge happened after the observation arrived. Not a blocking failure.
+    pub merged: bool,
 }
 
 #[derive(Default)]
@@ -49,6 +52,8 @@ pub struct Report {
     /// being tested. This one reconstructs what the entity looked like at that moment.
     pub prior_hit: usize,
     pub prior_misses: Vec<Miss>,
+    /// Misses explained by a post-hoc merge verdict — excluded from the honest recall figure.
+    pub merged: usize,
 }
 
 pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
@@ -99,6 +104,20 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
         set
     };
 
+    // Merge verdicts, folded the same way the index folds: (winner, loser), either direction.
+    let merges: HashSet<(String, String)> = model::knowledge_verdicts::Entity::find()
+        .filter(model::knowledge_verdicts::Column::Kind.eq("merge"))
+        .all(&db.conn)
+        .await?
+        .into_iter()
+        .filter_map(|verdict| {
+            Some((
+                normalize::comparable(verdict.winner_label.as_deref()?),
+                normalize::comparable(verdict.loser_label.as_deref()?),
+            ))
+        })
+        .collect();
+
     let blocker = SqlBlocker::new(db);
     let mut report = Report {
         observations: observations.len(),
@@ -129,6 +148,22 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
             }
             // What the entity wore *before* this observation: earlier members only.
             let ours = keys(&observation.name, observation.platform_handle.as_deref());
+            let expected_name = names.get(&expected).cloned().unwrap_or_default();
+            // A merge verdict names the entity and a name that belongs with it — which may be an
+            // earlier member, or the observation under test (the member it was renamed after).
+            let folded = normalize::comparable(&expected_name);
+            let mut candidates: Vec<&str> = vec![observation.name.as_str()];
+            candidates.extend(
+                members[&expected]
+                    .iter()
+                    .filter(|(earlier, _, _)| *earlier < position)
+                    .map(|(_, name, _)| name.as_str()),
+            );
+            let merged = candidates.iter().any(|name| {
+                let other = normalize::comparable(name);
+                merges.contains(&(folded.clone(), other.clone()))
+                    || merges.contains(&(other, folded.clone()))
+            });
             let prior: HashSet<String> = members[&expected]
                 .iter()
                 .filter(|(earlier, _, _)| *earlier < position)
@@ -137,12 +172,16 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
             if !ours.is_disjoint(&prior) {
                 report.prior_hit += 1;
             } else {
+                if merged {
+                    report.merged += 1;
+                }
                 report.prior_misses.push(Miss {
                     observation: observation.id,
                     name: observation.name.clone(),
                     expected,
-                    expected_name: names.get(&expected).cloned().unwrap_or_default(),
+                    expected_name: expected_name.clone(),
                     offered: prior.len(),
+                    merged,
                 });
             }
             if offered.contains(&expected) {
@@ -152,8 +191,9 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
                     observation: observation.id,
                     name: observation.name.clone(),
                     expected,
-                    expected_name: names.get(&expected).cloned().unwrap_or_default(),
+                    expected_name: expected_name.clone(),
                     offered: offered.len(),
+                    merged,
                 });
             }
         } else {

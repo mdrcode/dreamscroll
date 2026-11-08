@@ -435,34 +435,22 @@ already had an **earlier member**. The true answer is the entity the observation
 | starved (no candidate at all) | **0** |
 | ambiguous (>1 candidate) | 17 of 452, and never more than 2 |
 
-**Five of the seven are not blocking failures at all.** They are `knowledge_verdicts` merges with
-`cause = repair` — a person decided two entities were the same and the verdict was recorded and
-replayed:
+After the fold fix (honorifics, initials) recall is **447/452 = 98.9%**, and the five misses classify
+as:
 
-| winner | loser |
-| --- | --- |
-| Organisation for Economic Co-operation and Development | OECD |
-| Mad Max 2: The Road Warrior | Mad Max 2 |
-| In die Sonne schauen | Sound of Falling |
-| Donald Trump | Donald J. Trump |
-| Bible | The Holy Bible |
+| | count | what it is |
+| --- | --- | --- |
+| post-hoc merge | **4** | OECD, The Holy Bible, Mad Max 2, Sound of Falling — a person merged them *after* the observation arrived, so the replay cannot see it |
+| unexplained | **1** | `@Zmei_Hhsss` vs `Zmei_Hssss` — a one-character capture typo |
 
-A merge happens *after* blocking has declined, so counting it as recall failure charges the blocker
-for a question it was never asked. Excluding verdict merges, recall is **450/452 = 99.6%**.
+`eval blocker` prints the classification per miss (`[post-hoc merge]` / `[unexplained]`), because
+charging the blocker for a decision that arrived later makes the metric unreadable. The residual
+failure rate is **1 in 452 (0.2%)**, and fuzzy distance would have to catch it.
 
-The two genuine gaps are both fold limitations, and both are cheap to name:
-
-- **An honorific** — `Dr. Dominic Ng` against an entity wearing `Dominic Ng`. `word_key` sorts words
-  and strips one leading article, so `dominic dr ng` never meets `dominic ng`. No verdict exists;
-  the link happened some other way and is worth a look.
-- **A near-identical handle** — `@Zmei_Hhsss` (`Zmei_Hhsss`) and `Román` (`Zmei_Hssss`) differ by one
-  character. Exact blocking cannot see a typo, and that is by design: fuzzy matching would need its
-  own precision budget.
-
-The remaining vocabulary gaps the merges name are real and none are foldable — an acronym for its
-expansion, a translation (`Sound of Falling` is the English title of *In die Sonne schauen*), a
-subtitle (`Mad Max 2` / `Mad Max 2: The Road Warrior`), a qualifier (`Bible` / `The Holy Bible`), a
-middle initial. Those need an alias relation, not a better key.
+**Merges are respected going forward, structurally.** Projection folds the loser's name into the
+winner's `alt_names`, so the index carries both surfaces — `bible , the holy bible`, `… , oecd` — and
+the next observation in either form finds the merged entity on the first probe. Nothing consults the
+verdict at blocking time, and nothing should: blocking offers, the decider decides.
 
 **Conclusion: blocking is not the constraint.** Recall is 98.5% and nothing is starved, while the
 decider is handed a single candidate 96% of the time (435 of 452) and two the rest. Accuracy work

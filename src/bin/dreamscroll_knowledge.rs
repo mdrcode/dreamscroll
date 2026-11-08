@@ -498,14 +498,26 @@ async fn eval_blocker(db: &database::DbHandle) -> anyhow::Result<()> {
     } else {
         report.prior_hit as f32 * 100.0 / report.eligible as f32
     };
+    let misses = report.eligible.saturating_sub(report.prior_hit);
     println!(
-        "earlier-members recall {}/{} ({prior_pct:.1}%)",
-        report.prior_hit, report.eligible
+        "earlier-members recall {}/{} ({prior_pct:.1}%) · {} misses: {} post-hoc merges, {} unexplained",
+        report.prior_hit,
+        report.eligible,
+        misses,
+        report.merged,
+        misses.saturating_sub(report.merged)
     );
     for miss in report.prior_misses.iter().take(25) {
         println!(
-            "  blocked  {:<32} -> #{} {}",
-            miss.name, miss.expected, miss.expected_name
+            "  blocked  {:<32} -> #{} {}  [{}]",
+            miss.name,
+            miss.expected,
+            miss.expected_name,
+            if miss.merged {
+                "post-hoc merge"
+            } else {
+                "unexplained"
+            }
         );
     }
     let sizes: Vec<String> = report
