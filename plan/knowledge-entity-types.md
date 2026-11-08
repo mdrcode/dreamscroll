@@ -15,6 +15,13 @@ The WebUI exposes each row as an occurrence at `/entity/{id}`. That page shows t
 The audit in [knowledge-promotion-audit.md](knowledge-promotion-audit.md) reviewed all 2,518 local
 mentions and settles several of the open questions below.
 
+**2026-11-08 — type is ours, not a provider's.** `identity/wikidata/types.rs` compares this capture label
+against Wikidata's `P31` and lets a disagreement *refuse* a candidate. That works while Wikidata is the
+only authority and stops working the moment there is a second one: each provider would need its own
+mapping of its vocabulary onto ours, and a provider disagreement would have nowhere to live. The type
+stays our provider-neutral vocabulary; each provider supplies a mapping with confidence, and a
+disagreement ranks. Tracked in [backlog.md](backlog.md).
+
 **No `persona` type.** The v2 prompt already models the three strings that were being confused:
 
 - the entity's `name` (the person, the work, the community),

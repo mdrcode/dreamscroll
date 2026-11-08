@@ -17,9 +17,17 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `television_series` silently disabled a whole rule for 23 series, and `types.rs` deliberately leaves
   `product`, `publication`, `place`, `organization` and `event` **unmapped** because mapping them rejected
   correct claims (`Rotten Tomatoes` is a business, the `Locarno Film Festival` an organization).
-  Direction: make the type a *projection of Wikidata's own class graph* (the `P31` closure an entity
-  actually has) rather than a string the illuminator invents, and demote it from veto to hint — a
-  disagreement should rank, not refuse. Needs design; see the merge item below, which is the same defect
+  **Wikidata is one authority provider, so `P31` must not be the arbiter.** A provider's classification
+  is evidence *scoped to that provider*; the entity's type is ours. Today `types::incompatible` compares
+  the two directly, which means the second provider (IMDb, OpenLibrary, MusicBrainz) has no place to
+  stand: it would need its own N×M table of our types against its vocabulary, maintained by hand and
+  drifting, and a disagreement between providers would have no representation at all.
+  Direction: keep the entity type as a small, closed, **provider-neutral** vocabulary (person, work,
+  place, organization, concept, event, artifact, name, …). Each provider owns a mapping from its own
+  classifications into that vocabulary, carrying its own confidence, and a disagreement **ranks** rather
+  than refuses. A hard refusal stays possible but needs both sides confident: our type unambiguous and
+  the provider's classification confidently in a disjoint family. The same rule then serves merge and
+  admission without a second table. Needs design; see the merge item below, which is the same defect
   caught one layer later.
 
 - [ ] **Review the graph-model workstream before pushing.** `3f23fec..HEAD` is 36 commits (16 pushed, the
