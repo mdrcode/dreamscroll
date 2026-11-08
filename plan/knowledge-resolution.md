@@ -563,6 +563,15 @@ film; `Tokyo Express` a military unit, now the Matsumoto novel; `Freedom of Spee
 the Rockwell painting; `Orthodoxy` the concept, now the Chesterton book. `Charlie Rose` was the
 person, `Chinatown` an ethnic enclave, `Corsica`-like place articles were the same shape.
 
+### The kind rule that worked, with no collateral
+
+`product` was a mapped entity type with no class arm, so *a product could be an event*: `Boeing
+B-17 Flying Fortress` claimed *2019 Boeing B-17 Flying Fortress crash* because "heavy bomber"
+appears in a crash report. Mapping `Q3002150` (aviation accident) as an event and rejecting
+`Event`/`Person` for `product` changes exactly one claim in the graph — the right one — with zero
+lost and zero gained. The narrow arm is deliberate: a product's own classes are broad and unmapped,
+and the rule only has to catch a kind of thing a product cannot be.
+
 ### Tried and reverted: a generic-word list
 
 The obvious tightening — refuse the lone-label shortcut when both descriptions are present and
@@ -577,7 +586,7 @@ lone candidate makes every word in its description maximally rare and a single s
 the terse-and-rare gate. A corpus-level frequency (the stored identity descriptions, fingerprinted
 like any other derived data) is the fix; a word list is not.
 
-Six went the wrong way, and they share a cause that predates the change — the label rung's fit
+Five went the wrong way, and they share a cause that predates the change — the label rung's fit
 accepts a description that shares a stray word: `Boeing B-17` → a crash *event*, `Industrial
 Revolution` → "Buildings of Scotland in the Industrial Revolution", `Lucifer` → the *Supernatural*
 character, `Monster` → an audio track, `Natural Philosophy` → a Vanity Fair caricature, `Scorched

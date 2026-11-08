@@ -73,6 +73,7 @@ impl Family {
 
             "Q1656682" => Self::Event, // planned event
             "Q178561" => Self::Event,  // battle
+            "Q3002150" => Self::Event, // aviation accident
 
             "Q151885" => Self::Concept,   // concept
             "Q1914636" => Self::Concept,  // activity
@@ -153,6 +154,11 @@ pub(super) fn incompatible(entity_type: &str, classes: &[String]) -> bool {
         }),
         // A piece of software claiming a bird, a company or an album is another thing entirely.
         "software" => !found.contains(&Family::Software),
+        // A product is not an event and not a person: `Boeing B-17 Flying Fortress` claimed
+        // *2019 Boeing B-17 Flying Fortress crash* because "heavy bomber" appears in a crash
+        // report. Nothing else is mapped here — a product's own classes are broad and unmapped,
+        // and the rule only has to catch a kind of thing a product cannot be.
+        "product" => every(|family| matches!(family, Family::Event | Family::Person)),
         // A brand is not a word. `Westinghouse` claimed a family-name page (`Q110089588`, P31
         // `Q101352`) — the only thing that item asserts is that the word is a surname.
         "brand" => found.iter().all(|family| *family == Family::Name),
@@ -228,6 +234,8 @@ mod tests {
     fn a_brand_is_not_a_surname_page() {
         assert!(incompatible("brand", &classes(&["Q101352"])));
         // …but a brand whose class we do not recognise is left alone.
+        assert!(incompatible("product", &classes(&["Q3002150"])));
+        assert!(!incompatible("product", &classes(&["Q15056993"])));
         assert!(!incompatible("brand", &classes(&["Q99999999"])));
     }
 
