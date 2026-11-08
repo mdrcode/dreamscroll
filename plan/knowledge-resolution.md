@@ -669,6 +669,29 @@ such, not as a reason to re-revert.
 at all (`Commission of Tears Antonio Lobo Antunes` → nothing). The endpoint is the limit; a text search
 (`list=search`) is still the open item.
 
+### The search rung is *already* full text — the empty answers are a data gap
+
+`Kind::Search` is documented as "MediaWiki full-text search" and it is: `transport::search` calls
+`action=query&list=search` (CirrusSearch) and refuses to cache a negative when the
+`x-search-id` header is absent, because a degraded backend returns HTTP 200 with `success: 1` and an
+empty list that looks like a real answer. There was never a weaker endpoint to replace.
+
+What actually fails is query phrasing, because CirrusSearch ANDs its terms:
+
+| query | result |
+| --- | --- |
+| `Commission of Tears Antonio Lobo Antunes` | ∅ |
+| `antonio lobo antunes` (name words stripped) | the *author's* items, not the novel |
+| `antunes lagrimas` | **Q89414273**, the novel |
+
+The name words in the hint cannot match the item and poison the query. Stripping them — which
+`hint_tokens` already computes for scoring, and which `plan_fallback` does not use for the query — still
+does not recover the book, because the term that matches is the *Portuguese* word `Lágrimas`.
+
+So the 726 empty answers are not a transport defect. The items exist under a surface the English
+query never contains (`Comissão das Lágrimas` has no English label or alias). Reaching them needs an
+alias or translation source, or querying in the item's own language — not a better query.
+
 ### Tried and reverted: a wider hint bar
 
 The 25 hint-bar refusals invited a relaxation — clear the bar on **two matched hint words**, whether
