@@ -669,6 +669,25 @@ such, not as a reason to re-revert.
 at all (`Commission of Tears Antonio Lobo Antunes` → nothing). The endpoint is the limit; a text search
 (`list=search`) is still the open item.
 
+### Tried and reverted: a wider hint bar
+
+The 25 hint-bar refusals invited a relaxation — clear the bar on **two matched hint words**, whether
+or not that is half the hint (`2 of 6` is a real signal; `1 of 3` is how `Suspicion` took a
+Dürrenmatt novel on the word "novel").
+
+Measured against the 54 present-but-refused entities: **4 now claim, and none of them via
+`search_hint`** — they arrive through `exact_label` and `search_ranked`. So the 25 fail on a *single*
+matched word, and one word is precisely what the bar is for. Reverted.
+
+The lesson is the gate was measuring something true: for those candidates the hint does not describe
+the item, and no fractional threshold makes it.
+
+### The cache expires under a long session, and that moves the numbers
+
+Between two offline re-decides with **no code change**, expired answers went 320 → 486 and claims
+drifted 1,616 → 1,615. An expired answer is treated as a miss offline, so an offline comparison is
+only valid against a freshly refreshed cache — refresh first, or compare within one run.
+
 ### Where the unresolved entities fail, by gate (331 unclaimed, replayed)
 
 `eval inspect` over every unclaimed entity and a tally of its refusals — no judge needed, and it says
