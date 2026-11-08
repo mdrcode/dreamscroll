@@ -6,8 +6,7 @@
 
 use sea_orm::{
     ColumnTrait, EntityTrait, ExprTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
-    RelationTrait, Value,
-    sea_query::Expr,
+    RelationTrait, Value, sea_query::Expr,
 };
 
 use crate::database::DbHandle;
@@ -88,7 +87,9 @@ impl SqlBlocker {
         let query = model::knowledge_entity::Entity::find()
             .join(
                 JoinType::InnerJoin,
-                model::knowledge_index::Relation::KnowledgeEntity.def().rev(),
+                model::knowledge_index::Relation::KnowledgeEntity
+                    .def()
+                    .rev(),
             )
             .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
             .filter(
@@ -134,7 +135,10 @@ mod tests {
     async fn a_word_order_difference_is_found_by_the_second_generation() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        crate::knowledge::Knowledge::new(&db).update_projection(id).await.unwrap();
+        crate::knowledge::Knowledge::new(&db)
+            .update_projection(id)
+            .await
+            .unwrap();
 
         let observation = fixtures::stub_observation(1, "Dreams Train", "book");
         assert_eq!(candidate_ids(&db, &observation).await.unwrap(), vec![id]);
@@ -158,16 +162,34 @@ mod tests {
             ))
             .await
             .unwrap();
-        crate::knowledge::Knowledge::new(&db).update_projection(id).await.unwrap();
+        crate::knowledge::Knowledge::new(&db)
+            .update_projection(id)
+            .await
+            .unwrap();
 
-        let mut observation = fixtures::stub_observation(1, "Andra T.", "real_person");
+        // A surname is the probe: `Andra T.` would now reach it by name, because the fold drops
+        // initials, and that is intended.
+        let mut observation = fixtures::stub_observation(1, "Andra Thompson", "real_person");
         observation.platform = Some("x_twitter".to_string());
         observation.platform_handle = Some("bioavailablend".to_string());
 
         let blocker = SqlBlocker::new(&db);
         assert!(
-            blocker.candidates_for_name("Andra T.").await.is_empty(),
+            blocker
+                .candidates_for_name("Andra Thompson")
+                .await
+                .is_empty(),
             "the name alone does not reach it"
+        );
+        // …while an initial does, which is the point of dropping them.
+        assert_eq!(
+            blocker
+                .candidates_for_name("Andra T.")
+                .await
+                .iter()
+                .map(|row| row.id)
+                .collect::<Vec<_>>(),
+            vec![id]
         );
         let found = blocker.candidates(&observation).await;
         assert_eq!(found.iter().map(|row| row.id).collect::<Vec<_>>(), vec![id]);
@@ -178,9 +200,11 @@ mod tests {
     async fn an_empty_name_yields_no_candidates() {
         db_or_skip!(db);
         fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        assert!(candidate_ids(&db, &fixtures::stub_observation(1, "   ", "book"))
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(
+            candidate_ids(&db, &fixtures::stub_observation(1, "   ", "book"))
+                .await
+                .unwrap()
+                .is_empty()
+        );
     }
 }

@@ -69,8 +69,8 @@ fn tighten(surface: &str) -> String {
         }
         let before = out.chars().last();
         let after = characters.get(index).copied();
-        let tight = before.is_some_and(|c| TIGHT.contains(&c))
-            || after.is_some_and(|c| TIGHT.contains(&c));
+        let tight =
+            before.is_some_and(|c| TIGHT.contains(&c)) || after.is_some_and(|c| TIGHT.contains(&c));
         if !tight && !out.is_empty() && index < characters.len() {
             out.push(' ');
         }
@@ -94,12 +94,44 @@ fn expand_ligatures(surface: &str) -> String {
 /// Dropped from the word key only. Noise for matching, never an identity decision.
 const ARTICLES: [&str; 3] = ["the", "a", "an"];
 
-/// The word-order-insensitive form of a *comparable* surface: words sorted, one leading article
-/// dropped. `Train Dreams` and `Dreams Train` share it; their folded forms do not.
+/// Titles a capture puts in front of a name and the graph never stores: `Dr. Dominic Ng` and
+/// `Dominic Ng` are one person, and the honorific broke both keys. Leading position only — a `dr`
+/// inside a name is part of it — and only when something is left to match on.
+const HONORIFICS: [&str; 5] = ["dr", "mr", "mrs", "ms", "prof"];
+
+/// The word-order-insensitive form of a *comparable* surface: words sorted, one leading article and
+/// one leading honorific dropped, single-letter initials dropped.
+///
+/// Initials are a surface artifact of how people write names — `Donald J. Trump`, `J. R. R.
+/// Tolkien` — and no store names the person that way, so keeping them made the key unusable. The
+/// distinctions that must survive are preserved: `C`, `C#` and `C++` are single tokens and stay as
+/// they are, and `Malcolm X` folds to `malcolm`, which still matches `Malcolm`.
 pub(crate) fn word_key(comparable: &str) -> String {
-    let mut words: Vec<&str> = comparable.split_whitespace().collect();
+    // `comparable` tightens whitespace beside punctuation, so `Dr. Dominic` arrives as
+    // `dr.dominic`; splitting on the period too keeps the honorific and the initial addressable.
+    let mut words: Vec<&str> = comparable
+        .split([' ', '.'])
+        .filter(|word| !word.is_empty())
+        .collect();
     if words.len() > 1 && ARTICLES.contains(&words[0]) {
         words.remove(0);
+    }
+    if words.len() > 1 && HONORIFICS.contains(&words[0]) {
+        words.remove(0);
+    }
+    let is_initial =
+        |word: &str| word.chars().count() == 1 && word.chars().all(char::is_alphabetic);
+    if words.len() > 1 {
+        // A surface made only of initials (`U.S.`) must not fold to nothing: an empty key blocks
+        // nothing, which is worse than an awkward one.
+        let kept: Vec<&str> = words
+            .iter()
+            .copied()
+            .filter(|word| !is_initial(word))
+            .collect();
+        if !kept.is_empty() {
+            words = kept;
+        }
     }
     words.sort_unstable();
     words.join(" ")
@@ -118,6 +150,10 @@ const PROBE: &[&str] = &[
     "  @#  Mixed   CASE  ",
     "A. W. Moore",
     "A.W. Moore",
+    "Dr. Dominic Ng",
+    "Donald J. Trump",
+    "J. R. R. Tolkien",
+    "Malcolm X",
     "\"Fast Eddie\" Felson",
     "'Tis Pity She's a Whore",
     "Şeyh Bedreddin",
@@ -205,7 +241,6 @@ fn latin_base(c: char) -> Option<char> {
     })
 }
 
-
 /// Set overlap: |a ∩ b| / |a ∪ b|. 0.0 when either side is empty.
 pub fn jaccard(a: &[String], b: &[String]) -> f32 {
     if a.is_empty() || b.is_empty() {
@@ -253,7 +288,10 @@ mod tests {
     /// Apostrophes are part of names; only double quotes are decoration.
     #[test]
     fn keeps_apostrophes() {
-        assert_eq!(comparable("'Tis Pity She's a Whore"), "tis pity she's a whore");
+        assert_eq!(
+            comparable("'Tis Pity She's a Whore"),
+            "tis pity she's a whore"
+        );
         assert_eq!(comparable("O'Brien"), "o'brien");
     }
 
@@ -262,7 +300,20 @@ mod tests {
     /// whatever the code computes — it exists so the change appears in the diff.
     #[test]
     fn the_normalisation_fingerprint_moves_only_deliberately() {
-        assert_eq!(norm_fingerprint(), "norm-4ae1cf4db24e0311");
+        assert_eq!(norm_fingerprint(), "norm-7b0bd4d46f9a674c");
+    }
+
+    /// An honorific and initials are surface artifacts: no store names a person that way, and
+    /// keeping them made the key unusable for the exact names people write.
+    #[test]
+    fn the_word_key_drops_honorifics_and_initials() {
+        let key = |surface: &str| word_key(&comparable(surface));
+        assert_eq!(key("Dr. Dominic Ng"), key("Dominic Ng"));
+        assert_eq!(key("Donald J. Trump"), key("Donald Trump"));
+        assert_eq!(key("J. R. R. Tolkien"), key("Tolkien"));
+        // What the fold must preserve is still preserved.
+        assert_ne!(key("C"), key("C#"));
+        assert_ne!(key("C"), key("C++"));
     }
 
     /// The word key ignores order and a leading article; the fold does not, and must not.
@@ -281,5 +332,4 @@ mod tests {
         assert_eq!(comparable("\"\"\"\""), "");
         assert_eq!(comparable("@"), "");
     }
-
 }
