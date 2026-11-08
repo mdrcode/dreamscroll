@@ -20,6 +20,7 @@ use super::types;
 use crate::knowledge::identity::{
     Answers, BATCH, Candidate, Claim, FetchError, Gateway, Kind, Raw, Request, Resolver, Transport,
 };
+use crate::knowledge::normalize;
 use crate::model;
 
 use super::ranking::HANDLE_CONFIDENCE;
@@ -122,12 +123,20 @@ impl Wikidata {
         requests
     }
 
-    /// The second pass: search for the **bare label**, for entities the first pass left unresolved.
+    /// The second pass: search for the **hint**, then the **bare label**, for entities the first pass
+    /// left unresolved.
     ///
-    /// This is a lookup fallback, not a ranking signal. Wikidata labels `J. R. R. Tolkien` and
-    /// `D. H. Lawrence` *with spaces*; our exact-label SPARQL sends `J.R.R. Tolkien` and gets nothing,
-    /// while search finds Q892 immediately. Measured on 20 random empty-label entities: 4 recoverable
-    /// this way.
+    /// The hint goes first because it is the phrase that disambiguates, and until now it was only a
+    /// *scoring* signal — consulted against candidates some other question had already produced. It is
+    /// a lookup, though, and `wbsearchentities` matches labels and aliases rather than text, so a long
+    /// hint (`Commission of Tears Antonio Lobo Antunes`) usually returns nothing. That is a limit of
+    /// the endpoint, not a reason to withhold the question: over-fetching is the resolver's job, and
+    /// refusing a wrong candidate is the decider's.
+    ///
+    /// The bare label stays because it is a lookup fallback, not a ranking signal. Wikidata labels
+    /// `J. R. R. Tolkien` and `D. H. Lawrence` *with spaces*; our exact-label SPARQL sends
+    /// `J.R.R. Tolkien` and gets nothing, while search finds Q892 immediately. Measured on 20 random
+    /// empty-label entities: 4 recoverable this way.
     ///
     /// The pass boundary lives here, not in the engine: no other authority knows that search is the
     /// expensive route.
@@ -136,12 +145,26 @@ impl Wikidata {
         if label.is_empty() {
             return Vec::new();
         }
-        vec![Request {
+        let mut requests = Vec::new();
+        if let Some(hint) = entity.search_query.as_deref() {
+            let hint = hint.trim();
+            // A hint that only repeats the name is not a second request.
+            if !hint.is_empty() && normalize::comparable(hint) != normalize::comparable(label) {
+                requests.push(Request {
+                    provider: "wikidata",
+                    shape: Self::shape(&Kind::Search),
+                    kind: Kind::Search,
+                    query: hint.to_string(),
+                });
+            }
+        }
+        requests.push(Request {
             provider: "wikidata",
             shape: Self::shape(&Kind::Search),
             kind: Kind::Search,
             query: label.to_string(),
-        }]
+        });
+        requests
     }
 
     /// Turn an answer into claims. Pure: same entity plus same answer, same claims.
@@ -725,11 +748,38 @@ mod tests {
         assert_eq!(plans[1].kind, Kind::Title);
         assert_eq!(plans[2].kind, Kind::Label);
 
-        // Stage two searches for the bare label: that is the lookup blind spot it exists for.
+        // Stage two searches the hint first — the disambiguating phrase — then the bare label, which
+        // is the lookup blind spot (`J.R.R. Tolkien` vs `J. R. R. Tolkien`).
         let fallback = engine().plan_fallback(&entity);
-        assert_eq!(fallback.len(), 1);
+        assert_eq!(fallback.len(), 2, "{fallback:?}");
         assert_eq!(fallback[0].kind, Kind::Search);
-        assert_eq!(fallback[0].query, "Alexey Kutepov");
+        assert_eq!(fallback[0].query, "Tsoding");
+        assert_eq!(fallback[1].query, "Alexey Kutepov");
+    }
+
+    /// The hint is a *query*, not only a scoring signal: `Commission of Tears` alone finds meniscal
+    /// tears, and the author in the hint is what would find the novel.
+    #[test]
+    fn the_hint_is_searched_before_the_bare_label() {
+        let mut target = entity(
+            "Commission of Tears",
+            Some("A novel by António Lobo Antunes"),
+        );
+        target.search_query = Some("Commission of Tears Antonio Lobo Antunes".to_string());
+        let plans = engine().plan_fallback(&target);
+        assert_eq!(plans.len(), 2, "{plans:?}");
+        assert_eq!(plans[0].query, "Commission of Tears Antonio Lobo Antunes");
+        assert_eq!(plans[1].query, "Commission of Tears");
+    }
+
+    /// A hint that only repeats the name is not a second request.
+    #[test]
+    fn a_hint_equal_to_the_label_is_not_asked_twice() {
+        let mut target = entity("Tsoding", None);
+        target.search_query = Some("  TSODING ".to_string());
+        let plans = engine().plan_fallback(&target);
+        assert_eq!(plans.len(), 1, "{plans:?}");
+        assert_eq!(plans[0].query, "Tsoding");
     }
 
     /// Wikidata labels `J. R. R. Tolkien` with spaces; our label has none. Search finds it, and the

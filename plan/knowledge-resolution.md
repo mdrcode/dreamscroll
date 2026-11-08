@@ -650,29 +650,35 @@ appears in a crash report. Mapping `Q3002150` (aviation accident) as an event an
 lost and zero gained. The narrow arm is deliberate: a product's own classes are broad and unmapped,
 and the rule only has to catch a kind of thing a product cannot be.
 
-### Tried and reverted: the hint as a search query
+### The hint is a query (re-landed after a wrong revert)
 
-1,322 of 2,211 live entities carry a `search_query`, and 257 of the unclaimed ones did — a
-disambiguating phrase we held and never sent, because `plan_fallback` searched the bare label and the
-hint was only ever a *scoring* signal. Emitting it as a second `search` request looked like the
-cheapest recall win available.
+1,322 of 2,211 live entities carry a `search_query`; 257 unclaimed ones did. It was a *scoring* signal
+only — consulted against candidates some other question had produced — because `plan_fallback` searched
+the bare label.
 
-Measured: **242 requests, 9 claims, 3 of them wrong** (67% against a 91.6% baseline).
+**Policy, set 2026-11-07: a correct fix in a component upstream of the decider ships even when it
+regresses measured precision for decider reasons.** The fetch is right whether or not `decide` can yet
+refuse its output; withholding retrieval to hide a decision defect inverts the layering. The decider
+has one job and it is not the resolver's.
 
-| claimed | item | |
+Measured, 242 requests: 9 claims, 3 wrong (`Hittite Empire` → *Hittitology*; `Extropians` → an acronym
+item; `Earendil` → an AI coding agent). Those three are **decider false positives** and are tracked as
+such, not as a reason to re-revert.
+
+`wbsearchentities` matches labels and aliases, not text, so 285 of 343 hint queries return no candidate
+at all (`Commission of Tears Antonio Lobo Antunes` → nothing). The endpoint is the limit; a text search
+(`list=search`) is still the open item.
+
+### Where the unresolved entities actually fail (340 unclaimed, judged)
+
+| bucket | count | owner |
 | --- | --- | --- |
-| `Los sorias`, `DICOM`, `Shimahara`→Shimabara, `Democratic Party`, `Rogue Heroes`, `Fabrik von Loewe…` | correct | ✓ |
-| `Hittite Empire` | `Hittitology` — the field, not the empire | ✗ |
-| `Extropians` | an acronym-expansion item | ✗ |
-| `Earendil` | "open-source AI coding agent" | ✗ |
+| no cached candidate at all | 124 | plan / transport |
+| candidates fetched, right thing absent | 159 | plan / transport |
+| **candidates fetched, right thing present, refused** | **57** | **decider false negative** |
 
-The cause is the endpoint, not the idea: `wbsearchentities` matches **labels and aliases**, not text.
-`Commission of Tears Antonio Lobo Antunes` returns *no candidates at all*, and the nine that did
-resolve were hints that happen to sit near a label. A phrase like that needs full-text search
-(`list=search`) or a shortened type-qualified query — a different request shape, not a second query
-on the same one.
-
-Reverted; the graph was re-decided back to 1,605 claims.
+So ~17% of the unresolved population is a decision defect and ~83% is retrieval. The earlier "12.4%
+resolvable but unresolved" number charged both to the resolver; it does not.
 
 ### Tried and reverted: a generic-word list
 
