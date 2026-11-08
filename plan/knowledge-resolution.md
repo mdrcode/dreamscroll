@@ -283,6 +283,42 @@ problem is called.
   honest framing is *surface* — the vocabulary of the source, which may be a Wikipedia title, a shop
   page or a journal, never a promise about Wikidata.
 
+## Coverage, measured 2026-11-07 — 500 random **entities**, not 500 claims
+
+A precision sample conditioned on "has a claim" cannot see the population the resolver declines, so
+the second draw took **500 live entities** in `md5(id)` order, 377 of which hold a Wikidata claim and
+123 of which do not. Two questions per row: is the claim the described thing (claimed rows), and
+could a resolver identify this at all (unclaimed rows).
+
+| | count | share of 500 |
+| --- | --- | --- |
+| claim correct | 329 | 65.8% |
+| claim wrong | 36 | 7.2% |
+| claim unclear | 12 | 2.4% |
+| no claim, resolvable | 62 | **12.4%** |
+| no claim, correctly so | 61 | 12.2% |
+
+- **Precision (claimed): 90.1%** (329/365, `[86.6, 92.8]`), consistent with the 91.6% claim-level draw.
+- **Coverage: 75.4%** (377/500).
+- **End-to-end correct: 65.8%**; the ceiling if every resolvable miss were claimed is **78.2%**.
+- Half of the unclaimed population (62/123) is identifiable and left unresolved — a larger defect than
+  precision, and invisible to the claim-level sample.
+
+Two mechanisms, one of them wrong:
+
+1. **A disambiguation page kills the ladder.** `The Silence of the Lambs` (1991 film) has the correct
+   item — `Q133654`, "1991 film directed by Jonathan Demme" — sitting in its *own cached label answer*,
+   and still resolves to nothing: the title answer is a menu, so the last-resort pass cannot fire, and
+   the label rung refuses with "no disambiguation hint to fall back on" even though the capture
+   description ("1991 psychological horror thriller film directed by Jonathan Demme") overlaps the
+   candidate's heavily. `fit` should be near 1 there; that refusal is a bug to chase.
+2. **Genuinely thin captures.** `Commission of Tears` (a 1999 novel) has no enwiki title and no label
+   item; search returns unrelated papers. Correctly unresolved.
+
+Recheck the two-row disagreement first: the sample query saw no claim for `John Singer Sargent`
+(entity 231793) while the table holds `wikidata:Q155626` — so either the LATERAL ordering or the
+sample's join is dropping live claims, which would understate coverage.
+
 ## Precision, measured 2026-11-07 — 500 claims, model-judged, before and after
 
 **500 live Wikidata claims**, ordered by `md5(entity_id | qid)` so the draw is reproducible without a
