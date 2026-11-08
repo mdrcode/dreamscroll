@@ -669,6 +669,31 @@ such, not as a reason to re-revert.
 at all (`Commission of Tears Antonio Lobo Antunes` → nothing). The endpoint is the limit; a text search
 (`list=search`) is still the open item.
 
+### Where the unresolved entities fail, by gate (331 unclaimed, replayed)
+
+`eval inspect` over every unclaimed entity and a tally of its refusals — no judge needed, and it says
+more than the presence split did:
+
+| refusal | count |
+| --- | --- |
+| the answer carried no candidate | **726** |
+| the cached answer is expired | **320** |
+| the hint did not clear its bar | **56** |
+| the title is about another subject | 34 |
+| the answer carried only a disambiguation page | 23 |
+| no disambiguation hint to fall back on | 20 |
+| every candidate is a different kind of thing | 14 |
+| two candidates fit and neither wins | 3 |
+
+Two things this settles:
+
+- **The 56 "hint did not clear its bar" are the presence split's 57 "right thing offered and
+  refused".** The decider false-negative bucket is dominated by one gate, `by_hint`'s bar, not by a
+  scatter of thresholds. That is a single place to tune.
+- **Stale cache is not the constraint.** Refreshing the expired answers fetched 327 responses and
+  produced **0 claims** (the pass then hit the provider's rate limit). The rungs come back empty, not
+  stale: "no candidate" is the largest bucket by far, and that is a retrieval fact.
+
 ### Where the unresolved entities actually fail (340 unclaimed, judged)
 
 | bucket | count | owner |
