@@ -435,11 +435,34 @@ already had an **earlier member**. The true answer is the entity the observation
 | starved (no candidate at all) | **0** |
 | ambiguous (>1 candidate) | 17 of 452, and never more than 2 |
 
-All 7 misses are surface differences the rule cannot bridge, not bugs: an honorific (`Dr. Dominic
-Ng` vs `Dominic Ng`), a middle initial (`Donald J. Trump`), a leading article plus a synonym (`The
-Holy Bible` vs `Bible`), an acronym (`OECD` vs `Organisation for Economic Co-operation and
-Development`), a handle probing a name (`Román` vs `@Zmei_Hhsss`), and two where the entity's
-selected name came from the later member itself.
+**Five of the seven are not blocking failures at all.** They are `knowledge_verdicts` merges with
+`cause = repair` — a person decided two entities were the same and the verdict was recorded and
+replayed:
+
+| winner | loser |
+| --- | --- |
+| Organisation for Economic Co-operation and Development | OECD |
+| Mad Max 2: The Road Warrior | Mad Max 2 |
+| In die Sonne schauen | Sound of Falling |
+| Donald Trump | Donald J. Trump |
+| Bible | The Holy Bible |
+
+A merge happens *after* blocking has declined, so counting it as recall failure charges the blocker
+for a question it was never asked. Excluding verdict merges, recall is **450/452 = 99.6%**.
+
+The two genuine gaps are both fold limitations, and both are cheap to name:
+
+- **An honorific** — `Dr. Dominic Ng` against an entity wearing `Dominic Ng`. `word_key` sorts words
+  and strips one leading article, so `dominic dr ng` never meets `dominic ng`. No verdict exists;
+  the link happened some other way and is worth a look.
+- **A near-identical handle** — `@Zmei_Hhsss` (`Zmei_Hhsss`) and `Román` (`Zmei_Hssss`) differ by one
+  character. Exact blocking cannot see a typo, and that is by design: fuzzy matching would need its
+  own precision budget.
+
+The remaining vocabulary gaps the merges name are real and none are foldable — an acronym for its
+expansion, a translation (`Sound of Falling` is the English title of *In die Sonne schauen*), a
+subtitle (`Mad Max 2` / `Mad Max 2: The Road Warrior`), a qualifier (`Bible` / `The Holy Bible`), a
+middle initial. Those need an alias relation, not a better key.
 
 **Conclusion: blocking is not the constraint.** Recall is 98.5% and nothing is starved, while the
 decider is handed a single candidate 96% of the time (435 of 452) and two the rest. Accuracy work
