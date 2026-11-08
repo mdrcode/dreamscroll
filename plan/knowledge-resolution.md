@@ -685,14 +685,25 @@ more than the presence split did:
 | every candidate is a different kind of thing | 14 |
 | two candidates fit and neither wins | 3 |
 
-Two things this settles:
+Re-judged: **54 of the 331** had their right item among the fetched candidates and were refused
+(154 had only wrong candidates, 123 had no candidates at all). Replaying just those 54 gives their
+per-entity gates:
 
-- **The 56 "hint did not clear its bar" are the presence split's 57 "right thing offered and
-  refused".** The decider false-negative bucket is dominated by one gate, `by_hint`'s bar, not by a
-  scatter of thresholds. That is a single place to tune.
-- **Stale cache is not the constraint.** Refreshing the expired answers fetched 327 responses and
-  produced **0 claims** (the pass then hit the provider's rate limit). The rungs come back empty, not
-  stale: "no candidate" is the largest bucket by far, and that is a retrieval fact.
+| gate | entities |
+| --- | --- |
+| the hint did not clear its bar | **25** |
+| no disambiguation hint to fall back on (no hint at all) | 20 |
+| the title is about another subject | 13 |
+| the answer carried only a disambiguation page | 6 |
+| every candidate is a different kind of thing | 1 |
+
+So the decider false-negative bucket is **not one knob**: half of it is `by_hint`'s bar
+(`HINT_MIN_SUPPORT = 0.50` of the hint's tokens), a fifth has no hint to offer at all — which is a
+retrieval question, not a decision one — and the rest are the title name-test and menus.
+
+**Stale cache is not the constraint.** Refreshing the expired answers fetched 327 responses and
+produced **0 claims** (the pass then hit the provider's rate limit). The rungs come back empty, not
+stale: "no candidate" is the largest bucket by far, and that is a retrieval fact.
 
 ### Where the unresolved entities actually fail (340 unclaimed, judged)
 
