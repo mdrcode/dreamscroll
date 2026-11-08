@@ -441,11 +441,11 @@ as:
 | | count | what it is |
 | --- | --- | --- |
 | post-hoc merge | **4** | OECD, The Holy Bible, Mad Max 2, Sound of Falling — a person merged them *after* the observation arrived, so the replay cannot see it |
-| unexplained | **1** | `@Zmei_Hhsss` vs `Zmei_Hssss` — a one-character capture typo |
+| unexplained | **1** | `@Zmei_Hhsss` vs `Zmei_Hssss` — an **illuminator extraction error**: both source images show `@Zmei_Hhsss` (verified 2026-11-07), so the row carries a handle the capture never said |
 
 `eval blocker` prints the classification per miss (`[post-hoc merge]` / `[unexplained]`), because
-charging the blocker for a decision that arrived later makes the metric unreadable. The residual
-failure rate is **1 in 452 (0.2%)**, and fuzzy distance would have to catch it.
+charging the blocker for a decision that arrived later makes the metric unreadable. The residual failure rate is **1 in 452 (0.2%)**, and it is a bad *input*, not a blocking
+rule that could not see a match: the extractor wrote one character the image does not contain.
 
 **Merges are respected going forward, structurally.** Projection folds the loser's name into the
 winner's `alt_names`, so the index carries both surfaces — `bible , the holy bible`, `… , oecd` — and
