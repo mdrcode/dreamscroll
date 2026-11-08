@@ -481,8 +481,8 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
 async fn eval_blocker(db: &database::DbHandle) -> anyhow::Result<()> {
     let report = knowledge::eval::replay_blocker(db).await?;
     println!(
-        "observations {} · first member {} · eligible {}",
-        report.observations, report.new_entity, report.eligible
+        "observations {} (superseded {} skipped) · first member {} · eligible {}",
+        report.observations, report.superseded, report.new_entity, report.eligible
     );
     let pct = if report.eligible == 0 {
         0.0

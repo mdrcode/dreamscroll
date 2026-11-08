@@ -44,10 +44,29 @@ pub(super) async fn project<C: ConnectionTrait>(
         .all(conn)
         .await?;
 
-    // An entity that predates the column, or whose origin is gone, falls back to its first member.
-    let origin = row
+    // Re-illuminating a capture appends a reading without removing the old one, so a member can be a
+    // superseded occurrence. Project from a member of its capture's *newest* illumination: the name
+    // and description should say what the capture says now, not what it said first.
+    let mut newest: std::collections::HashMap<i32, i32> = std::collections::HashMap::new();
+    for member in &members {
+        newest
+            .entry(member.capture_id)
+            .and_modify(|current| *current = (*current).max(member.illumination_id))
+            .or_insert(member.illumination_id);
+    }
+    let current = |member: &model::user_observed_entity::Model| {
+        newest.get(&member.capture_id).copied() == Some(member.illumination_id)
+    };
+
+    // An entity that predates the column, or whose origin is gone, falls back to its first member —
+    // but not to a superseded reading while a current one exists.
+    let recorded = row
         .origin_observation_id
-        .and_then(|id| members.iter().find(|member| member.id == id))
+        .and_then(|id| members.iter().find(|member| member.id == id));
+    let origin = recorded
+        .filter(|member| current(member))
+        .or_else(|| members.iter().find(|member| current(member)))
+        .or(recorded)
         .or_else(|| members.first());
 
     let surfaces = gather(
@@ -348,7 +367,14 @@ mod tests {
         let db = db.handle();
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         attach(&db, id, "Train Dreams", Some("Train Dreams novella"), None).await;
-        attach(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson"), None).await;
+        attach(
+            &db,
+            id,
+            "Train Dreams",
+            Some("Train Dreams Denis Johnson"),
+            None,
+        )
+        .await;
 
         store(&db).update_projection(id).await.unwrap();
 
@@ -371,7 +397,14 @@ mod tests {
         let db = db.handle();
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         attach(&db, id, "Train Dreams", Some("Train Dreams novella"), None).await;
-        let second = attach(&db, id, "Train Dreams", Some("Train Dreams Denis Johnson"), None).await;
+        let second = attach(
+            &db,
+            id,
+            "Train Dreams",
+            Some("Train Dreams Denis Johnson"),
+            None,
+        )
+        .await;
 
         // The row is told a different member is its origin.
         entity::Entity::update(entity::ActiveModel {

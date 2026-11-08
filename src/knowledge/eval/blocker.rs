@@ -47,6 +47,9 @@ pub struct Report {
     /// Distribution of candidate-set size over eligible observations.
     pub sizes: BTreeMap<usize, usize>,
     pub misses: Vec<Miss>,
+    /// Observations skipped because a newer illumination for their capture exists. A superseded
+    /// reading is not the surface the graph is asked about any more.
+    pub superseded: usize,
     /// Recall against the surfaces of *earlier members only* — the honest number. The index above
     /// carries every member's surface, so the live probe finds an entity by the very observation
     /// being tested. This one reconstructs what the entity looked like at that moment.
@@ -63,6 +66,24 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
         .order_by_asc(model::user_observed_entity::Column::Id)
         .all(&db.conn)
         .await?;
+
+    // Only a capture's newest illumination is its current reading; re-illuminating appends rather
+    // than replaces, so the older occurrences are history, not questions for the blocker.
+    let mut newest: HashMap<i32, i32> = HashMap::new();
+    for observation in &observations {
+        newest
+            .entry(observation.capture_id)
+            .and_modify(|current| *current = (*current).max(observation.illumination_id))
+            .or_insert(observation.illumination_id);
+    }
+    let superseded = observations
+        .iter()
+        .filter(|observation| newest[&observation.capture_id] != observation.illumination_id)
+        .count();
+    let observations: Vec<_> = observations
+        .into_iter()
+        .filter(|observation| newest[&observation.capture_id] == observation.illumination_id)
+        .collect();
 
     let names: HashMap<i32, String> = model::knowledge_entity::Entity::find()
         .all(&db.conn)
@@ -121,6 +142,7 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
     let blocker = SqlBlocker::new(db);
     let mut report = Report {
         observations: observations.len(),
+        superseded,
         ..Default::default()
     };
     let mut exists: HashSet<i32> = HashSet::new();

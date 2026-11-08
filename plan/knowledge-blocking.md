@@ -435,17 +435,14 @@ already had an **earlier member**. The true answer is the entity the observation
 | starved (no candidate at all) | **0** |
 | ambiguous (>1 candidate) | 17 of 452, and never more than 2 |
 
-After the fold fix (honorifics, initials) recall is **447/452 = 98.9%**, and the five misses classify
-as:
+`eval blocker` skips a **superseded** observation — one whose capture has a newer illumination —
+because re-illuminating appends a reading rather than replacing it, and the old one is no longer the
+surface the graph is asked about. With that, and the fold fix, recall is **324/327 = 99.1%**, and the
+three misses are all post-hoc merges. **Zero unexplained.**
 
-| | count | what it is |
-| --- | --- | --- |
-| post-hoc merge | **4** | OECD, The Holy Bible, Mad Max 2, Sound of Falling — a person merged them *after* the observation arrived, so the replay cannot see it |
-| unexplained | **1** | `@Zmei_Hhsss` vs `Zmei_Hssss` — an **illuminator extraction error**: both source images show `@Zmei_Hhsss` (verified 2026-11-07), so the row carries a handle the capture never said |
-
-`eval blocker` prints the classification per miss (`[post-hoc merge]` / `[unexplained]`), because
-charging the blocker for a decision that arrived later makes the metric unreadable. The residual failure rate is **1 in 452 (0.2%)**, and it is a bad *input*, not a blocking
-rule that could not see a match: the extractor wrote one character the image does not contain.
+The projection now follows the same rule: an entity is projected from a member of its capture's
+newest illumination (`project::select`'s preferred name), so a re-run *is* the user's correction path
+and the graph reflects it. Surfaces still accumulate, so an older reading stays findable as an alias.
 
 **Merges are respected going forward, structurally.** Projection folds the loser's name into the
 winner's `alt_names`, so the index carries both surfaces — `bible , the holy bible`, `… , oecd` — and
