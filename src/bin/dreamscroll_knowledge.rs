@@ -493,16 +493,19 @@ async fn eval_blocker(db: &database::DbHandle) -> anyhow::Result<()> {
         "live-index recall {}/{} ({pct:.1}%) · starved {} · ambiguous {}",
         report.hit, report.eligible, report.starved, report.ambiguous
     );
-    let prior_pct = if report.eligible == 0 {
-        0.0
-    } else {
-        report.prior_hit as f32 * 100.0 / report.eligible as f32
-    };
     let misses = report.eligible.saturating_sub(report.prior_hit);
+    // A post-hoc merge is not a blocking failure — the pair did not exist when the observation
+    // arrived — so it is listed but kept out of the denominator.
+    let attributable = report.eligible.saturating_sub(report.merged);
+    let attributable_pct = if attributable == 0 {
+        100.0
+    } else {
+        report.prior_hit as f32 * 100.0 / attributable as f32
+    };
     println!(
-        "earlier-members recall {}/{} ({prior_pct:.1}%) · {} misses: {} post-hoc merges, {} unexplained",
+        "earlier-members recall {}/{} ({attributable_pct:.1}%) · {} misses: {} post-hoc merges (excluded), {} unexplained",
         report.prior_hit,
-        report.eligible,
+        attributable,
         misses,
         report.merged,
         misses.saturating_sub(report.merged)
