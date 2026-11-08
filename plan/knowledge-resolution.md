@@ -283,6 +283,48 @@ problem is called.
   honest framing is *surface* — the vocabulary of the source, which may be a Wikipedia title, a shop
   page or a journal, never a promise about Wikidata.
 
+## Precision, measured 2026-11-07 — 500 claims, model-judged, before and after
+
+**500 live Wikidata claims**, ordered by `md5(entity_id | qid)` so the draw is reproducible without a
+seed, one row per claim. Each row was judged by a model (`judge_batch`, `typesafe/jev-1.14`) against
+what the capture actually says — the entity's name, type and description versus the item's label and
+description — with `correct` / `wrong` / `unclear`.
+
+| | before the ordering change | after |
+| --- | --- | --- |
+| judged | 488 | 488 |
+| correct | 438 | **447** |
+| precision | 89.8% `[86.7, 92.1]` | **91.6% `[88.8, 93.7]`** |
+| corrected for judge error | 91.5% | **93.0%** |
+
+The judge under-detects correct claims: of the 41 it called wrong, 7 are plainly right on reading
+(`John Roberts` → the Stanford GSB economist the capture describes, `Dan Wang`, `20th Century Fox`,
+`Manila in the Claws of Light`, `Pomegranate Seed`, `Grok`, `Alan Durband`). That 17% false-negative
+rate is what the corrected row applies; false positives were ~0 in a 15-row spot check.
+
+**The paired comparison is the evidence for the delta, not the two point estimates** — their CIs
+overlap and a 500-claim sample cannot resolve 1.8 points. Twelve of the 500 rows changed hands and
+the same judge re-judged them: **9 wrong → correct, 0 correct → wrong, 3 unchanged.**
+
+By method after the change:
+
+| method | correct | judged | precision |
+| --- | --- | --- | --- |
+| `wikipedia_title` | 352 | 374 | 94.1% |
+| `exact_label` | 80 | 93 | **86.0%** |
+| `search_hint` | 5 | 6 | 83% |
+| `search_lookup` | 4 | 5 | 80% |
+| `search_ranked` | 6 | 10 | **60%** |
+
+`exact_label` is the weakest high-volume method and the next target. The 41 errors fall into four
+kinds: a different person with a common name (6), a work against its adaptation, franchise or series
+(6), a broader or narrower class than the capture means — a gun *family* for a variant, a *commune*
+for an island, river *barriers* for one chain (4), and related-but-distinct things (a publisher for a
+journal, a book for the miniseries made from it, a lens for a magazine).
+
+The earlier 96.3% came from a hand-judged 82-row sample and is **not comparable** to this: the model
+judge is stricter than reading by hand was, and the same rows judged both ways would not agree.
+
 ## Precision, measured 2026-11-06
 
 Random sample of **100 of the 1,877 identified entities** (seed `0.20261106`, one claim each), judged by
