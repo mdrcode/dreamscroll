@@ -669,6 +669,25 @@ such, not as a reason to re-revert.
 at all (`Commission of Tears Antonio Lobo Antunes` → nothing). The endpoint is the limit; a text search
 (`list=search`) is still the open item.
 
+### The title name-test: right three times out of four
+
+34 unclaimed entities hit "the title is about another subject". Sampled four:
+
+| entity | title answer | verdict |
+| --- | --- | --- |
+| `Cruiskeen Lawn` | `Brian O'Nolan` — the column's *author* | correct refusal |
+| `Exa` | `SI prefix` | correct refusal |
+| `Q` | `Q/q` — the letter | correct refusal (later claimed via `search_hint`) |
+| **`Flann O'Brien`** | `Brian O'Nolan`, "Irish writer" | **false negative** — that *is* Flann O'Brien |
+
+The rule says sharing no word with our name is not an identity, which is what stops
+`The Bounty Hunter Wars` from becoming `Boba Fett`. The `Flann O'Brien` case breaks it the same way:
+a pen name redirects to the legal name, and the two share no token. No rule separates them — the item
+carries the pseudonym only as `P742`/aliases, which the resolver never fetches.
+
+So this gate stays as it is. Its false negative is the same data gap as the search rung's: the item's
+surface does not contain the name the capture used.
+
 ### The search rung is *already* full text — the empty answers are a data gap
 
 `Kind::Search` is documented as "MediaWiki full-text search" and it is: `transport::search` calls
