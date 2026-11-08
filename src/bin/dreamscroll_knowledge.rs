@@ -142,7 +142,11 @@ struct UnvetoArgs {
 #[derive(FromArgs)]
 #[argh(subcommand, name = "reproject")]
 #[argh(description = "recompute projections for live entities holding no live claim")]
-struct ReprojectArgs {}
+struct ReprojectArgs {
+    #[argh(switch)]
+    #[argh(description = "reproject every live entity, not only the ones holding no live claim")]
+    all: bool,
+}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "link")]
@@ -397,6 +401,36 @@ async fn eval_resolve(db: &database::DbHandle, args: EvalResolveArgs) -> anyhow:
 /// `identity resolve`: ask the authorities what a thing is, cache first.
 /// `status` and the selected surface are derived from live claims, so a retraction leaves them stale —
 /// and nothing recomputes them for an entity that stops claiming. This is that half of the rule.
+/// `identity reproject`: make projections match the rules as they stand now.
+///
+/// The default is the repair pass — entities holding no live claim, whose status and selected
+/// surface went stale when a claim was retracted. `--all` is the rule-change pass: every live entity
+/// is reprojected, which is what a change to `project` needs and what used to require a rebuild.
+async fn reproject(db: &database::DbHandle, all: bool) -> anyhow::Result<()> {
+    if all {
+        return reproject_all(db).await;
+    }
+    reproject_unclaimed(db).await
+}
+
+async fn reproject_all(db: &database::DbHandle) -> anyhow::Result<()> {
+    use sea_orm::EntityTrait;
+
+    use model::knowledge_entity as entity;
+
+    let live = entity::Entity::find()
+        .filter(entity::Column::MergedIntoId.is_null())
+        .all(&db.conn)
+        .await?;
+    let store = knowledge::Knowledge::new(db);
+    let total = live.len();
+    for row in &live {
+        store.update_projection(row.id).await?;
+    }
+    println!("reprojected {total} live entities");
+    Ok(())
+}
+
 async fn reproject_unclaimed(db: &database::DbHandle) -> anyhow::Result<()> {
     use sea_orm::EntityTrait;
 
@@ -755,7 +789,7 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Identity(args) => match args.command {
             IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
-            IdentityCommand::Reproject(_) => reproject_unclaimed(&db).await?,
+            IdentityCommand::Reproject(args) => reproject(&db, args.all).await?,
             IdentityCommand::Veto(args) => {
                 let store = knowledge::Knowledge::new(&db);
                 let recorded = knowledge::verdicts::veto(
