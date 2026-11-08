@@ -6,6 +6,22 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
 ## Next
 
+- [ ] **Overhaul `entity_type`, driven by data.** It is capture vocabulary — the illuminator names a type
+  in free text — and it currently acts as a *veto* in three places: `types::incompatible` (rejecting
+  candidates by `P31`), the link decision (declining an attachment), and `merge`. Measured cost on the
+  live graph: **three duplicate entities exist solely because their types disagree** — `The Criterion
+  Collection` (`organization`/`brand`), `Pokémon Pokopia` (`software`/`product`), `Lucifer`
+  (`fictional_character`/`religious_figure`) — and the same shape blocks a person from their own account
+  (`Andra` `real_person` vs `@bioavailablend` `social_media_account`).
+  The vocabulary is 20 values assigned by hand-in-prompt, so it drifts: `television_show` vs
+  `television_series` silently disabled a whole rule for 23 series, and `types.rs` deliberately leaves
+  `product`, `publication`, `place`, `organization` and `event` **unmapped** because mapping them rejected
+  correct claims (`Rotten Tomatoes` is a business, the `Locarno Film Festival` an organization).
+  Direction: make the type a *projection of Wikidata's own class graph* (the `P31` closure an entity
+  actually has) rather than a string the illuminator invents, and demote it from veto to hint — a
+  disagreement should rank, not refuse. Needs design; see the merge item below, which is the same defect
+  caught one layer later.
+
 - [ ] **Review the graph-model workstream before pushing.** `3f23fec..HEAD` is 36 commits (16 pushed, the
   rest local); read the file count and diffstat from `git diff --stat 3f23fec..HEAD` — they move with
   every commit here. Four things happened, in order: `knowledge_evidence` — one table
