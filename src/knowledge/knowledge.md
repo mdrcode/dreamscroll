@@ -152,9 +152,9 @@ scores; `merge` and the holder order ask `cmp_confidence`, a convention about `N
 the proximity passes take a `Scoring`, and it is the **store's** — a linker carrying its own would leave the
 merge pass on a different policy, silently.
 
-`heuristic/scoring.rs` is today's only answer: normalized keys, weights, the bar, the corroboration
-bonus. `heuristic/linker.rs` is the **procedure** — the best qualifying candidate, else create — and holds
-no numbers. `sql_blocker.rs` is recall: every folded surface and its word-order-insensitive form, probed
+`linker/heuristic/scoring.rs` is today's only answer: normalized keys, weights, the bar, the corroboration
+bonus. `linker/heuristic/linker.rs` is the **procedure** — the best qualifying candidate, else create — and holds
+no numbers. `blocker/sql.rs` is recall: every folded surface and its word-order-insensitive form, probed
 out of `knowledge_blocking_index` — nothing scored. A platform handle is a surface too, so a capture that named an
 account only by its handle still finds the entity another capture named by hand. The
 resolver keeps its own measure and its own calibration, because its candidate type is private and
@@ -283,10 +283,10 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 |---|---|
 | `scoring.rs` | the two verbs — `Similarity`, `Rank` — `cmp_confidence`, and the `Scoring` bundle. Shared: the linker and proximity both ask it |
 | `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by. Shared by the blocker, identity, evidence and projection |
-| `blocker.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
+| `blocker/mod.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
 | `blocker/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
 | `blocker/index.rs` | `knowledge_blocking_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
-| `linker.rs` | the `Linker` trait: one illumination in, decisions out. Everything upstream is recall, everything downstream is effect |
+| `linker/mod.rs` | the `Linker` trait: one illumination in, decisions out. Everything upstream is recall, everything downstream is effect |
 | `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
 | `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
 | `linker/illumination.rs` | the linking executor, and `LinkStats` |

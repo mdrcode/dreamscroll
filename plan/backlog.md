@@ -222,7 +222,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 
   Settle 1 and 2 by choosing which weight set and which ordering is authoritative — both are ranker
   policy and belong with the resolver, not the linker. Note that the scoring split (`scoring.rs` verbs,
-  `heuristic/scoring.rs` policy) makes 1 cheaper to state: `parse_search` builds `Weights` itself
+  `linker/heuristic/scoring.rs` policy) makes 1 cheaper to state: `parse_search` builds `Weights` itself
   instead of asking the policy, which is now the visible oddity rather than a hidden one.
 
 - [ ] **Decide how admin privilege reaches the common APIs.** Today an admin can do a thing only if a
