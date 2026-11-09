@@ -169,14 +169,18 @@ pairs the graph asks about, build a `Scoring`, hand it to `Knowledge::with_scori
 Resolving is the opposite kind of work: network, cached, and only ever through one door.
 
 ```rust
-trait Resolver {
+trait Resolver {                              // src/knowledge/identity
     fn id(&self) -> &'static str;
-    async fn resolve(&self, entities: &[Model], ctx: &ResolutionContext)
+    async fn resolve(&self, entities: &[Model], gateway: &fetch::Gateway<'_>)
         -> Vec<(i32, Claim)>;                 // claims, each tagged with its entity
 }
 
+// src/fetch: generic over the provider's own vocabulary, so it can hold none of ours.
 trait Transport {
-    async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError>;
+    type Kind;                                // the provider's request kinds
+    type Payload;                             // the provider's answer body
+    async fn fetch(&self, requests: &[Request<Self::Kind>])
+        -> Result<Vec<(String, Answer<Self::Payload>)>, FetchError>;
 }
 ```
 
@@ -184,18 +188,18 @@ trait Transport {
 hundred transport calls for a corpus walk and five thousand, and only the resolver knows how to
 group its own requests.
 
-How a resolver gets to its claims is its own business. `Wikidata` uses a two-pass ladder — handles,
-titles and exact labels first, then full-text search for whatever is left — but that shape is
-internal to it, not vocabulary the engine knows about. There is no `plan`/`plan_fallback` in the
-contract, so **adding an authority means writing one `Resolver`**, and a resolver is free to make one
-request or a dozen.
+How a resolver gets to its claims is its own business. `Wikidata` uses a ladder — handles, titles
+and exact labels first, then full-text search, then the bare title as a last resort — but that shape
+is internal to it, not vocabulary the engine knows about. `Kind` is the *provider's* enum, so
+**adding an authority means writing one `Resolver` plus one `Transport`**, and a resolver is free to
+make one request or a dozen.
 
 The one thing a resolver cannot do is fetch. Its only route to the world is
-`ResolutionContext::resolve_requests`, which consults the cache first, charges the budget and
-paces the call —
-which is why a resolver can own its own strategy without being able to bypass any of them. (An
+`Gateway::resolve_requests`, which consults the cache first, charges the budget and paces the call —
+which is why a resolver can own its own strategy without being able to bypass any of them. The door
+is `crate::fetch` and knows nothing about knowledge entities at all; see `src/fetch/fetch.md`. (An
 agentic resolver, whose tool calls happen inside a provider's runtime, is the one exception: it uses
-the same context by convention, and it is expected to fail at that rather than to pretend.)
+the same gateway by convention, and it is expected to fail at that rather than to pretend.)
 
 Resolvers **accumulate**. Wikidata supplies a QID, and a second resolver might supply an IMDb id;
 they answer different questions, so both are kept. The promise is not "the answer" but *independent
@@ -282,8 +286,9 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
 | `sql_blocker.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
 | `heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
-| `identity/` | `contract` (request, answer, claim, the transport trait) · `context` (cache, pace, budget — the only door to the world) · `engine` (the run loop) · `store` (where a claim becomes a row) · `cache` (answers keyed by `(provider, kind, shape, query)`) |
-| `identity/wikidata/` | one authority: the gates in `policy.rs`, answer parsing in `answer.rs`, the provider and its request shapes in `resolver.rs`, candidate scoring in `ranking.rs`, HTTP in `transport.rs` |
+| `identity/` | `contract` (the claim) · `engine` (the run loop, candidate selection, vetoes) · `store` (where a claim becomes a row) · `wikidata/` (today's only authority). The cache, the pace and the budget are **not** here: they are `crate::fetch` |
+| `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates in `policy.rs` · answer parsing in `answer.rs` · the ladder and its request shapes in `resolver.rs` · candidate scoring in `ranking.rs` · HTTP in `transport.rs` |
+| `../fetch/` | the only door to a third party — see `src/fetch/fetch.md`: `contract` (request, answer, transport, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, their TTLs, and the outcome tally) · `gateway` (cache first, then a paced, budgeted fetch) |
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
 | `link.rs` | the linking executor, and `LinkStats` |
 | `project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |

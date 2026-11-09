@@ -9,21 +9,32 @@ failure catalogue this design answers).
 
 ## The rule
 
-**Only the executor calls `fetch`.** A provider may say what it *would* ask (`plan`) and interpret an
+**Only the gateway calls `fetch`.** A provider may say what it *would* ask (`plan`) and interpret an
 answer (`parse`), but every request goes through `resolution_cache` first. Adding IMDb cannot forget
 the cache, because there is no other door to the network.
 
+The door now lives in its own module, `crate::fetch`, and is generic over the provider's own
+vocabulary — `src/fetch/fetch.md` is the reference for it. The two traits are split:
+
 ```rust
-trait Engine {
+// src/fetch — knows nothing about knowledge entities, or any provider.
+trait Transport {
+    type Kind;                                         // the provider's request kinds
+    type Payload;                                      // the provider's answer body
+    async fn fetch(&self, requests: &[Request<Self::Kind>])
+        -> Result<Vec<(String, Answer<Self::Payload>)>, FetchError>;   // the only I/O
+}
+
+// src/knowledge/identity — knows what a knowledge entity is.
+trait Resolver {
     fn id(&self) -> &'static str;
-    fn plan(&self, knowledge entity: &CoreView) -> Vec<Request>;          // stage 1: identifiers, exact labels
-    fn plan_fallback(&self, knowledge entity: &CoreView) -> Vec<Request>; // stage 2: full text
-    fn parse(&self, request: &Request, raw: &Raw) -> Vec<Claim>;  // pure
-    async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>>; // the only I/O
+    async fn resolve(&self, entities: &[Model], gateway: &fetch::Gateway<'_>)
+        -> Vec<(i32, Claim)>;
 }
 ```
 
-`plan` and `parse` are pure, so the entire decision can be tested from a fixture and re-run over cached
+A ladder is the *resolver's*, not the contract's: `Wikidata::plan`, `plan_fallback` and `parse` are
+pure inherent methods, so the whole decision can be tested from a fixture and re-run over cached
 payloads for free. That is what makes iterating on matching rules cost nothing.
 
 ## The cache
@@ -31,8 +42,8 @@ payloads for free. That is what makes iterating on matching rules cost nothing.
 ```sql
 resolution_cache
   provider, kind, query, shape      -- unique together: one row per logical request
-  outcome                            -- found | empty | failed
-  payload      jsonb                 -- the raw answer for this query, so parsing can be re-run
+  outcome                           -- found | empty | failed | degraded
+  payload      jsonb                 -- the provider's payload, serialised; the cache never reads it
   fetched_at, expires_at
 ```
 
@@ -59,27 +70,28 @@ other answer.
 | `empty` | 7 d | a niche name may gain an item next week |
 | `failed` | **10 min** | a provider that is down is not a fact about the world |
 
-**A cache-only replay is free only while the answers are live.** A search answer that produced no
-claim is stored with `UNPRODUCTIVE_TTL` (6 h), so a replay more than six hours after the last online
-run finds almost nothing. Measured 2026-11-07: `resolve --offline` planned 2,046 requests and matched
-**2** live answers — the two belonging to the two vetoed entities — because the other 2,257 `empty`
-rows had expired overnight. Offline replay is for iterating inside a working session, not for the
-next morning.
+**A cache-only replay is free only while the answers are live.** The TTL is fixed by the outcome when
+the answer is written — `empty` 7 d, `degraded` 1 h, `failed` 10 min — and nothing revises it later, so
+a replay the next morning reads the whole walk. Measured 2026-11-07, while an "unproductive" demotion
+to 6 h was still in force: `resolve --offline` planned 2,046 requests and matched **2** live answers,
+because the other 2,257 `empty` rows had expired overnight. The demotion is gone for exactly that
+reason: a healthy negative is a fact, and re-asking it early spends provider calls on the tail that
+never resolves.
 
-Batching is a transport concern, caching is per query: the executor looks up each planned query, groups
+Batching is a transport concern, caching is per query: the gateway looks up each planned query, groups
 the misses into one call (50 at a time), and writes back one row per query. Partial hits work, and one
 warm query costs nothing.
 
 ## Many authorities, one claim edge
 
 Today Wikidata is the only provider, and the claim model must not know that. What is authority-neutral
-already: `knowledge_identities.scheme` names the namespace, `source` names who made the claim, and a
+already: `knowledge_identities.scheme` names the namespace, `asserted_by` records who asserted it, and a
 veto is keyed by `(scheme, external_id)` rather than by a QID. The target is **at least one claim per
 entity**, from whichever authorities recognise it.
 
 Two things were made authority-aware on 2026-11-07, both behaviour-identical with one provider:
 
-- **Planning asks "has *this* provider claimed it?"** — `candidates()` filtered `source != 'platform'`,
+- **Planning asks "has *this* provider claimed it?"** — `candidates()` filtered `asserted_by != 'platform'`,
   which means "any authority". With a second authority, an IMDb claim would silently stop Wikidata
   resolving that entity. It now filters on the configured providers' ids.
 - **A veto is enforced at the claim write** (`store_claim`), not inside the Wikidata parser, so a new
@@ -849,7 +861,7 @@ WDQS publishes its limits in the
 | Rule | What we do |
 | --- | --- |
 | A good `User-Agent`; non-compliance can mean a full block | `dreamscroll-knowledge/0.1 (https://dreamscroll.ai)` on the client |
-| 5 parallel queries per IP | one request in flight; the executor is sequential |
+| 5 parallel queries per IP | one request in flight; the gateway is sequential |
 | 60 s of processing time per 60 s per client | 50 labels per query, so a batch is milliseconds of processing |
 | 30 error queries per minute | a run stops at the first transport failure that is not a rate limit, rather than retrying into it |
 | 429 with `Retry-After`, and a temporary ban for ignoring it | **the run stops**, caches nothing, and reports the interval. A 429 is never recorded as an answer — it is an instruction |

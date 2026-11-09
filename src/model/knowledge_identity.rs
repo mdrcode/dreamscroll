@@ -30,8 +30,9 @@ pub struct Model {
     pub description: Option<String>,
     pub classes: Vec<String>,
 
-    /// Who answered: `wikidata` | `wikimedia` | `platform` (the resolver's own id).
-    pub source: String,
+    /// Who asserted it — not necessarily a provider we dialed: `platform` when a capture showed the
+    /// handle, an authority's id when one answered, `model` when a guess produced it.
+    pub asserted_by: String,
     /// How it was answered, on the first answer only: `capture` when a capture asserted the handle,
     /// a Wikidata property (`P2002`, `P2003`, …) when the answer came from a handle join, or the
     /// ladder step (`exact_label`, `wikipedia_title`, `search_lookup`, `search_ranked`, `search_hint`,

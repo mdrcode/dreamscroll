@@ -4,6 +4,7 @@ pub mod backfill;
 pub mod common;
 pub mod config;
 pub mod database;
+pub mod fetch;
 pub mod ignition;
 pub mod illumination;
 pub mod knowledge;

@@ -7,11 +7,10 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 
-use super::super::contract::{FetchError, Raw, Request};
 use super::query;
 use super::resolver::{LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT, Wikidata};
-use crate::knowledge::identity::Candidate;
-use crate::knowledge::identity::cache::Outcome;
+use super::{Candidate, Kind};
+use crate::fetch::{Answer, FetchError, Outcome, Request};
 
 /// Which query a SPARQL row answers, and the candidate it names. Items arrive as entity URLs, and a
 /// repeated item is deduped by the caller.
@@ -37,6 +36,17 @@ fn candidate_from_row(row: &Value) -> Option<(String, Candidate)> {
                 .unwrap_or_default(),
         },
     ))
+}
+
+/// MediaWiki reports a failure inside a `200` body, and a body missing the key it must have is just
+/// as unreadable. Either one read as "no results" would cache a negative for a week, so both are
+/// errors here — the same rule `search` already applied to a degraded backend.
+fn api_result<'a>(body: &'a Value, what: &str, key: &str) -> Result<&'a Value, FetchError> {
+    if let Some(error) = body.get("error") {
+        return Err(FetchError::Failed(format!("{what} error: {error}")));
+    }
+    body.get(key)
+        .ok_or_else(|| FetchError::Failed(format!("{what}: no `{key}` in body: {body}")))
 }
 
 /// `page title → wikibase item`, from a `prop=pageprops` answer. Pages that are missing, or that
@@ -100,18 +110,28 @@ fn follow(title: &str, renamed: &HashMap<String, String>) -> String {
     current
 }
 
-/// The response, or why it is unusable. A 429 is an instruction — honour its `Retry-After`,
-/// defaulting to a minute — and any other non-success is a fact about the provider.
+/// The provider's `Retry-After`, in seconds, when it sent a usable one.
+///
+/// The header is optional and may hold an HTTP date rather than a delta. Either way there is no number
+/// to wait: reporting one would claim the provider asked for a wait it never asked for.
+fn retry_after_secs(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+/// The response, or why it is unusable. A `429` is an instruction — honour its `Retry-After` when it
+/// carries one — and any other non-success is a fact about the provider.
 fn checked(response: reqwest::Response, what: &str) -> Result<reqwest::Response, FetchError> {
     let status = response.status();
     if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-        let retry_after_secs = response
-            .headers()
-            .get(reqwest::header::RETRY_AFTER)
-            .and_then(|value| value.to_str().ok())
-            .and_then(|value| value.trim().parse::<u64>().ok())
-            .unwrap_or(60);
-        return Err(FetchError::RateLimited { retry_after_secs });
+        return Err(FetchError::RateLimited {
+            retry_after_secs: retry_after_secs(response.headers()),
+        });
     }
     if !status.is_success() {
         return Err(FetchError::Failed(format!("{what} returned {status}")));
@@ -126,7 +146,7 @@ impl Wikidata {
     /// it returns nothing for a punctuation difference (`J.R.R.` for `J. R. R.`) and ranks a
     /// disambiguation page above the novel for `A Christmas Carol`. On wikidata.org the page titles
     /// *are* QIDs, so the hit list is already a candidate set.
-    pub(super) async fn search(&self, query: &str) -> Result<Raw, FetchError> {
+    pub(super) async fn search(&self, query: &str) -> Result<Answer<Vec<Candidate>>, FetchError> {
         let response = self
             .client
             .get(SEARCH_ENDPOINT)
@@ -150,17 +170,14 @@ impl Wikidata {
             .json()
             .await
             .map_err(|error| FetchError::Failed(error.to_string()))?;
-        if let Some(error) = body.get("error") {
-            return Err(FetchError::Failed(format!("search error: {error}")));
-        }
+        let query = api_result(&body, "wikidata search", "query")?;
         let outcome = if reached_backend {
             Outcome::Found
         } else {
             Outcome::Degraded
         };
-        let ids: Vec<String> = body
-            .get("query")
-            .and_then(|query| query.get("search"))
+        let ids: Vec<String> = query
+            .get("search")
             .and_then(Value::as_array)
             .map(|rows| {
                 rows.iter()
@@ -178,32 +195,26 @@ impl Wikidata {
             // Zero results is exactly what a degraded backend returns. If CirrusSearch never saw the
             // query, "nothing found" is not a fact about the corpus — it is a failed request wearing
             // a 200. Only a search that actually reached the backend may cache a negative.
-            return Ok(Raw {
-                outcome: if reached_backend {
-                    Outcome::Empty
-                } else {
-                    Outcome::Degraded
-                },
-                candidates: Vec::new(),
-            });
+            return Ok(Answer::nothing(if reached_backend {
+                Outcome::Empty
+            } else {
+                Outcome::Degraded
+            }));
         }
 
         let items = self.items(&ids).await?;
         let candidates: Vec<Candidate> =
             ids.iter().filter_map(|id| items.get(id).cloned()).collect();
         if candidates.is_empty() {
-            return Ok(Raw {
-                outcome: if reached_backend {
-                    Outcome::Empty
-                } else {
-                    Outcome::Degraded
-                },
-                candidates: Vec::new(),
-            });
+            return Ok(Answer::nothing(if reached_backend {
+                Outcome::Empty
+            } else {
+                Outcome::Degraded
+            }));
         }
-        Ok(Raw {
+        Ok(Answer {
             outcome,
-            candidates,
+            body: Some(candidates),
         })
     }
 
@@ -234,12 +245,8 @@ impl Wikidata {
                 .json()
                 .await
                 .map_err(|error| FetchError::Failed(error.to_string()))?;
-            for (qid, item) in body
-                .get("entities")
-                .and_then(Value::as_object)
-                .into_iter()
-                .flatten()
-            {
+            let entities = api_result(&body, "wikidata entities", "entities")?;
+            for (qid, item) in entities.as_object().into_iter().flatten() {
                 let label = item
                     .get("labels")
                     .and_then(|labels| labels.get(LANGUAGE))
@@ -287,8 +294,8 @@ impl Wikidata {
     /// the labels, descriptions and types the caller needs.
     pub(super) async fn titles(
         &self,
-        requests: &[Request],
-    ) -> Result<Vec<(String, Raw)>, FetchError> {
+        requests: &[Request<Kind>],
+    ) -> Result<Vec<(String, Answer<Vec<Candidate>>)>, FetchError> {
         use std::collections::HashMap;
 
         let titles: Vec<String> = requests
@@ -319,10 +326,10 @@ impl Wikidata {
             .json()
             .await
             .map_err(|error| FetchError::Failed(error.to_string()))?;
-        let query = body.get("query");
+        let query = api_result(&body, "wikipedia search", "query")?;
 
-        let page_items = page_items(query);
-        let renamed = renamed_titles(query);
+        let page_items = page_items(Some(query));
+        let renamed = renamed_titles(Some(query));
 
         let mut reached: HashMap<String, String> = HashMap::new();
         let mut ids: Vec<String> = Vec::new();
@@ -345,17 +352,14 @@ impl Wikidata {
             answers.push(match candidate {
                 Some(candidate) => (
                     request.query.clone(),
-                    Raw {
+                    Answer {
                         outcome: Outcome::Found,
-                        candidates: vec![candidate.clone()],
+                        body: Some(vec![candidate.clone()]),
                     },
                 ),
                 None => (
                     request.query.clone(),
-                    Raw {
-                        outcome: Outcome::Empty,
-                        candidates: Vec::new(),
-                    },
+                    Answer::nothing(Outcome::Empty),
                 ),
             });
         }
@@ -365,12 +369,57 @@ impl Wikidata {
 
 const SPARQL_ENDPOINT: &str = "https://query.wikidata.org/sparql";
 
+/// Decode a SPARQL `SELECT` body into one answer per requested query.
+///
+/// A body we cannot read is an error, never a batch of empty answers: every `Empty` leaving here
+/// becomes a cached negative, so a refused or malformed response would claim for a week that the item
+/// does not exist. `search` guards its body for the same reason.
+fn answers_from_sparql(
+    requests: &[Request<Kind>],
+    body: &Value,
+) -> Result<Vec<(String, Answer<Vec<Candidate>>)>, FetchError> {
+    let results = api_result(body, "sparql", "results")?;
+    let Some(rows) = results.get("bindings").and_then(Value::as_array) else {
+        return Err(FetchError::Failed(format!(
+            "sparql: no `bindings` in body: {body}"
+        )));
+    };
+
+    // Every requested query gets an answer, found or empty — so the cache records the negative
+    // instead of the executor asking again next run.
+    let mut answers: Vec<(String, Answer<Vec<Candidate>>)> = requests
+        .iter()
+        .map(|request| (request.query.clone(), Answer::nothing(Outcome::Empty)))
+        .collect();
+    let mut grouped: HashMap<String, Vec<Candidate>> = HashMap::new();
+    for row in rows {
+        let Some((query, candidate)) = candidate_from_row(row) else {
+            continue;
+        };
+        let entry = grouped.entry(query).or_default();
+        match entry.iter_mut().find(|existing| existing.id == candidate.id) {
+            Some(existing) => existing.classes.extend(candidate.classes),
+            None => entry.push(candidate),
+        }
+    }
+
+    for (query, candidates) in grouped {
+        if let Some(slot) = answers.iter_mut().find(|(key, _)| *key == query) {
+            slot.1 = Answer {
+                outcome: Outcome::Found,
+                body: Some(candidates),
+            };
+        }
+    }
+    Ok(answers)
+}
+
 impl Wikidata {
     /// SPARQL over `VALUES`: the batched label and handle lookups.
     pub(super) async fn sparql(
         &self,
-        requests: &[Request],
-    ) -> Result<Vec<(String, Raw)>, FetchError> {
+        requests: &[Request<Kind>],
+    ) -> Result<Vec<(String, Answer<Vec<Candidate>>)>, FetchError> {
         let Some(first) = requests.first() else {
             return Ok(Vec::new());
         };
@@ -393,48 +442,7 @@ impl Wikidata {
             .json()
             .await
             .map_err(|error| FetchError::Failed(error.to_string()))?;
-
-        // Every requested query gets an answer, found or empty — so the cache records the negative
-        // instead of the executor asking again next run.
-        let mut answers: Vec<(String, Raw)> = requests
-            .iter()
-            .map(|request| {
-                (
-                    request.query.clone(),
-                    Raw {
-                        outcome: Outcome::Empty,
-                        candidates: Vec::new(),
-                    },
-                )
-            })
-            .collect();
-        let mut grouped: std::collections::HashMap<String, Vec<Candidate>> =
-            std::collections::HashMap::new();
-        for row in body
-            .pointer("/results/bindings")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-        {
-            let Some((query, candidate)) = candidate_from_row(row) else {
-                continue;
-            };
-            let entry = grouped.entry(query).or_default();
-            match entry.iter_mut().find(|existing| existing.id == candidate.id) {
-                Some(existing) => existing.classes.extend(candidate.classes),
-                None => entry.push(candidate),
-            }
-        }
-
-        for (query, candidates) in grouped {
-            if let Some(slot) = answers.iter_mut().find(|(key, _)| *key == query) {
-                slot.1 = Raw {
-                    outcome: Outcome::Found,
-                    candidates,
-                };
-            }
-        }
-        Ok(answers)
+        answers_from_sparql(requests, &body)
     }
 }
 
@@ -485,5 +493,105 @@ mod tests {
         let items = page_items(body.get("query"));
         assert_eq!(items.get("Dune").map(String::as_str), Some("Q190192"));
         assert_eq!(items.len(), 1, "{items:?}");
+    }
+
+    fn labels(query: &str) -> Request<Kind> {
+        Request {
+            provider: "wikidata",
+            kind: Kind::Label,
+            shape: "test".to_string(),
+            query: query.to_string(),
+        }
+    }
+
+    /// Only a plain number is a wait we can honour. No header, or an HTTP date, is `None` — not a
+    /// default that would report a wait the provider never asked for.
+    #[test]
+    fn a_retry_after_is_read_only_when_it_is_a_number() {
+        let mut headers = reqwest::header::HeaderMap::new();
+        assert_eq!(retry_after_secs(&headers), None);
+
+        headers.insert(reqwest::header::RETRY_AFTER, " 45 ".parse().expect("45"));
+        assert_eq!(retry_after_secs(&headers), Some(45));
+
+        headers.insert(
+            reqwest::header::RETRY_AFTER,
+            "Wed, 21 Oct 2015 07:28:00 GMT".parse().expect("a date"),
+        );
+        assert_eq!(retry_after_secs(&headers), None);
+    }
+
+    /// Both shapes of unreadable body — an `error` and a missing key — must be errors, because either
+    /// one read as "no results" becomes a cached negative. The error case carries the key too, so only
+    /// the `error` branch can reject it.
+    #[test]
+    fn an_api_error_or_a_missing_key_is_an_error() {
+        let error = serde_json::json!({
+            "error": {"code": "internal_api_error", "info": "ok"},
+            "query": {"search": []},
+        });
+        assert!(
+            api_result(&error, "search", "query").is_err(),
+            "an error body must not pass just because the key is present"
+        );
+
+        let empty = serde_json::json!({"batchcomplete": true});
+        assert!(api_result(&empty, "search", "query").is_err());
+
+        let ok = serde_json::json!({"query": {"search": []}});
+        assert!(api_result(&ok, "search", "query").is_ok());
+    }
+
+    /// WDQS answers a refused or timed-out query with `200` and an `error` body. Turning that into
+    /// empty answers would cache "does not exist" for a week, so it must be an error instead.
+    #[test]
+    fn a_sparql_error_is_an_error_and_never_a_negative() {
+        let body = serde_json::json!({"error": {"code": "timeout", "info": "Query timed out"}});
+        assert!(answers_from_sparql(&[labels("Sten Mk II")], &body).is_err());
+    }
+
+    /// A body we cannot read is the same hazard as an error body: nothing in it names a row, so the
+    /// requests would all come back `Empty`.
+    #[test]
+    fn a_body_without_results_is_an_error_too() {
+        let body = serde_json::json!({"head": {"vars": ["query", "item"]}});
+        assert!(answers_from_sparql(&[labels("Sten Mk II")], &body).is_err());
+    }
+
+    /// A genuinely empty answer is not an error: the negative is the point, so it is still cached.
+    #[test]
+    fn a_real_empty_answer_still_answers_every_request() {
+        let body = serde_json::json!({"head": {}, "results": {"bindings": []}});
+        let answers = answers_from_sparql(&[labels("Nobody"), labels("Nobody Here")], &body)
+            .expect("a well-formed empty answer");
+        assert_eq!(answers.len(), 2);
+        assert!(answers.iter().all(|(_, answer)| answer.outcome == Outcome::Empty));
+        assert!(answers.iter().all(|(_, answer)| answer.body.is_none()));
+    }
+
+    /// Rows group by query, and an item answering once per class merges into one candidate.
+    #[test]
+    fn rows_group_into_one_answer_per_query() {
+        let row = |item: &str, class: &str| {
+            serde_json::json!({
+                "query": {"value": "C"},
+                "item": {"value": format!("http://www.wikidata.org/entity/{item}")},
+                "class": {"value": format!("http://www.wikidata.org/entity/{class}")},
+            })
+        };
+        let body = serde_json::json!({"results": {"bindings": [
+            row("Q100", "Q1"),
+            row("Q100", "Q2"),
+            row("Q200", "Q1"),
+        ]}});
+        let answers = answers_from_sparql(&[labels("C")], &body).expect("rows");
+        assert_eq!(answers.len(), 1);
+        let (query, answer) = &answers[0];
+        assert_eq!(query, "C");
+        assert_eq!(answer.outcome, Outcome::Found);
+        let candidates = answer.body.as_ref().expect("found rows carry candidates");
+        assert_eq!(candidates.len(), 2);
+        let first = candidates.iter().find(|c| c.id == "Q100").expect("Q100");
+        assert_eq!(first.classes, vec!["Q1".to_string(), "Q2".to_string()]);
     }
 }

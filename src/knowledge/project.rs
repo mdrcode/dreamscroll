@@ -251,7 +251,7 @@ mod tests {
             .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
                 scheme: scheme.to_string(),
                 external_id: value.to_string(),
-                source: "test".to_string(),
+                asserted_by: "test".to_string(),
                 method: None,
                 confidence: None,
                 label: None,

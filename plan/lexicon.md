@@ -45,8 +45,8 @@ observation.
 | --- | --- | --- | --- |
 | **observation** | `UserObservedEntity` | `user_observed_entities` | `id`, `user_id`, `capture_id`, `illumination_id`, `position`, `created_at`, `name`, `entity_type`, `description`, `search_query`, `platform`, `platform_handle`, `platform_display_name`, `knowledge_entity_id` |
 | **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `status`, `confidence`, `merged_into_id`, timestamps |
-| **identity** (schema 23) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `scheme`, `external_id`, `label`, `description`, `classes`, `method`, `confidence`, `first_seen` |
-| **claim** | `KnowledgeClaim` | `knowledge_claims` | `id`, `knowledge_entity_id`, `scheme`, `external_id`, `surface`, `label`, `description`, `classes`, `source`, `method`, `confidence`, `user_observed_entity_id`, `source_user_id`, `retracted_at`, `observed_at` |
+| **identity** (schema 23) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `scheme`, `external_id`, `label`, `description`, `classes`, `asserted_by`, `method`, `confidence`, `first_seen` |
+| **claim** | `KnowledgeClaim` | `knowledge_claims` | `id`, `knowledge_entity_id`, `knowledge_identity_id`, `surface`, `basis`, `user_observed_entity_id`, `source_user_id`, `retracted_at`, `observed_at` |
 | **merge** | `KnowledgeVerdict` | `knowledge_verdicts` | `id`, `generation`, `cause`, `winner_origin`, `loser_origin`, `winner_label`, `loser_label`, `at` |
 | **proximity** | `KnowledgeProximity` | `knowledge_proximities` | `id`, `holder_id`, `counterpart_id`, `knowledge_identity_id`, `basis`, `score`, `verdict`, `raised_at`, `settled_at` |
 
@@ -112,6 +112,11 @@ alongside substantiation conflated two questions and had to be re-projected on e
 
 ## Names considered and rejected
 
+Grep before you argue. **A word's meaning in this repo is established by use, not by the dictionary**,
+and twice the decisive objection to a candidate was that it already meant something else here: an
+`oracle` is our measurement ground truth, and a `quota` is the *provider's* limit. Check the candidate
+against the codebase first; this table is the record.
+
 | Name | Why not |
 | --- | --- |
 | *mention* | implies a string whose meaning is fixed by its referent; an observation can be wrong and still be a faithful record |
@@ -123,6 +128,9 @@ alongside substantiation conflated two questions and had to be re-projected on e
 | *related_core_id* | one column with two meanings selected by `kind`; deleted, the role lives in the payload |
 | *contested* (status) | a derived boolean stored beside substantiation; the proximity record already says it at pair granularity |
 | *knowledge_id* | names a layer, not a thing; there is no `knowledge` table, and `knowledge_evidence` invites the wrong join |
+| *oracle* (for a provider, or for `Request::provider`) | already this project's word for the measurement ground truth — *"an exhaustive scan over a corpus is the oracle"* (`plan/knowledge-blocking.md`), and the deleted in-memory blocker was *the parity oracle*. It also connotes infallibility, which is the opposite of the stance: `found` means candidates came back, not that one is the referent. Kept `provider` |
+| *quota* (for what a run may spend) | already the provider's limit, in code: `"vertex: quota exceeded"`. A quota is granted by someone else; `max_calls` is our own anti-spam budget, and the provider's real quota is what a `429` reports. One word for both would erase the distinction `Refusal::RateLimited` exists to draw. Kept `Allowance`, whose two refusals are `Budget` and `RateLimited` |
+| *provider* (for `knowledge_identities.asserted_by`) | `provider` is already the thing a `Transport` asks — `Request::provider`, `cached.provider`, and *"an authority is a namespace, so a provider is a trait implementation"* — while the column is not only providers: a handle read off a capture records `platform`, and a guess records `model`. `provider = 'platform'` would claim the platform answered a question nobody asked it. Kept `asserted_by`: it names the act, and the actor can be any of the three |
 
 ## Rename map (schema 16)
 
@@ -140,7 +148,7 @@ alongside substantiation conflated two questions and had to be re-projected on e
 | `user_entity_id` | `user_observed_entity_id` |
 | `label` / `alt_labels` | `name` / `alt_names` |
 | `superseded_by_id` | `merged_into_id` |
-| kind `ontology` + `platform_link` | kind `claim` (differing only in `source`) |
+| kind `ontology` + `platform_link` | kind `claim` (differing only in the identity's `asserted_by`) |
 | kinds `description` / `identity_rejection` / `identity_claim` | `enrichment` / `rejection` / deleted |
 | `build_core` | `link` |
 | `merge_core_entities` | `merge` |

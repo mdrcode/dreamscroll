@@ -364,10 +364,10 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
     println!("\n-- held now --");
     match &report.claim {
         Some(claim) => println!(
-            "  {} {} · source {} · method {}",
+            "  {} {} · asserted by {} · method {}",
             claim.identity,
             claim.label.as_deref().unwrap_or("(no label)"),
-            claim.source,
+            claim.asserted_by,
             claim.method.as_deref().unwrap_or("-")
         ),
         None => println!("  no claim"),
@@ -489,8 +489,8 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         println!("budget {max_requests} requests");
     }
     println!(
-        "candidates {} · planned {} · cache hits {}",
-        report.candidates, report.planned, report.cache_hits
+        "candidates {} · requested {} · cache hits {}",
+        report.candidates, report.requested, report.cache_hits
     );
     println!(
         "fetched {} · failed {} · claims {} · entities resolved {} · vetoed {}",
@@ -499,12 +499,18 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     if report.budget_exhausted {
         println!("budget exhausted at {max_requests} requests");
     }
-    if let Some(seconds) = report.rate_limited_after {
+    if report.rate_limited {
         // WDQS 429: honour Retry-After rather than risk a temporary ban.
-        println!(
-            "rate limited by the provider — stopped; retry in {seconds}s \
-             (or lower --min-interval-ms / --max-requests)"
-        );
+        match report.rate_limited_after {
+            Some(seconds) => println!(
+                "rate limited by the provider — stopped; retry in {seconds}s \
+                 (or lower --min-interval-ms / --max-requests)"
+            ),
+            None => println!(
+                "rate limited by the provider — stopped; it gave no retry time \
+                 (or lower --min-interval-ms / --max-requests)"
+            ),
+        }
     }
     Ok(())
 }

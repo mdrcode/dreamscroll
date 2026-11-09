@@ -17,9 +17,9 @@ use std::collections::HashSet;
 use super::answer;
 use super::policy;
 use super::types;
-use crate::knowledge::identity::{
-    Answers, BATCH, Candidate, Claim, FetchError, Gateway, Kind, Raw, Request, Resolver, Transport,
-};
+use super::{Candidate, Kind};
+use crate::fetch::{Answer, Answers, BATCH, FetchError, Gateway, Request, Transport};
+use crate::knowledge::identity::{Claim, Resolver};
 use crate::knowledge::normalize;
 use crate::model;
 
@@ -63,33 +63,32 @@ impl Wikidata {
         Ok(Self { client })
     }
 
-    /// Part of the cache key: how the request is built. Change a parameter and the key changes, so a
-    /// stale answer cannot be served against a different question.
+    /// Part of the cache key: the revision and parameters of *this* question.
     ///
-    /// Readable on purpose. It was a blake3 hash truncated to twelve characters, which has the same
-    /// property — but a row in `resolution_cache` should say which question it answered, and a hash
-    /// says nothing when you are looking at a stale answer.
+    /// Bump the version when the construction changes, and put a parameter that changes the answer
+    /// in the string too. Both are per kind, so a change invalidates exactly the answers it changes
+    /// and nothing else. Readable on purpose: a row in `resolution_cache` should say which question
+    /// it answered, and a hash says nothing when you are looking at a stale answer.
     fn shape(kind: &Kind) -> String {
-        // Per kind, so a transport change invalidates exactly the answers it changes. `search` moved
-        // from `wbsearchentities` to MediaWiki full text, hence its own version.
-        // v3 for `label`: the query now asks for `P31` alongside the label, so an answer fetched
-        // before that is an answer to a different question.
-        let version = match kind {
-            Kind::Search => "wikidata/v3-search",
-            Kind::Label => "wikidata/v3-label",
-            _ => "wikidata/v2",
-        };
-        format!(
-            "{version}/{}|lang={LANGUAGE}|limit={}",
-            kind.to_key(),
-            super::SEARCH_LIMIT
-        )
+        // One version prefix per kind, so bumping the label query does not throw away the handle
+        // answers. `search` moved from `wbsearchentities` to MediaWiki full text, hence v3; `label`
+        // is v3 because the query now asks for `P31` alongside the label.
+        match kind {
+            // `@en` in the `VALUES` and the label service pinned to the same language.
+            Kind::Label => format!("wikidata/v3-label|lang={LANGUAGE}"),
+            // The site is English Wikipedia, and the items are read back in the same language.
+            Kind::Title => format!("wikidata/v2-title|lang={LANGUAGE}"),
+            // The property *is* the kind (`handle:P2002`), and this query reads no labels.
+            Kind::Handle(_) => "wikidata/v2-handle".to_string(),
+            // Full text, with the result count as part of the question.
+            Kind::Search => format!("wikidata/v3-search|lang={LANGUAGE}|limit={}", super::SEARCH_LIMIT),
+        }
     }
 
     /// The first pass: a handle, then a title, then an exact label. Pure, so the order is testable
     /// without a network — and public for the same reason: `examples/eval_resolve` re-runs the whole
     /// decision over cached payloads.
-    pub fn plan(&self, entity: &model::knowledge_entity::Model) -> Vec<Request> {
+    pub fn plan(&self, entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
         let mut requests = Vec::new();
         if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle)
             && let Some(property) = handle_property(platform)
@@ -140,7 +139,7 @@ impl Wikidata {
     ///
     /// The pass boundary lives here, not in the engine: no other authority knows that search is the
     /// expensive route.
-    pub fn plan_fallback(&self, entity: &model::knowledge_entity::Model) -> Vec<Request> {
+    pub fn plan_fallback(&self, entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
         let label = entity.name.trim();
         if label.is_empty() {
             return Vec::new();
@@ -171,8 +170,8 @@ impl Wikidata {
     pub fn parse(
         &self,
         entity: &model::knowledge_entity::Model,
-        request: &Request,
-        raw: &Raw,
+        request: &Request<Kind>,
+        raw: &Answer<Vec<Candidate>>,
     ) -> Vec<Claim> {
         let mut reason = "";
         self.parse_explained(entity, request, raw, &mut reason)
@@ -186,12 +185,12 @@ impl Wikidata {
     fn admit(
         &self,
         entity: &model::knowledge_entity::Model,
-        raw: &Raw,
+        raw: &Answer<Vec<Candidate>>,
     ) -> Result<Vec<Candidate>, &'static str> {
         if !raw.outcome.answered() {
             return Err("the answer carried no candidate");
         }
-        let mut candidates = raw.candidates.clone();
+        let mut candidates = raw.body.clone().unwrap_or_default();
         // A menu is not a referent, on *every* rung. This used to be checked in `parse_title` only,
         // and the label rung — which is where all 34 such claims in the corpus came from — never
         // looked. Filtering at the gate makes the rule a property of an answer rather than of one
@@ -217,8 +216,8 @@ impl Wikidata {
     pub fn parse_explained(
         &self,
         entity: &model::knowledge_entity::Model,
-        request: &Request,
-        raw: &Raw,
+        request: &Request<Kind>,
+        raw: &Answer<Vec<Candidate>>,
         reason: &mut &'static str,
     ) -> Vec<Claim> {
         if !raw.outcome.answered() {
@@ -255,12 +254,11 @@ impl Wikidata {
 
     /// Turn answers into claims. First request to speak wins for an entity, which is why `plan`
     /// orders them: a handle is a stronger statement than a title, and a title than a label.
-    async fn collect(
+    fn collect(
         &self,
         entities: &[model::knowledge_entity::Model],
-        plans: &[(usize, Request)],
-        answers: &Answers,
-        gateway: &Gateway<'_>,
+        plans: &[(usize, Request<Kind>)],
+        answers: &Answers<Kind, Vec<Candidate>>,
         claims: &mut Vec<(i32, Claim)>,
         resolved: &mut HashSet<i32>,
     ) {
@@ -269,21 +267,16 @@ impl Wikidata {
             if resolved.contains(&entity.id) {
                 continue;
             }
-            let key = (
-                request.provider.to_string(),
-                request.kind.clone(),
-                request.shape.clone(),
-                request.query.clone(),
-            );
-            let Some(raw) = answers.get(&key) else {
+            // The answer is keyed by the question itself, so the lookup borrows the request the
+            // planner already built — no key to reassemble.
+            let Some(raw) = answers.get(request) else {
                 continue;
             };
             let parsed = self.parse(entity, request, raw);
             if parsed.is_empty() {
-                // The answer was not wrong, or at least we cannot show it was — only unhelpful.
-                // Re-ask it sooner than the default week: a stale negative is indistinguishable from
-                // a fact, and a degraded answer looks exactly like a real one.
-                gateway.unproductive(request).await;
+                // Not wrong, just not usable here: a disambiguation page, a different kind of
+                // thing, or a name with no item. The answer is still a fact about the provider, so
+                // it keeps its full life in the cache — only a new `shape` may re-ask it.
                 continue;
             }
             resolved.insert(entity.id);
@@ -313,10 +306,10 @@ impl Resolver for Wikidata {
         // what to fetch, so it serves cached search answers and silently fetches nothing — skipping
         // it once threw those answers away, and an offline rebuild then reproduced less than the
         // cache held.
-        let stages: [fn(&Wikidata, &model::knowledge_entity::Model) -> Vec<Request>; 2] =
+        let stages: [fn(&Wikidata, &model::knowledge_entity::Model) -> Vec<Request<Kind>>; 2] =
             [Wikidata::plan, Wikidata::plan_fallback];
         for plan in stages {
-            let plans: Vec<(usize, Request)> = entities
+            let plans: Vec<(usize, Request<Kind>)> = entities
                 .iter()
                 .enumerate()
                 .filter(|(_, entity)| !resolved.contains(&entity.id))
@@ -329,22 +322,15 @@ impl Resolver for Wikidata {
             if plans.is_empty() {
                 continue;
             }
-            let requests: Vec<Request> = plans.iter().map(|(_, request)| request.clone()).collect();
+            let requests: Vec<Request<Kind>> =
+                plans.iter().map(|(_, request)| request.clone()).collect();
             let answers = gateway.resolve_requests(self, &requests).await;
-            self.collect(
-                entities,
-                &plans,
-                &answers,
-                gateway,
-                &mut claims,
-                &mut resolved,
-            )
-            .await;
+            self.collect(entities, &plans, &answers, &mut claims, &mut resolved);
         }
 
         // Last resort, after every corroborating question has been asked and refused: the article
         // that bears this exact name. It is the weakest thing the ladder can say, so it speaks last.
-        let fallback: Vec<(usize, Request)> = entities
+        let fallback: Vec<(usize, Request<Kind>)> = entities
             .iter()
             .enumerate()
             .filter(|(_, entity)| !resolved.contains(&entity.id))
@@ -356,7 +342,7 @@ impl Resolver for Wikidata {
             })
             .collect();
         if !fallback.is_empty() {
-            let requests: Vec<Request> = fallback
+            let requests: Vec<Request<Kind>> = fallback
                 .iter()
                 .map(|(_, request)| request.clone())
                 .collect();
@@ -366,13 +352,7 @@ impl Resolver for Wikidata {
                 if resolved.contains(&entity.id) {
                     continue;
                 }
-                let key = (
-                    request.provider.to_string(),
-                    request.kind.clone(),
-                    request.shape.clone(),
-                    request.query.clone(),
-                );
-                let Some(raw) = answers.get(&key) else {
+                let Some(raw) = answers.get(&request) else {
                     continue;
                 };
                 let Ok(candidates) = self.admit(entity, raw) else {
@@ -391,8 +371,11 @@ impl Resolver for Wikidata {
 
 #[async_trait::async_trait]
 impl Transport for Wikidata {
+    type Kind = Kind;
+    type Payload = Vec<Candidate>;
+
     /// The search endpoint takes one query per call; only SPARQL batches.
-    fn batch_size(&self, kind: &Kind) -> usize {
+    fn batch_size(&self, kind: &Self::Kind) -> usize {
         match kind {
             Kind::Search => 1,
             Kind::Title => 50,
@@ -400,7 +383,10 @@ impl Transport for Wikidata {
         }
     }
 
-    async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
+    async fn fetch(
+        &self,
+        requests: &[Request<Self::Kind>],
+    ) -> Result<Vec<(String, Answer<Self::Payload>)>, FetchError> {
         let Some(first) = requests.first() else {
             return Ok(Vec::new());
         };
@@ -422,11 +408,11 @@ impl Transport for Wikidata {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::identity::cache::Outcome;
+    use crate::fetch::Outcome;
     use crate::test_support::db_or_skip;
     use serde_json::{Value, json};
 
-    fn request(kind: Kind, query: &str) -> Request {
+    fn request(kind: Kind, query: &str) -> Request<Kind> {
         Request {
             provider: "wikidata",
             shape: Wikidata::shape(&kind),
@@ -435,10 +421,46 @@ mod tests {
         }
     }
 
-    fn found(candidates: Value) -> Raw {
-        Raw {
+    /// A shape belongs to one kind: its own version prefix, carrying only the constants that kind's
+    /// construction reads. Sharing a prefix made a change to one invalidate another, and appending a
+    /// limit no kind sent made changing `SEARCH_LIMIT` throw away every label, title and handle
+    /// answer for nothing — a cache miss that looks like a rate-limit problem.
+    #[test]
+    fn each_kind_owns_its_shape() {
+        let label = Wikidata::shape(&Kind::Label);
+        let title = Wikidata::shape(&Kind::Title);
+        let search = Wikidata::shape(&Kind::Search);
+        let handle = Wikidata::shape(&Kind::Handle("P2002"));
+
+        assert!(search.contains("limit="), "{search}");
+        for (kind, shape) in [("label", &label), ("title", &title), ("handle", &handle)] {
+            assert!(!shape.contains("limit="), "{kind} sends no limit: {shape}");
+        }
+        assert!(
+            !handle.contains("lang="),
+            "a handle query reads no labels: {handle}"
+        );
+        assert_eq!(
+            Wikidata::shape(&Kind::Handle("P2003")),
+            handle,
+            "another property is another kind, not another shape"
+        );
+
+        let prefixes: std::collections::BTreeSet<&str> = [&label, &title, &search, &handle]
+            .iter()
+            .filter_map(|shape| shape.split('|').next())
+            .collect();
+        assert_eq!(
+            prefixes.len(),
+            4,
+            "each kind has to be bumpable on its own: {prefixes:?}"
+        );
+    }
+
+    fn found(candidates: Value) -> Answer<Vec<Candidate>> {
+        Answer {
             outcome: Outcome::Found,
-            candidates: serde_json::from_value(candidates).expect("fixture candidates"),
+            body: Some(serde_json::from_value(candidates).expect("fixture candidates")),
         }
     }
 
@@ -923,19 +945,12 @@ mod tests {
     /// entity the first pass left unresolved.
     #[tokio::test]
     async fn resolve_prefers_a_title_and_searches_only_what_is_left() {
-        use crate::knowledge::identity::Options;
-        use crate::knowledge::identity::cache::{Answer, Cache};
+        use crate::fetch::{Allowance, Answer, Cache};
 
         db_or_skip!(db);
         let cache = Cache::new(&db.conn);
 
-        let seed = |kind: Kind, query: &str, raw: Raw| {
-            let answer = Answer {
-                outcome: raw.outcome,
-                payload: Some(crate::knowledge::identity::cache::payload_of(
-                    &raw.candidates,
-                )),
-            };
+        let seed = |kind: Kind, query: &str, answer: Answer<Vec<Candidate>>| {
             (kind, query.to_string(), answer)
         };
 
@@ -945,10 +960,7 @@ mod tests {
         let label_loses = found(json!([
             {"id": "Q1", "label": "Train Dreams", "description": "something else entirely"}
         ]));
-        let nothing = Raw {
-            outcome: Outcome::Empty,
-            candidates: Vec::new(),
-        };
+        let nothing = Answer::<Vec<Candidate>>::nothing(Outcome::Empty);
         let by_search = found(json!([
             {"id": "Q892", "label": "J. R. R. Tolkien", "description": "English writer and philologist"}
         ]));
@@ -966,7 +978,7 @@ mod tests {
             cache
                 .put(
                     "wikidata",
-                    &kind.to_key(),
+                    &kind,
                     &Wikidata::shape(&kind),
                     &query,
                     &answer,
@@ -982,11 +994,8 @@ mod tests {
             second
         }];
 
-        let options = Options {
-            min_interval: std::time::Duration::from_millis(0),
-            ..Default::default()
-        };
-        let gateway = Gateway::new(&cache, &options);
+        let allowance = Allowance::new(8, std::time::Duration::ZERO);
+        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
         let claims = engine().resolve(&entities, &gateway).await;
 
         let ids: Vec<(i32, &str)> = claims
@@ -1007,25 +1016,15 @@ mod tests {
     /// answers, because a surface this exact is better than nothing at all.
     #[tokio::test]
     async fn a_surface_only_title_waits_for_every_other_rung() {
-        use crate::knowledge::identity::Options;
-        use crate::knowledge::identity::cache::{Answer, Cache};
+        use crate::fetch::{Allowance, Answer, Cache};
 
         db_or_skip!(db);
         let cache = Cache::new(&db.conn);
 
-        let seed = |kind: Kind, query: &str, raw: Raw| {
-            let answer = Answer {
-                outcome: raw.outcome,
-                payload: Some(crate::knowledge::identity::cache::payload_of(
-                    &raw.candidates,
-                )),
-            };
+        let seed = |kind: Kind, query: &str, answer: Answer<Vec<Candidate>>| {
             (kind, query.to_string(), answer)
         };
-        let nothing = Raw {
-            outcome: Outcome::Empty,
-            candidates: Vec::new(),
-        };
+        let nothing = Answer::<Vec<Candidate>>::nothing(Outcome::Empty);
 
         let concept = json!({
             "id": "Q100",
@@ -1065,7 +1064,7 @@ mod tests {
             cache
                 .put(
                     "wikidata",
-                    &kind.to_key(),
+                    &kind,
                     &Wikidata::shape(&kind),
                     &query,
                     &answer,
@@ -1087,11 +1086,8 @@ mod tests {
             },
         ];
 
-        let options = Options {
-            min_interval: std::time::Duration::from_millis(0),
-            ..Default::default()
-        };
-        let gateway = Gateway::new(&cache, &options);
+        let allowance = Allowance::new(8, std::time::Duration::ZERO);
+        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
         let claims = engine().resolve(&entities, &gateway).await;
 
         let ids: Vec<(i32, &str)> = claims

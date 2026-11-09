@@ -10,9 +10,8 @@ use std::collections::BTreeMap;
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::database::DbHandle;
-use crate::knowledge::identity::Raw;
-use crate::knowledge::identity::cache::Outcome;
-use crate::knowledge::identity::wikidata::Wikidata;
+use crate::fetch::{Answer, Outcome};
+use crate::knowledge::identity::wikidata::{Candidate, Wikidata};
 use crate::model;
 
 /// Entities `identity resolve` would consider: live, and with no ontology claim. A platform handle
@@ -24,7 +23,7 @@ SELECT e.id FROM knowledge_entities e
        SELECT 1 FROM knowledge_claims c
          JOIN knowledge_identities i ON i.id = c.knowledge_identity_id
         WHERE c.knowledge_entity_id = e.id AND c.retracted_at IS NULL
-          AND i.source <> 'platform')
+          AND i.asserted_by <> 'platform')
  ORDER BY e.id";
 
 /// What one replay found.
@@ -98,7 +97,7 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
                         AND expires_at > now() LIMIT 1",
                     [
                         request.provider.into(),
-                        request.kind.to_key().into(),
+                        request.kind.to_string().into(),
                         request.shape.as_str().into(),
                         request.query.as_str().into(),
                     ],
@@ -112,13 +111,13 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
             let payload: Option<String> = row.try_get_by_index(1)?;
             let stored: Option<serde_json::Value> =
                 payload.as_deref().and_then(|text| serde_json::from_str(text).ok());
-            let raw = Raw {
+            let raw: Answer<Vec<Candidate>> = Answer {
                 outcome: if outcome == "found" {
                     Outcome::Found
                 } else {
                     Outcome::Empty
                 },
-                candidates: crate::knowledge::identity::cache::candidates(stored.as_ref()),
+                body: crate::fetch::cache::decode(stored.as_ref()),
             };
             if let Some(claim) = engine.parse(&view, &request, &raw).into_iter().next() {
                 claimed = Some((claim.id, claim.method));

@@ -7,10 +7,9 @@ use std::collections::HashSet;
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
-use super::cache::Cache;
-use super::contract::*;
-use super::gateway::Gateway;
+use super::contract::Claim;
 use super::store::store_claim;
+use crate::fetch::{Allowance, Cache, Gateway, Refusal};
 use crate::{database, model};
 
 /// One authority, and the strategy for asking it.
@@ -72,7 +71,7 @@ impl Default for Options {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub candidates: usize,
-    pub planned: usize,
+    pub requested: usize,
     pub cache_hits: usize,
     /// Transport calls made.
     pub fetched: usize,
@@ -83,7 +82,9 @@ pub struct Report {
     /// Claims an editor's veto kept out of the graph.
     pub vetoed: usize,
     pub budget_exhausted: bool,
-    /// Set when the provider asked us to back off: the run stopped instead of risking a ban.
+    /// Set when the provider refused with a `429`: the run stopped instead of risking a ban.
+    pub rate_limited: bool,
+    /// How long it asked us to wait, when it said.
     pub rate_limited_after: Option<u64>,
     pub offline: bool,
 }
@@ -135,7 +136,12 @@ impl<'a> ResolutionEngine<'a> {
         // that is only replayed is a claim asserted and then withdrawn.
         let vetoes = crate::knowledge::verdicts::vetoed(&knowledge).await?;
         let cache = Cache::new(&self.db.conn);
-        let gateway = Gateway::new(&cache, &self.options);
+        // The engine owns *which* entities to ask about. What the run may spend is the allowance's,
+        // passed in; the gateway only asks it before each call. A cache-only run has none at all.
+        let allowance = (!self.options.offline).then(|| {
+            Allowance::new(self.options.max_requests, self.options.min_interval)
+        });
+        let gateway = Gateway::new(Some(&cache), allowance.as_ref(), true);
         let mut report = Report {
             candidates: entities.len(),
             offline: self.options.offline,
@@ -153,7 +159,11 @@ impl<'a> ResolutionEngine<'a> {
         let mut resolved: HashSet<i32> = HashSet::new();
 
         for resolver in &self.resolvers {
-            if gateway.rate_limited_after().is_some() {
+            // A provider that told us to stop gets no further questions.
+            if matches!(
+                allowance.as_ref().and_then(Allowance::refused),
+                Some(Refusal::RateLimited { .. })
+            ) {
                 break;
             }
             // One entity, one identity: the first claim the graph accepts wins, and the rest of that
@@ -188,12 +198,14 @@ impl<'a> ResolutionEngine<'a> {
         // `proximity scan` and `proximity merge`, which are separate commands run after this one.
         report.entities_resolved = resolved.len();
         let stats = gateway.stats();
-        report.planned = stats.planned;
+        report.requested = stats.requested;
         report.cache_hits = stats.cache_hits;
         report.fetched = stats.fetched;
         report.failed = stats.failed;
-        report.budget_exhausted = gateway.budget_exhausted();
-        report.rate_limited_after = gateway.rate_limited_after();
+        let refusal = allowance.as_ref().and_then(Allowance::refused);
+        report.budget_exhausted = matches!(refusal, Some(Refusal::Budget));
+        report.rate_limited = matches!(refusal, Some(Refusal::RateLimited { .. }));
+        report.rate_limited_after = refusal.and_then(Refusal::retry_after_secs);
         Ok(report)
     }
 }
@@ -240,7 +252,7 @@ async fn candidates(
         .and_where(
             Expr::col((
                 model::knowledge_identity::Entity,
-                model::knowledge_identity::Column::Source,
+                model::knowledge_identity::Column::AssertedBy,
             ))
             .is_in(
                 sources
@@ -278,9 +290,8 @@ mod tests {
     use std::collections::HashMap;
     use std::sync::atomic::Ordering;
 
-    use crate::knowledge::identity::cache::Outcome;
+    use crate::fetch::{Answer, BATCH, FetchError, Outcome, Request, Transport};
     use sea_orm::PaginatorTrait;
-    use serde_json::json;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
 
@@ -314,29 +325,37 @@ mod tests {
         );
     }
 
+    /// The engine is provider-agnostic: this fake brings its own kind and payload, and neither is
+    /// anything an authority would recognise.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+    enum Probe {
+        Text,
+    }
+
+    impl std::fmt::Display for Probe {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("text")
+        }
+    }
+
     /// An authority that never touches the network: it answers from a fixed map and counts calls.
     /// An answer that identified one item, for the fakes below.
-    fn identified(id: &str) -> Raw {
-        Raw {
+    fn identified(id: &str) -> Answer<Vec<String>> {
+        Answer {
             outcome: Outcome::Found,
-            candidates: vec![crate::knowledge::identity::Candidate {
-                id: id.to_string(),
-                label: None,
-                description: None,
-                classes: Vec::new(),
-            }],
+            body: Some(vec![id.to_string()]),
         }
     }
 
     struct Fake {
-        answers: HashMap<String, Raw>,
+        answers: HashMap<String, Answer<Vec<String>>>,
         calls: Arc<AtomicUsize>,
     }
 
-    fn fake_request(entity: &model::knowledge_entity::Model) -> Request {
+    fn fake_request(entity: &model::knowledge_entity::Model) -> Request<Probe> {
         Request {
             provider: "fake",
-            kind: Kind::Label,
+            kind: Probe::Text,
             shape: "v1".to_string(),
             query: entity.name.clone(),
         }
@@ -355,18 +374,13 @@ mod tests {
             entities: &[model::knowledge_entity::Model],
             gateway: &Gateway<'_>,
         ) -> Vec<(i32, Claim)> {
-            let requests: Vec<Request> = entities.iter().map(fake_request).collect();
+            let requests: Vec<Request<Probe>> = entities.iter().map(fake_request).collect();
             let answers = gateway.resolve_requests(self, &requests).await;
             entities
                 .iter()
                 .filter_map(|entity| {
-                    let raw = answers.get(&(
-                        "fake".to_string(),
-                        Kind::Label,
-                        "v1".to_string(),
-                        entity.name.clone(),
-                    ))?;
-                    let id = raw.candidates.first()?.id.clone();
+                    let raw = answers.get(&fake_request(entity))?;
+                    let id = raw.body.as_ref()?.first()?.clone();
                     Some((
                         entity.id,
                         Claim {
@@ -387,16 +401,23 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Transport for Fake {
-        async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
+        type Kind = Probe;
+        type Payload = Vec<String>;
+
+        async fn fetch(
+            &self,
+            requests: &[Request<Probe>],
+        ) -> Result<Vec<(String, Answer<Vec<String>>)>, FetchError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(requests
                 .iter()
                 .map(|request| {
-                    let raw = self.answers.get(&request.query).cloned().unwrap_or(Raw {
-                        outcome: Outcome::Empty,
-                        candidates: Vec::new(),
-                    });
-                    (request.query.clone(), raw)
+                    let answer = self
+                        .answers
+                        .get(&request.query)
+                        .cloned()
+                        .unwrap_or(Answer::nothing(Outcome::Empty));
+                    (request.query.clone(), answer)
                 })
                 .collect())
         }
@@ -507,6 +528,71 @@ mod tests {
         assert_eq!(entity.status, "provisional");
     }
 
+    /// The local-development workflow: build the graph from answers already on disk, with no network
+    /// at all. This is how `resolve` is run locally every time, so it is pinned end to end — zero
+    /// transport calls, and the claims still land.
+    #[tokio::test]
+    async fn an_offline_run_builds_the_graph_from_the_cache_alone() {
+        db_or_skip!(db);
+        let cached = seed(&db, "Train Dreams").await;
+        // A second candidate with nothing cached: offline must leave it unresolved rather than fetch.
+        let uncached = seed(&db, "MUME").await;
+
+        // The answer a previous online run would have left behind.
+        Cache::new(&db.conn)
+            .put(
+                "fake",
+                &Probe::Text,
+                "v1",
+                "Train Dreams",
+                &identified("Q185971"),
+            )
+            .await
+            .expect("seed the cache");
+
+        let calls = Arc::new(AtomicUsize::new(0));
+        let report = ResolutionEngine::new(
+            &db,
+            Options {
+                offline: true,
+                ..Default::default()
+            },
+        )
+        .with(Box::new(Fake {
+            answers: HashMap::new(),
+            calls: calls.clone(),
+        }))
+        .run()
+        .await
+        .expect("resolve");
+
+        assert!(report.offline, "the run says it was cache-only");
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "offline never touches the transport"
+        );
+        assert_eq!(report.fetched, 0);
+        assert_eq!(report.cache_hits, 1);
+        assert_eq!(report.claims, 1, "only the cached one resolves: {report:?}");
+
+        let entity = model::knowledge_entity::Entity::find_by_id(cached)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(entity.status, "identified", "{entity:?}");
+
+        // The miss is left alone, which is the whole point: offline builds what the cache can and
+        // stops there.
+        let entity = model::knowledge_entity::Entity::find_by_id(uncached)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(entity.status, "provisional", "{entity:?}");
+    }
+
     /// Two *independent inputs* — a text match and an account link — raise confidence.
     #[tokio::test]
     async fn corroboration_counts_independent_inputs() {
@@ -612,7 +698,7 @@ mod tests {
             entities: &[model::knowledge_entity::Model],
             gateway: &Gateway<'_>,
         ) -> Vec<(i32, Claim)> {
-            let requests: Vec<Request> = entities.iter().map(fake_request).collect();
+            let requests: Vec<Request<Probe>> = entities.iter().map(fake_request).collect();
             gateway.resolve_requests(self, &requests).await;
             Vec::new()
         }
@@ -620,9 +706,15 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Transport for Limited {
-        async fn fetch(&self, _requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
+        type Kind = Probe;
+        type Payload = Vec<String>;
+
+        async fn fetch(
+            &self,
+            _requests: &[Request<Probe>],
+        ) -> Result<Vec<(String, Answer<Vec<String>>)>, FetchError> {
             Err(FetchError::RateLimited {
-                retry_after_secs: 30,
+                retry_after_secs: Some(30),
             })
         }
     }
@@ -644,11 +736,11 @@ mod tests {
             entities: &[model::knowledge_entity::Model],
             gateway: &Gateway<'_>,
         ) -> Vec<(i32, Claim)> {
-            let requests: Vec<Request> = entities
+            let requests: Vec<Request<Probe>> = entities
                 .iter()
                 .map(|entity| Request {
                     provider: "flaky",
-                    kind: Kind::Label,
+                    kind: Probe::Text,
                     shape: "v1".to_string(),
                     query: entity.name.clone(),
                 })
@@ -657,12 +749,12 @@ mod tests {
             entities
                 .iter()
                 .filter_map(|entity| {
-                    let raw = answers.get(&(
-                        "flaky".to_string(),
-                        Kind::Label,
-                        "v1".to_string(),
-                        entity.name.clone(),
-                    ))?;
+                    let raw = answers.get(&Request {
+                        provider: "flaky",
+                        kind: Probe::Text,
+                        shape: "v1".to_string(),
+                        query: entity.name.clone(),
+                    })?;
                     (raw.outcome == Outcome::Found).then(|| {
                         (
                             entity.id,
@@ -685,10 +777,16 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Transport for Flaky {
-        async fn fetch(&self, requests: &[Request]) -> Result<Vec<(String, Raw)>, FetchError> {
+        type Kind = Probe;
+        type Payload = Vec<String>;
+
+        async fn fetch(
+            &self,
+            requests: &[Request<Probe>],
+        ) -> Result<Vec<(String, Answer<Vec<String>>)>, FetchError> {
             if self.calls.fetch_add(1, Ordering::SeqCst) >= 1 {
                 return Err(FetchError::RateLimited {
-                    retry_after_secs: 60,
+                    retry_after_secs: Some(60),
                 });
             }
             Ok(requests
@@ -696,7 +794,10 @@ mod tests {
                 .map(|request| {
                     (
                         request.query.clone(),
-                        Raw { outcome: Outcome::Found, candidates: Vec::new() },
+                        Answer {
+                            outcome: Outcome::Found,
+                            body: Some(Vec::new()),
+                        },
                     )
                 })
                 .collect())
@@ -896,7 +997,7 @@ mod tests {
         );
     }
 
-    fn request(kind: Kind, shape: &str, query: &str) -> Request {
+    fn request(kind: Probe, shape: &str, query: &str) -> Request<Probe> {
         Request {
             provider: "test",
             kind,
@@ -909,18 +1010,18 @@ mod tests {
     async fn a_spent_budget_issues_no_calls() {
         db_or_skip!(db);
         let cache = Cache::new(&db.conn);
-        let options = Options {
-            max_requests: 0,
-            min_interval: std::time::Duration::from_millis(0),
-            ..Default::default()
-        };
-        let gateway = Gateway::new(&cache, &options);
+        let allowance = Allowance::new(0, std::time::Duration::ZERO);
+        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
 
         gateway
-            .resolve_requests(&Limited, &[request(Kind::Label, "v1", "Train Dreams")])
+            .resolve_requests(&Limited, &[request(Probe::Text, "v1", "Train Dreams")])
             .await;
 
-        assert!(gateway.budget_exhausted(), "the refusal is recorded");
+        assert_eq!(
+            allowance.refused(),
+            Some(Refusal::Budget),
+            "the refusal is recorded"
+        );
         assert_eq!(gateway.fetched(), 0, "and no transport call was made");
     }
 }

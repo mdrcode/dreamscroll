@@ -14,7 +14,7 @@ use crate::{database, model};
 /// holders are one thing is [`crate::knowledge::proximity`]'s question.
 pub(crate) async fn store_claim(
     db: &database::DbHandle,
-    source: &str,
+    asserted_by: &str,
     knowledge_entity_id: i32,
     claim: Claim,
     vetoes: &std::collections::HashSet<(i32, String, String)>,
@@ -31,7 +31,7 @@ pub(crate) async fn store_claim(
         .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
             scheme: claim.scheme,
             external_id: claim.id,
-            source: source.to_string(),
+            asserted_by: asserted_by.to_string(),
             method: Some(claim.method),
             confidence: Some(claim.confidence),
             label: claim.label,

@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 29;
+const REQUIRED_SCHEMA_VERSION: i32 = 30;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -32,6 +32,27 @@ async fn relax_verdict_columns<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr
                          AND is_nullable = 'NO') THEN \
              ALTER TABLE knowledge_verdicts ALTER COLUMN winner_origin DROP NOT NULL; \
              ALTER TABLE knowledge_verdicts ALTER COLUMN loser_origin DROP NOT NULL; \
+           END IF; \
+         END $$",
+    )
+    .await?;
+    Ok(())
+}
+
+/// Schema 30 renames `knowledge_identities.source` to `asserted_by`.
+///
+/// The column holds four kinds of asserter — a capture (`platform`), an authority, and eventually a
+/// model — so `source` named only one of them. The registry can only *add* a column, and
+/// `asserted_by` is `NOT NULL` with no default, which a populated table cannot take: the rename has
+/// to happen before it. Guarded, so a synced database is untouched.
+async fn rename_identity_asserted_by<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $$ BEGIN \
+           IF EXISTS (SELECT 1 FROM information_schema.columns \
+                       WHERE table_schema = current_schema() \
+                         AND table_name = 'knowledge_identities' \
+                         AND column_name = 'source') THEN \
+             ALTER TABLE knowledge_identities RENAME COLUMN source TO asserted_by; \
            END IF; \
          END $$",
     )
@@ -169,6 +190,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             retire_proximity_status(transaction).await?;
             retire_merge_audit(transaction).await?;
             relax_verdict_columns(transaction).await?;
+            rename_identity_asserted_by(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             indexes::knowledge::before_schema_sync(transaction).await?;
             registry.sync(transaction).await?;

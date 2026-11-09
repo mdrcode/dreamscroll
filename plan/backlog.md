@@ -252,6 +252,20 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   stays, and `alt_types` is where "this person's item also covers their account" should be recorded.
   Do not special-case the link decider for one handle — that is the hack this item exists to avoid.
 
+- [ ] **`cargo fmt` the world, then gate it.** 47 files are dirty under `cargo fmt --check`, so every
+  change carries formatter noise next to its real diff and a reviewer cannot tell them apart. Nothing
+  enforces it — not CI, not a pre-push hook — so each commit can leave a hunk behind and the backlog
+  only grows. Do it as one behaviourless commit: `cargo fmt` and nothing else, so `git diff -w` against
+  the parent is empty and `cargo test --lib` proves it. Then add `cargo fmt --check` to whatever runs
+  before a merge, or the same drift starts again the next day.
+
+- [ ] **Fix or delete `examples/eval_resolve.rs`.** It does not compile: it imports
+  `dreamscroll::knowledge::resolve::{Raw, cache, wikidata}`, and that tree is now
+  `knowledge::identity`. `cargo check --example eval_resolve` fails with `E0433` ×2 and `E0432`, and
+  nothing noticed because examples are outside `cargo check --lib`, `cargo test --lib` and the format
+  pass. It is the gold-set harness, so porting it (or folding it into `dreamscroll_knowledge eval`) is
+  the likelier answer than deleting it. Add `cargo check --examples` to the same gate as above.
+
 ## Deferred — already scoped
 
 Promote an item into **Next** when its trigger fires or it becomes the focus.

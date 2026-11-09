@@ -2,11 +2,12 @@
 //!
 //! Pure string building, so a query change is visible in a diff and testable without a network.
 
-use crate::knowledge::identity::Request;
+use crate::fetch::Request;
 
 use super::resolver::LANGUAGE;
+use super::Kind;
 
-pub(super) fn for_labels(requests: &[Request]) -> String {
+pub(super) fn for_labels(requests: &[Request<Kind>]) -> String {
     let values = requests
         .iter()
         .map(|request| format!("\"{}\"@{LANGUAGE}", escape(&request.query)))
@@ -29,7 +30,7 @@ pub(super) fn for_labels(requests: &[Request]) -> String {
          }}"
     )
 }
-pub(super) fn for_handles(requests: &[Request], property: &str) -> String {
+pub(super) fn for_handles(requests: &[Request<Kind>], property: &str) -> String {
     let values = requests
         .iter()
         .map(|request| format!("\"{}\"", escape(&request.query)))
@@ -50,9 +51,9 @@ pub(super) fn escape(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::knowledge::identity::Kind;
+    use crate::knowledge::identity::wikidata::Kind;
 
-    fn request(kind: Kind, query: &str) -> Request {
+    fn request(kind: Kind, query: &str) -> Request<Kind> {
         Request {
             provider: "wikidata",
             kind,

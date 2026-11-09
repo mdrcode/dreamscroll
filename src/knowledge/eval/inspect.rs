@@ -9,10 +9,9 @@
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::database::DbHandle;
+use crate::fetch::{Answer, Outcome};
 use crate::knowledge::heuristic::Heuristic;
-use crate::knowledge::identity::Raw;
-use crate::knowledge::identity::cache::Outcome;
-use crate::knowledge::identity::wikidata::Wikidata;
+use crate::knowledge::identity::wikidata::{Candidate as Offered, Wikidata};
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::Scoring;
 use crate::knowledge::sql_blocker::SqlBlocker;
@@ -72,7 +71,7 @@ pub enum CacheState {
 pub struct Claim {
     pub identity: String,
     pub label: Option<String>,
-    pub source: String,
+    pub asserted_by: String,
     pub method: Option<String>,
 }
 
@@ -203,7 +202,7 @@ async fn ladder(
                   ORDER BY id DESC LIMIT 1",
                 [
                     request.provider.into(),
-                    request.kind.to_key().into(),
+                    request.kind.to_string().into(),
                     request.shape.as_str().into(),
                     request.query.as_str().into(),
                 ],
@@ -212,7 +211,7 @@ async fn ladder(
 
         let Some(row) = row else {
             steps.push(Step {
-                kind: request.kind.to_key().into(),
+                kind: request.kind.to_string().into(),
                 query: request.query.clone(),
                 cache: CacheState::Missing,
                 top: Vec::new(),
@@ -227,8 +226,8 @@ async fn ladder(
         let fresh: bool = row.try_get_by_index(2)?;
         let stored: Option<serde_json::Value> =
             payload.as_deref().and_then(|text| serde_json::from_str(text).ok());
-        let candidates = crate::knowledge::identity::cache::candidates(stored.as_ref());
-        let top = describe(&candidates);
+        let candidates: Option<Vec<Offered>> = crate::fetch::cache::decode(stored.as_ref());
+        let top = describe(candidates.as_deref().unwrap_or_default());
 
         // An expired row is a miss to the resolver, so it renders no decision here either.
         let mut refusal = if fresh {
@@ -237,13 +236,13 @@ async fn ladder(
             "the cached answer is expired"
         };
         let decision = if fresh {
-            let raw = Raw {
+            let raw = Answer {
                 outcome: if outcome == "found" {
                     Outcome::Found
                 } else {
                     Outcome::Empty
                 },
-                candidates: candidates.clone(),
+                body: candidates,
             };
             let claims = engine.parse_explained(entity, &request, &raw, &mut refusal);
             claims
@@ -255,7 +254,7 @@ async fn ladder(
         };
 
         steps.push(Step {
-            kind: request.kind.to_key().into(),
+            kind: request.kind.to_string().into(),
             query: request.query.clone(),
             cache: if fresh {
                 CacheState::Fresh
@@ -274,7 +273,7 @@ async fn ladder(
 }
 
 /// The first few candidates an answer carried, as the inspection prints them.
-fn describe(candidates: &[crate::knowledge::identity::Candidate]) -> Vec<(String, String, String)> {
+fn describe(candidates: &[Offered]) -> Vec<(String, String, String)> {
     candidates
         .iter()
         .take(4)
@@ -293,7 +292,7 @@ async fn current_claim(db: &DbHandle, id: i32) -> anyhow::Result<Option<Claim>> 
         .conn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT i.external_id, i.label, i.source, i.method \
+            "SELECT i.external_id, i.label, i.asserted_by, i.method \
                FROM knowledge_claims c JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
               WHERE c.knowledge_entity_id = $1 AND c.retracted_at IS NULL LIMIT 1",
             [id.into()],
@@ -303,7 +302,7 @@ async fn current_claim(db: &DbHandle, id: i32) -> anyhow::Result<Option<Claim>> 
     Ok(Some(Claim {
         identity: row.try_get_by_index(0)?,
         label: row.try_get_by_index(1)?,
-        source: row.try_get_by_index(2)?,
+        asserted_by: row.try_get_by_index(2)?,
         method: row.try_get_by_index(3)?,
     }))
 }

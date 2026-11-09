@@ -53,8 +53,8 @@ impl PlatformLink {
 pub struct DraftIdentity {
     pub scheme: String,
     pub external_id: String,
-    /// Who answered: `wikidata`, `wikimedia`, `platform` (the resolver's own id).
-    pub source: String,
+    /// Who asserted it: `platform` for a handle a capture showed, else the provider's own id.
+    pub asserted_by: String,
     /// How it was answered, on the first answer only: `capture`, a Wikidata property (`P2002`, …) for
     /// a handle join, or the ladder step (`exact_label`, `search_ranked`, …).
     pub method: Option<String>,
@@ -70,7 +70,7 @@ impl DraftIdentity {
         Self {
             scheme: link.scheme.clone(),
             external_id: link.external_id.clone(),
-            source: "platform".to_string(),
+            asserted_by: "platform".to_string(),
             method: Some("capture".to_string()),
             confidence: None,
             label: None,
@@ -143,7 +143,7 @@ impl Evidence {
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "INSERT INTO knowledge_identities \
-                   (scheme, external_id, label, description, classes, source, method, confidence) \
+                   (scheme, external_id, label, description, classes, asserted_by, method, confidence) \
                  VALUES ($1, $2, $3, $4, string_to_array($5, chr(31)), $6, $7, $8) \
                  ON CONFLICT (scheme, external_id) DO UPDATE SET \
                    label = COALESCE(EXCLUDED.label, knowledge_identities.label), \
@@ -152,8 +152,8 @@ impl Evidence {
                                   THEN EXCLUDED.classes ELSE knowledge_identities.classes END, \
                    method = COALESCE(EXCLUDED.method, knowledge_identities.method), \
                    confidence = COALESCE(EXCLUDED.confidence, knowledge_identities.confidence), \
-                   source = CASE WHEN EXCLUDED.label IS NOT NULL \
-                                 THEN EXCLUDED.source ELSE knowledge_identities.source END \
+                   asserted_by = CASE WHEN EXCLUDED.label IS NOT NULL \
+                                 THEN EXCLUDED.asserted_by ELSE knowledge_identities.asserted_by END \
                  RETURNING id",
                 vec![
                     sea_orm::Value::String(Some(identity.scheme.clone())),
@@ -163,7 +163,7 @@ impl Evidence {
                     // `classes` is a text array; chr(31) is the unit separator, which no class
                     // name contains. An empty string splits to an empty array.
                     sea_orm::Value::String(Some(identity.classes.join(&31u8.to_string()))),
-                    sea_orm::Value::String(Some(identity.source.clone())),
+                    sea_orm::Value::String(Some(identity.asserted_by.clone())),
                     sea_orm::Value::String(identity.method.clone()),
                     sea_orm::Value::Float(identity.confidence),
                 ],

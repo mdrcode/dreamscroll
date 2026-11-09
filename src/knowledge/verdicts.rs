@@ -372,7 +372,7 @@ mod tests {
                 model::knowledge_identity::ActiveModel {
                     scheme: Set("wikidata".to_string()),
                     external_id: Set(external_id.to_string()),
-                    source: Set("wikidata".to_string()),
+                    asserted_by: Set("wikidata".to_string()),
                     classes: Set(Vec::new()),
                     ..Default::default()
                 },

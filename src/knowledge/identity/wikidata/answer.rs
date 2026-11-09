@@ -3,8 +3,9 @@
 //! Pure JSON in, candidates or a claim out. Nothing here fetches, and nothing here knows the
 //! request that produced the answer.
 
+use super::Candidate;
 use crate::knowledge::evidence::ClaimBasis;
-use crate::knowledge::identity::{Candidate, Claim};
+use crate::knowledge::identity::Claim;
 
 /// A menu, not a referent. Two classes because Wikidata's own hierarchy defeats equality: `Q22808320`
 /// ("Wikimedia human name disambiguation page") is a *subclass* of `Q4167410`, and every one of the 34

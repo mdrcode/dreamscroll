@@ -157,7 +157,7 @@ pub async fn claim(
     knowledge_entity_id: i32,
     scheme: &str,
     external_id: &str,
-    source: &str,
+    asserted_by: &str,
     method: Option<&str>,
     confidence: Option<f32>,
     basis: &str,
@@ -166,7 +166,7 @@ pub async fn claim(
         .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
             scheme: scheme.to_string(),
             external_id: external_id.to_string(),
-            source: source.to_string(),
+            asserted_by: asserted_by.to_string(),
             method: method.map(str::to_string),
             confidence,
             label: None,

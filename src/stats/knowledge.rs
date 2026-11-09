@@ -5,7 +5,6 @@
 
 use std::collections::HashSet;
 
-use chrono::Utc;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter,
     Statement,
@@ -106,7 +105,7 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
             "SELECT DISTINCT c.knowledge_entity_id \
                FROM knowledge_claims c \
                JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
-              WHERE c.retracted_at IS NULL AND i.source <> 'platform'",
+              WHERE c.retracted_at IS NULL AND i.asserted_by <> 'platform'",
         ),
     )
     .await?
@@ -140,23 +139,13 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
         .expect("count always returns one row");
     stats.entities_in_proximity = row.try_get_by_index::<i64>(0)? as u64;
 
-    let now = Utc::now();
-    for row in model::resolution_cache::Entity::find()
-        .all(&db.conn)
-        .await?
-    {
-        if row.expires_at <= now {
-            stats.cache_expired += 1;
-            continue;
-        }
-        match row.outcome.as_str() {
-            "found" => stats.cache_found += 1,
-            "empty" => stats.cache_empty += 1,
-            "failed" => stats.cache_failed += 1,
-            "degraded" => stats.cache_degraded += 1,
-            _ => {}
-        }
-    }
+    // The cache owns what an outcome means; this only reports what it counted.
+    let cache = crate::fetch::cache::tally(&db.conn).await?;
+    stats.cache_found = cache.found;
+    stats.cache_empty = cache.empty;
+    stats.cache_failed = cache.failed;
+    stats.cache_degraded = cache.degraded;
+    stats.cache_expired = cache.expired;
 
     Ok(stats)
 }

@@ -13,7 +13,9 @@ use super::ranking::{
     LOOKUP_CONFIDENCE, NAME_WEIGHT, SUPPORT_WEIGHT, Weights, answer_confidence, content_tokens,
     hint_tokens, near_surface, our_tokens, rank, surface_key,
 };
-use crate::knowledge::identity::{Candidate, Claim, Kind, Request};
+use super::{Candidate, Kind};
+use crate::fetch::Request;
+use crate::knowledge::identity::Claim;
 use crate::model;
 
 /// Last resort: the illumination's own disambiguation, consulted *only* when the description
@@ -79,7 +81,7 @@ fn method_for(kind: &Kind, exact_label: bool) -> &'static str {
 pub(super) fn decide(
     entity: &model::knowledge_entity::Model,
     candidates: &[Candidate],
-    request: &Request,
+    request: &Request<Kind>,
     reason: &mut &'static str,
 ) -> Vec<Claim> {
     let mut ranked = rank(entity, candidates);
@@ -146,7 +148,7 @@ pub(super) fn decide(
 pub(super) fn surface_only(
     entity: &model::knowledge_entity::Model,
     candidates: &[Candidate],
-    request: &Request,
+    request: &Request<Kind>,
 ) -> Option<Claim> {
     if request.kind != Kind::Title || candidates.len() != 1 {
         return None;
@@ -171,7 +173,7 @@ pub(super) fn surface_only(
 pub(super) fn parse_title(
     entity: &model::knowledge_entity::Model,
     candidates: &[Candidate],
-    request: &Request,
+    request: &Request<Kind>,
     reason: &mut &'static str,
 ) -> Vec<Claim> {
     // A title is a *name* lookup, so the answer has to be about that name. Wikipedia redirects
@@ -208,7 +210,7 @@ pub(super) fn parse_title(
 pub(super) fn parse_search(
     entity: &model::knowledge_entity::Model,
     candidates: Vec<Candidate>,
-    request: &Request,
+    request: &Request<Kind>,
     reason: &mut &'static str,
 ) -> Vec<Claim> {
     let ours = surface_key(&entity.name);
@@ -313,7 +315,7 @@ mod tests {
         }
     }
 
-    fn search(query: &str) -> Request {
+    fn search(query: &str) -> Request<Kind> {
         Request {
             provider: "wikidata",
             kind: Kind::Search,
