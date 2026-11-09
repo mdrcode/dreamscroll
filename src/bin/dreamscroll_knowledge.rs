@@ -771,11 +771,11 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Index(args) => match args.command {
             IndexCommand::Rebuild(_) => {
-                let rows = knowledge::blocking::index::rebuild(&db).await?;
+                let rows = knowledge::blocker::index::rebuild(&db).await?;
                 println!("rebuilt {rows} index rows");
             }
             IndexCommand::Check(_) => {
-                let report = knowledge::blocking::index::check(&db).await?;
+                let report = knowledge::blocker::index::check(&db).await?;
                 println!(
                     "indexed {} · stale {} · missing {} · {}",
                     report.indexed,
@@ -914,12 +914,12 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
         .await?;
 
     // Reads `knowledge_index`: nothing is loaded, so a link run costs queries and nothing at boot.
-    let blocker: Box<dyn knowledge::blocking::Blocker> =
-        Box::new(knowledge::blocking::SqlBlocker::new(db));
+    let blocker: Box<dyn knowledge::blocker::Blocker> =
+        Box::new(knowledge::blocker::SqlBlocker::new(db));
     let knowledge = knowledge::Knowledge::with_linking(
         db,
         blocker,
-        std::sync::Arc::new(knowledge::linking::heuristic::HeuristicLinker),
+        std::sync::Arc::new(knowledge::linker::heuristic::HeuristicLinker),
     );
     let mut report = LinkAllPendingReport::default();
     for illumination in &illuminations {

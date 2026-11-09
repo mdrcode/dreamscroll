@@ -10,11 +10,11 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::database::DbHandle;
 use crate::fetch::{Answer, Outcome};
-use crate::knowledge::linking::heuristic::Heuristic;
+use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::identity::wikidata::{Candidate as Offered, parse, plan};
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::Scoring;
-use crate::knowledge::blocking::SqlBlocker;
+use crate::knowledge::blocker::SqlBlocker;
 use crate::model;
 
 /// One entity, and everything the pipeline did with it.
@@ -93,7 +93,7 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
     let blocker = SqlBlocker::new(db);
     let found = match &probe {
         Some(observation) => {
-            use crate::knowledge::blocking::Blocker;
+            use crate::knowledge::blocker::Blocker;
             blocker.candidates(observation).await
         }
         None => blocker.candidates_for_name(&entity.name).await,

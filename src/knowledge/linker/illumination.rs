@@ -116,9 +116,9 @@ mod unit {
 
     use super::*;
     use crate::database::DbHandle;
-    use crate::knowledge::blocking::Blocker;
+    use crate::knowledge::blocker::Blocker;
     use crate::knowledge::graph::evidence::Evidence;
-    use crate::knowledge::linking::Linker;
+    use crate::knowledge::linker::Linker;
     use crate::model::knowledge_entity as entity;
     use crate::test_support::{db_or_skip, fixtures};
 
@@ -137,7 +137,7 @@ mod unit {
     async fn linking_store(db: &DbHandle, decider: Arc<dyn Linker>) -> Knowledge {
         Knowledge::with_linking(
             db,
-            Box::new(crate::knowledge::blocking::SqlBlocker::new(db)),
+            Box::new(crate::knowledge::blocker::SqlBlocker::new(db)),
             decider,
         )
     }
@@ -154,7 +154,7 @@ mod unit {
             _evidence: &Evidence,
             _scoring: &crate::knowledge::Scoring,
             _illumination: &model::illumination::ModelEx,
-        ) -> anyhow::Result<Vec<crate::knowledge::linking::Decision>> {
+        ) -> anyhow::Result<Vec<crate::knowledge::linker::Decision>> {
             Ok(Vec::new())
         }
     }
@@ -183,7 +183,7 @@ mod unit {
 
         let loaded = load_illumination(&db, illumination).await;
         let linking =
-            linking_store(&db, Arc::new(crate::knowledge::linking::heuristic::HeuristicLinker)).await;
+            linking_store(&db, Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker)).await;
         let stats = linking.link_illumination(&loaded).await.unwrap();
         assert_eq!(stats.created, 1, "the linker it was built with decides");
     }

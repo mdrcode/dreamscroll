@@ -222,7 +222,7 @@ mod tests {
             .unwrap()
             .expect("one question, one row");
         assert!(
-            row.score.unwrap() >= crate::knowledge::linking::heuristic::scoring::MERGE_BAR,
+            row.score.unwrap() >= crate::knowledge::linker::heuristic::scoring::MERGE_BAR,
             "{:?}",
             row.score
         );

@@ -156,7 +156,7 @@ pub(super) async fn project<C: ConnectionTrait>(
         STATUS_IDENTIFIED
     };
 
-    let confidence = crate::knowledge::linking::heuristic::scoring::combine(&claims);
+    let confidence = crate::knowledge::linker::heuristic::scoring::combine(&claims);
 
     let updated = model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),
@@ -179,7 +179,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     .await?;
 
     // The index row is a function of these columns and the current fold, so it moves with them.
-    crate::knowledge::blocking::index::write(conn, &updated).await?;
+    crate::knowledge::blocker::index::write(conn, &updated).await?;
     Ok(updated)
 }
 

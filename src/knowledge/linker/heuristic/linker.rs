@@ -8,7 +8,7 @@
 use crate::model;
 
 use crate::knowledge::graph::evidence::Evidence;
-use crate::knowledge::linking::{Action, Decision, Linker};
+use crate::knowledge::linker::{Action, Decision, Linker};
 use crate::knowledge::scoring::Scoring;
 
 /// Take the highest-scoring candidate that clears the bar; otherwise start a new entity.
@@ -35,7 +35,7 @@ impl Linker for HeuristicLinker {
     /// same entity. Whether that is right is the extraction's question, not the linker's.
     async fn decide_link(
         &self,
-        blocker: &dyn crate::knowledge::blocking::Blocker,
+        blocker: &dyn crate::knowledge::blocker::Blocker,
         evidence: &Evidence,
         scoring: &Scoring,
         illumination: &model::illumination::ModelEx,
@@ -113,7 +113,7 @@ mod tests {
     struct StubBlocker(Vec<model::knowledge_entity::Model>);
 
     #[async_trait::async_trait]
-    impl crate::knowledge::blocking::Blocker for StubBlocker {
+    impl crate::knowledge::blocker::Blocker for StubBlocker {
         async fn candidates(
             &self,
             _observation: &model::user_observed_entity::Model,
@@ -153,7 +153,7 @@ mod tests {
             .decide_link(
                 &blocker,
                 &evidence,
-                &crate::knowledge::linking::heuristic::Heuristic::scoring(),
+                &crate::knowledge::linker::heuristic::Heuristic::scoring(),
                 &illumination,
             )
             .await

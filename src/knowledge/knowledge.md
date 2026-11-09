@@ -282,14 +282,14 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | file | what it is |
 |---|---|
 | `scoring.rs` | the two verbs — `Similarity`, `Rank` — `cmp_confidence`, and the `Scoring` bundle. Shared: the linker and proximity both ask it |
-| `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by. Shared by blocking, identity, evidence and projection |
-| `blocking.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
-| `blocking/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
-| `blocking/index.rs` | `knowledge_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
-| `linking.rs` | the `Linker` trait: one illumination in, decisions out. Everything upstream is recall, everything downstream is effect |
-| `linking/heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
-| `linking/heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
-| `linking/illumination.rs` | the linking executor, and `LinkStats` |
+| `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by. Shared by the blocker, identity, evidence and projection |
+| `blocker.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
+| `blocker/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
+| `blocker/index.rs` | `knowledge_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
+| `linker.rs` | the `Linker` trait: one illumination in, decisions out. Everything upstream is recall, everything downstream is effect |
+| `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
+| `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
+| `linker/illumination.rs` | the linking executor, and `LinkStats` |
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `graph/merge.rs` | fold one entity into another |

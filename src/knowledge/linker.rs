@@ -1,4 +1,4 @@
-//! Linking: the one place a decision is made.
+//! The linker: the one place a decision is made.
 //!
 //! The unit is the **illumination**, not the observation. An illumination is what the system
 //! produces — one illumination of one image, a coherent set of things that image showed — so a decision
@@ -21,7 +21,7 @@ pub use illumination::LinkStats;
 
 use crate::model;
 
-use super::blocking::Blocker;
+use super::blocker::Blocker;
 use crate::knowledge::graph::evidence::Evidence;
 use super::scoring::Scoring;
 

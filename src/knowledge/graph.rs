@@ -23,10 +23,10 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Set, Statement};
 use crate::database::DbHandle;
 use crate::model;
 
-use super::blocking::Blocker;
+use super::blocker::Blocker;
 use self::evidence::Evidence;
-use super::linking::Linker;
-use super::linking::heuristic::Heuristic;
+use super::linker::Linker;
+use super::linker::heuristic::Heuristic;
 use super::scoring::Scoring;
 
 pub const STATUS_PROVISIONAL: &str = "provisional";
@@ -131,7 +131,7 @@ impl Knowledge {
         &self,
         illumination: &model::illumination::ModelEx,
     ) -> anyhow::Result<super::LinkStats> {
-        super::linking::illumination::link_illumination(self, illumination).await
+        super::linker::illumination::link_illumination(self, illumination).await
     }
 
     /// Recompute an entity's projected columns, and tell the blocker what came out.

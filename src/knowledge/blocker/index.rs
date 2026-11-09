@@ -263,7 +263,7 @@ mod tests {
             .await
             .unwrap();
 
-        let offered = crate::knowledge::blocking::sql::candidate_ids(
+        let offered = crate::knowledge::blocker::sql::candidate_ids(
             &db,
             &fixtures::stub_observation(1, "Train Dreams", "book"),
         )
