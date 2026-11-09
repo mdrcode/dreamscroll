@@ -6,6 +6,7 @@
 //! network, the cache or the budget.
 
 use crate::fetch::Gateway;
+use crate::knowledge::evidence::Claim;
 use crate::model;
 
 /// One authority, and the strategy for asking it.
@@ -24,18 +25,4 @@ pub trait Resolver: Send + Sync {
         entities: &[model::knowledge_entity::Model],
         gateway: &Gateway<'_>,
     ) -> Vec<(i32, Claim)>;
-}
-
-/// One identity a provider is willing to assert about an entity.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Claim {
-    pub scheme: String,
-    pub id: String,
-    pub label: Option<String>,
-    pub description: Option<String>,
-    pub classes: Vec<String>,
-    pub method: String,
-    pub confidence: f32,
-    /// What the provider was asked about. The resolver knows, because it chose the question.
-    pub basis: crate::knowledge::evidence::ClaimBasis,
 }

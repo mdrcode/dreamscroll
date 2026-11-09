@@ -1,20 +1,15 @@
-//! Claims and identities: what a capture asserted, what an authority answered, and who holds it.
+//! Where a claim becomes a row, from either direction.
 //!
-//! - a [`DraftIdentity`] is a row of `knowledge_identities` before it has an id: the thing the world
-//!   names, `(scheme, external_id)`, plus whoever answered.
-//! - a [`PlatformLink`] is a platform presence as a capture showed it — `(scheme, handle)`, both
-//!   folded — before anything knows whether an entity holds it.
-//! - a *claim* is an entity's assertion of an identity — the edge of the many-to-many, carrying what
-//!   the question was about ([`ClaimBasis`]) and which capture asked. [`Evidence::record`] writes the
-//!   capture's; `identity::store` writes a provider's.
-//!
-//! An identity may have several holders: one Wikidata item can name an album and cover its songs.
-//! This module reports them and leaves "are these one thing?" to `proximity`.
+//! A capture's claim and an authority's claim are the same edge: one insert into `knowledge_claims`
+//! citing an identity row. Keeping both writers here means the veto check, the uniqueness rule and
+//! the basis column are one thing to read — and the place a second authority inherits all three.
 
 use std::collections::HashSet;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
+use super::claim::{Claim, ClaimBasis};
+use crate::database;
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::TotalCmp;
 use crate::model;
@@ -76,39 +71,6 @@ impl DraftIdentity {
             label: None,
             description: None,
             classes: Vec::new(),
-        }
-    }
-}
-
-/// What the question was about, for one claim: the identifier, or the text.
-///
-/// Corroboration counts independent *inputs*, and independence is this, not who answered. A capture's
-/// handle and an authority asked about that handle are one chain however many schemes they name; a
-/// name and a handle are two. Recorded when the claim is written, because that is the only moment
-/// anything knows which question produced it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClaimBasis {
-    /// A handle: a capture showed one, or the authority was asked about one.
-    Handle,
-    /// A name, title or description.
-    Text,
-}
-
-impl ClaimBasis {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Handle => "handle",
-            Self::Text => "text",
-        }
-    }
-
-    /// The stored form, back. Anything that is not `handle` reads as text: the column only ever holds
-    /// these two.
-    pub fn from_db(value: &str) -> Self {
-        if value == Self::Handle.as_str() {
-            Self::Handle
-        } else {
-            Self::Text
         }
     }
 }
@@ -315,6 +277,69 @@ impl Evidence {
                 _ => Err(error.into()),
             },
         }
+    }
+}
+
+/// What became of a claim handed to [`store_claim`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Stored {
+    /// The edge was written.
+    Written,
+    /// An editor withdrew this claim.
+    Vetoed,
+    /// This entity already asserts the identity. A repeat is not a conflict: whether both holders are
+    /// one thing is `proximity`'s question.
+    AlreadyClaimed,
+}
+
+/// Store one authority claim as an edge to its identity.
+///
+/// The veto is asked here, at the one place an authority claim becomes a row, so every provider
+/// inherits it without knowing it exists. An identity another entity already holds is not a conflict:
+/// claims are many-to-one, and whether the holders are one thing is `proximity`'s question.
+///
+/// Returns what happened instead of counting it — the caller owns the report, and this module does not
+/// need to know one exists.
+pub async fn store_claim(
+    db: &database::DbHandle,
+    asserted_by: &str,
+    knowledge_entity_id: i32,
+    claim: Claim,
+    vetoes: &HashSet<(i32, String, String)>,
+) -> anyhow::Result<Stored> {
+    if vetoes.contains(&(knowledge_entity_id, claim.scheme.clone(), claim.id.clone())) {
+        return Ok(Stored::Vetoed);
+    }
+    let evidence = Evidence::new(db.conn.clone());
+    let identity_id = evidence
+        .upsert_identity(&DraftIdentity {
+            scheme: claim.scheme,
+            external_id: claim.id,
+            asserted_by: asserted_by.to_string(),
+            method: Some(claim.method),
+            confidence: Some(claim.confidence),
+            label: claim.label,
+            description: claim.description,
+            classes: claim.classes,
+        })
+        .await?;
+
+    let insert = model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
+        knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
+        knowledge_identity_id: sea_orm::Set(identity_id),
+        basis: sea_orm::Set(claim.basis.as_str().to_string()),
+        ..Default::default()
+    })
+    .exec(&db.conn)
+    .await;
+
+    match insert {
+        Ok(_) => Ok(Stored::Written),
+        // This entity already asserts the identity.
+        Err(error) => match unique_violation(&error) {
+            Some("idx-knowledge_claims_entity_identity") => Ok(Stored::AlreadyClaimed),
+            _ => Err(error.into()),
+        },
     }
 }
 

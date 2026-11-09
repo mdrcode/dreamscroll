@@ -12,8 +12,7 @@
 
 pub mod engine;
 pub mod resolver;
-pub mod store;
 pub mod wikidata;
 
 pub use engine::{DEFAULT_MAX_REQUESTS, Options, Report, ResolutionEngine};
-pub use resolver::{Claim, Resolver};
+pub use resolver::Resolver;

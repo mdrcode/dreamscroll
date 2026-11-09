@@ -18,7 +18,8 @@ use super::policy;
 use super::transport::Wire;
 use super::{Candidate, Kind, parse, plan};
 use crate::fetch::{Answers, Gateway, Request, Transport};
-use crate::knowledge::identity::{Claim, Resolver};
+use crate::knowledge::evidence::Claim;
+use crate::knowledge::identity::Resolver;
 use crate::model;
 
 const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";

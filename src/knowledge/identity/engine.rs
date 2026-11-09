@@ -7,9 +7,9 @@ use std::collections::HashSet;
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
-use super::resolver::{Claim, Resolver};
-use super::store::store_claim;
+use super::resolver::Resolver;
 use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
+use crate::knowledge::evidence::{Stored, store_claim};
 use crate::{database, model};
 
 /// Transport calls a plain resolve is allowed to make. Exists so that omitting the budget does real
@@ -154,17 +154,22 @@ impl<'a> ResolutionEngine<'a> {
                 if resolved.contains(&knowledge_entity_id) {
                     continue;
                 }
-                if store_claim(
+                match store_claim(
                     self.db,
                     resolver.id(),
                     knowledge_entity_id,
                     claim,
                     &vetoes,
-                    &mut report,
                 )
                 .await?
                 {
-                    resolved.insert(knowledge_entity_id);
+                    Stored::Written => {
+                        report.claims += 1;
+                        resolved.insert(knowledge_entity_id);
+                    }
+                    Stored::Vetoed => report.vetoed += 1,
+                    // The entity already asserts it; the first claim still wins.
+                    Stored::AlreadyClaimed => {}
                 }
             }
         }
@@ -273,6 +278,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use crate::fetch::{Answer, BATCH, FetchError, Outcome, Request, Transport};
+    use crate::knowledge::evidence::Claim;
     use sea_orm::PaginatorTrait;
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;

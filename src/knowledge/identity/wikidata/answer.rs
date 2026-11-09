@@ -6,7 +6,7 @@
 use super::Candidate;
 use super::ID;
 use crate::knowledge::evidence::ClaimBasis;
-use crate::knowledge::identity::Claim;
+use crate::knowledge::evidence::Claim;
 
 /// A menu, not a referent. Two classes because Wikidata's own hierarchy defeats equality: `Q22808320`
 /// ("Wikimedia human name disambiguation page") is a *subclass* of `Q4167410`, and every one of the 34

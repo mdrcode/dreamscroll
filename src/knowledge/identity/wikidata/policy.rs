@@ -15,7 +15,7 @@ use super::ranking::{
 };
 use super::{Candidate, Kind};
 use crate::fetch::Request;
-use crate::knowledge::identity::Claim;
+use crate::knowledge::evidence::Claim;
 use crate::model;
 
 /// Last resort: the illumination's own disambiguation, consulted *only* when the description
