@@ -28,10 +28,6 @@ pub const WEIGHT_DESCRIPTION: f32 = 0.30;
 /// than about the referent (111 of 179 prod collisions are the same thing typed twice).
 pub const WEIGHT_TYPE: f32 = 0.10;
 
-/// The bar for a provisional → provisional merge, which is the only regime that exists until
-/// resolution gives us identifiers.
-pub(crate) const MERGE_BAR: f32 = 0.60;
-
 /// A merge without an identifier needs a name match to be in the running at all.
 const NAME_FLOOR: f32 = 0.90;
 
@@ -117,9 +113,12 @@ pub(crate) struct Features {
 /// a description sharing only enough tokens to lift the total over the bar. Without an identifier, a
 /// name match has to be corroborated by the type or the text — and that conjunction is why this is
 /// a filter on a vector of components rather than a threshold on its sum.
+///
+/// The total is deliberately not consulted. Under these weights every pair this accepts scores at
+/// least `0.6 * NAME_TOKEN_MATCH + 0.1 * TYPE_UNKNOWN_MATCH`, so a threshold on the sum can only
+/// contradict the conjunction — which is exactly what `MERGE_BAR = 0.60` did at that one point.
 fn worth_merging(features: &Features) -> bool {
     features.name >= NAME_FLOOR
-        && features.total >= MERGE_BAR
         && (features.type_match >= AGREEMENT_FLOOR || features.description >= AGREEMENT_FLOOR)
 }
 
@@ -347,18 +346,45 @@ mod tests {
         let candidate = entity(1, "Train Dreams", None, "book");
         let ranked = Heuristic.rank(&observation("The Train Dreams", None, "book"), &[candidate]);
         assert_eq!(ranked.len(), 1, "an article is not a different name: {ranked:?}");
-        assert!(ranked[0].1 > MERGE_BAR, "{ranked:?}");
+        // A word-key name match (0.9) plus an agreeing type (1.0).
+        assert!((ranked[0].1 - 0.64).abs() < 1e-6, "{ranked:?}");
+    }
+
+    /// An `unknown` type is corroboration: the two floors accept this pair, so the gate must too.
+    /// The weighted total is 0.59 — a threshold on it refused this, which is the bug this pins.
+    #[test]
+    fn a_token_name_match_corroborated_by_an_unknown_type_clears() {
+        let candidate = entity(1, "Dr. Dominic Ng", None, "real_person");
+        let probe = observation("Dominic Ng", None, "unknown");
+        let features = features(&probe, &candidate);
+        assert!((features.total - 0.59).abs() < 1e-6, "{features:?}");
+        assert_eq!(
+            Heuristic.rank(&probe, &[candidate]).len(),
+            1,
+            "the conjunction accepts what its own floors accept"
+        );
+    }
+
+    /// The control: a name match and nothing else is still refused.
+    #[test]
+    fn a_name_match_without_corroboration_still_does_not_clear() {
+        let candidate = entity(1, "Dominic Ng", None, "book");
+        let probe = observation("Dominic Ng", None, "software");
+        assert!(
+            Heuristic.rank(&probe, &[candidate]).is_empty(),
+            "same name, disagreeing type, no text"
+        );
     }
 
     /// The pair the graph must never fold, and the number that says why: one exact name, no
-    /// corroboration. The score clears [`MERGE_BAR`] on its own — which is exactly why the filter is
-    /// a conjunction and not a threshold on the total.
+    /// corroboration. A single threshold in this band would fold it — which is exactly why the
+    /// filter is a conjunction and not a threshold on the total.
     #[test]
     fn a_type_mismatch_without_name_agreement_does_not_clear() {
         let django = entity(1, "Django", Some("a 2021 video game"), "product");
         let frame = observation("Django", Some("a Python web framework"), "software");
         assert!(
-            Heuristic.score(&frame, &django) >= MERGE_BAR,
+            Heuristic.score(&frame, &django) > 0.6,
             "the total alone would fold this pair"
         );
         assert!(Heuristic.rank(&frame, &[django]).is_empty());

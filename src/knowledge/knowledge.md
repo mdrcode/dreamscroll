@@ -152,7 +152,7 @@ scores; `merge` and the holder order ask `cmp_confidence`, a convention about `N
 the proximity passes take a `Scoring`, and it is the **store's** — a linker carrying its own would leave the
 merge pass on a different policy, silently.
 
-`linker/heuristic/scoring.rs` is today's only answer: normalized keys, weights, the bar, the corroboration
+`linker/heuristic/scoring.rs` is today's only answer: normalized keys, weights, the merge rule, the corroboration
 bonus. `linker/heuristic/linker.rs` is the **procedure** — the best qualifying candidate, else create — and holds
 no numbers. `blocker/sql.rs` is recall: every folded surface and its word-order-insensitive form, probed
 out of `knowledge_blocking_index` — nothing scored. A platform handle is a surface too, so a capture that named an
@@ -288,7 +288,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `blocker/index.rs` | `knowledge_blocking_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
 | `linker/mod.rs` | the `Linker` trait: one illumination in, decisions out. Everything upstream is recall, everything downstream is effect |
 | `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
-| `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
+| `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), the corroboration bonus |
 | `linker/illumination.rs` | the linking executor, and `LinkStats` |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two writers of `knowledge_claims` in `store.rs`: `Evidence::record` for a capture's observation, `store_claim` for an authority's answer, which is also where the veto and the uniqueness rule live. `store.rs` also reads holders back and answers `awaiting_authority` |

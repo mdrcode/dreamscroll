@@ -221,8 +221,10 @@ mod tests {
             .await
             .unwrap()
             .expect("one question, one row");
+        // Two identical names and the same type: 0.6 * 1.0 + 0.1 * 1.0. Pinned, so a weight
+        // change shows up here rather than as a silent shift in what folds.
         assert!(
-            row.score.unwrap() >= crate::knowledge::linker::heuristic::scoring::MERGE_BAR,
+            (row.score.unwrap() - 0.7).abs() < 1e-6,
             "{:?}",
             row.score
         );
