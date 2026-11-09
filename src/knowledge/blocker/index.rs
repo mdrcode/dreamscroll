@@ -46,7 +46,13 @@ pub(super) fn keys(entity: &model::knowledge_entity::Model) -> Keys {
         .filter(|key| seen.insert(key.clone()))
         .collect();
     Keys {
-        word_keys: surfaces.iter().map(|surface| normalize::word_key(surface)).collect(),
+        // A surface with no words (`...` folds to `..`) has no word generation. Storing the empty
+        // string would make `&&` match it against every other empty one.
+        word_keys: surfaces
+            .iter()
+            .map(|surface| normalize::word_key(surface))
+            .filter(|key| !key.is_empty())
+            .collect(),
         surfaces,
     }
 }
@@ -282,5 +288,29 @@ mod tests {
         let report = check(&db).await.unwrap();
         assert_eq!(report.missing, 1, "{report:?}");
         assert_eq!(report.stale, 0, "{report:?}");
+    }
+
+    /// A surface with no words still gets a surface key, and no word key: the empty string would
+    /// overlap every other empty one through `&&`.
+    #[tokio::test]
+    async fn a_wordless_surface_gets_no_word_key() {
+        db_or_skip!(db);
+        let id = fixtures::knowledge_entity_with_member(&db, "...").await;
+        crate::knowledge::KnowledgeGraph::new(&db)
+            .update_projection(id)
+            .await
+            .unwrap();
+
+        let row = model::knowledge_blocking_index::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("project writes the row");
+        assert_eq!(
+            row.surfaces,
+            vec!["..".to_string()],
+            "the surface is still keyed"
+        );
+        assert!(row.word_keys.is_empty(), "{:?}", row.word_keys);
     }
 }

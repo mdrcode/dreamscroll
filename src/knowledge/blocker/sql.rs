@@ -83,7 +83,12 @@ impl SqlBlocker {
         if keys.is_empty() {
             return Vec::new();
         }
-        let words: Vec<String> = keys.iter().map(|key| normalize::word_key(key)).collect();
+        let words: Vec<String> = keys
+            .iter()
+            .map(|key| normalize::word_key(key))
+            // An empty key would be `ARRAY['']`, which overlaps every row that stored one.
+            .filter(|key| !key.is_empty())
+            .collect();
         let query = model::knowledge_entity::Entity::find()
             .join(
                 JoinType::InnerJoin,
@@ -206,6 +211,36 @@ mod tests {
                 .await
                 .unwrap()
                 .is_empty()
+        );
+    }
+
+    /// A row written before the index stopped storing empty word keys still holds one. The probe
+    /// must not ask for it: `ARRAY['']` overlaps every such row, so two dot-only names that fold
+    /// differently (`.` and `..`) would be offered to each other with no evidence.
+    #[tokio::test]
+    async fn a_wordless_probe_does_not_match_a_stored_empty_key() {
+        db_or_skip!(db);
+        let id = fixtures::knowledge_entity_with_member(&db, "..").await;
+        crate::knowledge::KnowledgeGraph::new(&db)
+            .update_projection(id)
+            .await
+            .unwrap();
+        // The state an older build left behind.
+        db.conn
+            .execute_raw(sea_orm::Statement::from_sql_and_values(
+                sea_orm::DatabaseBackend::Postgres,
+                "UPDATE knowledge_blocking_index SET word_keys = ARRAY[''] \
+                  WHERE knowledge_entity_id = $1",
+                [id.into()],
+            ))
+            .await
+            .unwrap();
+
+        // `...` folds to `..`, the stored surface; only the empty word key could connect them.
+        let observation = fixtures::stub_observation(1, "...", "unknown");
+        assert!(
+            candidate_ids(&db, &observation).await.unwrap().is_empty(),
+            "no words on either side is no evidence"
         );
     }
 }

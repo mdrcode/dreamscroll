@@ -119,7 +119,11 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
             let folded = normalize::comparable(surface);
             if !folded.is_empty() {
                 set.insert(folded.clone());
-                set.insert(normalize::word_key(&folded));
+                let words = normalize::word_key(&folded);
+                // The same rule as the index and the probe: no words, no word key.
+                if !words.is_empty() {
+                    set.insert(words);
+                }
             }
         }
         set
