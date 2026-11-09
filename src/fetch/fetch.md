@@ -35,7 +35,7 @@ overwrite each other's answer before it is read.
 ## The cache
 
 ```sql
-resolution_cache
+fetch_cache
   provider, kind, query, shape      -- unique together: one row per logical request
   outcome                            -- found | empty | failed | degraded
   payload      jsonb                 -- the provider's payload, serialised; the cache never reads it

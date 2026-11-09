@@ -266,7 +266,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 - `reset` snapshots the projection, then empties it — entities, claims, identities, merges,
   proximities and the index rows, all of it derived. Observations, captures, illuminations and the
-  **resolution cache** are untouched. The teardown is therefore free: `reset`, then `link`, then
+  **fetch cache** are untouched. The teardown is therefore free: `reset`, then `link`, then
   `verdicts replay` (a person's folds, applied to the new ids), then `identity resolve --offline`
   (identities and claims from cached answers), then `proximity scan` and `proximity merge`. Six
   commands, each one job, none invoking another — the order and its reasons are in

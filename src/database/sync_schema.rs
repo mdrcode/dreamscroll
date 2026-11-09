@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 30;
+const REQUIRED_SCHEMA_VERSION: i32 = 31;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -152,6 +152,28 @@ async fn retire_legacy_observation_tables<C: ConnectionTrait>(conn: &C) -> Resul
 
 
 
+/// Schema 31 renames `resolution_cache` to `fetch_cache`.
+///
+/// The table belongs to `crate::fetch`, which knows nothing about knowledge entities: it stores one
+/// answer per request for any provider. `resolution_cache` named the module that used to own it, and
+/// that module no longer exists. The registry can only create and alter, so a populated table has to
+/// be renamed before the sync or it is left behind while an empty `fetch_cache` is built beside it.
+/// Guarded on the old name, so a synced database is untouched.
+async fn rename_cache_table<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $$ BEGIN \
+           IF to_regclass('resolution_cache') IS NOT NULL THEN \
+             ALTER TABLE resolution_cache RENAME TO fetch_cache; \
+           END IF; \
+           IF to_regclass('resolution_cache_key') IS NOT NULL THEN \
+             ALTER INDEX resolution_cache_key RENAME TO fetch_cache_key; \
+           END IF; \
+         END $$",
+    )
+    .await?;
+    Ok(())
+}
+
 /// Reconcile the model schema, manual indexes, and applied version atomically.
 pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
     let registry = conn.get_schema_registry("dreamscroll::model::*");
@@ -191,6 +213,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             retire_merge_audit(transaction).await?;
             relax_verdict_columns(transaction).await?;
             rename_identity_asserted_by(transaction).await?;
+            rename_cache_table(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             indexes::knowledge::before_schema_sync(transaction).await?;
             registry.sync(transaction).await?;

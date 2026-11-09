@@ -10,7 +10,7 @@ failure catalogue this design answers).
 ## The rule
 
 **Only the gateway calls `fetch`.** A provider may say what it *would* ask (`plan`) and interpret an
-answer (`parse`), but every request goes through `resolution_cache` first. Adding IMDb cannot forget
+answer (`parse`), but every request goes through `fetch_cache` first. Adding IMDb cannot forget
 the cache, because there is no other door to the network.
 
 The door now lives in its own module, `crate::fetch`, and is generic over the provider's own
@@ -40,7 +40,7 @@ payloads for free. That is what makes iterating on matching rules cost nothing.
 ## The cache
 
 ```sql
-resolution_cache
+fetch_cache
   provider, kind, query, shape      -- unique together: one row per logical request
   outcome                           -- found | empty | failed | degraded
   payload      jsonb                 -- the provider's payload, serialised; the cache never reads it
@@ -938,7 +938,7 @@ that way.
 
 The gold set answers "did this change break a case I care about". The corpus replay answers "what
 would change across everything I have". It walks the same ladder the driver walks — `plan`, then
-`plan_fallback` — over `resolution_cache`, with no transport:
+`plan_fallback` — over `fetch_cache`, with no transport:
 
 ```sh
 cargo run --bin dreamscroll_knowledge -- eval resolve            # counts, by method

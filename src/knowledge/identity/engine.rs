@@ -9,7 +9,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
 use super::contract::Claim;
 use super::store::store_claim;
-use crate::fetch::{Allowance, Cache, Gateway, Refusal};
+use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
 use crate::{database, model};
 
 /// One authority, and the strategy for asking it.
@@ -135,7 +135,7 @@ impl<'a> ResolutionEngine<'a> {
         // Loaded once, not per claim: a veto asked during admission is a claim never written; one
         // that is only replayed is a claim asserted and then withdrawn.
         let vetoes = crate::knowledge::verdicts::vetoed(&knowledge).await?;
-        let cache = Cache::new(&self.db.conn);
+        let cache = FetchCache::new(&self.db.conn);
         // The engine owns *which* entities to ask about. What the run may spend is the allowance's,
         // passed in; the gateway only asks it before each call. A cache-only run has none at all.
         let allowance = (!self.options.offline).then(|| {
@@ -152,7 +152,7 @@ impl<'a> ResolutionEngine<'a> {
         if !self.options.offline {
             let pruned = cache.prune().await?;
             if pruned > 0 {
-                tracing::info!(pruned, "Pruned expired resolution cache rows");
+                tracing::info!(pruned, "Pruned expired fetch cache rows");
             }
         }
 
@@ -539,7 +539,7 @@ mod tests {
         let uncached = seed(&db, "MUME").await;
 
         // The answer a previous online run would have left behind.
-        Cache::new(&db.conn)
+        FetchCache::new(&db.conn)
             .put(
                 "fake",
                 &Probe::Text,
@@ -845,7 +845,7 @@ mod tests {
         assert_eq!(report.fetched, 1, "{report:?}");
         assert_eq!(report.claims, 0, "{report:?}");
         assert_eq!(
-            model::resolution_cache::Entity::find()
+            model::fetch_cache::Entity::find()
                 .count(&db.conn)
                 .await
                 .unwrap(),
@@ -1009,7 +1009,7 @@ mod tests {
     #[tokio::test]
     async fn a_spent_budget_issues_no_calls() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         let allowance = Allowance::new(0, std::time::Duration::ZERO);
         let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
 

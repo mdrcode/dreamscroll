@@ -10,7 +10,7 @@ use std::fmt::Display;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::allowance::{Allowance, Refusal};
-use super::cache::Cache;
+use super::cache::FetchCache;
 use super::contract::{Answer, Answers, FetchError, Outcome, Request, Transport};
 
 /// What one run has spent and found, once it is over.
@@ -70,7 +70,7 @@ impl Counters {
 /// It knows nothing about requests in general: a caller brings its own [`Transport`], and the request
 /// kind and payload types come from it. Everything it may *do* is its three parameters.
 pub struct Gateway<'a> {
-    cache: Option<&'a Cache<'a>>,
+    cache: Option<&'a FetchCache<'a>>,
     allowance: Option<&'a Allowance>,
     fail_fast: bool,
     counters: Counters,
@@ -89,7 +89,7 @@ impl<'a> Gateway<'a> {
     /// The three are independent: with no allowance nothing exhausts, so `fail_fast` is moot; with no
     /// cache nothing can be harvested, so it is moot there too.
     pub fn new(
-        cache: Option<&'a Cache<'a>>,
+        cache: Option<&'a FetchCache<'a>>,
         allowance: Option<&'a Allowance>,
         fail_fast: bool,
     ) -> Self {
@@ -427,7 +427,7 @@ mod tests {
     #[tokio::test]
     async fn a_cache_hit_never_reaches_the_transport() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         cache
             .put(
                 "probe",
@@ -465,7 +465,7 @@ mod tests {
     #[tokio::test]
     async fn a_rate_limit_keeps_what_was_fetched_and_stops() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         let allowance = Allowance::new(8, std::time::Duration::ZERO);
         let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
         // `BATCH` is 2 under test, so four queries are two calls.
@@ -497,7 +497,7 @@ mod tests {
     #[tokio::test]
     async fn a_failed_fetch_is_cached_and_counted() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         let allowance = Allowance::new(8, std::time::Duration::ZERO);
         let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
         let fake = Fake::new(vec![Err(FetchError::Failed("boom".into()))]);
@@ -522,7 +522,7 @@ mod tests {
     #[tokio::test]
     async fn a_spent_budget_issues_no_call() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         let allowance = Allowance::new(0, std::time::Duration::ZERO);
         let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
         let fake = Fake::default();
@@ -546,7 +546,7 @@ mod tests {
     #[tokio::test]
     async fn a_spent_budget_ends_the_walk() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         cache
             .put(
                 "probe",
@@ -589,7 +589,7 @@ mod tests {
     #[tokio::test]
     async fn without_fail_fast_the_rest_of_the_walk_is_read_from_the_cache() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         cache
             .put(
                 "probe",
@@ -641,7 +641,7 @@ mod tests {
         assert_eq!(answers.len(), 1);
         assert_eq!(fake.seen(), vec!["fresh".to_string()], "asked, not read");
         assert_eq!(
-            crate::model::resolution_cache::Entity::find()
+            crate::model::fetch_cache::Entity::find()
                 .count(&db.conn)
                 .await
                 .unwrap(),
@@ -655,7 +655,7 @@ mod tests {
     #[tokio::test]
     async fn no_allowance_reads_every_group_and_fetches_nothing() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         for (kind, query) in [(Probe::Alpha, "first-hit"), (Probe::Beta, "second-hit")] {
             cache
                 .put(

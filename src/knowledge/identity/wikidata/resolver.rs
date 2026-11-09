@@ -67,7 +67,7 @@ impl Wikidata {
     ///
     /// Bump the version when the construction changes, and put a parameter that changes the answer
     /// in the string too. Both are per kind, so a change invalidates exactly the answers it changes
-    /// and nothing else. Readable on purpose: a row in `resolution_cache` should say which question
+    /// and nothing else. Readable on purpose: a row in `fetch_cache` should say which question
     /// it answered, and a hash says nothing when you are looking at a stale answer.
     fn shape(kind: &Kind) -> String {
         // One version prefix per kind, so bumping the label query does not throw away the handle
@@ -945,10 +945,10 @@ mod tests {
     /// entity the first pass left unresolved.
     #[tokio::test]
     async fn resolve_prefers_a_title_and_searches_only_what_is_left() {
-        use crate::fetch::{Allowance, Answer, Cache};
+        use crate::fetch::{Allowance, Answer, FetchCache};
 
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
 
         let seed = |kind: Kind, query: &str, answer: Answer<Vec<Candidate>>| {
             (kind, query.to_string(), answer)
@@ -1016,10 +1016,10 @@ mod tests {
     /// answers, because a surface this exact is better than nothing at all.
     #[tokio::test]
     async fn a_surface_only_title_waits_for_every_other_rung() {
-        use crate::fetch::{Allowance, Answer, Cache};
+        use crate::fetch::{Allowance, Answer, FetchCache};
 
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
 
         let seed = |kind: Kind, query: &str, answer: Answer<Vec<Candidate>>| {
             (kind, query.to_string(), answer)

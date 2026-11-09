@@ -26,7 +26,7 @@ of why that table read as dead weight.
 
 `reset` is destructive by design: it snapshots the projected graph, then empties it. Rebuilding is
 `link` → `resolve --offline`, seconds, no transport. What survives: **observations, illuminations,
-captures, the resolution cache.** What does not: entities, identities, claims, merges, proximities.
+captures, the fetch cache.** What does not: entities, identities, claims, merges, proximities.
 
 Two of those are not the model's output — they are a person's judgement:
 

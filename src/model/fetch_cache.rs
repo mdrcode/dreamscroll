@@ -15,17 +15,17 @@ use sea_orm::entity::prelude::*;
 /// corpus, and re-asking a question we know the answer to is exactly the spam this table prevents.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "resolution_cache")]
+#[sea_orm(table_name = "fetch_cache")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i32,
-    #[sea_orm(unique_key = "resolution_cache_key")]
+    #[sea_orm(unique_key = "fetch_cache_key")]
     pub provider: String,
-    #[sea_orm(unique_key = "resolution_cache_key")]
+    #[sea_orm(unique_key = "fetch_cache_key")]
     pub kind: String,
-    #[sea_orm(unique_key = "resolution_cache_key")]
+    #[sea_orm(unique_key = "fetch_cache_key")]
     pub query: String,
-    #[sea_orm(unique_key = "resolution_cache_key")]
+    #[sea_orm(unique_key = "fetch_cache_key")]
     pub shape: String,
     /// found | empty | failed
     pub outcome: String,

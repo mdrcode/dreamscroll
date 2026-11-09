@@ -1,7 +1,7 @@
 //! Offline evaluation: replay a decision against answers already in the cache.
 //!
 //! The point is iteration speed. A resolver change normally costs a network run — 640 fetches for
-//! the last corpus pass — and cannot be repeated at will. Replaying over `resolution_cache` answers
+//! the last corpus pass — and cannot be repeated at will. Replaying over `fetch_cache` answers
 //! the same question in seconds, with no transport, so a gate can be changed and measured instead of
 //! argued about.
 //!

@@ -1,6 +1,7 @@
 pub mod annotation;
 pub mod backfill;
 pub mod capture;
+pub mod fetch_cache;
 pub mod illumination;
 pub mod illumination_raw;
 pub mod inference_meta;
@@ -12,7 +13,6 @@ pub mod knowledge_index;
 pub mod knowledge_proximities;
 pub mod knowledge_verdicts;
 pub mod media;
-pub mod resolution_cache;
 pub mod search_index;
 pub mod spark;
 pub mod spark_cluster;

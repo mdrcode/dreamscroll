@@ -362,7 +362,7 @@ Recall-oriented and deliberately over-generating, from three independent sources
   surface in `alt_names`, and a surface the knowledge entity was never observed under is reachable because authority
   supplied it (`J.R. Cash` → the Johnny Cash knowledge entity). A target and a persona converge the same way.
 - **`(platform, lower(handle))`** — identity for account-backed entities.
-- **a QID the observation already carries**, from the resolution cache; plus token-set equality over
+- **a QID the observation already carries**, from the fetch cache; plus token-set equality over
   the resulting candidate set, in-app, when the exact surface misses.
 
 Candidates are not filtered by owner. Another user's provisional knowledge entity is a legitimate candidate, and

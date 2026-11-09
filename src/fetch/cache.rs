@@ -18,7 +18,7 @@ use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
 use super::contract::{Answer, Outcome};
-use crate::model::resolution_cache as cached;
+use crate::model::fetch_cache as cached;
 
 /// Seven days for everything, which is short enough that a provider gaining a new item is noticed
 /// and long enough that a rerun is free.
@@ -86,11 +86,11 @@ pub async fn tally(conn: &DatabaseConnection) -> anyhow::Result<Tally> {
     Ok(tally)
 }
 
-pub struct Cache<'a> {
+pub struct FetchCache<'a> {
     conn: &'a DatabaseConnection,
 }
 
-impl<'a> Cache<'a> {
+impl<'a> FetchCache<'a> {
     pub fn new(conn: &'a DatabaseConnection) -> Self {
         Self { conn }
     }
@@ -264,7 +264,7 @@ mod tests {
         insert("recently expired", now - Duration::days(1)).await;
         insert("live", now + Duration::days(1)).await;
 
-        let pruned = Cache::new(&conn).prune().await.expect("prune");
+        let pruned = FetchCache::new(&conn).prune().await.expect("prune");
 
         assert_eq!(pruned, 1, "only the row past the grace window goes");
         let left: Vec<String> = cached::Entity::find()
@@ -278,7 +278,7 @@ mod tests {
         assert!(!left.iter().any(|q| q == "ancient"), "{left:?}");
     }
 
-    async fn put(cache: &Cache<'_>, shape: &str, query: &str, outcome: Outcome) {
+    async fn put(cache: &FetchCache<'_>, shape: &str, query: &str, outcome: Outcome) {
         cache
             .put("probe", &"kind-a", shape, query, &Answer::<Vec<Record>>::nothing(outcome))
             .await
@@ -288,7 +288,7 @@ mod tests {
     #[tokio::test]
     async fn stores_reads_and_expires() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         let queries = vec!["first query".to_string(), "second query".to_string()];
 
         cache
@@ -364,7 +364,7 @@ mod tests {
         .await
         .unwrap();
 
-        let hits: HashMap<String, Answer<Vec<Record>>> = Cache::new(&conn)
+        let hits: HashMap<String, Answer<Vec<Record>>> = FetchCache::new(&conn)
             .get_many("probe", &"kind-a", "v1", &["shape changed".to_string()])
             .await
             .expect("get");
@@ -378,7 +378,7 @@ mod tests {
     #[tokio::test]
     async fn a_changed_shape_is_a_different_question() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         let queries = vec!["query one".to_string()];
 
         put(&cache, "shape-a", "query one", Outcome::Empty).await;
@@ -401,7 +401,7 @@ mod tests {
     #[tokio::test]
     async fn refetching_replaces_instead_of_accumulating() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         let queries = vec!["query one".to_string()];
 
         put(&cache, "v1", "query one", Outcome::Empty).await;
@@ -423,7 +423,7 @@ mod tests {
     #[tokio::test]
     async fn the_tally_counts_each_outcome_once() {
         db_or_skip!(db);
-        let cache = Cache::new(&db.conn);
+        let cache = FetchCache::new(&db.conn);
         for (query, outcome) in [
             ("a", Outcome::Found),
             ("b", Outcome::Empty),

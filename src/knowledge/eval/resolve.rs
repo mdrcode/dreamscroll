@@ -92,7 +92,7 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
                 .conn
                 .query_one_raw(Statement::from_sql_and_values(
                     DatabaseBackend::Postgres,
-                    "SELECT outcome, payload::text FROM resolution_cache \
+                    "SELECT outcome, payload::text FROM fetch_cache \
                       WHERE provider = $1 AND kind = $2 AND shape = $3 AND query = $4 \
                         AND expires_at > now() LIMIT 1",
                     [

@@ -17,7 +17,7 @@ pub mod contract;
 pub mod gateway;
 
 pub use allowance::{Allowance, Refusal};
-pub use cache::{Cache, Tally};
+pub use cache::{FetchCache, Tally};
 pub use contract::{Answer, Answers, FetchError, Outcome, Request, Transport};
 pub use gateway::{Gateway, Stats};
 

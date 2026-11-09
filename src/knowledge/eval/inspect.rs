@@ -2,7 +2,7 @@
 //!
 //! Recall, then ranking, then the resolver's ladder — each step printed with what the cache held
 //! and what the decision was. Nothing here re-implements a stage: it calls the same blocker, the
-//! same `Rank` and the same `parse` the engine calls, and reads `resolution_cache` with the same
+//! same `Rank` and the same `parse` the engine calls, and reads `fetch_cache` with the same
 //! expiry rule. That is the point: if the inspector and the run disagreed, the inspector would be
 //! lying.
 
@@ -197,7 +197,7 @@ async fn ladder(
             .conn
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "SELECT outcome, payload::text, expires_at > now() FROM resolution_cache \
+                "SELECT outcome, payload::text, expires_at > now() FROM fetch_cache \
                   WHERE provider = $1 AND kind = $2 AND shape = $3 AND query = $4 \
                   ORDER BY id DESC LIMIT 1",
                 [
