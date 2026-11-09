@@ -22,7 +22,7 @@ pub use illumination::LinkStats;
 use crate::model;
 
 use super::blocker::Blocker;
-use crate::knowledge::evidence::Evidence;
+use super::evidence::Evidence;
 use super::scoring::Scoring;
 
 /// What to do with one observation.
