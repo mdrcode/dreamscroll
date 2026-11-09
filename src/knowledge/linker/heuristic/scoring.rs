@@ -389,6 +389,22 @@ mod tests {
         assert!(Heuristic.rank(&frame, &[django]).is_empty());
     }
 
+    /// The other arm of the corroboration: a shared description carries a name match on its own,
+    /// even when the types disagree. No other test reaches the conjunction from this side — every
+    /// one that does has a matching type too.
+    #[test]
+    fn a_matching_description_corroborates_a_disagreeing_type() {
+        let candidate = entity(1, "Django", Some("a 2021 video game"), "product");
+        let probe = observation("Django", Some("a 2021 video game"), "software");
+        let features = features(&probe, &candidate);
+        assert_eq!(features.type_match, 0.0, "the types disagree");
+        assert!(
+            features.description >= AGREEMENT_FLOOR,
+            "the text agrees: {features:?}"
+        );
+        assert_eq!(Heuristic.rank(&probe, &[candidate]).len(), 1);
+    }
+
     /// The extractor could not type either side: that is an absence of information, so an exact
     /// name still clears, and the unknown type still satisfies the "agree about something" anchor.
     #[test]

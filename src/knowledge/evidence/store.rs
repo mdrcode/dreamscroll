@@ -17,6 +17,10 @@ use crate::knowledge::normalize;
 use crate::knowledge::scoring::TotalCmp;
 use crate::model;
 
+/// The unique index that makes one entity's hold on one identity a single live claim. Both writers
+/// ask the same question, so the name is here once rather than in two match arms.
+const CLAIMS_UNIQUE: &str = "idx-knowledge_claims_entity_identity";
+
 /// A platform link, as the capture showed it. `link` transcribes it; nothing infers anything here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlatformLink {
@@ -354,7 +358,7 @@ impl Evidence {
             Ok(_) => Ok(()),
             // This entity already asserts the identity.
             Err(error) => match unique_violation(&error) {
-                Some("idx-knowledge_claims_entity_identity") => Ok(()),
+                Some(CLAIMS_UNIQUE) => Ok(()),
                 _ => Err(error.into()),
             },
         }
@@ -418,7 +422,7 @@ pub async fn store_claim(
         Ok(_) => Ok(Stored::Written),
         // This entity already asserts the identity.
         Err(error) => match unique_violation(&error) {
-            Some("idx-knowledge_claims_entity_identity") => Ok(Stored::AlreadyClaimed),
+            Some(CLAIMS_UNIQUE) => Ok(Stored::AlreadyClaimed),
             _ => Err(error.into()),
         },
     }
