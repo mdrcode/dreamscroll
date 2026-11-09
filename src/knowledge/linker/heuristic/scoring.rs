@@ -309,7 +309,6 @@ fn tokens_of(comparable: &str) -> Vec<String> {
     comparable.split_whitespace().map(str::to_string).collect()
 }
 
-/// A word-order- and article-insensitive key, for blocking only. Never an identity key.
 #[cfg(test)]
 mod tests {
     use super::*;
