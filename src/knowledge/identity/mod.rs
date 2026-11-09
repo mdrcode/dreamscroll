@@ -7,13 +7,13 @@
 //! cannot forget the cache, because there is no other door.
 //!
 //! What lives here is everything that knows what a knowledge entity *is*: the run loop and the
-//! candidate query (`engine`), where a claim becomes a row (`store`), the claim's shape
-//! (`contract`), and the authority that answers today (`wikidata`).
+//! candidate query (`engine`), where a claim becomes a row (`store`), the contract a provider
+//! implements (`resolver`), and the authority that answers today (`wikidata`).
 
-pub mod contract;
 pub mod engine;
+pub mod resolver;
 pub mod store;
 pub mod wikidata;
 
-pub use contract::Claim;
-pub use engine::{DEFAULT_MAX_REQUESTS, Options, Report, ResolutionEngine, Resolver};
+pub use engine::{DEFAULT_MAX_REQUESTS, Options, Report, ResolutionEngine};
+pub use resolver::{Claim, Resolver};

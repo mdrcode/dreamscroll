@@ -7,28 +7,10 @@ use std::collections::HashSet;
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
-use super::contract::Claim;
+use super::resolver::{Claim, Resolver};
 use super::store::store_claim;
 use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
 use crate::{database, model};
-
-/// One authority, and the strategy for asking it.
-///
-/// `resolve` takes a *batch* of entities rather than one: batching across entities is the difference
-/// between a hundred transport calls for a corpus walk and five thousand, and only the resolver knows
-/// how to group its own requests.
-#[async_trait::async_trait]
-pub trait Resolver: Send + Sync {
-    fn id(&self) -> &'static str;
-
-    /// Claims about the entities it could resolve, each tagged with the entity it belongs to, in
-    /// priority order: the engine takes the first claim per entity that the graph accepts.
-    async fn resolve(
-        &self,
-        entities: &[model::knowledge_entity::Model],
-        gateway: &Gateway<'_>,
-    ) -> Vec<(i32, Claim)>;
-}
 
 /// Transport calls a plain resolve is allowed to make. Exists so that omitting the budget does real
 /// work instead of quietly resolving nothing.

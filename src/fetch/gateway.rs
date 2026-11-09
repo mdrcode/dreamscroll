@@ -10,7 +10,7 @@ use std::fmt::Display;
 
 use super::allowance::{Allowance, Refusal};
 use super::cache::FetchCache;
-use super::contract::{Answer, Answers, FetchError, Outcome, Request, Transport};
+use super::transport::{Answer, Answers, FetchError, Outcome, Request, Transport};
 use super::stats::{Counters, Stats};
 
 /// The one door.

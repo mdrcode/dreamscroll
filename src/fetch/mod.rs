@@ -13,14 +13,14 @@
 
 pub mod allowance;
 pub mod cache;
-pub mod contract;
 pub mod gateway;
 pub(crate) mod stats;
+pub mod transport;
 
 pub use allowance::{Allowance, Refusal};
 pub use cache::FetchCache;
-pub use contract::{Answer, Answers, FetchError, Outcome, Request, Transport};
 pub use gateway::Gateway;
 pub use stats::{Stats, Tally};
+pub use transport::{Answer, Answers, FetchError, Outcome, Request, Transport};
 
-pub(crate) use contract::BATCH;
+pub(crate) use transport::BATCH;

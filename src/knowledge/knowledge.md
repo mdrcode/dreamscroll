@@ -286,9 +286,9 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
 | `sql_blocker.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
 | `heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
-| `identity/` | `contract` (the claim) · `engine` (the run loop, candidate selection, vetoes) · `store` (where a claim becomes a row) · `wikidata/` (today's only authority). The cache, the pace and the budget are **not** here: they are `crate::fetch` |
+|`identity/`|`resolver` (the trait a provider implements, and the claim it returns) · `engine` (the run loop, candidate selection, vetoes) · `store` (where a claim becomes a row) · `wikidata/` (today's only authority). The cache, the pace and the budget are **not** here: they are `crate::fetch`|
 | `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates in `policy.rs` · answer parsing in `answer.rs` · the ladder and its request shapes in `resolver.rs` · candidate scoring in `ranking.rs` · HTTP in `transport.rs` |
-| `../fetch/` | the only door to a third party — see `src/fetch/fetch.md`: `contract` (request, answer, transport, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, their TTLs, and the outcome tally) · `gateway` (cache first, then a paced, budgeted fetch) |
+|`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
 | `link.rs` | the linking executor, and `LinkStats` |
 | `project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |

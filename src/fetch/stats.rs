@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
-use super::contract::Outcome;
+use super::transport::Outcome;
 
 /// What one run has spent and found, once it is over.
 ///

@@ -17,7 +17,7 @@ use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::Value;
 
-use super::contract::{Answer, Outcome};
+use super::transport::{Answer, Outcome};
 use crate::model::fetch_cache as cached;
 
 /// Seven days for everything, which is short enough that a provider gaining a new item is noticed
