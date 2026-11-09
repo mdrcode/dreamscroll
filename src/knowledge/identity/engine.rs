@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use super::resolver::Resolver;
+use super::Resolver;
 use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
 use crate::knowledge::evidence::{Stored, store_claim};
 use crate::database;
