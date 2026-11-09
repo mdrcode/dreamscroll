@@ -33,23 +33,9 @@ pub struct ReplayReport {
     pub withdrawn: usize,
 }
 
-/// Which statement a verdict row makes.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum Kind {
-    /// Two origins are one thing.
-    Merge,
-    /// An entity is not an identity. The item stays valid and claimable by everything else.
-    Veto,
-}
-
-impl Kind {
-    pub(crate) fn as_str(self) -> &'static str {
-        match self {
-            Self::Merge => "merge",
-            Self::Veto => "veto",
-        }
-    }
-}
+/// Which statement a verdict row makes lives with the column it fills; this re-export is how this
+/// module names it.
+pub(crate) use crate::model::knowledge_verdicts::Kind;
 
 /// The generation the graph is being built in. One is implicit on a database that never reset.
 pub(crate) async fn current_generation<C: ConnectionTrait>(conn: &C) -> anyhow::Result<i32> {
@@ -93,8 +79,8 @@ pub(super) async fn record<C: ConnectionTrait>(
     }
     model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
         generation: Set(generation),
-        cause: Set(cause.as_str().to_string()),
-        kind: Set(Kind::Merge.as_str().to_string()),
+        cause: Set(cause),
+        kind: Set(Kind::Merge),
         winner_origin: Set(Some(winner_origin)),
         loser_origin: Set(Some(loser_origin)),
         winner_label: Set(Some(winner.name.clone())),
@@ -214,8 +200,8 @@ pub async fn veto(
     }
     model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
         generation: Set(generation),
-        cause: Set(Cause::Repair.as_str().to_string()),
-        kind: Set(Kind::Veto.as_str().to_string()),
+        cause: Set(Cause::Repair),
+        kind: Set(Kind::Veto),
         subject_origin: Set(Some(subject)),
         identity_scheme: Set(Some(scheme.to_string())),
         identity_external_id: Set(Some(external_id.to_string())),
@@ -502,7 +488,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(logged.len(), 1);
-        assert_eq!(logged[0].cause, "proximity_auto");
+        assert_eq!(logged[0].cause, crate::model::knowledge_verdicts::Cause::ProximityAuto);
 
         let report = replay(&store).await.expect("replay");
         assert_eq!(report, ReplayReport::default(), "nothing to replay");

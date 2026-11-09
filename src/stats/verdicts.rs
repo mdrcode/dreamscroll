@@ -86,11 +86,11 @@ mod tests {
             return;
         };
         let db = test_db.handle();
-        for (generation, cause) in [(1, "repair"), (2, "repair"), (2, "proximity_auto")] {
+        for (generation, cause) in [(1, crate::model::knowledge_verdicts::Cause::Repair), (2, crate::model::knowledge_verdicts::Cause::Repair), (2, crate::model::knowledge_verdicts::Cause::ProximityAuto)] {
             crate::model::knowledge_verdicts::Entity::insert(
                 crate::model::knowledge_verdicts::ActiveModel {
                     generation: Set(generation),
-                    cause: Set(cause.to_string()),
+                    cause: Set(cause),
                     winner_origin: Set(Some(generation)),
                     loser_origin: Set(Some(generation + 100)),
                     winner_label: Set(Some("winner".to_string())),

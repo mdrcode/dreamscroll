@@ -38,26 +38,8 @@ pub struct Preview {
     pub shared_illuminations: i64,
 }
 
-/// Why a merge happened — and, because the same word covers both, whose decision it was.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Cause {
-    /// The automatic pass folded a proximity candidate. The model's opinion, re-derived every build.
-    ProximityAuto,
-    /// A person decided these are one thing. Kept, and replayed in every later generation.
-    Repair,
-    /// An older repair, applied to this generation by the replay.
-    Replayed,
-}
-
-impl Cause {
-    pub(super) fn as_str(self) -> &'static str {
-        match self {
-            Self::ProximityAuto => "proximity_auto",
-            Self::Repair => "repair",
-            Self::Replayed => "replayed",
-        }
-    }
-}
+/// Why a merge happened lives with the column it fills; this re-export is how `merge` names it.
+pub use crate::model::knowledge_verdicts::Cause;
 
 /// How many illuminations both entities appear in.
 async fn shared_illuminations<C: ConnectionTrait>(
@@ -491,7 +473,7 @@ mod tests {
             .await
             .unwrap()
             .expect("a log row");
-        assert_eq!(row.cause, "repair");
+        assert_eq!(row.cause, crate::model::knowledge_verdicts::Cause::Repair);
         assert_eq!(row.loser_origin, Some(fixtures::origin(&db, loser).await));
     }
 

@@ -1,6 +1,65 @@
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
 
+/// Which statement a verdict row makes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
+pub enum Kind {
+    /// Two origins are one thing.
+    #[sea_orm(string_value = "merge")]
+    Merge,
+    /// An entity is not an identity. The item stays valid and claimable by everything else.
+    #[sea_orm(string_value = "veto")]
+    Veto,
+}
+
+impl Kind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Merge => "merge",
+            Self::Veto => "veto",
+        }
+    }
+}
+
+impl std::fmt::Display for Kind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// What decided a merge. The distinction is the point of keeping the log: a person's instruction is
+/// replayed in every later generation, the automatic pass's opinion is re-derived, and a replay
+/// records that an older repair was applied again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
+pub enum Cause {
+    /// The automatic pass folded a proximity candidate. The model's opinion, re-derived every build.
+    #[sea_orm(string_value = "proximity_auto")]
+    ProximityAuto,
+    /// A person decided these are one thing. Kept, and replayed in every later generation.
+    #[sea_orm(string_value = "repair")]
+    Repair,
+    /// An older repair, applied to this generation by the replay.
+    #[sea_orm(string_value = "replayed")]
+    Replayed,
+}
+
+impl Cause {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::ProximityAuto => "proximity_auto",
+            Self::Repair => "repair",
+            Self::Replayed => "replayed",
+        }
+    }
+}
+
+impl std::fmt::Display for Cause {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// One merge that happened, and what decided it — the graph's modification log.
 ///
@@ -29,11 +88,11 @@ pub struct Model {
     /// `repair` (a person), `proximity_auto` (the automatic pass) or `replayed` (an older repair
     /// applied again).
     #[sea_orm(default_value = "repair")]
-    pub cause: String,
+    pub cause: Cause,
 
     /// `merge` (two origins fold) or `veto` (an entity never holds one identity).
     #[sea_orm(default_value = "merge")]
-    pub kind: String,
+    pub kind: Kind,
 
     /// `origin_observation_id` of the side that survives. `merge` only.
     pub winner_origin: Option<i32>,
