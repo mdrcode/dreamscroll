@@ -351,7 +351,8 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
             knowledge::eval::inspect::CacheState::Expired => "expired → miss",
             knowledge::eval::inspect::CacheState::Missing => "not asked",
         };
-        println!("  {:<16} {:?}  [{cache}]", step.kind, step.query);
+        let outcome = step.outcome.map(|outcome| outcome.as_str()).unwrap_or("—");
+        println!("  {:<16} {:?}  [{cache} {outcome}]", step.kind, step.query);
         for (id, label, description) in &step.top {
             println!("      {id:<12} {label:<34} {description}");
         }
@@ -384,8 +385,8 @@ async fn eval_resolve(db: &database::DbHandle, args: EvalResolveArgs) -> anyhow:
         println!();
     }
     println!(
-        "candidates {} · claimed {} · undecided {} · not cached {}",
-        report.candidates, report.claimed, report.undecided, report.uncached
+        "candidates {} · claimed {} · vetoed {} · undecided {} · not cached {}",
+        report.candidates, report.claimed, report.vetoed, report.undecided, report.uncached
     );
     if !report.by_method.is_empty() {
         let methods: Vec<String> = report

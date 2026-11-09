@@ -49,6 +49,8 @@ pub struct Step {
     pub kind: String,
     pub query: String,
     pub cache: CacheState,
+    /// What the stored answer said it was, when there is a row to read.
+    pub outcome: Option<Outcome>,
     /// The first candidates the answer carried: `(id, label, description)`.
     pub top: Vec<(String, String, String)>,
     /// `(qid, method)` when this rung produced a claim.
@@ -216,6 +218,7 @@ async fn ladder(
                 kind: kind.clone(),
                 query: request.query.clone(),
                 cache: CacheState::Missing,
+                outcome: None,
                 top: Vec::new(),
                 decision: None,
                 refusal: "not asked",
@@ -223,42 +226,48 @@ async fn ladder(
             continue;
         };
 
-        let outcome: String = row.try_get_by_index(0)?;
+        let outcome_text: String = row.try_get_by_index(0)?;
         let payload: Option<String> = row.try_get_by_index(1)?;
         let fresh: bool = row.try_get_by_index(2)?;
         let stored: Option<serde_json::Value> =
             payload.as_deref().and_then(|text| serde_json::from_str(text).ok());
-        let candidates: Option<Vec<Offered>> = crate::fetch::cache::decode(stored.as_ref());
-        let top = describe(candidates.as_deref().unwrap_or_default());
+        let outcome = Outcome::parse(&outcome_text);
+        let body: Option<Vec<Offered>> = crate::fetch::cache::decode(stored.as_ref());
+        let top = describe(body.as_deref().unwrap_or_default());
+        // What `FetchCache::get_many` makes of this row: an answered payload that no longer decodes
+        // is a miss, so the gates must not run over an empty body and blame the answer.
+        let unreadable =
+            outcome.is_some_and(Outcome::answered) && stored.is_some() && body.is_none();
 
         // An expired row is a miss to the resolver, so it renders no decision here either.
-        let mut refusal = if fresh {
-            ""
-        } else {
+        let mut refusal = if !fresh {
             "the cached answer is expired"
-        };
-        let decision = if fresh {
-            let raw = Answer {
-                // The real outcome, so a degraded answer reads as degraded here too.
-                outcome: Outcome::parse(&outcome).unwrap_or(Outcome::Empty),
-                body: candidates,
-            };
-            let claim = match rung {
-                // The last resort does not rank: it takes the article bearing this exact name.
-                plan::Rung::SurfaceOnly => match parse::admit(entity, &raw) {
-                    Ok(candidates) => parse::surface_only(entity, &candidates, &request),
-                    Err(gate) => {
-                        refusal = gate;
-                        None
-                    }
-                },
-                _ => parse::explained(entity, &request, &raw, &mut refusal)
-                    .into_iter()
-                    .next(),
-            };
-            claim.map(|claim| (claim.id, claim.method))
+        } else if outcome.is_none() {
+            "the stored outcome is not one this build knows"
+        } else if unreadable {
+            "the cached payload no longer decodes"
         } else {
-            None
+            ""
+        };
+        let decision = match (fresh, outcome) {
+            (true, Some(outcome)) if refusal.is_empty() => {
+                let raw = Answer { outcome, body };
+                let claim = match rung {
+                    // The last resort does not rank: it takes the article bearing this exact name.
+                    plan::Rung::SurfaceOnly => match parse::admit(entity, &raw) {
+                        Ok(candidates) => parse::surface_only(entity, &candidates, &request),
+                        Err(gate) => {
+                            refusal = gate;
+                            None
+                        }
+                    },
+                    _ => parse::explained(entity, &request, &raw, &mut refusal)
+                        .into_iter()
+                        .next(),
+                };
+                claim.map(|claim| (claim.id, claim.method))
+            }
+            _ => None,
         };
 
         steps.push(Step {
@@ -269,6 +278,7 @@ async fn ladder(
             } else {
                 CacheState::Expired
             },
+            outcome,
             top,
             decision: decision.clone(),
             refusal,

@@ -7,24 +7,14 @@
 
 use std::collections::BTreeMap;
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 
 use crate::database::DbHandle;
 use crate::fetch::{Answer, Outcome};
-use crate::knowledge::identity::wikidata::{Candidate, parse, plan};
-use crate::model;
-
-/// Entities `identity resolve` would consider: live, and with no ontology claim. A platform handle
-/// alone still deserves a QID, so it does not exclude an entity.
-const CANDIDATES: &str = "
-SELECT e.id FROM knowledge_entities e
- WHERE e.merged_into_id IS NULL
-   AND NOT EXISTS (
-       SELECT 1 FROM knowledge_claims c
-         JOIN knowledge_identities i ON i.id = c.knowledge_identity_id
-        WHERE c.knowledge_entity_id = e.id AND c.retracted_at IS NULL
-          AND i.asserted_by <> 'platform')
- ORDER BY e.id";
+use crate::knowledge::evidence::Evidence;
+use crate::knowledge::graph::verdicts;
+use crate::knowledge::identity::wikidata::{Candidate, ID, parse, plan};
+use crate::knowledge::KnowledgeGraph;
 
 /// What one replay found.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -33,6 +23,8 @@ pub struct Report {
     pub candidates: usize,
     /// Entities the replay would give a claim.
     pub claimed: usize,
+    /// Considered, answered, and the claim refused: an editor vetoed that entity for that identity.
+    pub vetoed: usize,
     /// Considered, answered, and no claim was warranted.
     pub undecided: usize,
     /// Considered, but at least one request had no fresh cached answer, so the decision could not be
@@ -60,30 +52,23 @@ pub struct Claimed {
 /// `limit` caps how many candidates are considered, which is useful while a change is being
 /// eyeballed; the order is by entity id, so a limit is stable between runs.
 pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Report> {
-    let ids: Vec<i32> = db
-        .conn
-        .query_all_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            CANDIDATES,
-        ))
-        .await?
-        .iter()
-        .map(|row| row.try_get_by_index::<i32>(0))
-        .collect::<Result<_, _>>()?;
+    // The engine's own selection, from the engine's own query: an evaluator that re-implements the
+    // candidate rule measures itself. `wikidata` is the authority whose ladder this replays.
+    let evidence = Evidence::from_handle(db);
+    let entities = evidence
+        .awaiting_authority(&[ID], limit, None, false)
+        .await?;
+    // A veto is a standing decision, so the claim it names is one the real run never writes.
+    let vetoes = verdicts::vetoed(&KnowledgeGraph::new(db)).await?;
 
     let mut report = Report::default();
-    for id in ids.into_iter().take(limit.unwrap_or(usize::MAX)) {
+    for view in &entities {
         report.candidates += 1;
-        let Some(view) = model::knowledge_entity::Entity::find_by_id(id)
-            .one(&db.conn)
-            .await?
-        else {
-            continue;
-        };
 
         let mut claimed = None;
         let mut uncached = false;
-        for (rung, request) in plan::ladder(&view) {
+        let mut vetoed = false;
+        for (rung, request) in plan::ladder(view) {
             let cached = db
                 .conn
                 .query_one_raw(Statement::from_sql_and_values(
@@ -103,23 +88,38 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
                 uncached = true;
                 continue;
             };
-            let outcome: String = row.try_get_by_index(0)?;
+            let outcome_text: String = row.try_get_by_index(0)?;
             let payload: Option<String> = row.try_get_by_index(1)?;
             let stored: Option<serde_json::Value> =
                 payload.as_deref().and_then(|text| serde_json::from_str(text).ok());
+            // Mirror `FetchCache::get_many`: an outcome this build cannot read, or an answered row
+            // whose payload no longer decodes, is a miss — never an empty answer.
+            let Some(outcome) = Outcome::parse(&outcome_text) else {
+                uncached = true;
+                continue;
+            };
+            let body: Option<Vec<Candidate>> = crate::fetch::cache::decode(stored.as_ref());
+            if stored.is_some() && body.is_none() && outcome.answered() {
+                uncached = true;
+                continue;
+            }
             let raw: Answer<Vec<Candidate>> = Answer {
                 // The real outcome, so a degraded answer reads as degraded here too.
-                outcome: Outcome::parse(&outcome).unwrap_or(Outcome::Empty),
-                body: crate::fetch::cache::decode(stored.as_ref()),
+                outcome,
+                body,
             };
             let claim = match rung {
-                plan::Rung::SurfaceOnly => parse::admit(&view, &raw).ok().and_then(|candidates| {
-                    parse::surface_only(&view, &candidates, &request)
+                plan::Rung::SurfaceOnly => parse::admit(view, &raw).ok().and_then(|candidates| {
+                    parse::surface_only(view, &candidates, &request)
                 }),
-                _ => parse::claims(&view, &request, &raw).into_iter().next(),
+                _ => parse::claims(view, &request, &raw).into_iter().next(),
             };
             if let Some(claim) = claim {
-                claimed = Some((claim.id, claim.method));
+                if vetoes.contains(&(view.id, claim.scheme.clone(), claim.id.clone())) {
+                    vetoed = true;
+                } else {
+                    claimed = Some((claim.id, claim.method));
+                }
                 break;
             }
         }
@@ -135,6 +135,7 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
                     method,
                 });
             }
+            None if vetoed => report.vetoed += 1,
             None if uncached => report.uncached += 1,
             None => report.undecided += 1,
         }
