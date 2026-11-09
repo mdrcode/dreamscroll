@@ -162,12 +162,18 @@ fn group_mates(groups: &BTreeMap<i32, Vec<i32>>) -> HashMap<i32, &Vec<i32>> {
     mates
 }
 
+/// A table name as a quoted identifier. `snapshot compare` takes its suffix from argv, so a quote
+/// in one must stay inside the identifier rather than ending it.
+fn quoted(table: &str) -> String {
+    format!("\"{}\"", table.replace('"', "\"\""))
+}
+
 async fn membership(db: &database::DbHandle, table: &str) -> anyhow::Result<HashMap<i32, i32>> {
     let rows = db
         .conn
         .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
-            format!("SELECT observation_id, knowledge_entity_id FROM \"{table}\""),
+            format!("SELECT observation_id, knowledge_entity_id FROM {}", quoted(table)),
         ))
         .await
         .map_err(|error| anyhow::anyhow!("cannot read snapshot table {table}: {error}"))?;
@@ -184,7 +190,7 @@ async fn labels(db: &database::DbHandle, table: &str) -> anyhow::Result<HashMap<
         .conn
         .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
-            format!("SELECT id, name FROM \"{table}\""),
+            format!("SELECT id, name FROM {}", quoted(table)),
         ))
         .await
         .map_err(|error| anyhow::anyhow!("cannot read snapshot table {table}: {error}"))?;
@@ -291,5 +297,37 @@ mod tests {
             error.to_string().contains("knowledge_entity_membership__cmp_missing"),
             "{error}"
         );
+    }
+
+    /// The suffix comes from argv, so a quote in it must stay inside the identifier. A snapshot
+    /// whose name contains one still reads, which a raw `"{table}"` could not.
+    #[tokio::test]
+    async fn a_suffix_with_a_quote_is_a_table_name_not_statement_text() {
+        db_or_skip!(db);
+        let snapshot = Snapshot {
+            suffix: "a\"b".to_string(),
+        };
+        for (table, columns, row) in [
+            (&snapshot.membership(), "observation_id int, knowledge_entity_id int", "(1, 10)"),
+            (&snapshot.entities(), "id int, name text", "(10, 'Train Dreams')"),
+        ] {
+            db.conn
+                .execute_unprepared(&format!(
+                    "CREATE TABLE {} ({columns})",
+                    quoted(table)
+                ))
+                .await
+                .expect("the quoted identifier names a table");
+            db.conn
+                .execute_unprepared(&format!("INSERT INTO {} VALUES {row}", quoted(table)))
+                .await
+                .expect("the row inserts");
+        }
+
+        let report = compare(&db, &snapshot, &snapshot)
+            .await
+            .expect("the snapshot reads");
+        assert_eq!(report.observations, 1, "{report:?}");
+        assert!(report.identical(), "{report:?}");
     }
 }
