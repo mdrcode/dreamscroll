@@ -18,10 +18,9 @@ use super::record::{
 
 use crate::database;
 use crate::model::{
-    knowledge_claims as claims, knowledge_entity as entity, knowledge_identity as identities,
-    knowledge_index as index_rows,
-    knowledge_proximities as proximities,
-    user_observed_entity as observation,
+    knowledge_blocking_index as blocking, knowledge_claims as claims,
+    knowledge_entity as entity, knowledge_identity as identities,
+    knowledge_proximities as proximities, user_observed_entity as observation,
 };
 
 const OBSERVATION_TABLE: &str = "user_observed_entities";
@@ -73,7 +72,7 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 // last because everything points at them.
                 let unlinked = unlink(txn).await?;
                 // Derived from the entities themselves: gone before them, back with them.
-                index_rows::Entity::delete_many().exec(txn).await?;
+                blocking::Entity::delete_many().exec(txn).await?;
                 let claims = claims::Entity::delete_many().exec(txn).await?.rows_affected;
                 let proximities = proximities::Entity::delete_many().exec(txn).await?.rows_affected;
                 let merges = 0;

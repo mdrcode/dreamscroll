@@ -1,6 +1,6 @@
-//! The blocker: candidates read out of `knowledge_index` instead of a copy of the graph.
+//! The blocker: candidates read out of `knowledge_blocking_index` instead of a copy of the graph.
 //!
-//! Nothing is loaded and nothing is held between probes. `knowledge_index` is already folded,
+//! Nothing is loaded and nothing is held between probes. `knowledge_blocking_index` is already folded,
 //! indexed and kept current by `project`, so a probe is one `&&` against a GIN — and a second
 //! writer's commits are visible immediately, which an in-memory map could not promise.
 
@@ -14,7 +14,7 @@ use super::Blocker;
 use crate::knowledge::normalize;
 use crate::model;
 
-/// Reads `knowledge_index` for every candidate.
+/// Reads `knowledge_blocking_index` for every candidate.
 #[derive(Clone)]
 pub struct SqlBlocker {
     db: DbHandle,
@@ -35,8 +35,8 @@ impl SqlBlocker {
 /// `$1`, not `?`: sea-query substitutes the placeholder *style of the backend*, so Postgres wants
 /// `$n` here. The number indexes this expression's own values, not the statement's — each predicate
 /// is rendered with its own bind, whatever the surrounding query numbers it.
-const OVERLAP_SURFACES: &str = "\"knowledge_index\".\"surfaces\" && $1::varchar[]";
-const OVERLAP_WORDS: &str = "\"knowledge_index\".\"word_keys\" && $1::varchar[]";
+const OVERLAP_SURFACES: &str = "\"knowledge_blocking_index\".\"surfaces\" && $1::varchar[]";
+const OVERLAP_WORDS: &str = "\"knowledge_blocking_index\".\"word_keys\" && $1::varchar[]";
 
 #[async_trait::async_trait]
 impl Blocker for SqlBlocker {
@@ -87,7 +87,7 @@ impl SqlBlocker {
         let query = model::knowledge_entity::Entity::find()
             .join(
                 JoinType::InnerJoin,
-                model::knowledge_index::Relation::KnowledgeEntity
+                model::knowledge_blocking_index::Relation::KnowledgeEntity
                     .def()
                     .rev(),
             )

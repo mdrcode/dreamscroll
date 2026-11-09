@@ -9,7 +9,7 @@ ALTER TABLE knowledge_entities ALTER COLUMN alt_types SET DEFAULT '{}';
 ALTER TABLE knowledge_entities ALTER COLUMN alt_descriptions SET DEFAULT '{}';
 ALTER TABLE knowledge_entities ALTER COLUMN alt_search_queries SET DEFAULT '{}';
 ALTER TABLE knowledge_identities ALTER COLUMN classes SET DEFAULT '{}';
-ALTER TABLE knowledge_index ALTER COLUMN word_keys SET DEFAULT '{}';
+ALTER TABLE knowledge_blocking_index ALTER COLUMN word_keys SET DEFAULT '{}';
 "#;
 
 /// A `NOT NULL` array column cannot be added to a populated table without a default, and the
@@ -44,10 +44,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity"
 /// The blocker's access path: which entities wear any of these folded surfaces. `array_ops` GIN is
 /// what makes `surfaces && $1` one probe instead of a scan.
 const INDEX_SURFACES: &str = r#"
-CREATE INDEX IF NOT EXISTS "idx-knowledge_index-surfaces"
-    ON knowledge_index USING gin (surfaces);
-CREATE INDEX IF NOT EXISTS "idx-knowledge_index-word_keys"
-    ON knowledge_index USING gin (word_keys)
+CREATE INDEX IF NOT EXISTS "idx-knowledge_blocking_index-surfaces"
+    ON knowledge_blocking_index USING gin (surfaces);
+CREATE INDEX IF NOT EXISTS "idx-knowledge_blocking_index-word_keys"
+    ON knowledge_blocking_index USING gin (word_keys)
 "#;
 
 /// The pair, which is how the batch is read (the merge pass and the list). Not unique: the table is
@@ -85,8 +85,8 @@ BEGIN
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_identity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_entity_identity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_proximities_pair');
-    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_index-surfaces');
-    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_index-word_keys');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_blocking_index-surfaces');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_blocking_index-word_keys');
 END;
 $sync$;
 "#;

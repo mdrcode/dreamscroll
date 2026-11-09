@@ -5,7 +5,7 @@
 //! other queued operation. The graph accumulates reading by reading, so a failed link costs one
 //! reading rather than a capture's whole history.
 //!
-//! The blocker reads `knowledge_index` and holds nothing, so a new instance pays nothing at boot and
+//! The blocker reads `knowledge_blocking_index` and holds nothing, so a new instance pays nothing at boot and
 //! a link costs one query per observation. `logic_state` builds it once; `exec` borrows it.
 //!
 //! The task links and stops. Resolution and the proximity passes are separate steps, run in the

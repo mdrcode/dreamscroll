@@ -296,7 +296,7 @@ mod tests {
     }
 
     /// The fingerprint has to move when the rule moves. If this fails, the fold changed: update the
-    /// constant *and* rebuild `knowledge_index`. The constant is not load-bearing — `project` stores
+    /// constant *and* rebuild `knowledge_blocking_index`. The constant is not load-bearing — `project` stores
     /// whatever the code computes — it exists so the change appears in the diff.
     #[test]
     fn the_normalisation_fingerprint_moves_only_deliberately() {

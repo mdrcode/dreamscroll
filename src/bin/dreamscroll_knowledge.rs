@@ -29,7 +29,7 @@ enum Command {
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "index")]
-#[argh(description = "knowledge_index: the folded forms a blocker matches on")]
+#[argh(description = "knowledge_blocking_index: the folded forms a blocker matches on")]
 struct IndexArgs {
     #[argh(subcommand)]
     command: IndexCommand,
@@ -313,7 +313,7 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
         entity.surfaces().collect::<Vec<_>>()
     );
 
-    println!("\n-- recall (knowledge_index) --");
+    println!("\n-- recall (knowledge_blocking_index) --");
     if report.candidates.is_empty() {
         println!("  no candidates");
     }
@@ -913,7 +913,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
         .all(&db.conn)
         .await?;
 
-    // Reads `knowledge_index`: nothing is loaded, so a link run costs queries and nothing at boot.
+    // Reads `knowledge_blocking_index`: nothing is loaded, so a link run costs queries and nothing at boot.
     let blocker: Box<dyn knowledge::blocker::Blocker> =
         Box::new(knowledge::blocker::SqlBlocker::new(db));
     let knowledge = knowledge::Knowledge::with_linking(

@@ -108,7 +108,7 @@ mod tests {
     use crate::test_support::db_or_skip;
     use crate::model;
 
-    /// Rows that were never persisted: `SqlBlocker` reads `knowledge_index`, and these stubs have
+    /// Rows that were never persisted: `SqlBlocker` reads `knowledge_blocking_index`, and these stubs have
     /// no rows to read. The linker only needs something that answers candidates.
     struct StubBlocker(Vec<model::knowledge_entity::Model>);
 

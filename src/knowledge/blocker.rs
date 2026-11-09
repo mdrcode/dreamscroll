@@ -1,6 +1,6 @@
 //! The blocker: which entities are worth considering as targets.
 //!
-//! One implementation, [`SqlBlocker`], answers from `knowledge_index`. The trait is the seam a second
+//! One implementation, [`SqlBlocker`], answers from `knowledge_blocking_index`. The trait is the seam a second
 //! one would use; the in-memory one that proved the SQL against a map has done its job and is gone.
 
 pub mod index;

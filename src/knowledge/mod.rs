@@ -7,7 +7,7 @@
 //! defines, with its parts beneath it:
 //!
 //! - [`blocker`] — which entities are worth considering: the [Blocker] trait, the query that answers
-//!   from `knowledge_index`, and the index itself.
+//!   from `knowledge_blocking_index`, and the index itself.
 //! - [`linker`] — which candidate wins, and making it happen: the [Linker] trait, today's heuristic,
 //!   and the executor that writes one illumination.
 //! - [`graph`] — what the graph holds and every way it changes: [`Knowledge`], projection, merge,

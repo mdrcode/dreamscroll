@@ -168,7 +168,7 @@ async fn index_keys(db: &DbHandle, id: i32) -> anyhow::Result<(Vec<String>, Vec<
         .conn
         .query_one_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
-            "SELECT surfaces, word_keys FROM knowledge_index WHERE knowledge_entity_id = $1",
+            "SELECT surfaces, word_keys FROM knowledge_blocking_index WHERE knowledge_entity_id = $1",
             [id.into()],
         ))
         .await?;

@@ -155,7 +155,7 @@ merge pass on a different policy, silently.
 `heuristic/scoring.rs` is today's only answer: normalized keys, weights, the bar, the corroboration
 bonus. `heuristic/linker.rs` is the **procedure** — the best qualifying candidate, else create — and holds
 no numbers. `sql_blocker.rs` is recall: every folded surface and its word-order-insensitive form, probed
-out of `knowledge_index` — nothing scored. A platform handle is a surface too, so a capture that named an
+out of `knowledge_blocking_index` — nothing scored. A platform handle is a surface too, so a capture that named an
 account only by its handle still finds the entity another capture named by hand. The
 resolver keeps its own measure and its own calibration, because its candidate type is private and
 its fit is corpus-aware (terms are weighed by rarity among the answers it got back) — a pair
@@ -285,7 +285,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by. Shared by the blocker, identity, evidence and projection |
 | `blocker.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
 | `blocker/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
-| `blocker/index.rs` | `knowledge_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
+| `blocker/index.rs` | `knowledge_blocking_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
 | `linker.rs` | the `Linker` trait: one illumination in, decisions out. Everything upstream is recall, everything downstream is effect |
 | `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
 | `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
@@ -293,7 +293,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two writers of `knowledge_claims` in `store.rs`: `Evidence::record` for a capture's observation, `store_claim` for an authority's answer, which is also where the veto and the uniqueness rule live. `store.rs` also reads holders back and answers `awaiting_authority` |
 | `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
-| `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
+| `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `graph/merge.rs` | fold one entity into another |
 | `graph/proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
 | `graph/verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair or a veto, `replay` onto the new graph — vetoes are also asked at admission, since a claim has one writer |

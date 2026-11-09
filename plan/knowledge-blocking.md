@@ -63,7 +63,7 @@ diacritic table aligned), stored as an expression index, a `STORED` generated co
 or a trigger; nondeterministic ICU collations cover case/accent/punctuation at
 comparison time but ignore inner punctuation; `unaccent` covers diacritics only.
 
-## Storage: `knowledge_index`
+## Storage: `knowledge_blocking_index`
 
 Decided 2026-11-06: **a separate table**, not a column on `knowledge_entities` and not an expression
 index. Three reasons, in order of weight:
@@ -79,7 +79,7 @@ index. Three reasons, in order of weight:
   entity and must never live on the hot table.
 
 ```sql
-CREATE TABLE knowledge_index (
+CREATE TABLE knowledge_blocking_index (
     knowledge_entity_id int PRIMARY KEY,     -- one row per entity
     surfaces  text[] NOT NULL DEFAULT '{}',  -- folded forms: an exact match on one of these
     word_keys text[] NOT NULL DEFAULT '{}',  -- the same, sorted, one leading article dropped
@@ -98,7 +98,7 @@ CREATE INDEX ... USING gin (surfaces);
   with the old blocker needs it. The `--surfaces-only` arm was removed 2026-11-07: it had answered
   its question, and carrying it meant a second SQL string and a second code path in the blocker.
 - **The handle is a key, not just a column** (2026-11-07). `entity.surfaces()` is name + alt_names,
-  and `project` gathers a member's `platform_handle` into those alternatives — so `knowledge_index`
+  and `project` gathers a member's `platform_handle` into those alternatives — so `knowledge_blocking_index`
   already answered a handle probe, and neither blocker ever asked. Both now probe name *and* handle.
   Measured: 380 of 2,663 observations carry a handle, **3** find an existing entity by it that the
   name probe misses. Parity with the in-memory blocker was 2,706 pairs (0 missing, 0 extra) when it

@@ -1,4 +1,4 @@
-//! `knowledge_index`: the folded forms a blocker matches on.
+//! `knowledge_blocking_index`: the folded forms a blocker matches on.
 //!
 //! A function of `name` and `alt_names` and nothing else. Written by [`crate::knowledge::project`]
 //! whenever an entity's derived columns change, forgotten when the entity stops being live, and
@@ -16,7 +16,7 @@ use crate::model;
 
 /// One row per live entity: the folded surfaces, and the same text for full search.
 const UPSERT: &str = "
-INSERT INTO knowledge_index (knowledge_entity_id, surfaces, word_keys, text, built_with)
+INSERT INTO knowledge_blocking_index (knowledge_entity_id, surfaces, word_keys, text, built_with)
 VALUES ($1, $2, $3, $4, $5)
 ON CONFLICT (knowledge_entity_id) DO UPDATE
    SET surfaces = EXCLUDED.surfaces,
@@ -80,7 +80,7 @@ pub(crate) async fn write<C: ConnectionTrait>(
 pub(crate) async fn forget<C: ConnectionTrait>(conn: &C, knowledge_entity_id: i32) -> anyhow::Result<()> {
     conn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
-        "DELETE FROM knowledge_index WHERE knowledge_entity_id = $1",
+        "DELETE FROM knowledge_blocking_index WHERE knowledge_entity_id = $1",
         [knowledge_entity_id.into()],
     ))
     .await?;
@@ -111,7 +111,7 @@ pub async fn rebuild(db: &DbHandle) -> anyhow::Result<usize> {
     db.conn
         .execute_raw(Statement::from_string(
             DatabaseBackend::Postgres,
-            "DELETE FROM knowledge_index",
+            "DELETE FROM knowledge_blocking_index",
         ))
         .await?;
     let entities = model::knowledge_entity::Entity::find()
@@ -140,15 +140,15 @@ pub async fn check(db: &DbHandle) -> anyhow::Result<Report> {
         }
     };
     Ok(Report {
-        indexed: count("SELECT count(*) FROM knowledge_index", vec![]).await? as usize,
+        indexed: count("SELECT count(*) FROM knowledge_blocking_index", vec![]).await? as usize,
         stale: count(
-            "SELECT count(*) FROM knowledge_index WHERE built_with <> $1",
+            "SELECT count(*) FROM knowledge_blocking_index WHERE built_with <> $1",
             vec![normalize::norm_fingerprint().into()],
         )
         .await? as usize,
         missing: count(
             "SELECT count(*) FROM knowledge_entities e \
-                  LEFT JOIN knowledge_index i ON i.knowledge_entity_id = e.id \
+                  LEFT JOIN knowledge_blocking_index i ON i.knowledge_entity_id = e.id \
               WHERE e.merged_into_id IS NULL AND i.knowledge_entity_id IS NULL",
             vec![],
         )
@@ -175,7 +175,7 @@ mod tests {
             .unwrap()
             .expect("entity");
 
-        let row = model::knowledge_index::Entity::find_by_id(id)
+        let row = model::knowledge_blocking_index::Entity::find_by_id(id)
             .one(&db.conn)
             .await
             .unwrap()
@@ -197,7 +197,7 @@ mod tests {
         db.conn
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
-                "UPDATE knowledge_index SET built_with = 'fold-0000000000000000' WHERE knowledge_entity_id = $1",
+                "UPDATE knowledge_blocking_index SET built_with = 'fold-0000000000000000' WHERE knowledge_entity_id = $1",
                 [id.into()],
             ))
             .await
@@ -229,14 +229,14 @@ mod tests {
             .unwrap();
 
         assert!(
-            model::knowledge_index::Entity::find_by_id(loser)
+            model::knowledge_blocking_index::Entity::find_by_id(loser)
                 .one(&db.conn)
                 .await
                 .unwrap()
                 .is_none(),
             "the tombstone keeps no retrieval material"
         );
-        let survivor = model::knowledge_index::Entity::find_by_id(winner)
+        let survivor = model::knowledge_blocking_index::Entity::find_by_id(winner)
             .one(&db.conn)
             .await
             .unwrap()

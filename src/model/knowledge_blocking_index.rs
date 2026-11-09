@@ -10,7 +10,7 @@ use super::*;
 /// be read as "this entity has no surfaces". See AGENTS.md §Derived Data.
 #[sea_orm::model]
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel)]
-#[sea_orm(table_name = "knowledge_index")]
+#[sea_orm(table_name = "knowledge_blocking_index")]
 pub struct Model {
     /// One row per entity, so the entity's own id is the key.
     #[sea_orm(primary_key, auto_increment = false)]
