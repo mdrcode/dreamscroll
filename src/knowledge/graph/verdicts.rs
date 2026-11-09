@@ -14,7 +14,6 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder
 
 use crate::model;
 
-use crate::knowledge::evidence::ClaimBasis;
 use super::merge::{Cause, Outcome};
 use super::KnowledgeGraph;
 
@@ -31,6 +30,9 @@ pub struct ReplayReport {
     pub refused: usize,
     /// Live claims withdrawn because an entity was vetoed out of an identity.
     pub withdrawn: usize,
+    /// Vetoes already in force: the pairing has no live claim to retract — never written, or
+    /// retracted by an earlier replay. A settled decision is not a failure.
+    pub settled: usize,
 }
 
 /// Which statement a verdict row makes lives with the column it fills; this re-export is how this
@@ -159,6 +161,7 @@ pub async fn replay(graph: &KnowledgeGraph) -> anyhow::Result<ReplayReport> {
         .await?;
     for verdict in vetoes {
         match withdraw(graph, &verdict).await? {
+            Some(0) => report.settled += 1,
             Some(retracted) => report.withdrawn += retracted,
             None => report.gone += 1,
         }
@@ -257,10 +260,11 @@ pub async fn vetoed(
     Ok(out)
 }
 
-/// Retract the live authority claims holding a vetoed identity for its entity, then reproject it.
+/// Retract the live claim holding a vetoed identity for its entity, then reproject it.
 ///
-/// Basis `text` only: a `handle` claim is what a capture showed, not a cross-reference an editor is
-/// disputing. `None` when the subject origin no longer names a live entity.
+/// The veto names a **pairing**, so the retraction does too: there is at most one live claim for
+/// `(entity, identity)`, whatever route produced it. `None` when the subject origin no longer names a
+/// live entity; `Some(0)` when the decision already holds and there is nothing to retract.
 ///
 /// The retraction and the projection are one act: `status` and `confidence` are functions of the
 /// live claims, so withdrawing a claim without reprojecting leaves the entity `identified` on
@@ -297,7 +301,6 @@ async fn withdraw(
         )
         .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(entity_id))
         .filter(model::knowledge_claims::Column::KnowledgeIdentityId.eq(identity.id))
-        .filter(model::knowledge_claims::Column::Basis.eq(ClaimBasis::Text))
         .filter(model::knowledge_claims::Column::RetractedAt.is_null())
         .exec(graph.conn())
         .await?
@@ -341,6 +344,8 @@ async fn canonical(graph: &KnowledgeGraph, id: i32) -> anyhow::Result<Option<i32
 #[cfg(test)]
 mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+
+    use crate::knowledge::evidence::ClaimBasis;
 
     use crate::test_support::{db_or_skip, fixtures};
 
@@ -421,6 +426,50 @@ mod tests {
         assert_eq!(report.withdrawn, 1, "{report:?}");
         assert_eq!(live_claims(&db, vetoed_entity).await, 0);
         assert_eq!(live_claims(&db, other).await, 1, "the pair, not the identity");
+    }
+
+    /// A veto names a pairing, so it retracts the claim whatever route produced it — including one an
+    /// authority reached through a handle (P2002), which a `basis = 'text'` filter used to miss.
+    #[tokio::test]
+    async fn a_veto_retracts_a_claim_that_arrived_by_handle() {
+        db_or_skip!(db);
+        let store = KnowledgeGraph::new(&db);
+        let entity_id = fixtures::knowledge_entity_with_member(&db, "Tsoding").await;
+        fixtures::claim(
+            &db,
+            entity_id,
+            "wikidata",
+            "Q123737256",
+            "wikidata",
+            Some("P2002"),
+            Some(0.9),
+            ClaimBasis::Handle,
+        )
+        .await;
+        store.update_projection(entity_id).await.unwrap();
+        assert_eq!(
+            store.get(entity_id).await.unwrap().status,
+            crate::knowledge::Status::Identified
+        );
+
+        veto(&store, entity_id, "wikidata", "Q123737256", None)
+            .await
+            .unwrap();
+        let report = replay(&store).await.unwrap();
+        assert_eq!(report.withdrawn, 1, "{report:?}");
+
+        let entity = store.get(entity_id).await.unwrap();
+        assert_eq!(
+            entity.status,
+            crate::knowledge::Status::Provisional,
+            "the identity went, so the identification went"
+        );
+        assert_eq!(entity.confidence, None);
+
+        // A second replay: the decision holds, and says so instead of reporting a zero withdrawal.
+        let report = replay(&store).await.unwrap();
+        assert_eq!(report.settled, 1, "{report:?}");
+        assert_eq!(report.withdrawn, 0, "{report:?}");
     }
 
     /// The claim is re-derived every build, so the veto has to outlive the rows it withdrew.

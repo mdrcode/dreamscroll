@@ -600,12 +600,13 @@ async fn main() -> anyhow::Result<()> {
         Command::Link(_) => {
             let report = link_all_pending(&db).await?;
             println!(
-                "considered {} · already linked {} · linked {} · created {} · left pending {}",
+                "considered {} · already linked {} · linked {} · created {} · left pending {} · vetoed {}",
                 report.considered,
                 report.already_linked,
                 report.attached,
                 report.created,
-                report.left_pending
+                report.left_pending,
+                report.vetoed
             );
         }
         Command::Merge(args) => {
@@ -648,8 +649,13 @@ async fn main() -> anyhow::Result<()> {
                 let store = knowledge::KnowledgeGraph::new(&db);
                 let report = knowledge::graph::verdicts::replay(&store).await?;
                 println!(
-                    "applied {} · already {} · gone {} · refused {} · withdrawn {}",
-                    report.applied, report.already, report.gone, report.refused, report.withdrawn
+                    "applied {} · already {} · gone {} · refused {} · withdrawn {} · settled {}",
+                    report.applied,
+                    report.already,
+                    report.gone,
+                    report.refused,
+                    report.withdrawn,
+                    report.settled
                 );
             }
             VerdictsCommand::List(args) => {
@@ -895,6 +901,8 @@ struct LinkAllPendingReport {
     created: usize,
     /// Pending observations the linker returned no decision for.
     left_pending: usize,
+    /// Claims a standing veto refused.
+    vetoed: usize,
 }
 
 impl LinkAllPendingReport {
@@ -902,6 +910,7 @@ impl LinkAllPendingReport {
         self.attached += part.attached;
         self.created += part.created;
         self.left_pending += part.left_pending;
+        self.vetoed += part.vetoed;
     }
 }
 

@@ -8,12 +8,13 @@
 //! Callers reach this through [`KnowledgeGraph::link_illumination`]. The rest is `pub(super)` or private:
 //! `merge` and `project` do not link, and nothing outside `knowledge` does either.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
+use crate::knowledge::evidence::{ClaimDraft, PlatformLink, Stored};
 use crate::knowledge::linker::{Action, Decision};
 use crate::model;
 
-use super::KnowledgeGraph;
+use super::{verdicts, KnowledgeGraph};
 
 // Linking: the one write path that decides before it applies.
 // ---------------------------------------------------------------------------------------------
@@ -26,6 +27,9 @@ pub struct LinkStats {
     /// Pending observations the Linker returned no decision for. Nonzero means the policy left part
     /// of the illumination unlinked: the executor does not invent a decision to cover it.
     pub left_pending: usize,
+    /// Claims a standing decision refused. The edge was not written, and a later `link` will not
+    /// write it either.
+    pub vetoed: usize,
 }
 
 impl LinkStats {
@@ -61,30 +65,72 @@ pub(crate) async fn link_illumination(
         illumination.id
     );
 
-    // Only the unlinked ones: a linked observation got its claim when it was linked, so importing it
-    // again would be a write with no effect.
-    let pending: Vec<model::user_observed_entity::Model> = illumination
+    // Every observation of the illumination, not only the unlinked ones: ingestion is idempotent
+    // and never enriches, so a re-link also repairs a claim a crash or a lifted veto left missing.
+    let observations: Vec<model::user_observed_entity::Model> = illumination
         .observations
         .iter()
-        .filter(|row| row.knowledge_entity_id.is_none())
         .map(|row| row.clone().into())
         .collect();
 
-    // Identities first, as one batch: a decision names them by id, so the rows have to exist before
-    // the decider runs — and then `apply_decision` writes edges with nothing left to create.
-    graph.evidence.import_identities(&pending).await?;
-    let pending_ids: HashSet<i32> = pending.iter().map(|row| row.id).collect();
+    // Phase one: identities. A decision names them by id, so the rows exist before the decider runs.
+    let identities = graph.evidence.ingest(&observations).await?;
 
+    // Phase two: decisions, all against the corpus as it stood before any of these writes.
     let decisions = decider
         .decide_link(&**blocker, &graph.evidence, &graph.scoring, illumination)
         .await?;
 
+    let pending_ids: HashSet<i32> = observations
+        .iter()
+        .filter(|row| row.knowledge_entity_id.is_none())
+        .map(|row| row.id)
+        .collect();
+
+    // Phase three: entities.
     let mut stats = LinkStats::default();
+    let mut holders: HashMap<i32, i32> = observations
+        .iter()
+        .filter_map(|row| row.knowledge_entity_id.map(|entity| (row.id, entity)))
+        .collect();
     for decision in &decisions {
         let entity = apply_decision(graph, &pending_ids, decision).await?;
-        graph.update_projection(entity).await?;
+        holders.insert(decision.observation.id, entity);
         stats.record(decision);
     }
+
+    // Phase four: edges. Every observation that carries a handle asserts it against wherever it now
+    // lives — a decision from above, or a link that predates this run.
+    let vetoes = verdicts::vetoed(graph).await?;
+    let mut touched: BTreeSet<i32> = BTreeSet::new();
+    for observation in &observations {
+        let Some(entity) = holders.get(&observation.id).copied() else {
+            continue;
+        };
+        // Projection is owed to every entity this illumination touched, whether or not the
+        // observation carried a handle: the blocker reads the projected index.
+        touched.insert(entity);
+        let Some(link) = PlatformLink::of(observation) else {
+            continue;
+        };
+        let key = link.key();
+        let Some(&identity_id) = identities.get(&key) else {
+            continue;
+        };
+        if graph
+            .evidence
+            .assert(ClaimDraft::capture(entity, observation, &key, identity_id), &vetoes)
+            .await?
+            == Stored::Vetoed
+        {
+            stats.vetoed += 1;
+        }
+    }
+    // Projection last, once per entity, so it sees every claim this run wrote.
+    for entity in touched {
+        graph.update_projection(entity).await?;
+    }
+
     // A policy may decide less than it was given. The executor applies what it got and says how much
     // it was not told about, rather than inventing a decision or calling the silence success.
     let decided: HashSet<i32> = decisions
@@ -124,9 +170,6 @@ async fn apply_decision(
     // `attach` refuses a tombstone, so this also covers an entity merged away since the decision.
     graph.attach_observation(observation.id, entity).await?;
 
-    if let Some(identity_id) = decision.identity {
-        graph.evidence.record(entity, identity_id, observation).await?;
-    }
     Ok(entity)
 }
 
@@ -225,7 +268,6 @@ mod unit {
             Ok(vec![crate::knowledge::linker::Decision {
                 observation: fixtures::stub_observation(999_999, "Train Dreams", "book"),
                 action: crate::knowledge::linker::Action::Create,
-                identity: None,
             }])
         }
     }
@@ -297,6 +339,127 @@ mod unit {
             error.to_string().contains("no observations loaded"),
             "{error}"
         );
+    }
+
+    /// A veto names a pairing, and the capture writer asks it too: a handle the graph was told to
+    /// reject is not re-asserted by the next link.
+    #[tokio::test]
+    async fn a_vetoed_handle_is_not_re_asserted() {
+        db_or_skip!(db);
+        let store = linking_store(
+            &db,
+            Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
+        )
+        .await;
+        let live_claims = || async {
+            crate::model::knowledge_claims::Entity::find()
+                .filter(crate::model::knowledge_claims::Column::RetractedAt.is_null())
+                .count(&db.conn)
+                .await
+                .unwrap()
+        };
+
+        let first = fixtures::Capture::new(&db, "link_veto_first").await;
+        fixtures::observe(
+            &db,
+            &first,
+            0,
+            "Tsoding",
+            None,
+            "real_person",
+            Some("x_twitter"),
+            Some("tsoding"),
+        )
+        .await;
+        let loaded = load_illumination(&db, first.illumination_id).await;
+        store.link_illumination(&loaded).await.unwrap();
+        assert_eq!(live_claims().await, 1);
+
+        let entity_id = entity::Entity::find().one(&db.conn).await.unwrap().unwrap().id;
+        crate::knowledge::graph::verdicts::veto(
+            &store,
+            entity_id,
+            "x_twitter",
+            "tsoding",
+            None,
+        )
+        .await
+        .unwrap();
+        crate::knowledge::graph::verdicts::replay(&store)
+            .await
+            .unwrap();
+        assert_eq!(
+            live_claims().await,
+            0,
+            "the veto retracted the capture's own claim"
+        );
+
+        let second = fixtures::Capture::new(&db, "link_veto_second").await;
+        fixtures::observe(
+            &db,
+            &second,
+            0,
+            "Tsoding",
+            None,
+            "real_person",
+            Some("x_twitter"),
+            Some("tsoding"),
+        )
+        .await;
+        let loaded = load_illumination(&db, second.illumination_id).await;
+        let stats = store.link_illumination(&loaded).await.unwrap();
+        assert_eq!(stats.vetoed, 1, "the capture writer asked the veto: {stats:?}");
+        assert_eq!(live_claims().await, 0, "and did not write the edge");
+        assert_eq!(
+            entity::Entity::find().count(&db.conn).await.unwrap(),
+            1,
+            "and it attached rather than duplicated"
+        );
+    }
+
+    /// The claim phase runs for every observation of the illumination, so a link that died between
+    /// attaching and asserting is repaired by the next one.
+    #[tokio::test]
+    async fn a_later_link_restores_a_claim_that_went_missing() {
+        db_or_skip!(db);
+        let store = linking_store(
+            &db,
+            Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
+        )
+        .await;
+        let capture = fixtures::Capture::new(&db, "link_self_heal").await;
+        fixtures::observe(
+            &db,
+            &capture,
+            0,
+            "Tsoding",
+            None,
+            "real_person",
+            Some("x_twitter"),
+            Some("tsoding"),
+        )
+        .await;
+
+        let loaded = load_illumination(&db, capture.illumination_id).await;
+        store.link_illumination(&loaded).await.unwrap();
+        let claims = || async {
+            crate::model::knowledge_claims::Entity::find()
+                .filter(crate::model::knowledge_claims::Column::RetractedAt.is_null())
+                .count(&db.conn)
+                .await
+                .unwrap()
+        };
+        assert_eq!(claims().await, 1);
+
+        // What a crash between the two phases would leave: linked, and no edge.
+        crate::model::knowledge_claims::Entity::delete_many()
+            .exec(&db.conn)
+            .await
+            .unwrap();
+        let loaded = load_illumination(&db, capture.illumination_id).await;
+        let stats = store.link_illumination(&loaded).await.unwrap();
+        assert_eq!(stats.attached + stats.created, 0, "nothing was pending");
+        assert_eq!(claims().await, 1, "and the edge is back");
     }
 }
 

@@ -38,11 +38,6 @@ pub struct Decision {
     /// look it up — and cannot be handed one it was never given.
     pub observation: model::user_observed_entity::Model,
     pub action: Action,
-    /// The identity this capture asserted for the observation, already a row — the executor imported
-    /// them all before asking. The executor records it against whichever entity `action` names, so an
-    /// `Attach` can carry one too: attaching by name *and* asserting a handle is how an entity known
-    /// only by its name acquires the account that speaks for it.
-    pub identity: Option<i32>,
 }
 
 #[async_trait::async_trait]

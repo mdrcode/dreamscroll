@@ -112,6 +112,7 @@ struct LinkStats {                 // what one illumination's decisions did
     attached: usize,
     created: usize,
     left_pending: usize,           // pending observations the linker did not decide
+    vetoed: usize,                 // claims a standing decision refused
 }
 ```
 
@@ -292,12 +293,12 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), the corroboration bonus |
 | `graph/link.rs` | the linking executor, and `LinkStats` |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two writers of `knowledge_claims` in `store.rs`: `Evidence::record` for a capture's observation, `store_claim` for an authority's answer, which is also where the veto and the uniqueness rule live. `store.rs` also reads holders back and answers `awaiting_authority` |
+| `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two phases of a claim in `store.rs`: `ingest` settles identities — a capture may create one, only an answer may enrich one — and `assert` writes the edge, asking the veto at the one place a claim becomes a row. Both callers use both. `store.rs` also reads holders back and answers `awaiting_authority` |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors and the methods that are one write each |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `graph/merge.rs` | fold one entity into another |
 | `graph/proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
-| `graph/verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair or a veto, `replay` onto the new graph — a withdrawn claim is followed by a reprojection, because `status` and `confidence` are functions of the live claims; vetoes are also asked at admission, since a claim has one writer |
+| `graph/verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair or a veto, `replay` onto the new graph. A veto names a pairing, so `withdraw` retracts that pair's live claim whatever route produced it, then reprojects the entity — `status` and `confidence` are functions of the live claims. A retraction with nothing to retract is `settled`, not a zero. The same predicate is asked by both claim writers |
 |`identity/`|`mod.rs` (the `Resolver` trait a provider implements) · `engine` (the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The claim it returns, and where it becomes a row, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
 | `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates in `policy.rs` · answer parsing in `answer.rs` · the ladder and its request shapes in `resolver.rs` · candidate scoring in `ranking.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|

@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use super::Resolver;
 use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
-use crate::knowledge::evidence::{Stored, store_claim};
+use crate::knowledge::evidence::{ClaimDraft, DraftIdentity, Stored};
 use crate::database;
 
 /// Transport calls a plain resolve is allowed to make. Exists so that omitting the budget does real
@@ -147,14 +147,19 @@ impl<'a> ResolutionEngine<'a> {
                 if resolved.contains(&knowledge_entity_id) {
                     continue;
                 }
-                match store_claim(
-                    self.db,
-                    resolver.id(),
-                    knowledge_entity_id,
-                    claim,
-                    &vetoes,
-                )
-                .await?
+                // Phase one: an answer may create the identity and enrich an existing one.
+                let basis = claim.basis;
+                let draft = DraftIdentity::from_claim(claim, resolver.id());
+                let key = draft.key();
+                let identity_id = graph.evidence.upsert_identity(&draft).await?;
+                // Phase two: the edge, asking the same veto every other writer asks.
+                match graph
+                    .evidence
+                    .assert(
+                        ClaimDraft::authority(knowledge_entity_id, &key, identity_id, basis),
+                        &vetoes,
+                    )
+                    .await?
                 {
                     Stored::Written => {
                         report.claims += 1;

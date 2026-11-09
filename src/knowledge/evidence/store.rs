@@ -4,7 +4,7 @@
 //! citing an identity row. Keeping both writers here means the veto check, the uniqueness rule and
 //! the basis column are one thing to read — and the place a second authority inherits all three.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, QueryOrder,
@@ -12,7 +12,6 @@ use sea_orm::{
 };
 
 use super::claim::{Claim, ClaimBasis};
-use crate::database;
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::TotalCmp;
 use crate::model;
@@ -20,6 +19,13 @@ use crate::model;
 /// The unique index that makes one entity's hold on one identity a single live claim. Both writers
 /// ask the same question, so the name is here once rather than in two match arms.
 const CLAIMS_UNIQUE: &str = "idx-knowledge_claims_entity_identity";
+
+/// An identity's durable name: the pair a rebuild can reproduce.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct IdentityKey {
+    pub scheme: String,
+    pub external_id: String,
+}
 
 /// A platform link, as the capture showed it. `link` transcribes it; nothing infers anything here.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +50,14 @@ impl PlatformLink {
 
     pub fn identity(&self) -> String {
         format!("{}:{}", self.scheme, self.external_id)
+    }
+
+    /// The durable name of the identity this link asserts.
+    pub fn key(&self) -> IdentityKey {
+        IdentityKey {
+            scheme: self.scheme.clone(),
+            external_id: self.external_id.clone(),
+        }
     }
 }
 
@@ -78,6 +92,28 @@ impl DraftIdentity {
             label: None,
             description: None,
             classes: Vec::new(),
+        }
+    }
+
+    /// The answer an authority gave: it knows what the thing is, not which capture asked.
+    pub fn from_claim(claim: Claim, asserted_by: &str) -> Self {
+        Self {
+            scheme: claim.scheme,
+            external_id: claim.id,
+            asserted_by: asserted_by.to_string(),
+            method: Some(claim.method),
+            confidence: Some(claim.confidence),
+            label: claim.label,
+            description: claim.description,
+            classes: claim.classes,
+        }
+    }
+
+    /// The durable name of the identity this draft describes.
+    pub fn key(&self) -> IdentityKey {
+        IdentityKey {
+            scheme: self.scheme.clone(),
+            external_id: self.external_id.clone(),
         }
     }
 }
@@ -124,51 +160,59 @@ impl Evidence {
                    asserted_by = CASE WHEN EXCLUDED.label IS NOT NULL \
                                  THEN EXCLUDED.asserted_by ELSE knowledge_identities.asserted_by END \
                  RETURNING id",
-                vec![
-                    sea_orm::Value::String(Some(identity.scheme.clone())),
-                    sea_orm::Value::String(Some(identity.external_id.clone())),
-                    sea_orm::Value::String(identity.label.clone()),
-                    sea_orm::Value::String(identity.description.clone()),
-                    // `classes` is an array column; bind it as one, the way the blocking index
-                    // binds its key arrays.
-                    identity.classes.clone().into(),
-                    sea_orm::Value::String(Some(identity.asserted_by.clone())),
-                    sea_orm::Value::String(identity.method.clone()),
-                    sea_orm::Value::Float(identity.confidence),
-                ],
+                identity_values(identity),
             ))
             .await?
             .ok_or_else(|| anyhow::anyhow!("identity insert returned no row"))?;
         Ok(row.try_get_by_index::<i32>(0)?)
     }
 
-    /// Import every identity this illumination's observations assert.
+    /// Create the identity if it is new; leave an existing row exactly as it is.
     ///
-    /// The executor's first act, before deciding, and a contract rather than a type: the decider reads
-    /// identities back with [`Self::identity_of`], so a caller that skips this leaves them unrecorded.
-    /// Importing first is what makes [`Self::record`] an insert with nothing to create, and what lets
-    /// a decision name an identity by id.
+    /// The no-op `DO UPDATE` is what lets one statement return the id either way. This is the only
+    /// writer a capture uses: a screenshot knows a handle exists, not what the thing is.
+    async fn create_identity(&self, identity: &DraftIdentity) -> anyhow::Result<i32> {
+        let row = self
+            .conn
+            .query_one_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO knowledge_identities \
+                   (scheme, external_id, label, description, classes, asserted_by, method, confidence) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+                 ON CONFLICT (scheme, external_id) DO UPDATE SET scheme = EXCLUDED.scheme \
+                 RETURNING id",
+                identity_values(identity),
+            ))
+            .await?
+            .ok_or_else(|| anyhow::anyhow!("identity insert returned no row"))?;
+        Ok(row.try_get_by_index::<i32>(0)?)
+    }
+
+    /// Phase one for a capture: every platform link becomes an identity, and the ids come back by
+    /// durable name so the assertions can name them without a second lookup.
     ///
-    /// Upserts, so repeating it is free. A link whose decision phase then fails leaves identity rows
-    /// behind — harmless, because an identity is a fact about the world rather than a claim about the
-    /// graph, and the next import finds them.
-    pub async fn import_identities(
+    /// Idempotent, and it never enriches an existing row — see [`Self::create_identity`]. A decision
+    /// phase that then fails leaves identity rows behind, which is harmless: an identity is a fact
+    /// about the world, not a claim about the graph.
+    pub async fn ingest(
         &self,
         observations: &[model::user_observed_entity::Model],
-    ) -> anyhow::Result<()> {
-        let mut seen: HashSet<String> = HashSet::new();
+    ) -> anyhow::Result<HashMap<IdentityKey, i32>> {
+        let mut ids = HashMap::new();
         for observation in observations {
             let Some(link) = PlatformLink::of(observation) else {
                 continue;
             };
-            // Two observations asserting one handle are one identity; the second upsert would be the
-            // row the first just wrote.
-            if !seen.insert(link.identity()) {
+            let key = link.key();
+            // Two observations asserting one handle are one identity; the second insert is the row
+            // the first just wrote.
+            if ids.contains_key(&key) {
                 continue;
             }
-            self.upsert_identity(&DraftIdentity::from_capture(&link)).await?;
+            let id = self.create_identity(&DraftIdentity::from_capture(&link)).await?;
+            ids.insert(key, id);
         }
-        Ok(())
+        Ok(ids)
     }
 
     /// Entities no configured authority has claimed yet, in the order a run should ask them.
@@ -325,47 +369,92 @@ impl Evidence {
         Ok(entities)
     }
 
-    /// Record that an entity claims an identity the capture asserted.
+    /// Write one edge: `holder` asserts `identity`. Phase two, shared by both callers.
     ///
-    /// The identity id was handed over by [`Self::import_identities`], so there is nothing left to
-    /// create or look up here: this is one insert of the edge, and the surface is whatever the
-    /// capture wrote, read off the observation rather than reconstructed.
-    ///
-    /// Idempotent per entity: asserting an identity twice is corroboration, not a duplicate. Another
-    /// entity holding it is not an error either — claims are many-to-one now, and whether the holders
-    /// are one thing is `proximity`'s question, not this call's.
-    pub async fn record(
+    /// The veto is asked here, at the one place a claim becomes a row, so every writer inherits it.
+    /// Idempotent per entity: asserting an identity twice is not a duplicate, and another entity
+    /// holding it is not an error either — claims are many-to-one, and whether the holders are one
+    /// thing is `proximity`'s question, not this call's.
+    pub async fn assert(
         &self,
-        knowledge_entity_id: i32,
-        knowledge_identity_id: i32,
-        observation: &model::user_observed_entity::Model,
-    ) -> anyhow::Result<()> {
-        let insert =
-            model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
-                knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
-                knowledge_identity_id: sea_orm::Set(knowledge_identity_id),
-                // A capture showed a handle: that is what the question was about.
-                basis: sea_orm::Set(ClaimBasis::Handle),
-                surface: sea_orm::Set(observation.platform_handle.clone()),
-                user_observed_entity_id: sea_orm::Set(Some(observation.id)),
-                source_user_id: sea_orm::Set(Some(observation.user_id)),
-                ..Default::default()
-            })
-            .exec(&self.conn)
-            .await;
+        draft: ClaimDraft<'_>,
+        vetoes: &HashSet<(i32, String, String)>,
+    ) -> anyhow::Result<Stored> {
+        if vetoes.contains(&(
+            draft.holder,
+            draft.identity.scheme.clone(),
+            draft.identity.external_id.clone(),
+        )) {
+            return Ok(Stored::Vetoed);
+        }
+        let insert = model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
+            knowledge_entity_id: sea_orm::Set(draft.holder),
+            knowledge_identity_id: sea_orm::Set(draft.identity_id),
+            basis: sea_orm::Set(draft.basis),
+            surface: sea_orm::Set(draft.capture.and_then(|row| row.platform_handle.clone())),
+            user_observed_entity_id: sea_orm::Set(draft.capture.map(|row| row.id)),
+            source_user_id: sea_orm::Set(draft.capture.map(|row| row.user_id)),
+            ..Default::default()
+        })
+        .exec(&self.conn)
+        .await;
 
         match insert {
-            Ok(_) => Ok(()),
-            // This entity already asserts the identity.
+            Ok(_) => Ok(Stored::Written),
             Err(error) => match unique_violation(&error) {
-                Some(CLAIMS_UNIQUE) => Ok(()),
+                Some(CLAIMS_UNIQUE) => Ok(Stored::AlreadyClaimed),
                 _ => Err(error.into()),
             },
         }
     }
 }
 
-/// What became of a claim handed to [`store_claim`].
+/// An edge about to be written: one entity asserts one identity.
+pub struct ClaimDraft<'a> {
+    pub holder: i32,
+    pub identity: &'a IdentityKey,
+    pub identity_id: i32,
+    pub basis: ClaimBasis,
+    /// The observation that asserted it, when a capture did. `None` when an authority answered:
+    /// nothing user-visible asserted it, so there is no provenance to record.
+    pub capture: Option<&'a model::user_observed_entity::Model>,
+}
+
+impl<'a> ClaimDraft<'a> {
+    /// A capture's claim: the route is always the handle it showed.
+    pub fn capture(
+        holder: i32,
+        observation: &'a model::user_observed_entity::Model,
+        identity: &'a IdentityKey,
+        identity_id: i32,
+    ) -> Self {
+        Self {
+            holder,
+            identity,
+            identity_id,
+            basis: ClaimBasis::Handle,
+            capture: Some(observation),
+        }
+    }
+
+    /// An authority's claim: the basis is the route the answer came by.
+    pub fn authority(
+        holder: i32,
+        identity: &'a IdentityKey,
+        identity_id: i32,
+        basis: ClaimBasis,
+    ) -> Self {
+        Self {
+            holder,
+            identity,
+            identity_id,
+            basis,
+            capture: None,
+        }
+    }
+}
+
+/// What became of an assertion.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Stored {
     /// The edge was written.
@@ -377,55 +466,20 @@ pub enum Stored {
     AlreadyClaimed,
 }
 
-/// Store one authority claim as an edge to its identity.
-///
-/// The veto is asked here, at the one place an authority claim becomes a row, so every provider
-/// inherits it without knowing it exists. An identity another entity already holds is not a conflict:
-/// claims are many-to-one, and whether the holders are one thing is `proximity`'s question.
-///
-/// Returns what happened instead of counting it — the caller owns the report, and this module does not
-/// need to know one exists.
-pub async fn store_claim(
-    db: &database::DbHandle,
-    asserted_by: &str,
-    knowledge_entity_id: i32,
-    claim: Claim,
-    vetoes: &HashSet<(i32, String, String)>,
-) -> anyhow::Result<Stored> {
-    if vetoes.contains(&(knowledge_entity_id, claim.scheme.clone(), claim.id.clone())) {
-        return Ok(Stored::Vetoed);
-    }
-    let evidence = Evidence::new(db.conn.clone());
-    let identity_id = evidence
-        .upsert_identity(&DraftIdentity {
-            scheme: claim.scheme,
-            external_id: claim.id,
-            asserted_by: asserted_by.to_string(),
-            method: Some(claim.method),
-            confidence: Some(claim.confidence),
-            label: claim.label,
-            description: claim.description,
-            classes: claim.classes,
-        })
-        .await?;
-
-    let insert = model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
-        knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
-        knowledge_identity_id: sea_orm::Set(identity_id),
-        basis: sea_orm::Set(claim.basis),
-        ..Default::default()
-    })
-    .exec(&db.conn)
-    .await;
-
-    match insert {
-        Ok(_) => Ok(Stored::Written),
-        // This entity already asserts the identity.
-        Err(error) => match unique_violation(&error) {
-            Some(CLAIMS_UNIQUE) => Ok(Stored::AlreadyClaimed),
-            _ => Err(error.into()),
-        },
-    }
+/// The binds an identity insert or upsert needs, in column order.
+fn identity_values(identity: &DraftIdentity) -> Vec<sea_orm::Value> {
+    vec![
+        sea_orm::Value::String(Some(identity.scheme.clone())),
+        sea_orm::Value::String(Some(identity.external_id.clone())),
+        sea_orm::Value::String(identity.label.clone()),
+        sea_orm::Value::String(identity.description.clone()),
+        // `classes` is an array column; bind it as one, the way the blocking index binds its
+        // key arrays.
+        identity.classes.clone().into(),
+        sea_orm::Value::String(Some(identity.asserted_by.clone())),
+        sea_orm::Value::String(identity.method.clone()),
+        sea_orm::Value::Float(identity.confidence),
+    ]
 }
 
 /// The constraint a unique violation broke, if it was one. Postgres reports `23505`.
@@ -474,25 +528,29 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        evidence
-            .import_identities(std::slice::from_ref(&observation))
+        let identities = evidence
+            .ingest(std::slice::from_ref(&observation))
             .await
             .expect("the capture asserted a handle");
-        let identity = evidence
-            .identity_of(&observation)
-            .await
-            .expect("the lookup should not fail")
-            .expect("already a row");
+        let key = PlatformLink::of(&observation).expect("a handle").key();
+        let identity = identities[&key];
 
-        evidence.record(first, identity, &observation).await.expect("first");
-        evidence
-            .record(first, identity, &observation)
-            .await
-            .expect("the same holder again is one claim, not a violation");
-        evidence
-            .record(second, identity, &observation)
-            .await
-            .expect("a second holder is not an error");
+        let vetoes = HashSet::new();
+        let claim = |holder| ClaimDraft::capture(holder, &observation, &key, identity);
+        assert_eq!(
+            evidence.assert(claim(first), &vetoes).await.unwrap(),
+            Stored::Written
+        );
+        assert_eq!(
+            evidence.assert(claim(first), &vetoes).await.unwrap(),
+            Stored::AlreadyClaimed,
+            "the same holder again is one claim, not a violation"
+        );
+        assert_eq!(
+            evidence.assert(claim(second), &vetoes).await.unwrap(),
+            Stored::Written,
+            "a second holder is not an error"
+        );
 
         assert_eq!(
             evidence.held_by_identity(identity).await.unwrap().len(),
@@ -507,6 +565,61 @@ mod tests {
             2,
             "one claim per holder"
         );
+    }
+
+    /// A capture may create an identity; it may never overwrite one an answer established.
+    #[tokio::test]
+    async fn ingesting_a_capture_does_not_downgrade_an_answered_identity() {
+        use sea_orm::{ColumnTrait, QueryFilter};
+
+        db_or_skip!(db);
+        let evidence = Evidence::from_handle(&db);
+        evidence
+            .upsert_identity(&DraftIdentity {
+                scheme: "x_twitter".to_string(),
+                external_id: "tsoding".to_string(),
+                asserted_by: "wikidata".to_string(),
+                method: Some("P2002".to_string()),
+                confidence: Some(0.9),
+                label: Some("Alexey Kutepov".to_string()),
+                description: None,
+                classes: Vec::new(),
+            })
+            .await
+            .expect("an answer creates the identity");
+
+        let capture = fixtures::Capture::new(&db, "ingest_precedence").await;
+        let observation = fixtures::observe(
+            &db,
+            &capture,
+            0,
+            "Tsoding",
+            None,
+            "real_person",
+            Some("x_twitter"),
+            Some("tsoding"),
+        )
+        .await;
+        let observation = model::user_observed_entity::Entity::find_by_id(observation)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        evidence
+            .ingest(std::slice::from_ref(&observation))
+            .await
+            .unwrap();
+
+        let row = model::knowledge_identity::Entity::find()
+            .filter(model::knowledge_identity::Column::Scheme.eq("x_twitter"))
+            .filter(model::knowledge_identity::Column::ExternalId.eq("tsoding"))
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.method.as_deref(), Some("P2002"), "not downgraded to capture");
+        assert_eq!(row.asserted_by, "wikidata");
+        assert_eq!(row.label.as_deref(), Some("Alexey Kutepov"));
     }
 
     /// `classes` is an array column, and the round trip has to survive more than one element: every

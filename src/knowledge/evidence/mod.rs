@@ -7,9 +7,13 @@
 //! - a [`Claim`] is an entity's assertion of an identity — the edge of the many-to-many, carrying
 //!   what the question was about ([`ClaimBasis`]) and which capture asked.
 //!
-//! Two writers, one table: [`Evidence::record`] writes the claim a capture's observation carries, and
-//! [`store_claim`] writes an authority's answer. Both live in [`store`], so the veto, the uniqueness
-//! rule and the basis column are read in one place instead of being rediscovered per provider.
+//! Two phases, one implementation of each, and both callers use both.
+//!
+//! 1. **ingest** — [`Evidence::ingest`] from a capture, [`Evidence::upsert_identity`] from an answer.
+//!    A capture creates an identity and never enriches one; only an answer knows what a thing is.
+//! 2. **assert** — [`Evidence::assert`] writes the edge, asking the veto at the one place a claim
+//!    becomes a row. It is the same call for a capture's handle and an authority's cross-reference;
+//!    what differs is a value ([`ClaimDraft`]'s provenance and basis), not a second code path.
 //!
 //! An identity may have several holders: one Wikidata item can name an album and cover its songs.
 //! This module reports them and leaves "are these one thing?" to `proximity`.
@@ -19,5 +23,5 @@ pub mod store;
 
 pub use claim::{Claim, ClaimBasis};
 pub use store::{
-    DraftIdentity, Evidence, PlatformLink, Stored, store_claim, unique_violation,
+    ClaimDraft, DraftIdentity, Evidence, IdentityKey, PlatformLink, Stored, unique_violation,
 };

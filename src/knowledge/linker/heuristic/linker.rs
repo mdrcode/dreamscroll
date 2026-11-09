@@ -77,7 +77,6 @@ impl Linker for HeuristicLinker {
                 decisions.push(Decision {
                     observation,
                     action: Action::Attach(best.id),
-                    identity,
                 });
                 continue;
             }
@@ -94,7 +93,6 @@ impl Linker for HeuristicLinker {
             decisions.push(Decision {
                 observation,
                 action,
-                identity,
             });
         }
 
@@ -143,9 +141,9 @@ mod tests {
         let blocker = StubBlocker(entities.to_vec());
         let evidence = Evidence::from_handle(db);
         evidence
-            .import_identities(observations)
+            .ingest(observations)
             .await
-            .expect("importing the assertions should not fail");
+            .expect("ingesting the assertions should not fail");
         let mut illumination = crate::test_support::fixtures::stub_illumination(1);
         illumination.observations = sea_orm::compound::HasMany::Loaded(
             observations.iter().map(|row| row.clone().into()).collect(),
