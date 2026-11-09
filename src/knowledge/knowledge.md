@@ -293,7 +293,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), the corroboration bonus |
 | `graph/link.rs` | the linking executor, and `LinkStats` |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two phases of a claim in `store.rs`: `ingest` settles identities — a capture may create one, only an answer may enrich one — and `assert` writes the edge, asking the veto at the one place a claim becomes a row. Both callers use both. `store.rs` also reads holders back and answers `awaiting_authority` |
+| `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two phases of a claim in `store.rs`: `identity_for_link` settles a capture's identity (create only) and `upsert_identity` an answer's (fill gaps); `assert` writes the edge, asking the veto at the one place a claim becomes a row. Both callers use both. `store.rs` also reads holders back and answers `awaiting_authority` |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors and the methods that are one write each |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `graph/merge.rs` | fold one entity into another |

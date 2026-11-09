@@ -4,7 +4,7 @@
 //! citing an identity row. Keeping both writers here means the veto check, the uniqueness rule and
 //! the basis column are one thing to read — and the place a second authority inherits all three.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, QueryOrder,
@@ -188,31 +188,12 @@ impl Evidence {
         Ok(row.try_get_by_index::<i32>(0)?)
     }
 
-    /// Phase one for a capture: every platform link becomes an identity, and the ids come back by
-    /// durable name so the assertions can name them without a second lookup.
+    /// The identity this capture link asserts, created if this is the first sighting.
     ///
-    /// Idempotent, and it never enriches an existing row — see [`Self::create_identity`]. A decision
-    /// phase that then fails leaves identity rows behind, which is harmless: an identity is a fact
-    /// about the world, not a claim about the graph.
-    pub async fn ingest(
-        &self,
-        observations: &[model::user_observed_entity::Model],
-    ) -> anyhow::Result<HashMap<IdentityKey, i32>> {
-        let mut ids = HashMap::new();
-        for observation in observations {
-            let Some(link) = PlatformLink::of(observation) else {
-                continue;
-            };
-            let key = link.key();
-            // Two observations asserting one handle are one identity; the second insert is the row
-            // the first just wrote.
-            if ids.contains_key(&key) {
-                continue;
-            }
-            let id = self.create_identity(&DraftIdentity::from_capture(&link)).await?;
-            ids.insert(key, id);
-        }
-        Ok(ids)
+    /// A capture may create an identity, never enrich one: it knows a handle exists, not what the
+    /// thing is. Idempotent, so a re-link is free.
+    pub async fn identity_for_link(&self, link: &PlatformLink) -> anyhow::Result<i32> {
+        self.create_identity(&DraftIdentity::from_capture(link)).await
     }
 
     /// Entities no configured authority has claimed yet, in the order a run should ask them.
@@ -528,12 +509,12 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let identities = evidence
-            .ingest(std::slice::from_ref(&observation))
+        let link = PlatformLink::of(&observation).expect("a handle");
+        let key = link.key();
+        let identity = evidence
+            .identity_for_link(&link)
             .await
             .expect("the capture asserted a handle");
-        let key = PlatformLink::of(&observation).expect("a handle").key();
-        let identity = identities[&key];
 
         let vetoes = HashSet::new();
         let claim = |holder| ClaimDraft::capture(holder, &observation, &key, identity);
@@ -606,7 +587,7 @@ mod tests {
             .unwrap()
             .unwrap();
         evidence
-            .ingest(std::slice::from_ref(&observation))
+            .identity_for_link(&PlatformLink::of(&observation).expect("a handle"))
             .await
             .unwrap();
 

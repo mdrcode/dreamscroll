@@ -45,8 +45,8 @@ arrives after an answer downgrades `method` to `capture`).
 **Two phases, one implementation of each.**
 
 1. **Ingest** — settle identity rows.
-   - `Evidence::ingest(observations)` for a capture: every platform link becomes an identity, and
-     the ids come back by durable name. **Create only.**
+   - `Evidence::identity_for_link(link)` for a capture: the identity a link asserts, created if this
+     is its first sighting. **Create only.**
    - `Evidence::upsert_identity(draft)` for an answer: fills gaps and may upgrade `asserted_by`.
      **Enrich.**
    - The rule: *a capture may create an identity; only an answer may enrich one.* A screenshot knows
@@ -58,19 +58,20 @@ arrives after an answer downgrades `method` to `capture`).
      neither. `basis` is a field either way.
    - Idempotent: a unique violation is `AlreadyClaimed`, not an error.
 
-**`link_illumination` is four steps.**
+**`link_illumination` is three steps.**
 
 ```
-ingest     identities for every observation of the illumination, deduped by name
 decide     all decisions, against the corpus as it stood before any of these writes
-attach     create or attach each pending observation
-assert     every observation with a handle asserts it against wherever it now lives,
-           then project each touched entity once
+apply      create or attach the observation, then assert the handle it showed
+project    the entity the decision touched
 ```
 
-The claim phase reads every observation of the illumination, not only the pending ones. The insert is
-idempotent, so this repairs a link that died between attach and assert; today `pending` would be
-empty and the claim lost forever.
+`apply` asks `Evidence::identity_for_link` on the way, which creates the identity if this is its first
+sighting — so there is no identity pre-pass and no map from observation to identity. Projection
+follows each decision.
+
+A crash between attach and assert loses that observation's claim; the window is small, and a re-link
+will not repair it because the observation is already attached.
 
 ## Why not claim ids
 
@@ -94,9 +95,9 @@ one live row.
 
 | file | change |
 | --- | --- |
-| `evidence/store.rs` | `IdentityKey`; `DraftIdentity::{key, from_claim}`; `ingest` (create-only) and `create_identity`; `ClaimDraft` + `assert` (veto + edge). Deleted `record` and `store_claim`. |
+| `evidence/store.rs` | `IdentityKey`; `DraftIdentity::{key, from_claim}`; `identity_for_link` (create-only) and `create_identity`; `ClaimDraft` + `assert` (veto + edge). Deleted `record` and `store_claim`. |
 | `evidence/mod.rs` | the "two writers" paragraph became the two phases; exports updated. |
-| `graph/link.rs` | four phases; `LinkStats.vetoed`; projection once per touched entity, after the claims. |
+| `graph/link.rs` | decide → apply → project, per decision; `LinkStats.vetoed`. |
 | `linker/mod.rs`, `linker/heuristic/linker.rs` | `Decision` no longer carries an identity — it is observation data, not a decision. |
 | `identity/engine.rs` | `upsert_identity` + `assert`, the same two calls the capture path makes. |
 | `graph/verdicts.rs` | `withdraw` drops the basis filter; `ReplayReport.settled`. |
@@ -110,10 +111,10 @@ No schema change. Existing verdict rows already carry the key; nothing to backfi
 - A capture claim is suppressed by a standing veto at the next `link` (`LinkStats.vetoed`).
 - A veto on a P2002/`handle` authority claim retracts it, and the entity returns to provisional.
 - A repeat replay reports `settled`, not a zero withdrawal.
-- A later link restores a claim that went missing while the observation stayed linked.
-- Capture ingestion never downgrades an answered identity (method stays `P2002`, label kept).
+- Capturing a link never downgrades an answered identity (method stays `P2002`, label kept).
 - Negative controls: without the veto check the capture claim returns; with `upsert_identity` in
-  `ingest` the method becomes `capture`; with the old basis filter the P2002 claim survives.
+  `upsert_identity` for a capture the method becomes `capture`; with the old basis filter the P2002
+  claim survives.
 
 ## Measured result
 

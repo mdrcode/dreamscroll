@@ -9,7 +9,8 @@
 //!
 //! Two phases, one implementation of each, and both callers use both.
 //!
-//! 1. **ingest** — [`Evidence::ingest`] from a capture, [`Evidence::upsert_identity`] from an answer.
+//! 1. **ingest** — [`Evidence::identity_for_link`] from a capture, [`Evidence::upsert_identity`]
+//!    from an answer.
 //!    A capture creates an identity and never enriches one; only an answer knows what a thing is.
 //! 2. **assert** — [`Evidence::assert`] writes the edge, asking the veto at the one place a claim
 //!    becomes a row. It is the same call for a capture's handle and an authority's cross-reference;

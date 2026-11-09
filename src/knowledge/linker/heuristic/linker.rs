@@ -140,10 +140,6 @@ mod tests {
     ) -> Vec<Decision> {
         let blocker = StubBlocker(entities.to_vec());
         let evidence = Evidence::from_handle(db);
-        evidence
-            .ingest(observations)
-            .await
-            .expect("ingesting the assertions should not fail");
         let mut illumination = crate::test_support::fixtures::stub_illumination(1);
         illumination.observations = sea_orm::compound::HasMany::Loaded(
             observations.iter().map(|row| row.clone().into()).collect(),

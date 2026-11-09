@@ -8,7 +8,7 @@
 //! Callers reach this through [`KnowledgeGraph::link_illumination`]. The rest is `pub(super)` or private:
 //! `merge` and `project` do not link, and nothing outside `knowledge` does either.
 
-use std::collections::{BTreeSet, HashMap, HashSet};
+use std::collections::HashSet;
 
 use crate::knowledge::evidence::{ClaimDraft, PlatformLink, Stored};
 use crate::knowledge::linker::{Action, Decision};
@@ -65,70 +65,28 @@ pub(crate) async fn link_illumination(
         illumination.id
     );
 
-    // Every observation of the illumination, not only the unlinked ones: ingestion is idempotent
-    // and never enriches, so a re-link also repairs a claim a crash or a lifted veto left missing.
-    let observations: Vec<model::user_observed_entity::Model> = illumination
+    // Only the unlinked ones: a linked observation got its claim when it was linked, so deciding it
+    // again would be a write with no effect.
+    let pending: HashSet<i32> = illumination
         .observations
-        .iter()
-        .map(|row| row.clone().into())
-        .collect();
-
-    // Phase one: identities. A decision names them by id, so the rows exist before the decider runs.
-    let identities = graph.evidence.ingest(&observations).await?;
-
-    // Phase two: decisions, all against the corpus as it stood before any of these writes.
-    let decisions = decider
-        .decide_link(&**blocker, &graph.evidence, &graph.scoring, illumination)
-        .await?;
-
-    let pending_ids: HashSet<i32> = observations
         .iter()
         .filter(|row| row.knowledge_entity_id.is_none())
         .map(|row| row.id)
         .collect();
 
-    // Phase three: apply the decisions (actually mutate the graph).
-    let mut stats = LinkStats::default();
-    let mut holders: HashMap<i32, i32> = observations
-        .iter()
-        .filter_map(|row| row.knowledge_entity_id.map(|entity| (row.id, entity)))
-        .collect();
-    for decision in &decisions {
-        let entity = apply_decision(graph, &pending_ids, decision).await?;
-        holders.insert(decision.observation.id, entity);
-        stats.record(decision);
-    }
-
-    // Phase four: edges. Every observation that carries a handle asserts it against wherever it now
-    // lives — a decision from above, or a link that predates this run.
+    let decisions = decider
+        .decide_link(&**blocker, &graph.evidence, &graph.scoring, illumination)
+        .await?;
     let vetoes = verdicts::vetoed(graph).await?;
-    let mut touched: BTreeSet<i32> = BTreeSet::new();
-    for observation in &observations {
-        let Some(entity) = holders.get(&observation.id).copied() else {
-            continue;
-        };
-        // Projection is owed to every entity this illumination touched, whether or not the
-        // observation carried a handle: the blocker reads the projected index.
-        touched.insert(entity);
-        let Some(link) = PlatformLink::of(observation) else {
-            continue;
-        };
-        let key = link.key();
-        let Some(&identity_id) = identities.get(&key) else {
-            continue;
-        };
-        if graph
-            .evidence
-            .assert(ClaimDraft::capture(entity, observation, &key, identity_id), &vetoes)
-            .await?
-            == Stored::Vetoed
-        {
+
+    let mut stats = LinkStats::default();
+    for decision in &decisions {
+        let (entity, claim) = apply_decision(graph, &pending, decision, &vetoes).await?;
+        graph.update_projection(entity).await?;
+        stats.record(decision);
+        if claim == Some(Stored::Vetoed) {
             stats.vetoed += 1;
         }
-    }
-    // Projection last, once per entity, so it sees every claim this run wrote.
-    for entity in touched {
-        graph.update_projection(entity).await?;
     }
 
     // A policy may decide less than it was given. The executor applies what it got and says how much
@@ -137,17 +95,18 @@ pub(crate) async fn link_illumination(
         .iter()
         .map(|decision| decision.observation.id)
         .collect();
-    stats.left_pending = pending_ids.difference(&decided).count();
+    stats.left_pending = pending.difference(&decided).count();
 
     Ok(stats)
 }
 
-/// Apply one decision, returning the entity the observation landed on.
+/// Apply one decision: attach the observation, then assert the handle it showed, if any.
 async fn apply_decision(
     graph: &KnowledgeGraph,
     pending: &HashSet<i32>,
     decision: &Decision,
-) -> anyhow::Result<i32> {
+    vetoes: &HashSet<(i32, String, String)>,
+) -> anyhow::Result<(i32, Option<Stored>)> {
     let observation = &decision.observation;
     // The guarantee the `Decision` doc makes: the subject is one the Linker was given.
     anyhow::ensure!(
@@ -170,7 +129,19 @@ async fn apply_decision(
     // `attach` refuses a tombstone, so this also covers an entity merged away since the decision.
     graph.attach_observation(observation.id, entity).await?;
 
-    Ok(entity)
+    let Some(link) = PlatformLink::of(observation) else {
+        return Ok((entity, None));
+    };
+    let key = link.key();
+    let identity = graph.evidence.identity_for_link(&link).await?;
+    let claim = graph
+        .evidence
+        .assert(
+            ClaimDraft::capture(entity, observation, &key, identity),
+            vetoes,
+        )
+        .await?;
+    Ok((entity, Some(claim)))
 }
 
 #[cfg(test)]
@@ -417,50 +388,6 @@ mod unit {
         );
     }
 
-    /// The claim phase runs for every observation of the illumination, so a link that died between
-    /// attaching and asserting is repaired by the next one.
-    #[tokio::test]
-    async fn a_later_link_restores_a_claim_that_went_missing() {
-        db_or_skip!(db);
-        let store = linking_store(
-            &db,
-            Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
-        )
-        .await;
-        let capture = fixtures::Capture::new(&db, "link_self_heal").await;
-        fixtures::observe(
-            &db,
-            &capture,
-            0,
-            "Tsoding",
-            None,
-            "real_person",
-            Some("x_twitter"),
-            Some("tsoding"),
-        )
-        .await;
-
-        let loaded = load_illumination(&db, capture.illumination_id).await;
-        store.link_illumination(&loaded).await.unwrap();
-        let claims = || async {
-            crate::model::knowledge_claims::Entity::find()
-                .filter(crate::model::knowledge_claims::Column::RetractedAt.is_null())
-                .count(&db.conn)
-                .await
-                .unwrap()
-        };
-        assert_eq!(claims().await, 1);
-
-        // What a crash between the two phases would leave: linked, and no edge.
-        crate::model::knowledge_claims::Entity::delete_many()
-            .exec(&db.conn)
-            .await
-            .unwrap();
-        let loaded = load_illumination(&db, capture.illumination_id).await;
-        let stats = store.link_illumination(&loaded).await.unwrap();
-        assert_eq!(stats.attached + stats.created, 0, "nothing was pending");
-        assert_eq!(claims().await, 1, "and the edge is back");
-    }
 }
 
 #[cfg(test)]
