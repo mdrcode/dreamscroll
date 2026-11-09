@@ -109,7 +109,7 @@ impl Evidence {
                 DatabaseBackend::Postgres,
                 "INSERT INTO knowledge_identities \
                    (scheme, external_id, label, description, classes, asserted_by, method, confidence) \
-                 VALUES ($1, $2, $3, $4, string_to_array($5, chr(31)), $6, $7, $8) \
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
                  ON CONFLICT (scheme, external_id) DO UPDATE SET \
                    label = COALESCE(EXCLUDED.label, knowledge_identities.label), \
                    description = COALESCE(EXCLUDED.description, knowledge_identities.description), \
@@ -125,9 +125,9 @@ impl Evidence {
                     sea_orm::Value::String(Some(identity.external_id.clone())),
                     sea_orm::Value::String(identity.label.clone()),
                     sea_orm::Value::String(identity.description.clone()),
-                    // `classes` is a text array; chr(31) is the unit separator, which no class
-                    // name contains. An empty string splits to an empty array.
-                    sea_orm::Value::String(Some(identity.classes.join(&31u8.to_string()))),
+                    // `classes` is an array column; bind it as one, the way the blocking index
+                    // binds its key arrays.
+                    identity.classes.clone().into(),
                     sea_orm::Value::String(Some(identity.asserted_by.clone())),
                     sea_orm::Value::String(identity.method.clone()),
                     sea_orm::Value::Float(identity.confidence),
@@ -503,5 +503,54 @@ mod tests {
             2,
             "one claim per holder"
         );
+    }
+
+    /// `classes` is an array column, and the round trip has to survive more than one element: every
+    /// other test supplies none, which is exactly how an encoding bug hides.
+    #[tokio::test]
+    async fn identity_classes_round_trip_and_a_later_answer_does_not_erase_them() {
+        db_or_skip!(db);
+        let evidence = Evidence::from_handle(&db);
+        let draft = DraftIdentity {
+            scheme: "wikidata".to_string(),
+            external_id: "Q42".to_string(),
+            asserted_by: "wikidata".to_string(),
+            method: Some("exact_label".to_string()),
+            confidence: Some(0.9),
+            label: Some("Douglas Adams".to_string()),
+            description: None,
+            classes: vec!["Q5".to_string(), "Q36180".to_string()],
+        };
+        let id = evidence.upsert_identity(&draft).await.unwrap();
+
+        let row = model::knowledge_identity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            row.classes,
+            vec!["Q5".to_string(), "Q36180".to_string()],
+            "two classes, not one joined string"
+        );
+
+        // A later answer that carried no classes leaves the accumulated ones alone.
+        evidence
+            .upsert_identity(&DraftIdentity {
+                classes: Vec::new(),
+                label: None,
+                method: None,
+                confidence: None,
+                ..draft
+            })
+            .await
+            .unwrap();
+        let row = model::knowledge_identity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.classes, vec!["Q5".to_string(), "Q36180".to_string()]);
+        assert_eq!(row.label.as_deref(), Some("Douglas Adams"));
     }
 }
