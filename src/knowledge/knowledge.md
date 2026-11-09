@@ -304,10 +304,12 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `eval/` | offline evaluation: `eval resolve` replays the resolver's ladder over the answer cache, with no transport |
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
-private modules. What escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Cause`,
-`Preview` — and every write is reached through `KnowledgeGraph`'s methods. The
-graph's health counters are a report over the tables rather than graph work, so they live in
-`crate::stats::knowledge_stats`.
+reached through `KnowledgeGraph`'s methods; `link` and `project` are private modules, and what
+escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Cause`, `Preview`. The batch
+passes are the exception and are deliberately public functions taking the facade —
+`proximity::scan`, `proximity::merge`, `verdicts::replay` are commands over the whole graph, not a
+write to one row. The graph's health counters are a report over the tables rather than graph work, so
+they live in `crate::stats::knowledge_stats`.
 
 The vocabulary — and the names we rejected — is in `plan/lexicon.md`. The design history, including
 the failures that produced these rules, is in `plan/knowledge-illumination-history.md` and

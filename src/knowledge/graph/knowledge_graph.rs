@@ -115,7 +115,7 @@ impl KnowledgeGraph {
     /// Link one reading into the graph: cluster its observations, record their claims, and project
     /// every entity it touched.
     ///
-    /// Implemented in [`super::link`]
+    /// Implemented in `super::link`.
     pub async fn link_illumination(
         &self,
         illumination: &model::illumination::ModelEx,
@@ -126,7 +126,7 @@ impl KnowledgeGraph {
     /// Recompute an entity's projected columns, and tell the blocker what came out.
     ///
     /// Every change to those columns funnels through here, so the held blocker hears about all of
-    /// them. Implemented in [`super::project`].
+    /// them. Implemented in `super::project`.
     pub async fn update_projection(
         &self,
         knowledge_entity_id: i32,

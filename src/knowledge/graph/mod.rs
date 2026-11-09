@@ -1,15 +1,19 @@
 //! The graph: what it holds, and every way it changes.
 //!
-//! [`KnowledgeGraph`] is the facade and the only handle a caller gets — every write to
-//! `knowledge_entities`, and every move of an observation onto one, goes through it. Its parts:
+//! [`KnowledgeGraph`] is the facade: every write to `knowledge_entities`, and every move of an
+//! observation onto one, goes through its methods. Its parts:
 //!
-//! - [`knowledge_graph`] — the facade itself, and the primitives every write shares.
-//! - [`project`] — the derived columns, including the blocking index row.
+//! - `knowledge_graph` — the facade itself, and the primitives every write shares.
+//! - `project` — the derived columns, including the blocking index row.
 //! - [`merge`] — fold one entity into another.
 //! - [`proximity`] — the candidates a scan found, and the pass that answers them.
 //! - [`verdicts`] — a person's decisions, kept across rebuilds.
+//!
+//! Single writes are methods; the batch passes are public functions that take the facade
+//! ([`proximity::scan`], [`proximity::merge`], [`verdicts::replay`]), because they are commands over
+//! the whole graph rather than a write to one row.
 
-pub mod link;
+mod link;
 pub mod merge;
 pub mod proximity;
 pub mod verdicts;
