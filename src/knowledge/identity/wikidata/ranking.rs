@@ -106,15 +106,21 @@ const NOISE: &[&str] = &[
 
 pub(super) struct Ranked<'a> {
     pub(super) candidate: &'a Candidate,
-    /// The blended score, for ordering and confidence.
+    /// The blended score, for the claim's confidence. Not the order: that is [`rank`]'s.
     pub(super) score: f32,
-    /// The description evidence on its own. The decision is made on this, because the blend includes
-    /// the name — which every candidate here already shares.
+    /// The description evidence on its own, and the order [`rank`] returns. The decision is made on
+    /// this, because the blend includes the name — which, on the label rung, every candidate here
+    /// already shares.
     pub(super) fit: f32,
     pub(super) exact_label: bool,
 }
 
-/// Score every candidate by how well it fits, best first.
+/// Score every candidate, ordered by how well it fits — best first.
+///
+/// The order is `fit`, not the blend, because `decide` measures its margin between consecutive
+/// entries: an order that disagreed with the quantity being compared made that margin negative and
+/// refused claims the evidence supported. The blend survives as the tiebreak and as the claim's
+/// confidence.
 ///
 /// The signal is the capture's description, read two ways: *containment* — how much of what Wikidata
 /// says about the candidate is accounted for by our description of it, which survives our description
@@ -160,7 +166,7 @@ pub(super) fn rank<'a>(
             }
         })
         .collect();
-    scored.sort_by(|a, b| b.score.total_cmp(&a.score));
+    scored.sort_by(|a, b| b.fit.total_cmp(&a.fit).then_with(|| b.score.total_cmp(&a.score)));
     scored
 }
 /// The part of `search_query` that the label does not already say.

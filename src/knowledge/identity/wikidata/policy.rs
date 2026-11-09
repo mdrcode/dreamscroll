@@ -107,6 +107,10 @@ pub(super) fn decide(
     }
 
     let best = ranked.remove(0);
+    // `rank` orders by `fit`, so these two are the same measure and the subtraction below is a gap
+    // between comparable quantities. It used to be ordered by the blend while this margin read
+    // `fit`, so a runner-up with *more* description evidence than the winner produced a negative
+    // gap — and the claim was refused with "neither wins" while holding a winner.
     let runner_up = ranked.first().map(|other| other.fit).unwrap_or(0.0);
 
     // Otherwise a claim must clear the bar *and* beat the runner-up. Ambiguity is not a reason to
@@ -293,4 +297,67 @@ pub(super) fn parse_search(
         return by_hint(entity, &candidates, reason);
     }
     decide(entity, &admitted, request, reason)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test_support::fixtures::stub_entity;
+
+    fn candidate(id: &str, label: &str, description: Option<&str>) -> Candidate {
+        Candidate {
+            id: id.to_string(),
+            label: Some(label.to_string()),
+            description: description.map(str::to_string),
+            classes: Vec::new(),
+        }
+    }
+
+    fn search(query: &str) -> Request {
+        Request {
+            provider: "wikidata",
+            kind: Kind::Search,
+            shape: "test".to_string(),
+            query: query.to_string(),
+        }
+    }
+
+    /// The winner and the runner-up must be measured in one order.
+    ///
+    /// This is the case that exposed the split: the exact-label candidate wins the *blend* on its
+    /// name (0.820) even though the runner-up fits the description better (0.842 against 0.700).
+    /// Comparing a blend-ordered winner against an evidence-ordered runner-up made the margin
+    /// negative and refused a claim the evidence supports.
+    ///
+    /// The description describes the second candidate because that is how a graph reaches this
+    /// shape: `our_tokens` takes the best fit over every `alt_description`, not only the one that
+    /// arrived with the name.
+    #[test]
+    fn the_runner_up_is_measured_in_the_same_order_as_the_winner() {
+        let mut entity = stub_entity(1, "Dune", "book");
+        entity.description = Some("1969 novel by Frank Herbert, sequel to Dune".to_string());
+        let candidates = vec![
+            candidate(
+                "Q191536",
+                "Dune",
+                Some("1965 science fiction novel by Frank Herbert"),
+            ),
+            candidate(
+                "Q207189",
+                "Dune Messiah",
+                Some("1969 novel by Frank Herbert, sequel to Dune"),
+            ),
+        ];
+        let mut reason = "";
+
+        let claims = decide(&entity, &candidates, &search("Dune"), &mut reason);
+
+        assert_eq!(
+            claims.len(),
+            1,
+            "the evidence supports a claim, not a refusal: {reason:?}"
+        );
+        assert_eq!(claims[0].id, "Q207189");
+        assert_eq!(claims[0].method, "search_ranked");
+    }
 }
