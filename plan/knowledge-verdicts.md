@@ -5,6 +5,9 @@ modification log (`knowledge_verdicts`), and `verdicts replay` / `verdicts list`
 2026-11-07: **`veto`**, an entity is not an identity. `distinct` (a rejected proximity pair) is
 deliberately not built; see *Decisions*.
 
+**See also:** [knowledge-claim-management.md](knowledge-claim-management.md) — the `veto` kind's
+addressing is under revision: a veto names a pairing, and both claim writers should consult it.
+
 ## The two commands
 
 ```
