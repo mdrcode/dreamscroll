@@ -490,27 +490,34 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     }
     println!(
         "candidates {} · requested {} · cache hits {}",
-        report.candidates, report.requested, report.cache_hits
+        report.candidates, report.stats.requested, report.stats.cache_hits
     );
     println!(
         "fetched {} · failed {} · claims {} · entities resolved {} · vetoed {}",
-        report.fetched, report.failed, report.claims, report.entities_resolved, report.vetoed
+        report.stats.fetched,
+        report.stats.failed,
+        report.claims,
+        report.entities_resolved,
+        report.vetoed
     );
-    if report.budget_exhausted {
-        println!("budget exhausted at {max_requests} requests");
-    }
-    if report.rate_limited {
-        // WDQS 429: honour Retry-After rather than risk a temporary ban.
-        match report.rate_limited_after {
-            Some(seconds) => println!(
-                "rate limited by the provider — stopped; retry in {seconds}s \
-                 (or lower --min-interval-ms / --max-requests)"
-            ),
-            None => println!(
-                "rate limited by the provider — stopped; it gave no retry time \
-                 (or lower --min-interval-ms / --max-requests)"
-            ),
+    match report.refusal {
+        Some(dreamscroll::fetch::Refusal::Budget) => {
+            println!("budget exhausted at {max_requests} requests");
         }
+        // WDQS 429: honour Retry-After rather than risk a temporary ban.
+        Some(dreamscroll::fetch::Refusal::RateLimited { retry_after_secs }) => {
+            match retry_after_secs {
+                Some(seconds) => println!(
+                    "rate limited by the provider — stopped; retry in {seconds}s \
+                     (or lower --min-interval-ms / --max-requests)"
+                ),
+                None => println!(
+                    "rate limited by the provider — stopped; it gave no retry time \
+                     (or lower --min-interval-ms / --max-requests)"
+                ),
+            }
+        }
+        None => {}
     }
     Ok(())
 }

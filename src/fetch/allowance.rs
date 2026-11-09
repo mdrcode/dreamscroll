@@ -62,21 +62,25 @@ impl Allowance {
         }
     }
 
-    /// One transport call, paid for: waits out the floor, then decrements the budget.
+    /// One batch, paid for: waits out the floor, then decrements the budget by what the batch costs.
+    ///
+    /// All or nothing. A batch that fans out into two HTTP requests costs two, and a batch that
+    /// cannot be afforded is refused *before* anything is spent — otherwise a run one unit short
+    /// would have paid for a call it never made and reported a budget it had not finished.
     ///
     /// Every refusal is sticky, so a `429` on one batch stops every later stage rather than being
     /// rediscovered call by call — which is what the provider's ban rule punishes.
-    pub async fn take(&self) -> Result<(), Refusal> {
+    pub async fn take(&self, calls: usize) -> Result<(), Refusal> {
         if let Some(refusal) = self.refused() {
             return Err(refusal);
         }
         {
             let mut remaining_calls = self.remaining_calls.lock().await;
-            if *remaining_calls == 0 {
+            if *remaining_calls < calls {
                 self.is_spent.store(true, Ordering::Relaxed);
                 return Err(Refusal::Budget);
             }
-            *remaining_calls -= 1;
+            *remaining_calls -= calls;
         }
         self.pacer.lock().await.pace().await;
         Ok(())
@@ -142,9 +146,27 @@ mod tests {
         let allowance = Allowance::new(2, Duration::ZERO);
 
         assert_eq!(allowance.refused(), None);
-        assert_eq!(allowance.take().await, Ok(()));
-        assert_eq!(allowance.take().await, Ok(()));
-        assert_eq!(allowance.take().await, Err(Refusal::Budget));
+        assert_eq!(allowance.take(1).await, Ok(()));
+        assert_eq!(allowance.take(1).await, Ok(()));
+        assert_eq!(allowance.take(1).await, Err(Refusal::Budget));
+        assert_eq!(allowance.refused(), Some(Refusal::Budget));
+    }
+
+    /// A batch is charged whole: what it costs is decided before it may run, not one request at a
+    /// time. A batch that does not fit is refused before any of it is spent.
+    #[tokio::test]
+    async fn a_batch_is_charged_whole() {
+        let allowance = Allowance::new(3, Duration::ZERO);
+
+        assert_eq!(allowance.take(3).await, Ok(()), "exactly affordable");
+        assert_eq!(allowance.take(1).await, Err(Refusal::Budget));
+    }
+
+    #[tokio::test]
+    async fn a_batch_that_costs_more_than_the_budget_can_never_run() {
+        let allowance = Allowance::new(1, Duration::ZERO);
+
+        assert_eq!(allowance.take(2).await, Err(Refusal::Budget), "one left, two needed");
         assert_eq!(allowance.refused(), Some(Refusal::Budget));
     }
 
@@ -155,7 +177,7 @@ mod tests {
         allowance.rate_limited(Some(30));
 
         assert_eq!(
-            allowance.take().await,
+            allowance.take(1).await,
             Err(Refusal::RateLimited {
                 retry_after_secs: Some(30)
             })
@@ -189,7 +211,7 @@ mod tests {
                 retry_after_secs: None
             })
         );
-        assert_eq!(allowance.take().await, Err(Refusal::RateLimited { retry_after_secs: None }));
+        assert_eq!(allowance.take(1).await, Err(Refusal::RateLimited { retry_after_secs: None }));
         assert_eq!(
             Refusal::RateLimited {
                 retry_after_secs: None
@@ -206,14 +228,14 @@ mod tests {
         let allowance = Allowance::new(3, Duration::from_millis(60));
 
         let start = Instant::now();
-        allowance.take().await.expect("the first call");
+        allowance.take(1).await.expect("the first call");
         assert!(
             start.elapsed() < Duration::from_millis(60),
             "the first call waits for nothing: {:?}",
             start.elapsed()
         );
 
-        allowance.take().await.expect("the second call");
+        allowance.take(1).await.expect("the second call");
         assert!(
             start.elapsed() >= Duration::from_millis(60),
             "the second call waits the floor: {:?}",

@@ -53,21 +53,16 @@ impl Default for Options {
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Report {
     pub candidates: usize,
-    pub requested: usize,
-    pub cache_hits: usize,
-    /// Transport calls made.
-    pub fetched: usize,
-    pub failed: usize,
+    /// What the run asked, what the cache answered, and what it fetched.
+    pub stats: crate::fetch::Stats,
     pub claims: usize,
     /// Entities that gained at least one claim.
     pub entities_resolved: usize,
     /// Claims an editor's veto kept out of the graph.
     pub vetoed: usize,
-    pub budget_exhausted: bool,
-    /// Set when the provider refused with a `429`: the run stopped instead of risking a ban.
-    pub rate_limited: bool,
-    /// How long it asked us to wait, when it said.
-    pub rate_limited_after: Option<u64>,
+    /// Why the run stopped early, if it did: the budget, or the provider's `429`. The caller prints
+    /// what it needs from it, instead of this report carrying three derived answers to one question.
+    pub refusal: Option<Refusal>,
     pub offline: bool,
 }
 
@@ -184,15 +179,8 @@ impl<'a> ResolutionEngine<'a> {
         // Resolving stops at evidence. Which holders of an identity are one thing belongs to
         // `proximity scan` and `proximity merge`, which are separate commands run after this one.
         report.entities_resolved = resolved.len();
-        let stats = gateway.stats();
-        report.requested = stats.requested;
-        report.cache_hits = stats.cache_hits;
-        report.fetched = stats.fetched;
-        report.failed = stats.failed;
-        let refusal = allowance.as_ref().and_then(Allowance::refused);
-        report.budget_exhausted = matches!(refusal, Some(Refusal::Budget));
-        report.rate_limited = matches!(refusal, Some(Refusal::RateLimited { .. }));
-        report.rate_limited_after = refusal.and_then(Refusal::retry_after_secs);
+        report.stats = gateway.stats();
+        report.refusal = allowance.as_ref().and_then(Allowance::refused);
         Ok(report)
     }
 }
@@ -448,7 +436,7 @@ mod tests {
             .await
             .expect("resolve");
         assert_eq!(first.claims, 1, "{first:?}");
-        assert_eq!(first.fetched, 1, "{first:?}");
+        assert_eq!(first.stats.fetched, 1, "{first:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
 
         let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
@@ -487,7 +475,7 @@ mod tests {
             .run()
             .await
             .expect("resolve");
-        assert_eq!(first.fetched, 1, "{first:?}");
+        assert_eq!(first.stats.fetched, 1, "{first:?}");
         assert_eq!(first.claims, 0);
 
         // The entity is still a candidate (no claim), but the negative answer is cached.
@@ -500,8 +488,8 @@ mod tests {
             .await
             .expect("resolve");
         assert_eq!(second.candidates, 1, "{second:?}");
-        assert_eq!(second.fetched, 0, "{second:?}");
-        assert_eq!(second.cache_hits, 1, "{second:?}");
+        assert_eq!(second.stats.fetched, 0, "{second:?}");
+        assert_eq!(second.stats.cache_hits, 1, "{second:?}");
         assert_eq!(
             calls.load(Ordering::SeqCst),
             1,
@@ -560,8 +548,8 @@ mod tests {
             0,
             "offline never touches the transport"
         );
-        assert_eq!(report.fetched, 0);
-        assert_eq!(report.cache_hits, 1);
+        assert_eq!(report.stats.fetched, 0);
+        assert_eq!(report.stats.cache_hits, 1);
         assert_eq!(report.claims, 1, "only the cached one resolves: {report:?}");
 
         let entity = model::knowledge_entity::Entity::find_by_id(cached)
@@ -807,9 +795,15 @@ mod tests {
             .await
             .expect("resolve");
 
-        assert_eq!(report.rate_limited_after, Some(60), "{report:?}");
         assert_eq!(
-            report.fetched, 2,
+            report.refusal,
+            Some(Refusal::RateLimited {
+                retry_after_secs: Some(60)
+            }),
+            "{report:?}"
+        );
+        assert_eq!(
+            report.stats.fetched, 2,
             "one successful batch, then the 429: {report:?}"
         );
         assert_eq!(
@@ -829,8 +823,14 @@ mod tests {
             .await
             .expect("resolve");
 
-        assert_eq!(report.rate_limited_after, Some(30), "{report:?}");
-        assert_eq!(report.fetched, 1, "{report:?}");
+        assert_eq!(
+            report.refusal,
+            Some(Refusal::RateLimited {
+                retry_after_secs: Some(30)
+            }),
+            "{report:?}"
+        );
+        assert_eq!(report.stats.fetched, 1, "{report:?}");
         assert_eq!(report.claims, 0, "{report:?}");
         assert_eq!(
             model::fetch_cache::Entity::find()

@@ -162,11 +162,8 @@ impl<'a> Gateway<'a> {
         };
         let cost = transport.cost(kind);
         for chunk in misses.chunks(transport.batch_size(kind)) {
-            // One take per HTTP request: a batched call that fans out is charged what it spends, and
-            // the pacer slows the second request the way it slows any other.
-            for _ in 0..cost {
-                allowance.take().await?;
-            }
+            // Paced once per batch, and charged for every request the batch will make.
+            allowance.take(cost).await?;
             let batch: Vec<Request<T::Kind>> = chunk
                 .iter()
                 .map(|query| Request {
