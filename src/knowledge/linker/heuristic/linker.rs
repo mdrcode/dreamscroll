@@ -1,6 +1,7 @@
 //! The default linker: take the best candidate that clears the bar, otherwise create.
 //!
-//! A procedure, not a policy. It asks one question — [`Rank::rank`] — and applies the answer: the
+//! A procedure, not a policy. It asks one question —
+//! [`Rank::rank`](crate::knowledge::scoring::Rank::rank) — and applies the answer: the
 //! best qualifying candidate is where the observation attaches, and no qualifying candidate is a
 //! new entity. The bar lives in the policy's `rank`, because it is a conjunction over what was
 //! compared and a number cannot carry that.

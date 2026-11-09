@@ -4,7 +4,7 @@
 //! "@Bandy1803." ──comparable──▶ "bandy1803"
 //! ```
 //!
-//! [`comparable`] is what [`crate::knowledge::graph`] dedupes projections with, and what
+//! `comparable` is what [`crate::knowledge::graph`] dedupes projections with, and what
 //! [`crate::knowledge::evidence`] turns a handle into an identity with: two surfaces are the same
 //! thing exactly when their comparable forms are equal.
 //!

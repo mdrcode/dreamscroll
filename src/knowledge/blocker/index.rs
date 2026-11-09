@@ -1,6 +1,6 @@
 //! `knowledge_blocking_index`: the folded forms a blocker matches on.
 //!
-//! A function of `name` and `alt_names` and nothing else. Written by [`crate::knowledge::project`]
+//! A function of `name` and `alt_names` and nothing else. Written by `graph::project`
 //! whenever an entity's derived columns change, forgotten when the entity stops being live, and
 //! rebuilt wholesale when the key rule changes — `built_with` records which rule produced a row,
 //! so a stale index is countable instead of being discovered later as a recall bug.

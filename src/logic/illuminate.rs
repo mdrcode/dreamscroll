@@ -16,7 +16,7 @@ pub struct IlluminationTask {
     /// `gemini-3-flash-preview` and `gemini-3.1-pro-preview`, `medium` for
     /// `gemini-3.8-flash`, and `minimal` for `gemini-3.5-flash-lite`.
     /// `None` delegates to Gemini rather than pinning any of these defaults.
-    /// See https://ai.google.dev/gemini-api/docs/thinking#controlling-thinking.
+    /// See <https://ai.google.dev/gemini-api/docs/thinking#controlling-thinking>.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thinking_level: Option<llms::gemini::ThinkingLevel>,
     /// Persist the relational projection and enqueue indexing; raw output is always retained.

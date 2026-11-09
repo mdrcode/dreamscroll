@@ -3,7 +3,7 @@
 //! Two verbs, implemented for the pairs the graph asks about:
 //!
 //! - [`Similarity`] — the weighted total of `name`, `description` and type agreement.
-//! - [`Rank`] — the same total, filtered by [`worth_merging`] and ordered best first.
+//! - [`Rank`] — the same total, filtered by `worth_merging` and ordered best first.
 //!
 //! The filter is the part a number could not carry: `same` is a conjunction — a name match *and*
 //! something corroborating it — which is why [`Rank`] exists rather than a threshold on the score.
@@ -11,7 +11,7 @@
 //! stays visible on the proximity list even though it will never be folded.
 //!
 //! Not here: the confidence scale for authority answers (that is the authority's own calibration,
-//! in `resolve/wikidata/ranking.rs`), the aggregate over claims ([`combine`], arithmetic), and the
+//! in `resolve/wikidata/ranking.rs`), the aggregate over claims (`combine`, arithmetic), and the
 //! order of two confidences (`scoring::TotalCmp`).
 
 use std::collections::BTreeSet;
