@@ -8,6 +8,8 @@
 //! Callers reach this through [`KnowledgeGraph::link_illumination`]. The rest is `pub(super)` or private:
 //! `merge` and `project` do not link, and nothing outside `knowledge` does either.
 
+use std::collections::HashSet;
+
 use crate::knowledge::linker::{Action, Decision};
 use crate::model;
 
@@ -21,6 +23,9 @@ use super::KnowledgeGraph;
 pub struct LinkStats {
     pub attached: usize,
     pub created: usize,
+    /// Pending observations the Linker returned no decision for. Nonzero means the policy left part
+    /// of the illumination unlinked: the executor does not invent a decision to cover it.
+    pub left_pending: usize,
 }
 
 impl LinkStats {
@@ -68,6 +73,7 @@ pub(crate) async fn link_illumination(
     // Identities first, as one batch: a decision names them by id, so the rows have to exist before
     // the decider runs — and then `apply_decision` writes edges with nothing left to create.
     graph.evidence.import_identities(&pending).await?;
+    let pending_ids: HashSet<i32> = pending.iter().map(|row| row.id).collect();
 
     let decisions = decider
         .decide_link(&**blocker, &graph.evidence, &graph.scoring, illumination)
@@ -75,10 +81,17 @@ pub(crate) async fn link_illumination(
 
     let mut stats = LinkStats::default();
     for decision in &decisions {
-        let entity = apply_decision(graph, decision).await?;
+        let entity = apply_decision(graph, &pending_ids, decision).await?;
         graph.update_projection(entity).await?;
         stats.record(decision);
     }
+    // A policy may decide less than it was given. The executor applies what it got and says how much
+    // it was not told about, rather than inventing a decision or calling the silence success.
+    let decided: HashSet<i32> = decisions
+        .iter()
+        .map(|decision| decision.observation.id)
+        .collect();
+    stats.left_pending = pending_ids.difference(&decided).count();
 
     Ok(stats)
 }
@@ -86,9 +99,16 @@ pub(crate) async fn link_illumination(
 /// Apply one decision, returning the entity the observation landed on.
 async fn apply_decision(
     graph: &KnowledgeGraph,
+    pending: &HashSet<i32>,
     decision: &Decision,
 ) -> anyhow::Result<i32> {
     let observation = &decision.observation;
+    // The guarantee the `Decision` doc makes: the subject is one the Linker was given.
+    anyhow::ensure!(
+        pending.contains(&observation.id),
+        "the linker decided about observation {}, which is not pending in this illumination",
+        observation.id
+    );
     if observation.knowledge_entity_id.is_some() {
         anyhow::bail!(
             "the linker decided about observation {}, which is already linked",
@@ -172,11 +192,9 @@ mod unit {
         let loaded = load_illumination(&db, illumination).await;
         let inert = linking_store(&db, Arc::new(NoDecisions)).await;
         let stats = inert.link_illumination(&loaded).await.unwrap();
-        assert_eq!(
-            stats,
-            LinkStats::default(),
-            "nothing decided, nothing written"
-        );
+        assert_eq!(stats.attached, 0, "nothing decided, nothing written");
+        assert_eq!(stats.created, 0);
+        assert_eq!(stats.left_pending, 1, "and it says it was not told");
         assert_eq!(
             entity::Entity::find().count(&db.conn).await.unwrap(),
             0,
@@ -188,6 +206,50 @@ mod unit {
             linking_store(&db, Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker)).await;
         let stats = linking.link_illumination(&loaded).await.unwrap();
         assert_eq!(stats.created, 1, "the linker it was built with decides");
+        assert_eq!(stats.left_pending, 0, "every pending observation decided");
+    }
+
+    /// A `Decision` is about an observation the Linker was given. One naming anything else is a
+    /// broken policy, and the executor refuses it rather than writing to a row it never read.
+    struct Foreign;
+
+    #[async_trait::async_trait]
+    impl Linker for Foreign {
+        async fn decide_link(
+            &self,
+            _blocker: &dyn Blocker,
+            _evidence: &Evidence,
+            _scoring: &crate::knowledge::Scoring,
+            _illumination: &model::illumination::ModelEx,
+        ) -> anyhow::Result<Vec<crate::knowledge::linker::Decision>> {
+            Ok(vec![crate::knowledge::linker::Decision {
+                observation: fixtures::stub_observation(999_999, "Train Dreams", "book"),
+                action: crate::knowledge::linker::Action::Create,
+                identity: None,
+            }])
+        }
+    }
+
+    #[tokio::test]
+    async fn a_decision_about_an_observation_it_was_not_given_is_refused() {
+        db_or_skip!(db);
+        let user = fixtures::user(&db, "foreign").await;
+        let capture = fixtures::capture(&db, user).await;
+        let illumination = fixtures::illumination(&db, user, capture).await;
+        fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
+        let loaded = load_illumination(&db, illumination).await;
+
+        let error = linking_store(&db, Arc::new(Foreign))
+            .await
+            .link_illumination(&loaded)
+            .await
+            .unwrap_err();
+        assert!(error.to_string().contains("not pending"), "{error}");
+        assert_eq!(
+            entity::Entity::find().count(&db.conn).await.unwrap(),
+            0,
+            "and nothing was written"
+        );
     }
 
     /// A store built for writing has no policy, and linking on it says so rather than pretending.

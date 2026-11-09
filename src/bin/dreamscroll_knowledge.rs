@@ -599,8 +599,12 @@ async fn main() -> anyhow::Result<()> {
         Command::Link(_) => {
             let report = link_all_pending(&db).await?;
             println!(
-                "considered {} · already linked {} · linked {} · created {}",
-                report.considered, report.already_linked, report.attached, report.created
+                "considered {} · already linked {} · linked {} · created {} · left pending {}",
+                report.considered,
+                report.already_linked,
+                report.attached,
+                report.created,
+                report.left_pending
             );
         }
         Command::Merge(args) => {
@@ -887,12 +891,15 @@ struct LinkAllPendingReport {
     already_linked: usize,
     attached: usize,
     created: usize,
+    /// Pending observations the linker returned no decision for.
+    left_pending: usize,
 }
 
 impl LinkAllPendingReport {
     fn update(&mut self, part: knowledge::LinkStats) {
         self.attached += part.attached;
         self.created += part.created;
+        self.left_pending += part.left_pending;
     }
 }
 

@@ -111,6 +111,7 @@ enum Action {
 struct LinkStats {                 // what one illumination's decisions did
     attached: usize,
     created: usize,
+    left_pending: usize,           // pending observations the linker did not decide
 }
 ```
 
