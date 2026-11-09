@@ -307,7 +307,7 @@ async fn withdraw(
         )
         .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(entity_id))
         .filter(model::knowledge_claims::Column::KnowledgeIdentityId.eq(identity.id))
-        .filter(model::knowledge_claims::Column::Basis.eq(ClaimBasis::Text.as_str()))
+        .filter(model::knowledge_claims::Column::Basis.eq(ClaimBasis::Text))
         .filter(model::knowledge_claims::Column::RetractedAt.is_null())
         .exec(graph.conn())
         .await?
@@ -384,7 +384,7 @@ mod tests {
         model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
             knowledge_entity_id: Set(entity_id),
             knowledge_identity_id: Set(identity.id),
-            basis: Set(ClaimBasis::Text.as_str().to_string()),
+            basis: Set(ClaimBasis::Text),
             ..Default::default()
         })
         .exec(&db.conn)

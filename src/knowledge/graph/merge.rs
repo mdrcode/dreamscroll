@@ -253,7 +253,7 @@ mod tests {
         let id = entity::Entity::insert(entity::ActiveModel {
             name: Set(label.to_string()),
             entity_type: Set("real_person".to_string()),
-            status: Set("provisional".to_string()),
+            status: Set(crate::model::knowledge_entity::Status::Provisional),
             alt_names: Set(vec![label.to_string()]),
             ..Default::default()
         })
@@ -405,7 +405,7 @@ mod tests {
             "wikidata",
             Some("exact_label"),
             Some(0.8),
-            "text",
+            crate::model::knowledge_claims::ClaimBasis::Text,
         )
         .await;
 
@@ -452,7 +452,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(survivor.status, "identified", "the winner was re-projected");
+        assert_eq!(survivor.status, crate::model::knowledge_entity::Status::Identified, "the winner was re-projected");
     }
 
     /// A stale id — the shape a repair command passes — must not "merge" nothing and record an event

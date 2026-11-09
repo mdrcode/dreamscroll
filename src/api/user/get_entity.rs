@@ -128,7 +128,7 @@ mod tests {
         model::knowledge_entity::Entity::insert(model::knowledge_entity::ActiveModel {
             name: sea_orm::Set(name.to_string()),
             entity_type: sea_orm::Set("unknown".to_string()),
-            status: sea_orm::Set("provisional".to_string()),
+            status: sea_orm::Set(model::knowledge_entity::Status::Provisional),
             platform: sea_orm::Set(platform),
             platform_handle: sea_orm::Set(handle),
             merged_into_id: sea_orm::Set(merged_into),

@@ -201,8 +201,8 @@ mod tests {
     async fn claim_pairs(db: &crate::database::DbHandle, names: [&str; 2]) -> (i32, i32) {
         let first = fixtures::knowledge_entity_with_member(db, names[0]).await;
         let second = fixtures::knowledge_entity_with_member(db, names[1]).await;
-        fixtures::claim(db, first, "wikidata", "Q1", "wikidata", None, None, "text").await;
-        fixtures::claim(db, second, "wikidata", "Q1", "wikidata", None, None, "text").await;
+        fixtures::claim(db, first, "wikidata", "Q1", "wikidata", None, None, model::knowledge_claims::ClaimBasis::Text).await;
+        fixtures::claim(db, second, "wikidata", "Q1", "wikidata", None, None, model::knowledge_claims::ClaimBasis::Text).await;
         (first, second)
     }
 

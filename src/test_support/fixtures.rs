@@ -160,7 +160,7 @@ pub async fn claim(
     asserted_by: &str,
     method: Option<&str>,
     confidence: Option<f32>,
-    basis: &str,
+    basis: model::knowledge_claims::ClaimBasis,
 ) {
     let identity = crate::knowledge::evidence::Evidence::from_handle(db)
         .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
@@ -178,7 +178,7 @@ pub async fn claim(
     model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
         knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
         knowledge_identity_id: sea_orm::Set(identity),
-        basis: sea_orm::Set(basis.to_string()),
+        basis: sea_orm::Set(basis),
         ..Default::default()
     })
     .exec(&db.conn)
@@ -196,7 +196,7 @@ pub async fn knowledge_entity_with_member(db: &DbHandle, name: &str) -> i32 {
         model::knowledge_entity::Entity::insert(model::knowledge_entity::ActiveModel {
             name: sea_orm::Set(name.to_string()),
             entity_type: sea_orm::Set("real_person".to_string()),
-            status: sea_orm::Set("provisional".to_string()),
+            status: sea_orm::Set(crate::model::knowledge_entity::Status::Provisional),
             origin_observation_id: sea_orm::Set(Some(observation_id)),
             ..Default::default()
         })
@@ -290,7 +290,7 @@ pub fn stub_entity(id: i32, name: &str, entity_type: &str) -> model::knowledge_e
         platform: None,
         platform_handle: None,
         platform_display_name: None,
-        status: "provisional".to_string(),
+        status: crate::model::knowledge_entity::Status::Provisional,
         confidence: None,
         merged_into_id: None,
         origin_observation_id: None,

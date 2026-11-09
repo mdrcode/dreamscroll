@@ -17,4 +17,5 @@ mod knowledge_graph;
 mod project;
 
 pub(crate) use knowledge_graph::get;
-pub use knowledge_graph::{KnowledgeGraph, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
+pub use knowledge_graph::KnowledgeGraph;
+pub use crate::model::knowledge_entity::Status;

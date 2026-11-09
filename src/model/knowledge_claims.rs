@@ -3,6 +3,47 @@ use sea_orm::entity::prelude::*;
 
 use super::*;
 
+/// What the question was about, for one claim: the identifier, or the text.
+///
+/// Corroboration counts independent *inputs*, and independence is this, not who answered. A capture's
+/// handle and an authority asked about that handle are one chain however many schemes they name; a
+/// name and a handle are two. Recorded when the claim is written, because that is the only moment
+/// anything knows which question produced it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
+pub enum ClaimBasis {
+    /// A handle: a capture showed one, or the authority was asked about one.
+    #[sea_orm(string_value = "handle")]
+    Handle,
+    /// A name, title or description.
+    #[sea_orm(string_value = "text")]
+    Text,
+}
+
+impl ClaimBasis {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Handle => "handle",
+            Self::Text => "text",
+        }
+    }
+
+    /// The stored form, back, for readers that walk a raw row rather than a model.
+    pub fn from_db(value: &str) -> Self {
+        if value == Self::Handle.as_str() {
+            Self::Handle
+        } else {
+            Self::Text
+        }
+    }
+}
+
+impl std::fmt::Display for ClaimBasis {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// A claim: this entity is what that identity names.
 ///
 /// The edge of the many-to-many, not the identity itself — the identity and the authority's answer
@@ -26,7 +67,7 @@ pub struct Model {
 
     /// What the question was about: `handle` or `text`. Corroboration counts one of each, so
     /// independence is a property of the evidence rather than of which provider answered.
-    pub basis: String,
+    pub basis: ClaimBasis,
 
     /// Provenance when the claim came off a capture: which observation, whose capture, when.
     #[sea_orm(nullable)]

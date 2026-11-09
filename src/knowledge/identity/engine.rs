@@ -371,7 +371,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(entity.status, "identified");
+        assert_eq!(entity.status, crate::model::knowledge_entity::Status::Identified);
         assert_eq!(entity.confidence, Some(0.9));
 
         // Second run: the entity now has an ontology claim, so it is not even a candidate.
@@ -428,7 +428,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(entity.status, "provisional");
+        assert_eq!(entity.status, crate::model::knowledge_entity::Status::Provisional);
     }
 
     /// The local-development workflow: build the graph from answers already on disk, with no network
@@ -484,7 +484,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(entity.status, "identified", "{entity:?}");
+        assert_eq!(entity.status, crate::model::knowledge_entity::Status::Identified, "{entity:?}");
 
         // The miss is left alone, which is the whole point: offline builds what the cache can and
         // stops there.
@@ -493,7 +493,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(entity.status, "provisional", "{entity:?}");
+        assert_eq!(entity.status, crate::model::knowledge_entity::Status::Provisional, "{entity:?}");
     }
 
     /// Two *independent inputs* — a text match and an account link — raise confidence.
@@ -510,7 +510,7 @@ mod tests {
             "wikidata",
             Some("exact_label"),
             Some(0.8),
-            "text",
+            crate::model::knowledge_claims::ClaimBasis::Text,
         )
         .await;
         crate::test_support::fixtures::claim(
@@ -521,7 +521,7 @@ mod tests {
             "platform",
             None,
             None,
-            "handle",
+            crate::model::knowledge_claims::ClaimBasis::Handle,
         )
         .await;
 
@@ -566,7 +566,7 @@ mod tests {
                 source,
                 method,
                 confidence,
-                crate::knowledge::evidence::ClaimBasis::Handle.as_str(),
+                crate::knowledge::evidence::ClaimBasis::Handle,
             )
             .await;
         }
@@ -792,7 +792,7 @@ mod tests {
             "wikidata",
             Some("exact_label"),
             Some(0.9),
-            "text",
+            crate::model::knowledge_claims::ClaimBasis::Text,
         )
         .await;
         crate::test_support::fixtures::claim(
@@ -803,7 +803,7 @@ mod tests {
             "platform",
             None,
             None,
-            "handle",
+            crate::model::knowledge_claims::ClaimBasis::Handle,
         )
         .await;
 

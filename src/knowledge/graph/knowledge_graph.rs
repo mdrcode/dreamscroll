@@ -20,8 +20,6 @@ use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::scoring::Scoring;
 use crate::model;
 
-pub const STATUS_PROVISIONAL: &str = "provisional";
-pub const STATUS_IDENTIFIED: &str = "identified";
 
 /// The knowledge graph, as seen by anyone who writes to it.
 ///
@@ -178,7 +176,7 @@ async fn insert_new<C: ConnectionTrait>(
         alt_types: Set(Vec::new()),
         description: Set(observation.description.clone()),
         alt_descriptions: Set(Vec::new()),
-        status: Set(STATUS_PROVISIONAL.to_string()),
+        status: Set(model::knowledge_entity::Status::Provisional),
         confidence: Set(None),
         merged_into_id: Set(None),
         alt_names: Set(Vec::new()),

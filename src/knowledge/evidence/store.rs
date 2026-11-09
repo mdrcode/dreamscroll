@@ -341,7 +341,7 @@ impl Evidence {
                 knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
                 knowledge_identity_id: sea_orm::Set(knowledge_identity_id),
                 // A capture showed a handle: that is what the question was about.
-                basis: sea_orm::Set(ClaimBasis::Handle.as_str().to_string()),
+                basis: sea_orm::Set(ClaimBasis::Handle),
                 surface: sea_orm::Set(observation.platform_handle.clone()),
                 user_observed_entity_id: sea_orm::Set(Some(observation.id)),
                 source_user_id: sea_orm::Set(Some(observation.user_id)),
@@ -408,7 +408,7 @@ pub async fn store_claim(
     let insert = model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
         knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
         knowledge_identity_id: sea_orm::Set(identity_id),
-        basis: sea_orm::Set(claim.basis.as_str().to_string()),
+        basis: sea_orm::Set(claim.basis),
         ..Default::default()
     })
     .exec(&db.conn)

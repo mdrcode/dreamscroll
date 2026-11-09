@@ -87,10 +87,10 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
             continue;
         }
         stats.entities += 1;
-        match entity.status.as_str() {
-            "identified" => stats.identified += 1,
+        match entity.status {
+            model::knowledge_entity::Status::Identified => stats.identified += 1,
 
-            _ => stats.provisional += 1,
+            model::knowledge_entity::Status::Provisional => stats.provisional += 1,
         }
         if entity.platform.is_some() {
             stats.with_platform += 1;

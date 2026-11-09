@@ -1,5 +1,47 @@
 use chrono::{DateTime, Utc};
 use sea_orm::entity::prelude::*;
+use serde::{Deserialize, Serialize};
+
+/// How well substantiated an entity is: has any authority claimed it?
+///
+/// Two values on purpose. Whether an entity shares an identity with another is a proximity, at pair
+/// granularity — a third status conflated the two and had to be re-projected on every scan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[sea_orm(rs_type = "String", db_type = "String(StringLen::None)")]
+#[serde(rename_all = "lowercase")]
+pub enum Status {
+    /// A cluster the blocker built that nobody has identified.
+    #[sea_orm(string_value = "provisional")]
+    Provisional,
+    /// At least one live claim survives.
+    #[sea_orm(string_value = "identified")]
+    Identified,
+}
+
+impl Status {
+    /// The stored form, for raw SQL and for the wire.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Provisional => "provisional",
+            Self::Identified => "identified",
+        }
+    }
+
+    /// The projection's rule: one live claim is enough.
+    pub fn of(claims: usize) -> Self {
+        if claims == 0 {
+            Self::Provisional
+        } else {
+            Self::Identified
+        }
+    }
+}
+
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// One knowledge entity: the thing itself, shared by every user.
 ///
@@ -38,9 +80,9 @@ pub struct Model {
     pub search_query: Option<String>,
     /// Every other hint a member carried. `search_query` is the selected one.
     pub alt_search_queries: Vec<String>,
-    /// provisional | identified. Substantiation only — whether the entity shares an identity
-    /// with another one is a proximity, not a status. Projected from evidence, never hand-set.
-    pub status: String,
+    /// Substantiation only — whether the entity shares an identity with another one is a
+    /// proximity, not a status. Projected from evidence, never hand-set.
+    pub status: Status,
     #[sea_orm(nullable)]
     pub confidence: Option<f32>,
     /// Set when this entity was merged into another; the loser stays as a tombstone.

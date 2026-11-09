@@ -24,7 +24,6 @@ use sea_orm::{
 use crate::model;
 
 use crate::knowledge::evidence::ClaimBasis;
-use super::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 
 /// Recompute the columns that are a function of the members and of the evidence — the only writer of
 /// them after `create`.
@@ -148,13 +147,9 @@ pub(super) async fn project<C: ConnectionTrait>(
         })
         .collect::<Result<Vec<_>, sea_orm::DbErr>>()?;
     // Status is one axis: how well substantiated the entity is. Whether it shares an identity with
-    // another entity is a different question, answered by `knowledge_proximities` at pair granularity —
-    // a third status value conflated the two and had to be re-projected on every scan.
-    let status = if claims.is_empty() {
-        STATUS_PROVISIONAL
-    } else {
-        STATUS_IDENTIFIED
-    };
+    // another entity is a different question, answered by `knowledge_proximities` at pair
+    // granularity — a third status value conflated the two and had to be re-projected on every scan.
+    let status = model::knowledge_entity::Status::of(claims.len());
 
     let confidence = crate::knowledge::linker::heuristic::scoring::combine(&claims);
 
@@ -171,7 +166,7 @@ pub(super) async fn project<C: ConnectionTrait>(
         platform: Set(platform),
         platform_handle: Set(platform_handle),
         platform_display_name: Set(platform_display_name),
-        status: Set(status.to_string()),
+        status: Set(status),
         confidence: Set(confidence),
         ..Default::default()
     })
@@ -242,7 +237,7 @@ mod tests {
     }
 
     async fn claim(db: &DbHandle, id: i32, scheme: &str, value: &str) {
-        fixtures::claim(db, id, scheme, value, "test", None, None, "text").await;
+        fixtures::claim(db, id, scheme, value, "test", None, None, model::knowledge_claims::ClaimBasis::Text).await;
     }
 
     async fn proximity(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
@@ -299,7 +294,7 @@ mod tests {
             "alt_names is the complement of the selected name: {:?}",
             entity.alt_names
         );
-        assert_eq!(entity.status, STATUS_PROVISIONAL);
+        assert_eq!(entity.status, model::knowledge_entity::Status::Provisional);
         assert_eq!(entity.confidence, None);
     }
 
@@ -438,7 +433,7 @@ mod tests {
         store(&db).update_projection(id).await.unwrap();
 
         let entity = load(&db, id).await;
-        assert_eq!(entity.status, STATUS_IDENTIFIED);
+        assert_eq!(entity.status, model::knowledge_entity::Status::Identified);
         assert!(entity.confidence.is_some(), "a claim carries a confidence");
     }
 
@@ -455,7 +450,7 @@ mod tests {
 
         store(&db).update_projection(id).await.unwrap();
 
-        assert_eq!(load(&db, id).await.status, STATUS_PROVISIONAL);
+        assert_eq!(load(&db, id).await.status, model::knowledge_entity::Status::Provisional);
     }
 
     #[tokio::test]
@@ -478,6 +473,6 @@ mod tests {
 
         store(&db).update_projection(id).await.unwrap();
 
-        assert_eq!(load(&db, id).await.status, STATUS_PROVISIONAL);
+        assert_eq!(load(&db, id).await.status, model::knowledge_entity::Status::Provisional);
     }
 }

@@ -240,7 +240,7 @@ mod unit {
 mod corpus {
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
-    use crate::knowledge::STATUS_IDENTIFIED;
+    use crate::knowledge::Status;
     use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
     use crate::test_support::fixtures::{self, entity_count, observe, Capture};
     use crate::test_support::db_or_skip;
@@ -483,6 +483,6 @@ mod corpus {
             .expect("build should succeed");
 
         let entity = entity::Entity::find().one(&db.conn).await.unwrap().unwrap();
-        assert_eq!(entity.status, STATUS_IDENTIFIED);
+        assert_eq!(entity.status, Status::Identified);
     }
 }
