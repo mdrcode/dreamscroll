@@ -13,7 +13,7 @@ use std::cmp::Ordering;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 
-use super::evidence::Evidence;
+use crate::knowledge::evidence::Evidence;
 use super::merge::{Cause, Outcome};
 use crate::knowledge::scoring::TotalCmp;
 use super::Knowledge;

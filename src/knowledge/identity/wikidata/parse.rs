@@ -9,7 +9,7 @@ use super::ranking::HANDLE_CONFIDENCE;
 use super::types;
 use super::{Candidate, Kind};
 use crate::fetch::{Answer, Request};
-use crate::knowledge::graph::evidence::Claim;
+use crate::knowledge::evidence::Claim;
 use crate::model;
 
 /// Turn an answer into claims. Pure: same entity plus same answer, same claims.

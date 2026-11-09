@@ -709,7 +709,7 @@ async fn main() -> anyhow::Result<()> {
             if !args.yes {
                 anyhow::bail!("reset empties the projected graph; pass --yes to confirm");
             }
-            let report = knowledge::graph::snapshot::reset(&db).await?;
+            let report = knowledge::snapshot::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
                     "snapshot {} · entities {} · identities {} · claims {} · proximities {} · members {}",
@@ -729,13 +729,13 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         Command::Compare(args) => {
-            let before = knowledge::graph::snapshot::Snapshot {
+            let before = knowledge::snapshot::Snapshot {
                 suffix: args.before.clone(),
             };
-            let after = knowledge::graph::snapshot::Snapshot {
+            let after = knowledge::snapshot::Snapshot {
                 suffix: args.after.clone(),
             };
-            let report = knowledge::graph::snapshot::compare(&db, &before, &after).await?;
+            let report = knowledge::snapshot::compare(&db, &before, &after).await?;
 
             println!("before {} · after {}", args.before, args.after);
             println!(
@@ -755,11 +755,11 @@ async fn main() -> anyhow::Result<()> {
             );
             for example in &report.examples {
                 match example.kind {
-                    knowledge::graph::snapshot::Kind::Split => println!(
+                    knowledge::snapshot::Kind::Split => println!(
                         "  split  \"{}\" · {} members → {} groups",
                         example.label, example.members, example.into
                     ),
-                    knowledge::graph::snapshot::Kind::Merged => println!(
+                    knowledge::snapshot::Kind::Merged => println!(
                         "  merge  \"{}\" · {} groups → {} members",
                         example.label, example.into, example.members
                     ),

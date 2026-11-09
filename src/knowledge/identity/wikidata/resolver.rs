@@ -18,7 +18,7 @@ use super::policy;
 use super::transport::Wire;
 use super::{Candidate, Kind, parse, plan};
 use crate::fetch::{Answers, Gateway, Request, Transport};
-use crate::knowledge::graph::evidence::Claim;
+use crate::knowledge::evidence::Claim;
 use crate::knowledge::identity::Resolver;
 use crate::model;
 

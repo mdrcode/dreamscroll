@@ -7,7 +7,7 @@
 
 use crate::model;
 
-use crate::knowledge::graph::evidence::Evidence;
+use crate::knowledge::evidence::Evidence;
 use crate::knowledge::linker::{Action, Decision, Linker};
 use crate::knowledge::scoring::Scoring;
 

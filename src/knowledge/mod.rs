@@ -11,21 +11,33 @@
 //! - [`linker`] — which candidate wins, and making it happen: the [Linker] trait, today's heuristic,
 //!   and the executor that writes one illumination.
 //! - [`graph`] — what the graph holds and every way it changes: [`Knowledge`], projection, merge,
-//!   proximity, verdicts, the claim vocabulary in `evidence`, and snapshots.
+//!   proximity and verdicts.
 //!
-//! `normalize.rs` and `scoring.rs` stay at the root because both clusters, and [`identity`], use
-//! them: a surface fold and a confidence comparison are not anyone's private step.
+//! Three things stay at the root because more than one cluster needs them, and a stage that imports
+//! a cluster to reach its own vocabulary has the dependency backwards:
+//!
+//! - [`evidence`] — [`Claim`], [`ClaimBasis`] and the two writers of `knowledge_claims`. `identity`
+//!   writes through it and `linking` reads it; it depends on `model`, `normalize` and `scoring` and
+//!   on nothing else here.
+//! - [`normalize`] and [`scoring`] — a surface fold and a confidence comparison, used by blocking,
+//!   identity, evidence and projection alike.
+//! - [`snapshot`] — copy the projection, empty it, diff two copies: an operation over the whole
+//!   graph, not a way of changing it.
 //!
 //! [Blocker]: blocker::Blocker
 //! [Linker]: linker::Linker
+//! [`Claim`]: evidence::Claim
+//! [`ClaimBasis`]: evidence::ClaimBasis
 
 pub mod blocker;
 pub mod eval;
+pub mod evidence;
 pub mod graph;
 pub mod identity;
 pub mod linker;
 pub mod normalize;
 pub mod scoring;
+pub mod snapshot;
 
 pub use graph::proximity::MergeReport;
 pub use graph::verdicts::ReplayReport;

@@ -7,7 +7,7 @@ use std::collections::HashSet;
 
 use super::resolver::Resolver;
 use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
-use crate::knowledge::graph::evidence::{Stored, store_claim};
+use crate::knowledge::evidence::{Stored, store_claim};
 use crate::database;
 
 /// Transport calls a plain resolve is allowed to make. Exists so that omitting the budget does real
@@ -98,7 +98,7 @@ impl<'a> ResolutionEngine<'a> {
             .iter()
             .map(|resolver| resolver.id())
             .collect();
-        let entities = crate::knowledge::graph::evidence::Evidence::from_handle(self.db)
+        let entities = crate::knowledge::evidence::Evidence::from_handle(self.db)
             .awaiting_authority(
                 &sources,
                 self.options.limit,
@@ -189,7 +189,7 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use crate::fetch::{Answer, BATCH, FetchError, Outcome, Request, Transport};
-    use crate::knowledge::graph::evidence::Claim;
+    use crate::knowledge::evidence::Claim;
     use crate::model;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::sync::Arc;
@@ -206,7 +206,7 @@ mod tests {
         let second =
             crate::test_support::fixtures::knowledge_entity_with_member(&db, "Second").await;
 
-        let evidence = crate::knowledge::graph::evidence::Evidence::from_handle(&db);
+        let evidence = crate::knowledge::evidence::Evidence::from_handle(&db);
         let ascending = evidence
             .awaiting_authority(&["wikidata"], Some(2), None, false)
             .await
@@ -294,7 +294,7 @@ mod tests {
                             classes: Vec::new(),
                             method: "exact_label".to_string(),
                             confidence: 0.9,
-                            basis: crate::knowledge::graph::evidence::ClaimBasis::Text,
+                            basis: crate::knowledge::evidence::ClaimBasis::Text,
                         },
                     ))
                 })
@@ -566,7 +566,7 @@ mod tests {
                 source,
                 method,
                 confidence,
-                crate::knowledge::graph::evidence::ClaimBasis::Handle.as_str(),
+                crate::knowledge::evidence::ClaimBasis::Handle.as_str(),
             )
             .await;
         }
@@ -669,7 +669,7 @@ mod tests {
                                 classes: Vec::new(),
                                 method: "exact_label".to_string(),
                                 confidence: 0.9,
-                                basis: crate::knowledge::graph::evidence::ClaimBasis::Text,
+                                basis: crate::knowledge::evidence::ClaimBasis::Text,
                             },
                         )
                     })

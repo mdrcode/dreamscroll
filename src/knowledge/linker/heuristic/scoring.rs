@@ -18,7 +18,7 @@ use std::collections::BTreeSet;
 
 use crate::model;
 
-use crate::knowledge::graph::evidence::ClaimBasis;
+use crate::knowledge::evidence::ClaimBasis;
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::{Entity, Observation, Rank, Scoring, Similarity};
 

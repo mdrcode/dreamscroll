@@ -23,7 +23,7 @@ use sea_orm::{
 
 use crate::model;
 
-use super::evidence::ClaimBasis;
+use crate::knowledge::evidence::ClaimBasis;
 use super::{STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 
 /// Recompute the columns that are a function of the members and of the evidence — the only writer of
@@ -247,8 +247,8 @@ mod tests {
 
     async fn proximity(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
         let claimant = fixtures::knowledge_entity_with_member(db, "a claimant").await;
-        let identity = crate::knowledge::graph::evidence::Evidence::from_handle(db)
-            .upsert_identity(&crate::knowledge::graph::evidence::DraftIdentity {
+        let identity = crate::knowledge::evidence::Evidence::from_handle(db)
+            .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
                 scheme: scheme.to_string(),
                 external_id: value.to_string(),
                 asserted_by: "test".to_string(),

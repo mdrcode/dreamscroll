@@ -8,9 +8,9 @@
 //! can run, not as an escape hatch. Outside `knowledge`, a caller sees [`Knowledge`]'s methods and
 //! nothing else.
 
-pub mod evidence;
+
 pub mod proximity;
-pub mod snapshot;
+
 pub mod verdicts;
 
 pub mod merge;
@@ -24,7 +24,7 @@ use crate::database::DbHandle;
 use crate::model;
 
 use super::blocker::Blocker;
-use self::evidence::Evidence;
+use super::evidence::Evidence;
 use super::linker::Linker;
 use super::linker::heuristic::Heuristic;
 use super::scoring::Scoring;

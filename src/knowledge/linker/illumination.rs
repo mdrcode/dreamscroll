@@ -117,7 +117,7 @@ mod unit {
     use super::*;
     use crate::database::DbHandle;
     use crate::knowledge::blocker::Blocker;
-    use crate::knowledge::graph::evidence::Evidence;
+    use crate::knowledge::evidence::Evidence;
     use crate::knowledge::linker::Linker;
     use crate::model::knowledge_entity as entity;
     use crate::test_support::{db_or_skip, fixtures};

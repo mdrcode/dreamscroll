@@ -14,7 +14,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder
 
 use crate::model;
 
-use super::evidence::ClaimBasis;
+use crate::knowledge::evidence::ClaimBasis;
 use super::merge::{Cause, Outcome};
 use super::Knowledge;
 
@@ -443,7 +443,7 @@ mod tests {
         assert_eq!(replay(&store).await.unwrap().withdrawn, 1);
 
         // A rebuild: entities, identities and claims are recreated and the parser claims again.
-        crate::knowledge::graph::snapshot::reset(&db).await.unwrap();
+        crate::knowledge::snapshot::reset(&db).await.unwrap();
         let reborn = seed_claim(&db, "Q", "Q131472411").await;
         set_origin(&db, reborn, subject).await;
 
@@ -520,7 +520,7 @@ mod tests {
         store.merge(loser, winner, Cause::Repair).await.unwrap();
 
         // A rebuild: the graph is emptied, the observations and the verdict survive it.
-        crate::knowledge::graph::snapshot::reset(&db).await.unwrap();
+        crate::knowledge::snapshot::reset(&db).await.unwrap();
         let reborn_winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let reborn_loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         set_origin(&db, reborn_winner, winner_origin).await;
@@ -551,7 +551,7 @@ mod tests {
 
         // A rebuild gives the pair back, then the model folds the person's winner into a third
         // entity: the winner is now a tombstone, and the loser is not.
-        crate::knowledge::graph::snapshot::reset(&db).await.unwrap();
+        crate::knowledge::snapshot::reset(&db).await.unwrap();
         let reborn_winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let reborn_loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         set_origin(&db, reborn_winner, winner_origin).await;
