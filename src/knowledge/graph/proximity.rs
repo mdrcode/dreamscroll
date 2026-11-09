@@ -16,7 +16,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, T
 use crate::knowledge::evidence::Evidence;
 use super::merge::{Cause, Outcome};
 use crate::knowledge::scoring::TotalCmp;
-use super::Knowledge;
+use super::KnowledgeGraph;
 
 /// Why a proximity was raised.
 ///
@@ -52,8 +52,8 @@ pub struct MergeReport {
 }
 
 /// Derive the candidate set and replace the table with it. Returns how many rows the batch holds.
-pub async fn scan(knowledge: &Knowledge) -> anyhow::Result<usize> {
-    let conn = knowledge.conn();
+pub async fn scan(graph: &KnowledgeGraph) -> anyhow::Result<usize> {
+    let conn = graph.conn();
     let evidence = Evidence::new(conn.clone());
     let identities = identities_with_several_holders(conn).await?;
 
@@ -70,7 +70,7 @@ pub async fn scan(knowledge: &Knowledge) -> anyhow::Result<usize> {
             continue;
         };
         for other in holders.iter().skip(1) {
-            let score = knowledge.scoring.pair.score(other, holder);
+            let score = graph.scoring.pair.score(other, holder);
             raised += insert(
                 &txn,
                 holder.id,
@@ -87,10 +87,10 @@ pub async fn scan(knowledge: &Knowledge) -> anyhow::Result<usize> {
 }
 
 /// Fold the candidates that look like one thing, and leave the rest as questions.
-pub async fn merge(knowledge: &Knowledge) -> anyhow::Result<MergeReport> {
+pub async fn merge(graph: &KnowledgeGraph) -> anyhow::Result<MergeReport> {
     let mut report = MergeReport::default();
-    for (a, b) in candidates(knowledge.conn()).await? {
-        let (Ok(left), Ok(right)) = (knowledge.get(a).await, knowledge.get(b).await) else {
+    for (a, b) in candidates(graph.conn()).await? {
+        let (Ok(left), Ok(right)) = (graph.get(a).await, graph.get(b).await) else {
             // One side no longer names a row; the next scan will not raise the pair at all.
             report.moot += 1;
             continue;
@@ -102,7 +102,7 @@ pub async fn merge(knowledge: &Knowledge) -> anyhow::Result<MergeReport> {
         }
 
         // The more substantiated side survives; ties go to the lower id.
-        let scoring = &knowledge.scoring;
+        let scoring = &graph.scoring;
         let (winner, loser) = if right.confidence.total_cmp(&left.confidence) == Ordering::Greater {
             (right, left)
         } else {
@@ -117,7 +117,7 @@ pub async fn merge(knowledge: &Knowledge) -> anyhow::Result<MergeReport> {
             report.undecided += 1;
             continue;
         }
-        match knowledge
+        match graph
             .merge(loser.id, winner.id, Cause::ProximityAuto)
             .await?
         {
@@ -210,7 +210,7 @@ mod tests {
     #[tokio::test]
     async fn scanning_records_a_shared_identity() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
 
         let raised = scan(&store).await.expect("scan");
@@ -236,7 +236,7 @@ mod tests {
     #[tokio::test]
     async fn merging_folds_the_pair_it_answers() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
         scan(&store).await.unwrap();
 
@@ -263,7 +263,7 @@ mod tests {
     #[tokio::test]
     async fn merging_leaves_a_pair_it_cannot_claim() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
         scan(&store).await.unwrap();

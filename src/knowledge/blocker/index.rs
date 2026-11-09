@@ -168,7 +168,7 @@ mod tests {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         // The fixture inserts the row directly; `project` is the writer under test.
-        crate::knowledge::Knowledge::new(&db).update_projection(id).await.unwrap();
+        crate::knowledge::KnowledgeGraph::new(&db).update_projection(id).await.unwrap();
         let entity = model::knowledge_entity::Entity::find_by_id(id)
             .one(&db.conn)
             .await
@@ -193,7 +193,7 @@ mod tests {
     async fn a_row_from_another_fold_is_counted_and_rebuildable() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        crate::knowledge::Knowledge::new(&db).update_projection(id).await.unwrap();
+        crate::knowledge::KnowledgeGraph::new(&db).update_projection(id).await.unwrap();
         db.conn
             .execute_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
@@ -219,7 +219,7 @@ mod tests {
         db_or_skip!(db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Elon Musk").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Elon").await;
-        let store = crate::knowledge::Knowledge::new(&db);
+        let store = crate::knowledge::KnowledgeGraph::new(&db);
         store.update_projection(winner).await.unwrap();
         store.update_projection(loser).await.unwrap();
 
@@ -255,7 +255,7 @@ mod tests {
         db_or_skip!(db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        let store = crate::knowledge::Knowledge::new(&db);
+        let store = crate::knowledge::KnowledgeGraph::new(&db);
         store.update_projection(winner).await.unwrap();
         store.update_projection(loser).await.unwrap();
         store
@@ -277,7 +277,7 @@ mod tests {
     async fn a_live_entity_without_a_row_is_missing() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        crate::knowledge::Knowledge::new(&db).update_projection(id).await.unwrap();
+        crate::knowledge::KnowledgeGraph::new(&db).update_projection(id).await.unwrap();
         forget(&db.conn, id).await.unwrap();
         let report = check(&db).await.unwrap();
         assert_eq!(report.missing, 1, "{report:?}");

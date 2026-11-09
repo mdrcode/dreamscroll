@@ -11,7 +11,7 @@
 //! and text while the loser's arrive as `alt_*`, without anyone having to guess which of them the
 //! current columns came from.
 //!
-//! Callers reach this through [`Knowledge::update_projection`]. The functions below are `pub(super)`
+//! Callers reach this through [`KnowledgeGraph::update_projection`]. The functions below are `pub(super)`
 //! for one reason: `merge` projects inside its transaction and so needs the connection-agnostic form.
 
 use std::collections::HashSet;
@@ -237,8 +237,8 @@ mod tests {
     use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
     use crate::test_support::{fixtures, test_db};
 
-    fn store(db: &DbHandle) -> crate::knowledge::Knowledge {
-        crate::knowledge::Knowledge::new(db)
+    fn store(db: &DbHandle) -> crate::knowledge::KnowledgeGraph {
+        crate::knowledge::KnowledgeGraph::new(db)
     }
 
     async fn claim(db: &DbHandle, id: i32, scheme: &str, value: &str) {

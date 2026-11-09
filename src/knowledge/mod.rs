@@ -10,7 +10,7 @@
 //!   from `knowledge_blocking_index`, and the index itself.
 //! - [`linker`] — which candidate wins, and making it happen: the [Linker] trait, today's heuristic,
 //!   and the executor that writes one illumination.
-//! - [`graph`] — what the graph holds and every way it changes: [`Knowledge`], projection, merge,
+//! - [`graph`] — what the graph holds and every way it changes: [`KnowledgeGraph`], projection, merge,
 //!   proximity and verdicts.
 //!
 //! Three things stay at the root because more than one cluster needs them, and a stage that imports
@@ -41,6 +41,6 @@ pub mod snapshot;
 
 pub use graph::proximity::MergeReport;
 pub use graph::verdicts::ReplayReport;
-pub use graph::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
+pub use graph::{KnowledgeGraph, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
 pub use linker::LinkStats;
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};

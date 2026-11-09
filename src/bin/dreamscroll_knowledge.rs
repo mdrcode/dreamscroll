@@ -422,7 +422,7 @@ async fn reproject_all(db: &database::DbHandle) -> anyhow::Result<()> {
         .filter(entity::Column::MergedIntoId.is_null())
         .all(&db.conn)
         .await?;
-    let store = knowledge::Knowledge::new(db);
+    let store = knowledge::KnowledgeGraph::new(db);
     let total = live.len();
     for row in &live {
         store.update_projection(row.id).await?;
@@ -448,7 +448,7 @@ async fn reproject_unclaimed(db: &database::DbHandle) -> anyhow::Result<()> {
         .filter(Expr::col(entity::Column::Id).not_in_subquery(claimed))
         .all(&db.conn)
         .await?;
-    let store = knowledge::Knowledge::new(db);
+    let store = knowledge::KnowledgeGraph::new(db);
     let total = stale.len();
     for row in &stale {
         store.update_projection(row.id).await?;
@@ -604,7 +604,7 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         Command::Merge(args) => {
-            let store = knowledge::Knowledge::new(&db);
+            let store = knowledge::KnowledgeGraph::new(&db);
             let preview = store.merge_preview(args.loser, args.winner).await?;
             println!(
                 "merge {} -> {} · observations {} · evidence {} · shared illuminations {}",
@@ -640,7 +640,7 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Verdicts(args) => match args.command {
             VerdictsCommand::Replay(_) => {
-                let store = knowledge::Knowledge::new(&db);
+                let store = knowledge::KnowledgeGraph::new(&db);
                 let report = knowledge::graph::verdicts::replay(&store).await?;
                 println!(
                     "applied {} · already {} · gone {} · refused {} · withdrawn {}",
@@ -677,7 +677,7 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Command::Proximity(args) => {
-            let store = knowledge::Knowledge::new(&db);
+            let store = knowledge::KnowledgeGraph::new(&db);
             match args.command {
                 ProximityCommand::Scan(_) => {
                     println!(
@@ -804,7 +804,7 @@ async fn main() -> anyhow::Result<()> {
             IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
             IdentityCommand::Reproject(args) => reproject(&db, args.all).await?,
             IdentityCommand::Veto(args) => {
-                let store = knowledge::Knowledge::new(&db);
+                let store = knowledge::KnowledgeGraph::new(&db);
                 let recorded = knowledge::graph::verdicts::veto(
                     &store,
                     args.entity,
@@ -830,7 +830,7 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             IdentityCommand::Unveto(args) => {
-                let store = knowledge::Knowledge::new(&db);
+                let store = knowledge::KnowledgeGraph::new(&db);
                 let lifted = knowledge::graph::verdicts::unveto(&store, args.id).await?;
                 println!(
                     "{} — the next resolve may claim the identity again",
@@ -916,7 +916,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
     // Reads `knowledge_blocking_index`: nothing is loaded, so a link run costs queries and nothing at boot.
     let blocker: Box<dyn knowledge::blocker::Blocker> =
         Box::new(knowledge::blocker::SqlBlocker::new(db));
-    let knowledge = knowledge::Knowledge::with_linking(
+    let graph = knowledge::KnowledgeGraph::with_linking(
         db,
         blocker,
         std::sync::Arc::new(knowledge::linker::heuristic::HeuristicLinker),
@@ -929,7 +929,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
                 report.already_linked += 1;
             }
         }
-        let applied = knowledge.link_illumination(illumination).await?;
+        let applied = graph.link_illumination(illumination).await?;
         report.update(applied);
     }
     Ok(report)

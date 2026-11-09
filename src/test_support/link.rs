@@ -15,7 +15,7 @@ use crate::model;
 /// Link every illumination that still has unlinked observations.
 pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
     // One blocker for the whole rebuild: the store holds it and keeps it current as it links.
-    let knowledge = crate::knowledge::Knowledge::with_linking(
+    let graph = crate::knowledge::KnowledgeGraph::with_linking(
         db,
         Box::new(SqlBlocker::new(db)),
         std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
@@ -37,7 +37,7 @@ pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
         .await?;
 
     for illumination in &illuminations {
-        knowledge.link_illumination(illumination).await?;
+        graph.link_illumination(illumination).await?;
     }
     Ok(())
 }

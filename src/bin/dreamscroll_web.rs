@@ -175,7 +175,7 @@ async fn initialize()
             webhook::WebhookState {
                 logic: logic::LogicState {
                     service_api,
-                    knowledge: crate::knowledge::Knowledge::with_linking(
+                    knowledge: crate::knowledge::KnowledgeGraph::with_linking(
                         &db,
                         Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
                         std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),

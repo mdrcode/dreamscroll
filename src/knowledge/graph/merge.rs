@@ -87,15 +87,15 @@ async fn shared_illuminations<C: ConnectionTrait>(
 /// idempotent and merges are rare, so it doubles as the notification.
 pub(super) async fn merge_into(
     conn: &sea_orm::DatabaseConnection,
-    knowledge: &super::Knowledge,
+    graph: &super::KnowledgeGraph,
     loser: i32,
     winner: i32,
     cause: Cause,
 ) -> anyhow::Result<Outcome> {
     let outcome = merge(conn, loser, winner, cause).await?;
     if outcome == Outcome::Merged {
-        knowledge.update_projection(winner).await?;
-        knowledge.forget(loser);
+        graph.update_projection(winner).await?;
+        graph.forget(loser);
     }
     Ok(outcome)
 }

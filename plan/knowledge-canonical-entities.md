@@ -303,9 +303,11 @@ written by `project()` and by nothing else.
 
 Model files: `src/model/user_observed_entity.rs`, `knowledge_entity.rs`,
 `knowledge_evidence.rs` — each `pub struct Model`, as SeaORM requires, so the layer lives in the
-module path. Logic in `src/knowledge/`: `graph.rs` is the `Knowledge` facade, and the write paths
-that carry their own tests live beside it (`link.rs`, `project.rs`, `merge.rs`), with `normalize.rs`,
-`heuristic/linker.rs`, `evidence.rs` and `resolve/` as their supporting pieces.
+module path. Logic in `src/knowledge/` is three clusters and their shared leaves: `blocker/` is
+recall (the trait, the SQL probe, `knowledge_blocking_index`), `linker/` is the decision and the
+executor that applies it, and `graph/` holds the `KnowledgeGraph` facade (`graph/knowledge_graph.rs`)
+with `project`, `merge`, `proximity` and `verdicts` beneath it. `evidence/`, `normalize.rs` and
+`scoring.rs` sit at the root because every cluster uses them.
 
 ### Rust shape
 

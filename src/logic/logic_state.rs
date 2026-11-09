@@ -5,7 +5,7 @@ pub struct LogicState {
     pub service_api: api::ServiceApiClient,
     /// The knowledge graph is written in-process, not through `service_api`: linking is graph work
     /// over observations, entities and evidence, and there is no REST surface for it.
-    pub knowledge: knowledge::Knowledge,
+    pub knowledge: knowledge::KnowledgeGraph,
     pub storage: Box<dyn storage::StorageProvider>,
     pub inference_client: Box<dyn llms::InferenceClient>,
     pub firestarter: Box<dyn ignition::Firestarter>,

@@ -136,7 +136,7 @@ mod tests {
     async fn a_word_order_difference_is_found_by_the_second_generation() {
         db_or_skip!(db);
         let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        crate::knowledge::Knowledge::new(&db)
+        crate::knowledge::KnowledgeGraph::new(&db)
             .update_projection(id)
             .await
             .unwrap();
@@ -163,7 +163,7 @@ mod tests {
             ))
             .await
             .unwrap();
-        crate::knowledge::Knowledge::new(&db)
+        crate::knowledge::KnowledgeGraph::new(&db)
             .update_projection(id)
             .await
             .unwrap();

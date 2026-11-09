@@ -1,33 +1,24 @@
-//! The knowledge graph's write side: [`Knowledge`], and every part of the state it owns.
+//! The knowledge graph's write side: [`KnowledgeGraph`], and the primitives every write shares.
 //!
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
-//! onto one goes through [`Knowledge`], and the handle itself never leaves it — the primitives below
-//! are private, and the collaborators (`decider`, `blocker`, `evidence`, `scoring`) are `pub(super)`
-//! only because the code that reads them lives in `linking/illumination.rs`, `graph/project.rs` and
-//! `graph/proximity.rs`. The connection is the same deal: [`Knowledge::conn`] exists so those passes
-//! can run, not as an escape hatch. Outside `knowledge`, a caller sees [`Knowledge`]'s methods and
-//! nothing else.
-
-
-pub mod proximity;
-
-pub mod verdicts;
-
-pub mod merge;
-mod project;
+//! onto one goes through [`KnowledgeGraph`], and the handle itself never leaves this module tree — the
+//! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`, `scoring`)
+//! are `pub(crate)` only because the code that reads them lives in `linker/illumination.rs`,
+//! `graph/project.rs` and `graph/proximity.rs`. The connection is the same deal: [`KnowledgeGraph::conn`]
+//! exists so those passes can run, not as an escape hatch. Outside `knowledge`, a caller sees
+//! [`KnowledgeGraph`]'s methods and nothing else.
 
 use std::sync::Arc;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Set, Statement};
 
 use crate::database::DbHandle;
+use crate::knowledge::blocker::Blocker;
+use crate::knowledge::evidence::Evidence;
+use crate::knowledge::linker::Linker;
+use crate::knowledge::linker::heuristic::Heuristic;
+use crate::knowledge::scoring::Scoring;
 use crate::model;
-
-use super::blocker::Blocker;
-use super::evidence::Evidence;
-use super::linker::Linker;
-use super::linker::heuristic::Heuristic;
-use super::scoring::Scoring;
 
 pub const STATUS_PROVISIONAL: &str = "provisional";
 pub const STATUS_IDENTIFIED: &str = "identified";
@@ -35,13 +26,13 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 /// The knowledge graph, as seen by anyone who writes to it.
 ///
 /// Most callers are a store: they create, attach, project and merge, and never decide anything. Those
-/// build [`Knowledge::new`]. Linking additionally needs a policy and a blocker, both injected by
-/// [`Knowledge::with_linking`].
+/// build [`KnowledgeGraph::new`]. Linking additionally needs a policy and a blocker, both injected by
+/// [`KnowledgeGraph::with_linking`].
 ///
 /// The [`Scoring`] is the store's, not the linker's: the proximity passes ask it whether two entities
 /// are one thing and how alike they are, and the linker asks which candidate a capture belongs to. One policy
-/// for both, or the graph disagrees with itself. [`Knowledge::new`] uses the heuristic;
-/// [`Knowledge::with_scoring`] replaces it.
+/// for both, or the graph disagrees with itself. [`KnowledgeGraph::new`] uses the heuristic;
+/// [`KnowledgeGraph::with_scoring`] replaces it.
 ///
 /// The blocker is built once and kept, so it accumulates everything this store writes — `project`
 /// tells it about every entity whose columns changed, and a discarded or tombstoned entity is
@@ -49,15 +40,15 @@ pub const STATUS_IDENTIFIED: &str = "identified";
 /// instance) is invisible to it. That is the argument for a blocker that queries instead of holding
 /// an index, not for rebuilding this one per call.
 #[derive(Clone)]
-pub struct Knowledge {
+pub struct KnowledgeGraph {
     db: DbHandle,
-    pub(super) blocker: Option<Arc<dyn Blocker>>,
-    pub(super) decider: Option<Arc<dyn Linker>>,
-    pub(super) evidence: Evidence,
-    pub(super) scoring: Scoring,
+    pub(crate) blocker: Option<Arc<dyn Blocker>>,
+    pub(crate) decider: Option<Arc<dyn Linker>>,
+    pub(crate) evidence: Evidence,
+    pub(crate) scoring: Scoring,
 }
 
-impl Knowledge {
+impl KnowledgeGraph {
     pub fn new(db: &DbHandle) -> Self {
         Self {
             db: db.clone(),
@@ -69,7 +60,7 @@ impl Knowledge {
     }
 
     /// The connection, for the passes in `proximity` that run over this store.
-    pub(super) fn conn(&self) -> &sea_orm::DatabaseConnection {
+    pub(crate) fn conn(&self) -> &sea_orm::DatabaseConnection {
         &self.db.conn
     }
 
@@ -94,7 +85,7 @@ impl Knowledge {
     }
 
     /// Tell the blocker an entity is gone. `pub(super)` so `merge` can retire the loser.
-    pub(super) fn forget(&self, knowledge_entity_id: i32) {
+    pub(crate) fn forget(&self, knowledge_entity_id: i32) {
         if let Some(blocker) = &self.blocker {
             blocker.forget(knowledge_entity_id);
         }
@@ -114,7 +105,7 @@ impl Knowledge {
         get(&self.db.conn, knowledge_entity_id).await
     }
 
-    /// Point a user's observation to the Knowledge entity it belongs to.
+    /// Point a user's observation to the KnowledgeGraph entity it belongs to.
     pub async fn attach_observation(
         &self,
         observation_id: i32,
@@ -126,12 +117,12 @@ impl Knowledge {
     /// Link one reading into the graph: cluster its observations, record their claims, and project
     /// every entity it touched.
     ///
-    /// Implemented in [`super::link`]
+    /// Implemented in [`crate::knowledge::linker::illumination`]
     pub async fn link_illumination(
         &self,
         illumination: &model::illumination::ModelEx,
-    ) -> anyhow::Result<super::LinkStats> {
-        super::linker::illumination::link_illumination(self, illumination).await
+    ) -> anyhow::Result<crate::knowledge::LinkStats> {
+        crate::knowledge::linker::illumination::link_illumination(self, illumination).await
     }
 
     /// Recompute an entity's projected columns, and tell the blocker what came out.
@@ -142,7 +133,7 @@ impl Knowledge {
         &self,
         knowledge_entity_id: i32,
     ) -> anyhow::Result<model::knowledge_entity::Model> {
-        let entity = self::project::project(&self.db.conn, knowledge_entity_id).await?;
+        let entity = super::project::project(&self.db.conn, knowledge_entity_id).await?;
         if let Some(blocker) = &self.blocker {
             blocker.changed(&entity);
         }
@@ -154,8 +145,8 @@ impl Knowledge {
         &self,
         loser: i32,
         winner: i32,
-    ) -> anyhow::Result<self::merge::Preview> {
-        self::merge::preview(&self.db.conn, loser, winner).await
+    ) -> anyhow::Result<super::merge::Preview> {
+        super::merge::preview(&self.db.conn, loser, winner).await
     }
 
     /// Fold `loser` into `winner`: the loser's observations re-point, the loser becomes a tombstone.
@@ -164,9 +155,9 @@ impl Knowledge {
         &self,
         loser: i32,
         winner: i32,
-        cause: self::merge::Cause,
-    ) -> anyhow::Result<self::merge::Outcome> {
-        self::merge::merge_into(&self.db.conn, self, loser, winner, cause).await
+        cause: super::merge::Cause,
+    ) -> anyhow::Result<super::merge::Outcome> {
+        super::merge::merge_into(&self.db.conn, self, loser, winner, cause).await
     }
 }
 
@@ -202,7 +193,7 @@ async fn insert_new<C: ConnectionTrait>(
         .await?)
 }
 
-pub(super) async fn get<C: ConnectionTrait>(
+pub(crate) async fn get<C: ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
@@ -251,7 +242,7 @@ mod tests {
     #[tokio::test]
     async fn an_observation_is_not_attached_to_a_tombstone() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train").await;
         store

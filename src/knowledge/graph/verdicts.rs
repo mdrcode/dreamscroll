@@ -16,7 +16,7 @@ use crate::model;
 
 use crate::knowledge::evidence::ClaimBasis;
 use super::merge::{Cause, Outcome};
-use super::Knowledge;
+use super::KnowledgeGraph;
 
 /// What one replay did.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -107,13 +107,13 @@ pub(super) async fn record<C: ConnectionTrait>(
 }
 
 /// Apply the recorded verdicts to the current graph, newest verdict per pair first.
-pub async fn replay(knowledge: &Knowledge) -> anyhow::Result<ReplayReport> {
+pub async fn replay(graph: &KnowledgeGraph) -> anyhow::Result<ReplayReport> {
     // Only a person's decisions are replayed. The model's folds and earlier replays are history.
     let verdicts = model::knowledge_verdicts::Entity::find()
         .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
         .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Merge.as_str()))
         .order_by_asc(model::knowledge_verdicts::Column::Id)
-        .all(knowledge.conn())
+        .all(graph.conn())
         .await?;
 
     // Latest by id wins for a pair, and chains still apply oldest first.
@@ -137,8 +137,8 @@ pub async fn replay(knowledge: &Knowledge) -> anyhow::Result<ReplayReport> {
             continue;
         };
         let (Some(winner), Some(loser)) = (
-            entity_with_origin(knowledge, winner_origin).await?,
-            entity_with_origin(knowledge, loser_origin).await?,
+            entity_with_origin(graph, winner_origin).await?,
+            entity_with_origin(graph, loser_origin).await?,
         ) else {
             report.gone += 1;
             continue;
@@ -146,8 +146,8 @@ pub async fn replay(knowledge: &Knowledge) -> anyhow::Result<ReplayReport> {
         // Follow the tombstones: the model may have folded the person's winner into something else,
         // and the decision still means "these two are one" about wherever they are now.
         let (Some(winner), Some(loser)) = (
-            canonical(knowledge, winner.id).await?,
-            canonical(knowledge, loser.id).await?,
+            canonical(graph, winner.id).await?,
+            canonical(graph, loser.id).await?,
         ) else {
             report.gone += 1;
             continue;
@@ -156,7 +156,7 @@ pub async fn replay(knowledge: &Knowledge) -> anyhow::Result<ReplayReport> {
             report.already += 1;
             continue;
         }
-        match knowledge.merge(loser, winner, Cause::Replayed).await? {
+        match graph.merge(loser, winner, Cause::Replayed).await? {
             Outcome::Merged => report.applied += 1,
             Outcome::AlreadyMerged => report.already += 1,
             Outcome::RefusedSharedIllumination => report.refused += 1,
@@ -169,10 +169,10 @@ pub async fn replay(knowledge: &Knowledge) -> anyhow::Result<ReplayReport> {
         .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
         .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
         .order_by_asc(model::knowledge_verdicts::Column::Id)
-        .all(knowledge.conn())
+        .all(graph.conn())
         .await?;
     for verdict in vetoes {
-        match withdraw(knowledge, &verdict).await? {
+        match withdraw(graph, &verdict).await? {
             Some(retracted) => report.withdrawn += retracted,
             None => report.gone += 1,
         }
@@ -185,14 +185,14 @@ pub async fn replay(knowledge: &Knowledge) -> anyhow::Result<ReplayReport> {
 /// Idempotent per subject and identity, and deliberately not per generation: a fold recurs every
 /// build, but a veto is a standing decision about the graph.
 pub async fn veto(
-    knowledge: &Knowledge,
+    graph: &KnowledgeGraph,
     entity_id: i32,
     scheme: &str,
     external_id: &str,
     note: Option<&str>,
 ) -> anyhow::Result<bool> {
     let Some(entity) = model::knowledge_entity::Entity::find_by_id(entity_id)
-        .one(knowledge.conn())
+        .one(graph.conn())
         .await?
     else {
         anyhow::bail!("no knowledge entity {entity_id}");
@@ -200,14 +200,14 @@ pub async fn veto(
     let Some(subject) = entity.origin_observation_id else {
         anyhow::bail!("entity {entity_id} has no origin observation, so no verdict can name it");
     };
-    let generation = current_generation(knowledge.conn()).await?;
+    let generation = current_generation(graph.conn()).await?;
     let existing = model::knowledge_verdicts::Entity::find()
         .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
         .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
         .filter(model::knowledge_verdicts::Column::SubjectOrigin.eq(subject))
         .filter(model::knowledge_verdicts::Column::IdentityScheme.eq(scheme))
         .filter(model::knowledge_verdicts::Column::IdentityExternalId.eq(external_id))
-        .one(knowledge.conn())
+        .one(graph.conn())
         .await?;
     if existing.is_some() {
         return Ok(false);
@@ -222,18 +222,18 @@ pub async fn veto(
         note: Set(note.map(str::to_string)),
         ..Default::default()
     })
-    .exec(knowledge.conn())
+    .exec(graph.conn())
     .await?;
     Ok(true)
 }
 
 /// Lift a veto. Nothing is un-retracted: lifting stops suppressing a decision, and the next resolve
 /// re-derives the claim as a new row, because claims are append-only.
-pub async fn unveto(knowledge: &Knowledge, verdict_id: i32) -> anyhow::Result<bool> {
+pub async fn unveto(graph: &KnowledgeGraph, verdict_id: i32) -> anyhow::Result<bool> {
     let deleted = model::knowledge_verdicts::Entity::delete_many()
         .filter(model::knowledge_verdicts::Column::Id.eq(verdict_id))
         .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
-        .exec(knowledge.conn())
+        .exec(graph.conn())
         .await?
         .rows_affected;
     Ok(deleted > 0)
@@ -244,13 +244,13 @@ pub async fn unveto(knowledge: &Knowledge, verdict_id: i32) -> anyhow::Result<bo
 /// Admission asks this before a claim is written: a claim that is never written cannot leave a window
 /// where the graph asserts something an editor has rejected, and does not need a replay to undo.
 pub async fn vetoed(
-    knowledge: &Knowledge,
+    graph: &KnowledgeGraph,
 ) -> anyhow::Result<std::collections::HashSet<(i32, String, String)>> {
     let mut out = std::collections::HashSet::new();
     let vetoes = model::knowledge_verdicts::Entity::find()
         .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
         .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
-        .all(knowledge.conn())
+        .all(graph.conn())
         .await?;
     for verdict in vetoes {
         let (Some(subject), Some(scheme), Some(external)) = (
@@ -260,10 +260,10 @@ pub async fn vetoed(
         ) else {
             continue;
         };
-        let Some(row) = entity_with_origin(knowledge, subject).await? else {
+        let Some(row) = entity_with_origin(graph, subject).await? else {
             continue;
         };
-        let Some(entity_id) = canonical(knowledge, row.id).await? else {
+        let Some(entity_id) = canonical(graph, row.id).await? else {
             continue;
         };
         out.insert((entity_id, scheme, external));
@@ -276,7 +276,7 @@ pub async fn vetoed(
 /// Basis `text` only: a `handle` claim is what a capture showed, not a cross-reference an editor is
 /// disputing. `None` when the subject origin no longer names a live entity.
 async fn withdraw(
-    knowledge: &Knowledge,
+    graph: &KnowledgeGraph,
     verdict: &model::knowledge_verdicts::Model,
 ) -> anyhow::Result<Option<usize>> {
     let (Some(subject), Some(scheme), Some(external)) = (
@@ -286,16 +286,16 @@ async fn withdraw(
     ) else {
         return Ok(Some(0));
     };
-    let Some(row) = entity_with_origin(knowledge, subject).await? else {
+    let Some(row) = entity_with_origin(graph, subject).await? else {
         return Ok(None);
     };
-    let Some(entity_id) = canonical(knowledge, row.id).await? else {
+    let Some(entity_id) = canonical(graph, row.id).await? else {
         return Ok(None);
     };
     let Some(identity) = model::knowledge_identity::Entity::find()
         .filter(model::knowledge_identity::Column::Scheme.eq(scheme))
         .filter(model::knowledge_identity::Column::ExternalId.eq(external))
-        .one(knowledge.conn())
+        .one(graph.conn())
         .await?
     else {
         return Ok(Some(0));
@@ -309,7 +309,7 @@ async fn withdraw(
         .filter(model::knowledge_claims::Column::KnowledgeIdentityId.eq(identity.id))
         .filter(model::knowledge_claims::Column::Basis.eq(ClaimBasis::Text.as_str()))
         .filter(model::knowledge_claims::Column::RetractedAt.is_null())
-        .exec(knowledge.conn())
+        .exec(graph.conn())
         .await?
         .rows_affected as usize;
     Ok(Some(retracted))
@@ -317,22 +317,22 @@ async fn withdraw(
 
 /// The entity this origin names now, live or tombstoned.
 async fn entity_with_origin(
-    knowledge: &Knowledge,
+    graph: &KnowledgeGraph,
     origin: i32,
 ) -> anyhow::Result<Option<model::knowledge_entity::Model>> {
     Ok(model::knowledge_entity::Entity::find()
         .filter(model::knowledge_entity::Column::OriginObservationId.eq(origin))
-        .one(knowledge.conn())
+        .one(graph.conn())
         .await?)
 }
 
 /// Follow tombstones to the live entity a row ends at. Bounded: a cycle is not expressible in the
 /// schema, but the reader must not spin if one somehow appears.
-async fn canonical(knowledge: &Knowledge, id: i32) -> anyhow::Result<Option<i32>> {
+async fn canonical(graph: &KnowledgeGraph, id: i32) -> anyhow::Result<Option<i32>> {
     let mut current = id;
     for _ in 0..8 {
         let Some(row) = model::knowledge_entity::Entity::find_by_id(current)
-            .one(knowledge.conn())
+            .one(graph.conn())
             .await?
         else {
             return Ok(None);
@@ -407,7 +407,7 @@ mod tests {
     #[tokio::test]
     async fn a_veto_withdraws_only_the_pairing_it_names() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         let vetoed_entity = seed_claim(&db, "Q", "Q131472411").await;
         // The same item, legitimately claimed by a different entity: the veto must not reach it.
         let other = seed_claim(&db, "Q (Star Trek)", "Q131472411").await;
@@ -434,7 +434,7 @@ mod tests {
     #[tokio::test]
     async fn a_veto_survives_a_rebuild_and_withdraws_the_new_claim() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         let entity_id = seed_claim(&db, "Q", "Q131472411").await;
         let subject = origin(&db, entity_id).await;
         veto(&store, entity_id, "wikidata", "Q131472411", None)
@@ -457,7 +457,7 @@ mod tests {
     #[tokio::test]
     async fn lifting_a_veto_stops_suppressing_and_restores_nothing() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         let entity_id = seed_claim(&db, "Los sorias", "Q122707294").await;
         veto(&store, entity_id, "wikidata", "Q122707294", Some("the edition, not the work"))
             .await
@@ -488,7 +488,7 @@ mod tests {
     #[tokio::test]
     async fn an_automatic_merge_is_logged_but_not_replayed() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
 
@@ -512,7 +512,7 @@ mod tests {
     #[tokio::test]
     async fn replay_folds_the_pair_again() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let winner_origin = origin(&db, winner).await;
@@ -542,7 +542,7 @@ mod tests {
     #[tokio::test]
     async fn replay_follows_a_winner_the_model_folded_away() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let winner_origin = origin(&db, winner).await;
@@ -582,7 +582,7 @@ mod tests {
     #[tokio::test]
     async fn replay_is_idempotent() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         store.merge(loser, winner, Cause::Repair).await.unwrap();
@@ -598,7 +598,7 @@ mod tests {
     #[tokio::test]
     async fn replay_reports_sides_that_are_gone() {
         db_or_skip!(db);
-        let store = Knowledge::new(&db);
+        let store = KnowledgeGraph::new(&db);
         let only = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let origin = origin(&db, only).await;
         model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {

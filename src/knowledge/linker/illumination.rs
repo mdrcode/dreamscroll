@@ -5,10 +5,10 @@
 //! [`Linker`] the store was built with. Every write is idempotent: a second run finds nothing to
 //! do because every observation already has a `knowledge_entity_id`.
 //!
-//! Callers reach this through [`Knowledge::link_illumination`]. The rest is `pub(super)` or private:
+//! Callers reach this through [`KnowledgeGraph::link_illumination`]. The rest is `pub(super)` or private:
 //! `merge` and `project` do not link, and nothing outside `knowledge` does either.
 
-use crate::knowledge::Knowledge;
+use crate::knowledge::KnowledgeGraph;
 use crate::model;
 
 // Linking: the one write path that decides before it applies.
@@ -36,12 +36,12 @@ impl LinkStats {
 /// One entry point, because the blocker is the store's: a caller linking a thousand illuminations and
 /// a caller linking one take the same path, and both benefit from what the store has been told so far.
 pub(crate) async fn link_illumination(
-    knowledge: &Knowledge,
+    graph: &KnowledgeGraph,
     illumination: &model::illumination::ModelEx,
 ) -> anyhow::Result<LinkStats> {
-    let (Some(decider), Some(blocker)) = (&knowledge.decider, &knowledge.blocker) else {
+    let (Some(decider), Some(blocker)) = (&graph.decider, &graph.blocker) else {
         anyhow::bail!(
-            "this Knowledge was built without a linker; use Knowledge::with_linking to link \
+            "this KnowledgeGraph was built without a linker; use KnowledgeGraph::with_linking to link \
              illuminations"
         );
     };
@@ -65,16 +65,16 @@ pub(crate) async fn link_illumination(
 
     // Identities first, as one batch: a decision names them by id, so the rows have to exist before
     // the decider runs — and then `apply_decision` writes edges with nothing left to create.
-    knowledge.evidence.import_identities(&pending).await?;
+    graph.evidence.import_identities(&pending).await?;
 
     let decisions = decider
-        .decide_link(&**blocker, &knowledge.evidence, &knowledge.scoring, illumination)
+        .decide_link(&**blocker, &graph.evidence, &graph.scoring, illumination)
         .await?;
 
     let mut stats = LinkStats::default();
     for decision in &decisions {
-        let entity = apply_decision(knowledge, decision).await?;
-        knowledge.update_projection(entity).await?;
+        let entity = apply_decision(graph, decision).await?;
+        graph.update_projection(entity).await?;
         stats.record(decision);
     }
 
@@ -83,7 +83,7 @@ pub(crate) async fn link_illumination(
 
 /// Apply one decision, returning the entity the observation landed on.
 async fn apply_decision(
-    knowledge: &Knowledge,
+    graph: &KnowledgeGraph,
     decision: &super::Decision,
 ) -> anyhow::Result<i32> {
     let observation = &decision.observation;
@@ -96,14 +96,14 @@ async fn apply_decision(
 
     let entity = match &decision.action {
         super::Action::Attach(entity) => *entity,
-        super::Action::Create => knowledge.create(observation).await?.id,
+        super::Action::Create => graph.create(observation).await?.id,
     };
 
     // `attach` refuses a tombstone, so this also covers an entity merged away since the decision.
-    knowledge.attach_observation(observation.id, entity).await?;
+    graph.attach_observation(observation.id, entity).await?;
 
     if let Some(identity_id) = decision.identity {
-        knowledge.evidence.record(entity, identity_id, observation).await?;
+        graph.evidence.record(entity, identity_id, observation).await?;
     }
     Ok(entity)
 }
@@ -134,8 +134,8 @@ mod unit {
     }
 
     /// The store with a linker and a fresh blocker, for the tests that actually link.
-    async fn linking_store(db: &DbHandle, decider: Arc<dyn Linker>) -> Knowledge {
-        Knowledge::with_linking(
+    async fn linking_store(db: &DbHandle, decider: Arc<dyn Linker>) -> KnowledgeGraph {
+        KnowledgeGraph::with_linking(
             db,
             Box::new(crate::knowledge::blocker::SqlBlocker::new(db)),
             decider,
@@ -198,7 +198,7 @@ mod unit {
         fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
         let loaded = load_illumination(&db, illumination).await;
 
-        let error = Knowledge::new(&db)
+        let error = KnowledgeGraph::new(&db)
             .link_illumination(&loaded)
             .await
             .unwrap_err();

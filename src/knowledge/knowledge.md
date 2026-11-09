@@ -162,7 +162,7 @@ its fit is corpus-aware (terms are weighed by rarity among the answers it got ba
 comparison cannot see the corpus.
 
 That is what makes a second policy possible without a second graph: implement the two verbs for the
-pairs the graph asks about, build a `Scoring`, hand it to `Knowledge::with_scoring`.
+pairs the graph asks about, build a `Scoring`, hand it to `KnowledgeGraph::with_scoring`.
 
 ## Resolving: what can the authorities tell us?
 
@@ -292,7 +292,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `linker/illumination.rs` | the linking executor, and `LinkStats` |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two writers of `knowledge_claims` in `store.rs`: `Evidence::record` for a capture's observation, `store_claim` for an authority's answer, which is also where the veto and the uniqueness rule live. `store.rs` also reads holders back and answers `awaiting_authority` |
-| `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
+| `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors and the methods that are one write each |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `graph/merge.rs` | fold one entity into another |
 | `graph/proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
@@ -304,7 +304,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 private modules. What escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Cause`,
-`Preview` — and every write is reached through `Knowledge`'s methods. The
+`Preview` — and every write is reached through `KnowledgeGraph`'s methods. The
 graph's health counters are a report over the tables rather than graph work, so they live in
 `crate::stats::knowledge_stats`.
 

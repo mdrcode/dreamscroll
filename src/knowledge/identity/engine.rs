@@ -106,10 +106,10 @@ impl<'a> ResolutionEngine<'a> {
                 self.options.newest_first,
             )
             .await?;
-        let knowledge = crate::knowledge::Knowledge::new(self.db);
+        let graph = crate::knowledge::KnowledgeGraph::new(self.db);
         // Loaded once, not per claim: a veto asked during admission is a claim never written; one
         // that is only replayed is a claim asserted and then withdrawn.
-        let vetoes = crate::knowledge::graph::verdicts::vetoed(&knowledge).await?;
+        let vetoes = crate::knowledge::graph::verdicts::vetoed(&graph).await?;
         let cache = FetchCache::new(&self.db.conn);
         // The engine owns *which* entities to ask about. What the run may spend is the allowance's,
         // passed in; the gateway only asks it before each call. A cache-only run has none at all.
@@ -171,7 +171,7 @@ impl<'a> ResolutionEngine<'a> {
         // just earned its first claim is projected here — otherwise it still reads as the weaker side
         // and loses a fold it should win.
         for knowledge_entity_id in &resolved {
-            knowledge.update_projection(*knowledge_entity_id).await?;
+            graph.update_projection(*knowledge_entity_id).await?;
         }
 
         // Resolving stops at evidence. Which holders of an identity are one thing belongs to
@@ -525,7 +525,7 @@ mod tests {
         )
         .await;
 
-        crate::knowledge::Knowledge::new(&db)
+        crate::knowledge::KnowledgeGraph::new(&db)
             .update_projection(knowledge_entity_id)
             .await
             .unwrap();
@@ -571,7 +571,7 @@ mod tests {
             .await;
         }
 
-        crate::knowledge::Knowledge::new(&db)
+        crate::knowledge::KnowledgeGraph::new(&db)
             .update_projection(knowledge_entity_id)
             .await
             .unwrap();
@@ -808,7 +808,7 @@ mod tests {
         .await;
 
         // The state a resolve starts from: both projected, so the claimless one reads as 0.0.
-        let store = crate::knowledge::Knowledge::new(&db);
+        let store = crate::knowledge::KnowledgeGraph::new(&db);
         store.update_projection(resolved_before).await.unwrap();
         store.update_projection(earns_now).await.unwrap();
 
@@ -880,7 +880,7 @@ mod tests {
 
         // The proximity passes now run after resolve as separate commands; drive them explicitly so
         // the assertion is about `merge` refusing a pair, not about an empty batch.
-        let store = crate::knowledge::Knowledge::new(&db);
+        let store = crate::knowledge::KnowledgeGraph::new(&db);
         crate::knowledge::graph::proximity::scan(&store)
             .await
             .expect("scan");

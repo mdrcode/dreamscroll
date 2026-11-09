@@ -53,7 +53,7 @@ pub async fn exec(
         illumination_id = task_run.task.illumination_id,
         attached = stats.attached,
         created = stats.created,
-        "Knowledge link completed"
+        "KnowledgeGraph link completed"
     );
     Ok(())
 }
@@ -64,7 +64,7 @@ pub async fn exec(
 /// illumination row has one, but the graph does not: entities are shared by everyone who observed
 /// them, so an owner-scoped read belongs to the caller that was handed both ids.
 pub(crate) async fn link(
-    knowledge: &crate::knowledge::Knowledge,
+    graph: &crate::knowledge::KnowledgeGraph,
     service_api: &crate::api::ServiceApiClient,
     task: &KnowledgeLinkTask,
 ) -> anyhow::Result<crate::knowledge::LinkStats> {
@@ -79,7 +79,7 @@ pub(crate) async fn link(
         task.entity_owner_id
     );
 
-    knowledge.link_illumination(&illumination).await
+    graph.link_illumination(&illumination).await
 }
 
 #[cfg(test)]
@@ -112,7 +112,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
-            &crate::knowledge::Knowledge::with_linking(
+            &crate::knowledge::KnowledgeGraph::with_linking(
                 &db,
                 Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
                 std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
@@ -132,7 +132,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
-            &crate::knowledge::Knowledge::with_linking(
+            &crate::knowledge::KnowledgeGraph::with_linking(
                 &db,
                 Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
                 std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
@@ -172,7 +172,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let error = link(
-            &crate::knowledge::Knowledge::with_linking(
+            &crate::knowledge::KnowledgeGraph::with_linking(
                 &db,
                 Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
                 std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
