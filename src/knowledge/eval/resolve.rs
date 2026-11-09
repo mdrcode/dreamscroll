@@ -11,7 +11,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::database::DbHandle;
 use crate::fetch::{Answer, Outcome};
-use crate::knowledge::identity::wikidata::{Candidate, Wikidata};
+use crate::knowledge::identity::wikidata::{Candidate, parse, plan};
 use crate::model;
 
 /// Entities `identity resolve` would consider: live, and with no ontology claim. A platform handle
@@ -60,7 +60,6 @@ pub struct Claimed {
 /// `limit` caps how many candidates are considered, which is useful while a change is being
 /// eyeballed; the order is by entity id, so a limit is stable between runs.
 pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Report> {
-    let engine = Wikidata::new()?;
     let ids: Vec<i32> = db
         .conn
         .query_all_raw(Statement::from_string(
@@ -82,12 +81,9 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
             continue;
         };
 
-        let mut ladder = engine.plan(&view);
-        ladder.extend(engine.plan_fallback(&view));
-
         let mut claimed = None;
         let mut uncached = false;
-        for request in ladder {
+        for (rung, request) in plan::ladder(&view) {
             let cached = db
                 .conn
                 .query_one_raw(Statement::from_sql_and_values(
@@ -119,7 +115,13 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
                 },
                 body: crate::fetch::cache::decode(stored.as_ref()),
             };
-            if let Some(claim) = engine.parse(&view, &request, &raw).into_iter().next() {
+            let claim = match rung {
+                plan::Rung::SurfaceOnly => parse::admit(&view, &raw).ok().and_then(|candidates| {
+                    parse::surface_only(&view, &candidates, &request)
+                }),
+                _ => parse::claims(&view, &request, &raw).into_iter().next(),
+            };
+            if let Some(claim) = claim {
                 claimed = Some((claim.id, claim.method));
                 break;
             }

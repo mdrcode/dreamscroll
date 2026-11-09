@@ -55,37 +55,6 @@ pub fn decode<P: DeserializeOwned>(payload: Option<&Value>) -> Option<P> {
     payload.and_then(|value| serde_json::from_value(value.clone()).ok())
 }
 
-/// How many rows the cache holds, by what became of them. `expired` counts rows past their expiry,
-/// which are not answers any more and are refetchable.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Tally {
-    pub found: u64,
-    pub empty: u64,
-    pub failed: u64,
-    pub degraded: u64,
-    pub expired: u64,
-}
-
-/// Count the table, interpreting each row's outcome in exactly one place.
-pub async fn tally(conn: &DatabaseConnection) -> anyhow::Result<Tally> {
-    let mut tally = Tally::default();
-    let now = Utc::now();
-    for row in cached::Entity::find().all(conn).await? {
-        if row.expires_at <= now {
-            tally.expired += 1;
-            continue;
-        }
-        match Outcome::parse(&row.outcome) {
-            Some(Outcome::Found) => tally.found += 1,
-            Some(Outcome::Empty) => tally.empty += 1,
-            Some(Outcome::Failed) => tally.failed += 1,
-            Some(Outcome::Degraded) => tally.degraded += 1,
-            None => {}
-        }
-    }
-    Ok(tally)
-}
-
 pub struct FetchCache<'a> {
     conn: &'a DatabaseConnection,
 }
@@ -416,33 +385,6 @@ mod tests {
             cached::Entity::find().count(&db.conn).await.unwrap(),
             1,
             "one row per logical request"
-        );
-    }
-
-    /// The tally is the one place a stored outcome string becomes a count.
-    #[tokio::test]
-    async fn the_tally_counts_each_outcome_once() {
-        db_or_skip!(db);
-        let cache = FetchCache::new(&db.conn);
-        for (query, outcome) in [
-            ("a", Outcome::Found),
-            ("b", Outcome::Empty),
-            ("c", Outcome::Failed),
-            ("d", Outcome::Degraded),
-        ] {
-            put(&cache, "v1", query, outcome).await;
-        }
-
-        let counted = tally(&db.conn).await.expect("tally");
-        assert_eq!(
-            counted,
-            Tally {
-                found: 1,
-                empty: 1,
-                failed: 1,
-                degraded: 1,
-                expired: 0
-            }
         );
     }
 }

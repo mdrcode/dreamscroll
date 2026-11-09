@@ -11,7 +11,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 use crate::database::DbHandle;
 use crate::fetch::{Answer, Outcome};
 use crate::knowledge::heuristic::Heuristic;
-use crate::knowledge::identity::wikidata::{Candidate as Offered, Wikidata};
+use crate::knowledge::identity::wikidata::{Candidate as Offered, parse, plan};
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::Scoring;
 use crate::knowledge::sql_blocker::SqlBlocker;
@@ -187,12 +187,14 @@ async fn ladder(
     db: &DbHandle,
     entity: &model::knowledge_entity::Model,
 ) -> anyhow::Result<Vec<Step>> {
-    let engine = Wikidata::new()?;
-    let mut requests = engine.plan(entity);
-    requests.extend(engine.plan_fallback(entity));
-
     let mut steps = Vec::new();
-    for request in requests {
+    for (rung, request) in plan::ladder(entity) {
+        // The last resort asks the *same* title question again, so without a label the two steps
+        // would look like a duplicate.
+        let kind = match rung {
+            plan::Rung::SurfaceOnly => format!("{} (surface)", request.kind),
+            _ => request.kind.to_string(),
+        };
         let row = db
             .conn
             .query_one_raw(Statement::from_sql_and_values(
@@ -211,7 +213,7 @@ async fn ladder(
 
         let Some(row) = row else {
             steps.push(Step {
-                kind: request.kind.to_string().into(),
+                kind: kind.clone(),
                 query: request.query.clone(),
                 cache: CacheState::Missing,
                 top: Vec::new(),
@@ -244,17 +246,26 @@ async fn ladder(
                 },
                 body: candidates,
             };
-            let claims = engine.parse_explained(entity, &request, &raw, &mut refusal);
-            claims
-                .into_iter()
-                .next()
-                .map(|claim| (claim.id, claim.method))
+            let claim = match rung {
+                // The last resort does not rank: it takes the article bearing this exact name.
+                plan::Rung::SurfaceOnly => match parse::admit(entity, &raw) {
+                    Ok(candidates) => parse::surface_only(entity, &candidates, &request),
+                    Err(gate) => {
+                        refusal = gate;
+                        None
+                    }
+                },
+                _ => parse::explained(entity, &request, &raw, &mut refusal)
+                    .into_iter()
+                    .next(),
+            };
+            claim.map(|claim| (claim.id, claim.method))
         } else {
             None
         };
 
         steps.push(Step {
-            kind: request.kind.to_string().into(),
+            kind,
             query: request.query.clone(),
             cache: if fresh {
                 CacheState::Fresh

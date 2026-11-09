@@ -159,4 +159,13 @@ pub trait Transport: Send + Sync {
     fn batch_size(&self, _kind: &Self::Kind) -> usize {
         BATCH
     }
+
+    /// How many HTTP requests one `fetch` of this kind makes, worst case.
+    ///
+    /// The door charges this many calls, because counting `fetch` calls under-bills a batch that
+    /// fans out: a title lookup reads the page and then the items it names, and a search does the
+    /// same. Default one — a request is one request unless the provider says otherwise.
+    fn cost(&self, _kind: &Self::Kind) -> usize {
+        1
+    }
 }

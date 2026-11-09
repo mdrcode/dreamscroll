@@ -14,44 +14,18 @@
 
 use std::collections::HashSet;
 
-use super::answer;
 use super::policy;
-use super::types;
-use super::{Candidate, Kind};
-use crate::fetch::{Answer, Answers, BATCH, FetchError, Gateway, Request, Transport};
+use super::transport::Wire;
+use super::{Candidate, Kind, parse, plan};
+use crate::fetch::{Answers, Gateway, Request, Transport};
 use crate::knowledge::identity::{Claim, Resolver};
-use crate::knowledge::normalize;
 use crate::model;
 
-use super::ranking::HANDLE_CONFIDENCE;
-
-pub(super) const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
-/// Article-title reconciliation. A Wikipedia title is unique where a Wikidata label is not: 213 items
-/// are labelled `Paris`, but only one page is titled `Paris`.
-pub(super) const WIKIPEDIA_ENDPOINT: &str = "https://en.wikipedia.org/w/api.php";
 const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";
-pub(super) const LANGUAGE: &str = "en";
 
-/// A platform account is an identity, and each platform is a different property. Adding one is a row
-/// in this table, not a new provider.
-///
-/// Every property here was verified against Wikidata on 2026-10-31. Unmapped platforms (`threads`,
-/// `reddit`, `other`) are deliberate: a wrong property would produce confident, fabricated
-/// identities, which is worse than leaving the entity unresolved.
-fn handle_property(platform: &str) -> Option<&'static str> {
-    match platform.to_ascii_lowercase().as_str() {
-        "x" | "twitter" | "x_twitter" => Some("P2002"),
-        "instagram" => Some("P2003"),
-        "tiktok" => Some("P7085"),
-        "youtube" => Some("P2397"),
-        "github" => Some("P2037"),
-        "mastodon" => Some("P4033"),
-        _ => None,
-    }
-}
-
+/// One authority: the policy, and the wire it speaks through.
 pub struct Wikidata {
-    pub(super) client: reqwest::Client,
+    wire: Wire,
 }
 
 impl Wikidata {
@@ -60,196 +34,9 @@ impl Wikidata {
             .user_agent(USER_AGENT)
             .timeout(std::time::Duration::from_secs(30))
             .build()?;
-        Ok(Self { client })
-    }
-
-    /// Part of the cache key: the revision and parameters of *this* question.
-    ///
-    /// Bump the version when the construction changes, and put a parameter that changes the answer
-    /// in the string too. Both are per kind, so a change invalidates exactly the answers it changes
-    /// and nothing else. Readable on purpose: a row in `fetch_cache` should say which question
-    /// it answered, and a hash says nothing when you are looking at a stale answer.
-    fn shape(kind: &Kind) -> String {
-        // One version prefix per kind, so bumping the label query does not throw away the handle
-        // answers. `search` moved from `wbsearchentities` to MediaWiki full text, hence v3; `label`
-        // is v3 because the query now asks for `P31` alongside the label.
-        match kind {
-            // `@en` in the `VALUES` and the label service pinned to the same language.
-            Kind::Label => format!("wikidata/v3-label|lang={LANGUAGE}"),
-            // The site is English Wikipedia, and the items are read back in the same language.
-            Kind::Title => format!("wikidata/v2-title|lang={LANGUAGE}"),
-            // The property *is* the kind (`handle:P2002`), and this query reads no labels.
-            Kind::Handle(_) => "wikidata/v2-handle".to_string(),
-            // Full text, with the result count as part of the question.
-            Kind::Search => format!("wikidata/v3-search|lang={LANGUAGE}|limit={}", super::SEARCH_LIMIT),
-        }
-    }
-
-    /// The first pass: a handle, then a title, then an exact label. Pure, so the order is testable
-    /// without a network — and public for the same reason: `examples/eval_resolve` re-runs the whole
-    /// decision over cached payloads.
-    pub fn plan(&self, entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
-        let mut requests = Vec::new();
-        if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle)
-            && let Some(property) = handle_property(platform)
-        {
-            let kind = Kind::Handle(property);
-            requests.push(Request {
-                provider: "wikidata",
-                shape: Self::shape(&kind),
-                kind,
-                query: handle.trim().to_string(),
-            });
-        }
-        let label = entity.name.trim();
-        if !label.is_empty() {
-            // Title before label: a capture's name is often the *article* title
-            // (`Symphony No. 7 (Sibelius)`), and the item is labelled `Symphony No. 7`. The label
-            // lookup cannot see that; the title can.
-            requests.push(Request {
-                provider: "wikidata",
-                shape: Self::shape(&Kind::Title),
-                kind: Kind::Title,
-                query: label.to_string(),
-            });
-            requests.push(Request {
-                provider: "wikidata",
-                shape: Self::shape(&Kind::Label),
-                kind: Kind::Label,
-                query: label.to_string(),
-            });
-        }
-        requests
-    }
-
-    /// The second pass: search for the **hint**, then the **bare label**, for entities the first pass
-    /// left unresolved.
-    ///
-    /// The hint goes first because it is the phrase that disambiguates, and until now it was only a
-    /// *scoring* signal — consulted against candidates some other question had already produced. It is
-    /// a lookup, though, and `wbsearchentities` matches labels and aliases rather than text, so a long
-    /// hint (`Commission of Tears Antonio Lobo Antunes`) usually returns nothing. That is a limit of
-    /// the endpoint, not a reason to withhold the question: over-fetching is the resolver's job, and
-    /// refusing a wrong candidate is the decider's.
-    ///
-    /// The bare label stays because it is a lookup fallback, not a ranking signal. Wikidata labels
-    /// `J. R. R. Tolkien` and `D. H. Lawrence` *with spaces*; our exact-label SPARQL sends
-    /// `J.R.R. Tolkien` and gets nothing, while search finds Q892 immediately. Measured on 20 random
-    /// empty-label entities: 4 recoverable this way.
-    ///
-    /// The pass boundary lives here, not in the engine: no other authority knows that search is the
-    /// expensive route.
-    pub fn plan_fallback(&self, entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
-        let label = entity.name.trim();
-        if label.is_empty() {
-            return Vec::new();
-        }
-        let mut requests = Vec::new();
-        if let Some(hint) = entity.search_query.as_deref() {
-            let hint = hint.trim();
-            // A hint that only repeats the name is not a second request.
-            if !hint.is_empty() && normalize::comparable(hint) != normalize::comparable(label) {
-                requests.push(Request {
-                    provider: "wikidata",
-                    shape: Self::shape(&Kind::Search),
-                    kind: Kind::Search,
-                    query: hint.to_string(),
-                });
-            }
-        }
-        requests.push(Request {
-            provider: "wikidata",
-            shape: Self::shape(&Kind::Search),
-            kind: Kind::Search,
-            query: label.to_string(),
-        });
-        requests
-    }
-
-    /// Turn an answer into claims. Pure: same entity plus same answer, same claims.
-    pub fn parse(
-        &self,
-        entity: &model::knowledge_entity::Model,
-        request: &Request<Kind>,
-        raw: &Answer<Vec<Candidate>>,
-    ) -> Vec<Claim> {
-        let mut reason = "";
-        self.parse_explained(entity, request, raw, &mut reason)
-    }
-
-    /// The gates every answer passes before a rung decides: a menu is not a referent, and the right
-    /// name can still be the wrong kind of thing. Only recognised classes reject — an unknown one
-    /// passes (see `types`), so the table being incomplete cannot lose a candidate.
-    ///
-    /// Split out because the last-resort pass needs the same gates without a rung's decision.
-    fn admit(
-        &self,
-        entity: &model::knowledge_entity::Model,
-        raw: &Answer<Vec<Candidate>>,
-    ) -> Result<Vec<Candidate>, &'static str> {
-        if !raw.outcome.answered() {
-            return Err("the answer carried no candidate");
-        }
-        let mut candidates = raw.body.clone().unwrap_or_default();
-        // A menu is not a referent, on *every* rung. This used to be checked in `parse_title` only,
-        // and the label rung — which is where all 34 such claims in the corpus came from — never
-        // looked. Filtering at the gate makes the rule a property of an answer rather than of one
-        // caller.
-        candidates.retain(|candidate| !answer::is_menu(candidate));
-        if candidates.is_empty() {
-            return Err("the answer carried only a disambiguation page");
-        }
-        // `Dogma` the film against the concept, `Micah` the prophet against the given name.
-        let before = candidates.len();
-        candidates
-            .retain(|candidate| !types::incompatible(&entity.entity_type, &candidate.classes));
-        if before > 0 && candidates.is_empty() {
-            return Err("every candidate is a different kind of thing");
-        }
-        Ok(candidates)
-    }
-
-    /// [`parse`], and *why* it refused. `reason` is empty when a claim came back.
-    ///
-    /// The refusal is recorded where it happens rather than inferred afterwards: an inspector that
-    /// guessed at the gate would be a second implementation of the gates.
-    pub fn parse_explained(
-        &self,
-        entity: &model::knowledge_entity::Model,
-        request: &Request<Kind>,
-        raw: &Answer<Vec<Candidate>>,
-        reason: &mut &'static str,
-    ) -> Vec<Claim> {
-        if !raw.outcome.answered() {
-            *reason = "the answer carried no candidate";
-            return Vec::new();
-        }
-        let candidates = match self.admit(entity, raw) {
-            Ok(candidates) => candidates,
-            Err(gate) => {
-                *reason = gate;
-                return Vec::new();
-            }
-        };
-        // A property match *is* the identity: an item claiming this handle is the account itself.
-        if let Some(property) = request.kind.property() {
-            match candidates.first() {
-                Some(candidate) => {
-                    return vec![answer::handle_claim(candidate, property, HANDLE_CONFIDENCE)];
-                }
-                None => {
-                    *reason = "the handle answer carried no item";
-                    return Vec::new();
-                }
-            }
-        }
-        match &request.kind {
-            Kind::Title => policy::parse_title(entity, &candidates, request, reason),
-            Kind::Search => policy::parse_search(entity, candidates, request, reason),
-            // The handle rung answered above; a label — or anything that is not one of the three —
-            // is a ranking question.
-            Kind::Label | Kind::Handle(_) => policy::decide(entity, &candidates, request, reason),
-        }
+        Ok(Self {
+            wire: Wire::new(client),
+        })
     }
 
     /// Turn answers into claims. First request to speak wins for an entity, which is why `plan`
@@ -272,7 +59,7 @@ impl Wikidata {
             let Some(raw) = answers.get(request) else {
                 continue;
             };
-            let parsed = self.parse(entity, request, raw);
+            let parsed = parse::claims(entity, request, raw);
             if parsed.is_empty() {
                 // Not wrong, just not usable here: a disambiguation page, a different kind of
                 // thing, or a name with no item. The answer is still a fact about the provider, so
@@ -285,16 +72,15 @@ impl Wikidata {
     }
 }
 
-#[async_trait::async_trait]
-impl Resolver for Wikidata {
-    fn id(&self) -> &'static str {
-        "wikidata"
-    }
-
-    /// Handles, titles and exact labels in one pass, then a search pass for whatever is left.
+impl Wikidata {
+    /// The ladder: handle, title and exact label in one pass; search for what is left; then the
+    /// surface-only title. Generic over the wire, so a test can drive the ordering against a fake
+    /// with no database and no client — [`Resolver::resolve`] supplies the real one.
+    ///
     /// The engine sees only the claims that come back.
-    async fn resolve(
+    async fn ladder<T: Transport<Kind = Kind, Payload = Vec<Candidate>>>(
         &self,
+        transport: &T,
         entities: &[model::knowledge_entity::Model],
         gateway: &Gateway<'_>,
     ) -> Vec<(i32, Claim)> {
@@ -306,15 +92,14 @@ impl Resolver for Wikidata {
         // what to fetch, so it serves cached search answers and silently fetches nothing — skipping
         // it once threw those answers away, and an offline rebuild then reproduced less than the
         // cache held.
-        let stages: [fn(&Wikidata, &model::knowledge_entity::Model) -> Vec<Request<Kind>>; 2] =
-            [Wikidata::plan, Wikidata::plan_fallback];
-        for plan in stages {
+        let stages = [plan::Rung::Corroborating, plan::Rung::Search];
+        for rung in stages {
             let plans: Vec<(usize, Request<Kind>)> = entities
                 .iter()
                 .enumerate()
                 .filter(|(_, entity)| !resolved.contains(&entity.id))
                 .flat_map(|(index, entity)| {
-                    plan(self, entity)
+                    plan::stage(rung, entity)
                         .into_iter()
                         .map(move |request| (index, request))
                 })
@@ -324,7 +109,7 @@ impl Resolver for Wikidata {
             }
             let requests: Vec<Request<Kind>> =
                 plans.iter().map(|(_, request)| request.clone()).collect();
-            let answers = gateway.resolve_requests(self, &requests).await;
+            let answers = gateway.resolve_requests(transport, &requests).await;
             self.collect(entities, &plans, &answers, &mut claims, &mut resolved);
         }
 
@@ -335,9 +120,8 @@ impl Resolver for Wikidata {
             .enumerate()
             .filter(|(_, entity)| !resolved.contains(&entity.id))
             .flat_map(|(index, entity)| {
-                Wikidata::plan(self, entity)
+                plan::stage(plan::Rung::SurfaceOnly, entity)
                     .into_iter()
-                    .filter(|request| request.kind == Kind::Title)
                     .map(move |request| (index, request))
             })
             .collect();
@@ -346,7 +130,7 @@ impl Resolver for Wikidata {
                 .iter()
                 .map(|(_, request)| request.clone())
                 .collect();
-            let answers = gateway.resolve_requests(self, &requests).await;
+            let answers = gateway.resolve_requests(transport, &requests).await;
             for (index, request) in fallback {
                 let entity = &entities[index];
                 if resolved.contains(&entity.id) {
@@ -355,7 +139,7 @@ impl Resolver for Wikidata {
                 let Some(raw) = answers.get(&request) else {
                     continue;
                 };
-                let Ok(candidates) = self.admit(entity, raw) else {
+                let Ok(candidates) = parse::admit(entity, raw) else {
                     continue;
                 };
                 if let Some(claim) = policy::surface_only(entity, &candidates, &request) {
@@ -370,52 +154,32 @@ impl Resolver for Wikidata {
 }
 
 #[async_trait::async_trait]
-impl Transport for Wikidata {
-    type Kind = Kind;
-    type Payload = Vec<Candidate>;
-
-    /// The search endpoint takes one query per call; only SPARQL batches.
-    fn batch_size(&self, kind: &Self::Kind) -> usize {
-        match kind {
-            Kind::Search => 1,
-            Kind::Title => 50,
-            _ => BATCH,
-        }
+impl Resolver for Wikidata {
+    fn id(&self) -> &'static str {
+        super::ID
     }
 
-    async fn fetch(
+    async fn resolve(
         &self,
-        requests: &[Request<Self::Kind>],
-    ) -> Result<Vec<(String, Answer<Self::Payload>)>, FetchError> {
-        let Some(first) = requests.first() else {
-            return Ok(Vec::new());
-        };
-        match first.kind {
-            Kind::Title => return self.titles(requests).await,
-            Kind::Search => {
-                let mut answers = Vec::with_capacity(requests.len());
-                for request in requests {
-                    answers.push((request.query.clone(), self.search(&request.query).await?));
-                }
-                return Ok(answers);
-            }
-            Kind::Label | Kind::Handle(_) => {}
-        }
-        self.sparql(requests).await
+        entities: &[model::knowledge_entity::Model],
+        gateway: &Gateway<'_>,
+    ) -> Vec<(i32, Claim)> {
+        self.ladder(&self.wire, entities, gateway).await
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::fetch::Outcome;
-    use crate::test_support::db_or_skip;
+    use crate::fetch::{Answer, Outcome};
     use serde_json::{Value, json};
+
+    use crate::knowledge::identity::wikidata::shape;
 
     fn request(kind: Kind, query: &str) -> Request<Kind> {
         Request {
             provider: "wikidata",
-            shape: Wikidata::shape(&kind),
+            shape: shape::of(&kind),
             kind,
             query: query.to_string(),
         }
@@ -427,10 +191,10 @@ mod tests {
     /// answer for nothing — a cache miss that looks like a rate-limit problem.
     #[test]
     fn each_kind_owns_its_shape() {
-        let label = Wikidata::shape(&Kind::Label);
-        let title = Wikidata::shape(&Kind::Title);
-        let search = Wikidata::shape(&Kind::Search);
-        let handle = Wikidata::shape(&Kind::Handle("P2002"));
+        let label = shape::of(&Kind::Label);
+        let title = shape::of(&Kind::Title);
+        let search = shape::of(&Kind::Search);
+        let handle = shape::of(&Kind::Handle("P2002"));
 
         assert!(search.contains("limit="), "{search}");
         for (kind, shape) in [("label", &label), ("title", &title), ("handle", &handle)] {
@@ -441,7 +205,7 @@ mod tests {
             "a handle query reads no labels: {handle}"
         );
         assert_eq!(
-            Wikidata::shape(&Kind::Handle("P2003")),
+            shape::of(&Kind::Handle("P2003")),
             handle,
             "another property is another kind, not another shape"
         );
@@ -468,6 +232,63 @@ mod tests {
         Wikidata::new().expect("client should build")
     }
 
+    /// A wire that answers from a table and records what it was asked: no client, no database.
+    /// The ladder is generic over the wire precisely so an ordering can be proven with this.
+    #[derive(Default)]
+    struct Canned {
+        answers: std::collections::HashMap<(Kind, String), Answer<Vec<Candidate>>>,
+        seen: std::sync::Mutex<Vec<(Kind, String)>>,
+    }
+
+    impl Canned {
+        fn new(entries: impl IntoIterator<Item = (Kind, String, Answer<Vec<Candidate>>)>) -> Self {
+            let mut canned = Self::default();
+            for (kind, query, answer) in entries {
+                canned.answers.insert((kind, query), answer);
+            }
+            canned
+        }
+
+        fn asked(&self, kind: Kind, query: &str) -> bool {
+            self.seen
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|(asked, name)| *asked == kind && name == query)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl Transport for Canned {
+        type Kind = Kind;
+        type Payload = Vec<Candidate>;
+
+        fn batch_size(&self, _kind: &Kind) -> usize {
+            50
+        }
+
+        async fn fetch(
+            &self,
+            requests: &[Request<Kind>],
+        ) -> Result<Vec<(String, Answer<Vec<Candidate>>)>, crate::fetch::FetchError> {
+            self.seen
+                .lock()
+                .unwrap()
+                .extend(requests.iter().map(|request| (request.kind, request.query.clone())));
+            Ok(requests
+                .iter()
+                .map(|request| {
+                    let answer = self
+                        .answers
+                        .get(&(request.kind, request.query.clone()))
+                        .cloned()
+                        .unwrap_or_else(|| Answer::nothing(Outcome::Empty));
+                    (request.query.clone(), answer)
+                })
+                .collect())
+        }
+    }
+
     fn entity(label: &str, description: Option<&str>) -> model::knowledge_entity::Model {
         let mut entity = crate::test_support::fixtures::stub_entity(1, label, "unknown");
         entity.description = description.map(str::to_string);
@@ -484,7 +305,7 @@ mod tests {
             "label": "Boba Fett",
             "description": "fictional character from Star Wars",
         }]));
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity(
                 "The Bounty Hunter Wars",
                 Some("a trilogy of Star Wars novels"),
@@ -503,7 +324,7 @@ mod tests {
             "label": "The Bounty Hunter Wars",
             "description": "novel trilogy by K. W. Jeter",
         }]));
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity(
                 "The Bounty Hunter Wars",
                 Some("a trilogy of Star Wars novels"),
@@ -520,7 +341,7 @@ mod tests {
             "label": null,
             "description": "Canadian filmmaker and explorer (born 1954)",
         }]));
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity(
                 "James Cameron",
                 Some("Canadian filmmaker who served as executive producer on Point Break"),
@@ -534,7 +355,7 @@ mod tests {
 
     #[test]
     fn an_exact_label_match_is_claimed() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity("Train Dreams", None),
             &request(Kind::Label, "Train Dreams"),
             &found(json!([{"id": "Q185971", "label": "Train Dreams", "description": "novella"}])),
@@ -555,7 +376,7 @@ mod tests {
     /// `Orthodoxy` article names the concept, and the book is a different page.
     #[test]
     fn a_title_cannot_claim_on_an_exact_label_alone() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity(
                 "Orthodoxy",
                 Some("A 1908 philosophical and apologetic book by G.K. Chesterton"),
@@ -574,7 +395,7 @@ mod tests {
     /// string. With nothing to corroborate it — no description on either side — that is identity.
     #[test]
     fn a_lone_label_with_nothing_to_contradict_it_claims() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity("Tsoding", None),
             &request(Kind::Label, "Tsoding"),
             &found(json!([{"id": "Q1", "label": "Tsoding"}])),
@@ -587,7 +408,7 @@ mod tests {
     /// "English film director" describe one person without agreeing on a single token.
     #[test]
     fn a_lone_label_claims_even_when_the_descriptions_share_no_word() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity(
                 "Alfred Hitchcock",
                 Some("English film director and producer"),
@@ -606,7 +427,7 @@ mod tests {
     #[test]
     fn an_ambiguous_label_is_not_claimed() {
         // The Django case: two items share the surface, so the name cannot decide.
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity("Django", None),
             &request(Kind::Label, "Django"),
             &found(json!([
@@ -620,7 +441,7 @@ mod tests {
     /// Not the same surface: no claim, however close the spelling. The label stage does not rank.
     #[test]
     fn a_misspelt_label_is_not_claimed() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity("Sunset Boulevarde", None),
             &request(Kind::Label, "Sunset Boulevarde"),
             &found(json!([{"id": "Q1", "label": "Sunset Boulevard"}])),
@@ -630,7 +451,7 @@ mod tests {
 
     #[test]
     fn a_handle_match_is_stronger_than_a_label_match() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity("Tsoding", None),
             &request(Kind::Handle("P2002"), "tsoding"),
             &found(json!([{"id": "Q1234", "label": "Tsoding"}])),
@@ -650,7 +471,7 @@ mod tests {
             {"id": "Q3", "label": "Sunset Boulevard", "description": "musical by Andrew Lloyd Webber"},
             {"id": "Q4", "label": "Sunset Boulevard", "description": "film directed by someone else"}
         ]);
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity(
                 "Sunset Boulevard",
                 Some("1950 American film noir directed by Billy Wilder about a faded silent-screen star"),
@@ -672,7 +493,7 @@ mod tests {
     /// labelled sample; the invariant worth locking now is that the painting never wins.
     #[test]
     fn a_short_generic_description_never_wins() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity(
                 "George Washington",
                 Some("An American military general and statesman who served as the first president of the United States"),
@@ -694,7 +515,7 @@ mod tests {
     fn the_hint_decides_when_nothing_fits_the_description() {
         let mut view = entity("Stagecoach", Some("a western"));
         view.search_query = Some("Stagecoach 1939 film".to_string());
-        let claims = engine().parse(
+        let claims = parse::claims(
             &view,
             &request(Kind::Label, "Stagecoach"),
             &found(json!([
@@ -715,7 +536,7 @@ mod tests {
     fn the_hint_does_not_break_a_tie_between_qualifying_candidates() {
         let mut view = entity("Dune", Some("1965 science fiction novel by Frank Herbert"));
         view.search_query = Some("Dune novel Frank Herbert".to_string());
-        let claims = engine().parse(
+        let claims = parse::claims(
             &view,
             &request(Kind::Label, "Dune"),
             &found(json!([
@@ -729,7 +550,7 @@ mod tests {
     /// No description to arbitrate: the tie is honest, so nothing is claimed.
     #[test]
     fn a_near_tie_claims_nothing() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity("Dune", None),
             &request(Kind::Label, "Dune"),
             &found(json!([
@@ -743,7 +564,7 @@ mod tests {
     /// …but with a description it resolves, which is the whole point of holding the text.
     #[test]
     fn a_description_breaks_the_dune_tie() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity("Dune", Some("1965 science fiction novel by Frank Herbert")),
             &request(Kind::Label, "Dune"),
             &found(json!([
@@ -763,7 +584,7 @@ mod tests {
         entity.search_query = Some("Tsoding".to_string());
         entity.platform = Some("x_twitter".to_string());
         entity.platform_handle = Some("tsoding".to_string());
-        let plans = engine().plan(&entity);
+        let plans = plan::for_entity(&entity);
         assert_eq!(plans.len(), 3);
         assert_eq!(plans[0].kind, Kind::Handle("P2002"));
         // A title is unique where a label is not, so it is asked first and wins the claim.
@@ -772,11 +593,28 @@ mod tests {
 
         // Stage two searches the hint first — the disambiguating phrase — then the bare label, which
         // is the lookup blind spot (`J.R.R. Tolkien` vs `J. R. R. Tolkien`).
-        let fallback = engine().plan_fallback(&entity);
+        let fallback = plan::fallback(&entity);
         assert_eq!(fallback.len(), 2, "{fallback:?}");
         assert_eq!(fallback[0].kind, Kind::Search);
         assert_eq!(fallback[0].query, "Tsoding");
         assert_eq!(fallback[1].query, "Alexey Kutepov");
+    }
+
+    /// A capture can name the platform and not the handle. Asking `VALUES { "" }` spends a call to
+    /// cache a negative about nobody, so the rung is skipped and the name rungs still run.
+    #[test]
+    fn a_platform_without_a_handle_asks_nothing() {
+        let mut entity =
+            crate::test_support::fixtures::stub_entity(1, "Alexey Kutepov", "real_person");
+        entity.platform = Some("x_twitter".to_string());
+        entity.platform_handle = Some("   ".to_string());
+
+        let plans = plan::for_entity(&entity);
+
+        assert_eq!(plans.len(), 2, "{plans:?}");
+        assert!(plans.iter().all(|request| request.kind != Kind::Handle("P2002")));
+        assert_eq!(plans[0].kind, Kind::Title);
+        assert_eq!(plans[1].kind, Kind::Label);
     }
 
     /// The hint is a *query*, not only a scoring signal: `Commission of Tears` alone finds meniscal
@@ -788,7 +626,7 @@ mod tests {
             Some("A novel by António Lobo Antunes"),
         );
         target.search_query = Some("Commission of Tears Antonio Lobo Antunes".to_string());
-        let plans = engine().plan_fallback(&target);
+        let plans = plan::fallback(&target);
         assert_eq!(plans.len(), 2, "{plans:?}");
         assert_eq!(plans[0].query, "Commission of Tears Antonio Lobo Antunes");
         assert_eq!(plans[1].query, "Commission of Tears");
@@ -799,7 +637,7 @@ mod tests {
     fn a_hint_equal_to_the_label_is_not_asked_twice() {
         let mut target = entity("Tsoding", None);
         target.search_query = Some("  TSODING ".to_string());
-        let plans = engine().plan_fallback(&target);
+        let plans = plan::fallback(&target);
         assert_eq!(plans.len(), 1, "{plans:?}");
         assert_eq!(plans[0].query, "Tsoding");
     }
@@ -808,7 +646,7 @@ mod tests {
     /// surface comparison ignores the difference.
     #[test]
     fn a_search_answer_is_accepted_on_a_punctuation_variant() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity("J.R.R. Tolkien", Some("English author, philologist, and academic")),
             &request(Kind::Search, "J.R.R. Tolkien"),
             &found(json!([
@@ -825,7 +663,7 @@ mod tests {
     /// `Dostoyevsky` is how Wikidata spells him, `Dostoevsky` is how the capture did.
     #[test]
     fn a_search_answer_with_a_misspelt_label_is_ranked() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity(
                 "Fyodor Dostoevsky",
                 Some("19th-century Russian novelist and philosopher renowned for psychological mastery"),
@@ -857,7 +695,7 @@ mod tests {
                 "Clawdbot Pro",
             ),
         ] {
-            let claims = engine().parse(
+            let claims = parse::claims(
                 &entity(name, Some(description)),
                 &request(Kind::Search, name),
                 &found(json!([{"id": "Q1", "label": label, "description": "something else"}])),
@@ -870,7 +708,7 @@ mod tests {
     /// `Symphony No. 7`, the article is `Symphony No. 7 (Sibelius)`.
     #[test]
     fn a_title_reaches_an_item_whose_label_differs() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity(
                 "Symphony No. 7 (Sibelius)",
                 Some("The final published symphony by Finnish composer Jean Sibelius"),
@@ -891,7 +729,7 @@ mod tests {
     /// A title that lands on a disambiguation page is a menu, not a referent.
     #[test]
     fn a_title_that_is_a_disambiguation_page_is_refused() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity("John Grant", Some("American singer-songwriter")),
             &request(Kind::Title, "John Grant"),
             &found(json!([{
@@ -908,7 +746,7 @@ mod tests {
     /// claimed, because the menu check lived in `parse_title` and the label rung never looked.
     #[test]
     fn a_label_answer_that_is_a_menu_is_refused() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity("Robert Chandler", Some("British literary translator")),
             &request(Kind::Label, "Robert Chandler"),
             &found(json!([{
@@ -924,7 +762,7 @@ mod tests {
     /// The subclass is not in every stored class list, so the description has to carry the rule too.
     #[test]
     fn a_menu_with_no_classes_is_refused_by_its_description() {
-        let claims = engine().parse(
+        let claims = parse::claims(
             &entity(
                 "Rogue Heroes",
                 Some("British historical drama television series"),
@@ -940,15 +778,11 @@ mod tests {
         assert!(claims.is_empty(), "{claims:?}");
     }
 
-    /// The ladder, driven end to end. Every answer is already in the cache, so nothing is fetched:
-    /// the point is that `resolve` consults the title before the label, and only searches for the
-    /// entity the first pass left unresolved.
+    /// The ladder, driven end to end against a fake wire: `resolve` consults the title before the
+    /// label, and only searches for the entity the first pass left unresolved.
     #[tokio::test]
     async fn resolve_prefers_a_title_and_searches_only_what_is_left() {
-        use crate::fetch::{Allowance, Answer, FetchCache};
-
-        db_or_skip!(db);
-        let cache = FetchCache::new(&db.conn);
+        use crate::fetch::Allowance;
 
         let seed = |kind: Kind, query: &str, answer: Answer<Vec<Candidate>>| {
             (kind, query.to_string(), answer)
@@ -967,25 +801,14 @@ mod tests {
 
         // The title answers for the first entity, so its label must never be consulted — and a
         // different QID there makes the ordering visible.
-        for (kind, query, answer) in [
+        let fake = Canned::new([
             seed(Kind::Title, "Train Dreams", title_wins),
             seed(Kind::Label, "Train Dreams", label_loses),
             // The second entity misses both lookups and has to be searched for.
             seed(Kind::Title, "J.R.R. Tolkien", nothing.clone()),
             seed(Kind::Label, "J.R.R. Tolkien", nothing),
             seed(Kind::Search, "J.R.R. Tolkien", by_search),
-        ] {
-            cache
-                .put(
-                    "wikidata",
-                    &kind,
-                    &Wikidata::shape(&kind),
-                    &query,
-                    &answer,
-                )
-                .await
-                .unwrap();
-        }
+        ]);
 
         let entities = vec![entity("Train Dreams", Some("novella by Denis Johnson")), {
             let mut second = entity("J.R.R. Tolkien", None);
@@ -995,18 +818,21 @@ mod tests {
         }];
 
         let allowance = Allowance::new(8, std::time::Duration::ZERO);
-        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
-        let claims = engine().resolve(&entities, &gateway).await;
+        let gateway = Gateway::new(None, Some(&allowance), true);
+        let claims = engine().ladder(&fake, &entities, &gateway).await;
 
         let ids: Vec<(i32, &str)> = claims
             .iter()
             .map(|(id, claim)| (*id, claim.id.as_str()))
             .collect();
         assert_eq!(ids, vec![(1, "Q2"), (2, "Q892")], "{claims:?}");
-        assert_eq!(
-            gateway.fetched(),
-            0,
-            "everything was answered from the cache"
+        assert!(
+            fake.asked(Kind::Search, "J.R.R. Tolkien"),
+            "the unresolved entity is searched for"
+        );
+        assert!(
+            !fake.asked(Kind::Search, "Train Dreams"),
+            "the resolved one is not"
         );
     }
 
@@ -1016,10 +842,7 @@ mod tests {
     /// answers, because a surface this exact is better than nothing at all.
     #[tokio::test]
     async fn a_surface_only_title_waits_for_every_other_rung() {
-        use crate::fetch::{Allowance, Answer, FetchCache};
-
-        db_or_skip!(db);
-        let cache = FetchCache::new(&db.conn);
+        use crate::fetch::Allowance;
 
         let seed = |kind: Kind, query: &str, answer: Answer<Vec<Candidate>>| {
             (kind, query.to_string(), answer)
@@ -1032,7 +855,7 @@ mod tests {
             "description": "adherence to the actual accepted belief, especially in religion",
             "classes": []
         });
-        for (kind, query, answer) in [
+        let fake = Canned::new([
             seed(Kind::Title, "Orthodoxy", found(json!([concept.clone()]))),
             seed(
                 Kind::Label,
@@ -1060,18 +883,7 @@ mod tests {
             ),
             seed(Kind::Label, "Paris", nothing.clone()),
             seed(Kind::Search, "Paris", nothing),
-        ] {
-            cache
-                .put(
-                    "wikidata",
-                    &kind,
-                    &Wikidata::shape(&kind),
-                    &query,
-                    &answer,
-                )
-                .await
-                .unwrap();
-        }
+        ]);
 
         let entities = vec![
             entity(
@@ -1087,14 +899,21 @@ mod tests {
         ];
 
         let allowance = Allowance::new(8, std::time::Duration::ZERO);
-        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
-        let claims = engine().resolve(&entities, &gateway).await;
+        let gateway = Gateway::new(None, Some(&allowance), true);
+        let claims = engine().ladder(&fake, &entities, &gateway).await;
 
         let ids: Vec<(i32, &str)> = claims
             .iter()
             .map(|(id, claim)| (*id, claim.id.as_str()))
             .collect();
         assert_eq!(ids, vec![(1, "Q200"), (2, "Q300")], "{claims:?}");
-        assert_eq!(gateway.fetched(), 0);
+        assert!(
+            !fake.asked(Kind::Search, "Orthodoxy"),
+            "the entity the label answered was never searched for"
+        );
+        assert!(
+            fake.asked(Kind::Search, "Paris"),
+            "the entity every rung refused fell through to search"
+        );
     }
 }

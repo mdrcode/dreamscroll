@@ -4,6 +4,7 @@
 //! request that produced the answer.
 
 use super::Candidate;
+use super::ID;
 use crate::knowledge::evidence::ClaimBasis;
 use crate::knowledge::identity::Claim;
 
@@ -17,7 +18,7 @@ const MENUS: [&str; 2] = [
 
 pub(super) fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Claim {
     Claim {
-        scheme: "wikidata".to_string(),
+        scheme: ID.to_string(),
         id: candidate.id.clone(),
         label: candidate.label.clone(),
         description: candidate.description.clone(),

@@ -140,7 +140,7 @@ pub async fn knowledge_stats(db: &database::DbHandle) -> anyhow::Result<Knowledg
     stats.entities_in_proximity = row.try_get_by_index::<i64>(0)? as u64;
 
     // The cache owns what an outcome means; this only reports what it counted.
-    let cache = crate::fetch::cache::tally(&db.conn).await?;
+    let cache = crate::fetch::stats::tally(&db.conn).await?;
     stats.cache_found = cache.found;
     stats.cache_empty = cache.empty;
     stats.cache_failed = cache.failed;

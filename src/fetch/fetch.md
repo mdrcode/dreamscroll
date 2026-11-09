@@ -100,6 +100,10 @@ and provider. A `429` is never cached as a fact; a transport failure is cached b
 
 ## Where the numbers are
 
-`Stats` is written by any provider at any time and read once, at the end of a run: `requested`,
-`cache_hits`, `fetched` (calls, not requests), `failed`. A caller turns that into its own report; this
-module has no opinion about what a run should print.
+Two kinds, both in `stats.rs`, because they answer different questions. `Stats` is one run, written
+as it goes and read once at the end: `requested`, `cache_hits`, `fetched` (HTTP requests, not batched
+calls — a title lookup reads the page and then the items it names), `failed`. A caller turns that into
+its own report; this module has no opinion about what a run should print.
+
+`Tally` is the table rather than the run: one grouped query over `fetch_cache`, counting each live
+outcome and the rows past their expiry separately.

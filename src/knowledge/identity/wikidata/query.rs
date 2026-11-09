@@ -4,7 +4,7 @@
 
 use crate::fetch::Request;
 
-use super::resolver::LANGUAGE;
+use super::LANGUAGE;
 use super::Kind;
 
 pub(super) fn for_labels(requests: &[Request<Kind>]) -> String {

@@ -8,9 +8,29 @@ use std::collections::HashMap;
 use serde_json::Value;
 
 use super::query;
-use super::resolver::{LANGUAGE, SEARCH_ENDPOINT, WIKIPEDIA_ENDPOINT, Wikidata};
-use super::{Candidate, Kind};
-use crate::fetch::{Answer, FetchError, Outcome, Request};
+use super::{Candidate, Kind, LANGUAGE};
+use crate::fetch::{Answer, BATCH, FetchError, Outcome, Request, Transport};
+
+/// MediaWiki's API: search, entities and page lookups.
+const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
+/// Article-title reconciliation. A Wikipedia title is unique where a Wikidata label is not: 213
+/// items are labelled `Paris`, but only one page is titled `Paris`.
+const WIKIPEDIA_ENDPOINT: &str = "https://en.wikipedia.org/w/api.php";
+
+/// The wire: one client, and the four ways this authority answers a question.
+///
+/// Everything here is an HTTP shape and its response walking — no ranking, no decisions, no
+/// knowledge of what a claim means. The door (`crate::fetch`) owns the cache, the pace and the
+/// budget; this type only speaks.
+pub(super) struct Wire {
+    client: reqwest::Client,
+}
+
+impl Wire {
+    pub(super) fn new(client: reqwest::Client) -> Self {
+        Self { client }
+    }
+}
 
 /// Which query a SPARQL row answers, and the candidate it names. Items arrive as entity URLs, and a
 /// repeated item is deduped by the caller.
@@ -139,7 +159,7 @@ fn checked(response: reqwest::Response, what: &str) -> Result<reqwest::Response,
     Ok(response)
 }
 
-impl Wikidata {
+impl Wire {
     /// Full-text search over items, through MediaWiki's own search (CirrusSearch).
     ///
     /// Deliberately not `wbsearchentities`: that is a *prefix* matcher over labels and aliases, so
@@ -414,7 +434,7 @@ fn answers_from_sparql(
     Ok(answers)
 }
 
-impl Wikidata {
+impl Wire {
     /// SPARQL over `VALUES`: the batched label and handle lookups.
     pub(super) async fn sparql(
         &self,
@@ -443,6 +463,51 @@ impl Wikidata {
             .await
             .map_err(|error| FetchError::Failed(error.to_string()))?;
         answers_from_sparql(requests, &body)
+    }
+}
+
+/// The wire, as the door sees it: which kinds can share a call, and how one call is shaped.
+#[async_trait::async_trait]
+impl Transport for Wire {
+    type Kind = Kind;
+    type Payload = Vec<Candidate>;
+
+    /// The search endpoint takes one query per call; only SPARQL batches.
+    fn batch_size(&self, kind: &Self::Kind) -> usize {
+        match kind {
+            Kind::Search => 1,
+            Kind::Title => 50,
+            _ => BATCH,
+        }
+    }
+
+    /// A title lookup reads the page, then the items it names; a search reads its hits the same way.
+    fn cost(&self, kind: &Self::Kind) -> usize {
+        match kind {
+            Kind::Title | Kind::Search => 2,
+            _ => 1,
+        }
+    }
+
+    async fn fetch(
+        &self,
+        requests: &[Request<Self::Kind>],
+    ) -> Result<Vec<(String, Answer<Self::Payload>)>, FetchError> {
+        let Some(first) = requests.first() else {
+            return Ok(Vec::new());
+        };
+        match first.kind {
+            Kind::Title => return self.titles(requests).await,
+            Kind::Search => {
+                let mut answers = Vec::with_capacity(requests.len());
+                for request in requests {
+                    answers.push((request.query.clone(), self.search(&request.query).await?));
+                }
+                return Ok(answers);
+            }
+            Kind::Label | Kind::Handle(_) => {}
+        }
+        self.sparql(requests).await
     }
 }
 

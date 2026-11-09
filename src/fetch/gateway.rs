@@ -7,63 +7,11 @@
 
 use std::collections::BTreeMap;
 use std::fmt::Display;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::allowance::{Allowance, Refusal};
 use super::cache::FetchCache;
 use super::contract::{Answer, Answers, FetchError, Outcome, Request, Transport};
-
-/// What one run has spent and found, once it is over.
-///
-/// The counters are written by any provider at any time and read exactly once, at the end of the
-/// run. A named type rather than four loose atomics on the gateway: the report is assembled from one
-/// snapshot, and the gateway no longer needs to know what a report is.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Stats {
-    /// Requests handed to `resolve_requests`, including cache hits.
-    pub requested: usize,
-    /// Answers the cache already had.
-    pub cache_hits: usize,
-    /// Transport *calls*, not queries: one call can carry a batch.
-    pub fetched: usize,
-    /// Queries whose fetch failed.
-    pub failed: usize,
-}
-
-#[derive(Default)]
-struct Counters {
-    requested: AtomicUsize,
-    cache_hits: AtomicUsize,
-    fetched: AtomicUsize,
-    failed: AtomicUsize,
-}
-
-impl Counters {
-    fn count_requested(&self, count: usize) {
-        self.requested.fetch_add(count, Ordering::Relaxed);
-    }
-
-    fn hit(&self, answers: usize) {
-        self.cache_hits.fetch_add(answers, Ordering::Relaxed);
-    }
-
-    fn fetch(&self) {
-        self.fetched.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn fail(&self) {
-        self.failed.fetch_add(1, Ordering::Relaxed);
-    }
-
-    fn snapshot(&self) -> Stats {
-        Stats {
-            requested: self.requested.load(Ordering::Relaxed),
-            cache_hits: self.cache_hits.load(Ordering::Relaxed),
-            fetched: self.fetched.load(Ordering::Relaxed),
-            failed: self.failed.load(Ordering::Relaxed),
-        }
-    }
-}
+use super::stats::{Counters, Stats};
 
 /// The one door.
 ///
@@ -212,9 +160,13 @@ impl<'a> Gateway<'a> {
         let Some(allowance) = self.allowance else {
             return Ok(());
         };
+        let cost = transport.cost(kind);
         for chunk in misses.chunks(transport.batch_size(kind)) {
-            // Paces and takes one call in one place; a refusal closes the door for the rest of the run.
-            allowance.take().await?;
+            // One take per HTTP request: a batched call that fans out is charged what it spends, and
+            // the pacer slows the second request the way it slows any other.
+            for _ in 0..cost {
+                allowance.take().await?;
+            }
             let batch: Vec<Request<T::Kind>> = chunk
                 .iter()
                 .map(|query| Request {
@@ -224,7 +176,7 @@ impl<'a> Gateway<'a> {
                     query: query.clone(),
                 })
                 .collect();
-            self.counters.fetch();
+            self.counters.fetch(cost);
 
             match transport.fetch(&batch).await {
                 Ok(results) => {
@@ -516,6 +468,48 @@ mod tests {
         assert_eq!(second.stats().cache_hits, 2, "the failure was cached");
         assert_eq!(second.stats().fetched, 0);
         assert!(again.values().all(|raw| raw.outcome == Outcome::Failed));
+    }
+
+    /// A call that fans out into two HTTP requests is charged both, and the report counts requests
+    /// rather than batches. `BATCH` is 2 under test, so four queries are two calls: at one charge per
+    /// call a budget of three would fetch both, and at two it fetches one.
+    #[tokio::test]
+    async fn a_call_that_fans_out_charges_every_request() {
+        db_or_skip!(db);
+        let cache = FetchCache::new(&db.conn);
+        let allowance = Allowance::new(3, std::time::Duration::ZERO);
+        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
+        let doubled = Doubled(Fake::default());
+
+        let requests: Vec<Request<Probe>> = ["one", "two", "three", "four"]
+            .iter()
+            .map(|query| request(Probe::Alpha, "v1", query))
+            .collect();
+        let answers = gateway.resolve_requests(&doubled, &requests).await;
+
+        assert_eq!(answers.len(), 2, "one batch of two, then refused");
+        assert_eq!(gateway.stats().fetched, 2, "two HTTP requests, not one call");
+        assert_eq!(allowance.refused(), Some(Refusal::Budget));
+    }
+
+    /// One call, two HTTP requests.
+    struct Doubled(Fake);
+
+    #[async_trait::async_trait]
+    impl Transport for Doubled {
+        type Kind = Probe;
+        type Payload = String;
+
+        fn cost(&self, _kind: &Probe) -> usize {
+            2
+        }
+
+        async fn fetch(
+            &self,
+            requests: &[Request<Probe>],
+        ) -> Result<Vec<(String, Answer<String>)>, FetchError> {
+            self.0.fetch(requests).await
+        }
     }
 
     /// The budget is spent *before* the call, so a zero budget issues none — and says why.
