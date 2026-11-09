@@ -51,7 +51,8 @@ CREATE INDEX IF NOT EXISTS "idx-knowledge_blocking_index-word_keys"
 "#;
 
 /// The pair, which is how the batch is read (the merge pass and the list). Not unique: the table is
-/// one scan's output and is replaced wholesale, so a pair can only appear once per scan anyway.
+/// one scan's output and is replaced wholesale, and `scan` itself raises a pair once even when two
+/// identities connect the same two entities.
 const PROXIMITIES_PAIR: &str = r#"
 CREATE INDEX IF NOT EXISTS "idx-knowledge_proximities_pair"
     ON knowledge_proximities (holder_id, counterpart_id)

@@ -10,6 +10,7 @@
 //! person.
 
 use std::cmp::Ordering;
+use std::collections::HashSet;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
 
@@ -63,6 +64,9 @@ pub async fn scan(graph: &KnowledgeGraph) -> anyhow::Result<usize> {
         .await?;
 
     let mut raised = 0;
+    // One question per pair, even when two identities connect the same two entities. Unordered, so
+    // a change in which side is the holder cannot reopen it.
+    let mut seen: HashSet<(i32, i32)> = HashSet::new();
     for identity_id in identities {
         // Most substantiated first: the survivor, and the reading order.
         let holders = evidence.held_by_identity(identity_id).await?;
@@ -70,6 +74,9 @@ pub async fn scan(graph: &KnowledgeGraph) -> anyhow::Result<usize> {
             continue;
         };
         for other in holders.iter().skip(1) {
+            if !seen.insert((holder.id.min(other.id), holder.id.max(other.id))) {
+                continue;
+            }
             let score = graph.scoring.pair.score(other, holder);
             raised += insert(
                 &txn,
@@ -232,6 +239,38 @@ mod tests {
         // The batch is replaced, not appended: a second scan leaves exactly one row.
         assert_eq!(scan(&store).await.unwrap(), 1);
         assert_eq!(candidates(&db.conn).await.unwrap().len(), 1);
+    }
+
+    /// A pair can share two identities, and the scan reaches it once per identity. The batch is one
+    /// question per pair: `merge`'s `undecided` is read as questions owed, so a row per identity
+    /// would double it.
+    #[tokio::test]
+    async fn a_pair_sharing_two_identities_is_raised_once() {
+        db_or_skip!(db);
+        let store = KnowledgeGraph::new(&db);
+        let (first, second) = claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
+        for entity_id in [first, second] {
+            fixtures::claim(
+                &db,
+                entity_id,
+                "wikidata",
+                "Q104919",
+                "wikidata",
+                None,
+                None,
+                model::knowledge_claims::ClaimBasis::Text,
+            )
+            .await;
+        }
+
+        assert_eq!(scan(&store).await.expect("scan"), 1, "one pair, one question");
+        assert_eq!(
+            model::knowledge_proximities::Entity::find()
+                .count(&db.conn)
+                .await
+                .unwrap(),
+            1
+        );
     }
 
     /// The merge pass folds the pair and tombstones the loser; the row stays in the batch.
