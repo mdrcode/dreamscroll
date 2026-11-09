@@ -149,7 +149,7 @@ pair that must never merge, and the number is how a person sees why.
 
 Everything else is not a verb. The scan stores the number and `merge` asks `Rank` for the verdict; the
 linker asks `Rank` and applies the answer; `project` calls `combine`, which is arithmetic over claim
-scores; `merge` and the holder order ask `cmp_confidence`, a convention about `NULL`. Only the linker and
+scores; `merge` and the holder order ask `TotalCmp`, a convention about `NULL`. Only the linker and
 the proximity passes take a `Scoring`, and it is the **store's** — a linker carrying its own would leave the
 merge pass on a different policy, silently.
 
@@ -282,7 +282,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 | file | what it is |
 |---|---|
-| `scoring.rs` | the two verbs — `Similarity`, `Rank` — `cmp_confidence`, and the `Scoring` bundle. Shared: the linker and proximity both ask it |
+| `scoring.rs` | the two verbs — `Similarity`, `Rank` — `TotalCmp`, and the `Scoring` bundle. Shared: the linker and proximity both ask it |
 | `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by. Shared by the blocker, identity, evidence and projection |
 | `blocker/mod.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
 | `blocker/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
@@ -290,7 +290,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `linker/mod.rs` | the `Linker` trait: one illumination in, decisions out. Everything upstream is recall, everything downstream is effect |
 | `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
 | `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), the corroboration bonus |
-| `linker/illumination.rs` | the linking executor, and `LinkStats` |
+| `graph/link.rs` | the linking executor, and `LinkStats` |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two writers of `knowledge_claims` in `store.rs`: `Evidence::record` for a capture's observation, `store_claim` for an authority's answer, which is also where the veto and the uniqueness rule live. `store.rs` also reads holders back and answers `awaiting_authority` |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors and the methods that are one write each |
