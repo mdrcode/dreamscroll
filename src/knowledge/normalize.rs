@@ -154,6 +154,8 @@ const PROBE: &[&str] = &[
     "Donald J. Trump",
     "J. R. R. Tolkien",
     "Malcolm X",
+    "The Train Dreams",
+    "An American Werewolf",
     "\"Fast Eddie\" Felson",
     "'Tis Pity She's a Whore",
     "Şeyh Bedreddin",
@@ -295,12 +297,13 @@ mod tests {
         assert_eq!(comparable("O'Brien"), "o'brien");
     }
 
-    /// The fingerprint has to move when the rule moves. If this fails, the fold changed: update the
-    /// constant *and* rebuild `knowledge_blocking_index`. The constant is not load-bearing — `project` stores
-    /// whatever the code computes — it exists so the change appears in the diff.
+    /// The fingerprint has to move when the rule moves. If this fails, the fold or the probe corpus
+    /// changed: update the constant *and* rebuild `knowledge_blocking_index`. The constant is not
+    /// load-bearing — `project` stores whatever the code computes — it exists so the change appears
+    /// in the diff.
     #[test]
     fn the_normalisation_fingerprint_moves_only_deliberately() {
-        assert_eq!(norm_fingerprint(), "norm-7b0bd4d46f9a674c");
+        assert_eq!(norm_fingerprint(), "norm-bf10ce058657dde6");
     }
 
     /// An honorific and initials are surface artifacts: no store names a person that way, and
