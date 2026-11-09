@@ -257,10 +257,14 @@ pub async fn vetoed(
     Ok(out)
 }
 
-/// Retract the live authority claims holding a vetoed identity for its entity.
+/// Retract the live authority claims holding a vetoed identity for its entity, then reproject it.
 ///
 /// Basis `text` only: a `handle` claim is what a capture showed, not a cross-reference an editor is
 /// disputing. `None` when the subject origin no longer names a live entity.
+///
+/// The retraction and the projection are one act: `status` and `confidence` are functions of the
+/// live claims, so withdrawing a claim without reprojecting leaves the entity `identified` on
+/// nothing — and that is the row the API serves and `proximity merge` ranks.
 async fn withdraw(
     graph: &KnowledgeGraph,
     verdict: &model::knowledge_verdicts::Model,
@@ -298,6 +302,9 @@ async fn withdraw(
         .exec(graph.conn())
         .await?
         .rows_affected as usize;
+    if retracted > 0 {
+        graph.update_projection(entity_id).await?;
+    }
     Ok(Some(retracted))
 }
 
@@ -625,4 +632,94 @@ mod tests {
             .unwrap();
     }
 
+    /// Status and confidence are functions of the live claims. Retracting one without reprojecting
+    /// leaves a row the API serves as `identified` and `proximity merge` ranks by a score it no
+    /// longer earns.
+    #[tokio::test]
+    async fn a_veto_reprojects_the_entity_it_empties() {
+        db_or_skip!(db);
+        let store = KnowledgeGraph::new(&db);
+        let entity_id = fixtures::knowledge_entity_with_member(&db, "Q").await;
+        fixtures::claim(
+            &db,
+            entity_id,
+            "wikidata",
+            "Q131472411",
+            "wikidata",
+            Some("exact_label"),
+            Some(0.9),
+            ClaimBasis::Text,
+        )
+        .await;
+        store.update_projection(entity_id).await.unwrap();
+        assert_eq!(
+            store.get(entity_id).await.unwrap().status,
+            crate::knowledge::Status::Identified
+        );
+
+        veto(&store, entity_id, "wikidata", "Q131472411", None)
+            .await
+            .unwrap();
+        assert_eq!(replay(&store).await.unwrap().withdrawn, 1);
+
+        let entity = store.get(entity_id).await.unwrap();
+        assert_eq!(
+            entity.status,
+            crate::knowledge::Status::Provisional,
+            "no live claim, no identification"
+        );
+        assert_eq!(entity.confidence, None);
+    }
+
+    /// The projection recomputes from what is left: the withdrawn claim's score and its corroboration
+    /// bonus go, the other input stays.
+    #[tokio::test]
+    async fn a_veto_drops_the_score_that_claim_earned_and_no_more() {
+        db_or_skip!(db);
+        let store = KnowledgeGraph::new(&db);
+        let entity_id = fixtures::knowledge_entity_with_member(&db, "Nintendo").await;
+        fixtures::claim(
+            &db,
+            entity_id,
+            "wikidata",
+            "Q8093",
+            "wikidata",
+            Some("exact_label"),
+            Some(0.9),
+            ClaimBasis::Text,
+        )
+        .await;
+        fixtures::claim(
+            &db,
+            entity_id,
+            "x_twitter",
+            "nintendo",
+            "platform",
+            None,
+            Some(0.7),
+            ClaimBasis::Handle,
+        )
+        .await;
+        store.update_projection(entity_id).await.unwrap();
+        // Best claim 0.9, plus one corroborating basis.
+        assert!(
+            (store.get(entity_id).await.unwrap().confidence.unwrap() - 1.0).abs() < 1e-6
+        );
+
+        veto(&store, entity_id, "wikidata", "Q8093", None)
+            .await
+            .unwrap();
+        replay(&store).await.unwrap();
+
+        let entity = store.get(entity_id).await.unwrap();
+        assert_eq!(
+            entity.status,
+            crate::knowledge::Status::Identified,
+            "the handle still identifies it"
+        );
+        assert!(
+            (entity.confidence.unwrap() - 0.7).abs() < 1e-6,
+            "no stale bonus: {entity:?}"
+        );
+    }
 }
