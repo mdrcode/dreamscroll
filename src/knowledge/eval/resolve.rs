@@ -108,11 +108,8 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
             let stored: Option<serde_json::Value> =
                 payload.as_deref().and_then(|text| serde_json::from_str(text).ok());
             let raw: Answer<Vec<Candidate>> = Answer {
-                outcome: if outcome == "found" {
-                    Outcome::Found
-                } else {
-                    Outcome::Empty
-                },
+                // The real outcome, so a degraded answer reads as degraded here too.
+                outcome: Outcome::parse(&outcome).unwrap_or(Outcome::Empty),
                 body: crate::fetch::cache::decode(stored.as_ref()),
             };
             let claim = match rung {

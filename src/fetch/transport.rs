@@ -21,47 +21,9 @@ pub(crate) const BATCH: usize = 50;
 #[cfg(test)]
 pub(crate) const BATCH: usize = 2;
 
-/// What became of one request.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Outcome {
-    /// The provider answered **with a payload**. Not a decision: whether it holds what the caller
-    /// wanted is the caller's decision, and it may reject the lot.
-    Found,
-    /// The provider answered with nothing — a cached negative.
-    Empty,
-    /// The provider did not answer.
-    Failed,
-    /// The provider answered, but not in a way worth trusting — a search that never reached its
-    /// backend, a body carrying an error alongside a 200. The payload is still handed over, because
-    /// it may hold something useful, but the answer expires quickly instead of standing for a week.
-    Degraded,
-}
-
-impl Outcome {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Outcome::Found => "found",
-            Outcome::Empty => "empty",
-            Outcome::Failed => "failed",
-            Outcome::Degraded => "degraded",
-        }
-    }
-
-    pub fn parse(value: &str) -> Option<Self> {
-        match value {
-            "found" => Some(Outcome::Found),
-            "empty" => Some(Outcome::Empty),
-            "failed" => Some(Outcome::Failed),
-            "degraded" => Some(Outcome::Degraded),
-            _ => None,
-        }
-    }
-
-    /// Whether the answer is worth parsing. A degraded answer still carries a payload.
-    pub fn answered(self) -> bool {
-        matches!(self, Outcome::Found | Outcome::Degraded)
-    }
-}
+/// What became of one request lives with the column it fills; this re-export is how the fetch
+/// layer names it.
+pub use crate::model::fetch_cache::Outcome;
 
 /// One question for one provider.
 ///

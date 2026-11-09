@@ -239,11 +239,8 @@ async fn ladder(
         };
         let decision = if fresh {
             let raw = Answer {
-                outcome: if outcome == "found" {
-                    Outcome::Found
-                } else {
-                    Outcome::Empty
-                },
+                // The real outcome, so a degraded answer reads as degraded here too.
+                outcome: Outcome::parse(&outcome).unwrap_or(Outcome::Empty),
                 body: candidates,
             };
             let claim = match rung {

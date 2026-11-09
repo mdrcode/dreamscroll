@@ -101,9 +101,7 @@ impl<'a> FetchCache<'a> {
 
         let mut answers = HashMap::with_capacity(rows.len());
         for row in rows {
-            let Some(outcome) = Outcome::parse(&row.outcome) else {
-                continue;
-            };
+            let outcome = row.outcome;
             let body = match row.payload.as_ref() {
                 // Nothing stored: a negative, or an answer that genuinely carried no payload.
                 None => None,
@@ -162,7 +160,7 @@ impl<'a> FetchCache<'a> {
             kind: Set(kind.to_string()),
             query: Set(query.to_string()),
             shape: Set(shape.to_string()),
-            outcome: Set(answer.outcome.as_str().to_string()),
+            outcome: Set(answer.outcome),
             payload: Set(payload),
             expires_at: Set(expires_at),
             ..Default::default()
@@ -218,7 +216,7 @@ mod tests {
                     kind: Set("kind-a".to_string()),
                     query: Set(query.to_string()),
                     shape: Set("shape-a".to_string()),
-                    outcome: Set("found".to_string()),
+                    outcome: Set(Outcome::Found),
                     payload: Set(Some(json!([{"id": "one"}]))),
                     expires_at: Set(expires_at),
                     ..Default::default()
@@ -324,7 +322,7 @@ mod tests {
             kind: Set("kind-a".to_string()),
             query: Set("shape changed".to_string()),
             shape: Set("v1".to_string()),
-            outcome: Set("found".to_string()),
+            outcome: Set(Outcome::Found),
             payload: Set(Some(json!({"an": "envelope nothing knows"}))),
             expires_at: Set(Utc::now() + Duration::days(1)),
             ..Default::default()
