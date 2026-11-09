@@ -20,18 +20,19 @@ use crate::database;
 use crate::model::{
     knowledge_blocking_index as blocking, knowledge_claims as claims,
     knowledge_entity as entity, knowledge_identity as identities,
-    knowledge_proximities as proximities, user_observed_entity as observation,
+    knowledge_proximities as proximities, knowledge_verdicts as verdicts,
+    user_observed_entity as observation,
 };
 
 const OBSERVATION_TABLE: &str = "user_observed_entities";
 
+/// What one reset did. Merges are absent by construction: `knowledge_verdicts` is never cleared, so
+/// the count a generation recorded belongs to its register row, not to this report.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Report {
     /// Observations whose `knowledge_entity_id` was cleared.
     pub unlinked: u64,
     pub claims: u64,
-    /// Merges are not cleared: `knowledge_verdicts` is the durable log.
-    pub merges: u64,
     pub proximities: u64,
     pub entities: u64,
     /// `None` when there was nothing to snapshot.
@@ -53,7 +54,7 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 if entity::Entity::find().count(txn).await? == 0 {
                     // Nothing to preserve: do not leave empty archive tables behind.
                     let unlinked = unlink(txn).await?;
-                    supersede_generation(txn, None, 0, 0, 0, 0, 0, 0).await?;
+                    supersede_generation(txn, None, 0, 0, 0, 0, 0).await?;
                     return Ok(Report {
                         unlinked,
                         ..Default::default()
@@ -75,7 +76,6 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 blocking::Entity::delete_many().exec(txn).await?;
                 let claims = claims::Entity::delete_many().exec(txn).await?.rows_affected;
                 let proximities = proximities::Entity::delete_many().exec(txn).await?.rows_affected;
-                let merges = 0;
                 identities::Entity::delete_many().exec(txn).await?;
                 let entities = entity::Entity::delete_many().exec(txn).await?.rows_affected;
 
@@ -85,7 +85,6 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                     entities,
                     snapshot_identities,
                     claims,
-                    merges,
                     proximities,
                     snapshot_members,
                 )
@@ -94,7 +93,6 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                 Ok(Report {
                     unlinked,
                     claims,
-                    merges,
                     proximities,
                     entities,
                     snapshot: Some(snapshot),
@@ -115,18 +113,23 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
 ///
 /// A generation is one build cycle, and reset is the only snapshotter — it empties as it copies — so
 /// this row is also the snapshot's register: at most one snapshot belongs to a generation.
-#[allow(clippy::too_many_arguments)]
 async fn supersede_generation<C: ConnectionTrait>(
     conn: &C,
     snapshot: Option<&str>,
     entities: u64,
     identities: u64,
     claims: u64,
-    merges: u64,
     proximities: u64,
     members: u64,
 ) -> anyhow::Result<()> {
     let current = crate::knowledge::graph::verdicts::current_generation(conn).await?;
+    // Verdicts are never deleted, so the register records how many merges the generation held, not
+    // how many reset removed — which is none.
+    let merges = verdicts::Entity::find()
+        .filter(verdicts::Column::Generation.eq(current))
+        .filter(verdicts::Column::Kind.eq(verdicts::Kind::Merge))
+        .count(conn)
+        .await?;
     conn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO knowledge_generations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING",
@@ -389,5 +392,35 @@ mod tests {
 
         assert_eq!(report, Report::default());
         assert!(report.snapshot.is_none());
+    }
+
+    /// The register says how many merges a generation recorded. Verdicts are never deleted, so a
+    /// reset cannot count what it removed — it counts what the generation held.
+    #[tokio::test]
+    async fn the_closed_generation_records_its_merges() {
+        db_or_skip!(db);
+        let store = crate::knowledge::KnowledgeGraph::new(&db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        store
+            .merge(
+                loser,
+                winner,
+                crate::knowledge::graph::merge::Cause::Repair,
+            )
+            .await
+            .unwrap();
+        let generation = crate::knowledge::graph::verdicts::current_generation(&db.conn)
+            .await
+            .unwrap();
+
+        reset(&db).await.expect("reset should succeed");
+
+        let row = crate::model::knowledge_generations::Entity::find_by_id(generation)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .expect("the register keeps the closed generation");
+        assert_eq!(row.merges, Some(1), "{row:?}");
     }
 }

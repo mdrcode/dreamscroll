@@ -727,9 +727,9 @@ async fn main() -> anyhow::Result<()> {
                 None => println!("nothing to snapshot"),
             }
             println!(
-                "unlinked {} observations · deleted {} claims, {} merges, {} proximities · \
+                "unlinked {} observations · deleted {} claims, {} proximities · \
                  deleted {} entities",
-                report.unlinked, report.claims, report.merges, report.proximities, report.entities
+                report.unlinked, report.claims, report.proximities, report.entities
             );
         }
         Command::Compare(args) => {

@@ -265,9 +265,9 @@ API decides which one a user sees. Two consequences fall out for free:
 
 Entities are cheap to rebuild and expensive to get wrong, so the model prefers undoable moves:
 
-- `reset` snapshots the projection, then empties it — entities, claims, identities, merges,
-  proximities and the index rows, all of it derived. Observations, captures, illuminations and the
-  **fetch cache** are untouched. The teardown is therefore free: `reset`, then `link`, then
+- `reset` snapshots the projection, then empties it — entities, claims, identities, proximities and
+  the index rows, all of it derived. Observations, captures, illuminations, the merge log
+  (`knowledge_verdicts`) and the **fetch cache** are untouched. The teardown is therefore free: `reset`, then `link`, then
   `verdicts replay` (a person's folds, applied to the new ids), then `identity resolve --offline`
   (identities and claims from cached answers), then `proximity scan` and `proximity merge`. Six
   commands, each one job, none invoking another — the order and its reasons are in
