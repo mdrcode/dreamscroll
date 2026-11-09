@@ -6,7 +6,10 @@
 
 use std::collections::HashSet;
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect, Statement,
+};
 
 use super::claim::{Claim, ClaimBasis};
 use crate::database;
@@ -162,6 +165,84 @@ impl Evidence {
             self.upsert_identity(&DraftIdentity::from_capture(&link)).await?;
         }
         Ok(())
+    }
+
+    /// Entities no configured authority has claimed yet, in the order a run should ask them.
+    ///
+    /// The mirror of [`Self::held_by_identity`]: that asks who holds an identity, this asks which
+    /// entities still have none. The filter is *authority*, not *any evidence* — an entity identified
+    /// only by a platform handle is still a candidate, because a QID is what corroboration needs.
+    ///
+    /// Ordering and limit are the caller's policy, passed in: ascending is a rebuild, descending is
+    /// "what just arrived", and a finite budget has to reach one of them deterministically.
+    pub async fn awaiting_authority(
+        &self,
+        sources: &[&str],
+        limit: Option<usize>,
+        only: Option<i32>,
+        newest_first: bool,
+    ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
+        use model::knowledge_entity as entity;
+        use sea_orm::sea_query::{Expr, ExprTrait, Query};
+
+        // Asked already: holds a claim an authority made, rather than only the capture's handle.
+        let claimed = Query::select()
+            .distinct()
+            .column((
+                model::knowledge_claims::Entity,
+                model::knowledge_claims::Column::KnowledgeEntityId,
+            ))
+            .from(model::knowledge_claims::Entity)
+            .inner_join(
+                model::knowledge_identity::Entity,
+                Expr::col((
+                    model::knowledge_claims::Entity,
+                    model::knowledge_claims::Column::KnowledgeIdentityId,
+                ))
+                .equals((
+                    model::knowledge_identity::Entity,
+                    model::knowledge_identity::Column::Id,
+                )),
+            )
+            .and_where(
+                Expr::col((
+                    model::knowledge_claims::Entity,
+                    model::knowledge_claims::Column::RetractedAt,
+                ))
+                .is_null(),
+            )
+            .and_where(
+                Expr::col((
+                    model::knowledge_identity::Entity,
+                    model::knowledge_identity::Column::AssertedBy,
+                ))
+                .is_in(
+                    sources
+                        .iter()
+                        .map(|source| source.to_string())
+                        .collect::<Vec<_>>(),
+                ),
+            )
+            .to_owned();
+
+        let mut query = entity::Entity::find()
+            .filter(entity::Column::MergedIntoId.is_null())
+            .filter(Expr::col(entity::Column::Id).not_in_subquery(claimed))
+            .order_by(
+                entity::Column::Id,
+                if newest_first {
+                    sea_orm::Order::Desc
+                } else {
+                    sea_orm::Order::Asc
+                },
+            );
+        if let Some(knowledge_entity_id) = only {
+            query = query.filter(entity::Column::Id.eq(knowledge_entity_id));
+        }
+        if let Some(limit) = limit {
+            query = query.limit(limit as u64);
+        }
+        Ok(query.all(&self.conn).await?)
     }
 
     /// The identity this claim cites, if a row exists. Reads only; importing is the caller's job.

@@ -5,7 +5,7 @@
 
 use std::collections::HashSet;
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 use super::resolver::Resolver;
 use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
@@ -100,14 +100,14 @@ impl<'a> ResolutionEngine<'a> {
             .iter()
             .map(|resolver| resolver.id())
             .collect();
-        let entities = candidates(
-            &self.db.conn,
-            self.options.limit,
-            self.options.only,
-            self.options.newest_first,
-            &sources,
-        )
-        .await?;
+        let entities = crate::knowledge::evidence::Evidence::from_handle(self.db)
+            .awaiting_authority(
+                &sources,
+                self.options.limit,
+                self.options.only,
+                self.options.newest_first,
+            )
+            .await?;
         let knowledge = crate::knowledge::Knowledge::new(self.db);
         // Loaded once, not per claim: a veto asked during admission is a claim never written; one
         // that is only replayed is a claim asserted and then withdrawn.
@@ -185,81 +185,6 @@ impl<'a> ResolutionEngine<'a> {
     }
 }
 
-/// Entities with no live ontology claim. Note the filter is *ontology*, not *no evidence*: an entity
-/// identified only by a platform handle still deserves a QID, because that is how corroboration
-/// happens.
-async fn candidates(
-    conn: &sea_orm::DatabaseConnection,
-    limit: Option<usize>,
-    only: Option<i32>,
-    newest_first: bool,
-    sources: &[&str],
-) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
-    use model::knowledge_entity as entity;
-    use sea_orm::sea_query::{Expr, ExprTrait, Query};
-
-    // Asked already: holds a claim an authority made, rather than only the capture's handle.
-    let claimed = Query::select()
-        .distinct()
-        .column((
-            model::knowledge_claims::Entity,
-            model::knowledge_claims::Column::KnowledgeEntityId,
-        ))
-        .from(model::knowledge_claims::Entity)
-        .inner_join(
-            model::knowledge_identity::Entity,
-            Expr::col((
-                model::knowledge_claims::Entity,
-                model::knowledge_claims::Column::KnowledgeIdentityId,
-            ))
-            .equals((
-                model::knowledge_identity::Entity,
-                model::knowledge_identity::Column::Id,
-            )),
-        )
-        .and_where(
-            Expr::col((
-                model::knowledge_claims::Entity,
-                model::knowledge_claims::Column::RetractedAt,
-            ))
-            .is_null(),
-        )
-        .and_where(
-            Expr::col((
-                model::knowledge_identity::Entity,
-                model::knowledge_identity::Column::AssertedBy,
-            ))
-            .is_in(
-                sources
-                    .iter()
-                    .map(|source| source.to_string())
-                    .collect::<Vec<_>>(),
-            ),
-        )
-        .to_owned();
-
-    let mut query = entity::Entity::find()
-        .filter(entity::Column::MergedIntoId.is_null())
-        .filter(Expr::col(entity::Column::Id).not_in_subquery(claimed))
-        // Which candidates a finite budget reaches is a policy, not a detail: ascending is the
-        // rebuild order, descending is "what just arrived".
-        .order_by(
-            entity::Column::Id,
-            if newest_first {
-                sea_orm::Order::Desc
-            } else {
-                sea_orm::Order::Asc
-            },
-        );
-    if let Some(knowledge_entity_id) = only {
-        query = query.filter(entity::Column::Id.eq(knowledge_entity_id));
-    }
-    if let Some(limit) = limit {
-        query = query.limit(limit as u64);
-    }
-    Ok(query.all(conn).await?)
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -282,10 +207,13 @@ mod tests {
         let second =
             crate::test_support::fixtures::knowledge_entity_with_member(&db, "Second").await;
 
-        let ascending = candidates(&db.conn, Some(2), None, false, &["wikidata"])
+        let evidence = crate::knowledge::evidence::Evidence::from_handle(&db);
+        let ascending = evidence
+            .awaiting_authority(&["wikidata"], Some(2), None, false)
             .await
             .unwrap();
-        let descending = candidates(&db.conn, Some(2), None, true, &["wikidata"])
+        let descending = evidence
+            .awaiting_authority(&["wikidata"], Some(2), None, true)
             .await
             .unwrap();
 
