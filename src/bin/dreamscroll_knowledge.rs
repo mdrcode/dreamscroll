@@ -781,10 +781,11 @@ async fn main() -> anyhow::Result<()> {
             IndexCommand::Check(_) => {
                 let report = knowledge::blocker::index::check(&db).await?;
                 println!(
-                    "indexed {} · stale {} · missing {} · {}",
+                    "indexed {} · stale {} · missing {} · orphaned {} · {}",
                     report.indexed,
                     report.stale,
                     report.missing,
+                    report.orphaned,
                     if report.is_current() {
                         "current"
                     } else {

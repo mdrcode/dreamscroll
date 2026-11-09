@@ -62,6 +62,12 @@ pub(crate) async fn write<C: ConnectionTrait>(
     conn: &C,
     entity: &model::knowledge_entity::Model,
 ) -> anyhow::Result<()> {
+    // A tombstone has no retrieval material. `project` can be handed one — `identity veto` names an
+    // id a merge may have folded since — and re-stamping it would leave a current-fingerprint row
+    // that `check` cannot see.
+    if entity.merged_into_id.is_some() {
+        return forget(conn, entity.id).await;
+    }
     let Keys {
         surfaces,
         word_keys,
@@ -102,11 +108,13 @@ pub struct Report {
     pub stale: usize,
     /// Live entities with no row at all: a writer was skipped, or a rebuild was interrupted.
     pub missing: usize,
+    /// Rows for an entity that is absent or tombstoned: retrieval material with nothing to retrieve.
+    pub orphaned: usize,
 }
 
 impl Report {
     pub fn is_current(&self) -> bool {
-        self.stale == 0 && self.missing == 0
+        self.stale == 0 && self.missing == 0 && self.orphaned == 0
     }
 }
 
@@ -159,6 +167,13 @@ pub async fn check(db: &DbHandle) -> anyhow::Result<Report> {
             vec![],
         )
         .await? as usize,
+        orphaned: count(
+            "SELECT count(*) FROM knowledge_blocking_index i \
+                  LEFT JOIN knowledge_entities e ON e.id = i.knowledge_entity_id \
+              WHERE e.id IS NULL OR e.merged_into_id IS NOT NULL",
+            vec![],
+        )
+        .await? as usize,
     })
 }
 
@@ -191,7 +206,15 @@ mod tests {
         assert_eq!(row.built_with, normalize::norm_fingerprint());
         assert!(row.surfaces.contains(&"train dreams".to_string()));
         assert!(row.word_keys.contains(&"dreams train".to_string()));
-        assert_eq!(check(&db).await.unwrap(), Report { indexed: 1, stale: 0, missing: 0 });
+        assert_eq!(
+            check(&db).await.unwrap(),
+            Report {
+                indexed: 1,
+                stale: 0,
+                missing: 0,
+                orphaned: 0
+            }
+        );
     }
 
     /// A row built by an older fold is stale, and `rebuild` is what fixes it.
@@ -312,5 +335,75 @@ mod tests {
             "the surface is still keyed"
         );
         assert!(row.word_keys.is_empty(), "{:?}", row.word_keys);
+    }
+
+    /// `project` can be handed a tombstone: `identity veto` reprojects the id it was given, which a
+    /// merge may have folded first. A row for it would outlive its liveness and `check` would still
+    /// call the index current.
+    #[tokio::test]
+    async fn projecting_a_tombstone_writes_no_row() {
+        db_or_skip!(db);
+        let store = crate::knowledge::KnowledgeGraph::new(&db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        store.update_projection(winner).await.unwrap();
+        store.update_projection(loser).await.unwrap();
+        store
+            .merge(
+                loser,
+                winner,
+                crate::knowledge::graph::merge::Cause::Repair,
+            )
+            .await
+            .unwrap();
+
+        let tombstone = store.get(loser).await.unwrap();
+        assert!(tombstone.merged_into_id.is_some());
+        store.update_projection(loser).await.unwrap();
+
+        assert!(
+            model::knowledge_blocking_index::Entity::find_by_id(loser)
+                .one(&db.conn)
+                .await
+                .unwrap()
+                .is_none(),
+            "a tombstone keeps no retrieval material"
+        );
+        assert!(check(&db).await.unwrap().is_current());
+    }
+
+    /// A row can outlive its entity — an older build wrote it, or a crash parted it from its
+    /// tombstone. `check` counts it, or `is_current` promises a table it has not verified.
+    #[tokio::test]
+    async fn an_orphaned_row_is_counted() {
+        db_or_skip!(db);
+        let store = crate::knowledge::KnowledgeGraph::new(&db);
+        let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        store
+            .merge(
+                loser,
+                winner,
+                crate::knowledge::graph::merge::Cause::Repair,
+            )
+            .await
+            .unwrap();
+
+        // The state a writer that predates the guard leaves behind.
+        db.conn
+            .execute_raw(Statement::from_sql_and_values(
+                DatabaseBackend::Postgres,
+                "INSERT INTO knowledge_blocking_index \
+                   (knowledge_entity_id, surfaces, word_keys, text, built_with) \
+                 VALUES ($1, ARRAY['train dreams'], ARRAY['dreams train'], 'train dreams', $2)",
+                [loser.into(), normalize::norm_fingerprint().into()],
+            ))
+            .await
+            .unwrap();
+
+        let report = check(&db).await.unwrap();
+        assert_eq!(report.orphaned, 1, "{report:?}");
+        assert_eq!(report.missing, 0, "{report:?}");
+        assert!(!report.is_current(), "{report:?}");
     }
 }
