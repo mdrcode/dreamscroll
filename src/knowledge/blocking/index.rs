@@ -52,7 +52,7 @@ pub(super) fn keys(entity: &model::knowledge_entity::Model) -> Keys {
 }
 
 /// Upsert one entity's row. `project` calls this, so it and [`rebuild`] are the only writers.
-pub(super) async fn write<C: ConnectionTrait>(
+pub(crate) async fn write<C: ConnectionTrait>(
     conn: &C,
     entity: &model::knowledge_entity::Model,
 ) -> anyhow::Result<()> {
@@ -77,7 +77,7 @@ pub(super) async fn write<C: ConnectionTrait>(
 }
 
 /// Drop an entity's row: it was tombstoned by a merge, or the generation was emptied.
-pub(super) async fn forget<C: ConnectionTrait>(conn: &C, knowledge_entity_id: i32) -> anyhow::Result<()> {
+pub(crate) async fn forget<C: ConnectionTrait>(conn: &C, knowledge_entity_id: i32) -> anyhow::Result<()> {
     conn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "DELETE FROM knowledge_index WHERE knowledge_entity_id = $1",
@@ -224,7 +224,7 @@ mod tests {
         store.update_projection(loser).await.unwrap();
 
         store
-            .merge(loser, winner, crate::knowledge::merge::Cause::Repair)
+            .merge(loser, winner, crate::knowledge::graph::merge::Cause::Repair)
             .await
             .unwrap();
 
@@ -259,11 +259,11 @@ mod tests {
         store.update_projection(winner).await.unwrap();
         store.update_projection(loser).await.unwrap();
         store
-            .merge(loser, winner, crate::knowledge::merge::Cause::Repair)
+            .merge(loser, winner, crate::knowledge::graph::merge::Cause::Repair)
             .await
             .unwrap();
 
-        let offered = crate::knowledge::sql_blocker::candidate_ids(
+        let offered = crate::knowledge::blocking::sql::candidate_ids(
             &db,
             &fixtures::stub_observation(1, "Train Dreams", "book"),
         )

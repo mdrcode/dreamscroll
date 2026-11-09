@@ -162,8 +162,8 @@ pub async fn claim(
     confidence: Option<f32>,
     basis: &str,
 ) {
-    let identity = crate::knowledge::evidence::Evidence::from_handle(db)
-        .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
+    let identity = crate::knowledge::graph::evidence::Evidence::from_handle(db)
+        .upsert_identity(&crate::knowledge::graph::evidence::DraftIdentity {
             scheme: scheme.to_string(),
             external_id: external_id.to_string(),
             asserted_by: asserted_by.to_string(),

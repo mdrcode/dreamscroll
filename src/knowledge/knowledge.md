@@ -281,24 +281,25 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 | file | what it is |
 |---|---|
-| `scoring.rs` | the two verbs — `Similarity`, `Rank` — `cmp_confidence`, and the `Scoring` bundle |
-| `blocker.rs`, `linker.rs` | the two linking traits, and nothing else — the contract a linker implements |
-| `heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
-| `sql_blocker.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
-| `heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
-|`identity/`|`resolver` (the trait a provider implements) · `engine` (the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The claim it returns, and where it becomes a row, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
+| `scoring.rs` | the two verbs — `Similarity`, `Rank` — `cmp_confidence`, and the `Scoring` bundle. Shared: the linker and proximity both ask it |
+| `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by. Shared by blocking, identity, evidence and projection |
+| `blocking.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
+| `blocking/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
+| `blocking/index.rs` | `knowledge_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
+| `linking.rs` | the `Linker` trait: one illumination in, decisions out. Everything upstream is recall, everything downstream is effect |
+| `linking/heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
+| `linking/heuristic/scoring.rs` | the only `Scoring` today: weights, the bar, the corroboration bonus |
+| `linking/illumination.rs` | the linking executor, and `LinkStats` |
+| `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
+| `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
+| `graph/merge.rs` | fold one entity into another |
+| `graph/proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
+| `graph/verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair or a veto, `replay` onto the new graph — vetoes are also asked at admission, since a claim has one writer |
+| `graph/snapshot/` | take a copy of the projection, empty it, diff two copies |
+| `graph/evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two writers of `knowledge_claims` in `store.rs`: `Evidence::record` for a capture's observation, `store_claim` for an authority's answer, which is also where the veto and the uniqueness rule live. `store.rs` also reads holders back and answers `awaiting_authority` |
+|`identity/`|`resolver` (the trait a provider implements) · `engine` (the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The claim it returns, and where it becomes a row, are `graph/evidence` — the cache, the pace and the budget are `crate::fetch`|
 | `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates in `policy.rs` · answer parsing in `answer.rs` · the ladder and its request shapes in `resolver.rs` · candidate scoring in `ranking.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
-| `graph.rs` | the facade: `Knowledge`, its constructors and the methods that are one write each |
-| `link.rs` | the linking executor, and `LinkStats` |
-| `project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
-| `merge.rs` | fold one entity into another |
-|`evidence/`|the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two writers of `knowledge_claims` in `store.rs`: `Evidence::record` for a capture's observation, `store_claim` for an authority's answer, which is also where the veto and the uniqueness rule live. `store.rs` also reads holders back (ordered by `cmp_confidence`) and owns `PlatformLink`/`DraftIdentity`|
-| `proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
-| `verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair or a veto, `replay` onto the new graph — vetoes are also asked at admission, since a claim has one writer |
-| `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by |
-| `index.rs` | `knowledge_index`: the folded keys a blocker reads, written by `project`, rebuilt when the fold changes; `rebuild` and `check` |
 | `eval/` | offline evaluation: `eval resolve` replays the resolver's ladder over the answer cache, with no transport |
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are

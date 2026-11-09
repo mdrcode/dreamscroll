@@ -1,11 +1,20 @@
-//! The knowledge graph's write side: [`Knowledge`].
+//! The knowledge graph's write side: [`Knowledge`], and every part of the state it owns.
 //!
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
 //! onto one goes through [`Knowledge`], and the handle itself never leaves it — the primitives below
 //! are private, and the collaborators (`decider`, `blocker`, `evidence`, `scoring`) are `pub(super)`
-//! only because the code that reads them lives in `link.rs`, `project.rs` and `proximity.rs`. The
-//! connection is the same deal: [`Knowledge::conn`] exists so those passes can run, not as an escape
-//! hatch. Outside `knowledge`, a caller sees [`Knowledge`]'s methods and nothing else.
+//! only because the code that reads them lives in `linking/illumination.rs`, `graph/project.rs` and
+//! `graph/proximity.rs`. The connection is the same deal: [`Knowledge::conn`] exists so those passes
+//! can run, not as an escape hatch. Outside `knowledge`, a caller sees [`Knowledge`]'s methods and
+//! nothing else.
+
+pub mod evidence;
+pub mod proximity;
+pub mod snapshot;
+pub mod verdicts;
+
+pub mod merge;
+mod project;
 
 use std::sync::Arc;
 
@@ -14,10 +23,10 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Set, Statement};
 use crate::database::DbHandle;
 use crate::model;
 
-use super::blocker::Blocker;
-use super::evidence::Evidence;
-use super::linker::Linker;
-use super::heuristic::Heuristic;
+use super::blocking::Blocker;
+use self::evidence::Evidence;
+use super::linking::Linker;
+use super::linking::heuristic::Heuristic;
 use super::scoring::Scoring;
 
 pub const STATUS_PROVISIONAL: &str = "provisional";
@@ -122,7 +131,7 @@ impl Knowledge {
         &self,
         illumination: &model::illumination::ModelEx,
     ) -> anyhow::Result<super::LinkStats> {
-        super::link::link_illumination(self, illumination).await
+        super::linking::illumination::link_illumination(self, illumination).await
     }
 
     /// Recompute an entity's projected columns, and tell the blocker what came out.
@@ -133,7 +142,7 @@ impl Knowledge {
         &self,
         knowledge_entity_id: i32,
     ) -> anyhow::Result<model::knowledge_entity::Model> {
-        let entity = super::project::project(&self.db.conn, knowledge_entity_id).await?;
+        let entity = self::project::project(&self.db.conn, knowledge_entity_id).await?;
         if let Some(blocker) = &self.blocker {
             blocker.changed(&entity);
         }
@@ -145,8 +154,8 @@ impl Knowledge {
         &self,
         loser: i32,
         winner: i32,
-    ) -> anyhow::Result<super::merge::Preview> {
-        super::merge::preview(&self.db.conn, loser, winner).await
+    ) -> anyhow::Result<self::merge::Preview> {
+        self::merge::preview(&self.db.conn, loser, winner).await
     }
 
     /// Fold `loser` into `winner`: the loser's observations re-point, the loser becomes a tombstone.
@@ -155,9 +164,9 @@ impl Knowledge {
         &self,
         loser: i32,
         winner: i32,
-        cause: super::merge::Cause,
-    ) -> anyhow::Result<super::merge::Outcome> {
-        super::merge::merge_into(&self.db.conn, self, loser, winner, cause).await
+        cause: self::merge::Cause,
+    ) -> anyhow::Result<self::merge::Outcome> {
+        self::merge::merge_into(&self.db.conn, self, loser, winner, cause).await
     }
 }
 
@@ -246,7 +255,7 @@ mod tests {
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train").await;
         store
-            .merge(loser, winner, crate::knowledge::merge::Cause::Repair)
+            .merge(loser, winner, crate::knowledge::graph::merge::Cause::Repair)
             .await
             .expect("the two entities are mergeable");
 

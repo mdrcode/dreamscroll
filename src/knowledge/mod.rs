@@ -3,35 +3,31 @@
 //! Design: `plan/knowledge-canonical-entities.md`; vocabulary: `plan/lexicon.md`.
 //! `illuminate` writes observations, `link` clusters them, `resolve` asks the authorities.
 //!
-//! `graph.rs` is the facade — `Knowledge` — and the primitives every write shares. The three write
-//! paths that have their own logic and their own tests live beside it: `link.rs`, `project.rs` and
-//! `merge.rs`. They are private modules; callers reach them through `Knowledge`'s methods.
+//! Three clusters, by the question each answers:
 //!
-//! Scoring is its own seam: `scoring.rs` states the two verbs (`Similarity`, `Rank`), `heuristic/`
-//! is today's only answer to them, and the store hands one `Scoring` to the linker and to
-//! `proximity`.
+//! - [`blocking`] — which entities are worth considering: the [Blocker] trait, the query that
+//!   answers from `knowledge_index`, and the index itself.
+//! - [`linking`] — which candidate wins, and making it happen: the [Linker] trait, today's
+//!   heuristic, and the executor that writes one illumination.
+//! - [`graph`] — what the graph holds and every way it changes: [`Knowledge`], projection, merge,
+//!   proximity, verdicts, the claim vocabulary in `evidence`, and snapshots.
+//!
+//! `normalize.rs` and `scoring.rs` stay at the root because both clusters, and [`identity`], use
+//! them: a surface fold and a confidence comparison are not anyone's private step.
+//!
+//! [Blocker]: blocking::Blocker
+//! [Linker]: linking::Linker
 
-pub mod blocker;
+pub mod blocking;
 pub mod eval;
-pub mod evidence;
 pub mod graph;
-pub mod index;
-pub mod heuristic;
-pub mod linker;
-pub mod merge;
-pub mod proximity;
-pub mod verdicts;
-pub mod normalize;
 pub mod identity;
+pub mod linking;
+pub mod normalize;
 pub mod scoring;
-pub mod snapshot;
-pub mod sql_blocker;
 
-mod link;
-mod project;
-
+pub use graph::proximity::MergeReport;
+pub use graph::verdicts::ReplayReport;
 pub use graph::{Knowledge, STATUS_IDENTIFIED, STATUS_PROVISIONAL};
-pub use link::LinkStats;
-pub use proximity::MergeReport;
+pub use linking::LinkStats;
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};
-pub use verdicts::ReplayReport;

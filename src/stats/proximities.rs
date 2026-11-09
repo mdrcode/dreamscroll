@@ -65,7 +65,7 @@ pub async fn proximity_list(
         .await?
         .into_iter()
         .filter_map(|verdict| {
-            Some(crate::knowledge::verdicts::pair_key(
+            Some(crate::knowledge::graph::verdicts::pair_key(
                 verdict.winner_origin?,
                 verdict.loser_origin?,
             ))
@@ -78,7 +78,7 @@ pub async fn proximity_list(
             let counterpart_origin: Option<i32> = row.try_get_by_index(8)?;
             let decided = match (holder_origin, counterpart_origin) {
                 (Some(h), Some(c)) => decided
-                    .contains(&crate::knowledge::verdicts::pair_key(h, c)),
+                    .contains(&crate::knowledge::graph::verdicts::pair_key(h, c)),
                 _ => false,
             };
             Ok(ProximityRow {

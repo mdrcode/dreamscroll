@@ -10,7 +10,7 @@ use sea_orm::{
 };
 
 use crate::database::DbHandle;
-use crate::knowledge::blocker::Blocker;
+use super::Blocker;
 use crate::knowledge::normalize;
 use crate::model;
 
@@ -110,7 +110,8 @@ impl SqlBlocker {
 }
 
 /// The ids this blocker would offer, for tests and for `eval`.
-pub async fn candidate_ids(
+#[cfg(test)]
+pub(crate) async fn candidate_ids(
     db: &DbHandle,
     observation: &model::user_observed_entity::Model,
 ) -> anyhow::Result<Vec<i32>> {

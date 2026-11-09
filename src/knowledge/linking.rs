@@ -12,12 +12,17 @@
 //!
 //! Note what is *not* here: no features, no weights, no thresholds. The policy is a parameter, so a
 //! linker is a *procedure* — and the store's policy is the one every other module also uses. The one
-//! implementation is [`crate::knowledge::heuristic::HeuristicLinker`].
+//! implementation is [`heuristic::HeuristicLinker`].
+
+pub mod heuristic;
+pub(crate) mod illumination;
+
+pub use illumination::LinkStats;
 
 use crate::model;
 
-use super::blocker::Blocker;
-use super::evidence::Evidence;
+use super::blocking::Blocker;
+use crate::knowledge::graph::evidence::Evidence;
 use super::scoring::Scoring;
 
 /// What to do with one observation.

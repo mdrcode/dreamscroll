@@ -114,8 +114,8 @@ mod tests {
         let stats = link(
             &crate::knowledge::Knowledge::with_linking(
                 &db,
-                Box::new(crate::knowledge::sql_blocker::SqlBlocker::new(&db)),
-                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                Box::new(crate::knowledge::blocking::SqlBlocker::new(&db)),
+                std::sync::Arc::new(crate::knowledge::linking::heuristic::HeuristicLinker),
             ),
             &service_api,
             &task(first, user),
@@ -134,8 +134,8 @@ mod tests {
         let stats = link(
             &crate::knowledge::Knowledge::with_linking(
                 &db,
-                Box::new(crate::knowledge::sql_blocker::SqlBlocker::new(&db)),
-                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                Box::new(crate::knowledge::blocking::SqlBlocker::new(&db)),
+                std::sync::Arc::new(crate::knowledge::linking::heuristic::HeuristicLinker),
             ),
             &service_api,
             &task(second, user),
@@ -174,8 +174,8 @@ mod tests {
         let error = link(
             &crate::knowledge::Knowledge::with_linking(
                 &db,
-                Box::new(crate::knowledge::sql_blocker::SqlBlocker::new(&db)),
-                std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                Box::new(crate::knowledge::blocking::SqlBlocker::new(&db)),
+                std::sync::Arc::new(crate::knowledge::linking::heuristic::HeuristicLinker),
             ),
             &service_api,
             &task(illumination, stranger),

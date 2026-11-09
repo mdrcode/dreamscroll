@@ -625,15 +625,15 @@ async fn main() -> anyhow::Result<()> {
                 println!("dry run; pass --yes to apply");
                 return Ok(());
             }
-            let cause = knowledge::merge::Cause::Repair;
+            let cause = knowledge::graph::merge::Cause::Repair;
             match store.merge(args.loser, args.winner, cause).await? {
-                knowledge::merge::Outcome::Merged => {
+                knowledge::graph::merge::Outcome::Merged => {
                     println!("merged; {} is now a tombstone", args.loser)
                 }
-                knowledge::merge::Outcome::AlreadyMerged => {
+                knowledge::graph::merge::Outcome::AlreadyMerged => {
                     println!("already merged; nothing to do")
                 }
-                knowledge::merge::Outcome::RefusedSharedIllumination => {
+                knowledge::graph::merge::Outcome::RefusedSharedIllumination => {
                     println!("refused at merge time — the entities changed under us")
                 }
             }
@@ -641,7 +641,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Verdicts(args) => match args.command {
             VerdictsCommand::Replay(_) => {
                 let store = knowledge::Knowledge::new(&db);
-                let report = knowledge::verdicts::replay(&store).await?;
+                let report = knowledge::graph::verdicts::replay(&store).await?;
                 println!(
                     "applied {} · already {} · gone {} · refused {} · withdrawn {}",
                     report.applied, report.already, report.gone, report.refused, report.withdrawn
@@ -682,11 +682,11 @@ async fn main() -> anyhow::Result<()> {
                 ProximityCommand::Scan(_) => {
                     println!(
                         "raised {} proximities",
-                        knowledge::proximity::scan(&store).await?
+                        knowledge::graph::proximity::scan(&store).await?
                     );
                 }
                 ProximityCommand::Merge(_) => {
-                    let report = knowledge::proximity::merge(&store).await?;
+                    let report = knowledge::graph::proximity::merge(&store).await?;
                     println!(
                         "auto-merged {} · refused {} · moot {} · undecided {}",
                         report.merged, report.refused, report.moot, report.undecided
@@ -709,7 +709,7 @@ async fn main() -> anyhow::Result<()> {
             if !args.yes {
                 anyhow::bail!("reset empties the projected graph; pass --yes to confirm");
             }
-            let report = knowledge::snapshot::reset(&db).await?;
+            let report = knowledge::graph::snapshot::reset(&db).await?;
             match &report.snapshot {
                 Some(snapshot) => println!(
                     "snapshot {} · entities {} · identities {} · claims {} · proximities {} · members {}",
@@ -729,13 +729,13 @@ async fn main() -> anyhow::Result<()> {
             );
         }
         Command::Compare(args) => {
-            let before = knowledge::snapshot::Snapshot {
+            let before = knowledge::graph::snapshot::Snapshot {
                 suffix: args.before.clone(),
             };
-            let after = knowledge::snapshot::Snapshot {
+            let after = knowledge::graph::snapshot::Snapshot {
                 suffix: args.after.clone(),
             };
-            let report = knowledge::snapshot::compare(&db, &before, &after).await?;
+            let report = knowledge::graph::snapshot::compare(&db, &before, &after).await?;
 
             println!("before {} · after {}", args.before, args.after);
             println!(
@@ -755,11 +755,11 @@ async fn main() -> anyhow::Result<()> {
             );
             for example in &report.examples {
                 match example.kind {
-                    knowledge::snapshot::Kind::Split => println!(
+                    knowledge::graph::snapshot::Kind::Split => println!(
                         "  split  \"{}\" · {} members → {} groups",
                         example.label, example.members, example.into
                     ),
-                    knowledge::snapshot::Kind::Merged => println!(
+                    knowledge::graph::snapshot::Kind::Merged => println!(
                         "  merge  \"{}\" · {} groups → {} members",
                         example.label, example.into, example.members
                     ),
@@ -771,11 +771,11 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Index(args) => match args.command {
             IndexCommand::Rebuild(_) => {
-                let rows = knowledge::index::rebuild(&db).await?;
+                let rows = knowledge::blocking::index::rebuild(&db).await?;
                 println!("rebuilt {rows} index rows");
             }
             IndexCommand::Check(_) => {
-                let report = knowledge::index::check(&db).await?;
+                let report = knowledge::blocking::index::check(&db).await?;
                 println!(
                     "indexed {} · stale {} · missing {} · {}",
                     report.indexed,
@@ -805,7 +805,7 @@ async fn main() -> anyhow::Result<()> {
             IdentityCommand::Reproject(args) => reproject(&db, args.all).await?,
             IdentityCommand::Veto(args) => {
                 let store = knowledge::Knowledge::new(&db);
-                let recorded = knowledge::verdicts::veto(
+                let recorded = knowledge::graph::verdicts::veto(
                     &store,
                     args.entity,
                     &args.scheme,
@@ -813,7 +813,7 @@ async fn main() -> anyhow::Result<()> {
                     args.note.as_deref(),
                 )
                 .await?;
-                let report = knowledge::verdicts::replay(&store).await?;
+                let report = knowledge::graph::verdicts::replay(&store).await?;
                 store.update_projection(args.entity).await?;
                 println!(
                     "{} · withdrawn {} · applied {} · already {} · gone {} · refused {}",
@@ -831,7 +831,7 @@ async fn main() -> anyhow::Result<()> {
             }
             IdentityCommand::Unveto(args) => {
                 let store = knowledge::Knowledge::new(&db);
-                let lifted = knowledge::verdicts::unveto(&store, args.id).await?;
+                let lifted = knowledge::graph::verdicts::unveto(&store, args.id).await?;
                 println!(
                     "{} — the next resolve may claim the identity again",
                     if lifted {
@@ -914,12 +914,12 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
         .await?;
 
     // Reads `knowledge_index`: nothing is loaded, so a link run costs queries and nothing at boot.
-    let blocker: Box<dyn knowledge::blocker::Blocker> =
-        Box::new(knowledge::sql_blocker::SqlBlocker::new(db));
+    let blocker: Box<dyn knowledge::blocking::Blocker> =
+        Box::new(knowledge::blocking::SqlBlocker::new(db));
     let knowledge = knowledge::Knowledge::with_linking(
         db,
         blocker,
-        std::sync::Arc::new(knowledge::heuristic::HeuristicLinker),
+        std::sync::Arc::new(knowledge::linking::heuristic::HeuristicLinker),
     );
     let mut report = LinkAllPendingReport::default();
     for illumination in &illuminations {

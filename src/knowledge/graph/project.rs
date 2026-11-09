@@ -35,7 +35,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     conn: &C,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<model::knowledge_entity::Model> {
-    let row = super::graph::get(conn, knowledge_entity_id).await?;
+    let row = super::get(conn, knowledge_entity_id).await?;
 
     // Ordered by member id, so the alternatives come out in the order the members joined.
     let members = model::user_observed_entity::Entity::find()
@@ -72,7 +72,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     let surfaces = gather(
         &members,
         |member| surfaces(member).collect(),
-        super::normalize::comparable,
+        crate::knowledge::normalize::comparable,
     );
     let types = gather(
         &members,
@@ -156,7 +156,7 @@ pub(super) async fn project<C: ConnectionTrait>(
         STATUS_IDENTIFIED
     };
 
-    let confidence = super::heuristic::scoring::combine(&claims);
+    let confidence = crate::knowledge::linking::heuristic::scoring::combine(&claims);
 
     let updated = model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),
@@ -179,7 +179,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     .await?;
 
     // The index row is a function of these columns and the current fold, so it moves with them.
-    super::index::write(conn, &updated).await?;
+    crate::knowledge::blocking::index::write(conn, &updated).await?;
     Ok(updated)
 }
 
@@ -247,8 +247,8 @@ mod tests {
 
     async fn proximity(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
         let claimant = fixtures::knowledge_entity_with_member(db, "a claimant").await;
-        let identity = crate::knowledge::evidence::Evidence::from_handle(db)
-            .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
+        let identity = crate::knowledge::graph::evidence::Evidence::from_handle(db)
+            .upsert_identity(&crate::knowledge::graph::evidence::DraftIdentity {
                 scheme: scheme.to_string(),
                 external_id: value.to_string(),
                 asserted_by: "test".to_string(),
@@ -264,7 +264,7 @@ mod tests {
             holder_id: Set(holder),
             counterpart_id: Set(claimant),
             knowledge_identity_id: Set(Some(identity)),
-            basis: Set(crate::knowledge::proximity::Basis::SharedId
+            basis: Set(crate::knowledge::graph::proximity::Basis::SharedId
                 .as_str()
                 .to_string()),
             ..Default::default()

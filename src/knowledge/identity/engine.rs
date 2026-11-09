@@ -5,12 +5,10 @@
 
 use std::collections::HashSet;
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
-
 use super::resolver::Resolver;
 use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
-use crate::knowledge::evidence::{Stored, store_claim};
-use crate::{database, model};
+use crate::knowledge::graph::evidence::{Stored, store_claim};
+use crate::database;
 
 /// Transport calls a plain resolve is allowed to make. Exists so that omitting the budget does real
 /// work instead of quietly resolving nothing.
@@ -100,7 +98,7 @@ impl<'a> ResolutionEngine<'a> {
             .iter()
             .map(|resolver| resolver.id())
             .collect();
-        let entities = crate::knowledge::evidence::Evidence::from_handle(self.db)
+        let entities = crate::knowledge::graph::evidence::Evidence::from_handle(self.db)
             .awaiting_authority(
                 &sources,
                 self.options.limit,
@@ -111,7 +109,7 @@ impl<'a> ResolutionEngine<'a> {
         let knowledge = crate::knowledge::Knowledge::new(self.db);
         // Loaded once, not per claim: a veto asked during admission is a claim never written; one
         // that is only replayed is a claim asserted and then withdrawn.
-        let vetoes = crate::knowledge::verdicts::vetoed(&knowledge).await?;
+        let vetoes = crate::knowledge::graph::verdicts::vetoed(&knowledge).await?;
         let cache = FetchCache::new(&self.db.conn);
         // The engine owns *which* entities to ask about. What the run may spend is the allowance's,
         // passed in; the gateway only asks it before each call. A cache-only run has none at all.
@@ -191,8 +189,9 @@ mod tests {
     use std::sync::atomic::Ordering;
 
     use crate::fetch::{Answer, BATCH, FetchError, Outcome, Request, Transport};
-    use crate::knowledge::evidence::Claim;
-    use sea_orm::PaginatorTrait;
+    use crate::knowledge::graph::evidence::Claim;
+    use crate::model;
+    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::sync::Arc;
     use std::sync::atomic::AtomicUsize;
 
@@ -207,7 +206,7 @@ mod tests {
         let second =
             crate::test_support::fixtures::knowledge_entity_with_member(&db, "Second").await;
 
-        let evidence = crate::knowledge::evidence::Evidence::from_handle(&db);
+        let evidence = crate::knowledge::graph::evidence::Evidence::from_handle(&db);
         let ascending = evidence
             .awaiting_authority(&["wikidata"], Some(2), None, false)
             .await
@@ -295,7 +294,7 @@ mod tests {
                             classes: Vec::new(),
                             method: "exact_label".to_string(),
                             confidence: 0.9,
-                            basis: crate::knowledge::evidence::ClaimBasis::Text,
+                            basis: crate::knowledge::graph::evidence::ClaimBasis::Text,
                         },
                     ))
                 })
@@ -567,7 +566,7 @@ mod tests {
                 source,
                 method,
                 confidence,
-                crate::knowledge::evidence::ClaimBasis::Handle.as_str(),
+                crate::knowledge::graph::evidence::ClaimBasis::Handle.as_str(),
             )
             .await;
         }
@@ -670,7 +669,7 @@ mod tests {
                                 classes: Vec::new(),
                                 method: "exact_label".to_string(),
                                 confidence: 0.9,
-                                basis: crate::knowledge::evidence::ClaimBasis::Text,
+                                basis: crate::knowledge::graph::evidence::ClaimBasis::Text,
                             },
                         )
                     })
@@ -825,10 +824,10 @@ mod tests {
 
         // The passes are separate commands now, so the ordering guarantee is exercised the way the
         // CLI runs it: resolve projects, then scan raises the pair, then merge folds it.
-        crate::knowledge::proximity::scan(&store)
+        crate::knowledge::graph::proximity::scan(&store)
             .await
             .expect("scan");
-        let folded = crate::knowledge::proximity::merge(&store)
+        let folded = crate::knowledge::graph::proximity::merge(&store)
             .await
             .expect("merge");
         assert_eq!(folded.merged, 1, "{folded:?}");
@@ -882,10 +881,10 @@ mod tests {
         // The proximity passes now run after resolve as separate commands; drive them explicitly so
         // the assertion is about `merge` refusing a pair, not about an empty batch.
         let store = crate::knowledge::Knowledge::new(&db);
-        crate::knowledge::proximity::scan(&store)
+        crate::knowledge::graph::proximity::scan(&store)
             .await
             .expect("scan");
-        let folded = crate::knowledge::proximity::merge(&store)
+        let folded = crate::knowledge::graph::proximity::merge(&store)
             .await
             .expect("merge");
         assert_eq!(folded.merged, 0, "sharing an identity does not merge");

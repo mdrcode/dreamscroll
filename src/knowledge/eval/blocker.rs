@@ -14,9 +14,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
-use crate::knowledge::blocker::Blocker;
+use crate::knowledge::blocking::Blocker;
 use crate::knowledge::normalize;
-use crate::knowledge::sql_blocker::SqlBlocker;
+use crate::knowledge::blocking::SqlBlocker;
 use crate::model;
 
 /// One eligible observation whose true entity was not offered.

@@ -8,9 +8,8 @@
 //! Callers reach this through [`Knowledge::link_illumination`]. The rest is `pub(super)` or private:
 //! `merge` and `project` do not link, and nothing outside `knowledge` does either.
 
+use crate::knowledge::Knowledge;
 use crate::model;
-
-use super::{Knowledge, linker};
 
 // Linking: the one write path that decides before it applies.
 // ---------------------------------------------------------------------------------------------
@@ -23,10 +22,10 @@ pub struct LinkStats {
 }
 
 impl LinkStats {
-    fn record(&mut self, decision: &linker::Decision) {
+    fn record(&mut self, decision: &super::Decision) {
         match decision.action {
-            linker::Action::Attach(_) => self.attached += 1,
-            linker::Action::Create => self.created += 1,
+            super::Action::Attach(_) => self.attached += 1,
+            super::Action::Create => self.created += 1,
         }
     }
 }
@@ -36,7 +35,7 @@ impl LinkStats {
 ///
 /// One entry point, because the blocker is the store's: a caller linking a thousand illuminations and
 /// a caller linking one take the same path, and both benefit from what the store has been told so far.
-pub(super) async fn link_illumination(
+pub(crate) async fn link_illumination(
     knowledge: &Knowledge,
     illumination: &model::illumination::ModelEx,
 ) -> anyhow::Result<LinkStats> {
@@ -85,7 +84,7 @@ pub(super) async fn link_illumination(
 /// Apply one decision, returning the entity the observation landed on.
 async fn apply_decision(
     knowledge: &Knowledge,
-    decision: &linker::Decision,
+    decision: &super::Decision,
 ) -> anyhow::Result<i32> {
     let observation = &decision.observation;
     if observation.knowledge_entity_id.is_some() {
@@ -96,8 +95,8 @@ async fn apply_decision(
     }
 
     let entity = match &decision.action {
-        linker::Action::Attach(entity) => *entity,
-        linker::Action::Create => knowledge.create(observation).await?.id,
+        super::Action::Attach(entity) => *entity,
+        super::Action::Create => knowledge.create(observation).await?.id,
     };
 
     // `attach` refuses a tombstone, so this also covers an entity merged away since the decision.
@@ -117,9 +116,9 @@ mod unit {
 
     use super::*;
     use crate::database::DbHandle;
-    use crate::knowledge::blocker::Blocker;
-    use crate::knowledge::evidence::Evidence;
-    use crate::knowledge::linker::Linker;
+    use crate::knowledge::blocking::Blocker;
+    use crate::knowledge::graph::evidence::Evidence;
+    use crate::knowledge::linking::Linker;
     use crate::model::knowledge_entity as entity;
     use crate::test_support::{db_or_skip, fixtures};
 
@@ -138,7 +137,7 @@ mod unit {
     async fn linking_store(db: &DbHandle, decider: Arc<dyn Linker>) -> Knowledge {
         Knowledge::with_linking(
             db,
-            Box::new(crate::knowledge::sql_blocker::SqlBlocker::new(db)),
+            Box::new(crate::knowledge::blocking::SqlBlocker::new(db)),
             decider,
         )
     }
@@ -155,7 +154,7 @@ mod unit {
             _evidence: &Evidence,
             _scoring: &crate::knowledge::Scoring,
             _illumination: &model::illumination::ModelEx,
-        ) -> anyhow::Result<Vec<linker::Decision>> {
+        ) -> anyhow::Result<Vec<crate::knowledge::linking::Decision>> {
             Ok(Vec::new())
         }
     }
@@ -184,7 +183,7 @@ mod unit {
 
         let loaded = load_illumination(&db, illumination).await;
         let linking =
-            linking_store(&db, Arc::new(crate::knowledge::heuristic::HeuristicLinker)).await;
+            linking_store(&db, Arc::new(crate::knowledge::linking::heuristic::HeuristicLinker)).await;
         let stats = linking.link_illumination(&loaded).await.unwrap();
         assert_eq!(stats.created, 1, "the linker it was built with decides");
     }

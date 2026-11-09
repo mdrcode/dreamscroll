@@ -132,8 +132,8 @@ mod tests {
                 service_api,
                 knowledge: crate::knowledge::Knowledge::with_linking(
                     &db,
-                    Box::new(crate::knowledge::sql_blocker::SqlBlocker::new(&db)),
-                    std::sync::Arc::new(crate::knowledge::heuristic::HeuristicLinker),
+                    Box::new(crate::knowledge::blocking::SqlBlocker::new(&db)),
+                    std::sync::Arc::new(crate::knowledge::linking::heuristic::HeuristicLinker),
                 ),
                 storage: Box::new(TestStorageProvider),
                 inference_client: Box::new(TestInferenceClient::new(vec![

@@ -15,7 +15,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, T
 
 use super::evidence::Evidence;
 use super::merge::{Cause, Outcome};
-use super::scoring::TotalCmp;
+use crate::knowledge::scoring::TotalCmp;
 use super::Knowledge;
 
 /// Why a proximity was raised.
@@ -222,7 +222,7 @@ mod tests {
             .unwrap()
             .expect("one question, one row");
         assert!(
-            row.score.unwrap() >= crate::knowledge::heuristic::scoring::MERGE_BAR,
+            row.score.unwrap() >= crate::knowledge::linking::heuristic::scoring::MERGE_BAR,
             "{:?}",
             row.score
         );

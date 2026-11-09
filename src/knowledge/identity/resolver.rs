@@ -6,7 +6,7 @@
 //! network, the cache or the budget.
 
 use crate::fetch::Gateway;
-use crate::knowledge::evidence::Claim;
+use crate::knowledge::graph::evidence::Claim;
 use crate::model;
 
 /// One authority, and the strategy for asking it.

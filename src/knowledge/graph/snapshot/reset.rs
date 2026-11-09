@@ -127,7 +127,7 @@ async fn supersede_generation<C: ConnectionTrait>(
     proximities: u64,
     members: u64,
 ) -> anyhow::Result<()> {
-    let current = crate::knowledge::verdicts::current_generation(conn).await?;
+    let current = crate::knowledge::graph::verdicts::current_generation(conn).await?;
     conn.execute_raw(Statement::from_sql_and_values(
         DatabaseBackend::Postgres,
         "INSERT INTO knowledge_generations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING",
