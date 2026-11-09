@@ -87,7 +87,7 @@ pub(crate) async fn link_illumination(
         .map(|row| row.id)
         .collect();
 
-    // Phase three: entities.
+    // Phase three: apply the decisions (actually mutate the graph).
     let mut stats = LinkStats::default();
     let mut holders: HashMap<i32, i32> = observations
         .iter()
