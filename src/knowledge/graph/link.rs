@@ -8,8 +8,10 @@
 //! Callers reach this through [`KnowledgeGraph::link_illumination`]. The rest is `pub(super)` or private:
 //! `merge` and `project` do not link, and nothing outside `knowledge` does either.
 
-use crate::knowledge::KnowledgeGraph;
+use crate::knowledge::linker::{Action, Decision};
 use crate::model;
+
+use super::KnowledgeGraph;
 
 // Linking: the one write path that decides before it applies.
 // ---------------------------------------------------------------------------------------------
@@ -22,10 +24,10 @@ pub struct LinkStats {
 }
 
 impl LinkStats {
-    fn record(&mut self, decision: &super::Decision) {
+    fn record(&mut self, decision: &Decision) {
         match decision.action {
-            super::Action::Attach(_) => self.attached += 1,
-            super::Action::Create => self.created += 1,
+            Action::Attach(_) => self.attached += 1,
+            Action::Create => self.created += 1,
         }
     }
 }
@@ -84,7 +86,7 @@ pub(crate) async fn link_illumination(
 /// Apply one decision, returning the entity the observation landed on.
 async fn apply_decision(
     graph: &KnowledgeGraph,
-    decision: &super::Decision,
+    decision: &Decision,
 ) -> anyhow::Result<i32> {
     let observation = &decision.observation;
     if observation.knowledge_entity_id.is_some() {
@@ -95,8 +97,8 @@ async fn apply_decision(
     }
 
     let entity = match &decision.action {
-        super::Action::Attach(entity) => *entity,
-        super::Action::Create => graph.create(observation).await?.id,
+        Action::Attach(entity) => *entity,
+        Action::Create => graph.create(observation).await?.id,
     };
 
     // `attach` refuses a tombstone, so this also covers an entity merged away since the decision.

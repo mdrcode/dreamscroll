@@ -115,12 +115,12 @@ impl KnowledgeGraph {
     /// Link one reading into the graph: cluster its observations, record their claims, and project
     /// every entity it touched.
     ///
-    /// Implemented in [`crate::knowledge::linker::illumination`]
+    /// Implemented in [`super::link`]
     pub async fn link_illumination(
         &self,
         illumination: &model::illumination::ModelEx,
     ) -> anyhow::Result<crate::knowledge::LinkStats> {
-        crate::knowledge::linker::illumination::link_illumination(self, illumination).await
+        super::link::link_illumination(self, illumination).await
     }
 
     /// Recompute an entity's projected columns, and tell the blocker what came out.

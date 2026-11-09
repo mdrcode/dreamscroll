@@ -15,9 +15,6 @@
 //! implementation is [`heuristic::HeuristicLinker`].
 
 pub mod heuristic;
-pub(crate) mod illumination;
-
-pub use illumination::LinkStats;
 
 use crate::model;
 

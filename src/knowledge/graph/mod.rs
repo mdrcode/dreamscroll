@@ -9,6 +9,7 @@
 //! - [`proximity`] — the candidates a scan found, and the pass that answers them.
 //! - [`verdicts`] — a person's decisions, kept across rebuilds.
 
+pub mod link;
 pub mod merge;
 pub mod proximity;
 pub mod verdicts;
@@ -18,4 +19,5 @@ mod project;
 
 pub(crate) use knowledge_graph::get;
 pub use knowledge_graph::KnowledgeGraph;
+pub use link::LinkStats;
 pub use crate::model::knowledge_entity::Status;

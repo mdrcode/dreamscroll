@@ -41,6 +41,5 @@ pub mod snapshot;
 
 pub use graph::proximity::MergeReport;
 pub use graph::verdicts::ReplayReport;
-pub use graph::{KnowledgeGraph, Status};
-pub use linker::LinkStats;
+pub use graph::{KnowledgeGraph, LinkStats, Status};
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};
