@@ -14,9 +14,8 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
-use crate::knowledge::blocker::Blocker;
+use crate::knowledge::blocker::{index, Blocker, SqlBlocker};
 use crate::knowledge::normalize;
-use crate::knowledge::blocker::SqlBlocker;
 use crate::model;
 
 /// One eligible observation whose true entity was not offered.
@@ -153,19 +152,8 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
 
     // The same two key generations the blocker matches on.
     let keys = |name: &str, handle: Option<&str>| -> HashSet<String> {
-        let mut set = HashSet::new();
-        for surface in [Some(name), handle].into_iter().flatten() {
-            let folded = normalize::comparable(surface);
-            if !folded.is_empty() {
-                set.insert(folded.clone());
-                let words = normalize::word_key(&folded);
-                // The same rule as the index and the probe: no words, no word key.
-                if !words.is_empty() {
-                    set.insert(words);
-                }
-            }
-        }
-        set
+        let folded = index::fold([Some(name), handle].into_iter().flatten());
+        folded.surfaces.into_iter().chain(folded.word_keys).collect()
     };
 
     // Merge verdicts, folded the same way the index folds: (winner, loser), either direction.

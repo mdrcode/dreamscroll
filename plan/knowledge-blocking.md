@@ -430,7 +430,7 @@ already had an **earlier member**. The true answer is the entity the observation
 | linked observations | 2,663 |
 | first member of their entity (nothing to find) | 2,211 |
 | later member, so blocking was asked | **452** |
-| live-index recall (upper bound; the index knows every member) | 452/452 = 100% |
+| index coverage (expected 100%; the index knows every member) | 452/452 = 100% |
 | **earlier-members recall** (the honest number) | **445/452 = 98.5%** |
 | starved (no candidate at all) | **0** |
 | ambiguous (>1 candidate) | 17 of 452, and never more than 2 |

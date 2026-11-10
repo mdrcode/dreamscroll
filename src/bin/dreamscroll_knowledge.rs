@@ -51,7 +51,7 @@ struct IndexCheckArgs {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "eval")]
-#[argh(description = "replay a decision over cached answers, with no transport")]
+#[argh(description = "diagnose one entity's path, or measure blocking recall")]
 struct EvalArgs {
     #[argh(subcommand)]
     command: EvalCommand,
@@ -60,7 +60,6 @@ struct EvalArgs {
 #[derive(FromArgs)]
 #[argh(subcommand)]
 enum EvalCommand {
-    Resolve(EvalResolveArgs),
     Inspect(EvalInspectArgs),
     Blocker(EvalBlockerArgs),
 }
@@ -80,18 +79,6 @@ struct EvalInspectArgs {
 #[argh(subcommand, name = "blocker")]
 #[argh(description = "did the blocker offer the entity each observation ended up in?")]
 struct EvalBlockerArgs {}
-
-#[derive(FromArgs)]
-#[argh(subcommand, name = "resolve")]
-#[argh(description = "what identity resolve would claim today, replayed from the answer cache")]
-struct EvalResolveArgs {
-    #[argh(switch)]
-    #[argh(description = "list every claim, not just the counts")]
-    verbose: bool,
-    #[argh(option)]
-    #[argh(description = "consider at most this many entities")]
-    limit: Option<usize>,
-}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "identity")]
@@ -344,9 +331,9 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
     println!("\n-- resolve ladder --");
     for step in &report.steps {
         let cache = match step.cache {
-            knowledge::eval::inspect::CacheState::Fresh => "cached",
-            knowledge::eval::inspect::CacheState::Expired => "expired → miss",
-            knowledge::eval::inspect::CacheState::Missing => "not asked",
+            dreamscroll::fetch::cache::State::Fresh => "cached",
+            dreamscroll::fetch::cache::State::Expired => "expired → miss",
+            dreamscroll::fetch::cache::State::Missing => "not asked",
         };
         let outcome = step.outcome.map(|outcome| outcome.as_str()).unwrap_or("—");
         println!("  {:<16} {:?}  [{cache} {outcome}]", step.kind, step.query);
@@ -373,41 +360,6 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
         ),
         None => println!("  no claim"),
     }
-}
-
-/// `eval resolve`: replay the resolver over the answer cache, with no transport.
-async fn eval_resolve(db: &database::DbHandle, args: EvalResolveArgs) -> anyhow::Result<()> {
-    let report = knowledge::eval::replay(db, args.limit).await?;
-    if args.verbose {
-        for claim in &report.claims {
-            println!(
-                "{:<12} {:<14} {}{}",
-                claim.identity,
-                claim.method,
-                claim.name,
-                if claim.partial { "  (partial cache)" } else { "" }
-            );
-        }
-        println!();
-    }
-    println!(
-        "candidates {} · claimed {} (partial {}) · vetoed {} · undecided {} · not cached {}",
-        report.candidates,
-        report.claimed,
-        report.partial(),
-        report.vetoed,
-        report.undecided,
-        report.uncached
-    );
-    if !report.by_method.is_empty() {
-        let methods: Vec<String> = report
-            .by_method
-            .iter()
-            .map(|(method, count)| format!("{method} {count}"))
-            .collect();
-        println!("by method: {}", methods.join(" · "));
-    }
-    Ok(())
 }
 
 /// Ask the authorities what a thing is, cache first.
@@ -750,7 +702,6 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Command::Eval(args) => match args.command {
-            EvalCommand::Resolve(args) => eval_resolve(&db, args).await?,
             EvalCommand::Blocker(_) => eval_blocker(&db).await?,
             EvalCommand::Inspect(args) => {
                 let report = knowledge::eval::inspect(&db, &args.target).await?;

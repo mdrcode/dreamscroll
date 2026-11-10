@@ -55,6 +55,45 @@ pub fn decode<P: DeserializeOwned>(payload: Option<&Value>) -> Option<P> {
     payload.and_then(|value| serde_json::from_value(value.clone()).ok())
 }
 
+/// Where a stored answer stands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum State {
+    /// Present and inside its TTL: the resolver would use it.
+    Fresh,
+    /// Present but past its TTL: a miss to the resolver, still inspectable.
+    Expired,
+    /// No row for this request.
+    Missing,
+}
+
+/// One request's stored answer, with the freshness a caller needs to decide what to do with it.
+pub struct Lookup<P> {
+    pub state: State,
+    /// The stored outcome; `None` only when no row exists.
+    pub outcome: Option<Outcome>,
+    /// The decoded payload. `None` for a negative, or when the payload no longer reads.
+    pub body: Option<P>,
+    /// An answered row whose payload does not decode into `P`: a miss, never an empty answer.
+    pub unreadable: bool,
+}
+
+/// What one stored row means, before freshness is applied.
+struct Stored<P> {
+    outcome: Outcome,
+    body: Option<P>,
+    unreadable: bool,
+}
+
+/// One interpretation of a row, shared by [`FetchCache::get_many`] and [`FetchCache::lookup`].
+fn interpret<P: DeserializeOwned>(row: &cached::Model) -> Stored<P> {
+    let body = decode(row.payload.as_ref());
+    Stored {
+        unreadable: row.outcome.answered() && row.payload.is_some() && body.is_none(),
+        outcome: row.outcome,
+        body,
+    }
+}
+
 pub struct FetchCache<'a> {
     conn: &'a DatabaseConnection,
 }
@@ -101,30 +140,68 @@ impl<'a> FetchCache<'a> {
 
         let mut answers = HashMap::with_capacity(rows.len());
         for row in rows {
-            let outcome = row.outcome;
-            let body = match row.payload.as_ref() {
-                // Nothing stored: a negative, or an answer that genuinely carried no payload.
-                None => None,
-                Some(value) => match decode(Some(value)) {
-                    Some(body) => Some(body),
-                    // An answered row whose payload no longer reads is not an answer. Let the
-                    // request miss and be asked again, rather than handing back a body nothing
-                    // can use.
-                    None if outcome.answered() => {
-                        tracing::warn!(
-                            provider,
-                            kind = %kind,
-                            query = %row.query,
-                            "unreadable cached payload; treating it as a miss"
-                        );
-                        continue;
-                    }
-                    None => None,
+            let stored = interpret::<P>(&row);
+            // An answered row whose payload no longer reads is not an answer. Let the request miss
+            // and be asked again, rather than handing back a body nothing can use.
+            if stored.unreadable {
+                tracing::warn!(
+                    provider,
+                    kind = %kind,
+                    query = %row.query,
+                    "unreadable cached payload; treating it as a miss"
+                );
+                continue;
+            }
+            answers.insert(
+                row.query,
+                Answer {
+                    outcome: stored.outcome,
+                    body: stored.body,
                 },
-            };
-            answers.insert(row.query, Answer { outcome, body });
+            );
         }
         Ok(answers)
+    }
+
+    /// One request's stored answer, fresh or stale, so a caller can show *why* a rung refused.
+    ///
+    /// [`Self::get_many`] is the resolver's door: it drops everything not fresh. This is the
+    /// inspector's: a stale row is still evidence of what was asked and what came back.
+    pub async fn lookup<K: Display, P: DeserializeOwned>(
+        &self,
+        provider: &str,
+        kind: &K,
+        shape: &str,
+        query: &str,
+    ) -> anyhow::Result<Lookup<P>> {
+        let row = cached::Entity::find()
+            .filter(cached::Column::Provider.eq(provider))
+            .filter(cached::Column::Kind.eq(kind.to_string()))
+            .filter(cached::Column::Shape.eq(shape))
+            .filter(cached::Column::Query.eq(query))
+            .one(self.conn)
+            .await?;
+        Ok(match row {
+            None => Lookup {
+                state: State::Missing,
+                outcome: None,
+                body: None,
+                unreadable: false,
+            },
+            Some(row) => {
+                let stored = interpret::<P>(&row);
+                Lookup {
+                    state: if row.expires_at > Utc::now() {
+                        State::Fresh
+                    } else {
+                        State::Expired
+                    },
+                    outcome: Some(stored.outcome),
+                    body: stored.body,
+                    unreadable: stored.unreadable,
+                }
+            }
+        })
     }
 
     /// Record an answer. One row per logical request: an expired or re-fetched answer replaces the
@@ -384,5 +461,87 @@ mod tests {
             1,
             "one row per logical request"
         );
+    }
+
+    /// The four states an inspector must tell apart; `get_many` collapses three of them to a miss.
+    #[tokio::test]
+    async fn lookup_separates_fresh_expired_missing_and_unreadable() {
+        db_or_skip!(db);
+        let cache = FetchCache::new(&db.conn);
+        cache
+            .put(
+                "probe",
+                &"kind-a",
+                "shape-a",
+                "fresh",
+                &Answer {
+                    outcome: Outcome::Found,
+                    body: Some(vec![record("one")]),
+                },
+            )
+            .await
+            .unwrap();
+        let insert = |query: &'static str, expires_at: DateTime<Utc>, payload: Option<Value>| {
+            let conn = db.conn.clone();
+            async move {
+                cached::Entity::insert(cached::ActiveModel {
+                    provider: Set("probe".to_string()),
+                    kind: Set("kind-a".to_string()),
+                    query: Set(query.to_string()),
+                    shape: Set("shape-a".to_string()),
+                    outcome: Set(Outcome::Found),
+                    payload: Set(payload),
+                    expires_at: Set(expires_at),
+                    ..Default::default()
+                })
+                .exec(&conn)
+                .await
+                .unwrap();
+            }
+        };
+        insert(
+            "expired",
+            Utc::now() - Duration::minutes(1),
+            Some(json!([{"id": "two"}])),
+        )
+        .await;
+        insert(
+            "unreadable",
+            Utc::now() + Duration::days(1),
+            Some(json!({"not": "a list"})),
+        )
+        .await;
+
+        let fresh = cache
+            .lookup::<_, Vec<Record>>("probe", &"kind-a", "shape-a", "fresh")
+            .await
+            .unwrap();
+        assert_eq!(fresh.state, State::Fresh);
+        assert_eq!(fresh.outcome, Some(Outcome::Found));
+        assert_eq!(fresh.body, Some(vec![record("one")]));
+        assert!(!fresh.unreadable);
+
+        let expired = cache
+            .lookup::<_, Vec<Record>>("probe", &"kind-a", "shape-a", "expired")
+            .await
+            .unwrap();
+        assert_eq!(expired.state, State::Expired);
+        assert_eq!(expired.body, Some(vec![record("two")]));
+
+        let missing = cache
+            .lookup::<_, Vec<Record>>("probe", &"kind-a", "shape-a", "missing")
+            .await
+            .unwrap();
+        assert_eq!(missing.state, State::Missing);
+        assert_eq!(missing.outcome, None);
+        assert!(missing.body.is_none());
+
+        let unreadable = cache
+            .lookup::<_, Vec<Record>>("probe", &"kind-a", "shape-a", "unreadable")
+            .await
+            .unwrap();
+        assert_eq!(unreadable.state, State::Fresh);
+        assert!(unreadable.unreadable);
+        assert!(unreadable.body.is_none());
     }
 }

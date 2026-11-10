@@ -212,7 +212,7 @@ they answer different questions, so both are kept. The promise is not "the answe
 external evidence that this identity is true*.
 
 `plan` and `parse` inside `Wikidata` are pure, so its whole decision can be re-run over cached
-payloads for free — that is what `dreamscroll_knowledge eval resolve` does.
+payloads for free — that is what the resolver's tests and `eval inspect` do.
 
 ## Evidence: why we believe it
 
@@ -308,7 +308,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 |`identity/`|`mod.rs` (the `Resolver` trait a provider implements) · `engine` (the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The claim it returns, and where it becomes a row, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
 | `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates in `policy.rs` · answer parsing in `answer.rs` · the ladder and its request shapes in `resolver.rs` · candidate scoring in `ranking.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
-| `eval/` | offline evaluation: `eval resolve` replays the resolver's ladder over the answer cache, with no transport |
+| `eval/` | offline diagnostics: `eval inspect` walks one entity through blocking, ranking and the ladder; `eval blocker` measures recall |
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 reached through `KnowledgeGraph`'s methods; `link` and `project` are private modules, and what

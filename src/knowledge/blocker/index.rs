@@ -26,21 +26,21 @@ ON CONFLICT (knowledge_entity_id) DO UPDATE
        built_at = now()";
 
 /// The two generations the index stores, in the entity's surface order.
-pub(super) struct Keys {
+pub(crate) struct Keys {
     /// Folded forms: an exact match on one of these.
     pub surfaces: Vec<String>,
     /// Word-order-insensitive forms: `Train Dreams` matches `Dreams Train`.
     pub word_keys: Vec<String>,
 }
 
-/// Every surface the entity wears, in the order it wears them.
+/// Fold a surface list into the two key generations the index stores.
 ///
-/// `alt_names` already carries the member names, the platform handle and the display name, so this
-/// covers what the blocker can be asked about without a second pass over the members.
-pub(super) fn keys(entity: &model::knowledge_entity::Model) -> Keys {
+/// The one definition: `keys` applies it to an entity, and `eval blocker` applies it to a probe's
+/// name and handle. Two spellings of this fold disagreed once already.
+pub(crate) fn fold<'a>(surfaces: impl IntoIterator<Item = &'a str>) -> Keys {
     let mut seen = std::collections::BTreeSet::new();
-    let surfaces: Vec<String> = entity
-        .surfaces()
+    let surfaces: Vec<String> = surfaces
+        .into_iter()
         .map(normalize::comparable)
         .filter(|key| !key.is_empty())
         .filter(|key| seen.insert(key.clone()))
@@ -55,6 +55,14 @@ pub(super) fn keys(entity: &model::knowledge_entity::Model) -> Keys {
             .collect(),
         surfaces,
     }
+}
+
+/// Every surface the entity wears, in the order it wears them.
+///
+/// `alt_names` already carries the member names, the platform handle and the display name, so this
+/// covers what the blocker can be asked about without a second pass over the members.
+pub(super) fn keys(entity: &model::knowledge_entity::Model) -> Keys {
+    fold(entity.surfaces())
 }
 
 /// Upsert one entity's row. `project` calls this, so it and [`rebuild`] are the only writers.

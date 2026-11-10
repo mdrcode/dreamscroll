@@ -924,38 +924,22 @@ Every number in that table came from re-ranking cached payloads: the whole exper
 ## The tuning loop
 
 Scoring cannot be tuned case by case — one failing entity is an anecdote, and the fix that makes it
-pass may break ten others. So there is a small gold set of entities that should be impossible to miss:
+pass may break ten others. A small gold set of entities that should be impossible to miss is the
+right check; the harness that scored it (`examples/eval_resolve`) no longer exists, so the gold path
+needs rebuilding when it is picked up again. The verified rows remain in
+`localdev/analysis/entity-promotion/evidence/resolve-gold.tsv`.
+
+### Corpus comparison
+
+The read-only corpus replay (`eval resolve`) was removed: it was a second driver, and its ordering,
+veto and uncached rules drifted from the engine's. The authoritative corpus run is the engine:
 
 ```sh
-cargo run --example eval_resolve -- localdev/analysis/entity-promotion/evidence/resolve-gold.tsv
+cargo run --bin dreamscroll_knowledge -- identity resolve --offline
 ```
 
-Each row is `label <TAB> qid <TAB> keyword`. **The gold is verified against Wikidata first** — the
-item's label must equal ours and its description must contain the keyword — so a mistaken gold QID is
-dropped rather than counted against the scorer. Of the 25 rows written from memory, 12 were dropped
-that way.
-
-### Replaying the whole corpus
-
-The gold set answers "did this change break a case I care about". The corpus replay answers "what
-would change across everything I have". It walks the same ladder the driver walks — `plan`, then
-`plan_fallback` — over `fetch_cache`, with no transport:
-
-```sh
-cargo run --bin dreamscroll_knowledge -- eval resolve            # counts, by method
-cargo run --bin dreamscroll_knowledge -- eval resolve --verbose  # every claim, by name
-```
-
-Seconds, against the ~640 fetches a live pass cost. This is how the 2026-11-06 admission changes were
-measured: one gate changed at a time, every new claim read, and the two that looked wrong traced to a
-loosened rarity bound rather than shipped (see the commits for `resolve:`).
-
-`src/knowledge/eval/resolve.rs` names the two ways a replay can lie: walking a ladder the driver does
-not walk (the first version skipped `plan_fallback` and reported zero), and counting an uncached
-entity as undecided (it is a gap in the evidence, and is reported separately).
-
-`examples/eval_resolve` still reads `core_knowledge_entities`, a table that no longer exists; the
-gold-set path needs porting before it runs again.
+It writes claims, so run it on a reset or snapshot database and diff the result. The 2026-11-06
+figures below were measured with the removed replay and are kept as history.
 
 ### What each change bought
 

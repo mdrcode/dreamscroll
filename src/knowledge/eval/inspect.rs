@@ -8,9 +8,10 @@
 
 use std::collections::HashSet;
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 
 use crate::database::DbHandle;
+use crate::fetch::cache::{FetchCache, State};
 use crate::fetch::{Answer, Outcome};
 use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::identity::wikidata::{Candidate as Offered, parse, plan};
@@ -50,7 +51,7 @@ pub struct Candidate {
 pub struct Step {
     pub kind: String,
     pub query: String,
-    pub cache: CacheState,
+    pub cache: State,
     /// What the stored answer said it was, when there is a row to read.
     pub outcome: Option<Outcome>,
     /// The first candidates the answer carried: `(id, label, description)`.
@@ -61,16 +62,6 @@ pub struct Step {
     pub vetoed: bool,
     /// Why it did not, when it did not — recorded by the resolver, not inferred here.
     pub refusal: &'static str,
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum CacheState {
-    /// A fresh answer was used.
-    Fresh,
-    /// Present but expired — the resolver treats it as a miss.
-    Expired,
-    /// Never asked.
-    Missing,
 }
 
 #[derive(Debug)]
@@ -171,22 +162,12 @@ async fn find_entity(
 
 /// `(surfaces, word_keys)` as stored for one entity.
 async fn index_keys(db: &DbHandle, id: i32) -> anyhow::Result<(Vec<String>, Vec<String>)> {
-    let row = db
-        .conn
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT surfaces, word_keys FROM knowledge_blocking_index WHERE knowledge_entity_id = $1",
-            [id.into()],
-        ))
+    let row = model::knowledge_blocking_index::Entity::find_by_id(id)
+        .one(&db.conn)
         .await?;
-    let Some(row) = row else {
-        return Ok((Vec::new(), Vec::new()));
-    };
-    // `varchar[]` comes back as `Vec<String>` through the same conversion the model uses.
-    Ok((
-        row.try_get_by_index::<Vec<String>>(0)?,
-        row.try_get_by_index::<Vec<String>>(1)?,
-    ))
+    Ok(row
+        .map(|row| (row.surfaces, row.word_keys))
+        .unwrap_or_default())
 }
 
 /// Every rung the resolver would climb, in order, stopped at the first claim.
@@ -196,6 +177,7 @@ async fn ladder(
     vetoes: &HashSet<(i32, String, String)>,
 ) -> anyhow::Result<Vec<Step>> {
     let mut steps = Vec::new();
+    let cache = FetchCache::new(&db.conn);
     for (rung, request) in plan::ladder(entity) {
         // The last resort asks the *same* title question again, so without a label the two steps
         // would look like a duplicate.
@@ -203,93 +185,56 @@ async fn ladder(
             plan::Rung::SurfaceOnly => format!("{} (surface)", request.kind),
             _ => request.kind.to_string(),
         };
-        let row = db
-            .conn
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT outcome, payload::text, expires_at > now() FROM fetch_cache \
-                  WHERE provider = $1 AND kind = $2 AND shape = $3 AND query = $4 \
-                  ORDER BY id DESC LIMIT 1",
-                [
-                    request.provider.into(),
-                    request.kind.to_string().into(),
-                    request.shape.as_str().into(),
-                    request.query.as_str().into(),
-                ],
-            ))
+        let lookup = cache
+            .lookup::<_, Vec<Offered>>(
+                &request.provider,
+                &request.kind,
+                &request.shape,
+                &request.query,
+            )
             .await?;
+        let top = describe(lookup.body.as_deref().unwrap_or_default());
 
-        let Some(row) = row else {
-            steps.push(Step {
-                kind: kind.clone(),
-                query: request.query.clone(),
-                cache: CacheState::Missing,
-                outcome: None,
-                top: Vec::new(),
-                decision: None,
-                vetoed: false,
-                refusal: "not asked",
-            });
-            continue;
-        };
-
-        let outcome_text: String = row.try_get_by_index(0)?;
-        let payload: Option<String> = row.try_get_by_index(1)?;
-        let fresh: bool = row.try_get_by_index(2)?;
-        let stored: Option<serde_json::Value> =
-            payload.as_deref().and_then(|text| serde_json::from_str(text).ok());
-        let outcome = Outcome::parse(&outcome_text);
-        let body: Option<Vec<Offered>> = crate::fetch::cache::decode(stored.as_ref());
-        let top = describe(body.as_deref().unwrap_or_default());
-        // What `FetchCache::get_many` makes of this row: an answered payload that no longer decodes
-        // is a miss, so the gates must not run over an empty body and blame the answer.
-        let unreadable =
-            outcome.is_some_and(Outcome::answered) && stored.is_some() && body.is_none();
-
-        // An expired row is a miss to the resolver, so it renders no decision here either.
-        let mut refusal = if !fresh {
-            "the cached answer is expired"
-        } else if outcome.is_none() {
-            "the stored outcome is not one this build knows"
-        } else if unreadable {
-            "the cached payload no longer decodes"
-        } else {
-            ""
+        // An expired row is a miss to the resolver, so it renders no decision here either; an
+        // unreadable answered payload is the miss `get_many` makes of it.
+        let mut refusal = match (lookup.state, lookup.unreadable) {
+            (State::Missing, _) => "not asked",
+            (State::Expired, _) => "the cached answer is expired",
+            (State::Fresh, true) => "the cached payload no longer decodes",
+            _ => "",
         };
         let mut vetoed = false;
-        let decision = match (fresh, outcome) {
-            (true, Some(outcome)) if refusal.is_empty() => {
-                let raw = Answer { outcome, body };
-                let claim = match rung {
-                    // The last resort does not rank: it takes the article bearing this exact name.
-                    plan::Rung::SurfaceOnly => match parse::admit(entity, &raw) {
-                        Ok(candidates) => parse::surface_only(entity, &candidates, &request),
-                        Err(gate) => {
-                            refusal = gate;
-                            None
-                        }
-                    },
-                    _ => parse::explained(entity, &request, &raw, &mut refusal)
-                        .into_iter()
-                        .next(),
-                };
-                claim.map(|claim| {
-                    vetoed = vetoes.contains(&(entity.id, claim.scheme.clone(), claim.id.clone()));
-                    (claim.id, claim.method)
-                })
-            }
-            _ => None,
+        let decision = if lookup.state == State::Fresh && refusal.is_empty() {
+            let raw = Answer {
+                outcome: lookup.outcome.expect("a present row has an outcome"),
+                body: lookup.body,
+            };
+            let claim = match rung {
+                // The last resort does not rank: it takes the article bearing this exact name.
+                plan::Rung::SurfaceOnly => match parse::admit(entity, &raw) {
+                    Ok(candidates) => parse::surface_only(entity, &candidates, &request),
+                    Err(gate) => {
+                        refusal = gate;
+                        None
+                    }
+                },
+                _ => parse::explained(entity, &request, &raw, &mut refusal)
+                    .into_iter()
+                    .next(),
+            };
+            claim.map(|claim| {
+                vetoed = vetoes.contains(&(entity.id, claim.scheme.clone(), claim.id.clone()));
+                (claim.id, claim.method)
+            })
+        } else {
+            None
         };
 
         steps.push(Step {
             kind,
             query: request.query.clone(),
-            cache: if fresh {
-                CacheState::Fresh
-            } else {
-                CacheState::Expired
-            },
-            outcome,
+            cache: lookup.state,
+            outcome: lookup.outcome,
             top,
             decision: decision.clone(),
             vetoed,
@@ -318,23 +263,29 @@ fn describe(candidates: &[Offered]) -> Vec<(String, String, String)> {
 }
 
 async fn current_claim(db: &DbHandle, id: i32) -> anyhow::Result<Option<Claim>> {
-    let row = db
-        .conn
-        .query_one_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT i.external_id, i.label, i.asserted_by, i.method \
-               FROM knowledge_claims c JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
-              WHERE c.knowledge_entity_id = $1 AND c.retracted_at IS NULL \
-                AND i.scheme = 'wikidata' LIMIT 1",
-            [id.into()],
-        ))
+    let rows = model::knowledge_claims::Entity::find()
+        .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(id))
+        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
+        .find_with_related(model::knowledge_identity::Entity)
+        .all(&db.conn)
         .await?;
-    let Some(row) = row else { return Ok(None) };
+    let Some((_, identities)) = rows
+        .into_iter()
+        .find(|(_, identities)| identities.iter().any(|identity| identity.scheme == "wikidata"))
+    else {
+        return Ok(None);
+    };
+    let Some(identity) = identities
+        .into_iter()
+        .find(|identity| identity.scheme == "wikidata")
+    else {
+        return Ok(None);
+    };
     Ok(Some(Claim {
-        identity: row.try_get_by_index(0)?,
-        label: row.try_get_by_index(1)?,
-        asserted_by: row.try_get_by_index(2)?,
-        method: row.try_get_by_index(3)?,
+        identity: identity.external_id,
+        label: identity.label,
+        asserted_by: identity.asserted_by,
+        method: identity.method,
     }))
 }
 
