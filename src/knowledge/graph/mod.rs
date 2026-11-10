@@ -11,8 +11,8 @@
 //! the whole graph rather than a write to one row. A pass takes what it acts on as arguments — the
 //! connection, and the [`Scoring`](crate::knowledge::scoring::Scoring) it measures with — rather than
 //! reading them off a facade. The proximity passes live in [`crate::knowledge::proximity`]; the log
-//! and its commands are the graph's [`VerdictStore`](crate::knowledge::verdicts::VerdictStore), and a
-//! merge writes its row through it on the fold's transaction.
+//! and its commands are the graph's verdict store, and a merge writes its row through it on the
+//! fold's transaction.
 
 mod link;
 pub mod merge;

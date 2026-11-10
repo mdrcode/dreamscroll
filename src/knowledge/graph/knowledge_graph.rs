@@ -112,7 +112,7 @@ impl KnowledgeGraph {
         self.evidence.assert(draft, vetoes).await
     }
 
-    /// Apply the recorded decisions to a rebuilt graph. See [`VerdictStore::replay`].
+    /// Apply the recorded decisions to a rebuilt graph. See [`crate::knowledge::verdicts`].
     pub async fn replay_verdicts(&self) -> anyhow::Result<ReplayReport> {
         self.verdicts.replay(self).await
     }

@@ -5,10 +5,10 @@
 //! transaction rather than its own, so the fold and its log entry commit together. A **veto** row
 //! says an entity is not an identity: `vetoed` answers admission, and `replay` applies it.
 //!
-//! [`VerdictStore::replay`] is the command over the whole graph. A rebuild renumbers entities, so it
-//! asks what each origin names now and folds the pairs that still map, then withdraws the vetoed
-//! pairings. Anything that no longer maps is reported and dropped: erosion is the price of the key,
-//! and a silent wrong merge is not.
+//! Replay is the command over the whole graph. A rebuild renumbers entities, so it asks what each
+//! origin names now and folds the pairs that still map, then withdraws the vetoed pairings. Anything
+//! that no longer maps is reported and dropped: erosion is the price of the key, and a silent wrong
+//! merge is not.
 //!
 //! `store` holds the type and the merge log's append; `replay` the command and its report; `veto` the
 //! standing decisions admission asks about; `origin` the readers that turn an origin into the entity
@@ -20,7 +20,7 @@ mod store;
 mod veto;
 
 pub use replay::ReplayReport;
-pub use store::VerdictStore;
+pub(crate) use store::VerdictStore;
 pub(crate) use store::pair_key;
 
 /// Why a decision was made — the column `knowledge_verdicts.cause` names. Re-exported here because
