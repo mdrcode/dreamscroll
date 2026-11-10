@@ -829,10 +829,10 @@ mod tests {
         // The passes are separate commands now, so the ordering guarantee is exercised the way the
         // CLI runs it: resolve projects, then scan raises the pair, then merge folds it.
         let scoring = crate::knowledge::linker::heuristic::Heuristic::scoring();
-        crate::knowledge::graph::proximity::scan(&db.conn, &scoring)
+        crate::knowledge::proximity::scan(&db.conn, &scoring)
             .await
             .expect("scan");
-        let folded = crate::knowledge::graph::proximity::merge(&db.conn, &store, &scoring)
+        let folded = crate::knowledge::proximity::merge(&db.conn, &store, &scoring)
             .await
             .expect("merge");
         assert_eq!(folded.merged, 1, "{folded:?}");
@@ -887,10 +887,10 @@ mod tests {
         // the assertion is about `merge` refusing a pair, not about an empty batch.
         let store = crate::knowledge::KnowledgeGraph::new(&db);
         let scoring = crate::knowledge::linker::heuristic::Heuristic::scoring();
-        crate::knowledge::graph::proximity::scan(&db.conn, &scoring)
+        crate::knowledge::proximity::scan(&db.conn, &scoring)
             .await
             .expect("scan");
-        let folded = crate::knowledge::graph::proximity::merge(&db.conn, &store, &scoring)
+        let folded = crate::knowledge::proximity::merge(&db.conn, &store, &scoring)
             .await
             .expect("merge");
         assert_eq!(folded.merged, 0, "sharing an identity does not merge");

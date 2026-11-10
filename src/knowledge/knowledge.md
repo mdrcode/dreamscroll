@@ -234,7 +234,7 @@ Only the first two are about the world. A proximity is a judgement about our own
 mutation of them. `enrichment` and `rejection` stay reserved vocabulary, not tables.
 
 Sharing an identity is a **candidate**, not a verdict — that is why the uniqueness lives on the edge
-(one entity asserts an identity once) rather than on the identity. `proximity.rs` asks the question:
+(one entity asserts an identity once) rather than on the identity. `proximity` asks the question:
 for each identity with two or more holders, score the holders pairwise with the `Scoring` the pass is
 handed, fold the pairs that look like one thing, and queue the ones the shared-illumination rule
 refuses.
@@ -243,7 +243,7 @@ The only uniqueness is per entity: one live claim per `(entity, identity)`, so r
 pair's slot and re-asserting it is a no-op. Nothing forbids two entities holding one identity — that is
 the many-to-one the model exists for.
 
-`proximity.rs` runs in two passes. **Scan** derives the candidate set and replaces the table with
+`proximity` runs in two passes. **Scan** derives the candidate set and replaces the table with
 it in one transaction, so what it holds is always what the graph looked like when it was last asked
 — a scan after a link, and again at the end of a resolve. **Merge** answers the batch: it re-checks
 that both sides still exist, scores the pair with the `Scoring` it was handed and folds the convincing
@@ -303,7 +303,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `helper.rs` | the illumination composition: batch one reading's observations, call `KnowledgeGraph::link`, then assert each observation's handle and project again. The graph links a collection; only this knows it is one reading |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `graph/merge.rs` | fold one entity into another |
-| `graph/proximity.rs` | the candidates the last scan found: both passes take the connection and the `Scoring`; `scan` derives the batch, `merge` answers it |
+| `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `answer.rs` folds what it can and leaves the rest. Both take the connection and the `Scoring` as arguments |
 | `graph/verdicts.rs` | a person's decisions, kept across rebuilds: `veto` writes one (and `merge` writes its own), `unveto` lifts it, `replay` applies the log to the new graph. A veto names a pairing, so `withdraw` retracts that pair's live claim whatever route produced it, then reprojects the entity — `status` and `confidence` are functions of the live claims. A retraction with nothing to retract is `settled`, not a zero. The same predicate is asked by both claim writers |
 |`identity/`|`mod.rs` (the `Resolver` trait a provider implements) · `engine` (the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The claim it returns, and where it becomes a row, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
 | `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates in `policy.rs` · answer parsing in `answer.rs` · the ladder and its request shapes in `resolver.rs` · candidate scoring in `ranking.rs` · HTTP in `transport.rs` |

@@ -259,7 +259,7 @@ mod tests {
             holder_id: Set(holder),
             counterpart_id: Set(claimant),
             knowledge_identity_id: Set(Some(identity)),
-            basis: Set(crate::knowledge::graph::proximity::Basis::SharedId
+            basis: Set(crate::knowledge::proximity::Basis::SharedId
                 .as_str()
                 .to_string()),
             ..Default::default()

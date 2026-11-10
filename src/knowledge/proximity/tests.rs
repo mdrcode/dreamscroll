@@ -1,0 +1,116 @@
+//! The two passes, end to end: derive a batch, then answer it.
+
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+
+use crate::knowledge::graph::KnowledgeGraph;
+use crate::knowledge::linker::heuristic::Heuristic;
+use crate::model;
+use crate::test_support::{db_or_skip, fixtures};
+
+use super::{merge, scan};
+
+async fn claim_pairs(db: &crate::database::DbHandle, names: [&str; 2]) -> (i32, i32) {
+    let first = fixtures::knowledge_entity_with_member(db, names[0]).await;
+    let second = fixtures::knowledge_entity_with_member(db, names[1]).await;
+    fixtures::claim(db, first, "wikidata", "Q1", "wikidata", None, None, model::knowledge_claims::ClaimBasis::Text).await;
+    fixtures::claim(db, second, "wikidata", "Q1", "wikidata", None, None, model::knowledge_claims::ClaimBasis::Text).await;
+    (first, second)
+}
+
+async fn batch_size(db: &crate::database::DbHandle) -> u64 {
+    model::knowledge_proximities::Entity::find()
+        .count(&db.conn)
+        .await
+        .unwrap()
+}
+
+/// The scan records the pair and writes nothing else.
+#[tokio::test]
+async fn scanning_records_a_shared_identity() {
+    db_or_skip!(db);
+    claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
+
+    let raised = scan(&db.conn, &Heuristic::scoring()).await.expect("scan");
+
+    assert_eq!(raised, 1);
+    let row = model::knowledge_proximities::Entity::find()
+        .one(&db.conn)
+        .await
+        .unwrap()
+        .expect("one question, one row");
+    // Two identical names and the same type: 0.6 * 1.0 + 0.1 * 1.0. Pinned, so a weight
+    // change shows up here rather than as a silent shift in what folds.
+    assert!(
+        (row.score.unwrap() - 0.7).abs() < 1e-6,
+        "{:?}",
+        row.score
+    );
+
+    // The batch is replaced, not appended: a second scan leaves exactly one row.
+    assert_eq!(scan(&db.conn, &Heuristic::scoring()).await.unwrap(), 1);
+    assert_eq!(batch_size(&db).await, 1);
+}
+
+/// A pair can share two identities, and the scan reaches it once per identity. The batch is one
+/// question per pair: `merge`'s `undecided` is read as questions owed, so a row per identity
+/// would double it.
+#[tokio::test]
+async fn a_pair_sharing_two_identities_is_raised_once() {
+    db_or_skip!(db);
+    let (first, second) = claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
+    for entity_id in [first, second] {
+        fixtures::claim(
+            &db,
+            entity_id,
+            "wikidata",
+            "Q104919",
+            "wikidata",
+            None,
+            None,
+            model::knowledge_claims::ClaimBasis::Text,
+        )
+        .await;
+    }
+
+    assert_eq!(scan(&db.conn, &Heuristic::scoring()).await.expect("scan"), 1, "one pair, one question");
+    assert_eq!(batch_size(&db).await, 1);
+}
+
+/// The merge pass folds the pair and tombstones the loser; the row stays in the batch.
+#[tokio::test]
+async fn merging_folds_the_pair_it_answers() {
+    db_or_skip!(db);
+    let store = KnowledgeGraph::new(&db);
+    claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
+    scan(&db.conn, &Heuristic::scoring()).await.unwrap();
+
+    let report = merge(&db.conn, &store, &Heuristic::scoring()).await.expect("merge");
+
+    assert_eq!(report.merged, 1, "{report:?}");
+    assert_eq!(
+        batch_size(&db).await,
+        1,
+        "the candidate is left in the batch for the next scan to replace"
+    );
+    let tombstones = model::knowledge_entity::Entity::find()
+        .filter(model::knowledge_entity::Column::MergedIntoId.is_not_null())
+        .count(&db.conn)
+        .await
+        .unwrap();
+    assert_eq!(tombstones, 1);
+}
+
+/// Pairs that do not look like one thing stay in the batch, so a person can answer.
+#[tokio::test]
+async fn merging_leaves_a_pair_it_cannot_claim() {
+    db_or_skip!(db);
+    let store = KnowledgeGraph::new(&db);
+    claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
+
+    scan(&db.conn, &Heuristic::scoring()).await.unwrap();
+    let report = merge(&db.conn, &store, &Heuristic::scoring()).await.expect("merge");
+
+    assert_eq!(report.merged, 0, "{report:?}");
+    assert_eq!(report.undecided, 1, "{report:?}");
+    assert_eq!(batch_size(&db).await, 1);
+}

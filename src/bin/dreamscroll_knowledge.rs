@@ -696,12 +696,12 @@ async fn main() -> anyhow::Result<()> {
                 ProximityCommand::Scan(_) => {
                     println!(
                         "raised {} proximities",
-                        knowledge::graph::proximity::scan(&db.conn, &scoring).await?
+                        knowledge::proximity::scan(&db.conn, &scoring).await?
                     );
                 }
                 ProximityCommand::Merge(_) => {
                     let report =
-                        knowledge::graph::proximity::merge(&db.conn, &store, &scoring).await?;
+                        knowledge::proximity::merge(&db.conn, &store, &scoring).await?;
                     println!(
                         "auto-merged {} · refused {} · moot {} · undecided {}",
                         report.merged, report.refused, report.moot, report.undecided

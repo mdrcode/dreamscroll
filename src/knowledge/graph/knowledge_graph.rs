@@ -28,7 +28,7 @@ use crate::model;
 /// [`KnowledgeGraph::with_linking`].
 ///
 /// The store holds no policy: a [`Linker`] is a procedure over the `Scoring` it was built with, and a
-/// pass that measures — [`proximity`](super::proximity) — is handed the policy as an argument.
+/// pass that measures — [`proximity`](crate::knowledge::proximity) — is handed the policy as an argument.
 ///
 /// The blocker is built once and kept, so it accumulates everything this store writes — `project`
 /// tells it about every entity whose columns changed, and a discarded or tombstoned entity is

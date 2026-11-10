@@ -10,8 +10,9 @@
 //!   from `knowledge_blocking_index`, and the index itself.
 //! - [`linker`] — which candidate wins, and making it happen: the [Linker] trait, today's heuristic,
 //!   and the executor that writes one illumination.
-//! - [`graph`] — what the graph holds and every way it changes: [`KnowledgeGraph`], projection, merge,
-//!   proximity and verdicts.
+//! - [`graph`] — what the graph holds and every way it changes: [`KnowledgeGraph`], projection, merge
+//!   and verdicts.
+//! - [`proximity`] — the derived batch of look-alike pairs, and the passes that produce and answer it.
 //!
 //! Three things stay at the root because more than one cluster needs them, and a stage that imports
 //! a cluster to reach its own vocabulary has the dependency backwards:
@@ -39,10 +40,11 @@ pub mod helper;
 pub mod identity;
 pub mod linker;
 pub mod normalize;
+pub mod proximity;
 pub mod scoring;
 pub mod snapshot;
 
-pub use graph::proximity::MergeReport;
+pub use proximity::MergeReport;
 pub use graph::verdicts::ReplayReport;
 pub use graph::{KnowledgeGraph, LinkStats, Status};
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};
