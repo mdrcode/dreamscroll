@@ -61,10 +61,13 @@ arrives after an answer downgrades `method` to `capture`).
 **Link, then assert.**
 
 ```
-link_illumination   decide, then attach each observation; returns observation → entity
+link_illumination   decide, attach and project each observation; returns observation → entity
 assert_claims       for each linked observation with a handle: ensure its identity (created on
-                    first sighting), assert the claim; then project the entity
+                    first sighting), assert the claim; then project the entity again
 ```
+
+The first projection has no claims to see: it settles the entity's surfaces, and the index row the
+blocker reads. The second is where `status` and `confidence` follow the claims.
 
 Nothing inside the linker knows about identities or claims: the platform fields are used to decide
 and otherwise left alone. The post-pass is where a capture's identity and claim are written, and
@@ -97,7 +100,7 @@ one live row.
 | --- | --- |
 | `evidence/store.rs` | `IdentityKey`; `DraftIdentity::{key, from_claim}`; `identity_for_link` (create-only) and `create_identity`; `ClaimDraft` + `assert` (veto + edge). Deleted `record` and `store_claim`. |
 | `evidence/mod.rs` | the "two writers" paragraph became the two phases; exports updated. |
-| `graph/link.rs` | `link_illumination` (decisions applied to entities, returning observation → entity) and `assert_claims` (the post-pass); `LinkStats.vetoed`. |
+| `graph/link.rs` | `link_illumination` (decisions applied and projected, returning observation → entity) and `assert_claims` (the post-pass, projecting again); `LinkStats.vetoed`. |
 | `graph/knowledge_graph.rs` | the facade runs both stages and returns `LinkStats`. |
 | `linker/mod.rs`, `linker/heuristic/linker.rs` | `Decision` no longer carries an identity — it is observation data, not a decision. |
 | `identity/engine.rs` | `upsert_identity` + `assert`, the same two calls the capture path makes. |

@@ -46,6 +46,9 @@ impl LinkStats {
 /// Nothing here knows about identities or claims. The platform fields are used by the linker to
 /// decide, and left alone; [`assert_claims`] turns the resulting mapping into edges afterwards.
 ///
+/// Each entity is projected here, with no claims, so the graph is coherent as soon as linking
+/// finishes. The post-pass projects again: `status` and `confidence` follow the claims.
+///
 /// One entry point, because the blocker is the store's: a caller linking a thousand illuminations and
 /// a caller linking one take the same path, and both benefit from what the store has been told so far.
 pub(crate) async fn link_illumination(
@@ -83,6 +86,7 @@ pub(crate) async fn link_illumination(
     let mut linked: HashMap<i32, i32> = HashMap::with_capacity(decisions.len());
     for decision in &decisions {
         let entity = apply_decision(graph, &pending, decision).await?;
+        graph.update_projection(entity).await?;
         linked.insert(decision.observation.id, entity);
         stats.record(decision);
     }

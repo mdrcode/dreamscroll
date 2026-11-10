@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use argh::FromArgs;
 use sea_orm::sea_query::{Expr, ExprTrait, Query};
 use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
@@ -937,7 +939,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
     let graph = knowledge::KnowledgeGraph::with_linking(
         db,
         blocker,
-        std::sync::Arc::new(knowledge::linker::heuristic::HeuristicLinker),
+        Arc::new(knowledge::linker::heuristic::HeuristicLinker),
     );
     let mut report = LinkAllPendingReport::default();
     for illumination in &illuminations {
