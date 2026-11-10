@@ -1,11 +1,10 @@
 //! The store: one connection, the merge log's append, and the key decisions share.
 
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, Set,
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set,
 };
 
 use crate::database::DbHandle;
-use crate::knowledge::graph::current_generation;
 use crate::model;
 use crate::model::knowledge_verdicts::Kind;
 
@@ -38,6 +37,7 @@ impl VerdictStore {
     pub(crate) async fn record<C: ConnectionTrait>(
         &self,
         conn: &C,
+        generation: i32,
         cause: Cause,
         winner: &model::knowledge_entity::Model,
         loser: &model::knowledge_entity::Model,
@@ -47,7 +47,6 @@ impl VerdictStore {
         else {
             return Ok(());
         };
-        let generation = current_generation(conn).await?;
         let existing = model::knowledge_verdicts::Entity::find()
             .filter(model::knowledge_verdicts::Column::Cause.eq(cause.as_str()))
             .filter(model::knowledge_verdicts::Column::Generation.eq(generation))
@@ -71,6 +70,26 @@ impl VerdictStore {
         .exec(conn)
         .await?;
         Ok(())
+    }
+
+    /// Every merge a person recorded, oldest first.
+    pub(crate) async fn merges(&self) -> anyhow::Result<Vec<model::knowledge_verdicts::Model>> {
+        Ok(model::knowledge_verdicts::Entity::find()
+            .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
+            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Merge.as_str()))
+            .order_by_asc(model::knowledge_verdicts::Column::Id)
+            .all(&self.conn)
+            .await?)
+    }
+
+    /// Every veto a person recorded, oldest first.
+    pub(crate) async fn vetoes(&self) -> anyhow::Result<Vec<model::knowledge_verdicts::Model>> {
+        Ok(model::knowledge_verdicts::Entity::find()
+            .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
+            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
+            .order_by_asc(model::knowledge_verdicts::Column::Id)
+            .all(&self.conn)
+            .await?)
     }
 }
 

@@ -15,9 +15,9 @@
 //! - [`proximity`] — the derived batch of look-alike pairs, and the passes that produce and answer it.
 //!
 //! [`verdicts`] is not a cluster: it is the store for the modification log and the standing vetoes.
-//! The graph holds one, writes its merge rows through it on the fold's transaction, and exposes the
-//! commands as methods ([`KnowledgeGraph::replay_verdicts`], [`KnowledgeGraph::veto`],
-//! [`KnowledgeGraph::unveto`]).
+//! The graph holds one and writes its merge rows through it on the fold's transaction; applying the
+//! log is the graph's command (`graph/replay.rs`), exposed as a method alongside `veto` and
+//! `unveto`.
 //!
 //! Three things stay at the root because more than one cluster needs them, and a stage that imports
 //! a cluster to reach its own vocabulary has the dependency backwards:
@@ -51,7 +51,6 @@ pub mod snapshot;
 pub mod verdicts;
 
 pub use proximity::AutoMergeReport;
-pub use verdicts::ReplayReport;
-pub use graph::{KnowledgeGraph, LinkReport};
+pub use graph::{KnowledgeGraph, LinkReport, ReplayReport};
 pub use helper::link_illumination;
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};

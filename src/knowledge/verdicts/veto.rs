@@ -2,8 +2,6 @@
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
-use crate::knowledge::graph::current_generation;
-use crate::knowledge::graph::KnowledgeGraph;
 use crate::model;
 use crate::model::knowledge_verdicts::Kind;
 
@@ -17,6 +15,7 @@ impl VerdictStore {
     /// build, but a veto is a standing decision about the graph.
     pub async fn veto(
         &self,
+        generation: i32,
         entity_id: i32,
         scheme: &str,
         external_id: &str,
@@ -32,7 +31,6 @@ impl VerdictStore {
         let Some(subject) = entity.origin_observation_id else {
             anyhow::bail!("entity {entity_id} has no origin observation, so no verdict can name it");
         };
-        let generation = current_generation(conn).await?;
         let existing = model::knowledge_verdicts::Entity::find()
             .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
             .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
@@ -80,12 +78,7 @@ impl VerdictStore {
         &self,
     ) -> anyhow::Result<std::collections::HashSet<(i32, String, String)>> {
         let mut out = std::collections::HashSet::new();
-        let vetoes = model::knowledge_verdicts::Entity::find()
-            .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
-            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
-            .all(&self.conn)
-            .await?;
-        for verdict in vetoes {
+        for verdict in self.vetoes().await? {
             let (Some(subject), Some(scheme), Some(external)) = (
                 verdict.subject_origin,
                 verdict.identity_scheme.clone(),
@@ -102,59 +95,5 @@ impl VerdictStore {
             out.insert((entity_id, scheme, external));
         }
         Ok(out)
-    }
-
-    /// Retract the live claim holding a vetoed identity for its entity, then reproject it.
-    ///
-    /// The veto names a **pairing**, so the retraction does too: there is at most one live claim for
-    /// `(entity, identity)`, whatever route produced it. `None` when the subject origin no longer
-    /// names a live entity; `Some(0)` when the decision already holds and there is nothing to
-    /// retract.
-    ///
-    /// The retraction and the projection are one act: `status` and `confidence` are functions of the
-    /// live claims, so withdrawing a claim without reprojecting leaves the entity `identified` on
-    /// nothing — and that is the row the API serves and `proximity auto_merge` ranks.
-    pub(super) async fn withdraw(
-        &self,
-        graph: &KnowledgeGraph,
-        verdict: &model::knowledge_verdicts::Model,
-    ) -> anyhow::Result<Option<usize>> {
-        let conn = &self.conn;
-        let (Some(subject), Some(scheme), Some(external)) = (
-            verdict.subject_origin,
-            verdict.identity_scheme.as_deref(),
-            verdict.identity_external_id.as_deref(),
-        ) else {
-            return Ok(Some(0));
-        };
-        let Some(row) = self.entity_with_origin(subject).await? else {
-            return Ok(None);
-        };
-        let Some(entity_id) = self.canonical(row.id).await? else {
-            return Ok(None);
-        };
-        let Some(identity) = model::knowledge_identity::Entity::find()
-            .filter(model::knowledge_identity::Column::Scheme.eq(scheme))
-            .filter(model::knowledge_identity::Column::ExternalId.eq(external))
-            .one(conn)
-            .await?
-        else {
-            return Ok(Some(0));
-        };
-        let retracted = model::knowledge_claims::Entity::update_many()
-            .col_expr(
-                model::knowledge_claims::Column::RetractedAt,
-                sea_orm::sea_query::Expr::current_timestamp(),
-            )
-            .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(entity_id))
-            .filter(model::knowledge_claims::Column::KnowledgeIdentityId.eq(identity.id))
-            .filter(model::knowledge_claims::Column::RetractedAt.is_null())
-            .exec(conn)
-            .await?
-            .rows_affected as usize;
-        if retracted > 0 {
-            graph.update_projection(entity_id).await?;
-        }
-        Ok(Some(retracted))
     }
 }

@@ -7,19 +7,21 @@
 //! - `project` — the derived columns, including the blocking index row.
 //! - [`merge`] — fold one entity into another.
 //!
-//! Single writes are methods; the batch passes are public functions, because they are commands over
-//! the whole graph rather than a write to one row. A pass takes what it acts on as arguments — the
-//! connection, and the [`Scoring`](crate::knowledge::scoring::Scoring) it measures with — rather than
-//! reading them off a facade. The proximity passes live in [`crate::knowledge::proximity`]; the log
-//! and its commands are the graph's verdict store, and a merge writes its row through it on the
-//! fold's transaction.
+//! Single writes are methods. Passes over *derived* data are public functions taking what they act
+//! on — the connection, and the [`Scoring`](crate::knowledge::scoring::Scoring) they measure with —
+//! because they are not part of the graph's contract: [`crate::knowledge::proximity`] lives above
+//! and is driven by a caller. Operations over the graph's own state are methods, because the graph
+//! is the only handle a caller has on them: `link`, `merge`, and replay, which lives here because
+//! applying the log is a move on the graph while the log itself is the verdict store.
 
 mod link;
 pub mod merge;
 
 mod knowledge_graph;
 mod project;
+mod replay;
 
 pub(crate) use knowledge_graph::{current_generation, get};
 pub use knowledge_graph::KnowledgeGraph;
 pub use link::LinkReport;
+pub use replay::ReplayReport;

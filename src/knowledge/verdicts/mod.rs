@@ -3,23 +3,22 @@
 //! One table, two statements. A **merge** row says two things were one, keyed by each side's
 //! `origin_observation_id` so it survives a rebuild; the store writes it, but on the merge's
 //! transaction rather than its own, so the fold and its log entry commit together. A **veto** row
-//! says an entity is not an identity: `vetoed` answers admission, and `replay` applies it.
+//! says an entity is not an identity: `vetoed` answers admission, and a replay applies it.
 //!
-//! Replay is the command over the whole graph. A rebuild renumbers entities, so it asks what each
-//! origin names now and folds the pairs that still map, then withdraws the vetoed pairings. Anything
-//! that no longer maps is reported and dropped: erosion is the price of the key, and a silent wrong
-//! merge is not.
+//! The register is data, and the store knows nothing about entities beyond the origins a verdict
+//! names. Applying it to a rebuilt graph is the graph's command (`graph/replay.rs`): a rebuild
+//! renumbers entities, so replay asks what each origin names now, folds the pairs that still map,
+//! and withdraws the vetoed pairings. Anything that no longer maps is reported and dropped: erosion
+//! is the price of the key, and a silent wrong merge is not.
 //!
-//! `store` holds the type and the merge log's append; `replay` the command and its report; `veto` the
-//! standing decisions admission asks about; `origin` the readers that turn an origin into the entity
-//! it names now.
+//! `store` holds the type, the merge log's append and the reads the replay and `stats` share; `veto`
+//! the standing decisions admission asks about; `origin` the readers that turn an origin into the
+//! entity it names now.
 
 mod origin;
-mod replay;
 mod store;
 mod veto;
 
-pub use replay::ReplayReport;
 pub(crate) use store::VerdictStore;
 pub(crate) use store::pair_key;
 
@@ -32,15 +31,13 @@ mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
     use crate::knowledge::evidence::ClaimBasis;
-    use crate::knowledge::graph::KnowledgeGraph;
+    use crate::knowledge::graph::{KnowledgeGraph, ReplayReport};
     use crate::model;
     use crate::model::knowledge_verdicts::Kind;
 
     use super::Cause;
 
     use crate::test_support::{db_or_skip, fixtures};
-
-    use super::*;
 
     /// Seed an entity claiming one identity, as `resolve` would have written it.
     async fn seed_claim(

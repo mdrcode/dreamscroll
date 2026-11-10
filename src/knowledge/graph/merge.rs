@@ -12,10 +12,10 @@ use sea_orm::{
     QueryFilter, Statement, TransactionTrait,
 };
 
+use crate::knowledge::evidence::Evidence;
 use crate::knowledge::verdicts::{Cause, VerdictStore};
 use crate::model::{
-    knowledge_claims as claims, knowledge_entity as entity,
-    user_observed_entity as observation,
+    knowledge_claims as claims, knowledge_entity as entity, user_observed_entity as observation,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,9 +62,8 @@ async fn shared_illuminations<C: ConnectionTrait>(
 
 /// Fold `loser` into `winner`. See [`merge`] for what that means and why it can refuse.
 ///
-/// The blocker is told afterwards, not inside the transaction: projecting the winner happens within
-/// it, but a rollback would leave the index holding a row that never landed. The second projection is
-/// idempotent and merges are rare, so it doubles as the notification.
+/// The winner is projected inside the transaction, so the row the API serves is current once the
+/// fold commits.
 pub(super) async fn merge_into(
     conn: &sea_orm::DatabaseConnection,
     graph: &super::KnowledgeGraph,
@@ -72,12 +71,7 @@ pub(super) async fn merge_into(
     winner: i32,
     cause: Cause,
 ) -> anyhow::Result<Outcome> {
-    let outcome = merge(conn, &graph.verdicts, loser, winner, cause).await?;
-    if outcome == Outcome::Merged {
-        graph.update_projection(winner).await?;
-        graph.forget(loser);
-    }
-    Ok(outcome)
+    merge(conn, &graph.evidence, &graph.verdicts, loser, winner, cause).await
 }
 
 /// What a merge would do. Free because [`merge_in_transaction`] and the facade both use it.
@@ -114,17 +108,19 @@ pub(super) async fn preview<C: ConnectionTrait>(
 /// legitimately join. See `plan/knowledge-illumination-history.md`.
 async fn merge(
     conn: &DatabaseConnection,
+    evidence: &Evidence,
     verdicts: &VerdictStore,
     loser: i32,
     winner: i32,
     cause: Cause,
 ) -> anyhow::Result<Outcome> {
-    // The transaction callback must be `'static`, so the store is cloned (a pool handle) rather than
-    // borrowed: the log row inside writes on the transaction it is handed.
+    // The transaction callback must be `'static`, so the handles are cloned (pool handles) rather
+    // than borrowed: the claims move and the log row inside write on the transaction they are handed.
+    let evidence = evidence.clone();
     let verdicts = verdicts.clone();
     conn.transaction(move |txn| {
         Box::pin(async move {
-            merge_in_transaction(txn, &verdicts, loser, winner, cause).await
+            merge_in_transaction(txn, &evidence, &verdicts, loser, winner, cause).await
         })
     })
     .await
@@ -133,6 +129,7 @@ async fn merge(
 
 async fn merge_in_transaction<C: ConnectionTrait>(
     conn: &C,
+    evidence: &Evidence,
     verdicts: &VerdictStore,
     loser: i32,
     winner: i32,
@@ -184,30 +181,19 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         .exec(conn)
         .await?;
 
-    // Evidence that duplicates the winner's would violate the identity index on the way over, so it
-    // is dropped first. It is the same fact stated twice, and the winner's copy is the one kept.
-    conn.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "DELETE FROM knowledge_claims l USING knowledge_claims w \
-         WHERE l.knowledge_entity_id = $1 AND w.knowledge_entity_id = $2 \
-           AND w.retracted_at IS NULL \
-           AND l.knowledge_identity_id = w.knowledge_identity_id",
-        [loser.into(), winner.into()],
-    ))
-    .await?;
+    // The claims move with them; evidence drops the duplicate the unique index would refuse.
+    evidence.move_claims(conn, loser, winner).await?;
 
-    claims::Entity::update_many()
-        .col_expr(claims::Column::KnowledgeEntityId, Expr::value(Some(winner)))
-        .filter(claims::Column::KnowledgeEntityId.eq(loser))
-        .exec(conn)
-        .await?;
     // The log: which thing was folded into which, and what decided it. One row per merge, keyed by
     // what survives a rebuild.
     if let (Some(winner_row), Some(loser_row)) = (
         rows.iter().find(|row| row.id == winner),
         rows.iter().find(|row| row.id == loser),
     ) {
-        verdicts.record(conn, cause, winner_row, loser_row).await?;
+        let generation = super::current_generation(conn).await?;
+        verdicts
+            .record(conn, generation, cause, winner_row, loser_row)
+            .await?;
     }
 
     // Tombstone, never delete: a stale pointer still resolves.
@@ -228,11 +214,12 @@ mod tests {
     use sea_orm::{PaginatorTrait, Set};
 
     use super::*;
+    use crate::knowledge::evidence::Evidence;
     use crate::knowledge::verdicts::VerdictStore;
     use crate::model::knowledge_verdicts as verdicts;
     use crate::model::user_observed_entity as obs;
-    use crate::test_support::fixtures;
     use crate::test_support::db_or_skip;
+    use crate::test_support::fixtures;
 
     async fn entity_with(db: &crate::database::DbHandle, label: &str) -> i32 {
         let id = entity::Entity::insert(entity::ActiveModel {
@@ -260,15 +247,29 @@ mod tests {
         let loser = entity_with(&db, "Elon").await;
 
         assert_eq!(
-            merge(&db.conn, &VerdictStore::from_handle(&db), loser, winner, Cause::ProximityAuto)
-                .await
-                .expect("first"),
+            merge(
+                &db.conn,
+                &Evidence::from_handle(&db),
+                &VerdictStore::from_handle(&db),
+                loser,
+                winner,
+                Cause::ProximityAuto
+            )
+            .await
+            .expect("first"),
             Outcome::Merged
         );
         assert_eq!(
-            merge(&db.conn, &VerdictStore::from_handle(&db), loser, winner, Cause::ProximityAuto)
-                .await
-                .expect("second"),
+            merge(
+                &db.conn,
+                &Evidence::from_handle(&db),
+                &VerdictStore::from_handle(&db),
+                loser,
+                winner,
+                Cause::ProximityAuto
+            )
+            .await
+            .expect("second"),
             Outcome::AlreadyMerged
         );
         assert_eq!(
@@ -312,9 +313,16 @@ mod tests {
         .await;
 
         assert_eq!(
-            merge(&db.conn, &VerdictStore::from_handle(&db), loser, winner, Cause::ProximityAuto)
-                .await
-                .expect("merge"),
+            merge(
+                &db.conn,
+                &Evidence::from_handle(&db),
+                &VerdictStore::from_handle(&db),
+                loser,
+                winner,
+                Cause::ProximityAuto
+            )
+            .await
+            .expect("merge"),
             Outcome::Merged
         );
 
@@ -348,12 +356,28 @@ mod tests {
         for (position, knowledge_entity_id, name) in
             [(0, book, "Corduroy"), (1, character, "Corduroy")]
         {
-            fixtures::attached(&db, &capture, position, name, None, "book", knowledge_entity_id).await;
+            fixtures::attached(
+                &db,
+                &capture,
+                position,
+                name,
+                None,
+                "book",
+                knowledge_entity_id,
+            )
+            .await;
         }
 
-        let outcome = merge(&db.conn, &VerdictStore::from_handle(&db), character, book, Cause::Repair)
-            .await
-            .expect("merge");
+        let outcome = merge(
+            &db.conn,
+            &Evidence::from_handle(&db),
+            &VerdictStore::from_handle(&db),
+            character,
+            book,
+            Cause::Repair,
+        )
+        .await
+        .expect("merge");
 
         assert_eq!(outcome, Outcome::RefusedSharedIllumination);
         assert_eq!(
@@ -394,9 +418,16 @@ mod tests {
         )
         .await;
 
-        let outcome = merge(&db.conn, &VerdictStore::from_handle(&db), loser, winner, Cause::ProximityAuto)
-            .await
-            .expect("merge");
+        let outcome = merge(
+            &db.conn,
+            &Evidence::from_handle(&db),
+            &VerdictStore::from_handle(&db),
+            loser,
+            winner,
+            Cause::ProximityAuto,
+        )
+        .await
+        .expect("merge");
         assert_eq!(outcome, Outcome::Merged);
 
         assert_eq!(
@@ -437,7 +468,11 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        assert_eq!(survivor.status, crate::model::knowledge_entity::Status::Identified, "the winner was re-projected");
+        assert_eq!(
+            survivor.status,
+            crate::model::knowledge_entity::Status::Identified,
+            "the winner was re-projected"
+        );
     }
 
     /// A stale id — the shape a repair command passes — must not "merge" nothing and record an event
@@ -447,9 +482,16 @@ mod tests {
         db_or_skip!(db);
         let winner = entity_with(&db, "Elon Musk").await;
 
-        let error = merge(&db.conn, &VerdictStore::from_handle(&db), 999_999, winner, Cause::Repair)
-            .await
-            .expect_err("a missing loser is a caller error");
+        let error = merge(
+            &db.conn,
+            &Evidence::from_handle(&db),
+            &VerdictStore::from_handle(&db),
+            999_999,
+            winner,
+            Cause::Repair,
+        )
+        .await
+        .expect_err("a missing loser is a caller error");
         assert!(error.to_string().contains("999999"), "{error}");
         assert_eq!(
             verdicts::Entity::find().count(&db.conn).await.unwrap(),
@@ -466,9 +508,16 @@ mod tests {
         let winner = entity_with(&db, "Elon Musk").await;
         let loser = entity_with(&db, "Elon").await;
 
-        merge(&db.conn, &VerdictStore::from_handle(&db), loser, winner, Cause::Repair)
-            .await
-            .unwrap();
+        merge(
+            &db.conn,
+            &Evidence::from_handle(&db),
+            &VerdictStore::from_handle(&db),
+            loser,
+            winner,
+            Cause::Repair,
+        )
+        .await
+        .unwrap();
 
         let row = verdicts::Entity::find()
             .filter(verdicts::Column::WinnerOrigin.eq(fixtures::origin(&db, winner).await))
@@ -498,14 +547,28 @@ mod tests {
         db_or_skip!(db);
         let dead = entity_with(&db, "Elon").await;
         let alive = entity_with(&db, "Elon Musk").await;
-        merge(&db.conn, &VerdictStore::from_handle(&db), dead, alive, Cause::Repair)
-            .await
-            .expect("the first merge is fine");
+        merge(
+            &db.conn,
+            &Evidence::from_handle(&db),
+            &VerdictStore::from_handle(&db),
+            dead,
+            alive,
+            Cause::Repair,
+        )
+        .await
+        .expect("the first merge is fine");
 
         let other = entity_with(&db, "E. Musk").await;
-        let error = merge(&db.conn, &VerdictStore::from_handle(&db), other, dead, Cause::Repair)
-            .await
-            .expect_err("the winner is a tombstone");
+        let error = merge(
+            &db.conn,
+            &Evidence::from_handle(&db),
+            &VerdictStore::from_handle(&db),
+            other,
+            dead,
+            Cause::Repair,
+        )
+        .await
+        .expect_err("the winner is a tombstone");
         assert!(error.to_string().contains("tombstone"), "{error}");
 
         let loser = entity::Entity::find_by_id(other)

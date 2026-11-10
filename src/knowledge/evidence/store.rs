@@ -1,11 +1,13 @@
-//! Where a claim becomes a row, from either direction.
+//! Where a claim becomes a row, and every way it changes.
 //!
 //! A capture's claim and an authority's claim are the same edge: one insert into `knowledge_claims`
-//! citing an identity row. Keeping both writers here means the veto check, the uniqueness rule and
-//! the basis column are one thing to read — and the place a second authority inherits all three.
+//! citing an identity row. Keeping every change to that table here — insert, reassign on a fold,
+//! retract on a veto — means the veto check, the uniqueness rule and the basis column are one thing
+//! to read, and the place a second authority inherits all three.
 
 use std::collections::HashSet;
 
+use sea_orm::sea_query::Expr;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, QueryOrder,
     QuerySelect, Statement,
@@ -275,16 +277,17 @@ impl Evidence {
     }
 
     /// The identity this claim cites, if a row exists. Reads only; importing is the caller's job.
-    async fn identity_id(&self, link: &PlatformLink) -> anyhow::Result<Option<i32>> {
+    pub(crate) async fn identity_id(
+        &self,
+        scheme: &str,
+        external_id: &str,
+    ) -> anyhow::Result<Option<i32>> {
         let row = self
             .conn
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "SELECT id FROM knowledge_identities WHERE scheme = $1 AND external_id = $2",
-                [
-                    link.scheme.clone().into(),
-                    link.external_id.clone().into(),
-                ],
+                [scheme.into(), external_id.into()],
             ))
             .await?;
         Ok(match row {
@@ -299,7 +302,7 @@ impl Evidence {
         observation: &model::user_observed_entity::Model,
     ) -> anyhow::Result<Option<i32>> {
         match PlatformLink::of(observation) {
-            Some(claim) => self.identity_id(&claim).await,
+            Some(claim) => self.identity_id(&claim.scheme, &claim.external_id).await,
             None => Ok(None),
         }
     }
@@ -387,6 +390,62 @@ impl Evidence {
                 _ => Err(error.into()),
             },
         }
+    }
+
+    /// Re-point every claim from `loser` to `winner`, dropping the duplicates first.
+    ///
+    /// A fold runs this on its transaction, so the claims move with the observations and the
+    /// tombstone. Evidence that duplicates the winner's would violate the identity index on the way
+    /// over, so it is deleted rather than moved: it is the same fact stated twice, and the winner's
+    /// copy is the one kept.
+    pub(crate) async fn move_claims<C: ConnectionTrait>(
+        &self,
+        conn: &C,
+        loser: i32,
+        winner: i32,
+    ) -> anyhow::Result<()> {
+        conn.execute_raw(Statement::from_sql_and_values(
+            DatabaseBackend::Postgres,
+            "DELETE FROM knowledge_claims l USING knowledge_claims w \
+             WHERE l.knowledge_entity_id = $1 AND w.knowledge_entity_id = $2 \
+               AND w.retracted_at IS NULL \
+               AND l.knowledge_identity_id = w.knowledge_identity_id",
+            [loser.into(), winner.into()],
+        ))
+        .await?;
+        model::knowledge_claims::Entity::update_many()
+            .col_expr(
+                model::knowledge_claims::Column::KnowledgeEntityId,
+                Expr::value(Some(winner)),
+            )
+            .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(loser))
+            .exec(conn)
+            .await?;
+        Ok(())
+    }
+
+    /// Retract the live claim for `(entity, identity)`, if there is one.
+    ///
+    /// A veto names a pairing, so the retraction does too: there is at most one live claim for
+    /// `(entity, identity)`, whatever route produced it. Claims are append-only, so this marks the
+    /// row rather than deleting it — the caller reprojects the entity, because `status` and
+    /// `confidence` are functions of the live claims.
+    pub(crate) async fn retract(
+        &self,
+        knowledge_entity_id: i32,
+        identity_id: i32,
+    ) -> anyhow::Result<usize> {
+        Ok(model::knowledge_claims::Entity::update_many()
+            .col_expr(
+                model::knowledge_claims::Column::RetractedAt,
+                Expr::current_timestamp(),
+            )
+            .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(knowledge_entity_id))
+            .filter(model::knowledge_claims::Column::KnowledgeIdentityId.eq(identity_id))
+            .filter(model::knowledge_claims::Column::RetractedAt.is_null())
+            .exec(&self.conn)
+            .await?
+            .rows_affected as usize)
     }
 }
 

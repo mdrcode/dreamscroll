@@ -298,13 +298,13 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), the corroboration bonus |
 | `graph/link.rs` | `link`: a batch of observations in, decisions applied and projected out — plus the `observation → entity` mapping and `LinkReport`. It knows nothing about identities or claims |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two phases of a claim in `store.rs`: `identity_for_link` settles a capture's identity (create only) and `upsert_identity` an answer's (fill gaps); `assert` writes the edge, asking the veto at the one place a claim becomes a row. Both callers use both. `store.rs` also reads holders back and answers `awaiting_authority` |
+| `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two phases of a claim in `store.rs`: `identity_for_link` settles a capture's identity (create only) and `upsert_identity` an answer's (fill gaps); `assert` writes the edge, asking the veto at the one place a claim becomes a row. `store.rs` also owns the other two changes to the table — `move_claims` on a fold, `retract` on a veto — reads holders back and answers `awaiting_authority` |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors and the methods that are one write each. It holds the connection, the blocker, the decider and the evidence — no policy of its own |
 | `helper.rs` | the illumination composition: batch one reading's observations, call `KnowledgeGraph::link`, then assert each observation's handle and project again. The graph links a collection; only this knows it is one reading |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `graph/merge.rs` | fold one entity into another |
 | `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Scoring` as arguments |
-| `verdicts/` | the store for the modification log and the standing vetoes, held by `KnowledgeGraph`: `store.rs` is the type, its connection and `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold); `replay.rs` applies the log to a rebuilt graph; `veto.rs` holds `veto`/`unveto`/`vetoed`/`withdraw`; `origin.rs` turns an origin into the entity it names now. Commands surface as `KnowledgeGraph::{replay_verdicts, veto, unveto}`; `pair_key` is shared with `stats` |
+| `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
 |`identity/`|`mod.rs` (the `Resolver` trait a provider implements) · `engine` (the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The claim it returns, and where it becomes a row, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
 | `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates in `policy.rs` · answer parsing in `answer.rs` · the ladder and its request shapes in `resolver.rs` · candidate scoring in `ranking.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
@@ -313,12 +313,11 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 reached through `KnowledgeGraph`'s methods; `link` and `project` are private modules, and what
 escapes them is data and vocabulary — `LinkReport`, `merge::Outcome`, `Preview`, and the verdict
-`Cause`. The batch
-passes are the exception and are deliberately public functions taking what they act on —
-`proximity::scan(conn, scoring)`, `proximity::auto_merge(conn, graph, scoring)`, and
-`KnowledgeGraph::replay_verdicts()` are commands over the whole graph, not a write to one row. The
-graph's health counters are a report over the tables rather than graph work, so they live in
-`crate::stats::knowledge_stats`.
+`Cause`. Passes over *derived* data are public functions taking what they act on —
+`proximity::scan(conn, scoring)` and `proximity::auto_merge(conn, graph, scoring)` — while operations
+over the graph's own state are methods: `link`, `merge`, `replay_verdicts`, which applies the log to a
+rebuilt graph. The graph's health counters are a report over the tables rather than graph work, so
+they live in `crate::stats::knowledge_stats`.
 
 The vocabulary — and the names we rejected — is in `plan/lexicon.md`. The design history, including
 the failures that produced these rules, is in `plan/knowledge-illumination-history.md` and

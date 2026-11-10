@@ -18,6 +18,10 @@
 //!
 //! An identity may have several holders: one Wikidata item can name an album and cover its songs.
 //! This module reports them and leaves "are these one thing?" to `proximity`.
+//!
+//! Every change to `knowledge_claims` is here: `assert` inserts an edge, `move_claims` re-points one
+//! on a fold (and drops the duplicate the unique index would refuse), and `retract` marks it when a
+//! veto withdraws it.
 
 pub mod claim;
 pub mod store;

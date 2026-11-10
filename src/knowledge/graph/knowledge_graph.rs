@@ -19,7 +19,8 @@ use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
 use crate::knowledge::evidence::{ClaimDraft, DraftIdentity, Evidence, PlatformLink, Stored};
 use crate::knowledge::linker::Linker;
-use crate::knowledge::verdicts::{Cause, ReplayReport, VerdictStore};
+use super::replay::ReplayReport;
+use crate::knowledge::verdicts::{Cause, VerdictStore};
 use crate::model;
 
 
@@ -32,11 +33,8 @@ use crate::model;
 /// The store holds no policy: a [`Linker`] is a procedure over the `Scoring` it was built with, and a
 /// pass that measures — [`proximity`](crate::knowledge::proximity) — is handed the policy as an argument.
 ///
-/// The blocker is built once and kept, so it accumulates everything this store writes — `project`
-/// tells it about every entity whose columns changed, and a discarded or tombstoned entity is
-/// forgotten. It therefore knows *this* store's writes only: a second writer (the CLI, another
-/// instance) is invisible to it. That is the argument for a blocker that queries instead of holding
-/// an index, not for rebuilding this one per call.
+/// The blocker is built once and kept for the run's links. It queries `knowledge_blocking_index`,
+/// so every writer is visible to it and nothing has to be told about a projection.
 #[derive(Clone)]
 pub struct KnowledgeGraph {
     db: DbHandle,
@@ -66,13 +64,6 @@ impl KnowledgeGraph {
             decider: Some(decider),
             blocker: Some(blocker.into()),
             ..Self::new(db)
-        }
-    }
-
-    /// Tell the blocker an entity is gone. `pub(super)` so `merge` can retire the loser.
-    pub(super) fn forget(&self, knowledge_entity_id: i32) {
-        if let Some(blocker) = &self.blocker {
-            blocker.forget(knowledge_entity_id);
         }
     }
 
@@ -114,7 +105,7 @@ impl KnowledgeGraph {
 
     /// Apply the recorded decisions to a rebuilt graph. See [`crate::knowledge::verdicts`].
     pub async fn replay_verdicts(&self) -> anyhow::Result<ReplayReport> {
-        self.verdicts.replay(self).await
+        super::replay::replay(self).await
     }
 
     /// Record that an entity is *not* an identity; the next replay withdraws its claim.
@@ -125,7 +116,10 @@ impl KnowledgeGraph {
         external_id: &str,
         note: Option<&str>,
     ) -> anyhow::Result<bool> {
-        self.verdicts.veto(entity_id, scheme, external_id, note).await
+        let generation = current_generation(&self.db.conn).await?;
+        self.verdicts
+            .veto(generation, entity_id, scheme, external_id, note)
+            .await
     }
 
     /// Lift a veto. The next resolve may claim the identity again.
@@ -159,19 +153,15 @@ impl KnowledgeGraph {
         super::link::link(self, observations).await
     }
 
-    /// Recompute an entity's projected columns, and tell the blocker what came out.
+    /// Recompute an entity's projected columns.
     ///
-    /// Every change to those columns funnels through here, so the held blocker hears about all of
-    /// them. Implemented in `super::project`.
+    /// Every change to those columns funnels through here, so the graph has one definition of what
+    /// they are. Implemented in `super::project`.
     pub async fn update_projection(
         &self,
         knowledge_entity_id: i32,
     ) -> anyhow::Result<model::knowledge_entity::Model> {
-        let entity = super::project::project(&self.db.conn, knowledge_entity_id).await?;
-        if let Some(blocker) = &self.blocker {
-            blocker.changed(&entity);
-        }
-        Ok(entity)
+        super::project::project(&self.db.conn, knowledge_entity_id).await
     }
 
     /// What a merge would do, without doing it. See [`super::merge`].

@@ -8,7 +8,7 @@ use super::store::VerdictStore;
 
 impl VerdictStore {
     /// The entity this origin names now, live or tombstoned.
-    pub(super) async fn entity_with_origin(
+    pub(crate) async fn entity_with_origin(
         &self,
         origin: i32,
     ) -> anyhow::Result<Option<model::knowledge_entity::Model>> {
@@ -20,7 +20,7 @@ impl VerdictStore {
 
     /// Follow tombstones to the live entity a row ends at. Bounded: a cycle is not expressible in
     /// the schema, but the reader must not spin if one somehow appears.
-    pub(super) async fn canonical(&self, id: i32) -> anyhow::Result<Option<i32>> {
+    pub(crate) async fn canonical(&self, id: i32) -> anyhow::Result<Option<i32>> {
         let mut current = id;
         for _ in 0..8 {
             let Some(row) = model::knowledge_entity::Entity::find_by_id(current)
