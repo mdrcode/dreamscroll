@@ -109,7 +109,7 @@ impl<'a> ResolutionEngine<'a> {
         let graph = crate::knowledge::KnowledgeGraph::new(self.db);
         // Loaded once, not per claim: a veto asked during admission is a claim never written; one
         // that is only replayed is a claim asserted and then withdrawn.
-        let vetoes = crate::knowledge::verdicts::vetoed(&self.db.conn).await?;
+        let vetoes = graph.vetoed().await?;
         let cache = FetchCache::new(&self.db.conn);
         // The engine owns *which* entities to ask about. What the run may spend is the allowance's,
         // passed in; the gateway only asks it before each call. A cache-only run has none at all.

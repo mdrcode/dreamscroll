@@ -649,7 +649,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Verdicts(args) => match args.command {
             VerdictsCommand::Replay(_) => {
                 let store = knowledge::KnowledgeGraph::new(&db);
-                let report = knowledge::verdicts::replay(&db.conn, &store).await?;
+                let report = store.replay_verdicts().await?;
                 println!(
                     "applied {} · already {} · gone {} · refused {} · withdrawn {} · settled {}",
                     report.applied,
@@ -821,15 +821,14 @@ async fn main() -> anyhow::Result<()> {
             IdentityCommand::Reproject(args) => reproject(&db, args.all).await?,
             IdentityCommand::Veto(args) => {
                 let store = knowledge::KnowledgeGraph::new(&db);
-                let recorded = knowledge::verdicts::veto(
-                    &db.conn,
+                let recorded = store.veto(
                     args.entity,
                     &args.scheme,
                     &args.identity,
                     args.note.as_deref(),
                 )
                 .await?;
-                let report = knowledge::verdicts::replay(&db.conn, &store).await?;
+                let report = store.replay_verdicts().await?;
                 store.update_projection(args.entity).await?;
                 println!(
                     "{} · withdrawn {} · applied {} · already {} · gone {} · refused {}",
@@ -846,7 +845,8 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             IdentityCommand::Unveto(args) => {
-                let lifted = knowledge::verdicts::unveto(&db.conn, args.id).await?;
+                let store = knowledge::KnowledgeGraph::new(&db);
+                let lifted = store.unveto(args.id).await?;
                 println!(
                     "{} — the next resolve may claim the identity again",
                     if lifted {
@@ -950,7 +950,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
                 report.already_linked += 1;
             }
         }
-        let applied = knowledge::helper::link_illumination(&db.conn, &graph, illumination).await?;
+        let applied = knowledge::helper::link_illumination(&graph, illumination).await?;
         report.update(applied);
     }
     Ok(report)

@@ -1,306 +1,37 @@
-//! The modification log, the standing vetoes, and the command that applies them.
+//! The verdict store: every write to `knowledge_verdicts`, and the reads a decision needs.
 //!
-//! A **merge** row says two things were one, keyed by each side's `origin_observation_id` so it
-//! survives a rebuild; `merge` writes it on its own transaction. A **veto** row says an entity is not
-//! an identity: `vetoed` answers admission, and [`replay`] applies it.
+//! One table, two statements. A **merge** row says two things were one, keyed by each side's
+//! `origin_observation_id` so it survives a rebuild; the store writes it, but on the merge's
+//! transaction rather than its own, so the fold and its log entry commit together. A **veto** row
+//! says an entity is not an identity: `vetoed` answers admission, and `replay` applies it.
 //!
-//! [`replay`] is the command over the whole graph. A rebuild renumbers entities, so it asks what each
-//! origin names now and folds the pairs that still map, then withdraws the vetoed pairings. Anything
-//! that no longer maps is reported and dropped: erosion is the price of the key, and a silent wrong
-//! merge is not.
+//! [`VerdictStore::replay`] is the command over the whole graph. A rebuild renumbers entities, so it
+//! asks what each origin names now and folds the pairs that still map, then withdraws the vetoed
+//! pairings. Anything that no longer maps is reported and dropped: erosion is the price of the key,
+//! and a silent wrong merge is not.
+//!
+//! `store` holds the type and the merge log's append; `replay` the command and its report; `veto` the
+//! standing decisions admission asks about; `origin` the readers that turn an origin into the entity
+//! it names now.
 
-use std::collections::BTreeMap;
+mod origin;
+mod replay;
+mod store;
+mod veto;
 
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, Set};
-
-use crate::knowledge::graph::current_generation;
-use crate::knowledge::graph::merge::{Cause, Outcome};
-use crate::knowledge::graph::KnowledgeGraph;
-use crate::model;
-use crate::model::knowledge_verdicts::Kind;
-
-/// The unordered pair two origins name, as a key.
-pub(crate) fn pair_key(a: i32, b: i32) -> (i32, i32) {
-    (a.min(b), a.max(b))
-}
-
-/// What one replay did.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub struct ReplayReport {
-    /// Pairs folded onto the current graph.
-    pub applied: usize,
-    /// Pairs the graph already had as one entity.
-    pub already: usize,
-    /// Verdicts whose sides no longer name a live entity each.
-    pub gone: usize,
-    /// Pairs the shared-illumination rule refused.
-    pub refused: usize,
-    /// Live claims withdrawn because an entity was vetoed out of an identity.
-    pub withdrawn: usize,
-    /// Vetoes already in force: the pairing has no live claim to retract — never written, or
-    /// retracted by an earlier replay. A settled decision is not a failure.
-    pub settled: usize,
-}
-
-/// Apply the recorded verdicts to the current graph, newest verdict per pair first.
-pub async fn replay(
-    conn: &DatabaseConnection,
-    graph: &KnowledgeGraph,
-) -> anyhow::Result<ReplayReport> {
-    // Only a person's decisions are replayed. The model's folds and earlier replays are history.
-    let merges = model::knowledge_verdicts::Entity::find()
-        .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
-        .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Merge.as_str()))
-        .order_by_asc(model::knowledge_verdicts::Column::Id)
-        .all(conn)
-        .await?;
-
-    // Latest by id wins for a pair, and chains still apply oldest first.
-    let mut latest: BTreeMap<(i32, i32), model::knowledge_verdicts::Model> = BTreeMap::new();
-    for verdict in merges {
-        let (Some(winner), Some(loser)) = (verdict.winner_origin, verdict.loser_origin) else {
-            continue;
-        };
-        latest.insert(pair_key(winner, loser), verdict);
-    }
-    let mut ordered: Vec<model::knowledge_verdicts::Model> = latest.into_values().collect();
-    ordered.sort_by_key(|verdict| verdict.id);
-
-    let mut report = ReplayReport::default();
-    for verdict in ordered {
-        // Tombstones count: a verdict applied in this generation leaves the loser's row behind,
-        // pointing at the winner. "Already" and "gone" must not be confused.
-        let (Some(winner_origin), Some(loser_origin)) =
-            (verdict.winner_origin, verdict.loser_origin)
-        else {
-            continue;
-        };
-        let (Some(winner), Some(loser)) = (
-            entity_with_origin(conn, winner_origin).await?,
-            entity_with_origin(conn, loser_origin).await?,
-        ) else {
-            report.gone += 1;
-            continue;
-        };
-        // Follow the tombstones: the model may have folded the person's winner into something else,
-        // and the decision still means "these two are one" about wherever they are now.
-        let (Some(winner), Some(loser)) = (
-            canonical(conn, winner.id).await?,
-            canonical(conn, loser.id).await?,
-        ) else {
-            report.gone += 1;
-            continue;
-        };
-        if winner == loser {
-            report.already += 1;
-            continue;
-        }
-        match graph.merge(loser, winner, Cause::Replayed).await? {
-            Outcome::Merged => report.applied += 1,
-            Outcome::AlreadyMerged => report.already += 1,
-            Outcome::RefusedSharedIllumination => report.refused += 1,
-        }
-    }
-
-    // Vetoes last. A merge decides *which* entity a verdict is about, so a veto is applied to
-    // wherever its subject ended up, not to the entity the editor happened to be looking at.
-    let vetoes = model::knowledge_verdicts::Entity::find()
-        .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
-        .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
-        .order_by_asc(model::knowledge_verdicts::Column::Id)
-        .all(conn)
-        .await?;
-    for verdict in vetoes {
-        match withdraw(conn, graph, &verdict).await? {
-            Some(0) => report.settled += 1,
-            Some(retracted) => report.withdrawn += retracted,
-            None => report.gone += 1,
-        }
-    }
-    Ok(report)
-}
-
-/// Record that an entity is *not* an identity.
-///
-/// Idempotent per subject and identity, and deliberately not per generation: a fold recurs every
-/// build, but a veto is a standing decision about the graph.
-pub async fn veto(
-    conn: &DatabaseConnection,
-    entity_id: i32,
-    scheme: &str,
-    external_id: &str,
-    note: Option<&str>,
-) -> anyhow::Result<bool> {
-    let Some(entity) = model::knowledge_entity::Entity::find_by_id(entity_id)
-        .one(conn)
-        .await?
-    else {
-        anyhow::bail!("no knowledge entity {entity_id}");
-    };
-    let Some(subject) = entity.origin_observation_id else {
-        anyhow::bail!("entity {entity_id} has no origin observation, so no verdict can name it");
-    };
-    let generation = current_generation(conn).await?;
-    let existing = model::knowledge_verdicts::Entity::find()
-        .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
-        .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
-        .filter(model::knowledge_verdicts::Column::SubjectOrigin.eq(subject))
-        .filter(model::knowledge_verdicts::Column::IdentityScheme.eq(scheme))
-        .filter(model::knowledge_verdicts::Column::IdentityExternalId.eq(external_id))
-        .one(conn)
-        .await?;
-    if existing.is_some() {
-        return Ok(false);
-    }
-    model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
-        generation: Set(generation),
-        cause: Set(Cause::Repair),
-        kind: Set(Kind::Veto),
-        subject_origin: Set(Some(subject)),
-        identity_scheme: Set(Some(scheme.to_string())),
-        identity_external_id: Set(Some(external_id.to_string())),
-        note: Set(note.map(str::to_string)),
-        ..Default::default()
-    })
-    .exec(conn)
-    .await?;
-    Ok(true)
-}
-
-/// Lift a veto. Nothing is un-retracted: lifting stops suppressing a decision, and the next resolve
-/// re-derives the claim as a new row, because claims are append-only.
-pub async fn unveto(conn: &DatabaseConnection, verdict_id: i32) -> anyhow::Result<bool> {
-    let deleted = model::knowledge_verdicts::Entity::delete_many()
-        .filter(model::knowledge_verdicts::Column::Id.eq(verdict_id))
-        .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
-        .exec(conn)
-        .await?
-        .rows_affected;
-    Ok(deleted > 0)
-}
-
-/// The `(entity, scheme, external_id)` triples a live veto forbids.
-///
-/// Admission asks this before a claim is written: a claim that is never written cannot leave a window
-/// where the graph asserts something an editor has rejected, and does not need a replay to undo.
-pub async fn vetoed(
-    conn: &DatabaseConnection,
-) -> anyhow::Result<std::collections::HashSet<(i32, String, String)>> {
-    let mut out = std::collections::HashSet::new();
-    let vetoes = model::knowledge_verdicts::Entity::find()
-        .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
-        .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
-        .all(conn)
-        .await?;
-    for verdict in vetoes {
-        let (Some(subject), Some(scheme), Some(external)) = (
-            verdict.subject_origin,
-            verdict.identity_scheme.clone(),
-            verdict.identity_external_id.clone(),
-        ) else {
-            continue;
-        };
-        let Some(row) = entity_with_origin(conn, subject).await? else {
-            continue;
-        };
-        let Some(entity_id) = canonical(conn, row.id).await? else {
-            continue;
-        };
-        out.insert((entity_id, scheme, external));
-    }
-    Ok(out)
-}
-
-/// Retract the live claim holding a vetoed identity for its entity, then reproject it.
-///
-/// The veto names a **pairing**, so the retraction does too: there is at most one live claim for
-/// `(entity, identity)`, whatever route produced it. `None` when the subject origin no longer names a
-/// live entity; `Some(0)` when the decision already holds and there is nothing to retract.
-///
-/// The retraction and the projection are one act: `status` and `confidence` are functions of the
-/// live claims, so withdrawing a claim without reprojecting leaves the entity `identified` on
-/// nothing — and that is the row the API serves and `proximity auto_merge` ranks.
-pub(crate) async fn withdraw(
-    conn: &DatabaseConnection,
-    graph: &KnowledgeGraph,
-    verdict: &model::knowledge_verdicts::Model,
-) -> anyhow::Result<Option<usize>> {
-    let (Some(subject), Some(scheme), Some(external)) = (
-        verdict.subject_origin,
-        verdict.identity_scheme.as_deref(),
-        verdict.identity_external_id.as_deref(),
-    ) else {
-        return Ok(Some(0));
-    };
-    let Some(row) = entity_with_origin(conn, subject).await? else {
-        return Ok(None);
-    };
-    let Some(entity_id) = canonical(conn, row.id).await? else {
-        return Ok(None);
-    };
-    let Some(identity) = model::knowledge_identity::Entity::find()
-        .filter(model::knowledge_identity::Column::Scheme.eq(scheme))
-        .filter(model::knowledge_identity::Column::ExternalId.eq(external))
-        .one(conn)
-        .await?
-    else {
-        return Ok(Some(0));
-    };
-    let retracted = model::knowledge_claims::Entity::update_many()
-        .col_expr(
-            model::knowledge_claims::Column::RetractedAt,
-            sea_orm::sea_query::Expr::current_timestamp(),
-        )
-        .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(entity_id))
-        .filter(model::knowledge_claims::Column::KnowledgeIdentityId.eq(identity.id))
-        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
-        .exec(conn)
-        .await?
-        .rows_affected as usize;
-    if retracted > 0 {
-        graph.update_projection(entity_id).await?;
-    }
-    Ok(Some(retracted))
-}
-
-/// The entity this origin names now, live or tombstoned.
-pub(crate) async fn entity_with_origin(
-    conn: &DatabaseConnection,
-    origin: i32,
-) -> anyhow::Result<Option<model::knowledge_entity::Model>> {
-    Ok(model::knowledge_entity::Entity::find()
-        .filter(model::knowledge_entity::Column::OriginObservationId.eq(origin))
-        .one(conn)
-        .await?)
-}
-
-/// Follow tombstones to the live entity a row ends at. Bounded: a cycle is not expressible in the
-/// schema, but the reader must not spin if one somehow appears.
-pub(crate) async fn canonical(
-    conn: &DatabaseConnection,
-    id: i32,
-) -> anyhow::Result<Option<i32>> {
-    let mut current = id;
-    for _ in 0..8 {
-        let Some(row) = model::knowledge_entity::Entity::find_by_id(current)
-            .one(conn)
-            .await?
-        else {
-            return Ok(None);
-        };
-        match row.merged_into_id {
-            Some(next) => current = next,
-            None => return Ok(Some(current)),
-        }
-    }
-    Ok(None)
-}
+pub use replay::ReplayReport;
+pub use store::VerdictStore;
+pub(crate) use store::pair_key;
 
 #[cfg(test)]
 mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
     use crate::knowledge::evidence::ClaimBasis;
+    use crate::knowledge::graph::merge::Cause;
+    use crate::knowledge::graph::KnowledgeGraph;
+    use crate::model;
+    use crate::model::knowledge_verdicts::Kind;
 
     use crate::test_support::{db_or_skip, fixtures};
 
@@ -366,18 +97,18 @@ mod tests {
         let other = seed_claim(&db, "Q (Star Trek)", "Q131472411").await;
 
         assert!(
-            veto(&db.conn, vetoed_entity, "wikidata", "Q131472411", Some("a short fiction"))
+            store.veto(vetoed_entity, "wikidata", "Q131472411", Some("a short fiction"))
                 .await
                 .unwrap()
         );
         assert!(
-            !veto(&db.conn, vetoed_entity, "wikidata", "Q131472411", None)
+            !store.veto(vetoed_entity, "wikidata", "Q131472411", None)
                 .await
                 .unwrap(),
             "recording the same veto twice is a no-op"
         );
 
-        let report = replay(&db.conn, &store).await.unwrap();
+        let report = store.replay_verdicts().await.unwrap();
         assert_eq!(report.withdrawn, 1, "{report:?}");
         assert_eq!(live_claims(&db, vetoed_entity).await, 0);
         assert_eq!(live_claims(&db, other).await, 1, "the pair, not the identity");
@@ -407,10 +138,10 @@ mod tests {
             crate::knowledge::Status::Identified
         );
 
-        veto(&db.conn, entity_id, "wikidata", "Q123737256", None)
+        store.veto(entity_id, "wikidata", "Q123737256", None)
             .await
             .unwrap();
-        let report = replay(&db.conn, &store).await.unwrap();
+        let report = store.replay_verdicts().await.unwrap();
         assert_eq!(report.withdrawn, 1, "{report:?}");
 
         let entity = store.get(entity_id).await.unwrap();
@@ -422,7 +153,7 @@ mod tests {
         assert_eq!(entity.confidence, None);
 
         // A second replay: the decision holds, and says so instead of reporting a zero withdrawal.
-        let report = replay(&db.conn, &store).await.unwrap();
+        let report = store.replay_verdicts().await.unwrap();
         assert_eq!(report.settled, 1, "{report:?}");
         assert_eq!(report.withdrawn, 0, "{report:?}");
     }
@@ -434,20 +165,20 @@ mod tests {
         let store = KnowledgeGraph::new(&db);
         let entity_id = seed_claim(&db, "Q", "Q131472411").await;
         let subject = fixtures::origin(&db, entity_id).await;
-        veto(&db.conn, entity_id, "wikidata", "Q131472411", None)
+        store.veto(entity_id, "wikidata", "Q131472411", None)
             .await
             .unwrap();
-        assert_eq!(replay(&db.conn, &store).await.unwrap().withdrawn, 1);
+        assert_eq!(store.replay_verdicts().await.unwrap().withdrawn, 1);
 
         // A rebuild: entities, identities and claims are recreated and the parser claims again.
         crate::knowledge::snapshot::reset(&db).await.unwrap();
         let reborn = seed_claim(&db, "Q", "Q131472411").await;
         fixtures::set_origin(&db, reborn, subject).await;
 
-        let report = replay(&db.conn, &store).await.unwrap();
+        let report = store.replay_verdicts().await.unwrap();
         assert_eq!(report.withdrawn, 1, "against the reborn claim: {report:?}");
         assert_eq!(live_claims(&db, reborn).await, 0);
-        assert_eq!(vetoed(&db.conn).await.unwrap().len(), 1, "admission still knows it");
+        assert_eq!(store.vetoed().await.unwrap().len(), 1, "admission still knows it");
     }
 
     /// Lifting is deletion. Nothing is un-retracted: the claim returns by being re-derived.
@@ -456,10 +187,10 @@ mod tests {
         db_or_skip!(db);
         let store = KnowledgeGraph::new(&db);
         let entity_id = seed_claim(&db, "Los sorias", "Q122707294").await;
-        veto(&db.conn, entity_id, "wikidata", "Q122707294", Some("the edition, not the work"))
+        store.veto(entity_id, "wikidata", "Q122707294", Some("the edition, not the work"))
             .await
             .unwrap();
-        replay(&db.conn, &store).await.unwrap();
+        store.replay_verdicts().await.unwrap();
         assert_eq!(live_claims(&db, entity_id).await, 0);
 
         let id = model::knowledge_verdicts::Entity::find()
@@ -469,15 +200,15 @@ mod tests {
             .unwrap()
             .unwrap()
             .id;
-        assert!(unveto(&db.conn, id).await.unwrap());
-        assert!(!unveto(&db.conn, id).await.unwrap(), "already gone");
-        assert!(vetoed(&db.conn).await.unwrap().is_empty());
+        assert!(store.unveto(id).await.unwrap());
+        assert!(!store.unveto(id).await.unwrap(), "already gone");
+        assert!(store.vetoed().await.unwrap().is_empty());
         assert_eq!(
             live_claims(&db, entity_id).await,
             0,
             "lifting is passive; the next resolve re-derives"
         );
-        assert_eq!(replay(&db.conn, &store).await.unwrap().withdrawn, 0);
+        assert_eq!(store.replay_verdicts().await.unwrap().withdrawn, 0);
     }
 
     /// Status and confidence are functions of the live claims. Retracting one without reprojecting
@@ -505,10 +236,10 @@ mod tests {
             crate::knowledge::Status::Identified
         );
 
-        veto(&db.conn, entity_id, "wikidata", "Q131472411", None)
+        store.veto(entity_id, "wikidata", "Q131472411", None)
             .await
             .unwrap();
-        assert_eq!(replay(&db.conn, &store).await.unwrap().withdrawn, 1);
+        assert_eq!(store.replay_verdicts().await.unwrap().withdrawn, 1);
 
         let entity = store.get(entity_id).await.unwrap();
         assert_eq!(
@@ -554,10 +285,10 @@ mod tests {
             (store.get(entity_id).await.unwrap().confidence.unwrap() - 1.0).abs() < 1e-6
         );
 
-        veto(&db.conn, entity_id, "wikidata", "Q8093", None)
+        store.veto(entity_id, "wikidata", "Q8093", None)
             .await
             .unwrap();
-        replay(&db.conn, &store).await.unwrap();
+        store.replay_verdicts().await.unwrap();
 
         let entity = store.get(entity_id).await.unwrap();
         assert_eq!(
@@ -592,7 +323,7 @@ mod tests {
         assert_eq!(logged.len(), 1);
         assert_eq!(logged[0].cause, crate::model::knowledge_verdicts::Cause::ProximityAuto);
 
-        let report = replay(&db.conn, &store).await.expect("replay");
+        let report = store.replay_verdicts().await.expect("replay");
         assert_eq!(report, ReplayReport::default(), "nothing to replay");
     }
 
@@ -614,7 +345,7 @@ mod tests {
         fixtures::set_origin(&db, reborn_winner, winner_origin).await;
         fixtures::set_origin(&db, reborn_loser, loser_origin).await;
 
-        let report = replay(&db.conn, &store).await.expect("replay");
+        let report = store.replay_verdicts().await.expect("replay");
 
         assert_eq!(report.applied, 1, "{report:?}");
         let tombstone = model::knowledge_entity::Entity::find_by_id(reborn_loser)
@@ -650,7 +381,7 @@ mod tests {
             .await
             .unwrap();
 
-        let report = replay(&db.conn, &store).await.expect("replay");
+        let report = store.replay_verdicts().await.expect("replay");
 
         assert_eq!(report.applied, 1, "{report:?}");
         assert_eq!(report.gone, 0, "{report:?}");
@@ -675,7 +406,7 @@ mod tests {
         let loser = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         store.merge(loser, winner, Cause::Repair).await.unwrap();
 
-        let report = replay(&db.conn, &store).await.expect("replay");
+        let report = store.replay_verdicts().await.expect("replay");
 
         assert_eq!(report.already, 1, "{report:?}");
         assert_eq!(report.applied, 0, "{report:?}");
@@ -699,7 +430,7 @@ mod tests {
         .await
         .unwrap();
 
-        let report = replay(&db.conn, &store).await.expect("replay");
+        let report = store.replay_verdicts().await.expect("replay");
 
         assert_eq!(report.gone, 1, "{report:?}");
         assert_eq!(report.applied, 0, "{report:?}");

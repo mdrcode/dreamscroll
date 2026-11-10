@@ -2,12 +2,12 @@
 //!
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
 //! onto one goes through [`KnowledgeGraph`], and the handle itself never leaves this module tree — the
-//! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`)
+//! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`, `verdicts`)
 //! are `pub(super)` because only the passes beside the facade read them. Identity and claim writes are
 //! methods ([`KnowledgeGraph::identity_for_link`], [`KnowledgeGraph::upsert_identity`],
 //! [`KnowledgeGraph::assert`]), so `helper` and the resolver hold a graph, not a store. There is no
-//! connection getter: every pass that needs the pool — `link_illumination`, `proximity`, `verdicts` —
-//! takes it as an argument. Outside `graph`, a caller sees [`KnowledgeGraph`]'s methods and nothing
+//! connection getter: `link_illumination` and `proximity` take the pool as an argument, and the two
+//! stores hold their own. Outside `graph`, a caller sees [`KnowledgeGraph`]'s methods and nothing
 //! else.
 
 use std::collections::HashSet;
@@ -19,6 +19,7 @@ use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
 use crate::knowledge::evidence::{ClaimDraft, DraftIdentity, Evidence, PlatformLink, Stored};
 use crate::knowledge::linker::Linker;
+use crate::knowledge::verdicts::{ReplayReport, VerdictStore};
 use crate::model;
 
 
@@ -42,6 +43,8 @@ pub struct KnowledgeGraph {
     pub(super) blocker: Option<Arc<dyn Blocker>>,
     pub(super) decider: Option<Arc<dyn Linker>>,
     pub(super) evidence: Evidence,
+    /// Every write to `knowledge_verdicts`; the merge below writes its log row through it.
+    pub(super) verdicts: VerdictStore,
 }
 
 impl KnowledgeGraph {
@@ -51,6 +54,7 @@ impl KnowledgeGraph {
             blocker: None,
             decider: None,
             evidence: Evidence::from_handle(db),
+            verdicts: VerdictStore::from_handle(db),
         }
     }
 
@@ -107,6 +111,32 @@ impl KnowledgeGraph {
         vetoes: &HashSet<(i32, String, String)>,
     ) -> anyhow::Result<Stored> {
         self.evidence.assert(draft, vetoes).await
+    }
+
+    /// Apply the recorded decisions to a rebuilt graph. See [`VerdictStore::replay`].
+    pub async fn replay_verdicts(&self) -> anyhow::Result<ReplayReport> {
+        self.verdicts.replay(self).await
+    }
+
+    /// Record that an entity is *not* an identity; the next replay withdraws its claim.
+    pub async fn veto(
+        &self,
+        entity_id: i32,
+        scheme: &str,
+        external_id: &str,
+        note: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        self.verdicts.veto(entity_id, scheme, external_id, note).await
+    }
+
+    /// Lift a veto. The next resolve may claim the identity again.
+    pub async fn unveto(&self, verdict_id: i32) -> anyhow::Result<bool> {
+        self.verdicts.unveto(verdict_id).await
+    }
+
+    /// The `(entity, scheme, external_id)` pairings a live veto forbids, for admission.
+    pub(crate) async fn vetoed(&self) -> anyhow::Result<HashSet<(i32, String, String)>> {
+        self.verdicts.vetoed().await
     }
 
     /// Point a user's observation to the KnowledgeGraph entity it belongs to.

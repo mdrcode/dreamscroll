@@ -21,7 +21,7 @@ pub struct LinkStats {
     pub created: usize,
     /// Pending observations the Linker returned no decision for.
     pub left_pending: usize,
-    /// Claims a veto "verdict" refused — [`crate::knowledge::verdicts::vetoed`]
+    /// Claims a veto "verdict" refused — `vetoed` in the verdict store.
     pub vetoed: usize,
 }
 
@@ -117,11 +117,10 @@ mod unit {
 
     /// The public path for one illumination: the helper owns the composition.
     async fn link_illumination(
-        db: &DbHandle,
         store: &KnowledgeGraph,
         illumination: &model::illumination::ModelEx,
     ) -> anyhow::Result<LinkStats> {
-        crate::knowledge::helper::link_illumination(&db.conn, store, illumination).await
+        crate::knowledge::helper::link_illumination(store, illumination).await
     }
 
     /// The shape `link_illumination` needs: one illumination with its observations loaded.
@@ -170,7 +169,7 @@ mod unit {
 
         let loaded = load_illumination(&db, illumination).await;
         let inert = linking_store(&db, Arc::new(NoDecisions)).await;
-        let stats = link_illumination(&db, &inert, &loaded).await.unwrap();
+        let stats = link_illumination(&inert, &loaded).await.unwrap();
         assert_eq!(stats.attached, 0, "nothing decided, nothing written");
         assert_eq!(stats.created, 0);
         assert_eq!(stats.left_pending, 1, "and it says it was not told");
@@ -186,7 +185,7 @@ mod unit {
             Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
         )
         .await;
-        let stats = link_illumination(&db, &linking, &loaded).await.unwrap();
+        let stats = link_illumination(&linking, &loaded).await.unwrap();
         assert_eq!(stats.created, 1, "the linker it was built with decides");
         assert_eq!(stats.left_pending, 0, "every pending observation decided");
     }
@@ -220,7 +219,7 @@ mod unit {
         let loaded = load_illumination(&db, illumination).await;
 
         let store = linking_store(&db, Arc::new(Foreign)).await;
-        let error = link_illumination(&db, &store, &loaded).await.unwrap_err();
+        let error = link_illumination(&store, &loaded).await.unwrap_err();
         assert!(error.to_string().contains("not pending"), "{error}");
         assert_eq!(
             entity::Entity::find().count(&db.conn).await.unwrap(),
@@ -240,7 +239,7 @@ mod unit {
         let loaded = load_illumination(&db, illumination).await;
 
         let store = KnowledgeGraph::new(&db);
-        let error = link_illumination(&db, &store, &loaded).await.unwrap_err();
+        let error = link_illumination(&store, &loaded).await.unwrap_err();
         assert!(error.to_string().contains("without a linker"), "{error}");
     }
 
@@ -264,7 +263,7 @@ mod unit {
         assert!(!unloaded.observations.is_loaded());
 
         let store = linking_store(&db, Arc::new(NoDecisions)).await;
-        let error = link_illumination(&db, &store, &unloaded).await.unwrap_err();
+        let error = link_illumination(&store, &unloaded).await.unwrap_err();
         assert!(
             error.to_string().contains("no observations loaded"),
             "{error}"
@@ -302,7 +301,7 @@ mod unit {
         )
         .await;
         let loaded = load_illumination(&db, first.illumination_id).await;
-        link_illumination(&db, &store, &loaded).await.unwrap();
+        link_illumination(&store, &loaded).await.unwrap();
         assert_eq!(live_claims().await, 1);
 
         let entity_id = entity::Entity::find()
@@ -311,10 +310,11 @@ mod unit {
             .unwrap()
             .unwrap()
             .id;
-        crate::knowledge::verdicts::veto(&db.conn, entity_id, "x_twitter", "tsoding", None)
+        store
+            .veto(entity_id, "x_twitter", "tsoding", None)
             .await
             .unwrap();
-        crate::knowledge::verdicts::replay(&db.conn, &store)
+        store.replay_verdicts()
             .await
             .unwrap();
         assert_eq!(
@@ -336,7 +336,7 @@ mod unit {
         )
         .await;
         let loaded = load_illumination(&db, second.illumination_id).await;
-        let stats = link_illumination(&db, &store, &loaded).await.unwrap();
+        let stats = link_illumination(&store, &loaded).await.unwrap();
         assert_eq!(
             stats.vetoed, 1,
             "the capture writer asked the veto: {stats:?}"
