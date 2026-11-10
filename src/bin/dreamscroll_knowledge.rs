@@ -155,6 +155,8 @@ struct MergeArgs {
     yes: bool,
     #[argh(switch, description = "print JSON")]
     json: bool,
+    #[argh(option, description = "why these are one thing; stored on the verdict")]
+    note: Option<String>,
 }
 
 #[derive(FromArgs)]
@@ -205,7 +207,11 @@ struct ProximityScanArgs {}
 #[derive(FromArgs)]
 #[argh(subcommand, name = "auto-merge")]
 #[argh(description = "fold the open proximities that look like one thing, on their own")]
-struct ProximityAutoMergeArgs {}
+struct ProximityAutoMergeArgs {
+    #[argh(switch, short = 'y')]
+    #[argh(description = "apply the folds (otherwise it is a dry run)")]
+    yes: bool,
+}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "list")]
@@ -213,6 +219,13 @@ struct ProximityAutoMergeArgs {}
 struct ProximityListArgs {
     #[argh(option, default = "50", description = "maximum rows to show")]
     limit: usize,
+    #[argh(
+        option,
+        description = "only this status: open, merge_pending, merged"
+    )]
+    status: Option<String>,
+    #[argh(switch, description = "only open pairs")]
+    open: bool,
     #[argh(switch, description = "print JSON")]
     json: bool,
 }
@@ -617,6 +630,7 @@ async fn main() -> anyhow::Result<()> {
                 "evidence": preview.evidence,
                 "shared_illuminations": preview.shared_illuminations,
                 "outcome": "dry_run",
+                "note": args.note,
             });
             if !args.json {
                 println!(
@@ -650,7 +664,14 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             let cause = knowledge::verdicts::Cause::Repair;
-            match store.merge(args.loser, args.winner, cause).await? {
+            match store
+                .merge_with_note(
+                    args.loser,
+                    args.winner,
+                    cause,
+                    args.note.as_deref(),
+                )
+                .await? {
                 knowledge::graph::merge::Outcome::Merged => {
                     report["outcome"] = serde_json::json!("merged");
                     if args.json {
@@ -750,16 +771,39 @@ async fn main() -> anyhow::Result<()> {
                         knowledge::proximity::scan(&db.conn, &scoring).await?
                     );
                 }
-                ProximityCommand::AutoMerge(_) => {
+                ProximityCommand::AutoMerge(args) => {
                     let report =
-                        knowledge::proximity::auto_merge(&db.conn, &store, &scoring).await?;
-                    println!(
-                        "auto-merged {} · refused {} · moot {} · undecided {}",
-                        report.merged, report.refused, report.moot, report.undecided
-                    );
+                        knowledge::proximity::auto_merge(&db.conn, &store, &scoring, args.yes)
+                            .await?;
+                    if args.yes {
+                        println!(
+                            "auto-merged {} · refused {} · moot {} · undecided {}",
+                            report.merged, report.refused, report.moot, report.undecided
+                        );
+                    } else {
+                        println!(
+                            "would merge {} · refused {} · moot {} · undecided {} · dry run; pass --yes",
+                            report.merged, report.refused, report.moot, report.undecided
+                        );
+                    }
                 }
                 ProximityCommand::List(args) => {
-                    let rows = stats::proximities::proximity_list(&db, args.limit).await?;
+                    let filter = match (args.open, args.status.as_deref()) {
+                        (true, Some(_)) => {
+                            anyhow::bail!("--open and --status are mutually exclusive")
+                        }
+                        (true, None) => Some(stats::proximities::Status::Open),
+                        (false, Some(value)) => Some(
+                            stats::proximities::Status::parse(value).ok_or_else(|| {
+                                anyhow::anyhow!(
+                                    "unknown status {value:?}; expected open, merge_pending or merged"
+                                )
+                            })?,
+                        ),
+                        (false, None) => None,
+                    };
+                    let rows =
+                        stats::proximities::proximity_list(&db, args.limit, filter).await?;
                     if args.json {
                         let values: Vec<serde_json::Value> =
                             rows.iter().map(|row| row.to_json()).collect();
@@ -928,30 +972,31 @@ async fn main() -> anyhow::Result<()> {
                         args.note.as_deref(),
                     )
                     .await?;
-                let effect = if report.withdrawn == 0 {
-                    "settled".to_string()
-                } else {
-                    format!("withdrawn {}", report.withdrawn)
-                };
                 println!(
-                    "{} · {effect}",
+                    "{} · entity {} · {}:{} · withdrew {} · note {:?}",
                     if report.recorded {
-                        "veto recorded"
+                        "veto_identity recorded"
                     } else {
-                        "veto already recorded"
-                    }
+                        "veto_identity already recorded"
+                    },
+                    args.entity,
+                    args.scheme,
+                    args.identity,
+                    report.withdrawn,
+                    args.note.as_deref().unwrap_or(""),
                 );
             }
             IdentityCommand::Unveto(args) => {
                 let store = knowledge::KnowledgeGraph::new(&db);
                 let lifted = store.unveto(args.id).await?;
                 println!(
-                    "{} — the next resolve may claim the identity again",
+                    "{} · verdict {}",
                     if lifted {
-                        "veto lifted"
+                        "veto_identity lifted"
                     } else {
-                        "no such veto"
-                    }
+                        "no such veto_identity"
+                    },
+                    args.id
                 );
             }
         },

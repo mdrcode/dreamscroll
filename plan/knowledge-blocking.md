@@ -302,7 +302,7 @@ link                   observations → entities
 verdicts replay        a person's recorded folds, applied to the new ids
 identity resolve       evidence: identities and claims
 proximity scan         derive the candidate batch from shared identities
-proximity auto-merge   answer the batch
+proximity auto-merge --yes   answer the batch (dry run without --yes)
 ```
 
 The order is not a preference in three of the six places:

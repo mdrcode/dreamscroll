@@ -15,7 +15,8 @@ use crate::model;
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct AutoMergeReport {
     /// Pairs this pass merged on its own — logged `proximity_auto`, re-derived every build. A
-    /// person's fold is `cause = repair` and is replayed; the two must not read the same.
+    /// person's fold is `cause = repair` and is replayed; the two must not read the same. In a dry
+    /// run this is the count that *would* merge.
     pub merged: usize,
     /// Pairs that looked like one thing and the shared-illumination rule refused.
     pub refused: usize,
@@ -27,12 +28,13 @@ pub struct AutoMergeReport {
 
 /// Fold the candidates that look like one thing on their own, and leave the rest as questions.
 ///
-/// `conn` must be the store's own connection: the batch is read through it. `scoring` is the store's
-/// policy, passed in rather than read from a facade.
+/// `apply` false is the preview: the same predicate, no writes. `conn` must be the store's own
+/// connection. `scoring` is the store's policy, passed in rather than read from a facade.
 pub async fn auto_merge(
     conn: &DatabaseConnection,
     graph: &KnowledgeGraph,
     scoring: &Scoring,
+    apply: bool,
 ) -> anyhow::Result<AutoMergeReport> {
     let mut report = AutoMergeReport::default();
     for (a, b) in candidates(conn).await? {
@@ -60,6 +62,15 @@ pub async fn auto_merge(
             .is_empty()
         {
             report.undecided += 1;
+            continue;
+        }
+        if !apply {
+            let preview = graph.merge_preview(loser.id, winner.id).await?;
+            if preview.shared_illuminations > 0 {
+                report.refused += 1;
+            } else {
+                report.merged += 1;
+            }
             continue;
         }
         match graph

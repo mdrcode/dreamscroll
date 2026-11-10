@@ -84,7 +84,7 @@ async fn merging_folds_the_pair_it_answers() {
     claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
     scan(&db.conn, &Heuristic::scoring()).await.unwrap();
 
-    let report = auto_merge(&db.conn, &store, &Heuristic::scoring()).await.expect("merge");
+    let report = auto_merge(&db.conn, &store, &Heuristic::scoring(), true).await.expect("merge");
 
     assert_eq!(report.merged, 1, "{report:?}");
     assert_eq!(
@@ -108,9 +108,30 @@ async fn merging_leaves_a_pair_it_cannot_claim() {
     claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
     scan(&db.conn, &Heuristic::scoring()).await.unwrap();
-    let report = auto_merge(&db.conn, &store, &Heuristic::scoring()).await.expect("merge");
+    let report = auto_merge(&db.conn, &store, &Heuristic::scoring(), true).await.expect("merge");
 
     assert_eq!(report.merged, 0, "{report:?}");
     assert_eq!(report.undecided, 1, "{report:?}");
     assert_eq!(batch_size(&db).await, 1);
+}
+
+/// The preview reports the fold without writing it.
+#[tokio::test]
+async fn a_dry_run_reports_without_folding() {
+    db_or_skip!(db);
+    let store = KnowledgeGraph::new(&db);
+    claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
+    scan(&db.conn, &Heuristic::scoring()).await.unwrap();
+
+    let report = auto_merge(&db.conn, &store, &Heuristic::scoring(), false)
+        .await
+        .expect("preview");
+
+    assert_eq!(report.merged, 1, "{report:?}");
+    let tombstones = model::knowledge_entity::Entity::find()
+        .filter(model::knowledge_entity::Column::MergedIntoId.is_not_null())
+        .count(&db.conn)
+        .await
+        .unwrap();
+    assert_eq!(tombstones, 0, "a dry run must not tombstone");
 }

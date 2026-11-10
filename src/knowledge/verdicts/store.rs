@@ -41,6 +41,7 @@ impl VerdictStore {
         cause: Cause,
         winner: &model::knowledge_entity::Model,
         loser: &model::knowledge_entity::Model,
+        note: Option<&str>,
     ) -> anyhow::Result<()> {
         let (Some(winner_origin), Some(loser_origin)) =
             (winner.origin_observation_id, loser.origin_observation_id)
@@ -65,6 +66,7 @@ impl VerdictStore {
             loser_origin: Set(Some(loser_origin)),
             winner_label: Set(Some(winner.name.clone())),
             loser_label: Set(Some(loser.name.clone())),
+            note: Set(note.map(str::to_string)),
             ..Default::default()
         })
         .exec(conn)

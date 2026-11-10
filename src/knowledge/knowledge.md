@@ -275,7 +275,8 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
   the index rows, all of it derived. Observations, captures, illuminations, the merge log
   (`knowledge_verdicts`) and the **fetch cache** are untouched. The teardown is therefore free: `reset`, then `link`, then
   `verdicts replay` (a person's folds, applied to the new ids), then `identity resolve --offline`
-  (identities and claims from cached answers), then `proximity scan` and `proximity auto-merge`. Six
+  (identities and claims from cached answers), then `proximity scan` and
+  `proximity auto-merge --yes`. Six
   commands, each one job, none invoking another — the order and its reasons are in
   `plan/knowledge-blocking.md` §Rebuild order. No transport, seconds.
 - `merge` folds one entity into another, tombstones the loser, and runs in a **transaction** — five

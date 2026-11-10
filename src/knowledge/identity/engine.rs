@@ -832,7 +832,7 @@ mod tests {
         crate::knowledge::proximity::scan(&db.conn, &scoring)
             .await
             .expect("scan");
-        let folded = crate::knowledge::proximity::auto_merge(&db.conn, &store, &scoring)
+        let folded = crate::knowledge::proximity::auto_merge(&db.conn, &store, &scoring, true)
             .await
             .expect("merge");
         assert_eq!(folded.merged, 1, "{folded:?}");
@@ -890,7 +890,7 @@ mod tests {
         crate::knowledge::proximity::scan(&db.conn, &scoring)
             .await
             .expect("scan");
-        let folded = crate::knowledge::proximity::auto_merge(&db.conn, &store, &scoring)
+        let folded = crate::knowledge::proximity::auto_merge(&db.conn, &store, &scoring, true)
             .await
             .expect("merge");
         assert_eq!(folded.merged, 0, "sharing an identity does not merge");

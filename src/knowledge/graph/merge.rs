@@ -70,8 +70,18 @@ pub(super) async fn merge_into(
     loser: i32,
     winner: i32,
     cause: Cause,
+    note: Option<&str>,
 ) -> anyhow::Result<Outcome> {
-    merge(conn, &graph.evidence, &graph.verdicts, loser, winner, cause).await
+    merge(
+        conn,
+        &graph.evidence,
+        &graph.verdicts,
+        loser,
+        winner,
+        cause,
+        note,
+    )
+    .await
 }
 
 /// What a merge would do. Free because [`merge_in_transaction`] and the facade both use it.
@@ -113,14 +123,25 @@ async fn merge(
     loser: i32,
     winner: i32,
     cause: Cause,
+    note: Option<&str>,
 ) -> anyhow::Result<Outcome> {
     // The transaction callback must be `'static`, so the handles are cloned (pool handles) rather
     // than borrowed: the claims move and the log row inside write on the transaction they are handed.
     let evidence = evidence.clone();
     let verdicts = verdicts.clone();
+    let note = note.map(str::to_string);
     conn.transaction(move |txn| {
         Box::pin(async move {
-            merge_in_transaction(txn, &evidence, &verdicts, loser, winner, cause).await
+            merge_in_transaction(
+                txn,
+                &evidence,
+                &verdicts,
+                loser,
+                winner,
+                cause,
+                note.as_deref(),
+            )
+            .await
         })
     })
     .await
@@ -134,6 +155,7 @@ async fn merge_in_transaction<C: ConnectionTrait>(
     loser: i32,
     winner: i32,
     cause: Cause,
+    note: Option<&str>,
 ) -> anyhow::Result<Outcome> {
     if loser == winner {
         return Ok(Outcome::AlreadyMerged);
@@ -192,7 +214,7 @@ async fn merge_in_transaction<C: ConnectionTrait>(
     ) {
         let generation = super::current_generation(conn).await?;
         verdicts
-            .record(conn, generation, cause, winner_row, loser_row)
+            .record(conn, generation, cause, winner_row, loser_row, note)
             .await?;
     }
 
@@ -220,6 +242,18 @@ mod tests {
     use crate::model::user_observed_entity as obs;
     use crate::test_support::db_or_skip;
     use crate::test_support::fixtures;
+
+    /// The tests predate the rationale; keep their call shape and pass no note.
+    async fn merge(
+        conn: &sea_orm::DatabaseConnection,
+        evidence: &Evidence,
+        verdicts: &VerdictStore,
+        loser: i32,
+        winner: i32,
+        cause: Cause,
+    ) -> anyhow::Result<Outcome> {
+        super::merge(conn, evidence, verdicts, loser, winner, cause, None).await
+    }
 
     async fn entity_with(db: &crate::database::DbHandle, label: &str) -> i32 {
         let id = entity::Entity::insert(entity::ActiveModel {

@@ -31,6 +31,24 @@ impl Status {
             Self::Open => "",
         }
     }
+
+    /// The wire word for filters; `open` is explicit here even though the text column is blank.
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "merged" => Some(Self::Merged),
+            "merge_pending" => Some(Self::MergePending),
+            "open" => Some(Self::Open),
+            _ => None,
+        }
+    }
+
+    pub fn filter_name(self) -> &'static str {
+        match self {
+            Self::Merged => "merged",
+            Self::MergePending => "merge_pending",
+            Self::Open => "open",
+        }
+    }
 }
 
 /// One candidate, readable.
@@ -86,10 +104,11 @@ impl ProximityRow {
 pub async fn proximity_list(
     db: &database::DbHandle,
     limit: usize,
+    status: Option<Status>,
 ) -> anyhow::Result<Vec<ProximityRow>> {
     let rows = db
         .conn
-        .query_all_raw(Statement::from_sql_and_values(
+        .query_all_raw(Statement::from_string(
             DatabaseBackend::Postgres,
             "SELECT p.id, \
                     p.score, \
@@ -111,9 +130,7 @@ pub async fn proximity_list(
                LEFT JOIN knowledge_identities i ON i.id = p.knowledge_identity_id \
               ORDER BY (h.entity_type = c.entity_type) DESC, \
                        p.score DESC NULLS LAST, \
-                       p.id \
-              LIMIT $1",
-            [(limit as i64).into()],
+                       p.id",
         ))
         .await?;
 
@@ -143,7 +160,8 @@ pub async fn proximity_list(
         }
     }
 
-    rows.iter()
+    let mut rows: Vec<ProximityRow> = rows
+        .iter()
         .map(|row| {
             let holder_origin: Option<i32> = row.try_get_by_index(7)?;
             let counterpart_origin: Option<i32> = row.try_get_by_index(8)?;
@@ -181,7 +199,10 @@ pub async fn proximity_list(
                 cause,
             })
         })
-        .collect()
+        .collect::<anyhow::Result<Vec<_>>>()?;
+    rows.retain(|row| status.map_or(true, |filter| row.status == filter));
+    rows.truncate(limit);
+    Ok(rows)
 }
 
 #[cfg(test)]
@@ -273,7 +294,7 @@ mod tests {
         )
         .await;
 
-        let rows = proximity_list(&db, 50).await.unwrap();
+        let rows = proximity_list(&db, 50, None).await.unwrap();
         let row = |id: i32| rows.iter().find(|row| row.id == id).expect("row");
 
         assert_eq!(row(pending_row).status, Status::MergePending);

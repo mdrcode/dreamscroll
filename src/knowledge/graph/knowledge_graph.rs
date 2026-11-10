@@ -209,7 +209,18 @@ impl KnowledgeGraph {
         winner: i32,
         cause: Cause,
     ) -> anyhow::Result<super::merge::Outcome> {
-        super::merge::merge_into(&self.db.conn, self, loser, winner, cause).await
+        self.merge_with_note(loser, winner, cause, None).await
+    }
+
+    /// The same fold, with a rationale stored on the verdict row. A person's merge should say why.
+    pub async fn merge_with_note(
+        &self,
+        loser: i32,
+        winner: i32,
+        cause: Cause,
+        note: Option<&str>,
+    ) -> anyhow::Result<super::merge::Outcome> {
+        super::merge::merge_into(&self.db.conn, self, loser, winner, cause, note).await
     }
 }
 

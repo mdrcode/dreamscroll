@@ -10,7 +10,7 @@ pub fn populate_env_if_test_or_dev() {
     // Use (e)println! since tracing might not be initialized
 
     match dotenvy::from_filename("config_local.env") {
-        Ok(_) => println!("Loaded config_local.env successfully"),
+        Ok(_) => eprintln!("Loaded config_local.env successfully"),
         Err(err) => eprintln!(
             "Failed to load config_local.env, will rely on env vars. Error: {:?}",
             err
@@ -18,7 +18,7 @@ pub fn populate_env_if_test_or_dev() {
     }
 
     match dotenvy::from_filename(".env") {
-        Ok(_) => println!("Loaded .env successfully"),
+        Ok(_) => eprintln!("Loaded .env successfully"),
         Err(err) => eprintln!(
             "Failed to load .env, will rely on env vars for secrets. Error: {:?}",
             err
