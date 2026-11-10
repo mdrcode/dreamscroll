@@ -154,6 +154,8 @@ const PROBE: &[&str] = &[
     "Donald J. Trump",
     "J. R. R. Tolkien",
     "Malcolm X",
+    "Đorđe",
+    "Ādam",
     "The Train Dreams",
     "An American Werewolf",
     "\"Fast Eddie\" Felson",
@@ -208,37 +210,40 @@ fn collapse(surface: &str) -> String {
 fn fold_case(surface: &str) -> String {
     let mut out = String::with_capacity(surface.len());
     for c in surface.chars() {
-        match latin_base(c) {
-            Some(base) => out.push(base),
-            None => out.extend(c.to_lowercase()),
+        // Lowercase first, then map: one arm per letter covers both cases, and an uppercase whose
+        // lowercase is in the table cannot slip through accented.
+        for lowercase in c.to_lowercase() {
+            match latin_base(lowercase) {
+                Some(base) => out.push(base),
+                None => out.push(lowercase),
+            }
         }
     }
     out
 }
 
-/// Latin-1 diacritics only. NFKC and full case folding need `unicode-normalization`; that is a new
-/// dependency and this table covers the corpus (Pokémon, Café, naïve, Şeyh…).
+/// The unaccented base of a Latin-1 diacritic, lowercase only.
+///
+/// `fold_case` lowercases first, so one arm per letter covers both cases: `Đ` arrives here as `đ`.
+/// NFKC and full case folding need `unicode-normalization`; that is a new dependency and this table
+/// covers the corpus (Pokémon, Café, naïve, Şeyh…).
 fn latin_base(c: char) -> Option<char> {
     Some(match c {
-        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' | 'À' | 'Á' | 'Â' | 'Ã' | 'Ä' | 'Å' => {
-            'a'
-        }
-        'ç' | 'ć' | 'č' | 'Ç' | 'Ć' | 'Č' => 'c',
-        'ď' | 'Đ' => 'd',
-        'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ė' | 'ę' | 'ě' | 'È' | 'É' | 'Ê' | 'Ë' => 'e',
-        'ğ' | 'Ğ' => 'g',
-        'ì' | 'í' | 'î' | 'ï' | 'ī' | 'į' | 'Ì' | 'Í' | 'Î' | 'Ï' => 'i',
-        'ł' | 'Ł' => 'l',
-        'ñ' | 'ń' | 'ň' | 'Ñ' | 'Ń' | 'Ň' => 'n',
-        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ő' | 'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' => {
-            'o'
-        }
-        'ř' | 'Ř' => 'r',
-        'ś' | 'š' | 'ş' | 'Ś' | 'Š' | 'Ş' => 's',
-        'ť' | 'Ť' => 't',
-        'ù' | 'ú' | 'û' | 'ü' | 'ū' | 'ů' | 'ű' | 'Ù' | 'Ú' | 'Û' | 'Ü' => 'u',
-        'ý' | 'ÿ' | 'Ý' => 'y',
-        'ž' | 'ź' | 'ż' | 'Ž' | 'Ź' | 'Ż' => 'z',
+        'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'ā' | 'ă' | 'ą' => 'a',
+        'ç' | 'ć' | 'č' => 'c',
+        'ď' | 'đ' => 'd',
+        'è' | 'é' | 'ê' | 'ë' | 'ē' | 'ė' | 'ę' | 'ě' => 'e',
+        'ğ' => 'g',
+        'ì' | 'í' | 'î' | 'ï' | 'ī' | 'į' => 'i',
+        'ł' => 'l',
+        'ñ' | 'ń' | 'ň' => 'n',
+        'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'ō' | 'ő' => 'o',
+        'ř' => 'r',
+        'ś' | 'š' | 'ş' => 's',
+        'ť' => 't',
+        'ù' | 'ú' | 'û' | 'ü' | 'ū' | 'ů' | 'ű' => 'u',
+        'ý' | 'ÿ' => 'y',
+        'ž' | 'ź' | 'ż' => 'z',
         _ => return None,
     })
 }
@@ -263,6 +268,16 @@ mod tests {
         assert_eq!(comparable("\"Train Dreams\""), "train dreams");
         assert_eq!(comparable("@bandy1803"), "bandy1803");
         assert_eq!(comparable("Spider-Man."), "spider-man");
+    }
+
+    /// Case folds before the table, so an uppercase whose lowercase is a mapped diacritic cannot
+    /// slip through accented. `Đorđe` used to fold to `dorđe` while `Dorde` folded to `dorde`.
+    #[test]
+    fn folds_uppercase_and_lowercase_diacritics_alike() {
+        assert_eq!(comparable("Đorđe"), "dorde");
+        assert_eq!(comparable("Đorđe"), comparable("Dorde"));
+        assert_eq!(comparable("Ādam"), comparable("Adam"));
+        assert_eq!(comparable("ŽŪŁĆ"), comparable("ZULC"));
     }
 
     #[test]
@@ -303,7 +318,7 @@ mod tests {
     /// in the diff.
     #[test]
     fn the_normalisation_fingerprint_moves_only_deliberately() {
-        assert_eq!(norm_fingerprint(), "norm-bf10ce058657dde6");
+        assert_eq!(norm_fingerprint(), "norm-25f79cd45c56bc24");
     }
 
     /// An honorific and initials are surface artifacts: no store names a person that way, and
