@@ -605,14 +605,28 @@ async fn main() -> anyhow::Result<()> {
                 }
                 ProximityCommand::List(args) => {
                     let rows = stats::proximities::proximity_list(&db, args.limit).await?;
+                    println!(
+                        "{:>5}  {:<13}  {:<14}  {:>5}  {:<16}  {:<15}  pair",
+                        "row", "status", "why", "score", "type", "basis"
+                    );
                     for row in rows {
                         let score = row.score.map_or("-".to_string(), |s| format!("{s:.2}"));
-                        let decided = if row.decided { "same" } else { "" };
+                        let status = row.status.as_str();
+                        let why = match (row.status, row.cause) {
+                            (stats::proximities::Status::Merged, Some(cause)) => cause.as_str(),
+                            (stats::proximities::Status::Merged, None) => "?",
+                            (stats::proximities::Status::MergePending, _) => {
+                                knowledge::verdicts::Cause::Repair.as_str()
+                            }
+                            _ => "",
+                        };
                         println!(
-                            "{:>5}  {decided:<5}{score:>5}  {:<16}  {:<15}  #{:<6} {}  \
+                            "{:>5}  {:<13}  {:<14}  {score:>5}  {:<16}  {:<15}  #{:<6} {}  \
                              \u{21c4}  #{:<6} {}  [{}]",
                             row.id,
-                            row.note,
+                            status,
+                            why,
+                            row.type_note,
                             row.basis,
                             row.holder_id,
                             row.holder,

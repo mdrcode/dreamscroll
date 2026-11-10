@@ -3,19 +3,42 @@
 //!
 //! A report over the tables rather than graph work, so it lives here with the other reports.
 
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
 use crate::database;
+use crate::knowledge::verdicts::{Cause, pair_key};
 use crate::model;
+
+/// What the graph says about the pair right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Status {
+    /// One side is a tombstone: the pair is folded.
+    Merged,
+    /// Both live, but a standing `repair` verdict says they should be folded and replay has not
+    /// applied it yet.
+    MergePending,
+    /// Both live, no standing merge decision.
+    Open,
+}
+
+impl Status {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Merged => "merged",
+            Self::MergePending => "merge_pending",
+            Self::Open => "",
+        }
+    }
+}
 
 /// One candidate, readable.
 pub struct ProximityRow {
     pub id: i32,
     pub score: Option<f32>,
     /// Why the pair is worth a second look — `same entity_type`, or blank.
-    pub note: String,
+    pub type_note: String,
     pub basis: String,
     /// The entity ids `merge` and `eval inspect` take; the names are for reading.
     pub holder_id: i32,
@@ -23,8 +46,10 @@ pub struct ProximityRow {
     pub holder: String,
     pub counterpart: String,
     pub identity: String,
-    /// A person has already said these two are one thing.
-    pub decided: bool,
+    pub status: Status,
+    /// The standing decision, when there is one: `repair` (a person) or `proximity_auto` (the
+    /// auto pass). `replayed` is an application event and is deliberately not a cause here.
+    pub cause: Option<Cause>,
 }
 
 /// One row per candidate. Ordered for triage, not by score: the highest scores are the pairs that
@@ -50,7 +75,9 @@ pub async fn proximity_list(
                     h.origin_observation_id, \
                     c.origin_observation_id, \
                     h.id, \
-                    c.id \
+                    c.id, \
+                    h.merged_into_id, \
+                    c.merged_into_id \
                FROM knowledge_proximities p \
                JOIN knowledge_entities h ON h.id = p.holder_id \
                JOIN knowledge_entities c ON c.id = p.counterpart_id \
@@ -63,41 +90,170 @@ pub async fn proximity_list(
         ))
         .await?;
 
-    // A verdict names two origins; a candidate row names two entities. This is where the two meet,
-    // and only for display — replay never asks about candidates.
-    let decided: BTreeSet<(i32, i32)> = model::knowledge_verdicts::Entity::find()
+    // A verdict names two origins; a candidate row names two entities. This is where the two meet.
+    // `repair` is standing and beats `proximity_auto`; `replayed` is an application event, not a
+    // cause, so it never enters the map.
+    let mut causes: BTreeMap<(i32, i32), Cause> = BTreeMap::new();
+    for verdict in model::knowledge_verdicts::Entity::find()
         .all(&db.conn)
         .await?
-        .into_iter()
-        .filter_map(|verdict| {
-            Some(crate::knowledge::verdicts::pair_key(
-                verdict.winner_origin?,
-                verdict.loser_origin?,
-            ))
-        })
-        .collect();
+    {
+        if verdict.kind != model::knowledge_verdicts::Kind::Merge {
+            continue;
+        }
+        let (Some(winner), Some(loser)) = (verdict.winner_origin, verdict.loser_origin) else {
+            continue;
+        };
+        let pair = pair_key(winner, loser);
+        match verdict.cause {
+            Cause::Repair => {
+                causes.insert(pair, Cause::Repair);
+            }
+            Cause::ProximityAuto => {
+                causes.entry(pair).or_insert(Cause::ProximityAuto);
+            }
+            Cause::Replayed => {}
+        }
+    }
 
     rows.iter()
         .map(|row| {
             let holder_origin: Option<i32> = row.try_get_by_index(7)?;
             let counterpart_origin: Option<i32> = row.try_get_by_index(8)?;
-            let decided = match (holder_origin, counterpart_origin) {
-                (Some(h), Some(c)) => decided
-                    .contains(&crate::knowledge::verdicts::pair_key(h, c)),
-                _ => false,
+            let holder_merged: Option<i32> = row.try_get_by_index(11)?;
+            let counterpart_merged: Option<i32> = row.try_get_by_index(12)?;
+
+            let cause = match (holder_origin, counterpart_origin) {
+                (Some(h), Some(c)) => causes.get(&pair_key(h, c)).copied(),
+                _ => None,
             };
+            let merged = holder_merged.is_some() || counterpart_merged.is_some();
+            let (status, cause) = if merged {
+                (Status::Merged, cause)
+            } else if cause == Some(Cause::Repair) {
+                (Status::MergePending, Some(Cause::Repair))
+            } else {
+                // An old `proximity_auto` verdict on two live entities is history: the auto pass
+                // re-derives every generation, so it is not a standing decision.
+                (Status::Open, None)
+            };
+
             Ok(ProximityRow {
                 id: row.try_get_by_index(0)?,
                 score: row.try_get_by_index(1)?,
-                note: row.try_get_by_index(2)?,
+                type_note: row.try_get_by_index(2)?,
                 basis: row.try_get_by_index(3)?,
                 holder: row.try_get_by_index(4)?,
                 counterpart: row.try_get_by_index(5)?,
                 identity: row.try_get_by_index(6)?,
                 holder_id: row.try_get_by_index(9)?,
                 counterpart_id: row.try_get_by_index(10)?,
-                decided,
+                status,
+                cause,
             })
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::test_support::{db_or_skip, fixtures};
+    use sea_orm::sea_query::Expr;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
+
+    async fn add_proximity(db: &database::DbHandle, holder: i32, counterpart: i32) -> i32 {
+        model::knowledge_proximities::Entity::insert(model::knowledge_proximities::ActiveModel {
+            holder_id: Set(holder),
+            counterpart_id: Set(counterpart),
+            knowledge_identity_id: Set(None),
+            basis: Set("shared_id".to_string()),
+            score: Set(Some(0.5)),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap()
+        .last_insert_id as i32
+    }
+
+    async fn add_verdict(db: &database::DbHandle, winner: i32, loser: i32, cause: Cause) {
+        model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
+            generation: Set(1),
+            cause: Set(cause),
+            kind: Set(model::knowledge_verdicts::Kind::Merge),
+            winner_origin: Set(Some(winner)),
+            loser_origin: Set(Some(loser)),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap();
+    }
+
+    async fn tombstone(db: &database::DbHandle, loser: i32, winner: i32) {
+        model::knowledge_entity::Entity::update_many()
+            .col_expr(
+                model::knowledge_entity::Column::MergedIntoId,
+                Expr::value(Some(winner)),
+            )
+            .filter(model::knowledge_entity::Column::Id.eq(loser))
+            .exec(&db.conn)
+            .await
+            .unwrap();
+    }
+
+    /// `status` is the graph fact, `cause` the standing decision: a repair with both sides live is
+    /// pending, an auto verdict on two live sides is history, and only an applied fold is merged.
+    #[tokio::test]
+    async fn status_separates_the_decision_from_its_application() {
+        db_or_skip!(db);
+
+        let pending_loser = fixtures::knowledge_entity_with_member(&db, "Pending Loser").await;
+        let pending_winner = fixtures::knowledge_entity_with_member(&db, "Pending Winner").await;
+        let pending_row = add_proximity(&db, pending_loser, pending_winner).await;
+        add_verdict(
+            &db,
+            fixtures::origin(&db, pending_winner).await,
+            fixtures::origin(&db, pending_loser).await,
+            Cause::Repair,
+        )
+        .await;
+
+        let auto_loser = fixtures::knowledge_entity_with_member(&db, "Auto Loser").await;
+        let auto_winner = fixtures::knowledge_entity_with_member(&db, "Auto Winner").await;
+        let auto_row = add_proximity(&db, auto_loser, auto_winner).await;
+        add_verdict(
+            &db,
+            fixtures::origin(&db, auto_winner).await,
+            fixtures::origin(&db, auto_loser).await,
+            Cause::ProximityAuto,
+        )
+        .await;
+        tombstone(&db, auto_loser, auto_winner).await;
+
+        let old_loser = fixtures::knowledge_entity_with_member(&db, "Old Loser").await;
+        let old_winner = fixtures::knowledge_entity_with_member(&db, "Old Winner").await;
+        let old_row = add_proximity(&db, old_loser, old_winner).await;
+        add_verdict(
+            &db,
+            fixtures::origin(&db, old_winner).await,
+            fixtures::origin(&db, old_loser).await,
+            Cause::ProximityAuto,
+        )
+        .await;
+
+        let rows = proximity_list(&db, 50).await.unwrap();
+        let row = |id: i32| rows.iter().find(|row| row.id == id).expect("row");
+
+        assert_eq!(row(pending_row).status, Status::MergePending);
+        assert_eq!(row(pending_row).cause, Some(Cause::Repair));
+
+        assert_eq!(row(auto_row).status, Status::Merged);
+        assert_eq!(row(auto_row).cause, Some(Cause::ProximityAuto));
+
+        assert_eq!(row(old_row).status, Status::Open);
+        assert_eq!(row(old_row).cause, None);
+    }
 }
