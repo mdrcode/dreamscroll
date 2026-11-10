@@ -14,10 +14,10 @@
 //!
 //! [`Scoring`]: crate::knowledge::scoring::Scoring
 
-mod answer;
+mod merge;
 mod scan;
 
-pub use answer::{MergeReport, merge};
+pub use merge::{MergeReport, merge};
 pub use scan::scan;
 
 /// Why a proximity was raised.
