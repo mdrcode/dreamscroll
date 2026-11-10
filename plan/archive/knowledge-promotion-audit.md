@@ -2,7 +2,7 @@
 
 **Status:** Complete for the local corpus (2,518 mentions, 2026-10-29). Data and scripts are local
 only; this doc holds the method and the aggregate findings.
-**Feeds:** [knowledge-canonical-entities.md](knowledge-canonical-entities.md) (promotion gate,
+**Feeds:** [knowledge-canonical-entities.md](../knowledge-canonical-entities.md) (promotion gate,
 phases P-a…P-d).
 **Second investigation:** [knowledge-promotion-audit-prod.md](knowledge-promotion-audit-prod.md) re-runs
 this classifier over the prod corpus (5,185 mentions) and compares the two; this document remains the
@@ -185,7 +185,7 @@ They are not a promotion risk; they are a **promotion blocker**: a publishable b
 type, and `unknown` is not one. Most of them are also *classes* rather than individuals (taxon, type
 of sport, class of anatomical entity, art genre, and `dry stone wall`, which Wikidata models as a
 subclass of `wall`) — the taxonomy assumes every row is an individual. See
-[knowledge-entity-types.md](knowledge-entity-types.md) for the resulting recommendation (`concept` +
+[knowledge-entity-types.md](../knowledge-entity-types.md) for the resulting recommendation (`concept` +
 `organism` + a `referent_form` axis, and the precise `wikidata_class` kept on the base row).
 
 ## What this says about the gate

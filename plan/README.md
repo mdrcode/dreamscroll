@@ -38,16 +38,9 @@ rather than rewriting it; history is the point.
 | [lexicon.md](lexicon.md) | Authoritative — names | The vocabulary: observations, knowledge entities, evidence; the verbs; the rename map and the names considered and rejected. Read before renaming anything in the graph. |
 | [knowledge-illumination-history.md](knowledge-illumination-history.md) | Implemented — 2026-11-01 | The graph keeps every reading of a capture, the view shows one. Trigger: a re-read described the wrong film and the correct reading was the superseded one. |
 | [knowledge-entity-types.md](knowledge-entity-types.md) | Open questions | Current v2 entity shape; next taxonomy pass deferred until the environment is fully v2-backfilled. |
-| [knowledge-wikidata-recommender.md](knowledge-wikidata-recommender.md) | Research | Wikipedia/Wikidata embeddings, SPARQL traversal, and disambiguation for entity linking. |
-| [knowledge-blocking.md](knowledge-blocking.md) | Research — design in progress | How the linker gets from an observation to candidates: retrieval channels, rank fusion, budgets, and the Blocker / Linker / Scoring boundary. |
-| [knowledge-canonical-entities.md](knowledge-canonical-entities.md) | Implemented — sharing and graph deferred | Observation → knowledge entity (no owner, projected from evidence) → evidence (append-only). Merge is a scored decision; identity is a claim. Names per [lexicon.md](lexicon.md). |
-| [knowledge-verdicts.md](knowledge-verdicts.md) | Implemented — 2026-11-05 | Rebuilds without losing a person's decisions: the proximity batch, the generation register, one modification log keyed by `origin_observation_id`, and `verdicts replay` / `list`. `distinct` deferred. |
+| [knowledge-canonical-entities.md](knowledge-canonical-entities.md) | Implemented — core graph; disclosure deferred | Observation → knowledge entity (no owner, projected from evidence) → evidence (append-only). Merge is a scored decision; identity is a claim. Names per [lexicon.md](lexicon.md). |
 | [knowledge-claim-management.md](knowledge-claim-management.md) | Implemented — 2026-11-09 | Two phases (settle an identity, assert an edge), both callers use both; a veto names a pairing, so the 27 handle-routed authority claims are retractable. No claim ids. |
 | [knowledge-resolution.md](knowledge-resolution.md) | Implemented (v14) | Cache-first resolution against evidence providers: the DB cache, the provider seam, Wikidata's three request kinds, confidence and corroboration. |
-| [knowledge-promotion-audit.md](knowledge-promotion-audit.md) | Complete — local corpus (2026-10-29) | Measured promotion candidates and risks across 2,518 local mentions, with the gate each bucket needs. Data lives under `localdev/analysis/entity-promotion/`. |
-| [knowledge-promotion-audit-prod.md](knowledge-promotion-audit-prod.md) | Complete — prod corpus (2026-10-30) | Second investigation: the same classifier over 5,185 prod mentions, with a local-vs-prod comparison and the type/kind recommendation. |
-| [knowledge-promotion-frontier.md](knowledge-promotion-frontier.md) | Analysis — design input | What the 16% non-promoted mentions are, and the evidence each kind needs: collisions split rather than held, handle-first identity, type-verified authority lookup. |
-| [knowledge-evidence-prototype.md](knowledge-evidence-prototype.md) | Prototype — assessed, not shipped | Multi-dimensional evidence model, resolution strategy, measured coverage on prod, and the failure catalogue. Supersedes the single-verdict classifier for prototyping. |
 | [screenshot_3rd_party.md](screenshot_3rd_party.md) | Research | Screenshot provider comparison and selection criteria (Urlbox, ScreenshotOne). |
 | [api_token_hardening.md](api_token_hardening.md) | Proposed | `iss`/`aud` claims, fallible config validation, and token-lifetime policy. |
 | [static-serving-cdn.md](static-serving-cdn.md) | Recommendation | Why not to add an ALB or CDN for the small static bundle. |
@@ -79,4 +72,11 @@ rather than rewriting it; history is the point.
 | [feed-route-rename.md](archive/feed-route-rename.md) | Feed fragment route renamed `/cards` → `/feed`; what moved and what deliberately did not. |
 | [webui-capture-route.md](archive/webui-capture-route.md) | Capture page routes moved from `/detail` to `/capture`; upload field renamed with them. |
 | [cloud_build_release_deployment.md](archive/cloud_build_release_deployment.md) | Cloud Build tagged-release research: trigger flow, build identity, pricing, caching. Not pursued; local release tooling instead. |
+| [knowledge-blocking.md](archive/knowledge-blocking.md) | Blocking research: channels/fusion/budgets not started; one SQL surface channel shipped. Rebuild guide moved to `src/knowledge/knowledge.md`. |
+| [knowledge-verdicts.md](archive/knowledge-verdicts.md) | The modification log design (implemented); `distinct` later built, `veto` renamed `veto_identity`. Unmerge remains a non-goal. |
+| [knowledge-promotion-audit.md](archive/knowledge-promotion-audit.md) | Complete local-corpus promotion audit (classifier era). |
+| [knowledge-promotion-audit-prod.md](archive/knowledge-promotion-audit-prod.md) | Complete prod-corpus audit; superseded for prototyping by the evidence model. |
+| [knowledge-promotion-frontier.md](archive/knowledge-promotion-frontier.md) | Analysis of the non-promoted 16% and the evidence each kind needs. |
+| [knowledge-evidence-prototype.md](archive/knowledge-evidence-prototype.md) | Multi-dimensional evidence prototype: assessed, not shipped; failure catalogue. |
+| [knowledge-wikidata-recommender.md](archive/knowledge-wikidata-recommender.md) | Long-term QID/embedding recommendation research; QID remains optional. |
 | [devlog.md](archive/devlog.md) | Reverse-chronological daily log, retired 2026-04-05 when open items were triaged into `plan/backlog.md`. Read only for what the project was thinking on a given day. |

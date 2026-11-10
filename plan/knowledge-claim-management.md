@@ -2,7 +2,7 @@
 
 **Status:** Implemented 2026-11-09. A claim is asserted in two phases, both callers use both, and a
 veto names a pairing. Supersedes the veto's addressing in
-[knowledge-verdicts.md](knowledge-verdicts.md).
+[knowledge-verdicts.md](archive/knowledge-verdicts.md).
 
 **See also:** [lexicon.md](lexicon.md) (vocabulary), [knowledge-canonical-entities.md](knowledge-canonical-entities.md)
 (evidence as an append-only edge), `src/knowledge/knowledge.md` (the model as built).
@@ -157,8 +157,9 @@ between builds — expired rows rose by exactly the 2,523 that left "with candid
 
 - Is `settled` the right word? Does `ReplayReport.gone` need to separate "subject entity gone" from
   "identity row gone"?
-- Should `Kind::Veto` be renamed `Reject`, so the log says what it means and nothing invites a
-  `basis` field back onto it?
+- ~~Should `Kind::Veto` be renamed `Reject`, so the log says what it means?~~ Resolved 2026-11-10:
+  renamed `veto_identity`, not `Reject` — the identity is the object, and `Reject` could read as a
+  merge decision.
 - `link_illumination` is not atomic. A crash between attach and assert is repaired by the next link
   (the claim phase reads every observation), but the illumination is a natural transaction boundary
   if it should never happen at all.

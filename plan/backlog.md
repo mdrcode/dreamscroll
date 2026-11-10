@@ -122,7 +122,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   `localdev/analysis/entity-promotion/evidence/review/precision_sheet.csv`
   (45 identified / 25 ranked / 15 ambiguous / 15 unidentified). Precision ≥ 0.90
   lets the `identified` dimension drive promotion as-is; below 0.75 the
-  verification step needs rework. See `plan/knowledge-evidence-prototype.md` §8.
+  verification step needs rework. See `plan/archive/knowledge-evidence-prototype.md` §8.
 - [ ] **Replace the keyword type-filter with `P31` class matching.** The filter
   rejected 444 rows whose exact-label item existed, 247 of them with a single
   candidate. A curated `type → {class QIDs}` map tested through
@@ -269,14 +269,13 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Protected-route tests through real auth middleware | [testing-auth-routes.md](testing-auth-routes.md)                       | Next change to auth or route-level authorization              |
 | Browser tests for SSE/refresh/upload               | [testing-js-and-browser.md](testing-js-and-browser.md)                 | First client bug that unit tests miss                         |
 | Coverage strategy beyond the two tiers             | [testing-coverage.md](testing-coverage.md)                             | Coverage discussions block a change                           |
-| `distinct` verdicts (stop re-asking a pair) | [knowledge-verdicts.md](knowledge-verdicts.md) | The known-distinct pairs keep coming back in `proximity list` often enough to annoy; cheapest shape is a filter in `scan` |
 | Private media URLs                                 | [media-serving.md](media-serving.md)                                   | Multi-user access or CDN/LB work starts                       |
 | Provisioning the schema-sync Cloud Run Job         | [prod-deploy.md](prod-deploy.md)                                       | **Fired** — schema 20 adds the `merged_into_id` FK and CHECK; nothing syncs at boot, so prod stays at 19 until this job runs |
 | API token hardening                                | [api_token_hardening.md](api_token_hardening.md)                       | API usage grows beyond first-party clients                    |
 | Entity taxonomy pass                               | [knowledge-entity-types.md](knowledge-entity-types.md)                 | Environment fully backfilled with v2                          |
 | htmx 4.0 migration                                 | [htmx4.md](htmx4.md)                                                   | 4.x becomes `latest`, or 2.x breaks a behavior we rely on     |
-| Wikidata entity linking                            | [knowledge-wikidata-recommender.md](knowledge-wikidata-recommender.md) | Entity identity across captures becomes a product requirement |
-| Entity canonicalization and similarity             | [knowledge-canonical-entities.md](knowledge-canonical-entities.md)     | None — phase 1 is startable; public phases P-a…P-d follow it  |
+| Wikidata entity linking                            | [knowledge-wikidata-recommender.md](archive/knowledge-wikidata-recommender.md) | Entity identity across captures becomes a product requirement |
+| Knowledge entity disclosure policy                 | [knowledge-canonical-entities.md](knowledge-canonical-entities.md)     | Multi-user knowledge pages become a product requirement      |
 | Screenshot provider selection                      | [screenshot_3rd_party.md](screenshot_3rd_party.md)                     | Link-preview latency or fidelity is measured                  |
 | Static/CDN serving decision                        | [static-serving-cdn.md](static-serving-cdn.md)                         | Static bundle cost or latency justifies a network layer       |
 | `/events` catch-up query reduction                 | [event-streaming-optimization.md](event-streaming-optimization.md)     | Connection count or DB load becomes material                  |

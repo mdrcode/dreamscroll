@@ -1,10 +1,10 @@
 # Resolution — cache first, providers second
 
-**Status:** Implemented (schema version 16). `dreamscroll_knowledge resolve` runs manually; there is no
-scheduled trigger and no enrichment yet. Wikidata is the first provider.
+**Status:** Implemented (current schema 32). `dreamscroll_knowledge identity resolve` runs manually;
+there is no scheduled trigger and no enrichment yet. Wikidata is the first provider.
 
 **See also:** [knowledge-canonical-entities.md](knowledge-canonical-entities.md) (the graph this feeds),
-[knowledge-evidence-prototype.md](knowledge-evidence-prototype.md) (the measured prototype, and the
+[knowledge-evidence-prototype.md](archive/knowledge-evidence-prototype.md) (the measured prototype, and the
 failure catalogue this design answers).
 
 ## The rule
@@ -885,13 +885,13 @@ reruns it; with the cache warm, the rerun costs only the requests that had not b
 ## Running it
 
 ```sh
-dreamscroll_knowledge resolve                          # default budget of 200 calls
-dreamscroll_knowledge resolve --limit 20 --max-requests 5
-dreamscroll_knowledge resolve --offline --limit 20     # cache only, no transport calls
-dreamscroll_knowledge resolve --knowledge entity 20190             # one case, for debugging
+dreamscroll_knowledge identity resolve                          # default budget of 200 calls
+dreamscroll_knowledge identity resolve --limit 20 --max-requests 5
+dreamscroll_knowledge identity resolve --offline --limit 20     # cache only, no transport calls
+dreamscroll_knowledge identity resolve --entity 20190             # one case, for debugging
 ```
 
-`--max-requests` caps transport calls (not queries) per run; `--knowledge entity <id>` resolves a single case. The run
+`--max-requests` caps transport calls (not queries) per run; `--entity <id>` resolves a single case. The run
 is idempotent: resolved knowledge entities leave the candidate set, and unresolved ones are answered from the cache
 on the next pass.
 

@@ -1,7 +1,7 @@
 # Beyond the promotion gate — what the non-promoted 16% needs
 
 **Status:** Analysis of the prod corpus (2026-10-30). Design input for
-[knowledge-canonical-entities.md](knowledge-canonical-entities.md); evidence in
+[knowledge-canonical-entities.md](../knowledge-canonical-entities.md); evidence in
 [knowledge-promotion-audit-prod.md](knowledge-promotion-audit-prod.md).
 
 832 of 5,185 prod mentions (16.0%) are not promotion candidates. This document

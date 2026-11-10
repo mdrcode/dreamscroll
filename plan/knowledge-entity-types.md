@@ -12,7 +12,7 @@ The WebUI exposes each row as an occurrence at `/entity/{id}`. That page shows t
 
 ## 2026-10-29: decisions from the full-corpus promotion audit
 
-The audit in [knowledge-promotion-audit.md](knowledge-promotion-audit.md) reviewed all 2,518 local
+The audit in [knowledge-promotion-audit.md](archive/knowledge-promotion-audit.md) reviewed all 2,518 local
 mentions and settles several of the open questions below.
 
 **2026-11-08 — type is ours, not a provider's.** `identity/wikidata/types.rs` compares this capture label

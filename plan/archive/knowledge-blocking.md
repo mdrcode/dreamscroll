@@ -290,49 +290,12 @@ widenings neither collided handles (`evidence::Claim::key`) nor changed member
 distribution.
 
 Migration: none. `alt_names` in existing rows keep the dedupe they were written with; the rebuild
-order below recomputes them under the new fold.
+in `src/knowledge/knowledge.md` §Rebuild and repair recomputes them under the new fold.
 
 ## Rebuild order
 
-Six commands, each one job, none invoking another. A rebuild is these, in this order:
-
-```
-reset                  snapshot the projection, then empty it
-link                   observations → entities
-verdicts replay        a person's recorded folds, applied to the new ids
-identity resolve       evidence: identities and claims
-proximity scan         derive the candidate batch from shared identities
-proximity auto-merge --yes   answer the batch (dry run without --yes)
-```
-
-The order is not a preference in three of the six places:
-
-- **`link` first**, because everything else needs entity rows.
-- **`replay` before `identity resolve`**, two reasons. `proximity auto-merge` picks a survivor by the projected
-  `confidence`, and `replay` reports a pair as `already`/`gone` rather than reversing a direction —
-  so if the automatic pass folds a decided pair the other way first, the recorded winner is lost and
-  there is no unmerge. And a folded entity is resolved *once*, from the union of both sides'
-  surfaces, instead of twice and then shuffled by a merge.
-- **`scan` after `identity resolve`**, because its basis is a shared identity: measured on the local corpus,
-  of 345 platform identities **0** have more than one holder, while 13 Wikidata identities account
-  for all 26 multi-holder claims. A scan before resolution raises nothing.
-- **`merge` after `scan`**, because merge answers the batch scan wrote.
-
-`identity resolve` still re-projects every entity it gave a claim to before returning: a later `proximity
-merge` reads that confidence, so leaving it stale would fold the wrong side.
-
-**A rebuild is a single-writer operation.** Stop the link worker first. Running these commands
-against a live queue has produced both failures it can produce: a link task attaching to an entity a
-`reset` had just deleted (`knowledge entity 127951 does not exist`, illumination 680 left permanently
-unlinked), and a `proximity scan` taken from a half-built generation (53 rows where the finished
-graph supports 13). Neither is a bug in the command that reported it; both are two writers.
-
-Nothing else writes the batch. The live pipeline is `illuminate` → `knowledge_link`, and the link
-task links and stops; there is no resolve task, so resolution and both proximity passes are operator
-commands. The consequence, stated so it is a decision and not a surprise: a live capture updates the
-entities immediately and leaves the proximity batch untouched until the next `proximity scan`. The
-table is a snapshot of when it was last asked — which is exactly what its own model doc says — and
-asking is now always an explicit act.
+The rebuild guide lives in `src/knowledge/knowledge.md` §Rebuild and repair — the official home,
+next to the code it describes.
 
 ## Fusion: reciprocal rank fusion
 

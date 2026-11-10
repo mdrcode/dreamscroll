@@ -252,7 +252,7 @@ convincing ones. The rest stay in the batch, which is where a person reads them.
 
 Nothing in that table is a status or a verdict. A pair that keeps looking like one thing keeps
 reappearing; one that stops, stops. Human decisions that must outlive a rebuild go somewhere
-durable instead — `plan/knowledge-verdicts.md` — and are replayed onto the new graph.
+durable instead — `plan/archive/knowledge-verdicts.md` — and are replayed onto the new graph.
 
 ## The view boundary
 
@@ -268,23 +268,54 @@ API decides which one a user sees. Two consequences fall out for free:
 - An unlinked observation still renders. The card shows the observation's own name and type; entity
   enrichment must stay optional.
 
-## Repair
+## Rebuild and repair
 
-Entities are cheap to rebuild and expensive to get wrong, so the model prefers undoable moves:
+Entities are cheap to rebuild and expensive to get wrong, so the model prefers undoable moves. A
+rebuild is six commands, each one job, none invoking another:
 
-- `reset` snapshots the projection, then empties it — entities, claims, identities, proximities and
-  the index rows, all of it derived. Observations, captures, illuminations, the merge log
-  (`knowledge_verdicts`) and the **fetch cache** are untouched. The teardown is therefore free: `reset`, then `link`, then
-  `verdicts replay` (a person's folds, applied to the new ids), then `identity resolve --offline`
-  (identities and claims from cached answers), then `proximity scan` and
-  `proximity auto-merge --yes`. Six
-  commands, each one job, none invoking another — the order and its reasons are in
-  `plan/knowledge-blocking.md` §Rebuild order. No transport, seconds.
-- `merge` folds one entity into another, tombstones the loser, and runs in a **transaction** — five
-  writes that must all land.
-- The **shared-illumination rule**: `merge` refuses two entities that both appear in one
-  illumination, because a single extraction emitting both means two things. The unit is the
-  illumination, not the capture — re-illuminating an image makes a separate one.
+```sh
+reset -y                    snapshot the projection, then empty it
+link                        observations → entities
+verdicts replay             a person's recorded folds, applied to the new ids
+identity resolve --offline  evidence: identities and claims from cached answers
+proximity scan              derive the candidate batch from shared identities
+proximity auto-merge --yes  answer the batch (dry run without --yes)
+```
+
+The order is not a preference:
+
+- **`link` first**, because everything else needs entity rows.
+- **`replay` before `identity resolve`**, two reasons. `proximity auto-merge` picks a survivor by the
+  projected `confidence`, and `replay` reports a pair as `already`/`gone` rather than reversing a
+  direction — so if the automatic pass folded a decided pair the other way first, the recorded winner
+  is lost and there is no unmerge. And a folded entity is resolved *once*, from the union of both
+  sides' surfaces, instead of twice and then shuffled by a merge.
+- **`scan` after `identity resolve`**, because its basis is a shared identity: measured on the local
+  corpus, 0 of 345 platform identities have more than one holder, while 13 Wikidata identities
+  account for all 26 multi-holder claims. A scan before resolution raises nothing.
+- **`auto-merge` after `scan`**, because it answers the batch the scan wrote.
+
+`identity resolve` reprojects every entity it gives a claim to before returning: a later
+`auto-merge` reads that confidence, so leaving it stale would fold the wrong side.
+
+**A rebuild is a single-writer operation. Stop the link worker first.** Running these commands
+against a live queue has produced both failures it can produce: a link task attaching to an entity a
+`reset` had just deleted (the illumination is left permanently unlinked), and a `proximity scan`
+taken from a half-built generation (53 rows where the finished graph supports 13). Neither is a bug
+in the command that reported it; both are two writers.
+
+Nothing else writes the batch. The live pipeline is `illuminate` → `knowledge_link`, and the link
+task links and stops; there is no resolve task, so resolution and both proximity passes are operator
+commands. A live capture updates entities immediately and leaves the proximity batch untouched until
+the next `proximity scan` — the table is a snapshot of when it was last asked.
+
+`reset` snapshots the projection, then empties it — entities, claims, identities, proximities and
+the index rows, all of it derived. Observations, captures, illuminations, the merge log
+(`knowledge_verdicts`) and the **fetch cache** are untouched. `merge` folds one entity into another,
+tombstones the loser, and runs in a **transaction** — five writes that must all land. The
+**shared-illumination rule**: `merge` refuses two entities that both appear in one illumination,
+because a single extraction emitting both means two things. The unit is the illumination, not the
+capture — re-illuminating an image makes a separate one.
 
 ## Where things live
 
