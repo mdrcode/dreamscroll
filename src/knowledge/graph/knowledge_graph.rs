@@ -119,9 +119,9 @@ impl KnowledgeGraph {
     /// and asserts what each capture showed.
     pub async fn link(
         &self,
-        observations: Vec<model::user_observed_entity::Model>,
+        observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<(crate::knowledge::LinkStats, std::collections::HashMap<i32, i32>)> {
-        super::link::link(self, &observations).await
+        super::link::link(self, observations).await
     }
 
     /// Recompute an entity's projected columns, and tell the blocker what came out.

@@ -106,7 +106,7 @@ one live row.
 | `evidence/store.rs` | `IdentityKey`; `DraftIdentity::{key, from_claim}`; `identity_for_link` (create-only) and `create_identity`; `ClaimDraft` + `assert` (veto + edge). Deleted `record` and `store_claim`. |
 | `evidence/mod.rs` | the "two writers" paragraph became the two phases; exports updated. |
 | `graph/link.rs` | `link`: decisions applied and projected, returning observation → entity; `LinkStats`. No illumination type in sight. |
-| `graph/knowledge_graph.rs` | `link(observations: Vec<Observation>)` is the only linking method. |
+| `graph/knowledge_graph.rs` | `link(&[Observation])` is the only linking method. |
 | `helper.rs` | the illumination composition and the claim post-pass. |
 | `linker/mod.rs`, `linker/heuristic/linker.rs` | `Decision` no longer carries an identity — it is observation data, not a decision. |
 | `identity/engine.rs` | `upsert_identity` + `assert`, the same two calls the capture path makes. |

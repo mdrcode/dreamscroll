@@ -30,7 +30,7 @@ pub async fn link_illumination(
         .map(|row| row.clone().into())
         .collect();
 
-    let (mut stats, linked) = graph.link(observations.clone()).await?;
+    let (mut stats, linked) = graph.link(&observations).await?;
     stats.vetoed = assert_claims(graph, &observations, &linked).await?;
     Ok(stats)
 }
