@@ -3,18 +3,20 @@
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
 //! onto one goes through [`KnowledgeGraph`], and the handle itself never leaves this module tree — the
 //! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`, `scoring`)
-//! are `pub(crate)` only because the code that reads them lives in `linker/illumination.rs`,
-//! `graph/project.rs` and `graph/proximity.rs`. The connection is the same deal: [`KnowledgeGraph::conn`]
-//! exists so those passes can run, not as an escape hatch. Outside `knowledge`, a caller sees
-//! [`KnowledgeGraph`]'s methods and nothing else.
+//! are `pub(super)` because only the passes beside the facade read them. Identity and claim writes are
+//! methods ([`KnowledgeGraph::identity_for_link`], [`KnowledgeGraph::upsert_identity`],
+//! [`KnowledgeGraph::assert`]), so `helper` and the resolver hold a graph, not a store. The connection
+//! is the same deal: [`KnowledgeGraph::conn`] is `pub(super)` for `verdicts`, not an escape hatch.
+//! Outside `graph`, a caller sees [`KnowledgeGraph`]'s methods and nothing else.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Set, Statement};
 
 use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
-use crate::knowledge::evidence::Evidence;
+use crate::knowledge::evidence::{ClaimDraft, DraftIdentity, Evidence, PlatformLink, Stored};
 use crate::knowledge::linker::Linker;
 use crate::knowledge::linker::heuristic::Heuristic;
 use crate::knowledge::scoring::Scoring;
@@ -40,10 +42,10 @@ use crate::model;
 #[derive(Clone)]
 pub struct KnowledgeGraph {
     db: DbHandle,
-    pub(crate) blocker: Option<Arc<dyn Blocker>>,
-    pub(crate) decider: Option<Arc<dyn Linker>>,
-    pub(crate) evidence: Evidence,
-    pub(crate) scoring: Scoring,
+    pub(super) blocker: Option<Arc<dyn Blocker>>,
+    pub(super) decider: Option<Arc<dyn Linker>>,
+    pub(super) evidence: Evidence,
+    pub(super) scoring: Scoring,
 }
 
 impl KnowledgeGraph {
@@ -86,7 +88,7 @@ impl KnowledgeGraph {
     }
 
     /// Tell the blocker an entity is gone. `pub(super)` so `merge` can retire the loser.
-    pub(crate) fn forget(&self, knowledge_entity_id: i32) {
+    pub(super) fn forget(&self, knowledge_entity_id: i32) {
         if let Some(blocker) = &self.blocker {
             blocker.forget(knowledge_entity_id);
         }
@@ -104,6 +106,28 @@ impl KnowledgeGraph {
         knowledge_entity_id: i32,
     ) -> anyhow::Result<model::knowledge_entity::Model> {
         get(&self.db.conn, knowledge_entity_id).await
+    }
+
+    /// The identity a capture's platform link asserts, created on first sight.
+    ///
+    /// A capture may create an identity, never enrich one: it knows a handle exists, not what the
+    /// thing is. Idempotent, so a re-link is free.
+    pub async fn identity_for_link(&self, link: &PlatformLink) -> anyhow::Result<i32> {
+        self.evidence.identity_for_link(link).await
+    }
+
+    /// Record an authority's answer for an identity, filling gaps in an existing row.
+    pub async fn upsert_identity(&self, draft: &DraftIdentity) -> anyhow::Result<i32> {
+        self.evidence.upsert_identity(draft).await
+    }
+
+    /// Write one claim edge, unless a standing veto names it. The one writer both callers share.
+    pub async fn assert(
+        &self,
+        draft: ClaimDraft<'_>,
+        vetoes: &HashSet<(i32, String, String)>,
+    ) -> anyhow::Result<Stored> {
+        self.evidence.assert(draft, vetoes).await
     }
 
     /// Point a user's observation to the KnowledgeGraph entity it belongs to.

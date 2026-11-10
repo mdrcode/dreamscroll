@@ -52,9 +52,8 @@ async fn assert_claims(
         };
         if let Some(link) = PlatformLink::of(observation) {
             let key = link.key();
-            let identity = graph.evidence.identity_for_link(&link).await?;
+            let identity = graph.identity_for_link(&link).await?;
             if graph
-                .evidence
                 .assert(
                     ClaimDraft::capture(entity, observation, &key, identity),
                     &vetoes,

@@ -151,10 +151,9 @@ impl<'a> ResolutionEngine<'a> {
                 let basis = claim.basis;
                 let draft = DraftIdentity::from_claim(claim, resolver.id());
                 let key = draft.key();
-                let identity_id = graph.evidence.upsert_identity(&draft).await?;
+                let identity_id = graph.upsert_identity(&draft).await?;
                 // Phase two: the edge, asking the same veto every other writer asks.
                 match graph
-                    .evidence
                     .assert(
                         ClaimDraft::authority(knowledge_entity_id, &key, identity_id, basis),
                         &vetoes,
