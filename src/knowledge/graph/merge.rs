@@ -9,13 +9,17 @@
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryFilter, Statement, TransactionTrait,
+    QueryFilter, Set, Statement, TransactionTrait,
 };
 
+use crate::model::knowledge_verdicts as verdicts;
+use crate::model::knowledge_verdicts::Kind;
 use crate::model::{
     knowledge_claims as claims, knowledge_entity as entity,
     user_observed_entity as observation,
 };
+
+use super::current_generation;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Outcome {
@@ -205,7 +209,7 @@ async fn merge_in_transaction<C: ConnectionTrait>(
         rows.iter().find(|row| row.id == winner),
         rows.iter().find(|row| row.id == loser),
     ) {
-        super::verdicts::record(conn, cause, winner_row, loser_row).await?;
+        record(conn, cause, winner_row, loser_row).await?;
     }
 
     // Tombstone, never delete: a stale pointer still resolves.
@@ -219,6 +223,48 @@ async fn merge_in_transaction<C: ConnectionTrait>(
 
     super::project::project(conn, winner).await?;
     Ok(Outcome::Merged)
+}
+
+/// Record the fold in the modification log, on the merge's own transaction.
+///
+/// Idempotent per cause, generation and direction, so replaying a repair does not grow the log and an
+/// automatic fold is only ever noted once in the generation it happened in. A row without an origin
+/// cannot be named after a rebuild, so a merge it takes part in does not enter the log at all.
+async fn record<C: ConnectionTrait>(
+    conn: &C,
+    cause: Cause,
+    winner: &entity::Model,
+    loser: &entity::Model,
+) -> anyhow::Result<()> {
+    let (Some(winner_origin), Some(loser_origin)) =
+        (winner.origin_observation_id, loser.origin_observation_id)
+    else {
+        return Ok(());
+    };
+    let generation = current_generation(conn).await?;
+    let existing = verdicts::Entity::find()
+        .filter(verdicts::Column::Cause.eq(cause.as_str()))
+        .filter(verdicts::Column::Generation.eq(generation))
+        .filter(verdicts::Column::WinnerOrigin.eq(winner_origin))
+        .filter(verdicts::Column::LoserOrigin.eq(loser_origin))
+        .one(conn)
+        .await?;
+    if existing.is_some() {
+        return Ok(());
+    }
+    verdicts::Entity::insert(verdicts::ActiveModel {
+        generation: Set(generation),
+        cause: Set(cause),
+        kind: Set(Kind::Merge),
+        winner_origin: Set(Some(winner_origin)),
+        loser_origin: Set(Some(loser_origin)),
+        winner_label: Set(Some(winner.name.clone())),
+        loser_label: Set(Some(loser.name.clone())),
+        ..Default::default()
+    })
+    .exec(conn)
+    .await?;
+    Ok(())
 }
 
 #[cfg(test)]

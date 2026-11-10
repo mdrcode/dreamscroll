@@ -12,7 +12,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Set, Statement};
+use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, QueryOrder, Set, Statement};
 
 use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
@@ -213,6 +213,18 @@ pub(crate) async fn get<C: ConnectionTrait>(
         .one(conn)
         .await?;
     found.ok_or_else(|| anyhow::anyhow!("knowledge entity {knowledge_entity_id} does not exist"))
+}
+
+/// The generation the graph is being built in. One is implicit on a database that never reset.
+///
+/// The log stamps it on every decision; `reset` records what a generation held. A primitive rather
+/// than a method because the writers that need it are free functions.
+pub(crate) async fn current_generation<C: ConnectionTrait>(conn: &C) -> anyhow::Result<i32> {
+    Ok(model::knowledge_generations::Entity::find()
+        .order_by_desc(model::knowledge_generations::Column::Id)
+        .one(conn)
+        .await?
+        .map_or(1, |row| row.id))
 }
 
 /// Attach a user's observation to a knowledge entity.

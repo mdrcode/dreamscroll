@@ -3,16 +3,19 @@
 //! Design: `plan/knowledge-canonical-entities.md`; vocabulary: `plan/lexicon.md`.
 //! `illuminate` writes observations, `link` clusters them, `resolve` asks the authorities.
 //!
-//! Three clusters, by the question each answers. Each is a module file named for the thing it
-//! defines, with its parts beneath it:
+//! Clusters, by the question each answers. Each is a module file named for the thing it defines,
+//! with its parts beneath it:
 //!
 //! - [`blocker`] — which entities are worth considering: the [Blocker] trait, the query that answers
 //!   from `knowledge_blocking_index`, and the index itself.
 //! - [`linker`] — which candidate wins, and making it happen: the [Linker] trait, today's heuristic,
 //!   and the executor that writes one illumination.
 //! - [`graph`] — what the graph holds and every way it changes: [`KnowledgeGraph`], projection, merge
-//!   and verdicts.
+//!   and the verdicts.
 //! - [`proximity`] — the derived batch of look-alike pairs, and the passes that produce and answer it.
+//!
+//! [`replay`] is not a cluster: it is the command that applies a person's recorded decisions to a
+//! rebuilt graph, so it sits at the root and takes the store and the connection as arguments.
 //!
 //! Three things stay at the root because more than one cluster needs them, and a stage that imports
 //! a cluster to reach its own vocabulary has the dependency backwards:
@@ -41,10 +44,11 @@ pub mod identity;
 pub mod linker;
 pub mod normalize;
 pub mod proximity;
+pub mod replay;
 pub mod scoring;
 pub mod snapshot;
 
 pub use proximity::AutoMergeReport;
-pub use graph::verdicts::ReplayReport;
+pub use replay::ReplayReport;
 pub use graph::{KnowledgeGraph, LinkStats, Status};
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};

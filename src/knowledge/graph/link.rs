@@ -313,7 +313,7 @@ mod unit {
         crate::knowledge::graph::verdicts::veto(&store, entity_id, "x_twitter", "tsoding", None)
             .await
             .unwrap();
-        crate::knowledge::graph::verdicts::replay(&store)
+        crate::knowledge::replay::replay(&db.conn, &store)
             .await
             .unwrap();
         assert_eq!(

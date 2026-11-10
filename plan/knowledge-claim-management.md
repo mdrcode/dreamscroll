@@ -110,7 +110,7 @@ one live row.
 | `helper.rs` | the illumination composition and the claim post-pass. |
 | `linker/mod.rs`, `linker/heuristic/linker.rs` | `Decision` no longer carries an identity — it is observation data, not a decision. |
 | `identity/engine.rs` | `upsert_identity` + `assert`, the same two calls the capture path makes. |
-| `graph/verdicts.rs` | `withdraw` drops the basis filter; `ReplayReport.settled`. |
+| `graph/verdicts.rs`, `replay.rs` | `withdraw` drops the basis filter; `ReplayReport.settled`. |
 | `bin/dreamscroll_knowledge.rs` | `link` prints `vetoed`; `verdicts replay` prints `settled`. |
 | `knowledge.md` | the evidence row, the veto row, `LinkStats`. |
 

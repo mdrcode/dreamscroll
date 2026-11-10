@@ -649,7 +649,7 @@ async fn main() -> anyhow::Result<()> {
         Command::Verdicts(args) => match args.command {
             VerdictsCommand::Replay(_) => {
                 let store = knowledge::KnowledgeGraph::new(&db);
-                let report = knowledge::graph::verdicts::replay(&store).await?;
+                let report = knowledge::replay::replay(&db.conn, &store).await?;
                 println!(
                     "applied {} · already {} · gone {} · refused {} · withdrawn {} · settled {}",
                     report.applied,
@@ -829,7 +829,7 @@ async fn main() -> anyhow::Result<()> {
                     args.note.as_deref(),
                 )
                 .await?;
-                let report = knowledge::graph::verdicts::replay(&store).await?;
+                let report = knowledge::replay::replay(&db.conn, &store).await?;
                 store.update_projection(args.entity).await?;
                 println!(
                     "{} · withdrawn {} · applied {} · already {} · gone {} · refused {}",

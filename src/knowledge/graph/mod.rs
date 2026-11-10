@@ -6,7 +6,8 @@
 //! - `knowledge_graph` — the facade itself, and the primitives every write shares.
 //! - `project` — the derived columns, including the blocking index row.
 //! - [`merge`] — fold one entity into another.
-//! - [`verdicts`] — a person's decisions, kept across rebuilds.
+//! - [`verdicts`] — the standing vetoes, and the readers that turn a verdict's origin into the entity
+//!   it names now. A merge's row in the same log is written by `merge` itself.
 //!
 //! Single writes are methods; the batch passes are public functions, because they are commands over
 //! the whole graph rather than a write to one row. A pass takes what it acts on as arguments — the
@@ -21,7 +22,7 @@ pub mod verdicts;
 mod knowledge_graph;
 mod project;
 
-pub(crate) use knowledge_graph::get;
+pub(crate) use knowledge_graph::{current_generation, get};
 pub use knowledge_graph::KnowledgeGraph;
 pub use link::LinkStats;
 pub use crate::model::knowledge_entity::Status;
