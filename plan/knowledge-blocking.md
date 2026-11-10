@@ -297,18 +297,18 @@ order below recomputes them under the new fold.
 Six commands, each one job, none invoking another. A rebuild is these, in this order:
 
 ```
-reset             snapshot the projection, then empty it
-link              observations → entities
-verdicts replay   a person's recorded folds, applied to the new ids
-identity resolve  evidence: identities and claims
-proximity scan    derive the candidate batch from shared identities
-proximity merge   answer the batch
+reset                  snapshot the projection, then empty it
+link                   observations → entities
+verdicts replay        a person's recorded folds, applied to the new ids
+identity resolve       evidence: identities and claims
+proximity scan         derive the candidate batch from shared identities
+proximity auto-merge   answer the batch
 ```
 
 The order is not a preference in three of the six places:
 
 - **`link` first**, because everything else needs entity rows.
-- **`replay` before `identity resolve`**, two reasons. `proximity merge` picks a survivor by the projected
+- **`replay` before `identity resolve`**, two reasons. `proximity auto-merge` picks a survivor by the projected
   `confidence`, and `replay` reports a pair as `already`/`gone` rather than reversing a direction —
   so if the automatic pass folds a decided pair the other way first, the recorded winner is lost and
   there is no unmerge. And a folded entity is resolved *once*, from the union of both sides'

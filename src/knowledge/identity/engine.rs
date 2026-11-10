@@ -171,7 +171,7 @@ impl<'a> ResolutionEngine<'a> {
             }
         }
 
-        // A later `proximity merge` picks a survivor by the projected `confidence`, so an entity that
+        // A later `proximity auto-merge` picks a survivor by the projected `confidence`, so an entity that
         // just earned its first claim is projected here — otherwise it still reads as the weaker side
         // and loses a fold it should win.
         for knowledge_entity_id in &resolved {
@@ -179,7 +179,7 @@ impl<'a> ResolutionEngine<'a> {
         }
 
         // Resolving stops at evidence. Which holders of an identity are one thing belongs to
-        // `proximity scan` and `proximity merge`, which are separate commands run after this one.
+        // `proximity scan` and `proximity auto-merge`, which are separate commands run after this one.
         report.entities_resolved = resolved.len();
         report.stats = gateway.stats();
         report.refusal = allowance.as_ref().and_then(Allowance::refused);
@@ -832,7 +832,7 @@ mod tests {
         crate::knowledge::proximity::scan(&db.conn, &scoring)
             .await
             .expect("scan");
-        let folded = crate::knowledge::proximity::merge(&db.conn, &store, &scoring)
+        let folded = crate::knowledge::proximity::auto_merge(&db.conn, &store, &scoring)
             .await
             .expect("merge");
         assert_eq!(folded.merged, 1, "{folded:?}");
@@ -890,7 +890,7 @@ mod tests {
         crate::knowledge::proximity::scan(&db.conn, &scoring)
             .await
             .expect("scan");
-        let folded = crate::knowledge::proximity::merge(&db.conn, &store, &scoring)
+        let folded = crate::knowledge::proximity::auto_merge(&db.conn, &store, &scoring)
             .await
             .expect("merge");
         assert_eq!(folded.merged, 0, "sharing an identity does not merge");

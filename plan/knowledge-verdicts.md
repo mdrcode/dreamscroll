@@ -201,7 +201,7 @@ claim, both entities fell back to `provisional`, and the next `resolve --offline
 `vetoed 2` with **no** claims written — the admission path, not a replay aftermath.
 
 Then the whole graph was rebuilt under them: `reset -y` → `link` → `verdicts replay` → `resolve` →
-`proximity scan` → `proximity merge`. The two entities came back **renumbered** (221194 → 223407,
+`proximity scan` → `proximity auto-merge`. The two entities came back **renumbered** (221194 → 223407,
 221931 → 224144) and still held no claim; the replay applied all 8 recorded folds with `gone 0`, so
 origin stability survived another rebuild. Final state: 2,204 live, 1,872 identified, 1,952 claims
 (1,607 authority + 345 capture = 0.886 per live entity), 2 vetoes, 0 disambiguation claims.

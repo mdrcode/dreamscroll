@@ -44,7 +44,7 @@ pub mod proximity;
 pub mod scoring;
 pub mod snapshot;
 
-pub use proximity::MergeReport;
+pub use proximity::AutoMergeReport;
 pub use graph::verdicts::ReplayReport;
 pub use graph::{KnowledgeGraph, LinkStats, Status};
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};

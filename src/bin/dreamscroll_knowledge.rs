@@ -182,7 +182,7 @@ struct ProximityArgs {
 #[argh(subcommand)]
 enum ProximityCommand {
     Scan(ProximityScanArgs),
-    Merge(ProximityMergeArgs),
+    AutoMerge(ProximityAutoMergeArgs),
     List(ProximityListArgs),
 }
 
@@ -192,9 +192,9 @@ enum ProximityCommand {
 struct ProximityScanArgs {}
 
 #[derive(FromArgs)]
-#[argh(subcommand, name = "merge")]
-#[argh(description = "fold the open proximities that look like one thing")]
-struct ProximityMergeArgs {}
+#[argh(subcommand, name = "auto-merge")]
+#[argh(description = "fold the open proximities that look like one thing, on their own")]
+struct ProximityAutoMergeArgs {}
 
 #[derive(FromArgs)]
 #[argh(subcommand, name = "list")]
@@ -699,9 +699,9 @@ async fn main() -> anyhow::Result<()> {
                         knowledge::proximity::scan(&db.conn, &scoring).await?
                     );
                 }
-                ProximityCommand::Merge(_) => {
+                ProximityCommand::AutoMerge(_) => {
                     let report =
-                        knowledge::proximity::merge(&db.conn, &store, &scoring).await?;
+                        knowledge::proximity::auto_merge(&db.conn, &store, &scoring).await?;
                     println!(
                         "auto-merged {} · refused {} · moot {} · undecided {}",
                         report.merged, report.refused, report.moot, report.undecided

@@ -268,7 +268,7 @@ pub async fn vetoed(
 ///
 /// The retraction and the projection are one act: `status` and `confidence` are functions of the
 /// live claims, so withdrawing a claim without reprojecting leaves the entity `identified` on
-/// nothing — and that is the row the API serves and `proximity merge` ranks.
+/// nothing — and that is the row the API serves and `proximity auto-merge` ranks.
 async fn withdraw(
     graph: &KnowledgeGraph,
     verdict: &model::knowledge_verdicts::Model,
@@ -682,7 +682,7 @@ mod tests {
     }
 
     /// Status and confidence are functions of the live claims. Retracting one without reprojecting
-    /// leaves a row the API serves as `identified` and `proximity merge` ranks by a score it no
+    /// leaves a row the API serves as `identified` and `proximity auto-merge` ranks by a score it no
     /// longer earns.
     #[tokio::test]
     async fn a_veto_reprojects_the_entity_it_empties() {

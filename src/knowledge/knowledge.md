@@ -245,9 +245,9 @@ the many-to-one the model exists for.
 
 `proximity` runs in two passes. **Scan** derives the candidate set and replaces the table with
 it in one transaction, so what it holds is always what the graph looked like when it was last asked
-— a scan after a link, and again at the end of a resolve. **Merge** answers the batch: it re-checks
-that both sides still exist, scores the pair with the `Scoring` it was handed and folds the convincing
-ones. The rest stay in the batch, which is where a person reads them.
+— a scan after a link, and again at the end of a resolve. **Auto-merge** answers the batch: it
+re-checks that both sides still exist, scores the pair with the `Scoring` it was handed and folds the
+convincing ones. The rest stay in the batch, which is where a person reads them.
 
 Nothing in that table is a status or a verdict. A pair that keeps looking like one thing keeps
 reappearing; one that stops, stops. Human decisions that must outlive a rebuild go somewhere
@@ -275,7 +275,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
   the index rows, all of it derived. Observations, captures, illuminations, the merge log
   (`knowledge_verdicts`) and the **fetch cache** are untouched. The teardown is therefore free: `reset`, then `link`, then
   `verdicts replay` (a person's folds, applied to the new ids), then `identity resolve --offline`
-  (identities and claims from cached answers), then `proximity scan` and `proximity merge`. Six
+  (identities and claims from cached answers), then `proximity scan` and `proximity auto-merge`. Six
   commands, each one job, none invoking another — the order and its reasons are in
   `plan/knowledge-blocking.md` §Rebuild order. No transport, seconds.
 - `merge` folds one entity into another, tombstones the loser, and runs in a **transaction** — five
@@ -303,7 +303,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `helper.rs` | the illumination composition: batch one reading's observations, call `KnowledgeGraph::link`, then assert each observation's handle and project again. The graph links a collection; only this knows it is one reading |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `graph/merge.rs` | fold one entity into another |
-| `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `merge.rs` folds what it can and leaves the rest. Both take the connection and the `Scoring` as arguments |
+| `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Scoring` as arguments |
 | `graph/verdicts.rs` | a person's decisions, kept across rebuilds: `veto` writes one (and `merge` writes its own), `unveto` lifts it, `replay` applies the log to the new graph. A veto names a pairing, so `withdraw` retracts that pair's live claim whatever route produced it, then reprojects the entity — `status` and `confidence` are functions of the live claims. A retraction with nothing to retract is `settled`, not a zero. The same predicate is asked by both claim writers |
 |`identity/`|`mod.rs` (the `Resolver` trait a provider implements) · `engine` (the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The claim it returns, and where it becomes a row, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
 | `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates in `policy.rs` · answer parsing in `answer.rs` · the ladder and its request shapes in `resolver.rs` · candidate scoring in `ranking.rs` · HTTP in `transport.rs` |
@@ -314,7 +314,7 @@ The three write paths that carry their own logic and tests (`link.rs`, `project.
 reached through `KnowledgeGraph`'s methods; `link` and `project` are private modules, and what
 escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Cause`, `Preview`. The batch
 passes are the exception and are deliberately public functions taking what they act on —
-`proximity::scan(conn, scoring)`, `proximity::merge(conn, graph, scoring)` and
+`proximity::scan(conn, scoring)`, `proximity::auto_merge(conn, graph, scoring)` and
 `verdicts::replay(graph)` are commands over the whole graph, not a write to one row. The graph's
 health counters are a report over the tables rather than graph work, so they live in
 `crate::stats::knowledge_stats`.

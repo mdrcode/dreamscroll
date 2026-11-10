@@ -7,7 +7,7 @@ use crate::knowledge::linker::heuristic::Heuristic;
 use crate::model;
 use crate::test_support::{db_or_skip, fixtures};
 
-use super::{merge, scan};
+use super::{auto_merge, scan};
 
 async fn claim_pairs(db: &crate::database::DbHandle, names: [&str; 2]) -> (i32, i32) {
     let first = fixtures::knowledge_entity_with_member(db, names[0]).await;
@@ -84,7 +84,7 @@ async fn merging_folds_the_pair_it_answers() {
     claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
     scan(&db.conn, &Heuristic::scoring()).await.unwrap();
 
-    let report = merge(&db.conn, &store, &Heuristic::scoring()).await.expect("merge");
+    let report = auto_merge(&db.conn, &store, &Heuristic::scoring()).await.expect("merge");
 
     assert_eq!(report.merged, 1, "{report:?}");
     assert_eq!(
@@ -108,7 +108,7 @@ async fn merging_leaves_a_pair_it_cannot_claim() {
     claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
     scan(&db.conn, &Heuristic::scoring()).await.unwrap();
-    let report = merge(&db.conn, &store, &Heuristic::scoring()).await.expect("merge");
+    let report = auto_merge(&db.conn, &store, &Heuristic::scoring()).await.expect("merge");
 
     assert_eq!(report.merged, 0, "{report:?}");
     assert_eq!(report.undecided, 1, "{report:?}");

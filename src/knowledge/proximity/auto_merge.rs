@@ -1,4 +1,4 @@
-//! Answering the batch: fold what scores as one thing, leave the rest as questions.
+//! Auto-merge: fold the pairs that score as one thing on their own, leave the rest as questions.
 
 use std::cmp::Ordering;
 
@@ -10,7 +10,7 @@ use crate::knowledge::scoring::{Scoring, TotalCmp};
 
 /// What one merge did.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct MergeReport {
+pub struct AutoMergeReport {
     /// Pairs this pass merged on its own — logged `proximity_auto`, re-derived every build. A
     /// person's fold is `cause = repair` and is replayed; the two must not read the same.
     pub merged: usize,
@@ -22,16 +22,16 @@ pub struct MergeReport {
     pub undecided: usize,
 }
 
-/// Fold the candidates that look like one thing, and leave the rest as questions.
+/// Fold the candidates that look like one thing on their own, and leave the rest as questions.
 ///
 /// `conn` must be the store's own connection: the batch is read through it. `scoring` is the store's
 /// policy, passed in rather than read from a facade.
-pub async fn merge(
+pub async fn auto_merge(
     conn: &DatabaseConnection,
     graph: &KnowledgeGraph,
     scoring: &Scoring,
-) -> anyhow::Result<MergeReport> {
-    let mut report = MergeReport::default();
+) -> anyhow::Result<AutoMergeReport> {
+    let mut report = AutoMergeReport::default();
     for (a, b) in candidates(conn).await? {
         let (Ok(left), Ok(right)) = (graph.get(a).await, graph.get(b).await) else {
             // One side no longer names a row; the next scan will not raise the pair at all.

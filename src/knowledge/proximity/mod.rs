@@ -5,19 +5,19 @@
 //! inside it. Claims are many-to-one precisely so both readings can be stored.
 //!
 //! [`scan`] derives the table and replaces it wholesale, so what it holds is always "the candidates
-//! as of the last scan" — no status, no history, no rows to settle. [`merge`] answers them: it folds
-//! the pairs that score as one thing and leaves the rest, which are the questions still owed to a
-//! person.
+//! as of the last scan" — no status, no history, no rows to settle. [`auto_merge`] answers them: it
+//! folds the pairs that score as one thing and leaves the rest, which are the questions still owed to
+//! a person.
 //!
 //! Both passes take what they act on — the connection and the [`Scoring`] to measure with, and, for
-//! [`merge`], the store it folds into — rather than reading them off a facade.
+//! [`auto_merge`], the store it folds into — rather than reading them off a facade.
 //!
 //! [`Scoring`]: crate::knowledge::scoring::Scoring
 
-mod merge;
+mod auto_merge;
 mod scan;
 
-pub use merge::{MergeReport, merge};
+pub use auto_merge::{AutoMergeReport, auto_merge};
 pub use scan::scan;
 
 /// Why a proximity was raised.
