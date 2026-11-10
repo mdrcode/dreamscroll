@@ -44,6 +44,30 @@ pub struct Report {
     pub snapshot_members: u64,
 }
 
+/// What a reset would snapshot and remove, without touching anything.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct Preview {
+    pub entities: u64,
+    pub identities: u64,
+    pub claims: u64,
+    pub proximities: u64,
+    pub members: u64,
+}
+
+/// Count what `reset` would copy and delete. Read-only.
+pub async fn preview(db: &database::DbHandle) -> anyhow::Result<Preview> {
+    Ok(Preview {
+        entities: entity::Entity::find().count(&db.conn).await?,
+        identities: identities::Entity::find().count(&db.conn).await?,
+        claims: claims::Entity::find().count(&db.conn).await?,
+        proximities: proximities::Entity::find().count(&db.conn).await?,
+        members: observation::Entity::find()
+            .filter(observation::Column::KnowledgeEntityId.is_not_null())
+            .count(&db.conn)
+            .await?,
+    })
+}
+
 pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
     let snapshot = Snapshot::now();
     let report = db

@@ -286,7 +286,7 @@ struct VerdictsReplayArgs {}
 #[derive(FromArgs)]
 #[argh(subcommand, name = "reset")]
 #[argh(
-    description = "snapshot the entities, evidence and membership, then empty them; needs --yes"
+    description = "snapshot the entities, evidence and membership, then empty them; previews without --yes"
 )]
 struct ResetArgs {
     #[argh(switch, short = 'y')]
@@ -879,7 +879,17 @@ async fn main() -> anyhow::Result<()> {
         }
         Command::Reset(args) => {
             if !args.yes {
-                anyhow::bail!("reset empties the projected graph; pass --yes to confirm");
+                let preview = knowledge::snapshot::preview(&db).await?;
+                println!(
+                    "would snapshot entities {} · identities {} · claims {} · proximities {} · \
+                     members {} · pass --yes to reset",
+                    preview.entities,
+                    preview.identities,
+                    preview.claims,
+                    preview.proximities,
+                    preview.members
+                );
+                return Ok(());
             }
             let report = knowledge::snapshot::reset(&db).await?;
             match &report.snapshot {

@@ -12,4 +12,4 @@ mod reset;
 
 pub use compare::{compare, Kind};
 pub use record::Snapshot;
-pub use reset::reset;
+pub use reset::{preview, reset};
