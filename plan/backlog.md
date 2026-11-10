@@ -168,7 +168,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   step bypasses the drift and invariant checks. Delete it — the archived
   research records what it was — or mark it unsupported and align its
   substitutions. Fix the two docs that still call it the build path:
-  `plan/static-serving-cdn.md`, `plan/upgrade_3rd_party_crates.md`.
+  `plan/archive/static-serving-cdn.md`, `plan/upgrade_3rd_party_crates.md`.
 
 - [ ] **Separate interactive captures from bulk/backfill work in the task
   queues.** The illuminate queue runs `maxConcurrentDispatches: 1`, so a user
@@ -277,7 +277,7 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 | Wikidata entity linking                            | [knowledge-wikidata-recommender.md](archive/knowledge-wikidata-recommender.md) | Entity identity across captures becomes a product requirement |
 | Knowledge entity disclosure policy                 | [knowledge-canonical-entities.md](knowledge-canonical-entities.md)     | Multi-user knowledge pages become a product requirement      |
 | Screenshot provider selection                      | [screenshot_3rd_party.md](screenshot_3rd_party.md)                     | Link-preview latency or fidelity is measured                  |
-| Static/CDN serving decision                        | [static-serving-cdn.md](static-serving-cdn.md)                         | Static bundle cost or latency justifies a network layer       |
+| Static/CDN serving decision                        | [static-serving-cdn.md](archive/static-serving-cdn.md)                         | Static bundle cost or latency justifies a network layer       |
 | `/events` catch-up query reduction                 | [event-streaming-optimization.md](event-streaming-optimization.md)     | Connection count or DB load becomes material                  |
 | Crate upgrade sweep                                | [upgrade_3rd_party_crates.md](upgrade_3rd_party_crates.md)             | Scheduled maintenance window                                  |
 | Client pulse + `upload_attempts`                   | [upload-attempts.md](upload-attempts.md)                               | A client-side upload failure goes unexplained for a second time |

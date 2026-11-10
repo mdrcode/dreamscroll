@@ -1,6 +1,6 @@
 # Backfill management
 
-**Status:** Living — implemented: typed Backfill definitions, bounded pumping, TaskRun correlation, database uniqueness, Beacon descendant propagation, admin API/CLI status reporting, and the dry-pump latch. The existing executor remains the execution path. See [plan/README.md](README.md) for the index.
+**Status:** Implemented — archived 2026-11-10; no open questions. Typed Backfill definitions, bounded pumping, TaskRun correlation, database uniqueness, Beacon descendant propagation, admin API/CLI status reporting, and the dry-pump latch. The existing executor remains the execution path. See [plan/README.md](../README.md) for the index.
 
 ## Goal and scope
 

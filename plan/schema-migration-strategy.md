@@ -101,7 +101,7 @@ before starting the updated application.
 
 Schema version 7 adds nullable `task_runs.last_error_code` and
 `last_error_message` (see `plan/archive/task-status.md`); version 8 adds the
-one-row-per-backfill latch table `backfills` (see `plan/backfill.md`). Both are
+one-row-per-backfill latch table `backfills` (see `plan/archive/backfill.md`). Both are
 additive.
 
 The transaction prevents other sessions from observing the temporary absence of

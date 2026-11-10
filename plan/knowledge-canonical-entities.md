@@ -15,7 +15,7 @@ into `user_knowledge_entities`, and the graph read the copy — into `user_obser
 [knowledge-evidence-prototype.md](archive/knowledge-evidence-prototype.md) (the measured prototype and its
 failure catalogue), [knowledge-promotion-audit-prod.md](archive/knowledge-promotion-audit-prod.md) (corpus
 numbers), [knowledge-wikidata-recommender.md](archive/knowledge-wikidata-recommender.md) (QID usage),
-[pragmatism.md](pragmatism.md) (ledger), [backfill.md](backfill.md) (typed backfills),
+[pragmatism.md](pragmatism.md) (ledger), [backfill.md](archive/backfill.md) (typed backfills),
 `plan/archive/illuminate-v2.md` (the projection this builds on).
 
 ## The gap
