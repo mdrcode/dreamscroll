@@ -46,10 +46,37 @@ pub struct ProximityRow {
     pub holder: String,
     pub counterpart: String,
     pub identity: String,
+    /// The stable keys the verdict log uses: origin observation ids, not generation-scoped entity ids.
+    pub holder_origin: Option<i32>,
+    pub counterpart_origin: Option<i32>,
     pub status: Status,
     /// The standing decision, when there is one: `repair` (a person) or `proximity_auto` (the
     /// auto pass). `replayed` is an application event and is deliberately not a cause here.
     pub cause: Option<Cause>,
+}
+
+impl ProximityRow {
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "row": self.id,
+            "status": match self.status {
+                Status::Merged => "merged",
+                Status::MergePending => "merge_pending",
+                Status::Open => "open",
+            },
+            "why": self.cause.map(|cause| cause.as_str()),
+            "score": self.score,
+            "type_note": self.type_note,
+            "basis": self.basis,
+            "holder_id": self.holder_id,
+            "counterpart_id": self.counterpart_id,
+            "holder_origin": self.holder_origin,
+            "counterpart_origin": self.counterpart_origin,
+            "holder": self.holder,
+            "counterpart": self.counterpart,
+            "identity": self.identity,
+        })
+    }
 }
 
 /// One row per candidate. Ordered for triage, not by score: the highest scores are the pairs that
@@ -148,6 +175,8 @@ pub async fn proximity_list(
                 identity: row.try_get_by_index(6)?,
                 holder_id: row.try_get_by_index(9)?,
                 counterpart_id: row.try_get_by_index(10)?,
+                holder_origin,
+                counterpart_origin,
                 status,
                 cause,
             })
@@ -249,11 +278,17 @@ mod tests {
 
         assert_eq!(row(pending_row).status, Status::MergePending);
         assert_eq!(row(pending_row).cause, Some(Cause::Repair));
+        assert_eq!(row(pending_row).to_json()["status"], "merge_pending");
+        assert_eq!(row(pending_row).to_json()["why"], "repair");
+        assert!(row(pending_row).to_json()["holder_origin"].is_number());
 
         assert_eq!(row(auto_row).status, Status::Merged);
         assert_eq!(row(auto_row).cause, Some(Cause::ProximityAuto));
+        assert_eq!(row(auto_row).to_json()["why"], "proximity_auto");
 
         assert_eq!(row(old_row).status, Status::Open);
         assert_eq!(row(old_row).cause, None);
+        assert_eq!(row(old_row).to_json()["status"], "open");
+        assert!(row(old_row).to_json()["why"].is_null());
     }
 }

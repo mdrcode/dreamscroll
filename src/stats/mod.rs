@@ -4,6 +4,7 @@ pub mod knowledge;
 pub mod proximities;
 pub mod verdicts;
 pub mod queue;
+pub mod entity;
 
 pub use failures::{QueueFailure, QueueFailuresResponse, queue_failures};
 pub use inference::{InferenceStats, InferenceStatsResponse, InferenceWindow, inference_stats};

@@ -22,6 +22,7 @@ enum Command {
     Index(IndexArgs),
     Proximity(ProximityArgs),
     Verdicts(VerdictsArgs),
+    Entity(EntityArgs),
 }
 
 #[derive(FromArgs)]
@@ -73,6 +74,8 @@ struct EvalInspectArgs {
         description = "entity id, or a name that folds to the same surface"
     )]
     target: String,
+    #[argh(switch, description = "print JSON")]
+    json: bool,
 }
 
 #[derive(FromArgs)]
@@ -150,6 +153,32 @@ struct MergeArgs {
     #[argh(switch, short = 'y')]
     #[argh(description = "apply the merge (otherwise it is a dry run)")]
     yes: bool,
+    #[argh(switch, description = "print JSON")]
+    json: bool,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "entity")]
+#[argh(description = "one knowledge entity and its evidence")]
+struct EntityArgs {
+    #[argh(subcommand)]
+    command: EntityCommand,
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand)]
+enum EntityCommand {
+    Show(EntityShowArgs),
+}
+
+#[derive(FromArgs)]
+#[argh(subcommand, name = "show")]
+#[argh(description = "members, claims and projected columns for one entity")]
+struct EntityShowArgs {
+    #[argh(positional, description = "knowledge entity id")]
+    id: i32,
+    #[argh(switch, description = "print JSON")]
+    json: bool,
 }
 
 #[derive(FromArgs)]
@@ -184,6 +213,8 @@ struct ProximityAutoMergeArgs {}
 struct ProximityListArgs {
     #[argh(option, default = "50", description = "maximum rows to show")]
     limit: usize,
+    #[argh(switch, description = "print JSON")]
+    json: bool,
 }
 
 #[derive(FromArgs)]
@@ -214,6 +245,8 @@ struct VerdictsListArgs {
     cause: Option<String>,
     #[argh(option, default = "50", description = "maximum rows to show")]
     limit: usize,
+    #[argh(switch, description = "print JSON")]
+    json: bool,
 }
 
 #[derive(FromArgs)]
@@ -286,6 +319,9 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
         "entity {} · {} [{}] · {}",
         entity.id, entity.name, entity.entity_type, entity.status
     );
+    if let Some(origin) = entity.origin_observation_id {
+        println!("  origin observation: {origin}");
+    }
     if let Some(description) = &entity.description {
         println!("  description: {description}");
     }
@@ -359,6 +395,63 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
             claim.method.as_deref().unwrap_or("-")
         ),
         None => println!("  no claim"),
+    }
+}
+
+/// Print one entity's evidence: members, claims, projected columns.
+fn print_entity(detail: &stats::entity::Detail) {
+    let entity = &detail.entity;
+    println!(
+        "entity {} · {} [{}] · {}",
+        entity.id, entity.name, entity.entity_type, entity.status.as_str()
+    );
+    if let Some(origin) = entity.origin_observation_id {
+        println!("  origin observation: {origin}");
+    }
+    if let Some(merged) = entity.merged_into_id {
+        println!("  merged into: {merged}");
+    }
+    if let Some(description) = &entity.description {
+        println!("  description: {description}");
+    }
+    if let Some(hint) = &entity.search_query {
+        println!("  hint: {hint}");
+    }
+    println!(
+        "  surfaces: {:?}",
+        entity.surfaces().collect::<Vec<_>>()
+    );
+    println!("  confidence: {:?}", entity.confidence);
+
+    println!("\n-- members ({}) --", detail.members.len());
+    for member in &detail.members {
+        println!(
+            "  obs {} · capture {} · illumination {} · {} [{}] · handle {:?}",
+            member.id,
+            member.capture_id,
+            member.illumination_id,
+            member.name,
+            member.entity_type,
+            member.platform_handle
+        );
+    }
+
+    println!("\n-- claims ({}) --", detail.claims.len());
+    for claim in &detail.claims {
+        println!(
+            "  {}:{}  {}  basis {} · confidence {:?} · {}{}",
+            claim.scheme,
+            claim.external_id,
+            claim.label.as_deref().unwrap_or("(no label)"),
+            claim.basis,
+            claim.confidence,
+            claim.method.as_deref().unwrap_or("-"),
+            if claim.retracted_at.is_some() {
+                " · retracted"
+            } else {
+                ""
+            }
+        );
     }
 }
 
@@ -484,6 +577,12 @@ async fn eval_blocker(db: &database::DbHandle) -> anyhow::Result<()> {
     Ok(())
 }
 
+fn exit_with(code: i32) -> ! {
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    std::process::exit(code);
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     config::populate_env_if_test_or_dev();
@@ -510,38 +609,88 @@ async fn main() -> anyhow::Result<()> {
         Command::Merge(args) => {
             let store = knowledge::KnowledgeGraph::new(&db);
             let preview = store.merge_preview(args.loser, args.winner).await?;
-            println!(
-                "merge {} -> {} · observations {} · evidence {} · shared illuminations {}",
-                args.loser,
-                args.winner,
-                preview.observations,
-                preview.evidence,
-                preview.shared_illuminations
-            );
-            if preview.shared_illuminations > 0 {
+            let mut report = serde_json::json!({
+                "action": "merge",
+                "loser": args.loser,
+                "winner": args.winner,
+                "observations": preview.observations,
+                "evidence": preview.evidence,
+                "shared_illuminations": preview.shared_illuminations,
+                "outcome": "dry_run",
+            });
+            if !args.json {
                 println!(
-                    "refused: both entities appear in the same illumination, and one extraction \
-                     emitting both means two referents"
+                    "merge {} -> {} · observations {} · evidence {} · shared illuminations {}",
+                    args.loser,
+                    args.winner,
+                    preview.observations,
+                    preview.evidence,
+                    preview.shared_illuminations
                 );
-                return Ok(());
+            }
+            if preview.shared_illuminations > 0 {
+                report["outcome"] = serde_json::json!("refused");
+                report["reason"] = serde_json::json!("shared_illumination");
+                if args.json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!(
+                        "refused: both entities appear in the same illumination, and one extraction \
+                         emitting both means two referents"
+                    );
+                }
+                exit_with(2);
             }
             if !args.yes {
-                println!("dry run; pass --yes to apply");
+                if args.json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    println!("dry run; pass --yes to apply");
+                }
                 return Ok(());
             }
             let cause = knowledge::verdicts::Cause::Repair;
             match store.merge(args.loser, args.winner, cause).await? {
                 knowledge::graph::merge::Outcome::Merged => {
-                    println!("merged; {} is now a tombstone", args.loser)
+                    report["outcome"] = serde_json::json!("merged");
+                    if args.json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        println!("merged; {} is now a tombstone", args.loser);
+                    }
                 }
                 knowledge::graph::merge::Outcome::AlreadyMerged => {
-                    println!("already merged; nothing to do")
+                    report["outcome"] = serde_json::json!("already_merged");
+                    if args.json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        println!("already merged; nothing to do");
+                    }
                 }
                 knowledge::graph::merge::Outcome::RefusedSharedIllumination => {
-                    println!("refused at merge time — the entities changed under us")
+                    report["outcome"] = serde_json::json!("refused");
+                    report["reason"] = serde_json::json!("state_changed");
+                    if args.json {
+                        println!("{}", serde_json::to_string_pretty(&report)?);
+                    } else {
+                        println!("refused at merge time — the entities changed under us");
+                    }
+                    exit_with(3);
                 }
             }
         }
+        Command::Entity(args) => match args.command {
+            EntityCommand::Show(args) => {
+                let Some(detail) = stats::entity::detail(&db, args.id).await? else {
+                    anyhow::bail!("no knowledge entity {}", args.id);
+                };
+                if args.json {
+                    println!("{}", serde_json::to_string_pretty(&detail.to_json())?);
+                } else {
+                    print_entity(&detail);
+                }
+            }
+        },
         Command::Verdicts(args) => match args.command {
             VerdictsCommand::Replay(_) => {
                 let store = knowledge::KnowledgeGraph::new(&db);
@@ -564,24 +713,30 @@ async fn main() -> anyhow::Result<()> {
                     args.limit,
                 )
                 .await?;
-                for row in rows {
-                    let decided = match row.kind.as_str() {
-                        "veto" => format!("{}  \u{2298}  {}", row.subject, row.identity),
-                        _ => format!("{}  \u{21c4}  {}", row.winner, row.loser),
-                    };
-                    println!(
-                        "{:>4}  gen {:<3} {:<15} {:<5} {}{}",
-                        row.id,
-                        row.generation,
-                        row.cause,
-                        row.kind,
-                        decided,
-                        if row.note.is_empty() {
-                            String::new()
-                        } else {
-                            format!("   — {}", row.note)
-                        }
-                    );
+                if args.json {
+                    let values: Vec<serde_json::Value> =
+                        rows.iter().map(|row| row.to_json()).collect();
+                    println!("{}", serde_json::to_string_pretty(&values)?);
+                } else {
+                    for row in &rows {
+                        let decided = match row.kind.as_str() {
+                            "veto" => format!("{}  \u{2298}  {}", row.subject, row.identity),
+                            _ => format!("{}  \u{21c4}  {}", row.winner, row.loser),
+                        };
+                        println!(
+                            "{:>4}  gen {:<3} {:<15} {:<5} {}{}",
+                            row.id,
+                            row.generation,
+                            row.cause,
+                            row.kind,
+                            decided,
+                            if row.note.is_empty() {
+                                String::new()
+                            } else {
+                                format!("   — {}", row.note)
+                            }
+                        );
+                    }
                 }
             }
         },
@@ -605,35 +760,41 @@ async fn main() -> anyhow::Result<()> {
                 }
                 ProximityCommand::List(args) => {
                     let rows = stats::proximities::proximity_list(&db, args.limit).await?;
-                    println!(
-                        "{:>5}  {:<13}  {:<14}  {:>5}  {:<16}  {:<15}  pair",
-                        "row", "status", "why", "score", "type", "basis"
-                    );
-                    for row in rows {
-                        let score = row.score.map_or("-".to_string(), |s| format!("{s:.2}"));
-                        let status = row.status.as_str();
-                        let why = match (row.status, row.cause) {
-                            (stats::proximities::Status::Merged, Some(cause)) => cause.as_str(),
-                            (stats::proximities::Status::Merged, None) => "?",
-                            (stats::proximities::Status::MergePending, _) => {
-                                knowledge::verdicts::Cause::Repair.as_str()
-                            }
-                            _ => "",
-                        };
+                    if args.json {
+                        let values: Vec<serde_json::Value> =
+                            rows.iter().map(|row| row.to_json()).collect();
+                        println!("{}", serde_json::to_string_pretty(&values)?);
+                    } else {
                         println!(
-                            "{:>5}  {:<13}  {:<14}  {score:>5}  {:<16}  {:<15}  #{:<6} {}  \
-                             \u{21c4}  #{:<6} {}  [{}]",
-                            row.id,
-                            status,
-                            why,
-                            row.type_note,
-                            row.basis,
-                            row.holder_id,
-                            row.holder,
-                            row.counterpart_id,
-                            row.counterpart,
-                            row.identity
+                            "{:>5}  {:<13}  {:<14}  {:>5}  {:<16}  {:<15}  pair",
+                            "row", "status", "why", "score", "type", "basis"
                         );
+                        for row in rows {
+                            let score = row.score.map_or("-".to_string(), |s| format!("{s:.2}"));
+                            let status = row.status.as_str();
+                            let why = match (row.status, row.cause) {
+                                (stats::proximities::Status::Merged, Some(cause)) => cause.as_str(),
+                                (stats::proximities::Status::Merged, None) => "?",
+                                (stats::proximities::Status::MergePending, _) => {
+                                    knowledge::verdicts::Cause::Repair.as_str()
+                                }
+                                _ => "",
+                            };
+                            println!(
+                                "{:>5}  {:<13}  {:<14}  {score:>5}  {:<16}  {:<15}  #{:<6} {}  \
+                                 \u{21c4}  #{:<6} {}  [{}]",
+                                row.id,
+                                status,
+                                why,
+                                row.type_note,
+                                row.basis,
+                                row.holder_id,
+                                row.holder,
+                                row.counterpart_id,
+                                row.counterpart,
+                                row.identity
+                            );
+                        }
                     }
                 }
             }
@@ -728,7 +889,13 @@ async fn main() -> anyhow::Result<()> {
             EvalCommand::Inspect(args) => {
                 let report = knowledge::eval::inspect(&db, &args.target).await?;
                 match report {
-                    Some(report) => print_inspection(&report),
+                    Some(report) => {
+                        if args.json {
+                            println!("{}", serde_json::to_string_pretty(&report.to_json())?);
+                        } else {
+                            print_inspection(&report);
+                        }
+                    }
                     None => println!("nothing matches {:?}", args.target),
                 }
             }

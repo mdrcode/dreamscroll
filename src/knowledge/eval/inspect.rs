@@ -247,6 +247,96 @@ async fn ladder(
     Ok(steps)
 }
 
+impl Report {
+    pub fn to_json(&self) -> serde_json::Value {
+        let entity = &self.entity;
+        serde_json::json!({
+            "entity": {
+                "id": entity.id,
+                "name": entity.name,
+                "alt_names": entity.alt_names,
+                "entity_type": entity.entity_type,
+                "alt_types": entity.alt_types,
+                "description": entity.description,
+                "alt_descriptions": entity.alt_descriptions,
+                "search_query": entity.search_query,
+                "alt_search_queries": entity.alt_search_queries,
+                "platform": entity.platform,
+                "platform_handle": entity.platform_handle,
+                "platform_display_name": entity.platform_display_name,
+                "status": entity.status.as_str(),
+                "confidence": entity.confidence,
+                "merged_into_id": entity.merged_into_id,
+                "origin_observation_id": entity.origin_observation_id,
+            },
+            "probe": self.probe.as_ref().map(|probe| serde_json::json!({
+                "id": probe.id,
+                "capture_id": probe.capture_id,
+                "illumination_id": probe.illumination_id,
+                "position": probe.position,
+                "name": probe.name,
+                "entity_type": probe.entity_type,
+                "description": probe.description,
+                "search_query": probe.search_query,
+                "platform": probe.platform,
+                "platform_handle": probe.platform_handle,
+                "platform_display_name": probe.platform_display_name,
+            })),
+            "candidates": self
+                .candidates
+                .iter()
+                .map(|candidate| serde_json::json!({
+                    "id": candidate.id,
+                    "name": candidate.name,
+                    "entity_type": candidate.entity_type,
+                    "by_surface": candidate.by_surface,
+                    "by_words": candidate.by_words,
+                }))
+                .collect::<Vec<_>>(),
+            "ranked": self
+                .ranked
+                .iter()
+                .map(|(id, name, score)| serde_json::json!({
+                    "id": id,
+                    "name": name,
+                    "score": score,
+                }))
+                .collect::<Vec<_>>(),
+            "steps": self
+                .steps
+                .iter()
+                .map(|step| serde_json::json!({
+                    "kind": step.kind,
+                    "query": step.query,
+                    "cache": step.cache.as_str(),
+                    "outcome": step.outcome.map(|outcome| outcome.as_str()),
+                    "top": step
+                        .top
+                        .iter()
+                        .map(|(id, label, description)| serde_json::json!({
+                            "id": id,
+                            "label": label,
+                            "description": description,
+                        }))
+                        .collect::<Vec<_>>(),
+                    "decision": step.decision.as_ref().map(|(qid, method)| serde_json::json!({
+                        "qid": qid,
+                        "method": method,
+                    })),
+                    "vetoed": step.vetoed,
+                    "refusal": step.refusal,
+                }))
+                .collect::<Vec<_>>(),
+            "claim": self.claim.as_ref().map(|claim| serde_json::json!({
+                "identity": claim.identity,
+                "label": claim.label,
+                "asserted_by": claim.asserted_by,
+                "method": claim.method,
+            })),
+        })
+    }
+}
+
 /// The first few candidates an answer carried, as the inspection prints them.
 fn describe(candidates: &[Offered]) -> Vec<(String, String, String)> {
     candidates

@@ -24,6 +24,30 @@ pub struct VerdictRow {
     pub identity: String,
     pub note: String,
     pub decided_at: DateTime<Utc>,
+    /// The stable keys: origin observations, not generation-scoped entity ids.
+    pub winner_origin: Option<i32>,
+    pub loser_origin: Option<i32>,
+    pub subject_origin: Option<i32>,
+}
+
+impl VerdictRow {
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "generation": self.generation,
+            "cause": self.cause,
+            "kind": self.kind,
+            "winner": self.winner,
+            "loser": self.loser,
+            "subject": self.subject,
+            "identity": self.identity,
+            "note": self.note,
+            "decided_at": self.decided_at.to_rfc3339(),
+            "winner_origin": self.winner_origin,
+            "loser_origin": self.loser_origin,
+            "subject_origin": self.subject_origin,
+        })
+    }
 }
 
 /// Newest first: an audit is read from the present backwards.
@@ -41,7 +65,8 @@ pub async fn verdict_list(
                     coalesce(v.winner_label, ''), coalesce(v.loser_label, ''), \
                     coalesce(e.name, 'origin ' || v.subject_origin::text, ''), \
                     coalesce(v.identity_scheme || ':' || v.identity_external_id, ''), \
-                    coalesce(v.note, ''), v.decided_at \
+                    coalesce(v.note, ''), v.decided_at, \
+                    v.winner_origin, v.loser_origin, v.subject_origin \
                FROM knowledge_verdicts v \
                LEFT JOIN knowledge_entities e ON e.origin_observation_id = v.subject_origin \
               WHERE ($1::int IS NULL OR v.generation = $1) \
@@ -68,6 +93,9 @@ pub async fn verdict_list(
                 identity: row.try_get_by_index(7)?,
                 note: row.try_get_by_index(8)?,
                 decided_at: row.try_get_by_index(9)?,
+                winner_origin: row.try_get_by_index(10)?,
+                loser_origin: row.try_get_by_index(11)?,
+                subject_origin: row.try_get_by_index(12)?,
             })
         })
         .collect()

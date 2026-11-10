@@ -66,6 +66,16 @@ pub enum State {
     Missing,
 }
 
+impl State {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fresh => "fresh",
+            Self::Expired => "expired",
+            Self::Missing => "missing",
+        }
+    }
+}
+
 /// One request's stored answer, with the freshness a caller needs to decide what to do with it.
 pub struct Lookup<P> {
     pub state: State,
