@@ -17,6 +17,9 @@ pub struct ProximityRow {
     /// Why the pair is worth a second look — `same entity_type`, or blank.
     pub note: String,
     pub basis: String,
+    /// The entity ids `merge` and `eval inspect` take; the names are for reading.
+    pub holder_id: i32,
+    pub counterpart_id: i32,
     pub holder: String,
     pub counterpart: String,
     pub identity: String,
@@ -45,7 +48,9 @@ pub async fn proximity_list(
                     c.name || ' [' || c.entity_type || ']', \
                     coalesce(i.scheme || ':' || i.external_id, ''), \
                     h.origin_observation_id, \
-                    c.origin_observation_id \
+                    c.origin_observation_id, \
+                    h.id, \
+                    c.id \
                FROM knowledge_proximities p \
                JOIN knowledge_entities h ON h.id = p.holder_id \
                JOIN knowledge_entities c ON c.id = p.counterpart_id \
@@ -89,6 +94,8 @@ pub async fn proximity_list(
                 holder: row.try_get_by_index(4)?,
                 counterpart: row.try_get_by_index(5)?,
                 identity: row.try_get_by_index(6)?,
+                holder_id: row.try_get_by_index(9)?,
+                counterpart_id: row.try_get_by_index(10)?,
                 decided,
             })
         })

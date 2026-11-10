@@ -609,8 +609,16 @@ async fn main() -> anyhow::Result<()> {
                         let score = row.score.map_or("-".to_string(), |s| format!("{s:.2}"));
                         let decided = if row.decided { "same" } else { "" };
                         println!(
-                            "{:>5}  {decided:<5}{score:>5}  {:<16}  {:<15}  {}  \u{21c4}  {}  [{}]",
-                            row.id, row.note, row.basis, row.holder, row.counterpart, row.identity
+                            "{:>5}  {decided:<5}{score:>5}  {:<16}  {:<15}  #{:<6} {}  \
+                             \u{21c4}  #{:<6} {}  [{}]",
+                            row.id,
+                            row.note,
+                            row.basis,
+                            row.holder_id,
+                            row.holder,
+                            row.counterpart_id,
+                            row.counterpart,
+                            row.identity
                         );
                     }
                 }
