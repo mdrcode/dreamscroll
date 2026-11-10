@@ -204,7 +204,7 @@ impl Evidence {
         &self,
         observation: &model::user_observed_entity::Model,
     ) -> anyhow::Result<Option<i32>> {
-        match IdentityKey::from_capture(observation) {
+        match IdentityKey::from_platform_link(observation) {
             Some(key) => self.identity_id(&key.scheme, &key.external_id).await,
             None => Ok(None),
         }
@@ -415,7 +415,7 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let key = IdentityKey::from_capture(&observation).expect("a handle");
+        let key = IdentityKey::from_platform_link(&observation).expect("a handle");
         let identity = evidence
             .identity_for_link(&key)
             .await
@@ -492,7 +492,7 @@ mod tests {
             .unwrap()
             .unwrap();
         evidence
-            .identity_for_link(&IdentityKey::from_capture(&observation).expect("a handle"))
+            .identity_for_link(&IdentityKey::from_platform_link(&observation).expect("a handle"))
             .await
             .unwrap();
 

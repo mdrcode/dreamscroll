@@ -16,8 +16,9 @@ pub struct IdentityKey {
 }
 
 impl IdentityKey {
-    /// The key a capture's platform handle names, both halves folded so two spellings agree.
-    pub fn from_capture(observation: &model::user_observed_entity::Model) -> Option<Self> {
+    /// The key the platform link an observation carries names: `(platform, handle)`, both folded, or
+    /// `None` when the link is absent.
+    pub fn from_platform_link(observation: &model::user_observed_entity::Model) -> Option<Self> {
         let platform = observation.platform.as_deref()?;
         let handle = observation.platform_handle.as_deref()?;
         Some(Self {

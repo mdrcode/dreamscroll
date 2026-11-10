@@ -50,7 +50,7 @@ async fn assert_claims(
         let Some(entity) = linked.get(&observation.id).copied() else {
             continue;
         };
-        if let Some(key) = IdentityKey::from_capture(observation) {
+        if let Some(key) = IdentityKey::from_platform_link(observation) {
             let identity = graph.identity_for_link(&key).await?;
             if graph
                 .assert(
