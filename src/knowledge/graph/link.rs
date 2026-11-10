@@ -19,11 +19,9 @@ use super::KnowledgeGraph;
 pub struct LinkStats {
     pub attached: usize,
     pub created: usize,
-    /// Pending observations the Linker returned no decision for. Nonzero means the policy left part
-    /// of the batch unlinked: the executor does not invent a decision to cover it.
+    /// Pending observations the Linker returned no decision for.
     pub left_pending: usize,
-    /// Claims a standing veto refused — [`crate::knowledge::graph::verdicts::vetoed`] names the
-    /// pairing, so the edge was not written. Counted by the claim pass in `helper`.
+    /// Claims a veto "verdict" refused — [`crate::knowledge::graph::verdicts::vetoed`]
     pub vetoed: usize,
 }
 
@@ -47,8 +45,7 @@ pub(crate) async fn link(
 ) -> anyhow::Result<(LinkStats, HashMap<i32, i32>)> {
     let (Some(decider), Some(blocker)) = (&graph.decider, &graph.blocker) else {
         anyhow::bail!(
-            "this KnowledgeGraph was built without a linker; use KnowledgeGraph::with_linking to link \
-             illuminations"
+            "this KnowledgeGraph was built without a linker; use KnowledgeGraph::with_linking"
         );
     };
 
@@ -194,8 +191,11 @@ mod unit {
         );
 
         let loaded = load_illumination(&db, illumination).await;
-        let linking =
-            linking_store(&db, Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker)).await;
+        let linking = linking_store(
+            &db,
+            Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
+        )
+        .await;
         let stats = link_illumination(&linking, &loaded).await.unwrap();
         assert_eq!(stats.created, 1, "the linker it was built with decides");
         assert_eq!(stats.left_pending, 0, "every pending observation decided");
@@ -316,16 +316,15 @@ mod unit {
         link_illumination(&store, &loaded).await.unwrap();
         assert_eq!(live_claims().await, 1);
 
-        let entity_id = entity::Entity::find().one(&db.conn).await.unwrap().unwrap().id;
-        crate::knowledge::graph::verdicts::veto(
-            &store,
-            entity_id,
-            "x_twitter",
-            "tsoding",
-            None,
-        )
-        .await
-        .unwrap();
+        let entity_id = entity::Entity::find()
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap()
+            .id;
+        crate::knowledge::graph::verdicts::veto(&store, entity_id, "x_twitter", "tsoding", None)
+            .await
+            .unwrap();
         crate::knowledge::graph::verdicts::replay(&store)
             .await
             .unwrap();
@@ -349,7 +348,10 @@ mod unit {
         .await;
         let loaded = load_illumination(&db, second.illumination_id).await;
         let stats = link_illumination(&store, &loaded).await.unwrap();
-        assert_eq!(stats.vetoed, 1, "the capture writer asked the veto: {stats:?}");
+        assert_eq!(
+            stats.vetoed, 1,
+            "the capture writer asked the veto: {stats:?}"
+        );
         assert_eq!(live_claims().await, 0, "and did not write the edge");
         assert_eq!(
             entity::Entity::find().count(&db.conn).await.unwrap(),
@@ -357,7 +359,6 @@ mod unit {
             "and it attached rather than duplicated"
         );
     }
-
 }
 
 #[cfg(test)]
@@ -366,8 +367,8 @@ mod corpus {
 
     use crate::knowledge::Status;
     use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
-    use crate::test_support::fixtures::{self, entity_count, observe, Capture};
     use crate::test_support::db_or_skip;
+    use crate::test_support::fixtures::{self, Capture, entity_count, observe};
 
     /// Nothing exists for either name yet, and every decision is made before any of them is written,
     /// so neither observation can find the other's entity: the batch is what keeps them apart, with
