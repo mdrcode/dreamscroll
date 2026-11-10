@@ -6,6 +6,8 @@
 //!
 //! Snapshotting copies rather than renames; [`super::record`] explains why.
 
+use std::collections::HashSet;
+
 use sea_orm::sea_query::{Expr, OnConflict};
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter, Set,
@@ -26,6 +28,36 @@ use crate::model::{
 
 const OBSERVATION_TABLE: &str = "user_observed_entities";
 
+/// Hard retention policy: a reset keeps the newest ten snapshot suffixes and drops every older
+/// archive table. Change this constant to change the policy; the generation register keeps its
+/// history either way, even when the tables behind an old suffix are gone.
+const RETAIN_SNAPSHOTS: usize = 10;
+
+/// Families `Snapshot` has produced across schema revisions. Pruning is restricted to these so a
+/// user table that happens to end in a timestamp is never touched.
+const SNAPSHOT_FAMILIES: &[&str] = &[
+    CORE_TABLE,
+    IDENTITIES_TABLE,
+    CLAIMS_TABLE,
+    PROXIMITIES_TABLE,
+    "knowledge_entity_membership",
+    "core_knowledge_entities",
+    "core_knowledge_evidence",
+    "core_knowledge_membership",
+    "knowledge_evidence",
+    "knowledge_merges",
+    "knowledge_collisions",
+];
+
+fn is_snapshot_suffix(suffix: &str) -> bool {
+    suffix.len() == 18
+        && suffix.as_bytes()[8] == b'T'
+        && suffix
+            .bytes()
+            .enumerate()
+            .all(|(index, byte)| index == 8 || byte.is_ascii_digit())
+}
+
 /// What one reset did. Merges are absent by construction: `knowledge_verdicts` is never cleared, so
 /// the count a generation recorded belongs to its register row, not to this report.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -42,6 +74,8 @@ pub struct Report {
     pub snapshot_identities: u64,
     pub snapshot_proximities: u64,
     pub snapshot_members: u64,
+    /// Archive tables dropped by the retention policy.
+    pub pruned_snapshots: u64,
 }
 
 /// What a reset would snapshot and remove, without touching anything.
@@ -79,8 +113,10 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                     // Nothing to preserve: do not leave empty archive tables behind.
                     let unlinked = unlink(txn).await?;
                     supersede_generation(txn, None, 0, 0, 0, 0, 0).await?;
+                    let pruned_snapshots = prune_snapshots(txn, RETAIN_SNAPSHOTS).await?;
                     return Ok(Report {
                         unlinked,
+                        pruned_snapshots,
                         ..Default::default()
                     });
                 }
@@ -113,6 +149,7 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                     snapshot_members,
                 )
                 .await?;
+                let pruned_snapshots = prune_snapshots(txn, RETAIN_SNAPSHOTS).await?;
 
                 Ok(Report {
                     unlinked,
@@ -125,6 +162,7 @@ pub async fn reset(db: &database::DbHandle) -> anyhow::Result<Report> {
                     snapshot_identities,
                     snapshot_proximities,
                     snapshot_members,
+                    pruned_snapshots,
                 })
             })
         })
@@ -223,6 +261,53 @@ async fn copy_membership<C: ConnectionTrait>(conn: &C, snapshot: &str) -> anyhow
     ))
     .await?;
     count(conn, snapshot).await
+}
+
+/// Drop every archive table whose suffix is older than the newest `keep` suffixes.
+///
+/// The generation register is deliberately left alone: it records what a generation held even after
+/// the archive tables behind its suffix are gone. `snapshot compare` on a pruned suffix will fail
+/// with a missing table, which is the honest answer.
+async fn prune_snapshots<C: ConnectionTrait>(conn: &C, keep: usize) -> anyhow::Result<u64> {
+    let rows = conn
+        .query_all_raw(Statement::from_string(
+            DatabaseBackend::Postgres,
+            "SELECT table_name FROM information_schema.tables \
+             WHERE table_schema = current_schema()",
+        ))
+        .await?;
+
+    let mut suffixes = Vec::new();
+    let mut tables = Vec::new();
+    for row in rows {
+        let table: String = row.try_get_by_index(0)?;
+        let Some((family, suffix)) = table.rsplit_once("__") else {
+            continue;
+        };
+        if !SNAPSHOT_FAMILIES.contains(&family) || !is_snapshot_suffix(suffix) {
+            continue;
+        }
+        let suffix = suffix.to_string();
+        suffixes.push(suffix.clone());
+        tables.push((table, suffix));
+    }
+
+    suffixes.sort();
+    suffixes.dedup();
+    let keep_from = suffixes.len().saturating_sub(keep);
+    let kept: HashSet<&str> = suffixes[keep_from..].iter().map(String::as_str).collect();
+
+    let mut dropped = 0;
+    for (table, suffix) in tables {
+        if kept.contains(suffix.as_str()) {
+            continue;
+        }
+        let quoted = table.replace('"', "\"\"");
+        conn.execute_unprepared(&format!("DROP TABLE IF EXISTS \"{quoted}\""))
+            .await?;
+        dropped += 1;
+    }
+    Ok(dropped)
 }
 
 async fn count<C: ConnectionTrait>(conn: &C, table: &str) -> anyhow::Result<u64> {
@@ -436,6 +521,38 @@ mod tests {
 
         assert_eq!(report, Report::default());
         assert!(report.snapshot.is_none());
+    }
+
+    #[tokio::test]
+    async fn reset_keeps_only_the_newest_ten_snapshot_suffixes() {
+        db_or_skip!(db);
+
+        for index in 0..12 {
+            let suffix = format!("20260101T000000{index:03}");
+            let table = format!("knowledge_entities__{suffix}");
+            db.conn
+                .execute_unprepared(&format!("CREATE TABLE \"{table}\" (id int)"))
+                .await
+                .unwrap();
+        }
+
+        let report = reset(&db).await.expect("reset should succeed");
+
+        assert_eq!(report.pruned_snapshots, 2, "{report:?}");
+        let remaining: i64 = db
+            .conn
+            .query_one_raw(Statement::from_string(
+                DatabaseBackend::Postgres,
+                "SELECT count(*) FROM information_schema.tables \
+                 WHERE table_schema = current_schema() \
+                   AND table_name LIKE 'knowledge_entities__20260101T%'",
+            ))
+            .await
+            .unwrap()
+            .unwrap()
+            .try_get_by_index(0)
+            .unwrap();
+        assert_eq!(remaining, 10);
     }
 
     /// The register says how many merges a generation recorded. Verdicts are never deleted, so a

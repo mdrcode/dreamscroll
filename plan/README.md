@@ -28,27 +28,14 @@ rather than rewriting it; history is the point.
 | [pragmatism.md](pragmatism.md) | Living — ledger | Tolerated trade-offs, each with a revisit trigger. The default answer to "should we fix this now?" |
 | [testing.md](testing.md) | Living | Two-tier test model, and what deliberately goes untested. |
 | [smoke.md](smoke.md) | Living | Manual smoke procedure against the persistent local instance (`smoke-agent` account). |
-| [htmx4.md](htmx4.md) | Deferred decision | 2.0.11 pinned with SRI. 4.0 migration points and risks mapped; no timeline. |
-| [feed-view-incremental-updates.md](feed-view-incremental-updates.md) | Planned follow-up | Replace the full `/feed` refetch after upload with server-defined membership updates. |
-| [testing-auth-routes.md](testing-auth-routes.md) | Planned follow-up | Exercise protected routes through real Axum auth middleware on an isolated Postgres schema. |
-| [testing-js-and-browser.md](testing-js-and-browser.md) | Planned follow-up | Browser-level coverage for SSE connection lifetime, partial refresh, and upload feedback. |
-| [testing-coverage.md](testing-coverage.md) | Planned — initial | Strategy for coverage beyond the current two tiers. |
-| [rest-testing.md](rest-testing.md) | Planned — design only | The REST surface: `test_support::rest` harness, auth matrix, route inventory, per-route contract assertions against the `.http` docs. |
 | [lexicon.md](lexicon.md) | Authoritative — names | The vocabulary: observations, knowledge entities, evidence; the verbs; the rename map and the names considered and rejected. Read before renaming anything in the graph. |
 | [knowledge-illumination-history.md](knowledge-illumination-history.md) | Implemented — 2026-11-01 | The graph keeps every reading of a capture, the view shows one. Trigger: a re-read described the wrong film and the correct reading was the superseded one. |
-| [knowledge-entity-types.md](knowledge-entity-types.md) | Open questions | Current v2 entity shape; next taxonomy pass deferred until the environment is fully v2-backfilled. |
-| [knowledge-canonical-entities.md](knowledge-canonical-entities.md) | Implemented — core graph; disclosure deferred | Observation → knowledge entity (no owner, projected from evidence) → evidence (append-only). Merge is a scored decision; identity is a claim. Names per [lexicon.md](lexicon.md). |
 | [knowledge-claim-management.md](knowledge-claim-management.md) | Implemented — 2026-11-09 | Two phases (settle an identity, assert an edge), both callers use both; a veto names a pairing, so the 27 handle-routed authority claims are retractable. No claim ids. |
 | [knowledge-resolution.md](knowledge-resolution.md) | Implemented (v14) | Cache-first resolution against evidence providers: the DB cache, the provider seam, Wikidata's three request kinds, confidence and corroboration. |
-| [screenshot_3rd_party.md](screenshot_3rd_party.md) | Research | Screenshot provider comparison and selection criteria (Urlbox, ScreenshotOne). |
-| [api_token_hardening.md](api_token_hardening.md) | Proposed | `iss`/`aud` claims, fallible config validation, and token-lifetime policy. |
 | [media-serving.md](media-serving.md) | Partly implemented | Immutable-object cache policy shipped; private URL delivery waits on load-balancer/CDN work. |
 | [prod-deploy.md](prod-deploy.md) | Implemented; drift-clean — approved | Whole production release path: build/push, checked-in Cloud Run manifests, `prod-apply.sh` drift/apply/lint, `dreamscroll-db-sync` schema job, rollback. Service drift is clean; manifests and job verified in production. |
 | [topology_and_throughput.md](topology_and_throughput.md) | Reference | Cloud Run / Cloud SQL connection and concurrency budgets. |
 | [vertex-throughput.md](vertex-throughput.md) | Research — active | Vertex Gemini tail latency: evidence, hypotheses, experiments, mitigations. |
-| [upgrade_3rd_party_crates.md](upgrade_3rd_party_crates.md) | Proposed process | Repeatable dependency-upgrade procedure. |
-| [event-streaming-optimization.md](event-streaming-optimization.md) | Exploratory | Reducing per-connection task-status catch-up queries on `/events`. |
-| [upload-attempts.md](upload-attempts.md) | Proposed | Structured upload-outcome logging and an `upload_attempts` table for failure triage and measurement. Nothing implemented; deferred to CLIENT_PULSE. |
 | [upload-formats.md](upload-formats.md) | Partly implemented | Upload format policy: blocklist at the single ingest point, 415s, client `accept` steering shipped 2026-10-29. Client re-encode and server HEIC normalize deferred. |
 
 ## archive/ — inactive records (default: ignore)
@@ -68,6 +55,19 @@ rather than rewriting it; history is the point.
 | [webui-v2-audit.md](archive/webui-v2-audit.md) | Full audit of `web/v2`; all findings fixed or accepted. |
 | [feed-route-rename.md](archive/feed-route-rename.md) | Feed fragment route renamed `/cards` → `/feed`; what moved and what deliberately did not. |
 | [webui-capture-route.md](archive/webui-capture-route.md) | Capture page routes moved from `/detail` to `/capture`; upload field renamed with them. |
+| [htmx4.md](archive/htmx4.md) | HTMX 4 evaluation: migration points and risks; 2.0.11 pinned, no timeline. |
+| [feed-view-incremental-updates.md](archive/feed-view-incremental-updates.md) | Incremental `/feed` updates after upload; planned, gated on refetch cost. |
+| [testing-auth-routes.md](archive/testing-auth-routes.md) | Authenticated WebUI route tests through real middleware; planned. |
+| [testing-js-and-browser.md](archive/testing-js-and-browser.md) | Browser-level SSE/refresh/upload coverage; planned. |
+| [testing-coverage.md](archive/testing-coverage.md) | Coverage-tool strategy and gap inventory; initial plan. |
+| [rest-testing.md](archive/rest-testing.md) | REST router harness, auth matrix and contract design; not implemented. |
+| [knowledge-entity-types.md](archive/knowledge-entity-types.md) | v2 entity taxonomy decisions and deferred boundaries; model lives in code. |
+| [screenshot_3rd_party.md](archive/screenshot_3rd_party.md) | Screenshot provider comparison (Urlbox/ScreenshotOne); no provider selected. |
+| [api_token_hardening.md](archive/api_token_hardening.md) | API token `iss`/`aud`, validation and lifetime hardening; proposed. |
+| [upgrade_3rd_party_crates.md](archive/upgrade_3rd_party_crates.md) | Dependency-upgrade procedure; proposed. |
+| [event-streaming-optimization.md](archive/event-streaming-optimization.md) | `/events` catch-up query reduction; exploratory. |
+| [upload-attempts.md](archive/upload-attempts.md) | Upload outcome log and `upload_attempts` table; proposed, deferred to CLIENT_PULSE. |
+| [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md) | Core entity/evidence design and rationale; implemented, with `src/knowledge/knowledge.md` as the day-to-day model. Disclosure policy deferred. |
 | [backfill.md](archive/backfill.md) | Typed backfill mechanism: bounded pumping, TaskRun correlation, dry-pump latch, status reporting. Implemented; no open questions. |
 | [schema-migration-strategy.md](archive/schema-migration-strategy.md) | Explicit `sync_schema` design: model registry, marker, manual indexes; implemented and exercised in production. |
 | [static-serving-cdn.md](archive/static-serving-cdn.md) | Decision: browser caching first, no ALB/CDN while the static bundle is small; implemented. |

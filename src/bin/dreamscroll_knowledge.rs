@@ -909,6 +909,9 @@ async fn main() -> anyhow::Result<()> {
                  deleted {} entities",
                 report.unlinked, report.claims, report.proximities, report.entities
             );
+            if report.pruned_snapshots > 0 {
+                println!("pruned {} old snapshot tables", report.pruned_snapshots);
+            }
         }
         Command::Compare(args) => {
             let before = knowledge::snapshot::Snapshot {

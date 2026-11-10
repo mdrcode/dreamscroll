@@ -41,6 +41,20 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity"
     WHERE retracted_at IS NULL
 "#;
 
+/// Identity-first reads: proximity scans group by identity, and the resolver checks collisions from
+/// the identity side. The unique index above is entity-first and cannot serve them.
+const CLAIMS_IDENTITY: &str = r#"
+CREATE INDEX IF NOT EXISTS "idx-knowledge_claims_identity"
+    ON knowledge_claims (knowledge_identity_id)
+    WHERE retracted_at IS NULL
+"#;
+
+/// Projection reads one entity's members; without this it scans every observation.
+const OBSERVATIONS_ENTITY: &str = r#"
+CREATE INDEX IF NOT EXISTS "idx-user_observed_entities-knowledge_entity"
+    ON user_observed_entities (knowledge_entity_id)
+"#;
+
 /// The blocker's access path: which entities wear any of these folded surfaces. `array_ops` GIN is
 /// what makes `surfaces && $1` one probe instead of a scan.
 const INDEX_SURFACES: &str = r#"
@@ -85,6 +99,8 @@ DO $sync$
 BEGIN
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_identity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_entity_identity');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_identity');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-user_observed_entities-knowledge_entity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_proximities_pair');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_blocking_index-surfaces');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_blocking_index-word_keys');
@@ -140,6 +156,8 @@ pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbEr
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(IDENTITIES_UNIQUE).await?;
     conn.execute_unprepared(CLAIMS_UNIQUE).await?;
+    conn.execute_unprepared(CLAIMS_IDENTITY).await?;
+    conn.execute_unprepared(OBSERVATIONS_ENTITY).await?;
     conn.execute_unprepared(PROXIMITIES_PAIR).await?;
     conn.execute_unprepared("DROP INDEX IF EXISTS \"idx-knowledge_proximities_open\"")
         .await?;

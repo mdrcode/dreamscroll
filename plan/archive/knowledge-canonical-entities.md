@@ -2,7 +2,7 @@
 
 **Status:** Implemented (schema version 16, 2026-11-01). Three tables, named for what they hold:
 **UserObservedEntity** (observation), **KnowledgeEntity** (the referent) and **KnowledgeEvidence**
-(recorded fact — identity included). Names and verbs are governed by [lexicon.md](lexicon.md); this
+(recorded fact — identity included). Names and verbs are governed by [lexicon.md](../lexicon.md); this
 doc is about the model, not the vocabulary.
 
 Schema 16 collapsed the staging pair — the application wrote `knowledge_user` while `migrate` copied
@@ -12,10 +12,10 @@ into `user_knowledge_entities`, and the graph read the copy — into `user_obser
 `dreamscroll_db sync_schema`.
 
 **See also:** [knowledge-entity-types.md](knowledge-entity-types.md) (taxonomy),
-[knowledge-evidence-prototype.md](archive/knowledge-evidence-prototype.md) (the measured prototype and its
-failure catalogue), [knowledge-promotion-audit-prod.md](archive/knowledge-promotion-audit-prod.md) (corpus
-numbers), [knowledge-wikidata-recommender.md](archive/knowledge-wikidata-recommender.md) (QID usage),
-[pragmatism.md](pragmatism.md) (ledger), [backfill.md](archive/backfill.md) (typed backfills),
+[knowledge-evidence-prototype.md](knowledge-evidence-prototype.md) (the measured prototype and its
+failure catalogue), [knowledge-promotion-audit-prod.md](knowledge-promotion-audit-prod.md) (corpus
+numbers), [knowledge-wikidata-recommender.md](knowledge-wikidata-recommender.md) (QID usage),
+[pragmatism.md](../pragmatism.md) (ledger), [backfill.md](backfill.md) (typed backfills),
 `plan/archive/illuminate-v2.md` (the projection this builds on).
 
 ## The gap
@@ -84,8 +84,8 @@ schema constraint. See §Deferred.
 ## What the data says
 
 Prod corpus, 5,245 mentions / 1,360 captures / 3 users (2026-10-31); detail in
-[knowledge-promotion-audit-prod.md](archive/knowledge-promotion-audit-prod.md) and
-[knowledge-evidence-prototype.md](archive/knowledge-evidence-prototype.md).
+[knowledge-promotion-audit-prod.md](knowledge-promotion-audit-prod.md) and
+[knowledge-evidence-prototype.md](knowledge-evidence-prototype.md).
 
 | Fact | Value |
 | --- | --- |
@@ -325,7 +325,7 @@ pub enum EvidenceValue {                 // src/knowledge/evidence.rs — not bu
 ```
 
 The row's `kind` is `claim | collision | merge`; `enrichment` and `rejection` are reserved vocabulary,
-written when resolution starts emitting more than identity. See [lexicon.md](lexicon.md).
+written when resolution starts emitting more than identity. See [lexicon.md](../lexicon.md).
 
 with `TryFrom<Json>` / `Into<Json>`. `KnowledgeEntityId` / `ObservationId` newtypes in domain
 signatures: three tables of `i32` keys means `link(observation) -> knowledge entity` is one swapped
@@ -426,7 +426,7 @@ Everything else is a weight: a veto cannot be traded against evidence, a weight 
 
 Two captures can create two provisional knowledge entities for one new referent. The unique indexes convert the
 second resolution into a merge; until then the overlay shows two rows. Accepted, recorded in
-[pragmatism.md](pragmatism.md).
+[pragmatism.md](../pragmatism.md).
 
 ## Repair: (retire, unlink, seed?, relink)
 
@@ -564,7 +564,7 @@ are in the payload.
 ## Resolution
 
 Implemented as a cache-first provider pipeline — see
-[knowledge-resolution.md](knowledge-resolution.md) for the cache table, the `Engine` seam and the TTLs.
+[knowledge-resolution.md](../knowledge-resolution.md) for the cache table, the `Engine` seam and the TTLs.
 The shape below is the target; only identity (`label`, `handle`, `search`) exists today.
 
 Three sources, merged rather than ordered:
@@ -849,7 +849,7 @@ Not a design constraint, and deliberately not in the schema. Recorded here so it
 | **Merge on (normalized name, type) without scoring** | 111 of 179 collisions are type instability and 8 homonyms share a name inside one capture. |
 | **Resolve before merge, always** | Pays resolution per observation instead of per knowledge entity, on the weakest possible input. |
 | **A stored confidence verdict per row** | Unre-derivable when the rule changes; the 577-row string-length failure is the proof. |
-| **Global entity table keyed by QID** ([recommender doc](archive/knowledge-wikidata-recommender.md)) | The tail misses a clean QID, the write path gains a network dependency, per-user evidence is lost. QID stays an optional identifier. |
+| **Global entity table keyed by QID** ([recommender doc](knowledge-wikidata-recommender.md)) | The tail misses a clean QID, the write path gains a network dependency, per-user evidence is lost. QID stays an optional identifier. |
 | **Unique (user, type, normalized name) and re-point** | Cheapest to write, not reversible, and cannot express aliases or "same name, different type". |
 | **Mention↔knowledge entity many-to-many** | One observation belongs to one referent in every case we can name. Ambiguity is a status, not a fan-out. |
 | **In-context LLM clustering per illumination** ([design space](https://arxiv.org/abs/2506.02509)) | Non-deterministic across runs; cost per capture rather than per ambiguity; no audit trail. |

@@ -4,7 +4,7 @@
 tables, columns and verbs. The map from the previous names is at the end, and so is the list of names
 that were considered and rejected — read that before proposing a rename.
 
-**See also:** [knowledge-canonical-entities.md](knowledge-canonical-entities.md) (the model),
+**See also:** [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md) (the model),
 [knowledge-resolution.md](knowledge-resolution.md) (the resolver).
 
 ## The sentence

@@ -84,7 +84,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   members" is the only way to reach the fallback.
 - [ ] **Unmerge.** A merge tombstones the loser and records `kind = 'merge'` with `child` and
   `method`, so reversing one is a pointer away — `merge`'s own doc says the decision is "one pointer
-  away from being undone". Nothing implements it. `plan/knowledge-canonical-entities.md` §Repair
+  away from being undone". Nothing implements it. `plan/archive/knowledge-canonical-entities.md` §Repair
   describes `retire` and `relink`, and the CLI that drives a repair by hand is still "later". Settle
   one design question first: observations are the source of truth for membership, so re-pointing them
   by the ids the merge moved is probably enough, but the evidence rows that moved need their old owner
@@ -130,7 +130,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
 - [ ] **Define `brand` vs `organization`, `product` vs `software`.** These two
   undefined type pairs account for 111 of 179 collision pairs.
 - [ ] **Add `concept` and `organism` entity types, plus `referent_form` and
-  `wikidata_class`.** Settled by the 2026-10-29 audit in `plan/knowledge-entity-types.md`:
+  `wikidata_class`.** Settled by the 2026-10-29 audit in `plan/archive/knowledge-entity-types.md`:
   `unknown` splits into six Wikidata classes, 3 of them taxa, and named plant cultivars are
   currently typed `product`. Touches the v2 prompt, the type enum, and the P31 → type mapping.
   Unblocks 15 of the 17 `unknown` rows and the dahlia/cultivar corpus.
@@ -168,7 +168,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   step bypasses the drift and invariant checks. Delete it — the archived
   research records what it was — or mark it unsupported and align its
   substitutions. Fix the two docs that still call it the build path:
-  `plan/archive/static-serving-cdn.md`, `plan/upgrade_3rd_party_crates.md`.
+  `plan/archive/static-serving-cdn.md`, `plan/archive/upgrade_3rd_party_crates.md`.
 
 - [ ] **Separate interactive captures from bulk/backfill work in the task
   queues.** The illuminate queue runs `maxConcurrentDispatches: 1`, so a user
@@ -265,21 +265,21 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 
 | Topic                                              | Plan                                                                   | Gate                                                          |
 | -------------------------------------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------------- |
-| Incremental feed updates after upload              | [feed-view-incremental-updates.md](feed-view-incremental-updates.md)   | Feed refetch becomes user-visible cost                        |
-| Protected-route tests through real auth middleware | [testing-auth-routes.md](testing-auth-routes.md)                       | Next change to auth or route-level authorization              |
-| Browser tests for SSE/refresh/upload               | [testing-js-and-browser.md](testing-js-and-browser.md)                 | First client bug that unit tests miss                         |
-| Coverage strategy beyond the two tiers             | [testing-coverage.md](testing-coverage.md)                             | Coverage discussions block a change                           |
+| Incremental feed updates after upload              | [feed-view-incremental-updates.md](archive/feed-view-incremental-updates.md)   | Feed refetch becomes user-visible cost                        |
+| Protected-route tests through real auth middleware | [testing-auth-routes.md](archive/testing-auth-routes.md)                       | Next change to auth or route-level authorization              |
+| Browser tests for SSE/refresh/upload               | [testing-js-and-browser.md](archive/testing-js-and-browser.md)                 | First client bug that unit tests miss                         |
+| Coverage strategy beyond the two tiers             | [testing-coverage.md](archive/testing-coverage.md)                             | Coverage discussions block a change                           |
 | Private media URLs                                 | [media-serving.md](media-serving.md)                                   | Multi-user access or CDN/LB work starts                       |
-| API token hardening                                | [api_token_hardening.md](api_token_hardening.md)                       | API usage grows beyond first-party clients                    |
-| Entity taxonomy pass                               | [knowledge-entity-types.md](knowledge-entity-types.md)                 | Environment fully backfilled with v2                          |
-| htmx 4.0 migration                                 | [htmx4.md](htmx4.md)                                                   | 4.x becomes `latest`, or 2.x breaks a behavior we rely on     |
+| API token hardening                                | [api_token_hardening.md](archive/api_token_hardening.md)                       | API usage grows beyond first-party clients                    |
+| Entity taxonomy pass                               | [knowledge-entity-types.md](archive/knowledge-entity-types.md)                 | Environment fully backfilled with v2                          |
+| htmx 4.0 migration                                 | [htmx4.md](archive/htmx4.md)                                                   | 4.x becomes `latest`, or 2.x breaks a behavior we rely on     |
 | Wikidata entity linking                            | [knowledge-wikidata-recommender.md](archive/knowledge-wikidata-recommender.md) | Entity identity across captures becomes a product requirement |
-| Knowledge entity disclosure policy                 | [knowledge-canonical-entities.md](knowledge-canonical-entities.md)     | Multi-user knowledge pages become a product requirement      |
-| Screenshot provider selection                      | [screenshot_3rd_party.md](screenshot_3rd_party.md)                     | Link-preview latency or fidelity is measured                  |
+| Knowledge entity disclosure policy                 | [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md)     | Multi-user knowledge pages become a product requirement      |
+| Screenshot provider selection                      | [screenshot_3rd_party.md](archive/screenshot_3rd_party.md)                     | Link-preview latency or fidelity is measured                  |
 | Static/CDN serving decision                        | [static-serving-cdn.md](archive/static-serving-cdn.md)                         | Static bundle cost or latency justifies a network layer       |
-| `/events` catch-up query reduction                 | [event-streaming-optimization.md](event-streaming-optimization.md)     | Connection count or DB load becomes material                  |
-| Crate upgrade sweep                                | [upgrade_3rd_party_crates.md](upgrade_3rd_party_crates.md)             | Scheduled maintenance window                                  |
-| Client pulse + `upload_attempts`                   | [upload-attempts.md](upload-attempts.md)                               | A client-side upload failure goes unexplained for a second time |
+| `/events` catch-up query reduction                 | [event-streaming-optimization.md](archive/event-streaming-optimization.md)     | Connection count or DB load becomes material                  |
+| Crate upgrade sweep                                | [upgrade_3rd_party_crates.md](archive/upgrade_3rd_party_crates.md)             | Scheduled maintenance window                                  |
+| Client pulse + `upload_attempts`                   | [upload-attempts.md](archive/upload-attempts.md)                               | A client-side upload failure goes unexplained for a second time |
 | Media transcode and format policy                  | [upload-formats.md](upload-formats.md)                                 | `rejected_format` fires for a real user, uploads stay multi-MB on cellular, or a non-browser ingestion path carries originals |
 
 ## Product direction — not yet scoped

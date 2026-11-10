@@ -186,7 +186,7 @@ verification step needs rework before anything is published.
 ## 10. Open questions
 
 - Is `organism`/`concept` the right enum change, and does `referent_form` cover the
-  remaining kind/instance cases? See [knowledge-entity-types.md](../knowledge-entity-types.md).
+  remaining kind/instance cases? See [knowledge-entity-types.md](knowledge-entity-types.md).
 - Do we split collisions into per-referent nodes, or hold them? The type-instability
   finding (111 of 179) argues for fixing types first.
 - What is the promotion bar for the long tail — user assertion alone, or nothing?
@@ -195,7 +195,7 @@ verification step needs rework before anything is published.
 
 ## References
 
-- [knowledge-canonical-entities.md](../knowledge-canonical-entities.md) — the design this feeds
+- [knowledge-canonical-entities.md](knowledge-canonical-entities.md) — the design this feeds
 - [knowledge-promotion-frontier.md](knowledge-promotion-frontier.md) — why the gate was reframed
 - [knowledge-promotion-audit-prod.md](knowledge-promotion-audit-prod.md) — the classifier-era numbers
-- [knowledge-entity-types.md](../knowledge-entity-types.md) — taxonomy
+- [knowledge-entity-types.md](knowledge-entity-types.md) — taxonomy

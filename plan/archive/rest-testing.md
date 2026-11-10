@@ -3,7 +3,7 @@
 **Status:** Planned — design only, nothing implemented. `make_api_router` has no test coverage.
 **Last updated:** 2026-11-05.
 
-> **See also:** [testing.md](testing.md) (the standard every test here must meet),
+> **See also:** [testing.md](../testing.md) (the standard every test here must meet),
 > [testing-coverage.md](testing-coverage.md) (umbrella strategy; this doc is its REST-surface
 > section), [testing-auth-routes.md](testing-auth-routes.md) (the WebUI/session surface — same
 > `oneshot` technique, different auth mechanism), [testing-js-and-browser.md](testing-js-and-browser.md)
@@ -133,5 +133,5 @@ confirms the DB tests actually ran rather than skipped.
 2. **Streaming bodies.** `admin/export/{kind}` streams. Assert status only, or drain and assert the
    first record?
 3. **Client tests.** `rest::client` speaks reqwest over a URL. Test it against the in-process router
-   on an ephemeral port, or leave it to the smoke procedure ([smoke.md](smoke.md))?
+   on an ephemeral port, or leave it to the smoke procedure ([smoke.md](../smoke.md))?
 4. **SSE and media routes** live outside `make_api_router`; do they ever share this harness?

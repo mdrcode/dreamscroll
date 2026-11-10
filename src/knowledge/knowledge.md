@@ -310,12 +310,14 @@ commands. A live capture updates entities immediately and leaves the proximity b
 the next `proximity scan` — the table is a snapshot of when it was last asked.
 
 `reset` snapshots the projection, then empties it — entities, claims, identities, proximities and
-the index rows, all of it derived. Observations, captures, illuminations, the merge log
-(`knowledge_verdicts`) and the **fetch cache** are untouched. `merge` folds one entity into another,
-tombstones the loser, and runs in a **transaction** — five writes that must all land. The
-**shared-illumination rule**: `merge` refuses two entities that both appear in one illumination,
-because a single extraction emitting both means two things. The unit is the illumination, not the
-capture — re-illuminating an image makes a separate one.
+the index rows, all of it derived. It keeps the newest **ten snapshot suffixes** and drops older
+archive tables; the generation register keeps its history even after a suffix is pruned.
+Observations, captures, illuminations, the merge log (`knowledge_verdicts`) and the **fetch cache**
+are untouched. `merge` folds one entity into another, tombstones the loser, and runs in a
+**transaction** — five writes that must all land. The **shared-illumination rule**: `merge` refuses
+two entities that both appear in one illumination, because a single extraction emitting both means
+two things. The unit is the illumination, not the capture — re-illuminating an image makes a separate
+one.
 
 ## Where things live
 
@@ -354,4 +356,4 @@ they live in `crate::stats::knowledge_stats`.
 
 The vocabulary — and the names we rejected — is in `plan/lexicon.md`. The design history, including
 the failures that produced these rules, is in `plan/knowledge-illumination-history.md` and
-`plan/knowledge-canonical-entities.md`.
+`plan/archive/knowledge-canonical-entities.md`.

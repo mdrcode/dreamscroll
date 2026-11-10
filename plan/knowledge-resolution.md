@@ -3,7 +3,7 @@
 **Status:** Implemented (current schema 32). `dreamscroll_knowledge identity resolve` runs manually;
 there is no scheduled trigger and no enrichment yet. Wikidata is the first provider.
 
-**See also:** [knowledge-canonical-entities.md](knowledge-canonical-entities.md) (the graph this feeds),
+**See also:** [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md) (the graph this feeds),
 [knowledge-evidence-prototype.md](archive/knowledge-evidence-prototype.md) (the measured prototype, and the
 failure catalogue this design answers).
 

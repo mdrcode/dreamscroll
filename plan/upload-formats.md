@@ -5,7 +5,7 @@
 **Last updated:** 2026-10-29.
 
 > **See also:**
-> - `plan/upload-attempts.md` — attempt tracking and the `upload_attempt` log events.
+> - `plan/archive/upload-attempts.md` — attempt tracking and the `upload_attempt` log events.
 > - `src/api/user/insert_capture.rs` — the only place bytes become a media row.
 > - `plan/README.md` — the index.
 

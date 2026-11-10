@@ -162,6 +162,7 @@ pub(super) async fn project<C: ConnectionTrait>(
         platform_display_name: Set(platform_display_name),
         status: Set(status),
         confidence: Set(confidence),
+        updated_at: Set(chrono::Utc::now()),
         ..Default::default()
     })
     .exec(conn)
@@ -331,6 +332,33 @@ mod tests {
         );
         assert_eq!(entity.status, model::knowledge_entity::Status::Provisional);
         assert_eq!(entity.confidence, None);
+    }
+
+    #[tokio::test]
+    async fn projection_advances_updated_at() {
+        let Some(db) = test_db::test_db().await else {
+            return;
+        };
+        let db = db.handle();
+        let id = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        db.conn
+            .execute_unprepared(&format!(
+                "UPDATE knowledge_entities \
+                 SET created_at = now() - interval '1 hour', \
+                     updated_at = now() - interval '1 hour' \
+                 WHERE id = {id}"
+            ))
+            .await
+            .unwrap();
+
+        store(&db).update_projection(id).await.unwrap();
+
+        let entity = load(&db, id).await;
+        assert!(
+            entity.updated_at > entity.created_at,
+            "projection must advance updated_at: {:?}",
+            entity
+        );
     }
 
     /// Another member of an existing entity: a capture whose row carries `hint` and/or a presence.

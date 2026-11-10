@@ -22,7 +22,7 @@ signal that linking stopped being deterministic, before anything is lost.
 `list` reads newest first. It is the viewer the old `knowledge_merges` table never had, which is part
 of why that table read as dead weight.
 
-> **See also:** `plan/knowledge-canonical-entities.md` (observation → entity → evidence),
+> **See also:** `plan/archive/knowledge-canonical-entities.md` (observation → entity → evidence),
 > `plan/knowledge-resolution.md` (claims from authorities), `src/knowledge/knowledge.md` (the
 > modules as they stand), `plan/lexicon.md` (the vocabulary).
 

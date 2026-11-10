@@ -221,6 +221,7 @@ async fn merge_in_transaction<C: ConnectionTrait>(
     // Tombstone, never delete: a stale pointer still resolves.
     entity::Entity::update_many()
         .col_expr(entity::Column::MergedIntoId, Expr::value(Some(winner)))
+        .col_expr(entity::Column::UpdatedAt, Expr::current_timestamp())
         .filter(entity::Column::Id.eq(loser))
         .exec(conn)
         .await?;

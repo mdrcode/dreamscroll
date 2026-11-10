@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 32;
+const REQUIRED_SCHEMA_VERSION: i32 = 33;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -201,6 +201,124 @@ async fn rename_blocking_index_table<C: ConnectionTrait>(conn: &C) -> Result<(),
     Ok(())
 }
 
+/// Schema 33 finishes the object renames left behind by schemas 30–32, and drops the two legacy
+/// tables that no model or command reads.
+///
+/// A table rename moves the table, not its constraints or indexes; the same is true of a column
+/// rename for its NOT NULL constraint. These names are cosmetic but make every schema audit and
+/// error message point at a table that no longer exists. Guarded throughout, so a synced or fresh
+/// database is untouched.
+async fn rename_stale_objects<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        r#"
+DO $sync$
+DECLARE
+    r record;
+    target text;
+    schema_name text := current_schema();
+BEGIN
+    IF to_regclass(format('%I.fetch_cache', schema_name)) IS NOT NULL THEN
+        FOR r IN
+            SELECT conname FROM pg_constraint
+             WHERE conrelid = format('%I.fetch_cache', schema_name)::regclass
+               AND conname LIKE 'resolution_cache%'
+        LOOP
+            EXECUTE format(
+                'ALTER TABLE %I.fetch_cache RENAME CONSTRAINT %I TO %I',
+                schema_name,
+                r.conname,
+                replace(r.conname, 'resolution_cache', 'fetch_cache')
+            );
+        END LOOP;
+        IF to_regclass(format('%I.%I', schema_name, 'idx-resolution_cache-resolution_cache_key')) IS NOT NULL
+           AND to_regclass(format('%I.%I', schema_name, 'idx-fetch_cache-fetch_cache_key')) IS NULL THEN
+            EXECUTE format(
+                'ALTER INDEX %I.%I RENAME TO %I',
+                schema_name,
+                'idx-resolution_cache-resolution_cache_key',
+                'idx-fetch_cache-fetch_cache_key'
+            );
+        END IF;
+    END IF;
+
+    IF to_regclass(format('%I.knowledge_blocking_index', schema_name)) IS NOT NULL THEN
+        FOR r IN
+            SELECT conname FROM pg_constraint
+             WHERE conrelid = format('%I.knowledge_blocking_index', schema_name)::regclass
+               AND (conname LIKE 'knowledge_index%' OR conname LIKE 'fk-knowledge_index%')
+        LOOP
+            EXECUTE format(
+                'ALTER TABLE %I.knowledge_blocking_index RENAME CONSTRAINT %I TO %I',
+                schema_name,
+                r.conname,
+                replace(r.conname, 'knowledge_index', 'knowledge_blocking_index')
+            );
+        END LOOP;
+    END IF;
+
+    IF to_regclass(format('%I.knowledge_identities', schema_name)) IS NOT NULL THEN
+        IF EXISTS (
+            SELECT 1 FROM pg_constraint
+             WHERE conrelid = format('%I.knowledge_identities', schema_name)::regclass
+               AND conname = 'knowledge_identities_source_not_null') THEN
+            EXECUTE format(
+                'ALTER TABLE %I.knowledge_identities RENAME CONSTRAINT %I TO %I',
+                schema_name,
+                'knowledge_identities_source_not_null',
+                'knowledge_identities_asserted_by_not_null'
+            );
+        END IF;
+    END IF;
+
+    IF to_regclass(format('%I.knowledge_entities', schema_name)) IS NOT NULL THEN
+        FOR r IN
+            SELECT conname FROM pg_constraint
+             WHERE conrelid = format('%I.knowledge_entities', schema_name)::regclass
+               AND (conname = 'knowledge_entities_pkey1'
+                    OR conname LIKE '%_not_null1')
+        LOOP
+            target := left(r.conname, length(r.conname) - 1);
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_constraint
+                 WHERE conrelid = format('%I.knowledge_entities', schema_name)::regclass
+                   AND conname = target
+            ) THEN
+                EXECUTE format(
+                    'ALTER TABLE %I.knowledge_entities RENAME CONSTRAINT %I TO %I',
+                    schema_name,
+                    r.conname,
+                    target
+                );
+            END IF;
+        END LOOP;
+    END IF;
+END
+$sync$;
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
+/// These two predate the current model and have no reader. Their rows were historical; the model
+/// keeps the current illumination and search data.
+async fn drop_legacy_tables<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        r#"
+DO $sync$
+DECLARE
+    schema_name text := current_schema();
+BEGIN
+    EXECUTE format('DROP TABLE IF EXISTS %I.xqueries', schema_name);
+    EXECUTE format('DROP TABLE IF EXISTS %I.illuminations_legacy', schema_name);
+END
+$sync$;
+"#,
+    )
+    .await?;
+    Ok(())
+}
+
 /// Reconcile the model schema, manual indexes, and applied version atomically.
 pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
     let registry = conn.get_schema_registry("dreamscroll::model::*");
@@ -242,6 +360,8 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             rename_identity_asserted_by(transaction).await?;
             rename_cache_table(transaction).await?;
             rename_blocking_index_table(transaction).await?;
+            rename_stale_objects(transaction).await?;
+            drop_legacy_tables(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             indexes::knowledge::before_schema_sync(transaction).await?;
             registry.sync(transaction).await?;

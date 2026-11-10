@@ -4,7 +4,7 @@
 superseded illuminations; the user's view is anchored on each capture's current illumination. The
 change was triggered by a measured failure, not a hunch.
 
-**See also:** [lexicon.md](lexicon.md) (vocabulary), [knowledge-canonical-entities.md](knowledge-canonical-entities.md)
+**See also:** [lexicon.md](lexicon.md) (vocabulary), [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md)
 (the model).
 
 ## The trigger

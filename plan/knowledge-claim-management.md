@@ -4,7 +4,7 @@
 veto names a pairing. Supersedes the veto's addressing in
 [knowledge-verdicts.md](archive/knowledge-verdicts.md).
 
-**See also:** [lexicon.md](lexicon.md) (vocabulary), [knowledge-canonical-entities.md](knowledge-canonical-entities.md)
+**See also:** [lexicon.md](lexicon.md) (vocabulary), [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md)
 (evidence as an append-only edge), `src/knowledge/knowledge.md` (the model as built).
 
 ## The trigger
