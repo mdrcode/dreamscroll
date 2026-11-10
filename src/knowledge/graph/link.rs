@@ -22,7 +22,8 @@ pub struct LinkStats {
     /// Pending observations the Linker returned no decision for. Nonzero means the policy left part
     /// of the batch unlinked: the executor does not invent a decision to cover it.
     pub left_pending: usize,
-    /// Claims a standing decision refused. Filled by the caller that asserts them.
+    /// Claims a standing veto refused — [`crate::knowledge::graph::verdicts::vetoed`] names the
+    /// pairing, so the edge was not written. Counted by the claim pass in `helper`.
     pub vetoed: usize,
 }
 
