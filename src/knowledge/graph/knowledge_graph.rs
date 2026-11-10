@@ -120,7 +120,9 @@ impl KnowledgeGraph {
         &self,
         illumination: &model::illumination::ModelEx,
     ) -> anyhow::Result<crate::knowledge::LinkStats> {
-        super::link::link_illumination(self, illumination).await
+        let (mut stats, linked) = super::link::link_illumination(self, illumination).await?;
+        stats.vetoed = super::link::assert_claims(self, illumination, &linked).await?;
+        Ok(stats)
     }
 
     /// Recompute an entity's projected columns, and tell the blocker what came out.

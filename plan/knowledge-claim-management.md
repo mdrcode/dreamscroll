@@ -58,19 +58,19 @@ arrives after an answer downgrades `method` to `capture`).
      neither. `basis` is a field either way.
    - Idempotent: a unique violation is `AlreadyClaimed`, not an error.
 
-**`link_illumination` is three steps.**
+**Link, then assert.**
 
 ```
-decide     all decisions, against the corpus as it stood before any of these writes
-apply      create or attach the observation, then assert the handle it showed
-project    the entity the decision touched
+link_illumination   decide, then attach each observation; returns observation → entity
+assert_claims       for each linked observation with a handle: ensure its identity (created on
+                    first sighting), assert the claim; then project the entity
 ```
 
-`apply` asks `Evidence::identity_for_link` on the way, which creates the identity if this is its first
-sighting — so there is no identity pre-pass and no map from observation to identity. Projection
-follows each decision.
+Nothing inside the linker knows about identities or claims: the platform fields are used to decide
+and otherwise left alone. The post-pass is where a capture's identity and claim are written, and
+projection follows it because status and confidence are functions of the claims.
 
-A crash between attach and assert loses that observation's claim; the window is small, and a re-link
+A crash between the two stages loses that observation's claim; the window is small, and a re-link
 will not repair it because the observation is already attached.
 
 ## Why not claim ids
@@ -97,7 +97,8 @@ one live row.
 | --- | --- |
 | `evidence/store.rs` | `IdentityKey`; `DraftIdentity::{key, from_claim}`; `identity_for_link` (create-only) and `create_identity`; `ClaimDraft` + `assert` (veto + edge). Deleted `record` and `store_claim`. |
 | `evidence/mod.rs` | the "two writers" paragraph became the two phases; exports updated. |
-| `graph/link.rs` | decide → apply → project, per decision; `LinkStats.vetoed`. |
+| `graph/link.rs` | `link_illumination` (decisions applied to entities, returning observation → entity) and `assert_claims` (the post-pass); `LinkStats.vetoed`. |
+| `graph/knowledge_graph.rs` | the facade runs both stages and returns `LinkStats`. |
 | `linker/mod.rs`, `linker/heuristic/linker.rs` | `Decision` no longer carries an identity — it is observation data, not a decision. |
 | `identity/engine.rs` | `upsert_identity` + `assert`, the same two calls the capture path makes. |
 | `graph/verdicts.rs` | `withdraw` drops the basis filter; `ReplayReport.settled`. |

@@ -8,7 +8,7 @@
 //! Callers reach this through [`KnowledgeGraph::link_illumination`]. The rest is `pub(super)` or private:
 //! `merge` and `project` do not link, and nothing outside `knowledge` does either.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use crate::knowledge::evidence::{ClaimDraft, PlatformLink, Stored};
 use crate::knowledge::linker::{Action, Decision};
@@ -41,15 +41,17 @@ impl LinkStats {
     }
 }
 
-/// Link one reading into the graph: cluster its observations, record their claims, and project every
-/// entity it touched.
+/// Link one reading into the graph: cluster its observations.
+///
+/// Nothing here knows about identities or claims. The platform fields are used by the linker to
+/// decide, and left alone; [`assert_claims`] turns the resulting mapping into edges afterwards.
 ///
 /// One entry point, because the blocker is the store's: a caller linking a thousand illuminations and
 /// a caller linking one take the same path, and both benefit from what the store has been told so far.
 pub(crate) async fn link_illumination(
     graph: &KnowledgeGraph,
     illumination: &model::illumination::ModelEx,
-) -> anyhow::Result<LinkStats> {
+) -> anyhow::Result<(LinkStats, HashMap<i32, i32>)> {
     let (Some(decider), Some(blocker)) = (&graph.decider, &graph.blocker) else {
         anyhow::bail!(
             "this KnowledgeGraph was built without a linker; use KnowledgeGraph::with_linking to link \
@@ -65,8 +67,7 @@ pub(crate) async fn link_illumination(
         illumination.id
     );
 
-    // Only the unlinked ones: a linked observation got its claim when it was linked, so deciding it
-    // again would be a write with no effect.
+    // Only the unlinked ones: a linked observation is already where it belongs.
     let pending: HashSet<i32> = illumination
         .observations
         .iter()
@@ -77,16 +78,13 @@ pub(crate) async fn link_illumination(
     let decisions = decider
         .decide_link(&**blocker, &graph.evidence, &graph.scoring, illumination)
         .await?;
-    let vetoes = verdicts::vetoed(graph).await?;
 
     let mut stats = LinkStats::default();
+    let mut linked: HashMap<i32, i32> = HashMap::with_capacity(decisions.len());
     for decision in &decisions {
-        let (entity, claim) = apply_decision(graph, &pending, decision, &vetoes).await?;
-        graph.update_projection(entity).await?;
+        let entity = apply_decision(graph, &pending, decision).await?;
+        linked.insert(decision.observation.id, entity);
         stats.record(decision);
-        if claim == Some(Stored::Vetoed) {
-            stats.vetoed += 1;
-        }
     }
 
     // A policy may decide less than it was given. The executor applies what it got and says how much
@@ -97,16 +95,53 @@ pub(crate) async fn link_illumination(
         .collect();
     stats.left_pending = pending.difference(&decided).count();
 
-    Ok(stats)
+    Ok((stats, linked))
 }
 
-/// Apply one decision: attach the observation, then assert the handle it showed, if any.
+/// Post-process a link: assert the handle each observation showed, and project where it landed.
+///
+/// This is the only place a capture's identity and claim are written. Returns how many claims a
+/// standing veto refused.
+pub(crate) async fn assert_claims(
+    graph: &KnowledgeGraph,
+    illumination: &model::illumination::ModelEx,
+    linked: &HashMap<i32, i32>,
+) -> anyhow::Result<usize> {
+    let vetoes = verdicts::vetoed(graph).await?;
+    let mut vetoed = 0;
+    for row in illumination.observations.iter() {
+        // `ModelEx` is the loaded relation row; the writer wants the plain model.
+        let observation: model::user_observed_entity::Model = row.clone().into();
+        let Some(entity) = linked.get(&observation.id).copied() else {
+            continue;
+        };
+        if let Some(link) = PlatformLink::of(&observation) {
+            let key = link.key();
+            let identity = graph.evidence.identity_for_link(&link).await?;
+            if graph
+                .evidence
+                .assert(
+                    ClaimDraft::capture(entity, &observation, &key, identity),
+                    &vetoes,
+                )
+                .await?
+                == Stored::Vetoed
+            {
+                vetoed += 1;
+            }
+        }
+        // After the claims: status and confidence are functions of them.
+        graph.update_projection(entity).await?;
+    }
+    Ok(vetoed)
+}
+
+/// Apply one decision: attach the observation to its entity.
 async fn apply_decision(
     graph: &KnowledgeGraph,
     pending: &HashSet<i32>,
     decision: &Decision,
-    vetoes: &HashSet<(i32, String, String)>,
-) -> anyhow::Result<(i32, Option<Stored>)> {
+) -> anyhow::Result<i32> {
     let observation = &decision.observation;
     // The guarantee the `Decision` doc makes: the subject is one the Linker was given.
     anyhow::ensure!(
@@ -129,19 +164,7 @@ async fn apply_decision(
     // `attach` refuses a tombstone, so this also covers an entity merged away since the decision.
     graph.attach_observation(observation.id, entity).await?;
 
-    let Some(link) = PlatformLink::of(observation) else {
-        return Ok((entity, None));
-    };
-    let key = link.key();
-    let identity = graph.evidence.identity_for_link(&link).await?;
-    let claim = graph
-        .evidence
-        .assert(
-            ClaimDraft::capture(entity, observation, &key, identity),
-            vetoes,
-        )
-        .await?;
-    Ok((entity, Some(claim)))
+    Ok(entity)
 }
 
 #[cfg(test)]
