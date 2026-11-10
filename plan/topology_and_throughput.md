@@ -113,7 +113,7 @@ From the Cloud Run container contract — long-lived connections are **treated a
 ## 5. Current repo state
 
 - **Cloud Run capacity is set, not defaulted:** concurrency 80, max instances
-	20, min instances 0. It is checked in at
+	4 (cost ceiling set 2026-10-27; was 20), min instances 0. It is checked in at
 	`gcloud/prod-dreamscroll-web.yaml` and drift-checked by
 	`gcloud/prod-apply.sh --check`; the build scripts only publish images.
 - Cloud SQL connection: **public IP reached through the `/cloudsql` unix
