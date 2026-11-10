@@ -57,7 +57,7 @@ pub(crate) async fn link(
         .collect();
 
     let decisions = decider
-        .decide_link(&**blocker, &graph.evidence, &graph.scoring, observations)
+        .decide_link(&**blocker, &graph.evidence, observations)
         .await?;
 
     let mut stats = LinkStats::default();
@@ -153,7 +153,6 @@ mod unit {
             &self,
             _blocker: &dyn Blocker,
             _evidence: &Evidence,
-            _scoring: &crate::knowledge::Scoring,
             _observations: &[model::user_observed_entity::Model],
         ) -> anyhow::Result<Vec<crate::knowledge::linker::Decision>> {
             Ok(Vec::new())
@@ -183,7 +182,7 @@ mod unit {
         let loaded = load_illumination(&db, illumination).await;
         let linking = linking_store(
             &db,
-            Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
+            Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
         )
         .await;
         let stats = link_illumination(&linking, &loaded).await.unwrap();
@@ -201,7 +200,6 @@ mod unit {
             &self,
             _blocker: &dyn Blocker,
             _evidence: &Evidence,
-            _scoring: &crate::knowledge::Scoring,
             _observations: &[model::user_observed_entity::Model],
         ) -> anyhow::Result<Vec<crate::knowledge::linker::Decision>> {
             Ok(vec![crate::knowledge::linker::Decision {
@@ -279,7 +277,7 @@ mod unit {
         db_or_skip!(db);
         let store = linking_store(
             &db,
-            Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
+            Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
         )
         .await;
         let live_claims = || async {

@@ -941,7 +941,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
     let graph = knowledge::KnowledgeGraph::with_linking(
         db,
         blocker,
-        Arc::new(knowledge::linker::heuristic::HeuristicLinker),
+        Arc::new(knowledge::linker::heuristic::HeuristicLinker::new()),
     );
     let mut report = LinkAllPendingReport::default();
     for illumination in &illuminations {

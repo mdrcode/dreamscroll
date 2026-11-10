@@ -88,11 +88,11 @@ trait Blocker {                  // recall: find candidates, over-generate
 // that keeps an index owns its own mutex, and nobody holds a guard across a `candidates` call.
 
 trait Linker {              // the procedure: decide, and nothing else
+    // The policy is a member of the implementation, not an argument.
     async fn decide_link(
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,
-        scoring: &Scoring,          // the measure, borrowed — never owned
         illumination: &Illumination,
     ) -> Result<Vec<Decision>>;
 }
@@ -164,7 +164,8 @@ its fit is corpus-aware (terms are weighed by rarity among the answers it got ba
 comparison cannot see the corpus.
 
 That is what makes a second policy possible without a second graph: implement the two verbs for the
-pairs the graph asks about, build a `Scoring`, hand it to `KnowledgeGraph::with_scoring`.
+pairs the graph asks about, build a `Scoring`, and hand it to the `HeuristicLinker` and to the passes
+that measure.
 
 ## Resolving: what can the authorities tell us?
 

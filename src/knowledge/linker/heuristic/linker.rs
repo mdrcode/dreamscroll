@@ -12,9 +12,44 @@ use crate::knowledge::evidence::Evidence;
 use crate::knowledge::linker::{Action, Decision, Linker};
 use crate::knowledge::scoring::Scoring;
 
+use super::Heuristic;
+
 /// Take the highest-scoring candidate that clears the bar; otherwise start a new entity.
-#[derive(Debug, Default, Clone, Copy)]
-pub struct HeuristicLinker;
+///
+/// The procedure is fixed; the policy is a member, because a linker decides with one and nothing
+/// else. `new` uses the heuristic's own, [`Self::with_scoring`] puts the same procedure over a
+/// different one.
+#[derive(Clone)]
+pub struct HeuristicLinker {
+    scoring: Scoring,
+}
+
+impl std::fmt::Debug for HeuristicLinker {
+    /// `Scoring` holds trait objects, so there is nothing to print but the type.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HeuristicLinker").finish_non_exhaustive()
+    }
+}
+
+impl HeuristicLinker {
+    /// The heuristic's own policy.
+    pub fn new() -> Self {
+        Self {
+            scoring: Heuristic::scoring(),
+        }
+    }
+
+    /// The same procedure over a different policy.
+    pub fn with_scoring(scoring: Scoring) -> Self {
+        Self { scoring }
+    }
+}
+
+impl Default for HeuristicLinker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[async_trait::async_trait]
 impl Linker for HeuristicLinker {
@@ -38,7 +73,6 @@ impl Linker for HeuristicLinker {
         &self,
         blocker: &dyn crate::knowledge::blocker::Blocker,
         evidence: &Evidence,
-        scoring: &Scoring,
         observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<Vec<Decision>> {
         // The order the capture emitted them, which decides who wins a contested entity.
@@ -70,7 +104,7 @@ impl Linker for HeuristicLinker {
             }
 
             let candidates = blocker.candidates(&observation).await;
-            let ranked = scoring.link.rank(&observation, &candidates);
+            let ranked = self.scoring.link.rank(&observation, &candidates);
 
             // The best candidate that qualifies. An empty ranking is a decision too: nothing here
             // is this observation, so it starts a new entity.
@@ -128,13 +162,8 @@ mod tests {
     ) -> Vec<Decision> {
         let blocker = StubBlocker(entities.to_vec());
         let evidence = Evidence::from_handle(db);
-        HeuristicLinker
-            .decide_link(
-                &blocker,
-                &evidence,
-                &crate::knowledge::linker::heuristic::Heuristic::scoring(),
-                observations,
-            )
+        HeuristicLinker::new()
+            .decide_link(&blocker, &evidence, observations)
             .await
             .expect("the linker should not fail")
     }

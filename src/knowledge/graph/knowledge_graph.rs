@@ -2,7 +2,7 @@
 //!
 //! One type, one owned handle: every write to `knowledge_entities` and every move of an observation
 //! onto one goes through [`KnowledgeGraph`], and the handle itself never leaves this module tree — the
-//! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`, `scoring`)
+//! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`)
 //! are `pub(super)` because only the passes beside the facade read them. Identity and claim writes are
 //! methods ([`KnowledgeGraph::identity_for_link`], [`KnowledgeGraph::upsert_identity`],
 //! [`KnowledgeGraph::assert`]), so `helper` and the resolver hold a graph, not a store. The connection
@@ -18,21 +18,17 @@ use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
 use crate::knowledge::evidence::{ClaimDraft, DraftIdentity, Evidence, PlatformLink, Stored};
 use crate::knowledge::linker::Linker;
-use crate::knowledge::linker::heuristic::Heuristic;
-use crate::knowledge::scoring::Scoring;
 use crate::model;
 
 
 /// The knowledge graph, as seen by anyone who writes to it.
 ///
 /// Most callers are a store: they create, attach, project and merge, and never decide anything. Those
-/// build [`KnowledgeGraph::new`]. Linking additionally needs a policy and a blocker, both injected by
+/// build [`KnowledgeGraph::new`]. Linking additionally needs a decider and a blocker, both injected by
 /// [`KnowledgeGraph::with_linking`].
 ///
-/// The [`Scoring`] is the store's, not the linker's: the proximity passes ask it whether two entities
-/// are one thing and how alike they are, and the linker asks which candidate a capture belongs to. One policy
-/// for both, or the graph disagrees with itself. [`KnowledgeGraph::new`] uses the heuristic;
-/// [`KnowledgeGraph::with_scoring`] replaces it.
+/// The store holds no policy: a [`Linker`] is a procedure over the `Scoring` it was built with, and a
+/// pass that measures — [`proximity`](super::proximity) — is handed the policy as an argument.
 ///
 /// The blocker is built once and kept, so it accumulates everything this store writes — `project`
 /// tells it about every entity whose columns changed, and a discarded or tombstoned entity is
@@ -45,7 +41,6 @@ pub struct KnowledgeGraph {
     pub(super) blocker: Option<Arc<dyn Blocker>>,
     pub(super) decider: Option<Arc<dyn Linker>>,
     pub(super) evidence: Evidence,
-    pub(super) scoring: Scoring,
 }
 
 impl KnowledgeGraph {
@@ -55,7 +50,6 @@ impl KnowledgeGraph {
             blocker: None,
             decider: None,
             evidence: Evidence::from_handle(db),
-            scoring: Heuristic::scoring(),
         }
     }
 
@@ -66,14 +60,6 @@ impl KnowledgeGraph {
     pub(super) fn conn(&self) -> &sea_orm::DatabaseConnection {
         &self.db.conn
     }
-
-    /// Replace the scoring policy. Everything that measures — the linker, the projection, the merge
-    /// pass, the resolver — reads this one, so there is nothing else to swap.
-    pub fn with_scoring(mut self, scoring: Scoring) -> Self {
-        self.scoring = scoring;
-        self
-    }
-
 
     pub fn with_linking(
         db: &DbHandle,

@@ -6,13 +6,13 @@
 //!
 //! Everything upstream is recall (a blocker proposed candidates). Everything downstream is effect
 //! (the executor writes). This trait turns one illumination into decisions, and it does no IO of
-//! its own beyond what it is handed: the blocker, to ask what an observation might be; the evidence,
-//! to ask what is already held and to name the identity a capture asserted; and the store's
-//! [`Scoring`], to measure.
+//! its own beyond what it is handed: the blocker, to ask what an observation might be; and the
+//! evidence, to ask what is already held and to name the identity a capture asserted.
 //!
-//! Note what is *not* here: no features, no weights, no thresholds. The policy is a parameter, so a
-//! linker is a *procedure* — and the store's policy is the one every other module also uses. The one
-//! implementation is [`heuristic::HeuristicLinker`].
+//! Note what is *not* here: no features, no weights, no thresholds. The policy is a member of the
+//! implementation, so a linker is a *procedure over one policy* — [`heuristic::HeuristicLinker`] holds
+//! the heuristic's, and a different policy is a different construction, not a different argument. The
+//! one implementation is [`heuristic::HeuristicLinker`].
 
 pub mod heuristic;
 
@@ -20,7 +20,6 @@ use crate::model;
 
 use super::blocker::Blocker;
 use super::evidence::Evidence;
-use super::scoring::Scoring;
 
 /// What to do with one observation.
 #[derive(Debug, Clone, PartialEq)]
@@ -46,8 +45,8 @@ pub trait Linker: Send + Sync {
     ///
     /// `blocker` is recall and nothing else: it may return nothing, it over-generates by design, and
     /// its order means nothing. `evidence` answers what is already held, and names the identity a
-    /// capture asserted — the executor imported those before calling. `scoring` is the store's
-    /// policy: measure with it, and do not carry a second one.
+    /// capture asserted — the executor imported those before calling. The policy is the
+    /// implementation's own, held as a member: this call measures with it and nothing else.
     ///
     /// The batch arrives whole: a reading is decided as one, and every observation in a call comes
     /// from one illumination, so an implementation that needs the set has it by the arguments rather
@@ -57,7 +56,6 @@ pub trait Linker: Send + Sync {
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,
-        scoring: &Scoring,
         observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<Vec<Decision>>;
 }

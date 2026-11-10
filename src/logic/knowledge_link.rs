@@ -115,7 +115,7 @@ mod tests {
             &crate::knowledge::KnowledgeGraph::with_linking(
                 &db,
                 Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
-                std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
+                std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
             ),
             &service_api,
             &task(first, user),
@@ -135,7 +135,7 @@ mod tests {
             &crate::knowledge::KnowledgeGraph::with_linking(
                 &db,
                 Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
-                std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
+                std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
             ),
             &service_api,
             &task(second, user),
@@ -175,7 +175,7 @@ mod tests {
             &crate::knowledge::KnowledgeGraph::with_linking(
                 &db,
                 Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
-                std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker),
+                std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
             ),
             &service_api,
             &task(illumination, stranger),

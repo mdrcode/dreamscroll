@@ -6,8 +6,9 @@
 //! - [`scoring`] measures and ranks. Every number in the graph lives here.
 //! - [`linker`] is the procedure that applies a ranking: attach, or create.
 //!
-//! Nothing else in `knowledge` names a heuristic type; they ask the store's [`Scoring`] instead.
-//! Swap this module for another pair of verbs and the rest of the graph is unchanged.
+//! The linker holds this policy as a member, and a pass that measures is handed one; nothing else in
+//! `knowledge` names a heuristic type. Swap this module for another pair of verbs and the rest of the
+//! graph is unchanged.
 //!
 //! [`Scoring`]: crate::knowledge::scoring::Scoring
 
