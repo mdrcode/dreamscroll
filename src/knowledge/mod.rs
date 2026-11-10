@@ -23,6 +23,8 @@
 //!   identity, evidence and projection alike.
 //! - [`snapshot`] — copy the projection, empty it, diff two copies: an operation over the whole
 //!   graph, not a way of changing it.
+//! - [`helper`] — the illumination composition: which observations are linked together, and the
+//!   claim assertion that follows. The graph links a collection; only this knows it is one reading.
 //!
 //! [Blocker]: blocker::Blocker
 //! [Linker]: linker::Linker
@@ -33,6 +35,7 @@ pub mod blocker;
 pub mod eval;
 pub mod evidence;
 pub mod graph;
+pub mod helper;
 pub mod identity;
 pub mod linker;
 pub mod normalize;

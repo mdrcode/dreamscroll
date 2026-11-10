@@ -18,7 +18,7 @@ pub struct HeuristicLinker;
 
 #[async_trait::async_trait]
 impl Linker for HeuristicLinker {
-    /// Give the illumination's observations their entities.
+    /// Give the batch's observations their entities.
     ///
     /// A held identity settles the question before any scoring: an entity that already claims this
     /// platform link *is* the thing, and asking a name-similarity model to second-guess that is how a
@@ -39,22 +39,10 @@ impl Linker for HeuristicLinker {
         blocker: &dyn crate::knowledge::blocker::Blocker,
         evidence: &Evidence,
         scoring: &Scoring,
-        illumination: &model::illumination::ModelEx,
+        observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<Vec<Decision>> {
-        // An unloaded relation would read as an illumination with no observations, and linking
-        // nothing would look exactly like success.
-        if !illumination.observations.is_loaded() {
-            anyhow::bail!(
-                "the illumination's observations are not loaded; fetch it with Entity::load().with(…) "
-            );
-        }
-        // `ModelEx` rather than `Model`: the relation is loaded, and the linker wants plain rows.
-        let mut observations: Vec<model::user_observed_entity::Model> = illumination
-            .observations
-            .iter()
-            .map(|row| row.clone().into())
-            .collect();
         // The order the capture emitted them, which decides who wins a contested entity.
+        let mut observations = observations.to_vec();
         observations.sort_by_key(|observation| (observation.position, observation.id));
 
         let mut decisions = Vec::new();
@@ -140,16 +128,12 @@ mod tests {
     ) -> Vec<Decision> {
         let blocker = StubBlocker(entities.to_vec());
         let evidence = Evidence::from_handle(db);
-        let mut illumination = crate::test_support::fixtures::stub_illumination(1);
-        illumination.observations = sea_orm::compound::HasMany::Loaded(
-            observations.iter().map(|row| row.clone().into()).collect(),
-        );
         HeuristicLinker
             .decide_link(
                 &blocker,
                 &evidence,
                 &crate::knowledge::linker::heuristic::Heuristic::scoring(),
-                &illumination,
+                observations,
             )
             .await
             .expect("the linker should not fail")

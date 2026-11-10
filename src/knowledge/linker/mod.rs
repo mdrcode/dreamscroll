@@ -42,23 +42,22 @@ pub struct Decision {
 
 #[async_trait::async_trait]
 pub trait Linker: Send + Sync {
-    /// Decide what each observation from one illumination is.
+    /// Decide what each observation in the batch is.
     ///
     /// `blocker` is recall and nothing else: it may return nothing, it over-generates by design, and
     /// its order means nothing. `evidence` answers what is already held, and names the identity a
     /// capture asserted — the executor imported those before calling. `scoring` is the store's
     /// policy: measure with it, and do not carry a second one.
     ///
-    /// The illumination arrives whole, with its observations loaded: a reading is decided as one, and
-    /// every observation in a call deliberately comes from one `illumination_id`, so an implementation
-    /// that needs the set has it by the arguments rather than by the caller's good behaviour. An
-    /// implementation that wants more context — the illumination's summary and details — can ask for
-    /// it; nothing needs it yet.
+    /// The batch arrives whole: a reading is decided as one, and every observation in a call comes
+    /// from one illumination, so an implementation that needs the set has it by the arguments rather
+    /// than by the caller's good behaviour. How the batch was assembled is the caller's business —
+    /// `helper::link_illumination` batches by illumination, and the linker does not know that.
     async fn decide_link(
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,
         scoring: &Scoring,
-        illumination: &model::illumination::ModelEx,
+        observations: &[model::user_observed_entity::Model],
     ) -> anyhow::Result<Vec<Decision>>;
 }

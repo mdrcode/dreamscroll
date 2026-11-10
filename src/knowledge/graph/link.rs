@@ -1,34 +1,28 @@
-//! Linking one illumination's observations into entities.
+//! The linking executor: a linker's decisions applied to a collection of observations.
 //!
-//! No network. The blocker is the index the store holds, the evidence store says what an identity is
-//! held by and records the claims the capture asserted, and what to do about all of it belongs to the
-//! [`Linker`] the store was built with. Every write is idempotent: a second run finds nothing to
-//! do because every observation already has a `knowledge_entity_id`.
-//!
-//! Callers reach this through [`KnowledgeGraph::link_illumination`]. The rest is `pub(super)` or private:
-//! `merge` and `project` do not link, and nothing outside `knowledge` does either.
+//! No network, no identities, no claims. The [`Linker`] decides, the executor attaches, and each
+//! entity is projected so it exists with its surfaces. Asserting what a capture showed is the
+//! caller's job — see [`crate::knowledge::helper`], which knows that the batch is one illumination.
 
 use std::collections::{HashMap, HashSet};
 
-use crate::knowledge::evidence::{ClaimDraft, PlatformLink, Stored};
 use crate::knowledge::linker::{Action, Decision};
 use crate::model;
 
-use super::{verdicts, KnowledgeGraph};
+use super::KnowledgeGraph;
 
 // Linking: the one write path that decides before it applies.
 // ---------------------------------------------------------------------------------------------
 
-/// What one illumination's decisions actually did.
+/// What one batch of decisions actually did.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct LinkStats {
     pub attached: usize,
     pub created: usize,
     /// Pending observations the Linker returned no decision for. Nonzero means the policy left part
-    /// of the illumination unlinked: the executor does not invent a decision to cover it.
+    /// of the batch unlinked: the executor does not invent a decision to cover it.
     pub left_pending: usize,
-    /// Claims a standing decision refused. The edge was not written, and a later `link` will not
-    /// write it either.
+    /// Claims a standing decision refused. Filled by the caller that asserts them.
     pub vetoed: usize,
 }
 
@@ -41,19 +35,14 @@ impl LinkStats {
     }
 }
 
-/// Link one reading into the graph: cluster its observations.
+/// Link a collection of observations: decide, attach, and project each entity.
 ///
-/// Nothing here knows about identities or claims. The platform fields are used by the linker to
-/// decide, and left alone; [`assert_claims`] turns the resulting mapping into edges afterwards.
-///
-/// Each entity is projected here, with no claims, so the graph is coherent as soon as linking
-/// finishes. The post-pass projects again: `status` and `confidence` follow the claims.
-///
-/// One entry point, because the blocker is the store's: a caller linking a thousand illuminations and
-/// a caller linking one take the same path, and both benefit from what the store has been told so far.
-pub(crate) async fn link_illumination(
+/// Returns the stats and the `observation → entity` mapping, so the caller can assert what each
+/// observation showed. One entry point, because the blocker is the store's: a caller linking a
+/// thousand observations and a caller linking one take the same path.
+pub(crate) async fn link(
     graph: &KnowledgeGraph,
-    illumination: &model::illumination::ModelEx,
+    observations: &[model::user_observed_entity::Model],
 ) -> anyhow::Result<(LinkStats, HashMap<i32, i32>)> {
     let (Some(decider), Some(blocker)) = (&graph.decider, &graph.blocker) else {
         anyhow::bail!(
@@ -62,24 +51,15 @@ pub(crate) async fn link_illumination(
         );
     };
 
-    // If the observations are not "loaded", then nothing to link. Fail early with a clear message.
-    anyhow::ensure!(
-        illumination.observations.is_loaded(),
-        "illumination {} was handed to link_illumination with no observations loaded; fetch it \
-         with Entity::load().with(model::user_observed_entity::Entity)",
-        illumination.id
-    );
-
     // Only the unlinked ones: a linked observation is already where it belongs.
-    let pending: HashSet<i32> = illumination
-        .observations
+    let pending: HashSet<i32> = observations
         .iter()
         .filter(|row| row.knowledge_entity_id.is_none())
         .map(|row| row.id)
         .collect();
 
     let decisions = decider
-        .decide_link(&**blocker, &graph.evidence, &graph.scoring, illumination)
+        .decide_link(&**blocker, &graph.evidence, &graph.scoring, observations)
         .await?;
 
     let mut stats = LinkStats::default();
@@ -100,44 +80,6 @@ pub(crate) async fn link_illumination(
     stats.left_pending = pending.difference(&decided).count();
 
     Ok((stats, linked))
-}
-
-/// Post-process a link: assert the handle each observation showed, and project where it landed.
-///
-/// This is the only place a capture's identity and claim are written. Returns how many claims a
-/// standing veto refused.
-pub(crate) async fn assert_claims(
-    graph: &KnowledgeGraph,
-    illumination: &model::illumination::ModelEx,
-    linked: &HashMap<i32, i32>,
-) -> anyhow::Result<usize> {
-    let vetoes = verdicts::vetoed(graph).await?;
-    let mut vetoed = 0;
-    for row in illumination.observations.iter() {
-        // `ModelEx` is the loaded relation row; the writer wants the plain model.
-        let observation: model::user_observed_entity::Model = row.clone().into();
-        let Some(entity) = linked.get(&observation.id).copied() else {
-            continue;
-        };
-        if let Some(link) = PlatformLink::of(&observation) {
-            let key = link.key();
-            let identity = graph.evidence.identity_for_link(&link).await?;
-            if graph
-                .evidence
-                .assert(
-                    ClaimDraft::capture(entity, &observation, &key, identity),
-                    &vetoes,
-                )
-                .await?
-                == Stored::Vetoed
-            {
-                vetoed += 1;
-            }
-        }
-        // After the claims: status and confidence are functions of them.
-        graph.update_projection(entity).await?;
-    }
-    Ok(vetoed)
 }
 
 /// Apply one decision: attach the observation to its entity.
@@ -185,6 +127,14 @@ mod unit {
     use crate::model::knowledge_entity as entity;
     use crate::test_support::{db_or_skip, fixtures};
 
+    /// The public path for one illumination: the helper owns the composition.
+    async fn link_illumination(
+        store: &KnowledgeGraph,
+        illumination: &model::illumination::ModelEx,
+    ) -> anyhow::Result<LinkStats> {
+        crate::knowledge::helper::link_illumination(store, illumination).await
+    }
+
     /// The shape `link_illumination` needs: one illumination with its observations loaded.
     async fn load_illumination(db: &DbHandle, id: i32) -> model::illumination::ModelEx {
         model::illumination::Entity::load()
@@ -216,7 +166,7 @@ mod unit {
             _blocker: &dyn Blocker,
             _evidence: &Evidence,
             _scoring: &crate::knowledge::Scoring,
-            _illumination: &model::illumination::ModelEx,
+            _observations: &[model::user_observed_entity::Model],
         ) -> anyhow::Result<Vec<crate::knowledge::linker::Decision>> {
             Ok(Vec::new())
         }
@@ -232,7 +182,7 @@ mod unit {
 
         let loaded = load_illumination(&db, illumination).await;
         let inert = linking_store(&db, Arc::new(NoDecisions)).await;
-        let stats = inert.link_illumination(&loaded).await.unwrap();
+        let stats = link_illumination(&inert, &loaded).await.unwrap();
         assert_eq!(stats.attached, 0, "nothing decided, nothing written");
         assert_eq!(stats.created, 0);
         assert_eq!(stats.left_pending, 1, "and it says it was not told");
@@ -245,7 +195,7 @@ mod unit {
         let loaded = load_illumination(&db, illumination).await;
         let linking =
             linking_store(&db, Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker)).await;
-        let stats = linking.link_illumination(&loaded).await.unwrap();
+        let stats = link_illumination(&linking, &loaded).await.unwrap();
         assert_eq!(stats.created, 1, "the linker it was built with decides");
         assert_eq!(stats.left_pending, 0, "every pending observation decided");
     }
@@ -261,7 +211,7 @@ mod unit {
             _blocker: &dyn Blocker,
             _evidence: &Evidence,
             _scoring: &crate::knowledge::Scoring,
-            _illumination: &model::illumination::ModelEx,
+            _observations: &[model::user_observed_entity::Model],
         ) -> anyhow::Result<Vec<crate::knowledge::linker::Decision>> {
             Ok(vec![crate::knowledge::linker::Decision {
                 observation: fixtures::stub_observation(999_999, "Train Dreams", "book"),
@@ -279,11 +229,8 @@ mod unit {
         fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
         let loaded = load_illumination(&db, illumination).await;
 
-        let error = linking_store(&db, Arc::new(Foreign))
-            .await
-            .link_illumination(&loaded)
-            .await
-            .unwrap_err();
+        let store = linking_store(&db, Arc::new(Foreign)).await;
+        let error = link_illumination(&store, &loaded).await.unwrap_err();
         assert!(error.to_string().contains("not pending"), "{error}");
         assert_eq!(
             entity::Entity::find().count(&db.conn).await.unwrap(),
@@ -302,10 +249,8 @@ mod unit {
         fixtures::entity(&db, user, capture, illumination, 0, "Train Dreams").await;
         let loaded = load_illumination(&db, illumination).await;
 
-        let error = KnowledgeGraph::new(&db)
-            .link_illumination(&loaded)
-            .await
-            .unwrap_err();
+        let store = KnowledgeGraph::new(&db);
+        let error = link_illumination(&store, &loaded).await.unwrap_err();
         assert!(error.to_string().contains("without a linker"), "{error}");
     }
 
@@ -328,11 +273,8 @@ mod unit {
             .unwrap();
         assert!(!unloaded.observations.is_loaded());
 
-        let error = linking_store(&db, Arc::new(NoDecisions))
-            .await
-            .link_illumination(&unloaded)
-            .await
-            .unwrap_err();
+        let store = linking_store(&db, Arc::new(NoDecisions)).await;
+        let error = link_illumination(&store, &unloaded).await.unwrap_err();
         assert!(
             error.to_string().contains("no observations loaded"),
             "{error}"
@@ -370,7 +312,7 @@ mod unit {
         )
         .await;
         let loaded = load_illumination(&db, first.illumination_id).await;
-        store.link_illumination(&loaded).await.unwrap();
+        link_illumination(&store, &loaded).await.unwrap();
         assert_eq!(live_claims().await, 1);
 
         let entity_id = entity::Entity::find().one(&db.conn).await.unwrap().unwrap().id;
@@ -405,7 +347,7 @@ mod unit {
         )
         .await;
         let loaded = load_illumination(&db, second.illumination_id).await;
-        let stats = store.link_illumination(&loaded).await.unwrap();
+        let stats = link_illumination(&store, &loaded).await.unwrap();
         assert_eq!(stats.vetoed, 1, "the capture writer asked the veto: {stats:?}");
         assert_eq!(live_claims().await, 0, "and did not write the edge");
         assert_eq!(

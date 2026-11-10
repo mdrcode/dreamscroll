@@ -61,10 +61,15 @@ arrives after an answer downgrades `method` to `capture`).
 **Link, then assert.**
 
 ```
-link_illumination   decide, attach and project each observation; returns observation → entity
-assert_claims       for each linked observation with a handle: ensure its identity (created on
-                    first sighting), assert the claim; then project the entity again
+KnowledgeGraph::link          a collection of observations in: decide, attach, project;
+                              returns observation → entity
+helper::link_illumination     batches one illumination's observations, calls `link`, then
+                              assert_claims: for each pair with a handle, ensure its identity
+                              (created on first sighting), assert the claim, project again
 ```
+
+`KnowledgeGraph` knows only collections of observations. The fact that a batch is one reading,
+and that a capture's claims are asserted afterwards, lives in `helper.rs`.
 
 The first projection has no claims to see: it settles the entity's surfaces, and the index row the
 blocker reads. The second is where `status` and `confidence` follow the claims.
@@ -100,8 +105,9 @@ one live row.
 | --- | --- |
 | `evidence/store.rs` | `IdentityKey`; `DraftIdentity::{key, from_claim}`; `identity_for_link` (create-only) and `create_identity`; `ClaimDraft` + `assert` (veto + edge). Deleted `record` and `store_claim`. |
 | `evidence/mod.rs` | the "two writers" paragraph became the two phases; exports updated. |
-| `graph/link.rs` | `link_illumination` (decisions applied and projected, returning observation → entity) and `assert_claims` (the post-pass, projecting again); `LinkStats.vetoed`. |
-| `graph/knowledge_graph.rs` | the facade runs both stages and returns `LinkStats`. |
+| `graph/link.rs` | `link`: decisions applied and projected, returning observation → entity; `LinkStats`. No illumination type in sight. |
+| `graph/knowledge_graph.rs` | `link(observations: Vec<Observation>)` is the only linking method. |
+| `helper.rs` | the illumination composition and the claim post-pass. |
 | `linker/mod.rs`, `linker/heuristic/linker.rs` | `Decision` no longer carries an identity — it is observation data, not a decision. |
 | `identity/engine.rs` | `upsert_identity` + `assert`, the same two calls the capture path makes. |
 | `graph/verdicts.rs` | `withdraw` drops the basis filter; `ReplayReport.settled`. |

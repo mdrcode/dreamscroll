@@ -79,7 +79,7 @@ pub(crate) async fn link(
         task.entity_owner_id
     );
 
-    graph.link_illumination(&illumination).await
+    crate::knowledge::helper::link_illumination(&graph, &illumination).await
 }
 
 #[cfg(test)]

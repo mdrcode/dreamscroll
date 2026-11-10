@@ -949,7 +949,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
                 report.already_linked += 1;
             }
         }
-        let applied = graph.link_illumination(illumination).await?;
+        let applied = knowledge::helper::link_illumination(&graph, illumination).await?;
         report.update(applied);
     }
     Ok(report)

@@ -288,13 +288,14 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `blocker/mod.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
 | `blocker/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
 | `blocker/index.rs` | `knowledge_blocking_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
-| `linker/mod.rs` | the `Linker` trait: one illumination in, decisions out. Everything upstream is recall, everything downstream is effect |
+| `linker/mod.rs` | the `Linker` trait: one batch of observations in, decisions out. Everything upstream is recall, everything downstream is effect; the caller decides how the batch was assembled |
 | `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
 | `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), the corroboration bonus |
-| `graph/link.rs` | the linker and its post-pass: `link_illumination` decides, attaches and projects, `assert_claims` writes the handles and projects again (status follows the claims), and `LinkStats` reports both |
+| `graph/link.rs` | `link`: a batch of observations in, decisions applied and projected out — plus the `observation → entity` mapping and `LinkStats`. It knows nothing about identities or claims |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two phases of a claim in `store.rs`: `identity_for_link` settles a capture's identity (create only) and `upsert_identity` an answer's (fill gaps); `assert` writes the edge, asking the veto at the one place a claim becomes a row. Both callers use both. `store.rs` also reads holders back and answers `awaiting_authority` |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors and the methods that are one write each |
+| `helper.rs` | the illumination composition: batch one reading's observations, call `KnowledgeGraph::link`, then assert each observation's handle and project again. The graph links a collection; only this knows it is one reading |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `graph/merge.rs` | fold one entity into another |
 | `graph/proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |

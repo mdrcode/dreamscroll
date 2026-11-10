@@ -112,17 +112,16 @@ impl KnowledgeGraph {
         attach(&self.db.conn, observation_id, knowledge_entity_id).await
     }
 
-    /// Link one reading into the graph: cluster its observations, record their claims, and project
-    /// every entity it touched.
+    /// Link a batch of observations into entities: decide, attach, project.
     ///
-    /// Implemented in `super::link`.
-    pub async fn link_illumination(
+    /// Nothing here knows about identities or claims.
+    /// [`crate::knowledge::helper::link_illumination`] is the caller that batches by illumination
+    /// and asserts what each capture showed.
+    pub async fn link(
         &self,
-        illumination: &model::illumination::ModelEx,
-    ) -> anyhow::Result<crate::knowledge::LinkStats> {
-        let (mut stats, linked) = super::link::link_illumination(self, illumination).await?;
-        stats.vetoed = super::link::assert_claims(self, illumination, &linked).await?;
-        Ok(stats)
+        observations: Vec<model::user_observed_entity::Model>,
+    ) -> anyhow::Result<(crate::knowledge::LinkStats, std::collections::HashMap<i32, i32>)> {
+        super::link::link(self, &observations).await
     }
 
     /// Recompute an entity's projected columns, and tell the blocker what came out.
