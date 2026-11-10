@@ -8,14 +8,14 @@
 use std::collections::HashMap;
 
 use crate::knowledge::evidence::{ClaimDraft, PlatformLink, Stored};
-use crate::knowledge::graph::{KnowledgeGraph, LinkStats};
+use crate::knowledge::graph::{KnowledgeGraph, LinkReport};
 use crate::model;
 
 /// Link one illumination: its observations become entities, then their handles become claims.
 pub async fn link_illumination(
     graph: &KnowledgeGraph,
     illumination: &model::illumination::ModelEx,
-) -> anyhow::Result<LinkStats> {
+) -> anyhow::Result<LinkReport> {
     // An unloaded relation would read as an illumination with no observations, and linking nothing
     // would look exactly like success.
     anyhow::ensure!(
@@ -30,9 +30,9 @@ pub async fn link_illumination(
         .map(|row| row.clone().into())
         .collect();
 
-    let (mut stats, linked) = graph.link(&observations).await?;
-    stats.vetoed = assert_claims(graph, &observations, &linked).await?;
-    Ok(stats)
+    let (mut report, linked) = graph.link(&observations).await?;
+    report.vetoed = assert_claims(graph, &observations, &linked).await?;
+    Ok(report)
 }
 
 /// Assert the handle each linked observation showed, and project where it landed.

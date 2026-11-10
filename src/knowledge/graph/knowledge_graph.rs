@@ -43,7 +43,6 @@ pub struct KnowledgeGraph {
     pub(super) blocker: Option<Arc<dyn Blocker>>,
     pub(super) decider: Option<Arc<dyn Linker>>,
     pub(super) evidence: Evidence,
-    /// Every write to `knowledge_verdicts`; the merge below writes its log row through it.
     pub(super) verdicts: VerdictStore,
 }
 
@@ -151,12 +150,12 @@ impl KnowledgeGraph {
     /// Link a batch of observations into entities: decide, attach, project.
     ///
     /// Nothing here knows about identities or claims.
-    /// [`crate::knowledge::helper::link_illumination`] is the caller that batches by illumination
+    /// [`crate::knowledge::link_illumination`] is the caller that batches by illumination
     /// and asserts what each capture showed.
     pub async fn link(
         &self,
         observations: &[model::user_observed_entity::Model],
-    ) -> anyhow::Result<(crate::knowledge::LinkStats, std::collections::HashMap<i32, i32>)> {
+    ) -> anyhow::Result<(crate::knowledge::LinkReport, std::collections::HashMap<i32, i32>)> {
         super::link::link(self, observations).await
     }
 

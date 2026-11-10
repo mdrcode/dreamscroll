@@ -140,7 +140,7 @@ mod tests {
         store.update_projection(entity_id).await.unwrap();
         assert_eq!(
             store.get(entity_id).await.unwrap().status,
-            crate::knowledge::Status::Identified
+            crate::model::knowledge_entity::Status::Identified
         );
 
         store.veto(entity_id, "wikidata", "Q123737256", None)
@@ -152,7 +152,7 @@ mod tests {
         let entity = store.get(entity_id).await.unwrap();
         assert_eq!(
             entity.status,
-            crate::knowledge::Status::Provisional,
+            crate::model::knowledge_entity::Status::Provisional,
             "the identity went, so the identification went"
         );
         assert_eq!(entity.confidence, None);
@@ -238,7 +238,7 @@ mod tests {
         store.update_projection(entity_id).await.unwrap();
         assert_eq!(
             store.get(entity_id).await.unwrap().status,
-            crate::knowledge::Status::Identified
+            crate::model::knowledge_entity::Status::Identified
         );
 
         store.veto(entity_id, "wikidata", "Q131472411", None)
@@ -249,7 +249,7 @@ mod tests {
         let entity = store.get(entity_id).await.unwrap();
         assert_eq!(
             entity.status,
-            crate::knowledge::Status::Provisional,
+            crate::model::knowledge_entity::Status::Provisional,
             "no live claim, no identification"
         );
         assert_eq!(entity.confidence, None);
@@ -298,7 +298,7 @@ mod tests {
         let entity = store.get(entity_id).await.unwrap();
         assert_eq!(
             entity.status,
-            crate::knowledge::Status::Identified,
+            crate::model::knowledge_entity::Status::Identified,
             "the handle still identifies it"
         );
         assert!(

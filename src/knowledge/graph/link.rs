@@ -16,7 +16,7 @@ use super::KnowledgeGraph;
 
 /// What one batch of decisions actually did.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct LinkStats {
+pub struct LinkReport {
     pub attached: usize,
     pub created: usize,
     /// Pending observations the Linker returned no decision for.
@@ -25,7 +25,7 @@ pub struct LinkStats {
     pub vetoed: usize,
 }
 
-impl LinkStats {
+impl LinkReport {
     fn record(&mut self, decision: &Decision) {
         match decision.action {
             Action::Attach(_) => self.attached += 1,
@@ -42,7 +42,7 @@ impl LinkStats {
 pub(crate) async fn link(
     graph: &KnowledgeGraph,
     observations: &[model::user_observed_entity::Model],
-) -> anyhow::Result<(LinkStats, HashMap<i32, i32>)> {
+) -> anyhow::Result<(LinkReport, HashMap<i32, i32>)> {
     let (Some(decider), Some(blocker)) = (&graph.decider, &graph.blocker) else {
         anyhow::bail!(
             "this KnowledgeGraph was built without a linker; use KnowledgeGraph::with_linking"
@@ -60,7 +60,7 @@ pub(crate) async fn link(
         .decide_link(&**blocker, &graph.evidence, observations)
         .await?;
 
-    let mut stats = LinkStats::default();
+    let mut report = LinkReport::default();
     let mut linked: HashMap<i32, i32> = HashMap::with_capacity(decisions.len());
     for decision in &decisions {
         // The guarantee the `Decision` doc makes: the subject is one the Linker was given, and it was
@@ -73,7 +73,7 @@ pub(crate) async fn link(
         let entity = apply_decision(graph, decision).await?;
         graph.update_projection(entity).await?;
         linked.insert(decision.observation.id, entity);
-        stats.record(decision);
+        report.record(decision);
     }
 
     // A policy may decide less than it was given. The executor applies what it got and says how much
@@ -82,9 +82,9 @@ pub(crate) async fn link(
         .iter()
         .map(|decision| decision.observation.id)
         .collect();
-    stats.left_pending = pending.difference(&decided).count();
+    report.left_pending = pending.difference(&decided).count();
 
-    Ok((stats, linked))
+    Ok((report, linked))
 }
 
 /// Apply one decision: attach the observation to its entity.
@@ -119,8 +119,8 @@ mod unit {
     async fn link_illumination(
         store: &KnowledgeGraph,
         illumination: &model::illumination::ModelEx,
-    ) -> anyhow::Result<LinkStats> {
-        crate::knowledge::helper::link_illumination(store, illumination).await
+    ) -> anyhow::Result<LinkReport> {
+        crate::knowledge::link_illumination(store, illumination).await
     }
 
     /// The shape `link_illumination` needs: one illumination with its observations loaded.
@@ -354,7 +354,7 @@ mod unit {
 mod corpus {
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 
-    use crate::knowledge::Status;
+    use crate::model::knowledge_entity::Status;
     use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
     use crate::test_support::db_or_skip;
     use crate::test_support::fixtures::{self, entity_count, observe, Capture};

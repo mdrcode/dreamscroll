@@ -51,7 +51,7 @@ pub trait Linker: Send + Sync {
     /// The batch arrives whole: a reading is decided as one, and every observation in a call comes
     /// from one illumination, so an implementation that needs the set has it by the arguments rather
     /// than by the caller's good behaviour. How the batch was assembled is the caller's business —
-    /// `helper::link_illumination` batches by illumination, and the linker does not know that.
+    /// `link_illumination` batches by illumination, and the linker does not know that.
     async fn decide_link(
         &self,
         blocker: &dyn Blocker,

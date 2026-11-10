@@ -37,7 +37,7 @@ pub async fn link_all(db: &DbHandle) -> anyhow::Result<()> {
         .await?;
 
     for illumination in &illuminations {
-        crate::knowledge::helper::link_illumination(&graph, illumination).await?;
+        crate::knowledge::link_illumination(&graph, illumination).await?;
     }
     Ok(())
 }

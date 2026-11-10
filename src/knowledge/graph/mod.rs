@@ -22,5 +22,4 @@ mod project;
 
 pub(crate) use knowledge_graph::{current_generation, get};
 pub use knowledge_graph::KnowledgeGraph;
-pub use link::LinkStats;
-pub use crate::model::knowledge_entity::Status;
+pub use link::LinkReport;

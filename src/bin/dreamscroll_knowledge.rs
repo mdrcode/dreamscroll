@@ -909,7 +909,7 @@ struct LinkAllPendingReport {
 }
 
 impl LinkAllPendingReport {
-    fn update(&mut self, part: knowledge::LinkStats) {
+    fn update(&mut self, part: knowledge::LinkReport) {
         self.attached += part.attached;
         self.created += part.created;
         self.left_pending += part.left_pending;
@@ -950,7 +950,7 @@ async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPend
                 report.already_linked += 1;
             }
         }
-        let applied = knowledge::helper::link_illumination(&graph, illumination).await?;
+        let applied = knowledge::link_illumination(&graph, illumination).await?;
         report.update(applied);
     }
     Ok(report)

@@ -107,7 +107,7 @@ enum Action {
     Create,
 }
 
-struct LinkStats {                 // what one illumination's decisions did
+struct LinkReport {                 // what one illumination's decisions did
     attached: usize,
     created: usize,
     left_pending: usize,           // pending observations the linker did not decide
@@ -296,7 +296,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `linker/mod.rs` | the `Linker` trait: one batch of observations in, decisions out. A `&Scoring` argument is deliberately absent — the implementation holds its policy. Everything upstream is recall, everything downstream is effect; the caller decides how the batch was assembled |
 | `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure over the heuristic's `Scoring` — best candidate that clears the bar, else create |
 | `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), the corroboration bonus |
-| `graph/link.rs` | `link`: a batch of observations in, decisions applied and projected out — plus the `observation → entity` mapping and `LinkStats`. It knows nothing about identities or claims |
+| `graph/link.rs` | `link`: a batch of observations in, decisions applied and projected out — plus the `observation → entity` mapping and `LinkReport`. It knows nothing about identities or claims |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two phases of a claim in `store.rs`: `identity_for_link` settles a capture's identity (create only) and `upsert_identity` an answer's (fill gaps); `assert` writes the edge, asking the veto at the one place a claim becomes a row. Both callers use both. `store.rs` also reads holders back and answers `awaiting_authority` |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors and the methods that are one write each. It holds the connection, the blocker, the decider and the evidence — no policy of its own |
@@ -312,7 +312,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 reached through `KnowledgeGraph`'s methods; `link` and `project` are private modules, and what
-escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Preview`, and the verdict
+escapes them is data and vocabulary — `LinkReport`, `merge::Outcome`, `Preview`, and the verdict
 `Cause`. The batch
 passes are the exception and are deliberately public functions taking what they act on —
 `proximity::scan(conn, scoring)`, `proximity::auto_merge(conn, graph, scoring)`, and

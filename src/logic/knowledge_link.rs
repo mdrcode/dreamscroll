@@ -67,7 +67,7 @@ pub(crate) async fn link(
     graph: &crate::knowledge::KnowledgeGraph,
     service_api: &crate::api::ServiceApiClient,
     task: &KnowledgeLinkTask,
-) -> anyhow::Result<crate::knowledge::LinkStats> {
+) -> anyhow::Result<crate::knowledge::LinkReport> {
     // The read belongs to the service layer, which is the worker's door to the app; the ownership
     // check belongs here, where the payload is. The store is not involved in either.
     let illumination = service_api.illumination(task.illumination_id).await?;
@@ -79,7 +79,7 @@ pub(crate) async fn link(
         task.entity_owner_id
     );
 
-    crate::knowledge::helper::link_illumination(graph, &illumination).await
+    crate::knowledge::link_illumination(graph, &illumination).await
 }
 
 #[cfg(test)]
