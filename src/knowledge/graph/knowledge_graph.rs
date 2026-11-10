@@ -13,7 +13,8 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, QueryOrder, Set, Statement};
+use sea_orm::sea_query::{Expr, Query};
+use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 
 use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
@@ -278,17 +279,27 @@ async fn attach<C: ConnectionTrait>(
     observation_id: i32,
     knowledge_entity_id: i32,
 ) -> anyhow::Result<()> {
-    let attached = conn
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "UPDATE user_observed_entities o SET knowledge_entity_id = $2 \
-               FROM knowledge_entities e \
-              WHERE o.id = $1 AND e.id = $2 AND e.merged_into_id IS NULL",
-            [observation_id.into(), knowledge_entity_id.into()],
+    let attached = model::user_observed_entity::Entity::update_many()
+        .col_expr(
+            model::user_observed_entity::Column::KnowledgeEntityId,
+            Expr::value(Some(knowledge_entity_id)),
+        )
+        .filter(model::user_observed_entity::Column::Id.eq(observation_id))
+        .filter(Expr::exists(
+            Query::select()
+                .column((
+                    model::knowledge_entity::Entity,
+                    model::knowledge_entity::Column::Id,
+                ))
+                .from(model::knowledge_entity::Entity)
+                .and_where(model::knowledge_entity::Column::Id.eq(knowledge_entity_id))
+                .and_where(model::knowledge_entity::Column::MergedIntoId.is_null())
+                .to_owned(),
         ))
+        .exec(conn)
         .await?;
     anyhow::ensure!(
-        attached.rows_affected() == 1,
+        attached.rows_affected == 1,
         "could not attach observation {observation_id} to knowledge entity {knowledge_entity_id}: \
          the entity is a tombstone, or one of the two does not exist"
     );

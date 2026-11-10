@@ -6,9 +6,9 @@
 //!
 //! Snapshotting copies rather than renames; [`super::record`] explains why.
 
-use sea_orm::sea_query::Expr;
+use sea_orm::sea_query::{Expr, OnConflict};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter,
+    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter, Set,
     Statement, TransactionTrait,
 };
 
@@ -19,9 +19,9 @@ use super::record::{
 use crate::database;
 use crate::model::{
     knowledge_blocking_index as blocking, knowledge_claims as claims,
-    knowledge_entity as entity, knowledge_identity as identities,
-    knowledge_proximities as proximities, knowledge_verdicts as verdicts,
-    user_observed_entity as observation,
+    knowledge_entity as entity, knowledge_generations as generation,
+    knowledge_identity as identities, knowledge_proximities as proximities,
+    knowledge_verdicts as verdicts, user_observed_entity as observation,
 };
 
 const OBSERVATION_TABLE: &str = "user_observed_entities";
@@ -130,35 +130,55 @@ async fn supersede_generation<C: ConnectionTrait>(
         .filter(verdicts::Column::Kind.eq(verdicts::Kind::Merge))
         .count(conn)
         .await?;
-    conn.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "INSERT INTO knowledge_generations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING",
-        [current.into()],
-    ))
+    let mut conflict = OnConflict::column(generation::Column::Id);
+    conflict.do_nothing();
+    generation::Entity::insert(generation::ActiveModel {
+        id: Set(current),
+        ..Default::default()
+    })
+    .on_conflict(conflict)
+    .exec_without_returning(conn)
     .await?;
-    conn.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "UPDATE knowledge_generations \
-            SET superseded_at = now(), snapshot = $2, entities = $3, identities = $4, \
-                claims = $5, merges = $6, proximities = $7, members = $8 \
-          WHERE id = $1",
-        [
-            current.into(),
-            snapshot.map(str::to_string).into(),
-            (entities as i32).into(),
-            (identities as i32).into(),
-            (claims as i32).into(),
-            (merges as i32).into(),
-            (proximities as i32).into(),
-            (members as i32).into(),
-        ],
-    ))
-    .await?;
-    conn.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "INSERT INTO knowledge_generations (id) VALUES ($1) ON CONFLICT (id) DO NOTHING",
-        [(current + 1).into()],
-    ))
+
+    generation::Entity::update_many()
+        .col_expr(
+            generation::Column::SupersededAt,
+            Expr::current_timestamp(),
+        )
+        .col_expr(
+            generation::Column::Snapshot,
+            Expr::value(snapshot.map(str::to_string)),
+        )
+        .col_expr(
+            generation::Column::Entities,
+            Expr::value(Some(entities as i32)),
+        )
+        .col_expr(
+            generation::Column::Identities,
+            Expr::value(Some(identities as i32)),
+        )
+        .col_expr(generation::Column::Claims, Expr::value(Some(claims as i32)))
+        .col_expr(generation::Column::Merges, Expr::value(Some(merges as i32)))
+        .col_expr(
+            generation::Column::Proximities,
+            Expr::value(Some(proximities as i32)),
+        )
+        .col_expr(
+            generation::Column::Members,
+            Expr::value(Some(members as i32)),
+        )
+        .filter(generation::Column::Id.eq(current))
+        .exec(conn)
+        .await?;
+
+    let mut conflict = OnConflict::column(generation::Column::Id);
+    conflict.do_nothing();
+    generation::Entity::insert(generation::ActiveModel {
+        id: Set(current + 1),
+        ..Default::default()
+    })
+    .on_conflict(conflict)
+    .exec_without_returning(conn)
     .await?;
     Ok(())
 }

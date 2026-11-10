@@ -8,26 +8,14 @@
 //! See AGENTS.md §Derived Data for why the version is a behavioural fingerprint rather than a
 //! hand-bumped number, and `plan/knowledge-blocking.md` §Storage for why this is a table.
 
-use sea_orm::sea_query::{Expr, ExprTrait, Query};
+use sea_orm::sea_query::{Expr, ExprTrait, OnConflict, Query};
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter,
-    Statement,
+    ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set,
 };
 
 use crate::database::DbHandle;
 use crate::knowledge::normalize;
 use crate::model;
-
-/// One row per live entity: the folded surfaces, and the same text for full search.
-const UPSERT: &str = "
-INSERT INTO knowledge_blocking_index (knowledge_entity_id, surfaces, word_keys, text, built_with)
-VALUES ($1, $2, $3, $4, $5)
-ON CONFLICT (knowledge_entity_id) DO UPDATE
-   SET surfaces = EXCLUDED.surfaces,
-       word_keys = EXCLUDED.word_keys,
-       text = EXCLUDED.text,
-       built_with = EXCLUDED.built_with,
-       built_at = now()";
 
 /// The two generations the index stores, in the entity's surface order.
 pub(crate) struct Keys {
@@ -85,17 +73,35 @@ pub(crate) async fn write<C: ConnectionTrait>(
         word_keys,
     } = keys(entity);
     let text = surfaces.join(" ");
-    conn.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        UPSERT,
-        [
-            entity.id.into(),
-            surfaces.into(),
-            word_keys.into(),
-            text.into(),
-            normalize::norm_fingerprint().into(),
-        ],
-    ))
+
+    let mut conflict = OnConflict::column(
+        model::knowledge_blocking_index::Column::KnowledgeEntityId,
+    );
+    conflict
+        .update_columns([
+            model::knowledge_blocking_index::Column::Surfaces,
+            model::knowledge_blocking_index::Column::WordKeys,
+            model::knowledge_blocking_index::Column::Text,
+            model::knowledge_blocking_index::Column::BuiltWith,
+        ])
+        // Not `EXCLUDED`: every write restamps when the row was built.
+        .values([(
+            model::knowledge_blocking_index::Column::BuiltAt,
+            Expr::current_timestamp(),
+        )]);
+
+    model::knowledge_blocking_index::Entity::insert(
+        model::knowledge_blocking_index::ActiveModel {
+            knowledge_entity_id: Set(entity.id),
+            surfaces: Set(surfaces),
+            word_keys: Set(word_keys),
+            text: Set(text),
+            built_with: Set(normalize::norm_fingerprint().to_string()),
+            ..Default::default()
+        },
+    )
+    .on_conflict(conflict)
+    .exec_without_returning(conn)
     .await?;
     Ok(())
 }
@@ -195,6 +201,7 @@ mod tests {
     use super::*;
 
     use crate::test_support::{db_or_skip, fixtures};
+    use sea_orm::{DatabaseBackend, Statement};
 
     /// `project` writes the row, and what it writes is the fold of the entity's surfaces.
     #[tokio::test]
