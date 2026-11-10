@@ -93,14 +93,13 @@ trait Linker {              // the procedure: decide, and nothing else
         &self,
         blocker: &dyn Blocker,
         evidence: &Evidence,
-        illumination: &Illumination,
+        observations: &[Observation],
     ) -> Result<Vec<Decision>>;
 }
 
 struct Decision {
     observation: Observation,      // the row itself, not its id
     action: Action,
-    identity: Option<i32>,         // the capture's handle, already imported as a row
 }
 
 enum Action {
@@ -129,13 +128,14 @@ twice. What a strategy must not do is *write* one: `update_projection` is the on
 The derived forms the scorer works with (`surfaces()`, `descriptions()`, `types()`) are inherent
 methods on the model, beside its columns.
 
-`link.rs` is the executor. It imports the identities the capture asserted, then loads the rows, drives
-them through the blocker and linker, and applies the effects — in that order, because a decision names
-an identity by id and leaves `apply` with nothing to create. Every decision is made before any is
-applied, so the illumination's own claims are invisible to its own decisions: two observations that
-assert one previously unknown handle are both told to create, and become two entities holding one
-identity. `merge` refuses that pair (shared illumination), so the scan records it once and it stays
-open — the terminal state the merge-side rule produces everywhere.
+`link.rs` is the executor. It loads the rows, drives them through the blocker and linker, and applies
+the effects: decisions first, writes second. It knows nothing about identities or claims — the
+capture's handle is asserted afterwards, by `helper::assert_claims` (`identity_for_link`, then
+`assert`, then a second projection), once the observations have homes. Every decision is made before
+any is applied, so the illumination's own claims are invisible to its own decisions: two observations
+that assert one previously unknown handle are both told to create, and become two entities holding
+one identity. `merge` refuses that pair (shared illumination), so the scan records it once and it
+stays open — the terminal state the merge-side rule produces everywhere.
 
 **The heuristic is one implementation of that chain — not the chain.** The chain is `scoring.rs`, and
 it is two verbs:
@@ -150,15 +150,18 @@ pair that must never merge, and the number is how a person sees why.
 
 Everything else is not a verb. The scan stores the number and `merge` asks `Rank` for the verdict; the
 linker asks `Rank` and applies the answer; `project` calls `combine`, which is arithmetic over claim
-scores; `merge` and the holder order ask `TotalCmp`, a convention about `NULL`. Only the linker and
-the proximity passes take a `Scoring`, and it is the **store's** — a linker carrying its own would leave the
-merge pass on a different policy, silently.
+scores; `merge` and the holder order ask `TotalCmp`, a convention about `NULL`. The linker **holds** its
+`Scoring`; the proximity passes are **handed** one; the store holds none. Choosing one policy for both
+sides is the composition root's job — it constructs the linker and passes the same `Scoring` to `scan`
+and `merge` — because a store that owned one would let a caller swap the merge side without swapping
+the link side, silently.
 
-`linker/heuristic/scoring.rs` is today's only answer: normalized keys, weights, the merge rule, the corroboration
-bonus. `linker/heuristic/linker.rs` is the **procedure** — the best qualifying candidate, else create — and holds
-no numbers. `blocker/sql.rs` is recall: every folded surface and its word-order-insensitive form, probed
-out of `knowledge_blocking_index` — nothing scored. A platform handle is a surface too, so a capture that named an
-account only by its handle still finds the entity another capture named by hand. The
+`linker/heuristic/scoring.rs` is today's only answer: normalized keys, weights, the merge rule, the
+corroboration bonus. `linker/heuristic/linker.rs` is the **procedure** — the best qualifying candidate,
+else create — and holds the policy it applies, but no numbers of its own. `blocker/sql.rs` is recall:
+every folded surface and its word-order-insensitive form, probed out of `knowledge_blocking_index` —
+nothing scored. A platform handle is a surface too, so a capture that named an account only by its
+handle still finds the entity another capture named by hand. The
 resolver keeps its own measure and its own calibration, because its candidate type is private and
 its fit is corpus-aware (terms are weighed by rarity among the answers it got back) — a pair
 comparison cannot see the corpus.
@@ -232,8 +235,9 @@ mutation of them. `enrichment` and `rejection` stay reserved vocabulary, not tab
 
 Sharing an identity is a **candidate**, not a verdict — that is why the uniqueness lives on the edge
 (one entity asserts an identity once) rather than on the identity. `proximity.rs` asks the question:
-for each identity with two or more holders, score the holders pairwise with the linker's weights, fold
-the pairs that look like one thing, and queue the ones the shared-illumination rule refuses.
+for each identity with two or more holders, score the holders pairwise with the `Scoring` the pass is
+handed, fold the pairs that look like one thing, and queue the ones the shared-illumination rule
+refuses.
 
 The only uniqueness is per entity: one live claim per `(entity, identity)`, so retracting frees that
 pair's slot and re-asserting it is a no-op. Nothing forbids two entities holding one identity — that is
@@ -242,7 +246,7 @@ the many-to-one the model exists for.
 `proximity.rs` runs in two passes. **Scan** derives the candidate set and replaces the table with
 it in one transaction, so what it holds is always what the graph looked like when it was last asked
 — a scan after a link, and again at the end of a resolve. **Merge** answers the batch: it re-checks
-that both sides still exist, scores the pair with the linker's own weights and folds the convincing
+that both sides still exist, scores the pair with the `Scoring` it was handed and folds the convincing
 ones. The rest stay in the batch, which is where a person reads them.
 
 Nothing in that table is a status or a verdict. A pair that keeps looking like one thing keeps
@@ -284,23 +288,23 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 | file | what it is |
 |---|---|
-| `scoring.rs` | the two verbs — `Similarity`, `Rank` — `TotalCmp`, and the `Scoring` bundle. Shared: the linker and proximity both ask it |
+| `scoring.rs` | the two verbs — `Similarity`, `Rank` — `TotalCmp`, and the `Scoring` bundle. The linker holds one; the proximity passes are handed one |
 | `normalize.rs` | the two key generations: `comparable` (the fold) and `word_key` (words sorted, one leading article dropped), plus `norm_fingerprint` — the behavioural stamp they are versioned by. Shared by the blocker, identity, evidence and projection |
 | `blocker/mod.rs` | the `Blocker` trait: which entities are worth considering, and nothing else |
 | `blocker/sql.rs` | `SqlBlocker`: recall by folded surface and word key, one indexed probe per candidate query |
 | `blocker/index.rs` | `knowledge_blocking_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
-| `linker/mod.rs` | the `Linker` trait: one batch of observations in, decisions out. Everything upstream is recall, everything downstream is effect; the caller decides how the batch was assembled |
-| `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure — best candidate that clears the bar, else create |
+| `linker/mod.rs` | the `Linker` trait: one batch of observations in, decisions out. A `&Scoring` argument is deliberately absent — the implementation holds its policy. Everything upstream is recall, everything downstream is effect; the caller decides how the batch was assembled |
+| `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure over the heuristic's `Scoring` — best candidate that clears the bar, else create |
 | `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), the corroboration bonus |
 | `graph/link.rs` | `link`: a batch of observations in, decisions applied and projected out — plus the `observation → entity` mapping and `LinkStats`. It knows nothing about identities or claims |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `evidence/` | the claim vocabulary (`Claim`, `ClaimBasis` in `claim.rs`) and the two phases of a claim in `store.rs`: `identity_for_link` settles a capture's identity (create only) and `upsert_identity` an answer's (fill gaps); `assert` writes the edge, asking the veto at the one place a claim becomes a row. Both callers use both. `store.rs` also reads holders back and answers `awaiting_authority` |
-| `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors and the methods that are one write each |
+| `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors and the methods that are one write each. It holds the connection, the blocker, the decider and the evidence — no policy of its own |
 | `helper.rs` | the illumination composition: batch one reading's observations, call `KnowledgeGraph::link`, then assert each observation's handle and project again. The graph links a collection; only this knows it is one reading |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `graph/merge.rs` | fold one entity into another |
-| `graph/proximity.rs` | the candidates the last scan found: `scan` derives them, `merge` answers them |
-| `graph/verdicts.rs` | a person's decisions, kept across rebuilds: `record` on a repair or a veto, `replay` onto the new graph. A veto names a pairing, so `withdraw` retracts that pair's live claim whatever route produced it, then reprojects the entity — `status` and `confidence` are functions of the live claims. A retraction with nothing to retract is `settled`, not a zero. The same predicate is asked by both claim writers |
+| `graph/proximity.rs` | the candidates the last scan found: both passes take the connection and the `Scoring`; `scan` derives the batch, `merge` answers it |
+| `graph/verdicts.rs` | a person's decisions, kept across rebuilds: `veto` writes one (and `merge` writes its own), `unveto` lifts it, `replay` applies the log to the new graph. A veto names a pairing, so `withdraw` retracts that pair's live claim whatever route produced it, then reprojects the entity — `status` and `confidence` are functions of the live claims. A retraction with nothing to retract is `settled`, not a zero. The same predicate is asked by both claim writers |
 |`identity/`|`mod.rs` (the `Resolver` trait a provider implements) · `engine` (the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The claim it returns, and where it becomes a row, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
 | `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates in `policy.rs` · answer parsing in `answer.rs` · the ladder and its request shapes in `resolver.rs` · candidate scoring in `ranking.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
@@ -309,10 +313,11 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 reached through `KnowledgeGraph`'s methods; `link` and `project` are private modules, and what
 escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Cause`, `Preview`. The batch
-passes are the exception and are deliberately public functions taking the facade —
-`proximity::scan`, `proximity::merge`, `verdicts::replay` are commands over the whole graph, not a
-write to one row. The graph's health counters are a report over the tables rather than graph work, so
-they live in `crate::stats::knowledge_stats`.
+passes are the exception and are deliberately public functions taking what they act on —
+`proximity::scan(conn, scoring)`, `proximity::merge(conn, graph, scoring)` and
+`verdicts::replay(graph)` are commands over the whole graph, not a write to one row. The graph's
+health counters are a report over the tables rather than graph work, so they live in
+`crate::stats::knowledge_stats`.
 
 The vocabulary — and the names we rejected — is in `plan/lexicon.md`. The design history, including
 the failures that produced these rules, is in `plan/knowledge-illumination-history.md` and

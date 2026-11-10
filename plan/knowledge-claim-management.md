@@ -13,7 +13,7 @@ A veto records `(subject_origin, scheme, external_id)` — a **pairing** — and
 claim to retract with an extra predicate, `basis = 'text'`. `basis` records the **route**, not the
 writer, and a census of the live graph (2026-11-09, 1,967 live claims) showed three populations:
 
-| basis | `asserted_by` | live claims | written by | means |
+| basis | `asserted_by` | live claims | written then by | means |
 | --- | --- | --- | --- | --- |
 | `text` | `wikidata` | 1,595 | `store_claim` | "this entity is Q42", reached by title/label/search |
 | `handle` | `platform` | 345 | `Evidence::record` | "the screenshot showed `@handle` on this entity" |

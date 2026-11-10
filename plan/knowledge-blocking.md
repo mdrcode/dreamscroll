@@ -25,7 +25,7 @@ emits comparable-shaped *hits* even though its scores are not comparable.
 | L1 fusion + cap | RRF, global budget, complete-channel exemption | `Blocker` | **Rust** | none; id order, unbounded | RRF + budgets |
 | L2 features | comparison vector for one pair | `Linker` + `Scoring` | **Rust** (full rows) | `Features { name, description, ty }` | full vector |
 | L3 decision | attach-or-create, and which entity | `Linker` + `Rank` | **Rust** | `worth_merging` conjunction | calibrated model |
-| L4 record | why it attached | `link.rs` executor | Rust → **SQL write** | `Decision { observation, action, identity }` | + features, channel, ranks |
+| L4 record | why it attached | `link.rs` executor | Rust → **SQL write** | `Decision { observation, action }` | + features, channel, ranks |
 
 **Ownership boundary: the blocker owns L0–L1; the decider and scoring own L2–L3;
 the executor owns L4.** The decider never branches on which channel returned a

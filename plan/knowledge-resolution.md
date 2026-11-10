@@ -95,7 +95,7 @@ Two things were made authority-aware on 2026-11-07, both behaviour-identical wit
   filtered `asserted_by != 'platform'`, which means "any authority". With a second authority, an IMDb
   claim would silently stop Wikidata resolving that entity. It now filters on the configured
   providers' ids.
-- **A veto is enforced at the claim write** (`store_claim`), not inside the Wikidata parser, so a new
+- **A veto is enforced at the claim write** (`assert`), not inside the Wikidata parser, so a new
   provider inherits the rule without knowing it exists.
 
 Baseline to hold the line against: **0.89 claims per live entity, 0.86 authority claims per identified

@@ -186,7 +186,7 @@ what survives derivation — entity origin, identity natural key — can gate ev
 
 Three consequences that differ from the merge story:
 
-- **Admission, not only replay.** `store_claim` asks a preloaded veto set before writing, so a vetoed
+- **Admission, not only replay.** `assert` asks a preloaded veto set before writing, so a vetoed
   claim is never made; replay withdraws any that predate the veto. This is the one place `resolve`
   knows about verdicts, and it has to: unlike a fold, which a scan can refuse to consider, a claim
   has exactly one writer.
@@ -229,7 +229,7 @@ origin stability survived another rebuild. Final state: 2,204 live, 1,872 identi
 
 1. **Replay is a separate command — for merges.** A plain `resolve` may still fold a pair that a
    future `distinct` would have prevented. **Vetoes are the exception and must be**: admission is
-   asked inside `store_claim`, because a claim has exactly one writer while a fold has a scan that
+   asked inside `assert`, because a claim has exactly one writer while a fold has a scan that
    can filter. Without it a vetoed claim returns on the next resolve and the decision is decorative.
 2. **`distinct` is not built.** The convenience is deferred until the queue is actually annoying.
    When it comes back, the cheapest shape is a filter in `scan` — a decided-distinct pair never
