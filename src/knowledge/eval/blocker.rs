@@ -6,8 +6,8 @@
 //!
 //! So observations are replayed in capture order, and a candidate only counts if the entity already
 //! had an earlier member — anything created by a later observation is the future and is excluded.
-//! The index is the current one, so surfaces contributed by later members remain visible: the recall
-//! measured here is an **upper bound**. A miss is real; a hit may be slightly flattered.
+//! The current index contains the probe's own surface (it is a member), so the live probe is an
+//! **index coverage** check, not recall; [`Report::prior_hit`] is the honest number.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -39,6 +39,8 @@ pub struct Report {
     pub new_entity: usize,
     /// A later member: the entity existed and should have been offered.
     pub eligible: usize,
+    /// Eligible observations the live index offered. Structurally every one, because the index
+    /// carries the observation's own surface; only a stale index or a tombstoned entity can miss.
     pub hit: usize,
     /// Eligible, and the blocker offered nothing at all.
     pub starved: usize,
@@ -60,9 +62,9 @@ pub struct Report {
 }
 
 impl Report {
-    /// Recall against the current index: an upper bound, because it can see surfaces later members
-    /// contributed.
-    pub fn live_recall(&self) -> f32 {
+    /// Index coverage: what share of eligible observations the current index can still offer by
+    /// their own surface. That is 100% unless the index is stale, so it is not recall.
+    pub fn index_coverage(&self) -> f32 {
         if self.eligible == 0 {
             0.0
         } else {
@@ -267,4 +269,80 @@ pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
     }
 
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::knowledge::KnowledgeGraph;
+    use crate::model;
+    use crate::test_support::{db_or_skip, fixtures};
+    use sea_orm::{ColumnTrait, EntityTrait, Set, sea_query::Expr};
+
+    /// A second observation on an existing entity, projected so the index carries its surface —
+    /// the state `replay` reads.
+    async fn attach(db: &DbHandle, entity: i32, name: &str) {
+        let user = fixtures::user(db, "eval_blocker").await;
+        let capture = fixtures::capture(db, user).await;
+        let illumination = fixtures::illumination(db, user, capture).await;
+        let observation = fixtures::entity(db, user, capture, illumination, 0, name).await;
+        model::user_observed_entity::Entity::update_many()
+            .col_expr(
+                model::user_observed_entity::Column::KnowledgeEntityId,
+                Expr::value(Some(entity)),
+            )
+            .filter(model::user_observed_entity::Column::Id.eq(observation))
+            .exec(&db.conn)
+            .await
+            .unwrap();
+        KnowledgeGraph::new(db)
+            .update_projection(entity)
+            .await
+            .unwrap();
+    }
+
+    /// One hit, one miss a post-hoc merge explains, one unexplained miss: the arithmetic the
+    /// "earlier members" figure is read from.
+    #[tokio::test]
+    async fn prior_recall_counts_merges_apart_from_unexplained_misses() {
+        db_or_skip!(db);
+
+        let bible = fixtures::knowledge_entity_with_member(&db, "Bible").await;
+        attach(&db, bible, "The Holy Bible").await;
+        let train = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
+        attach(&db, train, "Dreams Train").await;
+        let sonne = fixtures::knowledge_entity_with_member(&db, "In die Sonne schauen").await;
+        attach(&db, sonne, "Sound of Falling").await;
+
+        // A merge a person recorded after the fact: the second member arrived before the two
+        // entities were known to be one, so its miss is not a blocking failure.
+        model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
+            generation: Set(1),
+            cause: Set(model::knowledge_verdicts::Cause::Repair),
+            kind: Set(model::knowledge_verdicts::Kind::Merge),
+            winner_label: Set(Some("Bible".to_string())),
+            loser_label: Set(Some("The Holy Bible".to_string())),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap();
+
+        let report = replay(&db).await.unwrap();
+
+        assert_eq!(report.observations, 6);
+        assert_eq!(report.new_entity, 3);
+        assert_eq!(report.eligible, 3);
+        assert_eq!(
+            report.prior_hit, 1,
+            "only the word-order variant matches its earlier member"
+        );
+        assert_eq!(report.merged, 1);
+        assert_eq!(report.misses(), 2);
+        assert_eq!(report.attributable(), 2);
+        assert_eq!(report.attributable_recall(), 50.0);
+        assert_eq!(report.unexplained_misses(), 1);
+        assert_eq!(report.hit, 3, "the live index carries every member's own surface");
+    }
 }

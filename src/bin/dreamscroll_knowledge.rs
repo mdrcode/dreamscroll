@@ -354,6 +354,9 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
             println!("      {id:<12} {label:<34} {description}");
         }
         match &step.decision {
+            Some((qid, method)) if step.vetoed => {
+                println!("      ⊘ vetoed {qid} via {method} (standing verdict)")
+            }
             Some((qid, method)) => println!("      → claimed {qid} via {method}"),
             None => println!("      ✗ {}", step.refusal),
         }
@@ -377,13 +380,24 @@ async fn eval_resolve(db: &database::DbHandle, args: EvalResolveArgs) -> anyhow:
     let report = knowledge::eval::replay(db, args.limit).await?;
     if args.verbose {
         for claim in &report.claims {
-            println!("{:<12} {:<14} {}", claim.identity, claim.method, claim.name);
+            println!(
+                "{:<12} {:<14} {}{}",
+                claim.identity,
+                claim.method,
+                claim.name,
+                if claim.partial { "  (partial cache)" } else { "" }
+            );
         }
         println!();
     }
     println!(
-        "candidates {} · claimed {} · vetoed {} · undecided {} · not cached {}",
-        report.candidates, report.claimed, report.vetoed, report.undecided, report.uncached
+        "candidates {} · claimed {} (partial {}) · vetoed {} · undecided {} · not cached {}",
+        report.candidates,
+        report.claimed,
+        report.partial(),
+        report.vetoed,
+        report.undecided,
+        report.uncached
     );
     if !report.by_method.is_empty() {
         let methods: Vec<String> = report
@@ -472,10 +486,10 @@ async fn eval_blocker(db: &database::DbHandle) -> anyhow::Result<()> {
         report.observations, report.superseded, report.new_entity, report.eligible
     );
     println!(
-        "live-index recall {}/{} ({:.1}%) · starved {} · ambiguous {}",
+        "index coverage {}/{} ({:.1}%) (expected 100%) · starved {} · ambiguous {}",
         report.hit,
         report.eligible,
-        report.live_recall(),
+        report.index_coverage(),
         report.starved,
         report.ambiguous
     );

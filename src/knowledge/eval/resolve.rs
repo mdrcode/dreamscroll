@@ -4,6 +4,10 @@
 //! undecided. A harness that skips the fallback measures nothing — every claim the corpus earned
 //! came from it, and an earlier version of this evaluator reported zero because it walked only the
 //! first pass.
+//!
+//! Three ways a replay can lie: walking a ladder the driver does not walk; counting an uncached
+//! entity as undecided; and stepping over an uncached rung to a claim a later one would never have
+//! produced. The last is marked on the claim and counted by [`Report::partial`].
 
 use std::collections::BTreeMap;
 
@@ -44,6 +48,16 @@ pub struct Claimed {
     pub identity: String,
     /// The ladder step that produced it: `exact_label`, `search_ranked`, `search_hint`, …
     pub method: String,
+    /// At least one earlier rung had no fresh cached answer, so the real run would have asked it
+    /// first. The claim is conditional on that answer refusing.
+    pub partial: bool,
+}
+
+impl Report {
+    /// Claims reached only by stepping over a rung whose answer was not cached.
+    pub fn partial(&self) -> usize {
+        self.claims.iter().filter(|claim| claim.partial).count()
+    }
 }
 
 /// Replay every candidate's ladder against the cache.
@@ -66,6 +80,7 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
 
         let mut claimed = None;
         let mut uncached = false;
+        let mut stepped_over = false;
         let mut vetoed = false;
         for (rung, request) in plan::ladder(view) {
             let cached = db
@@ -85,6 +100,7 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
                 .await?;
             let Some(row) = cached else {
                 uncached = true;
+                stepped_over = true;
                 continue;
             };
             let outcome_text: String = row.try_get_by_index(0)?;
@@ -95,11 +111,13 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
             // whose payload no longer decodes, is a miss — never an empty answer.
             let Some(outcome) = Outcome::parse(&outcome_text) else {
                 uncached = true;
+                stepped_over = true;
                 continue;
             };
             let body: Option<Vec<Candidate>> = crate::fetch::cache::decode(stored.as_ref());
             if stored.is_some() && body.is_none() && outcome.answered() {
                 uncached = true;
+                stepped_over = true;
                 continue;
             }
             let raw: Answer<Vec<Candidate>> = Answer {
@@ -117,14 +135,14 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
                 if vetoes.contains(&(view.id, claim.scheme.clone(), claim.id.clone())) {
                     vetoed = true;
                 } else {
-                    claimed = Some((claim.id, claim.method));
+                    claimed = Some((claim.id, claim.method, stepped_over));
                 }
                 break;
             }
         }
 
         match claimed {
-            Some((identity, method)) => {
+            Some((identity, method, partial)) => {
                 report.claimed += 1;
                 *report.by_method.entry(method.clone()).or_default() += 1;
                 report.claims.push(Claimed {
@@ -132,6 +150,7 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
                     name: view.name.clone(),
                     identity,
                     method,
+                    partial,
                 });
             }
             None if vetoed => report.vetoed += 1,
@@ -140,4 +159,79 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
         }
     }
     Ok(report)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::fetch::cache::FetchCache;
+    use crate::knowledge::identity::wikidata::{Candidate, Kind, plan};
+    use crate::knowledge::KnowledgeGraph;
+    use crate::model;
+    use crate::test_support::{db_or_skip, fixtures};
+    use sea_orm::EntityTrait;
+
+    /// Cache the answer that would make the label rung claim `qid`, and nothing else — so the title
+    /// rung above it stays uncached and any claim found here is conditional on it.
+    async fn cache_label(db: &DbHandle, id: i32, qid: &str) {
+        let entity = model::knowledge_entity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        let request = plan::ladder(&entity)
+            .into_iter()
+            .map(|(_, request)| request)
+            .find(|request| request.kind == Kind::Label)
+            .expect("the ladder asks for a label");
+        FetchCache::new(&db.conn)
+            .put(
+                "wikidata",
+                &request.kind,
+                &request.shape,
+                &request.query,
+                &Answer {
+                    outcome: Outcome::Found,
+                    body: Some(vec![Candidate {
+                        id: qid.to_string(),
+                        label: Some(entity.name.clone()),
+                        description: None,
+                        classes: Vec::new(),
+                    }]),
+                },
+            )
+            .await
+            .unwrap();
+    }
+
+    /// The three ways an entity can leave the replay: refused by a standing veto, undecided because
+    /// its answers are not cached, and claimed by stepping over a rung that was not cached first.
+    #[tokio::test]
+    async fn replay_separates_vetoes_uncached_entities_and_partial_claims() {
+        db_or_skip!(db);
+
+        let vetoed = fixtures::knowledge_entity_with_member(&db, "Vetoed Thing").await;
+        let partial = fixtures::knowledge_entity_with_member(&db, "Partial Thing").await;
+        fixtures::knowledge_entity_with_member(&db, "Uncached Thing").await;
+
+        cache_label(&db, vetoed, "Q1").await;
+        cache_label(&db, partial, "Q2").await;
+        KnowledgeGraph::new(&db)
+            .veto(vetoed, "wikidata", "Q1", Some("test veto"))
+            .await
+            .unwrap();
+
+        let report = replay(&db, None).await.unwrap();
+
+        assert_eq!(report.candidates, 3);
+        assert_eq!(report.claimed, 1, "{report:?}");
+        assert_eq!(report.partial(), 1, "{report:?}");
+        assert_eq!(report.vetoed, 1, "{report:?}");
+        assert_eq!(report.uncached, 1, "{report:?}");
+        assert_eq!(report.undecided, 0, "{report:?}");
+        assert_eq!(report.claims[0].identity, "Q2");
+        assert_eq!(report.claims[0].method, "exact_label");
+        assert!(report.claims[0].partial);
+    }
 }

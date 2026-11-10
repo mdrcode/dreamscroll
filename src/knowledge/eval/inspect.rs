@@ -3,8 +3,10 @@
 //! Recall, then ranking, then the resolver's ladder — each step printed with what the cache held
 //! and what the decision was. Nothing here re-implements a stage: it calls the same blocker, the
 //! same `Rank` and the same `parse` the engine calls, and reads `fetch_cache` with the same
-//! expiry rule. That is the point: if the inspector and the run disagreed, the inspector would be
-//! lying.
+//! expiry rule, and it applies the same standing vetoes. That is the point: if the inspector and
+//! the run disagreed, the inspector would be lying.
+
+use std::collections::HashSet;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
 
@@ -55,6 +57,8 @@ pub struct Step {
     pub top: Vec<(String, String, String)>,
     /// `(qid, method)` when this rung produced a claim.
     pub decision: Option<(String, String)>,
+    /// The rung's claim is refused by a standing veto, so the engine would not write it.
+    pub vetoed: bool,
     /// Why it did not, when it did not — recorded by the resolver, not inferred here.
     pub refusal: &'static str,
 }
@@ -127,7 +131,8 @@ pub async fn inspect(db: &DbHandle, target: &str) -> anyhow::Result<Option<Repor
         None => Vec::new(),
     };
 
-    let steps = ladder(db, &entity).await?;
+    let vetoes = crate::knowledge::KnowledgeGraph::new(db).vetoed().await?;
+    let steps = ladder(db, &entity, &vetoes).await?;
     let claim = current_claim(db, entity.id).await?;
 
     Ok(Some(Report {
@@ -188,6 +193,7 @@ async fn index_keys(db: &DbHandle, id: i32) -> anyhow::Result<(Vec<String>, Vec<
 async fn ladder(
     db: &DbHandle,
     entity: &model::knowledge_entity::Model,
+    vetoes: &HashSet<(i32, String, String)>,
 ) -> anyhow::Result<Vec<Step>> {
     let mut steps = Vec::new();
     for (rung, request) in plan::ladder(entity) {
@@ -221,6 +227,7 @@ async fn ladder(
                 outcome: None,
                 top: Vec::new(),
                 decision: None,
+                vetoed: false,
                 refusal: "not asked",
             });
             continue;
@@ -249,6 +256,7 @@ async fn ladder(
         } else {
             ""
         };
+        let mut vetoed = false;
         let decision = match (fresh, outcome) {
             (true, Some(outcome)) if refusal.is_empty() => {
                 let raw = Answer { outcome, body };
@@ -265,7 +273,10 @@ async fn ladder(
                         .into_iter()
                         .next(),
                 };
-                claim.map(|claim| (claim.id, claim.method))
+                claim.map(|claim| {
+                    vetoed = vetoes.contains(&(entity.id, claim.scheme.clone(), claim.id.clone()));
+                    (claim.id, claim.method)
+                })
             }
             _ => None,
         };
@@ -281,6 +292,7 @@ async fn ladder(
             outcome,
             top,
             decision: decision.clone(),
+            vetoed,
             refusal,
         });
         if decision.is_some() {
@@ -312,7 +324,8 @@ async fn current_claim(db: &DbHandle, id: i32) -> anyhow::Result<Option<Claim>> 
             DatabaseBackend::Postgres,
             "SELECT i.external_id, i.label, i.asserted_by, i.method \
                FROM knowledge_claims c JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
-              WHERE c.knowledge_entity_id = $1 AND c.retracted_at IS NULL LIMIT 1",
+              WHERE c.knowledge_entity_id = $1 AND c.retracted_at IS NULL \
+                AND i.scheme = 'wikidata' LIMIT 1",
             [id.into()],
         ))
         .await?;
@@ -323,4 +336,73 @@ async fn current_claim(db: &DbHandle, id: i32) -> anyhow::Result<Option<Claim>> 
         asserted_by: row.try_get_by_index(2)?,
         method: row.try_get_by_index(3)?,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::fetch::cache::FetchCache;
+    use crate::fetch::{Answer, Outcome};
+    use crate::knowledge::identity::wikidata::{Candidate, Kind};
+    use crate::knowledge::KnowledgeGraph;
+    use crate::test_support::{db_or_skip, fixtures};
+    use sea_orm::EntityTrait;
+
+    /// A veto is the engine's refusal, so the inspector must report it as one: the rung did produce
+    /// a claim, and the graph would not write it.
+    #[tokio::test]
+    async fn a_standing_veto_is_not_reported_as_a_claim() {
+        db_or_skip!(db);
+
+        let id = fixtures::knowledge_entity_with_member(&db, "Inspected Thing").await;
+        let entity = model::knowledge_entity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        let request = plan::ladder(&entity)
+            .into_iter()
+            .map(|(_, request)| request)
+            .find(|request| request.kind == Kind::Label)
+            .expect("the ladder asks for a label");
+        FetchCache::new(&db.conn)
+            .put(
+                "wikidata",
+                &request.kind,
+                &request.shape,
+                &request.query,
+                &Answer {
+                    outcome: Outcome::Found,
+                    body: Some(vec![Candidate {
+                        id: "Q42".to_string(),
+                        label: Some(entity.name.clone()),
+                        description: None,
+                        classes: Vec::new(),
+                    }]),
+                },
+            )
+            .await
+            .unwrap();
+        KnowledgeGraph::new(&db)
+            .veto(id, "wikidata", "Q42", Some("test veto"))
+            .await
+            .unwrap();
+
+        let report = inspect(&db, &id.to_string())
+            .await
+            .unwrap()
+            .expect("entity");
+        let label = report
+            .steps
+            .iter()
+            .find(|step| step.kind == "label")
+            .expect("label rung");
+        assert_eq!(
+            label.decision,
+            Some(("Q42".to_string(), "exact_label".to_string()))
+        );
+        assert!(label.vetoed);
+        assert!(report.claim.is_none(), "the veto left no claim to hold");
+    }
 }
