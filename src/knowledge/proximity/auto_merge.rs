@@ -4,9 +4,10 @@ use std::cmp::Ordering;
 
 use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
 
-use crate::knowledge::graph::merge::{Cause, Outcome};
 use crate::knowledge::graph::KnowledgeGraph;
+use crate::knowledge::graph::merge::Outcome;
 use crate::knowledge::scoring::{Scoring, TotalCmp};
+use crate::knowledge::verdicts::Cause;
 
 /// What one merge did.
 #[derive(Debug, Default, PartialEq, Eq)]

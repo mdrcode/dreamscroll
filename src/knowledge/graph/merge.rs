@@ -12,7 +12,7 @@ use sea_orm::{
     QueryFilter, Statement, TransactionTrait,
 };
 
-use crate::knowledge::verdicts::VerdictStore;
+use crate::knowledge::verdicts::{Cause, VerdictStore};
 use crate::model::{
     knowledge_claims as claims, knowledge_entity as entity,
     user_observed_entity as observation,
@@ -38,9 +38,6 @@ pub struct Preview {
     /// Observations the two entities have in one illumination. Nonzero means the merge is refused.
     pub shared_illuminations: i64,
 }
-
-/// Why a merge happened lives with the column it fills; this re-export is how `merge` names it.
-pub use crate::model::knowledge_verdicts::Cause;
 
 /// How many illuminations both entities appear in.
 async fn shared_illuminations<C: ConnectionTrait>(

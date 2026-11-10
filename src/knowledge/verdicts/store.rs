@@ -6,9 +6,10 @@ use sea_orm::{
 
 use crate::database::DbHandle;
 use crate::knowledge::graph::current_generation;
-use crate::knowledge::graph::merge::Cause;
 use crate::model;
 use crate::model::knowledge_verdicts::Kind;
+
+use super::Cause;
 
 /// Every write to `knowledge_verdicts`, and the reads a decision needs.
 ///

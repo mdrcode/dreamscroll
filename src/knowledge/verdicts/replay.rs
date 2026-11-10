@@ -4,11 +4,12 @@ use std::collections::BTreeMap;
 
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
-use crate::knowledge::graph::merge::{Cause, Outcome};
+use crate::knowledge::graph::merge::Outcome;
 use crate::knowledge::graph::KnowledgeGraph;
 use crate::model;
 use crate::model::knowledge_verdicts::Kind;
 
+use super::Cause;
 use super::store::{VerdictStore, pair_key};
 
 /// What one replay did.

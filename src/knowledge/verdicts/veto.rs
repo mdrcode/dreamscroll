@@ -3,11 +3,11 @@
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
 use crate::knowledge::graph::current_generation;
-use crate::knowledge::graph::merge::Cause;
 use crate::knowledge::graph::KnowledgeGraph;
 use crate::model;
 use crate::model::knowledge_verdicts::Kind;
 
+use super::Cause;
 use super::store::VerdictStore;
 
 impl VerdictStore {

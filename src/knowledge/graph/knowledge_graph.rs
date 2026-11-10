@@ -19,7 +19,7 @@ use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
 use crate::knowledge::evidence::{ClaimDraft, DraftIdentity, Evidence, PlatformLink, Stored};
 use crate::knowledge::linker::Linker;
-use crate::knowledge::verdicts::{ReplayReport, VerdictStore};
+use crate::knowledge::verdicts::{Cause, ReplayReport, VerdictStore};
 use crate::model;
 
 
@@ -190,7 +190,7 @@ impl KnowledgeGraph {
         &self,
         loser: i32,
         winner: i32,
-        cause: super::merge::Cause,
+        cause: Cause,
     ) -> anyhow::Result<super::merge::Outcome> {
         super::merge::merge_into(&self.db.conn, self, loser, winner, cause).await
     }
@@ -293,7 +293,7 @@ mod tests {
         let winner = fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
         let loser = fixtures::knowledge_entity_with_member(&db, "Train").await;
         store
-            .merge(loser, winner, crate::knowledge::graph::merge::Cause::Repair)
+            .merge(loser, winner, Cause::Repair)
             .await
             .expect("the two entities are mergeable");
 

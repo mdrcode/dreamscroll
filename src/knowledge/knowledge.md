@@ -312,7 +312,8 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 
 The three write paths that carry their own logic and tests (`link.rs`, `project.rs`, `merge.rs`) are
 reached through `KnowledgeGraph`'s methods; `link` and `project` are private modules, and what
-escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Cause`, `Preview`. The batch
+escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Preview`, and the verdict
+`Cause`. The batch
 passes are the exception and are deliberately public functions taking what they act on —
 `proximity::scan(conn, scoring)`, `proximity::auto_merge(conn, graph, scoring)`, and
 `KnowledgeGraph::replay_verdicts()` are commands over the whole graph, not a write to one row. The

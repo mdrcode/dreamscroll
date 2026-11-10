@@ -253,7 +253,7 @@ mod tests {
         store.update_projection(loser).await.unwrap();
 
         store
-            .merge(loser, winner, crate::knowledge::graph::merge::Cause::Repair)
+            .merge(loser, winner, crate::knowledge::verdicts::Cause::Repair)
             .await
             .unwrap();
 
@@ -288,7 +288,7 @@ mod tests {
         store.update_projection(winner).await.unwrap();
         store.update_projection(loser).await.unwrap();
         store
-            .merge(loser, winner, crate::knowledge::graph::merge::Cause::Repair)
+            .merge(loser, winner, crate::knowledge::verdicts::Cause::Repair)
             .await
             .unwrap();
 
@@ -352,7 +352,7 @@ mod tests {
             .merge(
                 loser,
                 winner,
-                crate::knowledge::graph::merge::Cause::Repair,
+                crate::knowledge::verdicts::Cause::Repair,
             )
             .await
             .unwrap();
@@ -384,7 +384,7 @@ mod tests {
             .merge(
                 loser,
                 winner,
-                crate::knowledge::graph::merge::Cause::Repair,
+                crate::knowledge::verdicts::Cause::Repair,
             )
             .await
             .unwrap();

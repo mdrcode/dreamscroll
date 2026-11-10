@@ -406,7 +406,7 @@ mod tests {
             .merge(
                 loser,
                 winner,
-                crate::knowledge::graph::merge::Cause::Repair,
+                crate::knowledge::verdicts::Cause::Repair,
             )
             .await
             .unwrap();

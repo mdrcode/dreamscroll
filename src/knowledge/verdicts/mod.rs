@@ -23,15 +23,20 @@ pub use replay::ReplayReport;
 pub use store::VerdictStore;
 pub(crate) use store::pair_key;
 
+/// Why a decision was made — the column `knowledge_verdicts.cause` names. Re-exported here because
+/// this module owns that table's vocabulary; `merge` takes one, `replay` selects on it.
+pub use crate::model::knowledge_verdicts::Cause;
+
 #[cfg(test)]
 mod tests {
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
     use crate::knowledge::evidence::ClaimBasis;
-    use crate::knowledge::graph::merge::Cause;
     use crate::knowledge::graph::KnowledgeGraph;
     use crate::model;
     use crate::model::knowledge_verdicts::Kind;
+
+    use super::Cause;
 
     use crate::test_support::{db_or_skip, fixtures};
 

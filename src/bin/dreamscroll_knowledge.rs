@@ -633,7 +633,7 @@ async fn main() -> anyhow::Result<()> {
                 println!("dry run; pass --yes to apply");
                 return Ok(());
             }
-            let cause = knowledge::graph::merge::Cause::Repair;
+            let cause = knowledge::verdicts::Cause::Repair;
             match store.merge(args.loser, args.winner, cause).await? {
                 knowledge::graph::merge::Outcome::Merged => {
                     println!("merged; {} is now a tombstone", args.loser)
