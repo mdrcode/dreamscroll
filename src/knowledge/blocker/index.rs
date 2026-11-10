@@ -8,7 +8,11 @@
 //! See AGENTS.md §Derived Data for why the version is a behavioural fingerprint rather than a
 //! hand-bumped number, and `plan/knowledge-blocking.md` §Storage for why this is a table.
 
-use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, Statement};
+use sea_orm::sea_query::{Expr, ExprTrait, Query};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, PaginatorTrait, QueryFilter,
+    Statement,
+};
 
 use crate::database::DbHandle;
 use crate::knowledge::normalize;
@@ -98,12 +102,12 @@ pub(crate) async fn write<C: ConnectionTrait>(
 
 /// Drop an entity's row: it was tombstoned by a merge, or the generation was emptied.
 pub(crate) async fn forget<C: ConnectionTrait>(conn: &C, knowledge_entity_id: i32) -> anyhow::Result<()> {
-    conn.execute_raw(Statement::from_sql_and_values(
-        DatabaseBackend::Postgres,
-        "DELETE FROM knowledge_blocking_index WHERE knowledge_entity_id = $1",
-        [knowledge_entity_id.into()],
-    ))
-    .await?;
+    model::knowledge_blocking_index::Entity::delete_many()
+        .filter(
+            model::knowledge_blocking_index::Column::KnowledgeEntityId.eq(knowledge_entity_id),
+        )
+        .exec(conn)
+        .await?;
     Ok(())
 }
 
@@ -130,11 +134,8 @@ impl Report {
 ///
 /// A rebuild, not a migration: the table is emptied and refilled, and nothing else is touched.
 pub async fn rebuild(db: &DbHandle) -> anyhow::Result<usize> {
-    db.conn
-        .execute_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "DELETE FROM knowledge_blocking_index",
-        ))
+    model::knowledge_blocking_index::Entity::delete_many()
+        .exec(&db.conn)
         .await?;
     let entities = model::knowledge_entity::Entity::find()
         .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
@@ -148,40 +149,44 @@ pub async fn rebuild(db: &DbHandle) -> anyhow::Result<usize> {
 
 /// How many rows disagree with the current fold, and how many entities have no row.
 pub async fn check(db: &DbHandle) -> anyhow::Result<Report> {
-    let count = |sql: &'static str, values: Vec<sea_orm::Value>| {
-        let conn = &db.conn;
-        async move {
-            let row = conn
-                .query_one_raw(Statement::from_sql_and_values(
-                    DatabaseBackend::Postgres,
-                    sql,
-                    values,
-                ))
-                .await?;
-            anyhow::Ok(row.map(|row| row.try_get_by_index::<i64>(0)).transpose()?.unwrap_or(0))
-        }
-    };
+    use model::{knowledge_blocking_index as index, knowledge_entity as entity};
+
+    let indexed = index::Entity::find().count(&db.conn).await? as usize;
+    let stale = index::Entity::find()
+        .filter(index::Column::BuiltWith.ne(normalize::norm_fingerprint()))
+        .count(&db.conn)
+        .await? as usize;
+    // Live entities with no row: a writer was skipped, or a rebuild was interrupted.
+    let missing = entity::Entity::find()
+        .filter(entity::Column::MergedIntoId.is_null())
+        .filter(
+            Expr::col(entity::Column::Id).not_in_subquery(
+                Query::select()
+                    .column((index::Entity, index::Column::KnowledgeEntityId))
+                    .from(index::Entity)
+                    .to_owned(),
+            ),
+        )
+        .count(&db.conn)
+        .await? as usize;
+    // Rows whose entity is absent or tombstoned: retrieval material with nothing to retrieve.
+    let orphaned = index::Entity::find()
+        .filter(
+            Expr::col(index::Column::KnowledgeEntityId).not_in_subquery(
+                Query::select()
+                    .column((entity::Entity, entity::Column::Id))
+                    .from(entity::Entity)
+                    .and_where(entity::Column::MergedIntoId.is_null())
+                    .to_owned(),
+            ),
+        )
+        .count(&db.conn)
+        .await? as usize;
     Ok(Report {
-        indexed: count("SELECT count(*) FROM knowledge_blocking_index", vec![]).await? as usize,
-        stale: count(
-            "SELECT count(*) FROM knowledge_blocking_index WHERE built_with <> $1",
-            vec![normalize::norm_fingerprint().into()],
-        )
-        .await? as usize,
-        missing: count(
-            "SELECT count(*) FROM knowledge_entities e \
-                  LEFT JOIN knowledge_blocking_index i ON i.knowledge_entity_id = e.id \
-              WHERE e.merged_into_id IS NULL AND i.knowledge_entity_id IS NULL",
-            vec![],
-        )
-        .await? as usize,
-        orphaned: count(
-            "SELECT count(*) FROM knowledge_blocking_index i \
-                  LEFT JOIN knowledge_entities e ON e.id = i.knowledge_entity_id \
-              WHERE e.id IS NULL OR e.merged_into_id IS NOT NULL",
-            vec![],
-        )
-        .await? as usize,
+        indexed,
+        stale,
+        missing,
+        orphaned,
     })
 }
 

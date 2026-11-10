@@ -17,8 +17,8 @@
 use std::collections::HashSet;
 
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, QueryOrder, Set,
-    Statement,
+    ColumnTrait, ConnectionTrait, EntityTrait, JoinType, QueryFilter, QueryOrder, QuerySelect,
+    RelationTrait, Set,
 };
 
 use crate::model;
@@ -127,25 +127,19 @@ pub(super) async fn project<C: ConnectionTrait>(
     };
 
     // A claim is the edge; who answered for the identity, and how surely, is on the identity.
-    let claim_rows = conn
-        .query_all_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "SELECT c.basis, i.confidence \
-               FROM knowledge_claims c \
-               JOIN knowledge_identities i ON i.id = c.knowledge_identity_id \
-              WHERE c.knowledge_entity_id = $1 AND c.retracted_at IS NULL",
-            [knowledge_entity_id.into()],
-        ))
+    let claims: Vec<(ClaimBasis, Option<f32>)> = model::knowledge_claims::Entity::find()
+        .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(knowledge_entity_id))
+        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
+        .join(
+            JoinType::InnerJoin,
+            model::knowledge_claims::Relation::KnowledgeIdentity.def(),
+        )
+        .select_only()
+        .column(model::knowledge_claims::Column::Basis)
+        .column(model::knowledge_identity::Column::Confidence)
+        .into_tuple::<(ClaimBasis, Option<f32>)>()
+        .all(conn)
         .await?;
-    let claims: Vec<(ClaimBasis, Option<f32>)> = claim_rows
-        .iter()
-        .map(|row| {
-            Ok((
-                ClaimBasis::from_db(&row.try_get_by_index::<String>(0)?),
-                row.try_get_by_index::<Option<f32>>(1)?,
-            ))
-        })
-        .collect::<Result<Vec<_>, sea_orm::DbErr>>()?;
     // Status is one axis: how well substantiated the entity is. Whether it shares an identity with
     // another entity is a different question, answered by `knowledge_proximities` at pair
     // granularity — a third status value conflated the two and had to be re-projected on every scan.

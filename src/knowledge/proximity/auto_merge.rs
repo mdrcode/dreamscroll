@@ -2,12 +2,14 @@
 
 use std::cmp::Ordering;
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::sea_query::{NullOrdering, Order};
+use sea_orm::{DatabaseConnection, EntityTrait, QueryOrder, QuerySelect};
 
 use crate::knowledge::graph::KnowledgeGraph;
 use crate::knowledge::graph::merge::Outcome;
 use crate::knowledge::scoring::{Scoring, TotalCmp};
 use crate::knowledge::verdicts::Cause;
+use crate::model;
 
 /// What one merge did.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -75,15 +77,19 @@ pub async fn auto_merge(
 
 /// The batch, most likely first.
 async fn candidates(conn: &DatabaseConnection) -> anyhow::Result<Vec<(i32, i32)>> {
-    let rows = conn
-        .query_all_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT holder_id, counterpart_id \
-               FROM knowledge_proximities \
-              ORDER BY score DESC NULLS LAST, id",
-        ))
-        .await?;
-    rows.iter()
-        .map(|row| Ok((row.try_get_by_index(0)?, row.try_get_by_index(1)?)))
-        .collect()
+    Ok(model::knowledge_proximities::Entity::find()
+        .select_only()
+        .columns([
+            model::knowledge_proximities::Column::HolderId,
+            model::knowledge_proximities::Column::CounterpartId,
+        ])
+        .order_by_with_nulls(
+            model::knowledge_proximities::Column::Score,
+            Order::Desc,
+            NullOrdering::Last,
+        )
+        .order_by_asc(model::knowledge_proximities::Column::Id)
+        .into_tuple::<(i32, i32)>()
+        .all(conn)
+        .await?)
 }

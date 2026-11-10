@@ -2,10 +2,15 @@
 
 use std::collections::HashSet;
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, TransactionTrait};
+use sea_orm::sea_query::{Expr, ExprTrait};
+use sea_orm::{
+    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, JoinType, QueryFilter,
+    QueryOrder, QuerySelect, RelationTrait, Set, TransactionTrait,
+};
 
 use crate::knowledge::evidence::Evidence;
 use crate::knowledge::scoring::Scoring;
+use crate::model;
 
 use super::Basis;
 
@@ -29,7 +34,10 @@ pub async fn scan(conn: &DatabaseConnection, scoring: &Scoring) -> anyhow::Resul
             continue;
         };
         for other in holders.iter().skip(1) {
-            if !seen.insert((holder.id.min(other.id), holder.id.max(other.id))) {
+            if !seen.insert((
+                std::cmp::min(holder.id, other.id),
+                std::cmp::max(holder.id, other.id),
+            )) {
                 continue;
             }
             rows.push(Row {
@@ -59,7 +67,8 @@ struct Row {
 
 /// Empty the table and write one scan's batch, atomically.
 async fn replace<C: ConnectionTrait>(conn: &C, rows: Vec<Row>) -> anyhow::Result<usize> {
-    conn.execute_unprepared("DELETE FROM knowledge_proximities")
+    model::knowledge_proximities::Entity::delete_many()
+        .exec(conn)
         .await?;
     let mut raised = 0;
     // The batch was emptied first, so each write is a plain insert.
@@ -71,38 +80,42 @@ async fn replace<C: ConnectionTrait>(conn: &C, rows: Vec<Row>) -> anyhow::Result
 
 /// Record one candidate. The batch was emptied first, so this is a plain insert.
 async fn insert<C: ConnectionTrait>(conn: &C, row: &Row) -> anyhow::Result<usize> {
-    let result = conn
-        .execute_raw(Statement::from_sql_and_values(
-            DatabaseBackend::Postgres,
-            "INSERT INTO knowledge_proximities \
-               (holder_id, counterpart_id, knowledge_identity_id, basis, score) \
-             VALUES ($1, $2, $3, $4, $5)",
-            [
-                row.holder_id.into(),
-                row.counterpart_id.into(),
-                row.knowledge_identity_id.into(),
-                Basis::SharedId.as_str().to_string().into(),
-                row.score.into(),
-            ],
-        ))
-        .await?;
-    Ok(result.rows_affected() as usize)
+    model::knowledge_proximities::Entity::insert(model::knowledge_proximities::ActiveModel {
+        holder_id: Set(row.holder_id),
+        counterpart_id: Set(row.counterpart_id),
+        knowledge_identity_id: Set(row.knowledge_identity_id),
+        basis: Set(Basis::SharedId.as_str().to_string()),
+        score: Set(row.score),
+        ..Default::default()
+    })
+    .exec_without_returning(conn)
+    .await?;
+    Ok(1)
 }
 
 /// Identities held by two or more live entities: the only source of candidates today.
 async fn identities_with_several_holders(conn: &DatabaseConnection) -> anyhow::Result<Vec<i32>> {
-    let rows = conn
-        .query_all_raw(Statement::from_string(
-            DatabaseBackend::Postgres,
-            "SELECT c.knowledge_identity_id \
-               FROM knowledge_claims c \
-               JOIN knowledge_entities e ON e.id = c.knowledge_entity_id \
-              WHERE c.retracted_at IS NULL AND e.merged_into_id IS NULL \
-              GROUP BY 1 HAVING count(*) > 1 \
-              ORDER BY 1",
-        ))
+    let rows = model::knowledge_claims::Entity::find()
+        .select_only()
+        .column(model::knowledge_claims::Column::KnowledgeIdentityId)
+        .filter(model::knowledge_claims::Column::RetractedAt.is_null())
+        .join(
+            JoinType::InnerJoin,
+            model::knowledge_claims::Relation::KnowledgeEntity.def(),
+        )
+        .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
+        .group_by(model::knowledge_claims::Column::KnowledgeIdentityId)
+        .having(
+            Expr::col((
+                model::knowledge_claims::Entity,
+                model::knowledge_claims::Column::KnowledgeIdentityId,
+            ))
+            .count()
+            .gt(1),
+        )
+        .order_by_asc(model::knowledge_claims::Column::KnowledgeIdentityId)
+        .into_tuple::<i32>()
+        .all(conn)
         .await?;
-    rows.iter()
-        .map(|row| Ok(row.try_get_by_index(0)?))
-        .collect()
+    Ok(rows)
 }

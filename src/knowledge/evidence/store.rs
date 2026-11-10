@@ -185,18 +185,12 @@ impl Evidence {
         scheme: &str,
         external_id: &str,
     ) -> anyhow::Result<Option<i32>> {
-        let row = self
-            .conn
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "SELECT id FROM knowledge_identities WHERE scheme = $1 AND external_id = $2",
-                [scheme.into(), external_id.into()],
-            ))
+        let row = model::knowledge_identity::Entity::find()
+            .filter(model::knowledge_identity::Column::Scheme.eq(scheme))
+            .filter(model::knowledge_identity::Column::ExternalId.eq(external_id))
+            .one(&self.conn)
             .await?;
-        Ok(match row {
-            Some(row) => Some(row.try_get_by_index::<i32>(0)?),
-            None => None,
-        })
+        Ok(row.map(|row| row.id))
     }
 
     /// The identity this observation asserts, if it carries one and it has been imported.
