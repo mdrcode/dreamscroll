@@ -197,6 +197,7 @@ enum ProximityCommand {
     Scan(ProximityScanArgs),
     AutoMerge(ProximityAutoMergeArgs),
     List(ProximityListArgs),
+    Distinct(DistinctArgs),
 }
 
 #[derive(FromArgs)]
@@ -214,6 +215,18 @@ struct ProximityAutoMergeArgs {
 }
 
 #[derive(FromArgs)]
+#[argh(subcommand, name = "distinct")]
+#[argh(description = "record that two entities are deliberately separate")]
+struct DistinctArgs {
+    #[argh(positional, description = "first knowledge entity id")]
+    a: i32,
+    #[argh(positional, description = "second knowledge entity id")]
+    b: i32,
+    #[argh(option, description = "why; stored on the verdict")]
+    note: Option<String>,
+}
+
+#[derive(FromArgs)]
 #[argh(subcommand, name = "list")]
 #[argh(description = "show what is in the table, most likely first")]
 struct ProximityListArgs {
@@ -221,7 +234,7 @@ struct ProximityListArgs {
     limit: usize,
     #[argh(
         option,
-        description = "only this status: open, merge_pending, merged"
+        description = "only this status: open, merge_pending, merged, kept_apart"
     )]
     status: Option<String>,
     #[argh(switch, description = "only open pairs")]
@@ -777,15 +790,38 @@ async fn main() -> anyhow::Result<()> {
                             .await?;
                     if args.yes {
                         println!(
-                            "auto-merged {} · refused {} · moot {} · undecided {}",
-                            report.merged, report.refused, report.moot, report.undecided
+                            "auto-merged {} · refused {} · moot {} · kept apart {} · undecided {}",
+                            report.merged,
+                            report.refused,
+                            report.moot,
+                            report.kept_apart,
+                            report.undecided
                         );
                     } else {
                         println!(
-                            "would merge {} · refused {} · moot {} · undecided {} · dry run; pass --yes",
-                            report.merged, report.refused, report.moot, report.undecided
+                            "would merge {} · refused {} · moot {} · kept apart {} · undecided {} · dry run; pass --yes",
+                            report.merged,
+                            report.refused,
+                            report.moot,
+                            report.kept_apart,
+                            report.undecided
                         );
                     }
+                }
+                ProximityCommand::Distinct(args) => {
+                    let recorded = store
+                        .distinct(args.a, args.b, args.note.as_deref())
+                        .await?;
+                    println!(
+                        "{} · {} \u{21c4} {}",
+                        if recorded {
+                            "distinct recorded"
+                        } else {
+                            "distinct already recorded"
+                        },
+                        args.a,
+                        args.b
+                    );
                 }
                 ProximityCommand::List(args) => {
                     let filter = match (args.open, args.status.as_deref()) {
@@ -796,7 +832,7 @@ async fn main() -> anyhow::Result<()> {
                         (false, Some(value)) => Some(
                             stats::proximities::Status::parse(value).ok_or_else(|| {
                                 anyhow::anyhow!(
-                                    "unknown status {value:?}; expected open, merge_pending or merged"
+                                    "unknown status {value:?}; expected open, merge_pending, merged or kept_apart"
                                 )
                             })?,
                         ),
@@ -816,13 +852,11 @@ async fn main() -> anyhow::Result<()> {
                         for row in rows {
                             let score = row.score.map_or("-".to_string(), |s| format!("{s:.2}"));
                             let status = row.status.as_str();
-                            let why = match (row.status, row.cause) {
-                                (stats::proximities::Status::Merged, Some(cause)) => cause.as_str(),
+                            let why = match (row.status, row.why) {
+                                (stats::proximities::Status::Merged, Some(why)) => why.as_str(),
                                 (stats::proximities::Status::Merged, None) => "?",
-                                (stats::proximities::Status::MergePending, _) => {
-                                    knowledge::verdicts::Cause::Repair.as_str()
-                                }
-                                _ => "",
+                                (_, Some(why)) => why.as_str(),
+                                (_, None) => "",
                             };
                             println!(
                                 "{:>5}  {:<13}  {:<14}  {score:>5}  {:<16}  {:<15}  #{:<6} {}  \

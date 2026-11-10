@@ -135,3 +135,39 @@ async fn a_dry_run_reports_without_folding() {
         .unwrap();
     assert_eq!(tombstones, 0, "a dry run must not tombstone");
 }
+
+/// A distinct verdict keeps the pair out of the automatic pass.
+#[tokio::test]
+async fn a_distinct_pair_is_not_folded() {
+    db_or_skip!(db);
+    let store = KnowledgeGraph::new(&db);
+    let (first, second) = claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
+    scan(&db.conn, &Heuristic::scoring()).await.unwrap();
+    assert!(store
+        .distinct(first, second, Some("two different works"))
+        .await
+        .unwrap());
+
+    let report = auto_merge(&db.conn, &store, &Heuristic::scoring(), true)
+        .await
+        .expect("merge");
+
+    assert_eq!(report.merged, 0, "{report:?}");
+    assert_eq!(report.kept_apart, 1, "{report:?}");
+    let tombstones = model::knowledge_entity::Entity::find()
+        .filter(model::knowledge_entity::Column::MergedIntoId.is_not_null())
+        .count(&db.conn)
+        .await
+        .unwrap();
+    assert_eq!(tombstones, 0);
+}
+
+/// The log of a distinct verdict is a pair, not a survivor.
+#[tokio::test]
+async fn a_distinct_verdict_is_idempotent() {
+    db_or_skip!(db);
+    let store = KnowledgeGraph::new(&db);
+    let (first, second) = claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
+    assert!(store.distinct(first, second, None).await.unwrap());
+    assert!(!store.distinct(second, first, None).await.unwrap(), "direction-free");
+}

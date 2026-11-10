@@ -227,7 +227,8 @@ knowledge_claims       this entity is that thing — the edge, with `basis` (tex
 knowledge_proximities  two entities the graph considers close, with the score that a pass
                        computed — one scan's batch, replaced wholesale by the next
 knowledge_verdicts     a person's decision, and what decided it — the modification log: a
-                       `merge` (two origins) or a `veto` (an entity is not an identity)
+                       `merge` (two origins), a `veto_identity` (an entity is not an
+                       identity), or a `distinct` (two origins are deliberately separate)
 ```
 
 Only the first two are about the world. A proximity is a judgement about our own rows and a merge is a

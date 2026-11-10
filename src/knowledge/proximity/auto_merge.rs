@@ -1,14 +1,17 @@
 //! Auto-merge: fold the pairs that score as one thing on their own, leave the rest as questions.
 
 use std::cmp::Ordering;
+use std::collections::HashSet;
 
 use sea_orm::sea_query::{NullOrdering, Order};
-use sea_orm::{DatabaseConnection, EntityTrait, QueryOrder, QuerySelect};
+use sea_orm::{
+    ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+};
 
 use crate::knowledge::graph::KnowledgeGraph;
 use crate::knowledge::graph::merge::Outcome;
 use crate::knowledge::scoring::{Scoring, TotalCmp};
-use crate::knowledge::verdicts::Cause;
+use crate::knowledge::verdicts::{Cause, pair_key};
 use crate::model;
 
 /// What one merge did.
@@ -22,6 +25,8 @@ pub struct AutoMergeReport {
     pub refused: usize,
     /// Pairs whose sides had already been resolved by some other path.
     pub moot: usize,
+    /// Pairs a `distinct` verdict keeps apart.
+    pub kept_apart: usize,
     /// Pairs that share an identity and do not look like one thing.
     pub undecided: usize,
 }
@@ -37,6 +42,16 @@ pub async fn auto_merge(
     apply: bool,
 ) -> anyhow::Result<AutoMergeReport> {
     let mut report = AutoMergeReport::default();
+    let kept_apart: HashSet<(i32, i32)> = model::knowledge_verdicts::Entity::find()
+        .filter(
+            model::knowledge_verdicts::Column::Kind
+                .eq(model::knowledge_verdicts::Kind::Distinct.as_str()),
+        )
+        .all(conn)
+        .await?
+        .into_iter()
+        .filter_map(|verdict| Some(pair_key(verdict.winner_origin?, verdict.loser_origin?)))
+        .collect();
     for (a, b) in candidates(conn).await? {
         let (Ok(left), Ok(right)) = (graph.get(a).await, graph.get(b).await) else {
             // One side no longer names a row; the next scan will not raise the pair at all.
@@ -46,6 +61,10 @@ pub async fn auto_merge(
         // A tombstone on either side means some other path already answered this.
         if left.merged_into_id.is_some() || right.merged_into_id.is_some() {
             report.moot += 1;
+            continue;
+        }
+        if kept_apart.contains(&pair_key(left.id, right.id)) {
+            report.kept_apart += 1;
             continue;
         }
 

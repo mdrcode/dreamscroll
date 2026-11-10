@@ -5,11 +5,14 @@
 
 use std::collections::BTreeMap;
 
-use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, Statement};
+use sea_orm::{
+    ConnectionTrait, DatabaseBackend, EntityTrait, QueryOrder, Statement,
+};
 
 use crate::database;
 use crate::knowledge::verdicts::{Cause, pair_key};
 use crate::model;
+use crate::model::knowledge_verdicts::Kind;
 
 /// What the graph says about the pair right now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -19,6 +22,8 @@ pub enum Status {
     /// Both live, but a standing `repair` verdict says they should be folded and replay has not
     /// applied it yet.
     MergePending,
+    /// Both live, and a `distinct` verdict says they are deliberately separate.
+    KeptApart,
     /// Both live, no standing merge decision.
     Open,
 }
@@ -28,6 +33,7 @@ impl Status {
         match self {
             Self::Merged => "merged",
             Self::MergePending => "merge_pending",
+            Self::KeptApart => "kept_apart",
             Self::Open => "",
         }
     }
@@ -37,6 +43,7 @@ impl Status {
         match value {
             "merged" => Some(Self::Merged),
             "merge_pending" => Some(Self::MergePending),
+            "kept_apart" => Some(Self::KeptApart),
             "open" => Some(Self::Open),
             _ => None,
         }
@@ -46,7 +53,26 @@ impl Status {
         match self {
             Self::Merged => "merged",
             Self::MergePending => "merge_pending",
+            Self::KeptApart => "kept_apart",
             Self::Open => "open",
+        }
+    }
+}
+
+/// Why a pair is decided. `replayed` is an application event, not a why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Why {
+    Repair,
+    ProximityAuto,
+    Distinct,
+}
+
+impl Why {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Repair => "repair",
+            Self::ProximityAuto => "proximity_auto",
+            Self::Distinct => "distinct",
         }
     }
 }
@@ -68,9 +94,9 @@ pub struct ProximityRow {
     pub holder_origin: Option<i32>,
     pub counterpart_origin: Option<i32>,
     pub status: Status,
-    /// The standing decision, when there is one: `repair` (a person) or `proximity_auto` (the
-    /// auto pass). `replayed` is an application event and is deliberately not a cause here.
-    pub cause: Option<Cause>,
+    /// The standing decision, when there is one: `repair`, `proximity_auto` or `distinct`.
+    /// `replayed` is an application event and is deliberately not a why here.
+    pub why: Option<Why>,
 }
 
 impl ProximityRow {
@@ -80,9 +106,10 @@ impl ProximityRow {
             "status": match self.status {
                 Status::Merged => "merged",
                 Status::MergePending => "merge_pending",
+                Status::KeptApart => "kept_apart",
                 Status::Open => "open",
             },
-            "why": self.cause.map(|cause| cause.as_str()),
+            "why": self.why.map(|why| why.as_str()),
             "score": self.score,
             "type_note": self.type_note,
             "basis": self.basis,
@@ -135,28 +162,32 @@ pub async fn proximity_list(
         .await?;
 
     // A verdict names two origins; a candidate row names two entities. This is where the two meet.
-    // `repair` is standing and beats `proximity_auto`; `replayed` is an application event, not a
-    // cause, so it never enters the map.
-    let mut causes: BTreeMap<(i32, i32), Cause> = BTreeMap::new();
+    // The latest standing decision wins: a repair beats an auto fold, and a distinct verdict is a
+    // decision of its own. `replayed` is an application event, not a decision.
+    let mut decisions: BTreeMap<(i32, i32), Why> = BTreeMap::new();
     for verdict in model::knowledge_verdicts::Entity::find()
+        .order_by_asc(model::knowledge_verdicts::Column::Id)
         .all(&db.conn)
         .await?
     {
-        if verdict.kind != model::knowledge_verdicts::Kind::Merge {
-            continue;
-        }
-        let (Some(winner), Some(loser)) = (verdict.winner_origin, verdict.loser_origin) else {
+        let (Some(a), Some(b)) = (verdict.winner_origin, verdict.loser_origin) else {
             continue;
         };
-        let pair = pair_key(winner, loser);
-        match verdict.cause {
-            Cause::Repair => {
-                causes.insert(pair, Cause::Repair);
+        let pair = pair_key(a, b);
+        match verdict.kind {
+            Kind::Merge => match verdict.cause {
+                Cause::Repair => {
+                    decisions.insert(pair, Why::Repair);
+                }
+                Cause::ProximityAuto => {
+                    decisions.entry(pair).or_insert(Why::ProximityAuto);
+                }
+                Cause::Replayed => {}
+            },
+            Kind::Distinct => {
+                decisions.insert(pair, Why::Distinct);
             }
-            Cause::ProximityAuto => {
-                causes.entry(pair).or_insert(Cause::ProximityAuto);
-            }
-            Cause::Replayed => {}
+            Kind::VetoIdentity => {}
         }
     }
 
@@ -168,15 +199,17 @@ pub async fn proximity_list(
             let holder_merged: Option<i32> = row.try_get_by_index(11)?;
             let counterpart_merged: Option<i32> = row.try_get_by_index(12)?;
 
-            let cause = match (holder_origin, counterpart_origin) {
-                (Some(h), Some(c)) => causes.get(&pair_key(h, c)).copied(),
+            let why = match (holder_origin, counterpart_origin) {
+                (Some(h), Some(c)) => decisions.get(&pair_key(h, c)).copied(),
                 _ => None,
             };
             let merged = holder_merged.is_some() || counterpart_merged.is_some();
-            let (status, cause) = if merged {
-                (Status::Merged, cause)
-            } else if cause == Some(Cause::Repair) {
-                (Status::MergePending, Some(Cause::Repair))
+            let (status, why) = if merged {
+                (Status::Merged, why)
+            } else if why == Some(Why::Distinct) {
+                (Status::KeptApart, why)
+            } else if why == Some(Why::Repair) {
+                (Status::MergePending, why)
             } else {
                 // An old `proximity_auto` verdict on two live entities is history: the auto pass
                 // re-derives every generation, so it is not a standing decision.
@@ -196,7 +229,7 @@ pub async fn proximity_list(
                 holder_origin,
                 counterpart_origin,
                 status,
-                cause,
+                why,
             })
         })
         .collect::<anyhow::Result<Vec<_>>>()?;
@@ -242,6 +275,20 @@ mod tests {
         .unwrap();
     }
 
+    async fn add_distinct(db: &database::DbHandle, a: i32, b: i32) {
+        model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
+            generation: Set(1),
+            cause: Set(Cause::Repair),
+            kind: Set(model::knowledge_verdicts::Kind::Distinct),
+            winner_origin: Set(Some(a)),
+            loser_origin: Set(Some(b)),
+            ..Default::default()
+        })
+        .exec(&db.conn)
+        .await
+        .unwrap();
+    }
+
     async fn tombstone(db: &database::DbHandle, loser: i32, winner: i32) {
         model::knowledge_entity::Entity::update_many()
             .col_expr(
@@ -254,8 +301,9 @@ mod tests {
             .unwrap();
     }
 
-    /// `status` is the graph fact, `cause` the standing decision: a repair with both sides live is
-    /// pending, an auto verdict on two live sides is history, and only an applied fold is merged.
+    /// `status` is the graph fact, `why` the standing decision: a repair with both sides live is
+    /// pending, a distinct verdict keeps them apart, an auto verdict on two live sides is history,
+    /// and only an applied fold is merged.
     #[tokio::test]
     async fn status_separates_the_decision_from_its_application() {
         db_or_skip!(db);
@@ -294,21 +342,36 @@ mod tests {
         )
         .await;
 
+        let distinct_loser = fixtures::knowledge_entity_with_member(&db, "Distinct Loser").await;
+        let distinct_winner = fixtures::knowledge_entity_with_member(&db, "Distinct Winner").await;
+        let distinct_row = add_proximity(&db, distinct_loser, distinct_winner).await;
+        add_distinct(
+            &db,
+            fixtures::origin(&db, distinct_winner).await,
+            fixtures::origin(&db, distinct_loser).await,
+        )
+        .await;
+
         let rows = proximity_list(&db, 50, None).await.unwrap();
         let row = |id: i32| rows.iter().find(|row| row.id == id).expect("row");
 
         assert_eq!(row(pending_row).status, Status::MergePending);
-        assert_eq!(row(pending_row).cause, Some(Cause::Repair));
+        assert_eq!(row(pending_row).why, Some(Why::Repair));
         assert_eq!(row(pending_row).to_json()["status"], "merge_pending");
         assert_eq!(row(pending_row).to_json()["why"], "repair");
         assert!(row(pending_row).to_json()["holder_origin"].is_number());
 
         assert_eq!(row(auto_row).status, Status::Merged);
-        assert_eq!(row(auto_row).cause, Some(Cause::ProximityAuto));
+        assert_eq!(row(auto_row).why, Some(Why::ProximityAuto));
         assert_eq!(row(auto_row).to_json()["why"], "proximity_auto");
 
+        assert_eq!(row(distinct_row).status, Status::KeptApart);
+        assert_eq!(row(distinct_row).why, Some(Why::Distinct));
+        assert_eq!(row(distinct_row).to_json()["status"], "kept_apart");
+        assert_eq!(row(distinct_row).to_json()["why"], "distinct");
+
         assert_eq!(row(old_row).status, Status::Open);
-        assert_eq!(row(old_row).cause, None);
+        assert_eq!(row(old_row).why, None);
         assert_eq!(row(old_row).to_json()["status"], "open");
         assert!(row(old_row).to_json()["why"].is_null());
     }

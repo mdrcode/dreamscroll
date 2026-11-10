@@ -11,6 +11,10 @@ pub enum Kind {
     /// An entity is not an identity. The item stays valid and claimable by everything else.
     #[sea_orm(string_value = "veto_identity")]
     VetoIdentity,
+    /// Two entities are deliberately separate. Consultative: it suppresses an automatic fold and
+    /// has no effect on the graph by itself.
+    #[sea_orm(string_value = "distinct")]
+    Distinct,
 }
 
 impl Kind {
@@ -18,6 +22,7 @@ impl Kind {
         match self {
             Self::Merge => "merge",
             Self::VetoIdentity => "veto_identity",
+            Self::Distinct => "distinct",
         }
     }
 }
@@ -90,13 +95,15 @@ pub struct Model {
     #[sea_orm(default_value = "repair")]
     pub cause: Cause,
 
-    /// `merge` (two origins fold) or `veto_identity` (an entity never holds one identity).
+    /// `merge` (two origins fold), `veto_identity` (an entity never holds one identity), or
+    /// `distinct` (two origins are deliberately separate).
     #[sea_orm(default_value = "merge")]
     pub kind: Kind,
 
-    /// `origin_observation_id` of the side that survives. `merge` only.
+    /// `origin_observation_id` of the side that survives. `merge` only; with `distinct`, the two
+    /// origin columns are simply the pair.
     pub winner_origin: Option<i32>,
-    /// `origin_observation_id` of the side folded away. `merge` only.
+    /// `origin_observation_id` of the side folded away. `merge` only; with `distinct`, the pair.
     pub loser_origin: Option<i32>,
 
     /// The entity a `veto_identity` is about, by `origin_observation_id`.

@@ -146,6 +146,19 @@ impl KnowledgeGraph {
         self.verdicts.unveto(verdict_id).await
     }
 
+    /// Record that two entities are deliberately separate. Consultative: no graph mutation.
+    pub async fn distinct(
+        &self,
+        entity_a: i32,
+        entity_b: i32,
+        note: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        let generation = current_generation(&self.db.conn).await?;
+        self.verdicts
+            .distinct(generation, entity_a, entity_b, note)
+            .await
+    }
+
     /// The `(entity, scheme, external_id)` pairings a live veto forbids, for admission.
     pub(crate) async fn vetoed(&self) -> anyhow::Result<HashSet<(i32, String, String)>> {
         self.verdicts.vetoed().await

@@ -93,6 +93,82 @@ impl VerdictStore {
             .all(&self.conn)
             .await?)
     }
+
+    /// Record that two entities are deliberately separate. Standing like a veto: matched by the
+    /// pair's origins, independent of generation; it has no effect on the graph by itself.
+    pub(crate) async fn distinct(
+        &self,
+        generation: i32,
+        entity_a: i32,
+        entity_b: i32,
+        note: Option<&str>,
+    ) -> anyhow::Result<bool> {
+        anyhow::ensure!(entity_a != entity_b, "an entity cannot be distinct from itself");
+        let rows = model::knowledge_entity::Entity::find()
+            .filter(model::knowledge_entity::Column::Id.is_in([entity_a, entity_b]))
+            .all(&self.conn)
+            .await?;
+        for id in [entity_a, entity_b] {
+            let Some(row) = rows.iter().find(|row| row.id == id) else {
+                anyhow::bail!("no knowledge entity {id}");
+            };
+            anyhow::ensure!(
+                row.merged_into_id.is_none(),
+                "knowledge entity {id} is a tombstone"
+            );
+        }
+        let a = rows.iter().find(|row| row.id == entity_a).unwrap();
+        let b = rows.iter().find(|row| row.id == entity_b).unwrap();
+        let (Some(origin_a), Some(origin_b)) = (a.origin_observation_id, b.origin_observation_id)
+        else {
+            anyhow::bail!("an entity without an origin observation cannot be named by a verdict");
+        };
+        let pair = pair_key(origin_a, origin_b);
+
+        let existing = model::knowledge_verdicts::Entity::find()
+            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Distinct.as_str()))
+            .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
+            .all(&self.conn)
+            .await?;
+        if existing.iter().any(|verdict| {
+            matches!(
+                (verdict.winner_origin, verdict.loser_origin),
+                (Some(a), Some(b)) if pair_key(a, b) == pair
+            )
+        }) {
+            return Ok(false);
+        }
+        // A pair that is already queued for a person's fold must not also be marked apart.
+        let pending_merge = model::knowledge_verdicts::Entity::find()
+            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Merge.as_str()))
+            .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
+            .all(&self.conn)
+            .await?;
+        anyhow::ensure!(
+            !pending_merge.iter().any(|verdict| {
+                matches!(
+                    (verdict.winner_origin, verdict.loser_origin),
+                    (Some(a), Some(b)) if pair_key(a, b) == pair
+                )
+            }),
+            "the pair already has a standing merge verdict"
+        );
+
+        model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
+            generation: Set(generation),
+            cause: Set(Cause::Repair),
+            kind: Set(Kind::Distinct),
+            winner_origin: Set(Some(origin_a)),
+            loser_origin: Set(Some(origin_b)),
+            winner_label: Set(Some(a.name.clone())),
+            loser_label: Set(Some(b.name.clone())),
+            note: Set(note.map(str::to_string)),
+            ..Default::default()
+        })
+        .exec(&self.conn)
+        .await?;
+        Ok(true)
+    }
 }
 
 /// The unordered pair two origins name, as a key.
