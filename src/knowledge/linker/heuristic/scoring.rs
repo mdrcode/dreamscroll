@@ -50,7 +50,10 @@ pub struct Heuristic;
 
 impl Heuristic {
     /// This policy in the shape a store holds: the three questions, boxed.
-    pub(crate) fn scoring() -> Scoring {
+    ///
+    /// Public because a caller that runs a batch pass passes the policy to it directly, rather than
+    /// reading it back off the store.
+    pub fn scoring() -> Scoring {
         Scoring::new(std::sync::Arc::new(Self))
     }
 }

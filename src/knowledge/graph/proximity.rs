@@ -16,7 +16,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, DatabaseConnection, Statement, T
 
 use crate::knowledge::evidence::Evidence;
 use super::merge::{Cause, Outcome};
-use crate::knowledge::scoring::TotalCmp;
+use crate::knowledge::scoring::{Scoring, TotalCmp};
 use super::KnowledgeGraph;
 
 /// Why a proximity was raised.
@@ -55,8 +55,11 @@ pub struct MergeReport {
 /// Derive the candidate set and replace the table with it. Returns how many rows the batch holds.
 ///
 /// `conn` must be the store's own connection: the replacement is committed on it, and the holders are
-/// read through it.
-pub async fn scan(conn: &DatabaseConnection, graph: &KnowledgeGraph) -> anyhow::Result<usize> {
+/// read through it. `scoring` is the store's policy, passed in rather than read from the facade.
+pub async fn scan(
+    conn: &DatabaseConnection,
+    scoring: &Scoring,
+) -> anyhow::Result<usize> {
     let evidence = Evidence::new(conn.clone());
     let identities = identities_with_several_holders(conn).await?;
 
@@ -79,7 +82,7 @@ pub async fn scan(conn: &DatabaseConnection, graph: &KnowledgeGraph) -> anyhow::
                 holder_id: holder.id,
                 counterpart_id: other.id,
                 knowledge_identity_id: Some(identity_id),
-                score: Some(graph.scoring.pair.score(other, holder)),
+                score: Some(scoring.pair.score(other, holder)),
             });
         }
     }
@@ -94,8 +97,13 @@ pub async fn scan(conn: &DatabaseConnection, graph: &KnowledgeGraph) -> anyhow::
 
 /// Fold the candidates that look like one thing, and leave the rest as questions.
 ///
-/// `conn` must be the store's own connection: the batch is read through it.
-pub async fn merge(conn: &DatabaseConnection, graph: &KnowledgeGraph) -> anyhow::Result<MergeReport> {
+/// `conn` must be the store's own connection: the batch is read through it. `scoring` is the store's
+/// policy, passed in rather than read from the facade.
+pub async fn merge(
+    conn: &DatabaseConnection,
+    graph: &KnowledgeGraph,
+    scoring: &Scoring,
+) -> anyhow::Result<MergeReport> {
     let mut report = MergeReport::default();
     for (a, b) in candidates(conn).await? {
         let (Ok(left), Ok(right)) = (graph.get(a).await, graph.get(b).await) else {
@@ -110,7 +118,6 @@ pub async fn merge(conn: &DatabaseConnection, graph: &KnowledgeGraph) -> anyhow:
         }
 
         // The more substantiated side survives; ties go to the lower id.
-        let scoring = &graph.scoring;
         let (winner, loser) = if right.confidence.total_cmp(&left.confidence) == Ordering::Greater {
             (right, left)
         } else {
@@ -234,7 +241,7 @@ mod tests {
         let store = KnowledgeGraph::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
 
-        let raised = scan(&db.conn, &store).await.expect("scan");
+        let raised = scan(&db.conn, &store.scoring).await.expect("scan");
 
         assert_eq!(raised, 1);
         let row = model::knowledge_proximities::Entity::find()
@@ -251,7 +258,7 @@ mod tests {
         );
 
         // The batch is replaced, not appended: a second scan leaves exactly one row.
-        assert_eq!(scan(&db.conn, &store).await.unwrap(), 1);
+        assert_eq!(scan(&db.conn, &store.scoring).await.unwrap(), 1);
         assert_eq!(candidates(&db.conn).await.unwrap().len(), 1);
     }
 
@@ -277,7 +284,7 @@ mod tests {
             .await;
         }
 
-        assert_eq!(scan(&db.conn, &store).await.expect("scan"), 1, "one pair, one question");
+        assert_eq!(scan(&db.conn, &store.scoring).await.expect("scan"), 1, "one pair, one question");
         assert_eq!(
             model::knowledge_proximities::Entity::find()
                 .count(&db.conn)
@@ -293,9 +300,9 @@ mod tests {
         db_or_skip!(db);
         let store = KnowledgeGraph::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
-        scan(&db.conn, &store).await.unwrap();
+        scan(&db.conn, &store.scoring).await.unwrap();
 
-        let report = merge(&db.conn, &store).await.expect("merge");
+        let report = merge(&db.conn, &store, &store.scoring).await.expect("merge");
 
         assert_eq!(report.merged, 1, "{report:?}");
         assert_eq!(
@@ -321,8 +328,8 @@ mod tests {
         let store = KnowledgeGraph::new(&db);
         claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
-        scan(&db.conn, &store).await.unwrap();
-        let report = merge(&db.conn, &store).await.expect("merge");
+        scan(&db.conn, &store.scoring).await.unwrap();
+        let report = merge(&db.conn, &store, &store.scoring).await.expect("merge");
 
         assert_eq!(report.merged, 0, "{report:?}");
         assert_eq!(report.undecided, 1, "{report:?}");

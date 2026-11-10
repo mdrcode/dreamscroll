@@ -691,15 +691,17 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Proximity(args) => {
             let store = knowledge::KnowledgeGraph::new(&db);
+            let scoring = knowledge::linker::heuristic::Heuristic::scoring();
             match args.command {
                 ProximityCommand::Scan(_) => {
                     println!(
                         "raised {} proximities",
-                        knowledge::graph::proximity::scan(&db.conn, &store).await?
+                        knowledge::graph::proximity::scan(&db.conn, &scoring).await?
                     );
                 }
                 ProximityCommand::Merge(_) => {
-                    let report = knowledge::graph::proximity::merge(&db.conn, &store).await?;
+                    let report =
+                        knowledge::graph::proximity::merge(&db.conn, &store, &scoring).await?;
                     println!(
                         "auto-merged {} · refused {} · moot {} · undecided {}",
                         report.merged, report.refused, report.moot, report.undecided

@@ -10,9 +10,10 @@
 //! - [`verdicts`] — a person's decisions, kept across rebuilds.
 //!
 //! Single writes are methods; the batch passes are public functions, because they are commands over
-//! the whole graph rather than a write to one row. A pass that touches the pool takes it as an
-//! argument alongside the facade ([`proximity::scan`], [`proximity::merge`]); the facade does not hand
-//! its connection out.
+//! the whole graph rather than a write to one row. A pass takes what it acts on as arguments — the
+//! connection, and the [`Scoring`](crate::knowledge::scoring::Scoring) it measures with — rather than
+//! reading them off a facade. [`proximity::scan`] needs only those two; [`proximity::merge`] also
+//! takes the store, because it reads and folds its entities.
 
 mod link;
 pub mod merge;
