@@ -23,7 +23,7 @@ This doc owns the production release path for everything that runs on Cloud Run:
 Out of scope, deliberately: application behavior, Cloud Tasks queue settings
 (`gcloud/cloud_task_queue.md`), CI/trigger automation (researched and not
 pursued — `plan/archive/cloud_build_release_deployment.md`), and the semantics
-of schema sync itself (`plan/schema-migration-strategy.md`).
+of schema sync itself (`plan/archive/schema-migration-strategy.md`).
 
 ## Decision
 
@@ -51,7 +51,7 @@ manifests structurally.
 | Approach | Verdict |
 | --- | --- |
 | Cloud Run Job | **Chosen.** Same image, no inbound traffic, execution history, task timeout and retries, logs in Cloud Logging, manual or CI trigger. Google's own execution matrix lists `create/update --execute-now` for "CI/CD deployments, schema migrations". |
-| DDL on service startup | Rejected in `plan/schema-migration-strategy.md`: every cold start would be a schema writer. |
+| DDL on service startup | Rejected in `plan/archive/schema-migration-strategy.md`: every cold start would be a schema writer. |
 | Cloud Build step running the binary | Needs Cloud SQL wiring inside ephemeral builders, cannot be re-run from the console, and pays build minutes per run. |
 | Local `cloud-sql-proxy` + `cargo run` | Acceptable for a one-off dry run only; not a repeatable release mechanism. |
 
@@ -73,7 +73,7 @@ manifests structurally.
 | Service shape | 30 env vars, 3 secret refs, 1 vCPU / 512 MiB, concurrency 80, port 8080, `timeoutSeconds 300`, startup probe `tcpSocket 8080` with `periodSeconds 240` |
 | Max instances | 4, declared by both `run.googleapis.com/maxScale` (service) and `autoscaling.knative.dev/maxScale` (template). Deliberate cost ceiling set 2026-10-27 through the manifest (was 20). |
 | Public access | annotation `run.googleapis.com/invoker-iam-disabled: 'true'` (no `allUsers` binding) |
-| Schema marker | `dreamscroll_schema_version`, `REQUIRED_SCHEMA_VERSION = 8` in the current binary |
+| Schema marker | `dreamscroll_schema_version`; current binary requires `32`; production re-synced 2026-11-10 |
 
 Because the instance has a public IP and the binary connects over the
 `/cloudsql/...` socket, the job needs only `--set-cloudsql-instances`; no VPC
@@ -126,6 +126,10 @@ The cutover is done: the checked-in manifests, not the console, are the source o
 truth, and `prod-apply.sh` is the only writer. The Cloud Run console is read-only
 for configuration. Schema sync runs as the job, never at service startup. The one
 remaining manual surface is Cloud Tasks queue settings (see below).
+
+**2026-11-10:** the `dreamscroll-db-sync` job was deployed and executed against
+production; `sync_schema` completed and the illuminate backfill was pumped
+without incident. No rollback was needed.
 
 ## Configuration as code
 

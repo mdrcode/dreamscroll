@@ -43,7 +43,6 @@ rather than rewriting it; history is the point.
 | [screenshot_3rd_party.md](screenshot_3rd_party.md) | Research | Screenshot provider comparison and selection criteria (Urlbox, ScreenshotOne). |
 | [api_token_hardening.md](api_token_hardening.md) | Proposed | `iss`/`aud` claims, fallible config validation, and token-lifetime policy. |
 | [media-serving.md](media-serving.md) | Partly implemented | Immutable-object cache policy shipped; private URL delivery waits on load-balancer/CDN work. |
-| [schema-migration-strategy.md](schema-migration-strategy.md) | Partly implemented | Explicit `dreamscroll_db sync_schema` shipped; sync semantics and version marker. |
 | [prod-deploy.md](prod-deploy.md) | Implemented; drift-clean — approved | Whole production release path: build/push, checked-in Cloud Run manifests, `prod-apply.sh` drift/apply/lint, `dreamscroll-db-sync` schema job, rollback. Service drift is clean; manifests and job verified in production. |
 | [topology_and_throughput.md](topology_and_throughput.md) | Reference | Cloud Run / Cloud SQL connection and concurrency budgets. |
 | [vertex-throughput.md](vertex-throughput.md) | Research — active | Vertex Gemini tail latency: evidence, hypotheses, experiments, mitigations. |
@@ -70,6 +69,7 @@ rather than rewriting it; history is the point.
 | [feed-route-rename.md](archive/feed-route-rename.md) | Feed fragment route renamed `/cards` → `/feed`; what moved and what deliberately did not. |
 | [webui-capture-route.md](archive/webui-capture-route.md) | Capture page routes moved from `/detail` to `/capture`; upload field renamed with them. |
 | [backfill.md](archive/backfill.md) | Typed backfill mechanism: bounded pumping, TaskRun correlation, dry-pump latch, status reporting. Implemented; no open questions. |
+| [schema-migration-strategy.md](archive/schema-migration-strategy.md) | Explicit `sync_schema` design: model registry, marker, manual indexes; implemented and exercised in production. |
 | [static-serving-cdn.md](archive/static-serving-cdn.md) | Decision: browser caching first, no ALB/CDN while the static bundle is small; implemented. |
 | [cloud_build_release_deployment.md](archive/cloud_build_release_deployment.md) | Cloud Build tagged-release research: trigger flow, build identity, pricing, caching. Not pursued; local release tooling instead. |
 | [knowledge-blocking.md](archive/knowledge-blocking.md) | Blocking research: channels/fusion/budgets not started; one SQL surface channel shipped. Rebuild guide moved to `src/knowledge/knowledge.md`. |
