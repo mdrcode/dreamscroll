@@ -14,7 +14,7 @@ use sea_orm::{
 };
 
 use super::claim::{ClaimDraft, Stored};
-use super::identity::{DraftIdentity, PlatformLink};
+use super::identity::{DraftIdentity, IdentityKey};
 use crate::knowledge::scoring::TotalCmp;
 use crate::model;
 
@@ -96,8 +96,8 @@ impl Evidence {
     ///
     /// A capture may create an identity, never enrich one: it knows a handle exists, not what the
     /// thing is. Idempotent, so a re-link is free.
-    pub async fn identity_for_link(&self, link: &PlatformLink) -> anyhow::Result<i32> {
-        self.create_identity(&DraftIdentity::from_capture(link))
+    pub async fn identity_for_link(&self, key: &IdentityKey) -> anyhow::Result<i32> {
+        self.create_identity(&DraftIdentity::from_capture(key))
             .await
     }
 
@@ -204,8 +204,8 @@ impl Evidence {
         &self,
         observation: &model::user_observed_entity::Model,
     ) -> anyhow::Result<Option<i32>> {
-        match PlatformLink::of(observation) {
-            Some(claim) => self.identity_id(&claim.scheme, &claim.external_id).await,
+        match IdentityKey::from_capture(observation) {
+            Some(key) => self.identity_id(&key.scheme, &key.external_id).await,
             None => Ok(None),
         }
     }
@@ -415,10 +415,9 @@ mod tests {
             .await
             .unwrap()
             .unwrap();
-        let link = PlatformLink::of(&observation).expect("a handle");
-        let key = link.key();
+        let key = IdentityKey::from_capture(&observation).expect("a handle");
         let identity = evidence
-            .identity_for_link(&link)
+            .identity_for_link(&key)
             .await
             .expect("the capture asserted a handle");
 
@@ -493,7 +492,7 @@ mod tests {
             .unwrap()
             .unwrap();
         evidence
-            .identity_for_link(&PlatformLink::of(&observation).expect("a handle"))
+            .identity_for_link(&IdentityKey::from_capture(&observation).expect("a handle"))
             .await
             .unwrap();
 

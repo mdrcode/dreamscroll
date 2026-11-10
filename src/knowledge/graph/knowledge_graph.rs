@@ -17,7 +17,7 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, EntityTrait, QueryOrder, Set, St
 
 use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
-use crate::knowledge::evidence::{ClaimDraft, DraftIdentity, Evidence, PlatformLink, Stored};
+use crate::knowledge::evidence::{ClaimDraft, DraftIdentity, Evidence, IdentityKey, Stored};
 use crate::knowledge::linker::Linker;
 use super::replay::ReplayReport;
 use crate::knowledge::verdicts::{Cause, VerdictStore};
@@ -85,8 +85,8 @@ impl KnowledgeGraph {
     ///
     /// A capture may create an identity, never enrich one: it knows a handle exists, not what the
     /// thing is. Idempotent, so a re-link is free.
-    pub async fn identity_for_link(&self, link: &PlatformLink) -> anyhow::Result<i32> {
-        self.evidence.identity_for_link(link).await
+    pub async fn identity_for_link(&self, key: &IdentityKey) -> anyhow::Result<i32> {
+        self.evidence.identity_for_link(key).await
     }
 
     /// Record an authority's answer for an identity, filling gaps in an existing row.

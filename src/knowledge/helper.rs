@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 
-use crate::knowledge::evidence::{ClaimDraft, PlatformLink, Stored};
+use crate::knowledge::evidence::{ClaimDraft, IdentityKey, Stored};
 use crate::knowledge::graph::{KnowledgeGraph, LinkReport};
 use crate::model;
 
@@ -50,9 +50,8 @@ async fn assert_claims(
         let Some(entity) = linked.get(&observation.id).copied() else {
             continue;
         };
-        if let Some(link) = PlatformLink::of(observation) {
-            let key = link.key();
-            let identity = graph.identity_for_link(&link).await?;
+        if let Some(key) = IdentityKey::from_capture(observation) {
+            let identity = graph.identity_for_link(&key).await?;
             if graph
                 .assert(
                     ClaimDraft::capture(entity, observation, &key, identity),

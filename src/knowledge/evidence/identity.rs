@@ -15,37 +15,15 @@ pub struct IdentityKey {
     pub external_id: String,
 }
 
-/// A platform link, as the capture showed it. `link` transcribes it; nothing infers anything here.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlatformLink {
-    /// The platform, canonicalised by the illumination lib: `x_twitter`, `reddit`, …
-    pub scheme: String,
-    /// The identifier in its comparable form, so two spellings agree.
-    pub external_id: String,
-}
-
-impl PlatformLink {
-    /// The claim an observation carries, if it carries one. Permissive: an unmapped platform still
-    /// yields a claim, because the capture asserted it.
-    pub fn of(observation: &model::user_observed_entity::Model) -> Option<Self> {
+impl IdentityKey {
+    /// The key a capture's platform handle names, both halves folded so two spellings agree.
+    pub fn from_capture(observation: &model::user_observed_entity::Model) -> Option<Self> {
         let platform = observation.platform.as_deref()?;
         let handle = observation.platform_handle.as_deref()?;
         Some(Self {
             scheme: normalize::comparable(platform),
             external_id: normalize::comparable(handle),
         })
-    }
-
-    pub fn identity(&self) -> String {
-        format!("{}:{}", self.scheme, self.external_id)
-    }
-
-    /// The durable name of the identity this link asserts.
-    pub fn key(&self) -> IdentityKey {
-        IdentityKey {
-            scheme: self.scheme.clone(),
-            external_id: self.external_id.clone(),
-        }
     }
 }
 
@@ -70,10 +48,10 @@ pub struct DraftIdentity {
 
 impl DraftIdentity {
     /// An identity known only from a capture: the handle, and nothing about it.
-    pub fn from_capture(link: &PlatformLink) -> Self {
+    pub fn from_capture(key: &IdentityKey) -> Self {
         Self {
-            scheme: link.scheme.clone(),
-            external_id: link.external_id.clone(),
+            scheme: key.scheme.clone(),
+            external_id: key.external_id.clone(),
             asserted_by: "platform".to_string(),
             method: Some("capture".to_string()),
             confidence: None,
