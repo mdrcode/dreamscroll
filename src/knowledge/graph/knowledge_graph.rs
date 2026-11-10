@@ -5,9 +5,10 @@
 //! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`)
 //! are `pub(super)` because only the passes beside the facade read them. Identity and claim writes are
 //! methods ([`KnowledgeGraph::identity_for_link`], [`KnowledgeGraph::upsert_identity`],
-//! [`KnowledgeGraph::assert`]), so `helper` and the resolver hold a graph, not a store. The connection
-//! is the same deal: [`KnowledgeGraph::conn`] is `pub(super)` for `verdicts`, not an escape hatch.
-//! Outside `graph`, a caller sees [`KnowledgeGraph`]'s methods and nothing else.
+//! [`KnowledgeGraph::assert`]), so `helper` and the resolver hold a graph, not a store. There is no
+//! connection getter: every pass that needs the pool — `link_illumination`, `proximity`, `verdicts` —
+//! takes it as an argument. Outside `graph`, a caller sees [`KnowledgeGraph`]'s methods and nothing
+//! else.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -51,14 +52,6 @@ impl KnowledgeGraph {
             decider: None,
             evidence: Evidence::from_handle(db),
         }
-    }
-
-    /// The connection, for the `verdicts` pass, which reads and writes rows directly.
-    ///
-    /// Deliberately narrow: nothing outside `graph` may take the pool, and every other pass takes the
-    /// connection as an argument instead.
-    pub(super) fn conn(&self) -> &sea_orm::DatabaseConnection {
-        &self.db.conn
     }
 
     pub fn with_linking(

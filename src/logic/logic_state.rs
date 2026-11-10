@@ -3,6 +3,8 @@ use crate::{api, ignition, knowledge, llms, search, storage};
 /// Dependencies used by background task logic.
 pub struct LogicState {
     pub service_api: api::ServiceApiClient,
+    /// The connection linking reads its vetoes through; claims and entities are written by the graph.
+    pub db: crate::database::DbHandle,
     /// The knowledge graph is written in-process, not through `service_api`: linking is graph work
     /// over observations, entities and evidence, and there is no REST surface for it.
     pub knowledge: knowledge::KnowledgeGraph,

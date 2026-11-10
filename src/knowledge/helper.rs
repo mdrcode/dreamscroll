@@ -7,12 +7,16 @@
 
 use std::collections::HashMap;
 
+use sea_orm::DatabaseConnection;
+
 use crate::knowledge::evidence::{ClaimDraft, PlatformLink, Stored};
-use crate::knowledge::graph::{verdicts, KnowledgeGraph, LinkStats};
+use crate::knowledge::graph::{KnowledgeGraph, LinkStats};
+use crate::knowledge::verdicts;
 use crate::model;
 
 /// Link one illumination: its observations become entities, then their handles become claims.
 pub async fn link_illumination(
+    conn: &DatabaseConnection,
     graph: &KnowledgeGraph,
     illumination: &model::illumination::ModelEx,
 ) -> anyhow::Result<LinkStats> {
@@ -31,7 +35,7 @@ pub async fn link_illumination(
         .collect();
 
     let (mut stats, linked) = graph.link(&observations).await?;
-    stats.vetoed = assert_claims(graph, &observations, &linked).await?;
+    stats.vetoed = assert_claims(conn, graph, &observations, &linked).await?;
     Ok(stats)
 }
 
@@ -40,11 +44,12 @@ pub async fn link_illumination(
 /// The only place a capture's identity and claim are written. Returns how many a standing veto
 /// refused.
 async fn assert_claims(
+    conn: &DatabaseConnection,
     graph: &KnowledgeGraph,
     observations: &[model::user_observed_entity::Model],
     linked: &HashMap<i32, i32>,
 ) -> anyhow::Result<usize> {
-    let vetoes = verdicts::vetoed(graph).await?;
+    let vetoes = verdicts::vetoed(conn).await?;
     let mut vetoed = 0;
     for observation in observations {
         let Some(entity) = linked.get(&observation.id).copied() else {

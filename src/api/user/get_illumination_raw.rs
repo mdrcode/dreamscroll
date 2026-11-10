@@ -130,6 +130,7 @@ mod tests {
         let state = std::sync::Arc::new(crate::webhook::WebhookState {
             logic: crate::logic::LogicState {
                 service_api,
+                db: db.clone(),
                 knowledge: crate::knowledge::KnowledgeGraph::with_linking(
                     &db,
                     Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),

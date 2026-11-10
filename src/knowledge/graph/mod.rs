@@ -6,18 +6,15 @@
 //! - `knowledge_graph` — the facade itself, and the primitives every write shares.
 //! - `project` — the derived columns, including the blocking index row.
 //! - [`merge`] — fold one entity into another.
-//! - [`verdicts`] — the standing vetoes, and the readers that turn a verdict's origin into the entity
-//!   it names now. A merge's row in the same log is written by `merge` itself.
 //!
 //! Single writes are methods; the batch passes are public functions, because they are commands over
 //! the whole graph rather than a write to one row. A pass takes what it acts on as arguments — the
 //! connection, and the [`Scoring`](crate::knowledge::scoring::Scoring) it measures with — rather than
-//! reading them off a facade. The proximity passes live in [`crate::knowledge::proximity`]; the
-//! verdict log (`replay`, `veto`) stays here, because `merge` writes to it.
+//! reading them off a facade. The proximity passes live in [`crate::knowledge::proximity`], the log
+//! commands in [`crate::knowledge::verdicts`]; a merge writes its own log row here, beside the fold.
 
 mod link;
 pub mod merge;
-pub mod verdicts;
 
 mod knowledge_graph;
 mod project;

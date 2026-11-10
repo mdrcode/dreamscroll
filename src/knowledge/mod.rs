@@ -14,8 +14,9 @@
 //!   and the verdicts.
 //! - [`proximity`] — the derived batch of look-alike pairs, and the passes that produce and answer it.
 //!
-//! [`replay`] is not a cluster: it is the command that applies a person's recorded decisions to a
-//! rebuilt graph, so it sits at the root and takes the store and the connection as arguments.
+//! [`verdicts`] is not a cluster: it is the modification log and the standing vetoes, with the
+//! command that applies them ([`verdicts::replay`]), so it sits at the root and takes the store and
+//! the connection as arguments.
 //!
 //! Three things stay at the root because more than one cluster needs them, and a stage that imports
 //! a cluster to reach its own vocabulary has the dependency backwards:
@@ -44,11 +45,11 @@ pub mod identity;
 pub mod linker;
 pub mod normalize;
 pub mod proximity;
-pub mod replay;
 pub mod scoring;
 pub mod snapshot;
+pub mod verdicts;
 
 pub use proximity::AutoMergeReport;
-pub use replay::ReplayReport;
+pub use verdicts::ReplayReport;
 pub use graph::{KnowledgeGraph, LinkStats, Status};
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};

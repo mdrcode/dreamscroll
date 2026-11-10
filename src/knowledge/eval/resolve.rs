@@ -12,9 +12,8 @@ use sea_orm::{ConnectionTrait, DatabaseBackend, Statement};
 use crate::database::DbHandle;
 use crate::fetch::{Answer, Outcome};
 use crate::knowledge::evidence::Evidence;
-use crate::knowledge::graph::verdicts;
+use crate::knowledge::verdicts;
 use crate::knowledge::identity::wikidata::{Candidate, ID, parse, plan};
-use crate::knowledge::KnowledgeGraph;
 
 /// What one replay found.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -59,7 +58,7 @@ pub async fn replay(db: &DbHandle, limit: Option<usize>) -> anyhow::Result<Repor
         .awaiting_authority(&[ID], limit, None, false)
         .await?;
     // A veto is a standing decision, so the claim it names is one the real run never writes.
-    let vetoes = verdicts::vetoed(&KnowledgeGraph::new(db)).await?;
+    let vetoes = verdicts::vetoed(&db.conn).await?;
 
     let mut report = Report::default();
     for view in &entities {

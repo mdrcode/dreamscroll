@@ -45,7 +45,7 @@ pub async fn exec(
     task_run: &task::TaskRun<KnowledgeLinkTask>,
     _attempt: i32,
 ) -> Result<(), api::ApiError> {
-    let stats = link(&state.knowledge, &state.service_api, &task_run.task)
+    let stats = link(&state.db.conn, &state.knowledge, &state.service_api, &task_run.task)
         .await
         .map_err(api::ApiError::internal)?;
 
@@ -64,6 +64,7 @@ pub async fn exec(
 /// illumination row has one, but the graph does not: entities are shared by everyone who observed
 /// them, so an owner-scoped read belongs to the caller that was handed both ids.
 pub(crate) async fn link(
+    conn: &sea_orm::DatabaseConnection,
     graph: &crate::knowledge::KnowledgeGraph,
     service_api: &crate::api::ServiceApiClient,
     task: &KnowledgeLinkTask,
@@ -79,7 +80,7 @@ pub(crate) async fn link(
         task.entity_owner_id
     );
 
-    crate::knowledge::helper::link_illumination(&graph, &illumination).await
+    crate::knowledge::helper::link_illumination(conn, graph, &illumination).await
 }
 
 #[cfg(test)]
@@ -112,6 +113,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
+            &db.conn,
             &crate::knowledge::KnowledgeGraph::with_linking(
                 &db,
                 Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
@@ -132,6 +134,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
+            &db.conn,
             &crate::knowledge::KnowledgeGraph::with_linking(
                 &db,
                 Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
@@ -172,6 +175,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let error = link(
+            &db.conn,
             &crate::knowledge::KnowledgeGraph::with_linking(
                 &db,
                 Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),

@@ -304,8 +304,7 @@ Entities are cheap to rebuild and expensive to get wrong, so the model prefers u
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores |
 | `graph/merge.rs` | fold one entity into another |
 | `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Scoring` as arguments |
-| `graph/verdicts.rs` | the standing vetoes: `veto` writes one (a merge row is written by `merge` itself), `unveto` lifts it, `vetoed` answers admission, `withdraw` retracts the pair's live claim and reprojects the entity — `status` and `confidence` are functions of the live claims. A retraction with nothing to retract is `settled`, not a zero. `entity_with_origin`/`canonical` are the readers that turn a verdict's origin into the entity it names now |
-| `replay.rs` | the command over the whole graph: applies a person's recorded folds and vetoes to a rebuilt graph, by origin, and reports `applied`/`already`/`gone`/`refused`/`withdrawn`/`settled`. Takes the connection it reads the log through and the store it folds into |
+| `verdicts.rs` | the modification log and the standing vetoes, at the root because they are commands over the whole graph: `replay(conn, graph)` folds the recorded pairs by origin, then withdraws the vetoed pairings, and reports `applied`/`already`/`gone`/`refused`/`withdrawn`/`settled`; `veto` writes a standing decision (`merge` writes the merge rows itself), `unveto` lifts it, `vetoed` answers admission, `withdraw` retracts the pairing and reprojects. A retraction with nothing to retract is `settled`, not a zero. `pair_key` is shared with `stats` |
 |`identity/`|`mod.rs` (the `Resolver` trait a provider implements) · `engine` (the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The claim it returns, and where it becomes a row, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
 | `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates in `policy.rs` · answer parsing in `answer.rs` · the ladder and its request shapes in `resolver.rs` · candidate scoring in `ranking.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
@@ -316,7 +315,7 @@ reached through `KnowledgeGraph`'s methods; `link` and `project` are private mod
 escapes them is data and vocabulary — `LinkStats`, `merge::Outcome`, `Cause`, `Preview`. The batch
 passes are the exception and are deliberately public functions taking what they act on —
 `proximity::scan(conn, scoring)`, `proximity::auto_merge(conn, graph, scoring)` and
-`replay::replay(conn, graph)` are commands over the whole graph, not a write to one row. The graph's
+`verdicts::replay(conn, graph)` are commands over the whole graph, not a write to one row. The graph's
 health counters are a report over the tables rather than graph work, so they live in
 `crate::stats::knowledge_stats`.
 
