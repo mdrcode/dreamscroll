@@ -112,11 +112,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
-            &crate::knowledge::KnowledgeGraph::with_linking(
-                &db,
-                Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
-                std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
-            ),
+            &crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db),
             &service_api,
             &task(first, user),
         )
@@ -132,11 +128,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let stats = link(
-            &crate::knowledge::KnowledgeGraph::with_linking(
-                &db,
-                Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
-                std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
-            ),
+            &crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db),
             &service_api,
             &task(second, user),
         )
@@ -172,11 +164,7 @@ mod tests {
 
         let service_api = crate::test_support::service_api(&db);
         let error = link(
-            &crate::knowledge::KnowledgeGraph::with_linking(
-                &db,
-                Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
-                std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
-            ),
+            &crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db),
             &service_api,
             &task(illumination, stranger),
         )

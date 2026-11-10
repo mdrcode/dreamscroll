@@ -130,11 +130,7 @@ mod tests {
         let state = std::sync::Arc::new(crate::webhook::WebhookState {
             logic: crate::logic::LogicState {
                 service_api,
-                knowledge: crate::knowledge::KnowledgeGraph::with_linking(
-                    &db,
-                    Box::new(crate::knowledge::blocker::SqlBlocker::new(&db)),
-                    std::sync::Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
-                ),
+                knowledge: crate::knowledge::KnowledgeGraph::with_heuristic_linking(&db),
                 storage: Box::new(TestStorageProvider),
                 inference_client: Box::new(TestInferenceClient::new(vec![
                     serde_json::json!({"summary": "missing required fields"}),

@@ -20,7 +20,7 @@ use crate::knowledge::blocker::Blocker;
 use crate::knowledge::evidence::{ClaimDraft, DraftIdentity, Evidence, IdentityKey, Stored};
 use crate::knowledge::linker::Linker;
 use super::replay::ReplayReport;
-use crate::knowledge::verdicts::{Cause, VerdictStore};
+use crate::knowledge::verdicts::{Cause, VerdictStore, VetoReport};
 use crate::model;
 
 
@@ -67,6 +67,18 @@ impl KnowledgeGraph {
         }
     }
 
+    /// The default wiring: the index blocker and today's heuristic linker.
+    ///
+    /// A caller that needs a different blocker or policy builds [`KnowledgeGraph::with_linking`]
+    /// instead.
+    pub fn with_heuristic_linking(db: &DbHandle) -> Self {
+        Self::with_linking(
+            db,
+            Box::new(crate::knowledge::blocker::SqlBlocker::new(db)),
+            Arc::new(crate::knowledge::linker::heuristic::HeuristicLinker::new()),
+        )
+    }
+
     pub async fn create(
         &self,
         observation: &model::user_observed_entity::Model,
@@ -108,18 +120,24 @@ impl KnowledgeGraph {
         super::replay::replay(self).await
     }
 
-    /// Record that an entity is *not* an identity; the next replay withdraws its claim.
+    /// Record that an entity is *not* an identity, and withdraw the claim it names.
+    ///
+    /// Recording and applying are one act: a register that disagrees with the graph is a decision
+    /// nobody has taken. The next replay does the same thing after a rebuild, through origins.
     pub async fn veto(
         &self,
         entity_id: i32,
         scheme: &str,
         external_id: &str,
         note: Option<&str>,
-    ) -> anyhow::Result<bool> {
+    ) -> anyhow::Result<VetoReport> {
         let generation = current_generation(&self.db.conn).await?;
-        self.verdicts
+        let recorded = self
+            .verdicts
             .veto(generation, entity_id, scheme, external_id, note)
-            .await
+            .await?;
+        let withdrawn = super::replay::withdraw_entity(self, entity_id, scheme, external_id).await?;
+        Ok(VetoReport { recorded, withdrawn })
     }
 
     /// Lift a veto. The next resolve may claim the identity again.
@@ -162,6 +180,15 @@ impl KnowledgeGraph {
         knowledge_entity_id: i32,
     ) -> anyhow::Result<model::knowledge_entity::Model> {
         super::project::project(&self.db.conn, knowledge_entity_id).await
+    }
+
+    /// Recompute projections for a scope: `Stale` repairs what a retraction left behind, `All` is
+    /// what a change to the projection rule needs.
+    pub async fn reproject(
+        &self,
+        scope: super::ReprojectScope,
+    ) -> anyhow::Result<usize> {
+        super::project::reproject(&self.db.conn, scope).await
     }
 
     /// What a merge would do, without doing it. See [`super::merge`].

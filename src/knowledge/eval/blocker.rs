@@ -59,6 +59,43 @@ pub struct Report {
     pub merged: usize,
 }
 
+impl Report {
+    /// Recall against the current index: an upper bound, because it can see surfaces later members
+    /// contributed.
+    pub fn live_recall(&self) -> f32 {
+        if self.eligible == 0 {
+            0.0
+        } else {
+            self.hit as f32 * 100.0 / self.eligible as f32
+        }
+    }
+
+    /// Eligible observations whose entity already existed when they arrived.
+    pub fn attributable(&self) -> usize {
+        self.eligible.saturating_sub(self.merged)
+    }
+
+    /// Recall against earlier members only, with post-hoc merges excluded — the honest figure.
+    pub fn attributable_recall(&self) -> f32 {
+        let attributable = self.attributable();
+        if attributable == 0 {
+            100.0
+        } else {
+            self.prior_hit as f32 * 100.0 / attributable as f32
+        }
+    }
+
+    /// Eligible observations the earlier-member probe missed.
+    pub fn misses(&self) -> usize {
+        self.eligible.saturating_sub(self.prior_hit)
+    }
+
+    /// Misses a post-hoc merge does not explain.
+    pub fn unexplained_misses(&self) -> usize {
+        self.misses().saturating_sub(self.merged)
+    }
+}
+
 pub async fn replay(db: &DbHandle) -> anyhow::Result<Report> {
     let observations = model::user_observed_entity::Entity::find()
         .filter(model::user_observed_entity::Column::KnowledgeEntityId.is_not_null())

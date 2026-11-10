@@ -52,5 +52,5 @@ pub mod verdicts;
 
 pub use proximity::AutoMergeReport;
 pub use graph::{KnowledgeGraph, LinkReport, ReplayReport};
-pub use helper::link_illumination;
+pub use helper::{LinkAllReport, link_all_pending, link_illumination};
 pub use scoring::{Rank, Scoring, Similarity, TotalCmp};

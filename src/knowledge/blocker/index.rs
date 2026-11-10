@@ -337,9 +337,8 @@ mod tests {
         assert!(row.word_keys.is_empty(), "{:?}", row.word_keys);
     }
 
-    /// `project` can be handed a tombstone: `identity veto` reprojects the id it was given, which a
-    /// merge may have folded first. A row for it would outlive its liveness and `check` would still
-    /// call the index current.
+    /// `project` can be handed a tombstone: a caller may hold an id that a merge folded first. A row
+    /// for it would outlive its liveness and `check` would still call the index current.
     #[tokio::test]
     async fn projecting_a_tombstone_writes_no_row() {
         db_or_skip!(db);

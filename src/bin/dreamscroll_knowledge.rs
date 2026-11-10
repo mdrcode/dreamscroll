@@ -1,10 +1,5 @@
-use std::sync::Arc;
-
 use argh::FromArgs;
-use sea_orm::sea_query::{Expr, ExprTrait, Query};
-use sea_orm::{ColumnTrait, QueryFilter, QueryOrder};
 
-use dreamscroll::model;
 use dreamscroll::{config, database, knowledge, stats, telemetry};
 
 #[derive(FromArgs)]
@@ -401,65 +396,7 @@ async fn eval_resolve(db: &database::DbHandle, args: EvalResolveArgs) -> anyhow:
     Ok(())
 }
 
-/// `identity resolve`: ask the authorities what a thing is, cache first.
-/// `status` and the selected surface are derived from live claims, so a retraction leaves them stale —
-/// and nothing recomputes them for an entity that stops claiming. This is that half of the rule.
-/// `identity reproject`: make projections match the rules as they stand now.
-///
-/// The default is the repair pass — entities holding no live claim, whose status and selected
-/// surface went stale when a claim was retracted. `--all` is the rule-change pass: every live entity
-/// is reprojected, which is what a change to `project` needs and what used to require a rebuild.
-async fn reproject(db: &database::DbHandle, all: bool) -> anyhow::Result<()> {
-    if all {
-        return reproject_all(db).await;
-    }
-    reproject_unclaimed(db).await
-}
-
-async fn reproject_all(db: &database::DbHandle) -> anyhow::Result<()> {
-    use sea_orm::EntityTrait;
-
-    use model::knowledge_entity as entity;
-
-    let live = entity::Entity::find()
-        .filter(entity::Column::MergedIntoId.is_null())
-        .all(&db.conn)
-        .await?;
-    let store = knowledge::KnowledgeGraph::new(db);
-    let total = live.len();
-    for row in &live {
-        store.update_projection(row.id).await?;
-    }
-    println!("reprojected {total} live entities");
-    Ok(())
-}
-
-async fn reproject_unclaimed(db: &database::DbHandle) -> anyhow::Result<()> {
-    use sea_orm::EntityTrait;
-
-    use model::knowledge_claims as claims;
-    use model::knowledge_entity as entity;
-
-    let claimed = Query::select()
-        .distinct()
-        .column((claims::Entity, claims::Column::KnowledgeEntityId))
-        .from(claims::Entity)
-        .and_where(Expr::col((claims::Entity, claims::Column::RetractedAt)).is_null())
-        .to_owned();
-    let stale = entity::Entity::find()
-        .filter(entity::Column::MergedIntoId.is_null())
-        .filter(Expr::col(entity::Column::Id).not_in_subquery(claimed))
-        .all(&db.conn)
-        .await?;
-    let store = knowledge::KnowledgeGraph::new(db);
-    let total = stale.len();
-    for row in &stale {
-        store.update_projection(row.id).await?;
-    }
-    println!("reprojected {total} live entities holding no live claim");
-    Ok(())
-}
-
+/// Ask the authorities what a thing is, cache first.
 async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow::Result<()> {
     // A budget of zero makes no transport calls, which reads like a successful run that resolved
     // nothing. That is a mode, not a number.
@@ -534,31 +471,24 @@ async fn eval_blocker(db: &database::DbHandle) -> anyhow::Result<()> {
         "observations {} (superseded {} skipped) · first member {} · eligible {}",
         report.observations, report.superseded, report.new_entity, report.eligible
     );
-    let pct = if report.eligible == 0 {
-        0.0
-    } else {
-        report.hit as f32 * 100.0 / report.eligible as f32
-    };
     println!(
-        "live-index recall {}/{} ({pct:.1}%) · starved {} · ambiguous {}",
-        report.hit, report.eligible, report.starved, report.ambiguous
+        "live-index recall {}/{} ({:.1}%) · starved {} · ambiguous {}",
+        report.hit,
+        report.eligible,
+        report.live_recall(),
+        report.starved,
+        report.ambiguous
     );
-    let misses = report.eligible.saturating_sub(report.prior_hit);
     // A post-hoc merge is not a blocking failure — the pair did not exist when the observation
     // arrived — so it is listed but kept out of the denominator.
-    let attributable = report.eligible.saturating_sub(report.merged);
-    let attributable_pct = if attributable == 0 {
-        100.0
-    } else {
-        report.prior_hit as f32 * 100.0 / attributable as f32
-    };
     println!(
-        "earlier-members recall {}/{} ({attributable_pct:.1}%) · {} misses: {} post-hoc merges (excluded), {} unexplained",
+        "earlier-members recall {}/{} ({:.1}%) · {} misses: {} post-hoc merges (excluded), {} unexplained",
         report.prior_hit,
-        attributable,
-        misses,
+        report.attributable(),
+        report.attributable_recall(),
+        report.misses(),
         report.merged,
-        misses.saturating_sub(report.merged)
+        report.unexplained_misses()
     );
     for miss in report.prior_misses.iter().take(25) {
         println!(
@@ -600,7 +530,7 @@ async fn main() -> anyhow::Result<()> {
 
     match args.command {
         Command::Link(_) => {
-            let report = link_all_pending(&db).await?;
+            let report = knowledge::link_all_pending(&db).await?;
             println!(
                 "considered {} · already linked {} · linked {} · created {} · left pending {} · vetoed {}",
                 report.considered,
@@ -818,30 +748,44 @@ async fn main() -> anyhow::Result<()> {
         },
         Command::Identity(args) => match args.command {
             IdentityCommand::Resolve(args) => resolve_identity(&db, args).await?,
-            IdentityCommand::Reproject(args) => reproject(&db, args.all).await?,
+            IdentityCommand::Reproject(args) => {
+                let scope = if args.all {
+                    knowledge::graph::ReprojectScope::All
+                } else {
+                    knowledge::graph::ReprojectScope::Stale
+                };
+                let total = knowledge::KnowledgeGraph::new(&db).reproject(scope).await?;
+                println!(
+                    "reprojected {total} {}",
+                    if args.all {
+                        "live entities"
+                    } else {
+                        "live entities holding no live claim"
+                    }
+                );
+            }
             IdentityCommand::Veto(args) => {
                 let store = knowledge::KnowledgeGraph::new(&db);
-                let recorded = store.veto(
-                    args.entity,
-                    &args.scheme,
-                    &args.identity,
-                    args.note.as_deref(),
-                )
-                .await?;
-                let report = store.replay_verdicts().await?;
-                store.update_projection(args.entity).await?;
+                let report = store
+                    .veto(
+                        args.entity,
+                        &args.scheme,
+                        &args.identity,
+                        args.note.as_deref(),
+                    )
+                    .await?;
+                let effect = if report.withdrawn == 0 {
+                    "settled".to_string()
+                } else {
+                    format!("withdrawn {}", report.withdrawn)
+                };
                 println!(
-                    "{} · withdrawn {} · applied {} · already {} · gone {} · refused {}",
-                    if recorded {
+                    "{} · {effect}",
+                    if report.recorded {
                         "veto recorded"
                     } else {
                         "veto already recorded"
-                    },
-                    report.withdrawn,
-                    report.applied,
-                    report.already,
-                    report.gone,
-                    report.refused
+                    }
                 );
             }
             IdentityCommand::Unveto(args) => {
@@ -889,69 +833,4 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
-}
-
-/// Stats from a run of linking all pending observations into the knowledge graph.
-///
-/// Lives here rather than in the library because it describes a *run*, not a link decision: how many
-/// illuminations there were and how the totals add up. The library reports what it wrote. When
-/// link_all_pending is run after a reset, these stats reflect the entire rebuild of the knowledge graph.
-#[derive(Debug, Default)]
-struct LinkAllPendingReport {
-    considered: usize,
-    already_linked: usize,
-    attached: usize,
-    created: usize,
-    /// Pending observations the linker returned no decision for.
-    left_pending: usize,
-    /// Claims a standing veto refused.
-    vetoed: usize,
-}
-
-impl LinkAllPendingReport {
-    fn update(&mut self, part: knowledge::LinkReport) {
-        self.attached += part.attached;
-        self.created += part.created;
-        self.left_pending += part.left_pending;
-        self.vetoed += part.vetoed;
-    }
-}
-
-/// Link every illumination that still has unlinked observations.
-///
-/// After a reset, this rebuilds the entire knowledge graph.
-async fn link_all_pending(db: &database::DbHandle) -> anyhow::Result<LinkAllPendingReport> {
-    let unlinked_obs = Query::select()
-        .column(model::user_observed_entity::Column::IlluminationId)
-        .from(model::user_observed_entity::Entity)
-        .and_where(model::user_observed_entity::Column::KnowledgeEntityId.is_null())
-        .to_owned();
-
-    let illuminations = model::illumination::Entity::load()
-        .filter(Expr::col(model::illumination::Column::Id).in_subquery(unlinked_obs))
-        .with(model::user_observed_entity::Entity)
-        .order_by_asc(model::illumination::Column::Id)
-        .all(&db.conn)
-        .await?;
-
-    // Reads `knowledge_blocking_index`: nothing is loaded, so a link run costs queries and nothing at boot.
-    let blocker: Box<dyn knowledge::blocker::Blocker> =
-        Box::new(knowledge::blocker::SqlBlocker::new(db));
-    let graph = knowledge::KnowledgeGraph::with_linking(
-        db,
-        blocker,
-        Arc::new(knowledge::linker::heuristic::HeuristicLinker::new()),
-    );
-    let mut report = LinkAllPendingReport::default();
-    for illumination in &illuminations {
-        for observation in illumination.observations.iter() {
-            report.considered += 1;
-            if observation.knowledge_entity_id.is_some() {
-                report.already_linked += 1;
-            }
-        }
-        let applied = knowledge::link_illumination(&graph, illumination).await?;
-        report.update(applied);
-    }
-    Ok(report)
 }

@@ -8,6 +8,15 @@ use crate::model::knowledge_verdicts::Kind;
 use super::Cause;
 use super::store::VerdictStore;
 
+/// What one veto did: the register row, and the claim it withdrew.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct VetoReport {
+    /// A new row was written; `false` when the same pairing was already recorded.
+    pub recorded: bool,
+    /// Live claims retracted. Zero is settled: the pairing already held, or no row cites it.
+    pub withdrawn: usize,
+}
+
 impl VerdictStore {
     /// Record that an entity is *not* an identity.
     ///

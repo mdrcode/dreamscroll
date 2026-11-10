@@ -19,7 +19,8 @@ mod origin;
 mod store;
 mod veto;
 
-pub(crate) use store::VerdictStore;
+pub use store::VerdictStore;
+pub use veto::VetoReport;
 pub(crate) use store::pair_key;
 
 /// Why a decision was made — the column `knowledge_verdicts.cause` names. Re-exported here because

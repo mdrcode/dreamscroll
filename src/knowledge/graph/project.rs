@@ -222,6 +222,47 @@ fn select(preferred: Option<&str>, candidates: &[String]) -> (Option<String>, Ve
     (selected, alternatives)
 }
 
+/// Which entities a reprojection pass walks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Scope {
+    /// Live entities holding no live claim — what a retraction can leave stale.
+    Stale,
+    /// Every live entity — what a change to the projection rule needs.
+    All,
+}
+
+/// Recompute the projection for a scope, and report how many entities it wrote.
+///
+/// This is the repair half of the projection rule: `status`, `confidence` and the selected surface
+/// are functions of the live claims, so a retraction has to be followed by a pass; `All` is what a
+/// change to the derivation itself needs.
+pub(super) async fn reproject(
+    conn: &sea_orm::DatabaseConnection,
+    scope: Scope,
+) -> anyhow::Result<usize> {
+    use sea_orm::sea_query::{Expr, ExprTrait, Query};
+
+    use crate::model::knowledge_claims as claims;
+    use crate::model::knowledge_entity as entity;
+
+    let mut query = entity::Entity::find().filter(entity::Column::MergedIntoId.is_null());
+    if scope == Scope::Stale {
+        let claimed = Query::select()
+            .distinct()
+            .column((claims::Entity, claims::Column::KnowledgeEntityId))
+            .from(claims::Entity)
+            .and_where(Expr::col((claims::Entity, claims::Column::RetractedAt)).is_null())
+            .to_owned();
+        query = query.filter(Expr::col(entity::Column::Id).not_in_subquery(claimed));
+    }
+    let rows = query.all(conn).await?;
+    let total = rows.len();
+    for row in &rows {
+        project(conn, row.id).await?;
+    }
+    Ok(total)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -474,5 +515,34 @@ mod tests {
         store(&db).update_projection(id).await.unwrap();
 
         assert_eq!(load(&db, id).await.status, model::knowledge_entity::Status::Provisional);
+    }
+
+    /// The repair scope is "live and holding no live claim": a claimed entity is not stale, and a
+    /// tombstone is not live.
+    #[tokio::test]
+    async fn reproject_walks_only_the_scope_it_is_given() {
+        let Some(db) = test_db::test_db().await else {
+            return;
+        };
+        let db = db.handle();
+        let claimed = fixtures::knowledge_entity_with_member(&db, "Claimed").await;
+        claim(&db, claimed, "wikidata", "Q104919").await;
+        let unclaimed = fixtures::knowledge_entity_with_member(&db, "Unclaimed").await;
+        let dead = fixtures::knowledge_entity_with_member(&db, "Dead").await;
+        store(&db)
+            .merge(dead, unclaimed, crate::knowledge::verdicts::Cause::Repair)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            reproject(&db.conn, Scope::Stale).await.unwrap(),
+            1,
+            "only the live entity holding no live claim"
+        );
+        assert_eq!(
+            reproject(&db.conn, Scope::All).await.unwrap(),
+            2,
+            "both live entities; the tombstone is not walked"
+        );
     }
 }

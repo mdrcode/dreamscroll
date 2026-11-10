@@ -62,27 +62,27 @@ async fn a_veto_withdraws_only_the_pairing_it_names() {
     // The same item, legitimately claimed by a different entity: the veto must not reach it.
     let other = seed_claim(&db, "Q (Star Trek)", "Q131472411").await;
 
-    assert!(
-        store
-            .veto(
-                vetoed_entity,
-                "wikidata",
-                "Q131472411",
-                Some("a short fiction")
-            )
-            .await
-            .unwrap()
-    );
-    assert!(
-        !store
-            .veto(vetoed_entity, "wikidata", "Q131472411", None)
-            .await
-            .unwrap(),
-        "recording the same veto twice is a no-op"
-    );
+    let first = store
+        .veto(
+            vetoed_entity,
+            "wikidata",
+            "Q131472411",
+            Some("a short fiction"),
+        )
+        .await
+        .unwrap();
+    assert!(first.recorded);
+    assert_eq!(first.withdrawn, 1, "the veto applies when it is recorded");
+    let again = store
+        .veto(vetoed_entity, "wikidata", "Q131472411", None)
+        .await
+        .unwrap();
+    assert!(!again.recorded, "recording the same veto twice is a no-op");
+    assert_eq!(again.withdrawn, 0, "the claim is already retracted");
 
     let report = store.replay_verdicts().await.unwrap();
-    assert_eq!(report.withdrawn, 1, "{report:?}");
+    assert_eq!(report.settled, 1, "{report:?}");
+    assert_eq!(report.withdrawn, 0, "{report:?}");
     assert_eq!(live_claims(&db, vetoed_entity).await, 0);
     assert_eq!(
         live_claims(&db, other).await,
@@ -115,12 +115,11 @@ async fn a_veto_retracts_a_claim_that_arrived_by_handle() {
         crate::model::knowledge_entity::Status::Identified
     );
 
-    store
+    let veto = store
         .veto(entity_id, "wikidata", "Q123737256", None)
         .await
         .unwrap();
-    let report = store.replay_verdicts().await.unwrap();
-    assert_eq!(report.withdrawn, 1, "{report:?}");
+    assert_eq!(veto.withdrawn, 1, "{veto:?}");
 
     let entity = store.get(entity_id).await.unwrap();
     assert_eq!(
@@ -143,11 +142,11 @@ async fn a_veto_survives_a_rebuild_and_withdraws_the_new_claim() {
     let store = KnowledgeGraph::new(&db);
     let entity_id = seed_claim(&db, "Q", "Q131472411").await;
     let subject = fixtures::origin(&db, entity_id).await;
-    store
+    let veto = store
         .veto(entity_id, "wikidata", "Q131472411", None)
         .await
         .unwrap();
-    assert_eq!(store.replay_verdicts().await.unwrap().withdrawn, 1);
+    assert_eq!(veto.withdrawn, 1);
 
     // A rebuild: entities, identities and claims are recreated and the parser claims again.
     crate::knowledge::snapshot::reset(&db).await.unwrap();
@@ -179,7 +178,6 @@ async fn lifting_a_veto_stops_suppressing_and_restores_nothing() {
         )
         .await
         .unwrap();
-    store.replay_verdicts().await.unwrap();
     assert_eq!(live_claims(&db, entity_id).await, 0);
 
     let id = model::knowledge_verdicts::Entity::find()
@@ -225,11 +223,11 @@ async fn a_veto_reprojects_the_entity_it_empties() {
         crate::model::knowledge_entity::Status::Identified
     );
 
-    store
+    let veto = store
         .veto(entity_id, "wikidata", "Q131472411", None)
         .await
         .unwrap();
-    assert_eq!(store.replay_verdicts().await.unwrap().withdrawn, 1);
+    assert_eq!(veto.withdrawn, 1);
 
     let entity = store.get(entity_id).await.unwrap();
     assert_eq!(

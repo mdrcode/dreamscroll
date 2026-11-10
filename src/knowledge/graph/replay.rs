@@ -115,12 +115,30 @@ async fn withdraw(
     let Some(entity_id) = graph.verdicts.canonical(row.id).await? else {
         return Ok(None);
     };
+    Ok(Some(
+        withdraw_entity(graph, entity_id, scheme, external).await?,
+    ))
+}
+
+/// Retract the live claim for `(entity, identity)` and reproject the entity, if either exists.
+///
+/// The entity is followed through tombstones first: a veto may name a row that a merge has already
+/// folded, and the claim now hangs off the survivor.
+pub(super) async fn withdraw_entity(
+    graph: &KnowledgeGraph,
+    entity_id: i32,
+    scheme: &str,
+    external: &str,
+) -> anyhow::Result<usize> {
+    let Some(entity_id) = graph.verdicts.canonical(entity_id).await? else {
+        return Ok(0);
+    };
     let Some(identity_id) = graph.evidence.identity_id(scheme, external).await? else {
-        return Ok(Some(0));
+        return Ok(0);
     };
     let retracted = graph.evidence.retract(entity_id, identity_id).await?;
     if retracted > 0 {
         graph.update_projection(entity_id).await?;
     }
-    Ok(Some(retracted))
+    Ok(retracted)
 }
