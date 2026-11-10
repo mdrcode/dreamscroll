@@ -9,9 +9,10 @@
 //! - [`proximity`] — the candidates a scan found, and the pass that answers them.
 //! - [`verdicts`] — a person's decisions, kept across rebuilds.
 //!
-//! Single writes are methods; the batch passes are public functions that take the facade
-//! ([`proximity::scan`], [`proximity::merge`], [`verdicts::replay`]), because they are commands over
-//! the whole graph rather than a write to one row.
+//! Single writes are methods; the batch passes are public functions, because they are commands over
+//! the whole graph rather than a write to one row. A pass that touches the pool takes it as an
+//! argument alongside the facade ([`proximity::scan`], [`proximity::merge`]); the facade does not hand
+//! its connection out.
 
 mod link;
 pub mod merge;

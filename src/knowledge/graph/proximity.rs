@@ -53,19 +53,17 @@ pub struct MergeReport {
 }
 
 /// Derive the candidate set and replace the table with it. Returns how many rows the batch holds.
-pub async fn scan(graph: &KnowledgeGraph) -> anyhow::Result<usize> {
-    let conn = graph.conn();
+///
+/// `conn` must be the store's own connection: the replacement is committed on it, and the holders are
+/// read through it.
+pub async fn scan(conn: &DatabaseConnection, graph: &KnowledgeGraph) -> anyhow::Result<usize> {
     let evidence = Evidence::new(conn.clone());
     let identities = identities_with_several_holders(conn).await?;
 
-    // One transaction: the table is one scan's answer, never a mixture of two.
-    let txn = conn.begin().await?;
-    txn.execute_unprepared("DELETE FROM knowledge_proximities")
-        .await?;
-
-    let mut raised = 0;
-    // One question per pair, even when two identities connect the same two entities. Unordered, so
-    // a change in which side is the holder cannot reopen it.
+    // Derive off the pool: Postgres is READ COMMITTED, so a read inside the transaction would see the
+    // same thing. One question per pair, even when two identities connect the same two entities.
+    // Unordered, so a change in which side is the holder cannot reopen it.
+    let mut rows = Vec::new();
     let mut seen: HashSet<(i32, i32)> = HashSet::new();
     for identity_id in identities {
         // Most substantiated first: the survivor, and the reading order.
@@ -77,26 +75,29 @@ pub async fn scan(graph: &KnowledgeGraph) -> anyhow::Result<usize> {
             if !seen.insert((holder.id.min(other.id), holder.id.max(other.id))) {
                 continue;
             }
-            let score = graph.scoring.pair.score(other, holder);
-            raised += insert(
-                &txn,
-                holder.id,
-                other.id,
-                Some(identity_id),
-                Basis::SharedId,
-                Some(score),
-            )
-            .await?;
+            rows.push(Row {
+                holder_id: holder.id,
+                counterpart_id: other.id,
+                knowledge_identity_id: Some(identity_id),
+                score: Some(graph.scoring.pair.score(other, holder)),
+            });
         }
     }
-    txn.commit().await?;
+
+    // One transaction: the table is one scan's answer, never a mixture of two.
+    let raised = conn
+        .transaction(move |txn| Box::pin(async move { replace(txn, rows).await }))
+        .await
+        .map_err(|error| anyhow::anyhow!("proximity scan failed: {error}"))?;
     Ok(raised)
 }
 
 /// Fold the candidates that look like one thing, and leave the rest as questions.
-pub async fn merge(graph: &KnowledgeGraph) -> anyhow::Result<MergeReport> {
+///
+/// `conn` must be the store's own connection: the batch is read through it.
+pub async fn merge(conn: &DatabaseConnection, graph: &KnowledgeGraph) -> anyhow::Result<MergeReport> {
     let mut report = MergeReport::default();
-    for (a, b) in candidates(graph.conn()).await? {
+    for (a, b) in candidates(conn).await? {
         let (Ok(left), Ok(right)) = (graph.get(a).await, graph.get(b).await) else {
             // One side no longer names a row; the next scan will not raise the pair at all.
             report.moot += 1;
@@ -137,15 +138,28 @@ pub async fn merge(graph: &KnowledgeGraph) -> anyhow::Result<MergeReport> {
     Ok(report)
 }
 
-/// Record one candidate. The batch was emptied first, so this is a plain insert.
-async fn insert<C: ConnectionTrait>(
-    conn: &C,
+/// One candidate, before it becomes a row.
+struct Row {
     holder_id: i32,
     counterpart_id: i32,
     knowledge_identity_id: Option<i32>,
-    basis: Basis,
     score: Option<f32>,
-) -> anyhow::Result<usize> {
+}
+
+/// Empty the table and write one scan's batch, atomically.
+async fn replace<C: ConnectionTrait>(conn: &C, rows: Vec<Row>) -> anyhow::Result<usize> {
+    conn.execute_unprepared("DELETE FROM knowledge_proximities")
+        .await?;
+    let mut raised = 0;
+    // The batch was emptied first, so each write is a plain insert.
+    for row in &rows {
+        raised += insert(conn, row).await?;
+    }
+    Ok(raised)
+}
+
+/// Record one candidate. The batch was emptied first, so this is a plain insert.
+async fn insert<C: ConnectionTrait>(conn: &C, row: &Row) -> anyhow::Result<usize> {
     let result = conn
         .execute_raw(Statement::from_sql_and_values(
             DatabaseBackend::Postgres,
@@ -153,11 +167,11 @@ async fn insert<C: ConnectionTrait>(
                (holder_id, counterpart_id, knowledge_identity_id, basis, score) \
              VALUES ($1, $2, $3, $4, $5)",
             [
-                holder_id.into(),
-                counterpart_id.into(),
-                knowledge_identity_id.into(),
-                basis.as_str().to_string().into(),
-                score.into(),
+                row.holder_id.into(),
+                row.counterpart_id.into(),
+                row.knowledge_identity_id.into(),
+                Basis::SharedId.as_str().to_string().into(),
+                row.score.into(),
             ],
         ))
         .await?;
@@ -220,7 +234,7 @@ mod tests {
         let store = KnowledgeGraph::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
 
-        let raised = scan(&store).await.expect("scan");
+        let raised = scan(&db.conn, &store).await.expect("scan");
 
         assert_eq!(raised, 1);
         let row = model::knowledge_proximities::Entity::find()
@@ -237,7 +251,7 @@ mod tests {
         );
 
         // The batch is replaced, not appended: a second scan leaves exactly one row.
-        assert_eq!(scan(&store).await.unwrap(), 1);
+        assert_eq!(scan(&db.conn, &store).await.unwrap(), 1);
         assert_eq!(candidates(&db.conn).await.unwrap().len(), 1);
     }
 
@@ -263,7 +277,7 @@ mod tests {
             .await;
         }
 
-        assert_eq!(scan(&store).await.expect("scan"), 1, "one pair, one question");
+        assert_eq!(scan(&db.conn, &store).await.expect("scan"), 1, "one pair, one question");
         assert_eq!(
             model::knowledge_proximities::Entity::find()
                 .count(&db.conn)
@@ -279,9 +293,9 @@ mod tests {
         db_or_skip!(db);
         let store = KnowledgeGraph::new(&db);
         claim_pairs(&db, ["Train Dreams", "Train Dreams"]).await;
-        scan(&store).await.unwrap();
+        scan(&db.conn, &store).await.unwrap();
 
-        let report = merge(&store).await.expect("merge");
+        let report = merge(&db.conn, &store).await.expect("merge");
 
         assert_eq!(report.merged, 1, "{report:?}");
         assert_eq!(
@@ -307,8 +321,8 @@ mod tests {
         let store = KnowledgeGraph::new(&db);
         claim_pairs(&db, ["Belfast, Maine", "The Fishing Fleet"]).await;
 
-        scan(&store).await.unwrap();
-        let report = merge(&store).await.expect("merge");
+        scan(&db.conn, &store).await.unwrap();
+        let report = merge(&db.conn, &store).await.expect("merge");
 
         assert_eq!(report.merged, 0, "{report:?}");
         assert_eq!(report.undecided, 1, "{report:?}");

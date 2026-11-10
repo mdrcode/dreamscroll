@@ -829,10 +829,10 @@ mod tests {
 
         // The passes are separate commands now, so the ordering guarantee is exercised the way the
         // CLI runs it: resolve projects, then scan raises the pair, then merge folds it.
-        crate::knowledge::graph::proximity::scan(&store)
+        crate::knowledge::graph::proximity::scan(&db.conn, &store)
             .await
             .expect("scan");
-        let folded = crate::knowledge::graph::proximity::merge(&store)
+        let folded = crate::knowledge::graph::proximity::merge(&db.conn, &store)
             .await
             .expect("merge");
         assert_eq!(folded.merged, 1, "{folded:?}");
@@ -886,10 +886,10 @@ mod tests {
         // The proximity passes now run after resolve as separate commands; drive them explicitly so
         // the assertion is about `merge` refusing a pair, not about an empty batch.
         let store = crate::knowledge::KnowledgeGraph::new(&db);
-        crate::knowledge::graph::proximity::scan(&store)
+        crate::knowledge::graph::proximity::scan(&db.conn, &store)
             .await
             .expect("scan");
-        let folded = crate::knowledge::graph::proximity::merge(&store)
+        let folded = crate::knowledge::graph::proximity::merge(&db.conn, &store)
             .await
             .expect("merge");
         assert_eq!(folded.merged, 0, "sharing an identity does not merge");

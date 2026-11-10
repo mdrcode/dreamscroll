@@ -57,8 +57,11 @@ impl KnowledgeGraph {
         }
     }
 
-    /// The connection, for the passes in `proximity` that run over this store.
-    pub(crate) fn conn(&self) -> &sea_orm::DatabaseConnection {
+    /// The connection, for the `verdicts` pass, which reads and writes rows directly.
+    ///
+    /// Deliberately narrow: nothing outside `graph` may take the pool, and every other pass takes the
+    /// connection as an argument instead.
+    pub(super) fn conn(&self) -> &sea_orm::DatabaseConnection {
         &self.db.conn
     }
 
