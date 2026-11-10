@@ -9,15 +9,15 @@ pub enum Kind {
     #[sea_orm(string_value = "merge")]
     Merge,
     /// An entity is not an identity. The item stays valid and claimable by everything else.
-    #[sea_orm(string_value = "veto")]
-    Veto,
+    #[sea_orm(string_value = "veto_identity")]
+    VetoIdentity,
 }
 
 impl Kind {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Merge => "merge",
-            Self::Veto => "veto",
+            Self::VetoIdentity => "veto_identity",
         }
     }
 }
@@ -69,7 +69,7 @@ impl std::fmt::Display for Cause {
 /// projected columns.
 ///
 /// Two kinds share the log, because both are the same statement — a person's decision about the
-/// graph, keyed by what survives a rebuild. A `merge` folds two origins into one. A `veto` says an
+/// graph, keyed by what survives a rebuild. A `merge` folds two origins into one. A `veto_identity` says an
 /// entity is *not* an identity: the item stays valid and claimable by everything else.
 ///
 /// `cause` is the whole point of keeping it: a `repair` is a person's instruction and replay applies
@@ -90,7 +90,7 @@ pub struct Model {
     #[sea_orm(default_value = "repair")]
     pub cause: Cause,
 
-    /// `merge` (two origins fold) or `veto` (an entity never holds one identity).
+    /// `merge` (two origins fold) or `veto_identity` (an entity never holds one identity).
     #[sea_orm(default_value = "merge")]
     pub kind: Kind,
 
@@ -99,9 +99,9 @@ pub struct Model {
     /// `origin_observation_id` of the side folded away. `merge` only.
     pub loser_origin: Option<i32>,
 
-    /// The entity a `veto` is about, by `origin_observation_id`.
+    /// The entity a `veto_identity` is about, by `origin_observation_id`.
     pub subject_origin: Option<i32>,
-    /// The identity a `veto` excludes, by its natural key: a rebuild recreates identity rows, and
+    /// The identity a `veto_identity` excludes, by its natural key: a rebuild recreates identity rows, and
     /// `(scheme, external_id)` is the only stable name they have.
     pub identity_scheme: Option<String>,
     pub identity_external_id: Option<String>,

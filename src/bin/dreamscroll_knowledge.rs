@@ -720,7 +720,7 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     for row in &rows {
                         let decided = match row.kind.as_str() {
-                            "veto" => format!("{}  \u{2298}  {}", row.subject, row.identity),
+                            "veto_identity" => format!("{}  \u{2298}  {}", row.subject, row.identity),
                             _ => format!("{}  \u{21c4}  {}", row.winner, row.loser),
                         };
                         println!(

@@ -14,7 +14,7 @@ pub struct VerdictRow {
     pub generation: i32,
     /// `repair`, `proximity_auto` or `replayed`.
     pub cause: String,
-    /// `merge` or `veto`.
+    /// `merge` or `veto_identity`.
     pub kind: String,
     pub winner: String,
     pub loser: String,

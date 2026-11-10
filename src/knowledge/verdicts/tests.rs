@@ -181,7 +181,7 @@ async fn lifting_a_veto_stops_suppressing_and_restores_nothing() {
     assert_eq!(live_claims(&db, entity_id).await, 0);
 
     let id = model::knowledge_verdicts::Entity::find()
-        .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
+        .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::VetoIdentity.as_str()))
         .one(&db.conn)
         .await
         .unwrap()

@@ -86,7 +86,7 @@ impl VerdictStore {
     pub(crate) async fn vetoes(&self) -> anyhow::Result<Vec<model::knowledge_verdicts::Model>> {
         Ok(model::knowledge_verdicts::Entity::find()
             .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
-            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
+            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::VetoIdentity.as_str()))
             .order_by_asc(model::knowledge_verdicts::Column::Id)
             .all(&self.conn)
             .await?)

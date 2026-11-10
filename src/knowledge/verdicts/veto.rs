@@ -42,7 +42,7 @@ impl VerdictStore {
         };
         let existing = model::knowledge_verdicts::Entity::find()
             .filter(model::knowledge_verdicts::Column::Cause.eq(Cause::Repair.as_str()))
-            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
+            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::VetoIdentity.as_str()))
             .filter(model::knowledge_verdicts::Column::SubjectOrigin.eq(subject))
             .filter(model::knowledge_verdicts::Column::IdentityScheme.eq(scheme))
             .filter(model::knowledge_verdicts::Column::IdentityExternalId.eq(external_id))
@@ -54,7 +54,7 @@ impl VerdictStore {
         model::knowledge_verdicts::Entity::insert(model::knowledge_verdicts::ActiveModel {
             generation: Set(generation),
             cause: Set(Cause::Repair),
-            kind: Set(Kind::Veto),
+            kind: Set(Kind::VetoIdentity),
             subject_origin: Set(Some(subject)),
             identity_scheme: Set(Some(scheme.to_string())),
             identity_external_id: Set(Some(external_id.to_string())),
@@ -71,7 +71,7 @@ impl VerdictStore {
     pub async fn unveto(&self, verdict_id: i32) -> anyhow::Result<bool> {
         let deleted = model::knowledge_verdicts::Entity::delete_many()
             .filter(model::knowledge_verdicts::Column::Id.eq(verdict_id))
-            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::Veto.as_str()))
+            .filter(model::knowledge_verdicts::Column::Kind.eq(Kind::VetoIdentity.as_str()))
             .exec(&self.conn)
             .await?
             .rows_affected;
