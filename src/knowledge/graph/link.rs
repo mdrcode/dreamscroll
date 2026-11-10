@@ -63,7 +63,14 @@ pub(crate) async fn link(
     let mut stats = LinkStats::default();
     let mut linked: HashMap<i32, i32> = HashMap::with_capacity(decisions.len());
     for decision in &decisions {
-        let entity = apply_decision(graph, &pending, decision).await?;
+        // The guarantee the `Decision` doc makes: the subject is one the Linker was given, and it was
+        // not linked before this batch.
+        anyhow::ensure!(
+            pending.contains(&decision.observation.id),
+            "the linker decided about observation {}, which is not pending in this batch",
+            decision.observation.id
+        );
+        let entity = apply_decision(graph, decision).await?;
         graph.update_projection(entity).await?;
         linked.insert(decision.observation.id, entity);
         stats.record(decision);
@@ -81,25 +88,8 @@ pub(crate) async fn link(
 }
 
 /// Apply one decision: attach the observation to its entity.
-async fn apply_decision(
-    graph: &KnowledgeGraph,
-    pending: &HashSet<i32>,
-    decision: &Decision,
-) -> anyhow::Result<i32> {
+async fn apply_decision(graph: &KnowledgeGraph, decision: &Decision) -> anyhow::Result<i32> {
     let observation = &decision.observation;
-    // The guarantee the `Decision` doc makes: the subject is one the Linker was given.
-    anyhow::ensure!(
-        pending.contains(&observation.id),
-        "the linker decided about observation {}, which is not pending in this illumination",
-        observation.id
-    );
-    if observation.knowledge_entity_id.is_some() {
-        anyhow::bail!(
-            "the linker decided about observation {}, which is already linked",
-            observation.id
-        );
-    }
-
     let entity = match &decision.action {
         Action::Attach(entity) => *entity,
         Action::Create => graph.create(observation).await?.id,
@@ -368,7 +358,7 @@ mod corpus {
     use crate::knowledge::Status;
     use crate::model::{knowledge_entity as entity, user_observed_entity as observation};
     use crate::test_support::db_or_skip;
-    use crate::test_support::fixtures::{self, Capture, entity_count, observe};
+    use crate::test_support::fixtures::{self, entity_count, observe, Capture};
 
     /// Nothing exists for either name yet, and every decision is made before any of them is written,
     /// so neither observation can find the other's entity: the batch is what keeps them apart, with
