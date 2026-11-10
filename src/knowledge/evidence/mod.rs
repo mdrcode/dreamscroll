@@ -24,9 +24,9 @@
 //! veto withdraws it.
 
 pub mod claim;
+pub mod identity;
 pub mod store;
 
-pub use claim::{Claim, ClaimBasis};
-pub use store::{
-    ClaimDraft, DraftIdentity, Evidence, IdentityKey, PlatformLink, Stored, unique_violation,
-};
+pub use claim::{Claim, ClaimBasis, ClaimDraft, Stored};
+pub use identity::{DraftIdentity, IdentityKey, PlatformLink};
+pub use store::Evidence;
