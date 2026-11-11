@@ -284,7 +284,8 @@ The engine exposes only the `pub(crate)` accessor the helpers need: `providers()
 `Resolver` is unchanged: `provider()` and `resolve(&[Model], gateway)`.
 
 The caller owns the graph, cache and allowance. `ResolutionEngine::new` validates the
-reserved-provider invariant and the `replace`/`force` pair once; `resolve` never repeats those checks.
+reserved-provider invariant and the `replace`/`include_already_claimed` pair once; `resolve` never
+repeats those checks.
 `resolve` builds the ephemeral `Gateway` from the cache and allowance, so a fresh allowance gives a
 run its own budget and a shared allowance caps several runs. `None` is cache-only. The gateway is not
 stored: its counters and budget are exactly a run long. `resolve_all_pending` takes the cache
@@ -306,7 +307,8 @@ empty.
   applies its `limit`/`newest_first` parameters, and calls `resolve` once. It does **not** loop
   illuminations: one call over the whole pending set is what preserves the 50-item waves.
 - **`run` disappears.** The CLI's `identity resolve` calls `helper::resolve_all_pending`; `--entity`
-  loads the entity and calls `resolve(&[entity], &cache, allowance)` with the force flag from step 6.
+  loads the entity and calls `resolve(&[entity], &cache, allowance)` with
+  `include_already_claimed` from step 6.
 
 **Scheduling is outside the engine.** A live illumination can call `resolve_illumination` immediately for low latency, or enqueue a resolve task; a periodic worker can call `resolve_all_pending` with a limit every N minutes to amortize transport calls. The cache is per query, so batching changes call count and latency, not hit rate. Corpus runs (`resolve_all_pending`) remain single-writer; a live per-illumination resolve may run beside the link task, but a corpus drain must not.
 

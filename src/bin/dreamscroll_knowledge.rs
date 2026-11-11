@@ -507,7 +507,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         (false, None) => knowledge::identity::DEFAULT_MAX_REQUESTS,
     };
     let options = knowledge::identity::Options {
-        force: args.entity.is_some(),
+        include_already_claimed: args.entity.is_some(),
         replace: args.replace,
     };
     let engine = knowledge::identity::ResolutionEngine::new(

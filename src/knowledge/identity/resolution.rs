@@ -50,17 +50,18 @@ pub trait Resolver: Send + Sync {
 #[derive(Debug, Clone)]
 pub struct Options {
     /// Ask every resolver even when it already claimed the entity. `resolve --entity` sets this;
-    /// already-held identities are no-ops, new ones are added.
-    pub force: bool,
+    /// without it, the per-provider claimed filter makes an entity-scoped run empty. Already-held
+    /// identities are no-ops; new ones are added.
+    pub include_already_claimed: bool,
     /// Retract this provider's old claims in the schemes it answered but did not re-propose.
-    /// Requires `force`; `resolve --entity --replace` sets both.
+    /// Requires `include_already_claimed`; `resolve --entity --replace` sets both.
     pub replace: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
-            force: false,
+            include_already_claimed: false,
             replace: false,
         }
     }
@@ -97,7 +98,7 @@ pub struct ProviderReport {
     pub vetoed: usize,
     /// Claims refused by the per-entity cap or returned outside the batch.
     pub dropped: usize,
-    /// Old claims this provider owned that the forced run did not re-propose.
+    /// Old claims this provider owned that the re-resolve did not re-propose.
     pub replaced: usize,
     /// This provider's share of [`ResolutionReport::traffic`].
     pub traffic: crate::fetch::Stats,
@@ -116,15 +117,16 @@ pub struct ResolutionEngine {
 
 impl ResolutionEngine {
     /// Build a run. Both checks are construction invariants: a reserved provider or a replace
-    /// without force is a wiring error, not something to rediscover on every `resolve`.
+    /// without include_already_claimed is a wiring error, not something to rediscover on every
+    /// `resolve`.
     pub fn new(
         graph: KnowledgeGraph,
         options: Options,
         resolvers: Vec<Box<dyn Resolver>>,
     ) -> anyhow::Result<Self> {
         anyhow::ensure!(
-            !options.replace || options.force,
-            "replace requires a forced resolve"
+            !options.replace || options.include_already_claimed,
+            "replace requires include_already_claimed"
         );
         for resolver in &resolvers {
             anyhow::ensure!(
@@ -225,7 +227,7 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
             // This resolver's own claims, not any authority's: an entity Wikidata answered remains a
             // candidate for IMDb. The batch is computed before any writes, so a claim written below
             // cannot hide the entity from the next resolver.
-            let claimed = if self.engine.options.force {
+            let claimed = if self.engine.options.include_already_claimed {
                 HashSet::new()
             } else {
                 self.evidence
@@ -765,8 +767,8 @@ mod tests {
         );
     }
 
-    /// A forced re-resolution may replace what the same authority said before, but only in the
-    /// scheme it answered.
+    /// A re-resolution that includes already-claimed entities may replace what the same authority
+    /// said before, but only in the scheme it answered.
     #[tokio::test]
     async fn replace_retracts_the_old_claim_it_did_not_repropose() {
         db_or_skip!(db);
@@ -791,7 +793,7 @@ mod tests {
         let engine = ResolutionEngine::new(
             KnowledgeGraph::new(&db),
             Options {
-                force: true,
+                include_already_claimed: true,
                 replace: true,
                 ..Default::default()
             },
