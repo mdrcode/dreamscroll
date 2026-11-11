@@ -154,7 +154,7 @@ The contract around the two methods:
   found nothing — provider failures are counted by the gateway, not returned as errors.
 - **Several claims per entity are normal.** The resolver may return one identity or several, in its own
   priority order. The engine writes every claim the graph accepts; order is preference, not a
-  first-wins rule. `Stored::AlreadyClaimed` becomes per provider once the claim index includes it.
+  first-wins rule. `ClaimOutcome::AlreadyClaimed` becomes per provider once the claim index includes it.
 - **The provider on every `Request` must equal `id()`.** The engine sets the identity's `provider` from
   `id()`; a mismatch would split cache and provenance.
 - **Claims are only for the entities handed in.** The engine selected them; a claim for anything else
@@ -169,9 +169,9 @@ The unique index becomes `(entity, identity, provider) WHERE retracted_at IS NUL
 first-wins:
 
 - **Every accepted claim is written.** `ResolutionReport.entities_resolved` becomes distinct entities with at
-  least one `Stored::Written`.
+  least one `ClaimOutcome::Written`.
 - **Two providers may assert one identity.** The index includes `provider`; otherwise the second
-  authority's claim on `wikidata:Q42` would hit `AlreadyClaimed` and disappear. `Stored::AlreadyClaimed`
+  authority's claim on `wikidata:Q42` would hit `AlreadyClaimed` and disappear. `ClaimOutcome::AlreadyClaimed`
   then means "this provider already said it", not "someone did". `move_claims` dedupes on the same
   three columns.
 - **Selection is per resolver.** An entity is a candidate for a resolver when it has no live claim whose

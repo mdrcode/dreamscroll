@@ -4,8 +4,7 @@
 //! onto one goes through [`KnowledgeGraph`], and the handle itself never leaves this module tree — the
 //! primitives here are private, and the collaborators (`decider`, `blocker`, `evidence`, `verdicts`)
 //! are `pub(super)` because only the passes beside the facade read them. Identity and claim writes are
-//! methods ([`KnowledgeGraph::identity_for_link`], [`KnowledgeGraph::upsert_identity`],
-//! [`KnowledgeGraph::assert`]), so `helper` and the resolver hold a graph, not a store. There is no
+//! [`KnowledgeGraph::claim_identity`], so `helper` and the resolver hold a graph, not a store. There is no
 //! connection getter: `link_illumination` and `proximity` take the pool as an argument, and the two
 //! stores hold their own. Outside `graph`, a caller sees [`KnowledgeGraph`]'s methods and nothing
 //! else.
@@ -19,7 +18,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder
 use super::replay::ReplayReport;
 use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
-use crate::knowledge::evidence::{ClaimDraft, IdentityDraft, Evidence, IdentityKey, Stored};
+use crate::knowledge::evidence::{ClaimDraft, ClaimWrite, Evidence, IdentitySettlement};
 use crate::knowledge::linker::Linker;
 use crate::knowledge::verdicts::{Cause, VerdictStore, VetoReport};
 use crate::model;
@@ -102,26 +101,17 @@ impl KnowledgeGraph {
         get(&self.db.conn, knowledge_entity_id).await
     }
 
-    /// The identity a capture's platform link asserts, created on first sight.
-    ///
-    /// A capture may create an identity, never enrich one: it knows a handle exists, not what the
-    /// thing is. Idempotent, so a re-link is free.
-    pub async fn identity_for_link(&self, key: &IdentityKey) -> anyhow::Result<i32> {
-        self.evidence.identity_for_link(key).await
-    }
-
-    /// Record an authority's answer for an identity, filling gaps in an existing row.
-    pub async fn upsert_identity(&self, draft: &IdentityDraft) -> anyhow::Result<i32> {
-        self.evidence.upsert_identity(draft).await
-    }
-
-    /// Write one claim edge, unless a standing veto names it. The one writer both callers share.
-    pub async fn assert(
+    /// Settle the identity and write the claim edge, unless a standing veto names it.
+    pub async fn claim_identity(
         &self,
-        draft: ClaimDraft<'_>,
+        holder: i32,
+        identity: IdentitySettlement<'_>,
+        claim: ClaimDraft<'_>,
         vetoes: &HashSet<(i32, String, String)>,
-    ) -> anyhow::Result<Stored> {
-        self.evidence.assert(draft, vetoes).await
+    ) -> anyhow::Result<ClaimWrite> {
+        self.evidence
+            .claim_identity(holder, identity, claim, vetoes)
+            .await
     }
 
     /// Apply the recorded decisions to a rebuilt graph. See [`crate::knowledge::verdicts`].

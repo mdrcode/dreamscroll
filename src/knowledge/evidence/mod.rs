@@ -1,32 +1,36 @@
-//! Claims and identities: what a capture asserted, what an authority answered, and who holds it.
+//! Claims and identities: what a capture claimed, what an authority answered, and who holds it.
 //!
+//! - a [`PlatformLink`] is the illuminator's optional platform/handle (plus display name and URL).
+//!   It is not an identity; [`IdentityKey::try_from`] maps it to one when it has a handle.
 //! - an [`IdentityKey`] is the durable name — `(scheme, external_id)`, both folded — that survives a
-//!   rebuild; a capture's platform handle is one source of it.
+//!   rebuild.
 //! - an [`IdentityDraft`] is a row of `knowledge_identities` before it has an id: that key, plus
 //!   whoever answered and what they said.
-//! - a [`Claim`] is an entity's assertion of an identity — the edge of the many-to-many, carrying
-//!   what the question was about ([`ClaimBasis`]) and which capture asked.
+//! - a [`Claim`] is an entity's claim to an identity — the edge of the many-to-many, carrying what
+//!   the question was about ([`ClaimBasis`]) and which capture asked.
 //!
-//! Two phases, one implementation of each, and both callers use both.
+//! Two phases, one operation, and both callers use it.
 //!
-//! 1. **ingest** — [`Evidence::identity_for_link`] from a capture, [`Evidence::upsert_identity`]
-//!    from an answer.
-//!    A capture creates an identity and never enriches one; only an answer knows what a thing is.
-//! 2. **assert** — [`Evidence::assert`] writes the edge, asking the veto at the one place a claim
-//!    becomes a row. It is the same call for a capture's handle and an authority's cross-reference;
-//!    what differs is a value ([`ClaimDraft`]'s provenance and basis), not a second code path.
+//! 1. **settle** — [`Evidence::ensure_identity`] creates only; [`Evidence::enrich_identity`] fills
+//!    gaps. [`IdentitySettlement`] names which behaviour the caller needs.
+//! 2. **claim** — [`Evidence::claim_identity`] settles the identity, asks the veto, and writes the
+//!    edge, returning [`ClaimWrite`] with the claim id. [`ClaimDraft`] carries the edge's provenance
+//!    and basis; the operation supplies the resolved identity id.
 //!
 //! An identity may have several holders: one Wikidata item can name an album and cover its songs.
 //! This module reports them and leaves "are these one thing?" to `proximity`.
 //!
-//! Every change to `knowledge_claims` is here: `assert` inserts an edge, `move_claims` re-points one
-//! on a fold (and drops the duplicate the unique index would refuse), and `retract` marks it when a
-//! veto withdraws it.
+//! Every change to `knowledge_claims` is here: `claim_identity` writes an edge, `move_claims`
+//! re-points one on a fold (and drops the duplicate the unique index would refuse), and `retract`
+//! marks it when a veto withdraws it.
 
 pub mod claim;
 pub mod identity;
+pub mod selection;
 pub mod store;
 
-pub use claim::{Claim, ClaimBasis, ClaimDraft, Stored};
-pub use identity::{IdentityDraft, ILLUMINATOR, IdentityKey};
-pub use store::Evidence;
+pub use crate::illumination::v2::PlatformLink;
+pub use claim::{Claim, ClaimBasis, ClaimDraft};
+pub use identity::{ILLUMINATOR, IdentityDraft, IdentityKey, MissingHandle, platform_link};
+pub use selection::ClaimSelection;
+pub use store::{ClaimOutcome, ClaimWrite, Evidence, IdentitySettlement};

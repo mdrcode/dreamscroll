@@ -131,10 +131,10 @@ methods on the model, beside its columns.
 
 `link.rs` is the executor. It loads the rows, drives them through the blocker and linker, and applies
 the effects: decisions first, writes second. It knows nothing about identities or claims — the
-capture's handle is asserted afterwards, by `helper::assert_claims` (`identity_for_link`, then
-`assert`, then a second projection), once the observations have homes. Every decision is made before
-any is applied, so the illumination's own claims are invisible to its own decisions: two observations
-that assert one previously unknown handle are both told to create, and become two entities holding
+capture's handle is claimed afterwards, by `helper::write_capture_claims` (`claim_identity`, then a
+second projection), once the observations have homes. Every decision is made before any is applied,
+so the illumination's own claims are invisible to its own decisions: two observations that claim one
+previously unknown handle are both told to create, and become two entities holding
 one identity. `merge` refuses that pair (shared illumination), so the scan records it once and it
 stays open — the terminal state the merge-side rule produces everywhere.
 
@@ -210,7 +210,7 @@ agentic resolver, whose tool calls happen inside a provider's runtime, is the on
 the same gateway by convention, and it is expected to fail at that rather than to pretend.)
 
 Identities **accumulate**. Wikidata supplies a QID, a capture's handle sits beside it as a separate
-identity, and a second authority may assert the same or another identity. The engine selects
+identity, and a second authority may claim the same or another identity. The engine selects
 candidates per resolver, writes every claim the graph accepts, and applies an entity's claims before
 projecting it. The confidence counts the handle chain once and each text authority once — the
 multi-authority contract is in `plan/knowledge-resolution.md`.
@@ -228,7 +228,7 @@ knowledge_identities   the thing the world names: scheme + external id, and the 
                        provider is a resolver id, `illuminator`, or `model`
 knowledge_claims       this entity is that thing — the edge, with `basis` (text or handle),
                        `provider` and `method`; several entities may claim one identity, and
-                       several providers may assert one identity on one entity
+                       several providers may claim one identity on one entity
 knowledge_proximities  two entities the graph considers close, with the score that a pass
                        computed — one scan's batch, replaced wholesale by the next
 knowledge_verdicts     a person's decision, and what decided it — the modification log: a
@@ -240,13 +240,13 @@ Only the first two are about the world. A proximity is a judgement about our own
 mutation of them. `enrichment` and `rejection` stay reserved vocabulary, not tables.
 
 Sharing an identity is a **candidate**, not a verdict — that is why the uniqueness lives on the edge
-(one entity asserts an identity once) rather than on the identity. `proximity` asks the question:
+(one entity claims an identity once) rather than on the identity. `proximity` asks the question:
 for each identity with two or more holders, score the holders pairwise with the `Scoring` the pass is
 handed, fold the pairs that look like one thing, and queue the ones the shared-illumination rule
 refuses.
 
 The only uniqueness is per entity: one live claim per `(entity, identity)`, so retracting frees that
-pair's slot and re-asserting it is a no-op. Nothing forbids two entities holding one identity — that is
+pair's slot and re-claiming it is a no-op. Nothing forbids two entities holding one identity — that is
 the many-to-one the model exists for.
 
 `proximity` runs in two passes. **Scan** derives the candidate set and replaces the table with
@@ -338,7 +338,7 @@ one.
 | `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), the corroboration bonus |
 | `graph/link.rs` | `link`: a batch of observations in, decisions applied and projected out — plus the `observation → entity` mapping and `LinkReport`. It knows nothing about identities or claims |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `evidence/` | the vocabulary — `Claim`, `ClaimBasis`, `ClaimDraft`, `Stored` in `claim.rs`; `IdentityKey` (with its platform-link constructor) and `IdentityDraft` in `identity.rs` — and the two phases of a claim in `store.rs`: `identity_for_link` settles a capture's identity (create only) and `upsert_identity` an answer's (fill gaps); `assert` writes the edge, asking the veto at the one place a claim becomes a row. `store.rs` also owns the other two changes to the table, `move_claims` on a fold and `retract` on a veto, and the reads (`held_by_identity`, `awaiting_authority`) |
+| `evidence/` | the vocabulary — `PlatformLink`, `IdentityKey`, `IdentityDraft`, `IdentitySettlement`, `Claim`, `ClaimBasis`, `ClaimDraft`, `ClaimWrite`, `ClaimOutcome` — and the two phases of a claim in `store.rs`: `ensure_identity` (create only) and `enrich_identity` (fill gaps) settle the row, while `claim_identity` adds the edge and returns the claim id. `store.rs` also owns `move_claims` on a fold, `retract` on a veto, and `held_by_identity`; `selection.rs` owns the candidate reads (`awaiting_authority`, `claimed_by`) |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors (`new`, `with_linking`, `with_heuristic_linking`) and the operations that own a write path — link, merge, replay, reproject, the veto commands. It holds the connection, the blocker, the decider and the evidence — no policy of its own |
 | `graph/replay.rs` | the verdict effects: `replay` (merges, then withdrawals) and the withdrawal the veto command shares |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores. `reproject` repairs a scope of entities, with `Stale` the "live, no live claim" rule |

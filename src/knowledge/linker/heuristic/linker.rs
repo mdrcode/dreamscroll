@@ -8,7 +8,7 @@
 
 use crate::model;
 
-use crate::knowledge::evidence::Evidence;
+use crate::knowledge::evidence::{Evidence, IdentityKey, platform_link};
 use crate::knowledge::linker::{Action, Decision, Linker};
 use crate::knowledge::scoring::Scoring;
 
@@ -85,8 +85,14 @@ impl Linker for HeuristicLinker {
             if observation.knowledge_entity_id.is_some() {
                 continue;
             }
-            // Already a row: the executor imported this illumination's identities before deciding.
-            let identity = evidence.identity_of(&observation).await?;
+            // A platform link names an identity only if it has a handle and that identity row
+            // already exists; the observation itself has no identity.
+            let key =
+                platform_link(&observation).and_then(|link| IdentityKey::try_from(&link).ok());
+            let identity = match key {
+                Some(key) => evidence.find_identity_id(&key).await?,
+                None => None,
+            };
 
             // `held_by_identity` returns the most substantiated first; the rest go to the scan.
             if let Some(identity_id) = identity
@@ -126,8 +132,8 @@ impl Linker for HeuristicLinker {
 mod tests {
     use super::*;
 
-    use crate::test_support::db_or_skip;
     use crate::model;
+    use crate::test_support::db_or_skip;
 
     /// Rows that were never persisted: `SqlBlocker` reads `knowledge_blocking_index`, and these stubs have
     /// no rows to read. The linker only needs something that answers candidates.

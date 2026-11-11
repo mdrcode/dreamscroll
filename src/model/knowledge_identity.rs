@@ -33,7 +33,7 @@ pub struct Model {
     /// Who supplied the row: `illuminator` when a capture showed the handle, a resolver's id when one
     /// answered, `model` when a guess produced it. For an authority this is the same id
     /// `Request::provider` uses; `illuminator` and `model` never appear in `fetch_cache`. It follows
-    /// the current answer (`upsert_identity`), so it is not the first sighting — the claim records
+    /// the current answer (`enrich_identity`), so it is not the first sighting — the claim records
     /// that.
     pub provider: String,
     /// How the current answer was reached: `capture` when a capture showed the handle, a Wikidata

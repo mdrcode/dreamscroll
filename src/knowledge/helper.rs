@@ -1,4 +1,4 @@
-//! The illumination composition: what to link, what to assert, and what to resolve.
+//! The illumination composition: what to link, what to claim, and what to resolve.
 //!
 //! [`KnowledgeGraph::link`] knows only about a collection of observations, and
 //! [`ResolutionEngine::resolve`] knows only about a collection of entities. Everything that knows they
@@ -16,7 +16,9 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
 use crate::database::DbHandle;
 use crate::fetch::FetchCache;
-use crate::knowledge::evidence::{ClaimDraft, Evidence, IdentityKey, Stored};
+use crate::knowledge::evidence::{
+    ClaimDraft, ClaimOutcome, ClaimSelection, IdentityDraft, IdentitySettlement, platform_link,
+};
 use crate::knowledge::graph::{KnowledgeGraph, LinkReport};
 use crate::knowledge::identity::{ResolutionEngine, ResolutionReport};
 use crate::model;
@@ -41,7 +43,7 @@ pub async fn link_illumination(
         .collect();
 
     let (mut report, linked) = graph.link(&observations).await?;
-    report.vetoed = assert_claims(graph, &observations, &linked).await?;
+    report.vetoed = write_capture_claims(graph, &observations, &linked).await?;
     Ok(report)
 }
 
@@ -166,12 +168,12 @@ pub async fn resolve_all_pending(
     limit: Option<usize>,
     newest_first: bool,
 ) -> anyhow::Result<ResolutionReport> {
-    let evidence = Evidence::from_handle(db);
+    let selection = ClaimSelection::from_handle(db);
     // One provider's pending set, then the union: an entity Wikidata answered is still pending for
     // IMDb. The limit is global, so a second resolver does not silently double the run.
     let mut pending: BTreeMap<i32, model::knowledge_entity::Model> = BTreeMap::new();
     for provider in engine.providers() {
-        for entity in evidence
+        for entity in selection
             .awaiting_authority(&[provider], None, newest_first)
             .await?
         {
@@ -199,11 +201,11 @@ pub async fn resolve_all_pending(
     engine.resolve(&entities, cache, allowance).await
 }
 
-/// Assert the handle each linked observation showed, and project where it landed.
+/// Claim the handle each linked observation showed, and project where it landed.
 ///
 /// The only place a capture's identity and claim are written. Returns how many a standing veto
 /// refused.
-async fn assert_claims(
+async fn write_capture_claims(
     graph: &KnowledgeGraph,
     observations: &[model::user_observed_entity::Model],
     linked: &HashMap<i32, i32>,
@@ -214,16 +216,18 @@ async fn assert_claims(
         let Some(entity) = linked.get(&observation.id).copied() else {
             continue;
         };
-        if let Some(key) = IdentityKey::from_platform_link(observation) {
-            let identity = graph.identity_for_link(&key).await?;
-            if graph
-                .assert(
-                    ClaimDraft::capture(entity, observation, &key, identity),
+        if let Some(link) = platform_link(observation)
+            && let Ok(identity) = IdentityDraft::try_from(&link)
+        {
+            let claimed = graph
+                .claim_identity(
+                    entity,
+                    IdentitySettlement::CreateOnly(&identity),
+                    ClaimDraft::capture(observation),
                     &vetoes,
                 )
-                .await?
-                == Stored::Vetoed
-            {
+                .await?;
+            if claimed.outcome == ClaimOutcome::Vetoed {
                 vetoed += 1;
             }
         }

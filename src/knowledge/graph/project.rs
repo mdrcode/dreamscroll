@@ -278,13 +278,23 @@ mod tests {
     }
 
     async fn claim(db: &DbHandle, id: i32, scheme: &str, value: &str) {
-        fixtures::claim(db, id, scheme, value, "test", None, None, model::knowledge_claims::ClaimBasis::Text).await;
+        fixtures::claim(
+            db,
+            id,
+            scheme,
+            value,
+            "test",
+            None,
+            None,
+            model::knowledge_claims::ClaimBasis::Text,
+        )
+        .await;
     }
 
     async fn proximity(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
         let claimant = fixtures::knowledge_entity_with_member(db, "a claimant").await;
         let identity = crate::knowledge::evidence::Evidence::from_handle(db)
-            .upsert_identity(&crate::knowledge::evidence::IdentityDraft {
+            .enrich_identity(&crate::knowledge::evidence::IdentityDraft {
                 scheme: scheme.to_string(),
                 external_id: value.to_string(),
                 provider: "test".to_string(),
@@ -518,7 +528,10 @@ mod tests {
 
         store(&db).update_projection(id).await.unwrap();
 
-        assert_eq!(load(&db, id).await.status, model::knowledge_entity::Status::Provisional);
+        assert_eq!(
+            load(&db, id).await.status,
+            model::knowledge_entity::Status::Provisional
+        );
     }
 
     #[tokio::test]
@@ -541,7 +554,10 @@ mod tests {
 
         store(&db).update_projection(id).await.unwrap();
 
-        assert_eq!(load(&db, id).await.status, model::knowledge_entity::Status::Provisional);
+        assert_eq!(
+            load(&db, id).await.status,
+            model::knowledge_entity::Status::Provisional
+        );
     }
 
     /// The repair scope is "live and holding no live claim": a claimed entity is not stale, and a

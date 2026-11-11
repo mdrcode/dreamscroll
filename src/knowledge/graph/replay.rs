@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use crate::knowledge::evidence::IdentityKey;
 use crate::knowledge::verdicts::{Cause, pair_key};
 use crate::model;
 
@@ -133,7 +134,11 @@ pub(super) async fn withdraw_entity(
     let Some(entity_id) = graph.verdicts.canonical(entity_id).await? else {
         return Ok(0);
     };
-    let Some(identity_id) = graph.evidence.identity_id(scheme, external).await? else {
+    let key = IdentityKey {
+        scheme: scheme.to_string(),
+        external_id: external.to_string(),
+    };
+    let Some(identity_id) = graph.evidence.find_identity_id(&key).await? else {
         return Ok(0);
     };
     let retracted = graph.evidence.retract(entity_id, identity_id).await?;

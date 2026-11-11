@@ -43,6 +43,14 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   deleting it), `project`'s status (two values), then `database/indexes/knowledge.rs` and the migration
   in `sync_schema.rs` — both contain workarounds worth knowing about.
   The old vocabulary is gone: `contested`, `collisions`, `shared_identity`, `ClaimOutcome::HeldBy`.
+- [ ] **Revisit/rename `ClaimBasis`.** The name reads like the basis of belief — evidence, citation,
+  source — but it only records what the claim was reached *from*: `Handle` or `Text`. Its one consumer
+  is confidence aggregation (`combine`), where a handle chain must count once no matter how many
+  providers carry it, while text counts once per claiming authority. Candidate names:
+  `ClaimInput`, `ClaimQuestion`, `ClaimModality`; `modality` is plausible but may imply media types
+  (text/image/audio), which this is not. Decide the concept first, then rename the Rust type; the DB
+  column and value strings need not move with it. Do not fold into the attestation work — references
+  are not claim inputs. Tracked at user request 2026-11-11.
 - [ ] **Refuse a merge between incompatible types.** `merge` is driven by identity equality alone:
   `resolve` finds two entities holding the same `(scheme, id)` and folds them, with no check that they
   agree about what kind of thing they are. Six of the eight live collisions are exactly that — a
@@ -109,15 +117,14 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   declined, which `project` then leaves `provisional` for free. Deferred with it: whether a refusal
   also writes a proximity (which would flag the established entity for a look); today
   "shares an identity" is a proximity, and diluting it is a separatee decision.
-- [ ] **Give evidence claims a repository.** `link` and `resolve` each hand-roll the same
-  three outcomes around `idx-knowledge_evidence_identity`: insert, unique violation, and
-  "another entity already holds this `(scheme, id)`". Both duplicate the violation check
-  (`is_unique_violation` / `unique_violation`) and both call `identity_owner` directly.
-  A `knowledge::evidence::Evidence<'a>` over a connection — `owner(scheme, id)`,
-  `claim(entity, &Claim) -> Accepted | HeldBy(i32)` — would own the storage while callers keep
-  their policy (`link` deletes the duplicate it just made; `resolve` merges or records a
-  collision). Open question: whether `resolve::Claim` moves into `evidence` too, since the
-  platform claim `link` writes is the same row shape with different fields filled.
+- [ ] **Make `Evidence` transaction-scoped.** The two-phase write is now
+  `Evidence::claim_identity` returning `ClaimWrite { identity_id, claim_id, outcome }`, and candidate
+  selection lives in `ClaimSelection`; callers no longer hand-roll the identity write and claim
+  write.
+  What remains is the connection: `Evidence` owns a `DatabaseConnection`, while `move_claims`
+  already takes a `ConnectionTrait`. To wrap `link_illumination`'s identity + claim + attach +
+  projection in one transaction, make `Evidence` borrow the connection (or take `&C` per
+  operation), so `claim_identity` and `move_claims` share the same path.
 - [ ] **Score the entity-resolution precision sheet.** 100 labelled rows sit in
   `localdev/analysis/entity-promotion/evidence/review/precision_sheet.csv`
   (45 identified / 25 ranked / 15 ambiguous / 15 unidentified). Precision ≥ 0.90

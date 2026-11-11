@@ -8,7 +8,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::fetch::{self, Allowance, FetchCache, Gateway, Refusal};
 use crate::knowledge::KnowledgeGraph;
-use crate::knowledge::evidence::{Claim, ClaimDraft, Evidence, IdentityDraft, Stored};
+use crate::knowledge::evidence::{
+    Claim, ClaimDraft, ClaimOutcome, Evidence, IdentityDraft, IdentitySettlement,
+};
 use crate::model;
 
 use super::{MAX_CLAIMS_PER_ENTITY, RESERVED_PROVIDER_IDS};
@@ -203,7 +205,10 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
             let already_claimed = if self.engine.options.include_already_claimed {
                 HashSet::new()
             } else {
-                self.evidence.claimed_by(resolver.id(), &entity_ids).await?
+                self.evidence
+                    .selection()
+                    .claimed_by(resolver.id(), &entity_ids)
+                    .await?
             };
             let batch: Vec<model::knowledge_entity::Model> = entities
                 .iter()
@@ -267,35 +272,29 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                 let provider = self.engine.resolvers[resolver_index].id();
                 let draft = IdentityDraft::from_claim(claim, provider);
                 let key = draft.key();
-                let identity_id = self.engine.graph.upsert_identity(&draft).await?;
-                let stored = self
+                let claimed = self
                     .engine
                     .graph
-                    .assert(
-                        ClaimDraft::authority(
-                            knowledge_entity_id,
-                            &key,
-                            identity_id,
-                            basis,
-                            provider,
-                            method,
-                        ),
+                    .claim_identity(
+                        knowledge_entity_id,
+                        IdentitySettlement::Enrich(&draft),
+                        ClaimDraft::authority(basis, provider, method),
                         &self.vetoes,
                     )
                     .await?;
-                match stored {
-                    Stored::Written => {
+                match claimed.outcome {
+                    ClaimOutcome::Written => {
                         self.report.claims_written += 1;
                         self.provider_reports[resolver_index].claims_written += 1;
                         self.resolved.insert(knowledge_entity_id);
                     }
-                    Stored::Vetoed => {
+                    ClaimOutcome::Vetoed => {
                         self.report.claims_vetoed += 1;
                         self.provider_reports[resolver_index].claims_vetoed += 1;
                     }
-                    Stored::AlreadyClaimed => {}
+                    ClaimOutcome::AlreadyClaimed => {}
                 }
-                if self.engine.options.replace && stored != Stored::Vetoed {
+                if self.engine.options.replace && claimed.outcome != ClaimOutcome::Vetoed {
                     keep_by_resolver
                         .entry(resolver_index)
                         .or_default()
@@ -415,12 +414,12 @@ mod tests {
         let second =
             crate::test_support::fixtures::knowledge_entity_with_member(&db, "Second").await;
 
-        let evidence = crate::knowledge::evidence::Evidence::from_handle(&db);
-        let ascending = evidence
+        let selection = crate::knowledge::evidence::ClaimSelection::from_handle(&db);
+        let ascending = selection
             .awaiting_authority(&["wikidata"], Some(2), false)
             .await
             .unwrap();
-        let descending = evidence
+        let descending = selection
             .awaiting_authority(&["wikidata"], Some(2), true)
             .await
             .unwrap();

@@ -4,13 +4,27 @@
 //! The row itself lives in `model::knowledge_identity`; these are the shapes `Evidence` writes it
 //! from, and the pair every durable reference uses.
 
-use super::claim::Claim;
+use crate::illumination::v2::PlatformLink;
 use crate::knowledge::normalize;
 use crate::model;
+
+use super::claim::Claim;
 
 /// The provider of an identity a capture showed: the illuminator produced the link, not the
 /// platform it names. Reserved — a resolver may never take this id.
 pub const ILLUMINATOR: &str = "illuminator";
+
+/// The platform link an observation's flattened columns describe, if it has a platform.
+///
+/// This is not an identity. It is the observation's optional link; only [`IdentityKey`]'s
+/// conversion makes it one.
+pub fn platform_link(observation: &model::user_observed_entity::Model) -> Option<PlatformLink> {
+    PlatformLink::from_columns(
+        observation.platform.clone(),
+        observation.platform_handle.clone(),
+        observation.platform_display_name.clone(),
+    )
+}
 
 /// An identity's durable name: the pair a rebuild can reproduce.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -19,14 +33,17 @@ pub struct IdentityKey {
     pub external_id: String,
 }
 
-impl IdentityKey {
-    /// The key the platform link an observation carries names: `(platform, handle)`, both folded, or
-    /// `None` when the link is absent.
-    pub fn from_platform_link(observation: &model::user_observed_entity::Model) -> Option<Self> {
-        let platform = observation.platform.as_deref()?;
-        let handle = observation.platform_handle.as_deref()?;
-        Some(Self {
-            scheme: normalize::comparable(platform),
+/// A platform link can exist without a handle (a display name alone), but an identity key cannot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct MissingHandle;
+
+impl TryFrom<&PlatformLink> for IdentityKey {
+    type Error = MissingHandle;
+
+    fn try_from(link: &PlatformLink) -> Result<Self, Self::Error> {
+        let handle = link.handle().ok_or(MissingHandle)?;
+        Ok(Self {
+            scheme: normalize::comparable(link.platform_name()),
             external_id: normalize::comparable(handle),
         })
     }
@@ -51,21 +68,26 @@ pub struct IdentityDraft {
     pub classes: Vec<String>,
 }
 
-impl IdentityDraft {
-    /// An identity known only from a capture: the handle, and nothing about it.
-    pub fn from_capture(key: &IdentityKey) -> Self {
-        Self {
-            scheme: key.scheme.clone(),
-            external_id: key.external_id.clone(),
+impl TryFrom<&PlatformLink> for IdentityDraft {
+    type Error = MissingHandle;
+
+    /// An identity known only from a platform link: the key, and nothing about the thing.
+    fn try_from(link: &PlatformLink) -> Result<Self, Self::Error> {
+        let key = IdentityKey::try_from(link)?;
+        Ok(Self {
+            scheme: key.scheme,
+            external_id: key.external_id,
             provider: ILLUMINATOR.to_string(),
             method: Some("capture".to_string()),
             confidence: None,
             label: None,
             description: None,
             classes: Vec::new(),
-        }
+        })
     }
+}
 
+impl IdentityDraft {
     /// The answer an authority gave: it knows what the thing is, not which capture asked.
     pub fn from_claim(claim: Claim, provider: &str) -> Self {
         Self {
@@ -86,5 +108,39 @@ impl IdentityDraft {
             scheme: self.scheme.clone(),
             external_id: self.external_id.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn observation(
+        platform: Option<&str>,
+        handle: Option<&str>,
+    ) -> model::user_observed_entity::Model {
+        let mut observation =
+            crate::test_support::fixtures::stub_observation(1, "Billy Bob", "real_person");
+        observation.platform = platform.map(str::to_string);
+        observation.platform_handle = handle.map(str::to_string);
+        observation
+    }
+
+    #[test]
+    fn a_platform_link_maps_to_a_folded_identity_key() {
+        let observation = observation(Some("instagram"), Some("BillyBob"));
+        let link = platform_link(&observation).expect("a platform link");
+        let key = IdentityKey::try_from(&link).expect("a handle");
+        assert_eq!(key.scheme, "instagram");
+        assert_eq!(key.external_id, "billybob");
+    }
+
+    #[test]
+    fn a_platform_is_required_for_a_link_and_a_handle_for_a_key() {
+        assert!(platform_link(&observation(None, Some("billybob"))).is_none());
+
+        let display_only = platform_link(&observation(Some("instagram"), None))
+            .expect("a platform is enough for a link");
+        assert_eq!(IdentityKey::try_from(&display_only), Err(MissingHandle));
     }
 }

@@ -41,20 +41,18 @@ pub async fn observe(
     platform: Option<&str>,
     handle: Option<&str>,
 ) -> i32 {
-    model::user_observed_entity::Entity::insert(
-        model::user_observed_entity::ActiveModel {
-            user_id: Set(capture.user_id),
-            capture_id: Set(capture.capture_id),
-            illumination_id: Set(capture.illumination_id),
-            position: Set(position),
-            name: Set(name.to_string()),
-            entity_type: Set(entity_type.to_string()),
-            description: Set(description.map(str::to_string)),
-            platform: Set(platform.map(str::to_string)),
-            platform_handle: Set(handle.map(str::to_string)),
-            ..Default::default()
-        },
-    )
+    model::user_observed_entity::Entity::insert(model::user_observed_entity::ActiveModel {
+        user_id: Set(capture.user_id),
+        capture_id: Set(capture.capture_id),
+        illumination_id: Set(capture.illumination_id),
+        position: Set(position),
+        name: Set(name.to_string()),
+        entity_type: Set(entity_type.to_string()),
+        description: Set(description.map(str::to_string)),
+        platform: Set(platform.map(str::to_string)),
+        platform_handle: Set(handle.map(str::to_string)),
+        ..Default::default()
+    })
     .exec(&db.conn)
     .await
     .expect("observation should insert")
@@ -71,19 +69,17 @@ pub async fn attached(
     entity_type: &str,
     knowledge_entity_id: i32,
 ) -> i32 {
-    model::user_observed_entity::Entity::insert(
-        model::user_observed_entity::ActiveModel {
-            user_id: Set(capture.user_id),
-            capture_id: Set(capture.capture_id),
-            illumination_id: Set(capture.illumination_id),
-            position: Set(position),
-            name: Set(name.to_string()),
-            entity_type: Set(entity_type.to_string()),
-            description: Set(description.map(str::to_string)),
-            knowledge_entity_id: Set(Some(knowledge_entity_id)),
-            ..Default::default()
-        },
-    )
+    model::user_observed_entity::Entity::insert(model::user_observed_entity::ActiveModel {
+        user_id: Set(capture.user_id),
+        capture_id: Set(capture.capture_id),
+        illumination_id: Set(capture.illumination_id),
+        position: Set(position),
+        name: Set(name.to_string()),
+        entity_type: Set(entity_type.to_string()),
+        description: Set(description.map(str::to_string)),
+        knowledge_entity_id: Set(Some(knowledge_entity_id)),
+        ..Default::default()
+    })
     .exec(&db.conn)
     .await
     .expect("observation should insert")
@@ -163,7 +159,7 @@ pub async fn claim(
     basis: model::knowledge_claims::ClaimBasis,
 ) {
     let identity = crate::knowledge::evidence::Evidence::from_handle(db)
-        .upsert_identity(&crate::knowledge::evidence::IdentityDraft {
+        .enrich_identity(&crate::knowledge::evidence::IdentityDraft {
             scheme: scheme.to_string(),
             external_id: external_id.to_string(),
             provider: provider.to_string(),
