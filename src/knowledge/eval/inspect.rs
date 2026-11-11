@@ -68,7 +68,7 @@ pub struct Step {
 pub struct Claim {
     pub identity: String,
     pub label: Option<String>,
-    pub asserted_by: String,
+    pub provider: String,
     pub method: Option<String>,
 }
 
@@ -182,7 +182,7 @@ async fn ladder(
         // The last resort asks the *same* title question again, so without a label the two steps
         // would look like a duplicate.
         let kind = match rung {
-            plan::Rung::SurfaceOnly => format!("{} (surface)", request.kind),
+            plan::Step::SurfaceTitle => format!("{} (surface)", request.kind),
             _ => request.kind.to_string(),
         };
         let lookup = cache
@@ -211,7 +211,7 @@ async fn ladder(
             };
             let claim = match rung {
                 // The last resort does not rank: it takes the article bearing this exact name.
-                plan::Rung::SurfaceOnly => match parse::admit(entity, &raw) {
+                plan::Step::SurfaceTitle => match parse::admit(entity, &raw) {
                     Ok(candidates) => parse::surface_only(entity, &candidates, &request),
                     Err(gate) => {
                         refusal = gate;
@@ -223,8 +223,8 @@ async fn ladder(
                     .next(),
             };
             claim.map(|claim| {
-                vetoed = vetoes.contains(&(entity.id, claim.scheme.clone(), claim.id.clone()));
-                (claim.id, claim.method)
+                vetoed = vetoes.contains(&(entity.id, claim.scheme.clone(), claim.external_id.clone()));
+                (claim.external_id, claim.method)
             })
         } else {
             None
@@ -330,7 +330,7 @@ impl Report {
             "claim": self.claim.as_ref().map(|claim| serde_json::json!({
                 "identity": claim.identity,
                 "label": claim.label,
-                "asserted_by": claim.asserted_by,
+                "provider": claim.provider,
                 "method": claim.method,
             })),
         })
@@ -359,7 +359,7 @@ async fn current_claim(db: &DbHandle, id: i32) -> anyhow::Result<Option<Claim>> 
         .find_with_related(model::knowledge_identity::Entity)
         .all(&db.conn)
         .await?;
-    let Some((_, identities)) = rows
+    let Some((claim, identities)) = rows
         .into_iter()
         .find(|(_, identities)| identities.iter().any(|identity| identity.scheme == "wikidata"))
     else {
@@ -374,8 +374,8 @@ async fn current_claim(db: &DbHandle, id: i32) -> anyhow::Result<Option<Claim>> 
     Ok(Some(Claim {
         identity: identity.external_id,
         label: identity.label,
-        asserted_by: identity.asserted_by,
-        method: identity.method,
+        provider: claim.provider,
+        method: claim.method,
     }))
 }
 

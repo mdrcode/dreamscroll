@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 33;
+const REQUIRED_SCHEMA_VERSION: i32 = 35;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -201,6 +201,68 @@ async fn rename_blocking_index_table<C: ConnectionTrait>(conn: &C) -> Result<(),
     Ok(())
 }
 
+/// Schema 34 renames `knowledge_identities.asserted_by` to `provider`, and changes the value a
+/// capture-written identity carries from `platform` to `illuminator`.
+///
+/// `provider` is the source of the row: an authority id, `illuminator` for a link a capture showed,
+/// or `model` for a guess. The old value named the platform, which answered nothing — the platform
+/// is the scheme. Runs before the registry, which would otherwise create a `provider` column beside
+/// the populated old one. Guarded, and the backfill is idempotent.
+async fn rename_identity_provider<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $sync$ \
+         BEGIN \
+           IF EXISTS (SELECT 1 FROM information_schema.columns \
+                       WHERE table_schema = current_schema() \
+                         AND table_name = 'knowledge_identities' \
+                         AND column_name = 'asserted_by') THEN \
+             ALTER TABLE knowledge_identities RENAME COLUMN asserted_by TO provider; \
+           END IF; \
+           IF EXISTS (SELECT 1 FROM pg_constraint \
+                       WHERE conname = 'knowledge_identities_asserted_by_not_null') THEN \
+             ALTER TABLE knowledge_identities \
+               RENAME CONSTRAINT knowledge_identities_asserted_by_not_null \
+               TO knowledge_identities_provider_not_null; \
+           END IF; \
+           IF to_regclass('knowledge_identities') IS NOT NULL THEN \
+             UPDATE knowledge_identities SET provider = 'illuminator' WHERE provider = 'platform'; \
+           END IF; \
+         END $sync$",
+    )
+    .await?;
+    Ok(())
+}
+
+/// Schema 35 puts provenance on the claim: `provider` and `method`.
+///
+/// Existing capture claims become `illuminator` / `capture`; authority claims inherit the identity's
+/// provider and method, which was the only place the answer's provenance lived before. The unique
+/// index then gains `provider`, so two authorities may assert one identity.
+async fn add_claim_provenance<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $sync$ \
+         BEGIN \
+           IF to_regclass('knowledge_claims') IS NOT NULL THEN \
+             ALTER TABLE knowledge_claims ADD COLUMN IF NOT EXISTS provider text; \
+             ALTER TABLE knowledge_claims ADD COLUMN IF NOT EXISTS method text; \
+             UPDATE knowledge_claims c \
+                SET provider = COALESCE(c.provider, CASE \
+                        WHEN c.user_observed_entity_id IS NOT NULL THEN 'illuminator' \
+                        ELSE i.provider END), \
+                    method = COALESCE(c.method, CASE \
+                        WHEN c.user_observed_entity_id IS NOT NULL THEN 'capture' \
+                        ELSE i.method END) \
+               FROM knowledge_identities i \
+              WHERE i.id = c.knowledge_identity_id; \
+             UPDATE knowledge_claims SET provider = 'illuminator' WHERE provider IS NULL; \
+             ALTER TABLE knowledge_claims ALTER COLUMN provider SET NOT NULL; \
+           END IF; \
+         END $sync$",
+    )
+    .await?;
+    Ok(())
+}
+
 /// Schema 33 finishes the object renames left behind by schemas 30–32, and drops the two legacy
 /// tables that no model or command reads.
 ///
@@ -361,6 +423,8 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             rename_cache_table(transaction).await?;
             rename_blocking_index_table(transaction).await?;
             rename_stale_objects(transaction).await?;
+            rename_identity_provider(transaction).await?;
+            add_claim_provenance(transaction).await?;
             drop_legacy_tables(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             indexes::knowledge::before_schema_sync(transaction).await?;

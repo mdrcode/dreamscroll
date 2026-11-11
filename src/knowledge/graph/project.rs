@@ -126,8 +126,8 @@ pub(super) async fn project<C: ConnectionTrait>(
         ),
     };
 
-    // A claim is the edge; who answered for the identity, and how surely, is on the identity.
-    let claims: Vec<(ClaimBasis, Option<f32>)> = model::knowledge_claims::Entity::find()
+    // A claim is the edge; who asserted it is on the edge, and how surely, on the identity.
+    let claims: Vec<(ClaimBasis, String, Option<f32>)> = model::knowledge_claims::Entity::find()
         .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(knowledge_entity_id))
         .filter(model::knowledge_claims::Column::RetractedAt.is_null())
         .join(
@@ -136,8 +136,9 @@ pub(super) async fn project<C: ConnectionTrait>(
         )
         .select_only()
         .column(model::knowledge_claims::Column::Basis)
+        .column(model::knowledge_claims::Column::Provider)
         .column(model::knowledge_identity::Column::Confidence)
-        .into_tuple::<(ClaimBasis, Option<f32>)>()
+        .into_tuple::<(ClaimBasis, String, Option<f32>)>()
         .all(conn)
         .await?;
     // Status is one axis: how well substantiated the entity is. Whether it shares an identity with
@@ -145,7 +146,11 @@ pub(super) async fn project<C: ConnectionTrait>(
     // granularity — a third status value conflated the two and had to be re-projected on every scan.
     let status = model::knowledge_entity::Status::of(claims.len());
 
-    let confidence = crate::knowledge::linker::heuristic::scoring::combine(&claims);
+    let claim_inputs: Vec<(ClaimBasis, &str, Option<f32>)> = claims
+        .iter()
+        .map(|(basis, provider, confidence)| (*basis, provider.as_str(), *confidence))
+        .collect();
+    let confidence = crate::knowledge::linker::heuristic::scoring::combine(&claim_inputs);
 
     let updated = model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),
@@ -282,7 +287,7 @@ mod tests {
             .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
                 scheme: scheme.to_string(),
                 external_id: value.to_string(),
-                asserted_by: "test".to_string(),
+                provider: "test".to_string(),
                 method: None,
                 confidence: None,
                 label: None,

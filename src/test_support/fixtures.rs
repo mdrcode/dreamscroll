@@ -157,7 +157,7 @@ pub async fn claim(
     knowledge_entity_id: i32,
     scheme: &str,
     external_id: &str,
-    asserted_by: &str,
+    provider: &str,
     method: Option<&str>,
     confidence: Option<f32>,
     basis: model::knowledge_claims::ClaimBasis,
@@ -166,7 +166,7 @@ pub async fn claim(
         .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
             scheme: scheme.to_string(),
             external_id: external_id.to_string(),
-            asserted_by: asserted_by.to_string(),
+            provider: provider.to_string(),
             method: method.map(str::to_string),
             confidence,
             label: None,
@@ -179,6 +179,8 @@ pub async fn claim(
         knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
         knowledge_identity_id: sea_orm::Set(identity),
         basis: sea_orm::Set(basis),
+        provider: sea_orm::Set(provider.to_string()),
+        method: sea_orm::Set(method.map(str::to_string)),
         ..Default::default()
     })
     .exec(&db.conn)

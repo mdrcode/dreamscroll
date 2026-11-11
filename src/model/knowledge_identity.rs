@@ -30,14 +30,17 @@ pub struct Model {
     pub description: Option<String>,
     pub classes: Vec<String>,
 
-    /// Who asserted it — not necessarily a provider we dialed: `platform` when a capture showed the
-    /// handle, an authority's id when one answered, `model` when a guess produced it.
-    pub asserted_by: String,
-    /// How it was answered, on the first answer only: `capture` when a capture asserted the handle,
-    /// a Wikidata property (`P2002`, `P2003`, …) when the answer came from a handle join, or the
-    /// ladder step (`exact_label`, `wikipedia_title`, `search_lookup`, `search_ranked`, `search_hint`,
-    /// `ranked`). What the *claim* asked is `knowledge_claims.basis`: per edge, because the same
-    /// identity can be reached by text for one entity and by handle for another.
+    /// Who supplied the row: `illuminator` when a capture showed the handle, a resolver's id when one
+    /// answered, `model` when a guess produced it. For an authority this is the same id
+    /// `Request::provider` uses; `illuminator` and `model` never appear in `fetch_cache`. It follows
+    /// the current answer (`upsert_identity`), so it is not the first sighting — the claim records
+    /// that.
+    pub provider: String,
+    /// How the current answer was reached: `capture` when a capture showed the handle, a Wikidata
+    /// property (`P2002`, `P2003`, …) when the answer came from a handle join, or the ladder step
+    /// (`exact_label`, `wikipedia_title`, `search_lookup`, `search_ranked`, `search_hint`, `ranked`).
+    /// What the *claim* asked is `knowledge_claims.basis`: per edge, because the same identity can be
+    /// reached by text for one entity and by handle for another.
     #[sea_orm(nullable)]
     pub method: Option<String>,
     #[sea_orm(nullable)]

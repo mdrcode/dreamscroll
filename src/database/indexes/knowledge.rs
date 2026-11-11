@@ -33,11 +33,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_identities_identity"
     ON knowledge_identities (scheme, external_id)
 "#;
 
-/// An entity asserts an identity once. Retracting frees the slot, so the claim is a fact with a
-/// timestamp rather than a status.
+/// One provider asserts an identity for an entity once. Retracting frees the slot, so the claim is a
+/// fact with a timestamp rather than a status. Two providers may assert the same identity.
 const CLAIMS_UNIQUE: &str = r#"
-CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity"
-    ON knowledge_claims (knowledge_entity_id, knowledge_identity_id)
+CREATE UNIQUE INDEX IF NOT EXISTS "idx-knowledge_claims_entity_identity_provider"
+    ON knowledge_claims (knowledge_entity_id, knowledge_identity_id, provider)
+    WHERE retracted_at IS NULL
+"#;
+
+/// Selection reads one provider's claims for a set of entities; the unique index is entity-first.
+const CLAIMS_PROVIDER: &str = r#"
+CREATE INDEX IF NOT EXISTS "idx-knowledge_claims_provider_entity"
+    ON knowledge_claims (provider, knowledge_entity_id)
     WHERE retracted_at IS NULL
 "#;
 
@@ -62,6 +69,21 @@ CREATE INDEX IF NOT EXISTS "idx-knowledge_blocking_index-surfaces"
     ON knowledge_blocking_index USING gin (surfaces);
 CREATE INDEX IF NOT EXISTS "idx-knowledge_blocking_index-word_keys"
     ON knowledge_blocking_index USING gin (word_keys)
+"#;
+
+/// An identity's durable name cannot be empty: `('', '')` is not a thing the world names.
+const IDENTIFIER_NOT_EMPTY: &str = r#"
+DO $sync$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1 FROM pg_constraint WHERE conname = 'knowledge_identities_identifier_not_empty'
+    ) THEN
+        ALTER TABLE knowledge_identities
+            ADD CONSTRAINT knowledge_identities_identifier_not_empty
+            CHECK (scheme <> '' AND external_id <> '');
+    END IF;
+END;
+$sync$;
 "#;
 
 /// The pair, which is how the batch is read (the merge pass and the list). Not unique: the table is
@@ -99,6 +121,8 @@ DO $sync$
 BEGIN
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_identities_identity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_entity_identity');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_entity_identity_provider');
+    EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_provider_entity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_claims_identity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-user_observed_entities-knowledge_entity');
     EXECUTE format('DROP INDEX IF EXISTS %I.%I', current_schema(), 'idx-knowledge_proximities_pair');
@@ -156,6 +180,7 @@ pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbEr
 pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
     conn.execute_unprepared(IDENTITIES_UNIQUE).await?;
     conn.execute_unprepared(CLAIMS_UNIQUE).await?;
+    conn.execute_unprepared(CLAIMS_PROVIDER).await?;
     conn.execute_unprepared(CLAIMS_IDENTITY).await?;
     conn.execute_unprepared(OBSERVATIONS_ENTITY).await?;
     conn.execute_unprepared(PROXIMITIES_PAIR).await?;
@@ -164,5 +189,6 @@ pub async fn after_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr
     conn.execute_unprepared(INDEX_SURFACES).await?;
     conn.execute_unprepared(ARRAY_DEFAULTS).await?;
     conn.execute_unprepared(NOT_SELF_MERGED).await?;
+    conn.execute_unprepared(IDENTIFIER_NOT_EMPTY).await?;
     Ok(())
 }

@@ -2,23 +2,15 @@
 
 use super::Candidate;
 use crate::knowledge::normalize;
+use crate::knowledge::scoring::Rank;
 use crate::model;
 
-/// Case-insensitive, whitespace-insensitive surface comparison.
-fn same_surface(a: &str, b: &str) -> bool {
-    a.split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-        .to_lowercase()
-        == b.split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-            .to_lowercase()
-}
-
-/// Whether two surface keys are the same name spelled differently: `dostoyevsky`/`dostoevsky`,
-/// `jrr tolkien`/`jrrtolkien`. Measured on the two cases that motivated the fallback: a one-letter
-/// transliteration and an initials/spacing difference.
+/// Whether two *comparable* surfaces are the same name spelled differently:
+/// `dostoyevsky`/`dostoevsky`, `jrr tolkien`/`jrrtolkien`. Measured on the two cases that
+/// motivated the fallback: a one-letter transliteration and an initials/spacing difference.
+///
+/// Both sides must already be folded by [`normalize::comparable`]; the caller owns that, because
+/// the fold is shared with the blocker and the graph's own scoring.
 ///
 /// Deliberately tight. A candidate whose label merely *contains* our name — `Royal Navy fleet
 /// aircraft carrier fleet` for `Royal Navy` — is a different referent that describes ours, and its
@@ -104,23 +96,12 @@ const NOISE: &[&str] = &[
     "which", "about", "into", "are", "but", "not", "由", "der", "die", "das", "les", "los", "las",
 ];
 
-pub(super) struct Ranked<'a> {
-    pub(super) candidate: &'a Candidate,
-    /// The blended score, for the claim's confidence. Not the order: that is [`rank`]'s.
-    pub(super) score: f32,
-    /// The description evidence on its own, and the order [`rank`] returns. The decision is made on
-    /// this, because the blend includes the name — which, on the label rung, every candidate here
-    /// already shares.
-    pub(super) fit: f32,
-    pub(super) exact_label: bool,
-}
-
-/// Score every candidate, ordered by how well it fits — best first.
+/// The authority's one policy, in the shape the graph's [`Rank`] verb expects.
 ///
-/// The order is `fit`, not the blend, because `decide` measures its margin between consecutive
-/// entries: an order that disagreed with the quantity being compared made that margin negative and
-/// refused claims the evidence supported. The blend survives as the tiebreak and as the claim's
-/// confidence.
+/// A resolver implements `Rank`, not `Similarity`: its measure is corpus-aware — terms are weighed
+/// by rarity among the answers the question returned — and a pair comparison cannot see the corpus.
+/// The score `Rank` returns is the description evidence (`fit`), because that is the quantity
+/// `decide` margins. The claim's confidence is this policy's own calibration, [`blend`].
 ///
 /// The signal is the capture's description, read two ways: *containment* — how much of what Wikidata
 /// says about the candidate is accounted for by our description of it, which survives our description
@@ -131,43 +112,90 @@ pub(super) struct Ranked<'a> {
 /// `Sunset Boulevard (musical film adaptation)` above the 1950 film, because that candidate's
 /// description literally contains the hint's words. A hint drawn from what we saw is not independent
 /// evidence about which candidate we meant.
-pub(super) fn rank<'a>(
-    entity: &model::knowledge_entity::Model,
-    candidates: &'a [Candidate],
-) -> Vec<Ranked<'a>> {
-    let ours = our_tokens(entity);
-    let weights = Weights::over(candidates);
+pub(super) struct Ranking;
 
-    let mut scored: Vec<Ranked<'a>> = candidates
-        .iter()
-        .map(|candidate| {
-            let exact_label = candidate
-                .label
-                .as_deref()
-                .is_some_and(|label| same_surface(label, &entity.name));
-            let name = if exact_label {
-                1.0
-            } else {
-                normalize::jaccard(
-                    &content_tokens(candidate.label.as_deref().unwrap_or_default()),
-                    &content_tokens(&entity.name),
-                )
-            };
-            let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
-            let fit = ours
-                .iter()
-                .map(|tokens| weights.fit(&theirs, tokens))
-                .fold(0.0f32, f32::max);
-            Ranked {
-                candidate,
-                score: NAME_WEIGHT * name + SUPPORT_WEIGHT * fit,
-                fit,
-                exact_label,
-            }
-        })
-        .collect();
-    scored.sort_by(|a, b| b.fit.total_cmp(&a.fit).then_with(|| b.score.total_cmp(&a.score)));
-    scored
+impl Rank<model::knowledge_entity::Model, Candidate> for Ranking {
+    fn rank(
+        &self,
+        entity: &model::knowledge_entity::Model,
+        candidates: &[Candidate],
+    ) -> Vec<(usize, f32)> {
+        let ours = our_tokens(entity);
+        let weights = Weights::over(candidates);
+        let mut scored: Vec<(usize, f32, f32)> = candidates
+            .iter()
+            .enumerate()
+            .filter_map(|(index, candidate)| {
+                let fit = fit(&ours, candidate, &weights);
+                (fit > 0.0).then(|| (index, fit, blend(entity, candidate, fit)))
+            })
+            .collect();
+        // Ordering is `fit`, the quantity `decide` margins. The blend only breaks ties: an order
+        // that disagreed with the quantity being compared made the margin negative and refused
+        // claims the evidence supported.
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1).then_with(|| b.2.total_cmp(&a.2)));
+        scored
+            .into_iter()
+            .map(|(index, fit, _)| (index, fit))
+            .collect()
+    }
+}
+
+/// The same name once the shared fold has run: `J.R.R. Tolkien` and `J. R. R. Tolkien` are one, and
+/// so are `Pokémon` and `Pokemon`.
+pub(super) fn exact_label(
+    entity: &model::knowledge_entity::Model,
+    candidate: &Candidate,
+) -> bool {
+    candidate.label.as_deref().is_some_and(|label| {
+        normalize::comparable(label) == normalize::comparable(&entity.name)
+    })
+}
+
+/// The description evidence for one candidate, given the corpus the answer supplied.
+fn fit(ours: &[Vec<String>], candidate: &Candidate, weights: &Weights) -> f32 {
+    let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
+    ours.iter()
+        .map(|tokens| weights.fit(&theirs, tokens))
+        .fold(0.0f32, f32::max)
+}
+
+/// The blend: name agreement plus description evidence. The claim's confidence input, not the order.
+fn blend(
+    entity: &model::knowledge_entity::Model,
+    candidate: &Candidate,
+    fit: f32,
+) -> f32 {
+    let name = if exact_label(entity, candidate) {
+        1.0
+    } else {
+        normalize::jaccard(
+            &content_tokens(candidate.label.as_deref().unwrap_or_default()),
+            &content_tokens(&entity.name),
+        )
+    };
+    NAME_WEIGHT * name + SUPPORT_WEIGHT * fit
+}
+
+/// One candidate's fit against the answer it arrived in. `parse_search` asks this for a lone
+/// same-surface candidate that still has to be corroborated by the corpus the question returned.
+pub(super) fn fit_within(
+    entity: &model::knowledge_entity::Model,
+    candidate: &Candidate,
+    candidates: &[Candidate],
+) -> f32 {
+    fit(&our_tokens(entity), candidate, &Weights::over(candidates))
+}
+
+/// The winning candidate's confidence input, measured against the answer it arrived in.
+pub(super) fn blend_within(
+    entity: &model::knowledge_entity::Model,
+    candidate: &Candidate,
+    candidates: &[Candidate],
+) -> f32 {
+    let weights = Weights::over(candidates);
+    let fit = fit(&our_tokens(entity), candidate, &weights);
+    blend(entity, candidate, fit)
 }
 /// The part of `search_query` that the label does not already say.
 ///
@@ -177,7 +205,7 @@ pub(super) fn rank<'a>(
 /// fallback is allowed to weigh.
 pub(super) fn hint_tokens(entity: &model::knowledge_entity::Model) -> Option<Vec<String>> {
     let raw = entity.search_query.as_deref()?.trim();
-    if raw.is_empty() || same_surface(raw, &entity.name) {
+    if raw.is_empty() || normalize::comparable(raw) == normalize::comparable(&entity.name) {
         return None;
     }
     let named: std::collections::BTreeSet<String> =
@@ -187,16 +215,6 @@ pub(super) fn hint_tokens(entity: &model::knowledge_entity::Model) -> Option<Vec
         .filter(|token| !named.contains(token))
         .collect();
     (!hint.is_empty()).then_some(hint)
-}
-
-/// A surface with punctuation, spacing and case removed: `J. R. R. Tolkien` and `J.R.R. Tolkien` are
-/// the same name, and Wikidata writes the first.
-pub(super) fn surface_key(surface: &str) -> String {
-    surface
-        .chars()
-        .filter(|c| c.is_alphanumeric())
-        .flat_map(char::to_lowercase)
-        .collect()
 }
 
 /// Every description the entity has accumulated, tokenized. A candidate only has to fit one of them:
@@ -346,6 +364,20 @@ mod tests {
             })
             .collect();
         Weights::over(&candidates)
+    }
+
+    /// The fold is shared with the graph, so the near-surface test inherits its diacritic and
+    /// spacing work. The old bespoke key kept the accent, so `Pokémon` and `Pokemon` never met.
+    #[test]
+    fn near_surface_folds_before_measuring_edits() {
+        assert!(near_surface(
+            &normalize::comparable("Pokémon"),
+            &normalize::comparable("Pokemon"),
+        ));
+        assert!(near_surface(
+            &normalize::comparable("J. R. R. Tolkien"),
+            &normalize::comparable("J.R.R. Tolkien"),
+        ));
     }
 
     /// A term in every candidate used to be worth *less* than nothing: `N / (1 + df)` is below 1,

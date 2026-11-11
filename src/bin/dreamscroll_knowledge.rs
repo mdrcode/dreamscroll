@@ -323,6 +323,12 @@ struct ResolveArgs {
     #[argh(option)]
     #[argh(description = "resolve only this entity id")]
     entity: Option<i32>,
+    #[argh(switch)]
+    #[argh(
+        description = "with --entity, retract this provider's old claims that the new answer did \
+                       not re-propose; requires --entity"
+    )]
+    replace: bool,
     #[argh(option, default = "1000")]
     #[argh(description = "minimum milliseconds between transport calls")]
     min_interval_ms: u64,
@@ -414,10 +420,10 @@ fn print_inspection(report: &knowledge::eval::inspect::Report) {
     println!("\n-- held now --");
     match &report.claim {
         Some(claim) => println!(
-            "  {} {} · asserted by {} · method {}",
+            "  {} {} · provided by {} · method {}",
             claim.identity,
             claim.label.as_deref().unwrap_or("(no label)"),
-            claim.asserted_by,
+            claim.provider,
             claim.method.as_deref().unwrap_or("-")
         ),
         None => println!("  no claim"),
@@ -465,11 +471,12 @@ fn print_entity(detail: &stats::entity::Detail) {
     println!("\n-- claims ({}) --", detail.claims.len());
     for claim in &detail.claims {
         println!(
-            "  {}:{}  {}  basis {} · confidence {:?} · {}{}",
+            "  {}:{}  {}  basis {} · provider {} · confidence {:?} · {}{}",
             claim.scheme,
             claim.external_id,
             claim.label.as_deref().unwrap_or("(no label)"),
             claim.basis,
+            claim.provider,
             claim.confidence,
             claim.method.as_deref().unwrap_or("-"),
             if claim.retracted_at.is_some() {
@@ -491,6 +498,9 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     if args.max_requests == Some(0) {
         anyhow::bail!("--max-requests 0 makes no transport calls; pass --offline to ask for that");
     }
+    if args.replace && args.entity.is_none() {
+        anyhow::bail!("--replace requires --entity; a corpus-wide replace is a rebuild");
+    }
     let max_requests = match (args.offline, args.max_requests) {
         (true, _) => 0,
         (false, Some(n)) => n,
@@ -500,13 +510,52 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         limit: args.limit,
         max_requests,
         offline: args.offline,
-        only: args.entity,
+        force: args.entity.is_some(),
+        replace: args.replace,
         min_interval: std::time::Duration::from_millis(args.min_interval_ms),
         newest_first: args.newest,
     };
     let engine = knowledge::identity::ResolutionEngine::new(db, options)
         .with(Box::new(knowledge::identity::wikidata::Wikidata::new()?));
-    let report = engine.run().await?;
+    let report = match args.entity {
+        Some(id) => {
+            let Some(before) = stats::entity::detail(db, id).await? else {
+                anyhow::bail!("no knowledge entity {id}");
+            };
+            anyhow::ensure!(
+                before.entity.merged_into_id.is_none(),
+                "knowledge entity {id} is a tombstone; resolve the live entity"
+            );
+            let report = engine.resolve(std::slice::from_ref(&before.entity)).await?;
+            let after = stats::entity::detail(db, id).await?.expect("the entity exists");
+            println!("entity {id} claims");
+            let live: Vec<_> = after
+                .claims
+                .iter()
+                .filter(|claim| claim.retracted_at.is_none())
+                .collect();
+            if live.is_empty() {
+                println!("  (none)");
+            }
+            for claim in live {
+                let held = before.claims.iter().any(|old| {
+                    old.scheme == claim.scheme
+                        && old.external_id == claim.external_id
+                        && old.retracted_at.is_none()
+                });
+                println!(
+                    "  {} {}:{}  {}  provider {}",
+                    if held { "*" } else { "→" },
+                    claim.scheme,
+                    claim.external_id,
+                    claim.method.as_deref().unwrap_or("-"),
+                    claim.provider
+                );
+            }
+            report
+        }
+        None => knowledge::resolve_all_pending(&engine).await?,
+    };
 
     if report.offline {
         println!("offline — cache only, no transport calls");
@@ -525,6 +574,19 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         report.entities_resolved,
         report.vetoed
     );
+    for resolver in &report.by_resolver {
+        println!(
+            "  {:<16} candidates {:>5} · requested {:>5} · cache {:>5} · fetched {:>4} · claims {:>4} · vetoed {} · replaced {}",
+            resolver.provider,
+            resolver.candidates,
+            resolver.requested,
+            resolver.cache_hits,
+            resolver.fetched,
+            resolver.claims,
+            resolver.vetoed,
+            resolver.replaced
+        );
+    }
     match report.refusal {
         Some(dreamscroll::fetch::Refusal::Budget) => {
             println!("budget exhausted at {max_requests} requests");
@@ -1061,8 +1123,64 @@ async fn main() -> anyhow::Result<()> {
                 "  {:<18}{:>7}",
                 "entities in pairs", stats.entities_in_proximity
             );
+            println!("platform links");
+            println!(
+                "  {:<14} {:>12} {:>10} {:>8} {:>8} {:>9}",
+                "platform", "observations", "identities", "entities", "display", "captures"
+            );
+            for group in &stats.platforms {
+                println!(
+                    "  {:<14} {:>12} {:>10} {:>8} {:>8} {:>9}",
+                    group.platform,
+                    group.observations,
+                    group.identities,
+                    group.entities,
+                    group.display_names,
+                    group.captures
+                );
+            }
+            let linked: u64 = stats.platforms.iter().map(|group| group.observations).sum();
+            println!("  total {linked} observations with a platform link");
+            println!("claims per entity");
+            println!(
+                "  entities {} · 0 claims {} · 1 claim {} · 2 claims {} · 3+ claims {}",
+                stats.claim_counts.entities,
+                stats.claim_counts.zero,
+                stats.claim_counts.one,
+                stats.claim_counts.two,
+                stats.claim_counts.three_plus
+            );
+            let number = |value: Option<f64>| {
+                value
+                    .map(|value| format!("{value:.3}"))
+                    .unwrap_or_else(|| "-".to_string())
+            };
+            println!("confidence");
+            println!(
+                "  min {} · avg {} · max {} · unknown {}",
+                number(stats.confidence.min),
+                number(stats.confidence.average),
+                number(stats.confidence.max),
+                stats.confidence.unknown
+            );
             println!("resolution");
             println!("  with authority claim {:>5}", stats.with_claim);
+            println!("  claims by provider / scheme");
+            println!(
+                "    {:<16} {:<18} {:>10} {:>7} {:>9} {:>10}",
+                "provider", "scheme", "identities", "claims", "entities", "retracted"
+            );
+            for group in &stats.claims_by {
+                println!(
+                    "    {:<16} {:<18} {:>10} {:>7} {:>9} {:>10}",
+                    group.provider,
+                    group.scheme,
+                    group.identities,
+                    group.live_claims,
+                    group.entities,
+                    group.retracted
+                );
+            }
             println!(
                 "  platform presence      {} projected · {} from members",
                 stats.with_platform, stats.platform_from_members

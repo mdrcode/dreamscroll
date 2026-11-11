@@ -10,12 +10,14 @@
 use super::answer;
 use super::ranking::{
     CLAIM_BAR, CLAIM_MARGIN, FIT_MARGIN, HINT_CEILING, HINT_MIN_SUPPORT, LONE_LABEL_CONFIDENCE,
-    LOOKUP_CONFIDENCE, NAME_WEIGHT, SUPPORT_WEIGHT, Weights, answer_confidence, content_tokens,
-    hint_tokens, near_surface, our_tokens, rank, surface_key,
+    LOOKUP_CONFIDENCE, NAME_WEIGHT, Ranking, SUPPORT_WEIGHT, answer_confidence, blend_within,
+    content_tokens, exact_label, fit_within, hint_tokens, near_surface,
 };
 use super::{Candidate, Kind};
 use crate::fetch::Request;
 use crate::knowledge::evidence::Claim;
+use crate::knowledge::normalize;
+use crate::knowledge::scoring::Rank;
 use crate::model;
 
 /// Last resort: the illumination's own disambiguation, consulted *only* when the description
@@ -28,6 +30,10 @@ pub(super) fn by_hint(
     candidates: &[Candidate],
     reason: &mut &'static str,
 ) -> Vec<Claim> {
+    if candidates.is_empty() {
+        *reason = "the answer carried no candidate";
+        return Vec::new();
+    }
     let Some(hint) = hint_tokens(entity) else {
         *reason = "no disambiguation hint to fall back on";
         return Vec::new();
@@ -84,12 +90,6 @@ pub(super) fn decide(
     request: &Request<Kind>,
     reason: &mut &'static str,
 ) -> Vec<Claim> {
-    let mut ranked = rank(entity, candidates);
-    if ranked.is_empty() {
-        *reason = "no candidate survived the name test";
-        return Vec::new();
-    }
-
     // A lone exact label is evidence *only on the label rung*, because that query enumerates every
     // item with the string: one result means the name is unique on Wikidata. A title answer always
     // carries exactly one candidate — a page maps to an item by construction — so counting it there
@@ -98,46 +98,45 @@ pub(super) fn decide(
     // Scoped by rung, not weakened by description: two true descriptions of one person — "British
     // filmmaker (1899–1980)" and "English film director" — can share no content word, so demanding
     // fit here refuses correct answers. Ambiguity is what the shortcut must not survive, and the
-    // label rung already reports it as more than one candidate.
-    let unambiguous = request.kind == Kind::Label && ranked.len() == 1 && ranked[0].exact_label;
-    if unambiguous {
+    // label rung already reports it as more than one candidate. This runs before `Rank`, whose job
+    // is the corroborated candidates; a lone label needs no corroboration.
+    if request.kind == Kind::Label
+        && candidates.len() == 1
+        && exact_label(entity, &candidates[0])
+    {
         return vec![answer::claim(
-            ranked[0].candidate,
+            &candidates[0],
             method_for(&request.kind, true),
             LONE_LABEL_CONFIDENCE,
         )];
     }
 
-    let best = ranked.remove(0);
-    // `rank` orders by `fit`, so these two are the same measure and the subtraction below is a gap
-    // between comparable quantities. It used to be ordered by the blend while this margin read
-    // `fit`, so a runner-up with *more* description evidence than the winner produced a negative
-    // gap — and the claim was refused with "neither wins" while holding a winner.
-    let runner_up = ranked.first().map(|other| other.fit).unwrap_or(0.0);
-
-    // Otherwise a claim must clear the bar *and* beat the runner-up. Ambiguity is not a reason to
-    // give up — `Sunset Boulevard` has eleven candidates and the description picks the film — but
-    // a near-tie is.
-    // The decision is on the *evidence*, not the blend. The name is why this candidate is here at
-    // all, so requiring a blended score quietly demanded a fixed amount of text overlap — which
-    // real, terse Wikidata descriptions cannot supply ("German-born theoretical physicist" vs a
-    // capture's six-word description of Einstein).
-    // `fit` is either exactly zero or at least 0.25: matched weight floors at 1.0 (a term present in
-    // every candidate is worth the minimum, not less) and `EVIDENCE_SCALE` is 3. A named floor
-    // between the two never binds, so the test says what it means — no corroboration at all.
-    if best.fit == 0.0 {
+    // The verb: the candidates whose description corroborates, best fit first.
+    let ranked = Ranking.rank(entity, candidates);
+    let Some(&(best, best_fit)) = ranked.first() else {
         *reason = "the description does not corroborate";
         return by_hint(entity, candidates, reason);
-    }
-    // Two candidates fit and neither wins: genuine ambiguity. The hint must not break this tie.
-    if best.fit - runner_up < FIT_MARGIN {
+    };
+
+    // `Rank` orders by `fit`, so the winner and the runner-up are measured in one order and the
+    // subtraction below is a gap between comparable quantities. It used to be ordered by the blend
+    // while this margin read `fit`, so a runner-up with *more* description evidence than the winner
+    // produced a negative gap — and the claim was refused with "neither wins" while holding a winner.
+    let runner_up = ranked.get(1).map(|(_, fit)| *fit).unwrap_or(0.0);
+
+    // Otherwise a claim must beat the runner-up. Ambiguity is not a reason to give up —
+    // `Sunset Boulevard` has eleven candidates and the description picks the film — but a near-tie
+    // is.
+    if best_fit - runner_up < FIT_MARGIN {
         *reason = "two candidates fit and neither wins";
         return Vec::new();
     }
+
+    let best = &candidates[best];
     vec![answer::claim(
-        best.candidate,
-        method_for(&request.kind, best.exact_label),
-        answer_confidence(best.score),
+        best,
+        method_for(&request.kind, exact_label(entity, best)),
+        answer_confidence(blend_within(entity, best, candidates)),
     )]
 }
 
@@ -157,7 +156,7 @@ pub(super) fn surface_only(
     // The article has to be about our name: Wikipedia redirects otherwise (`The Bounty Hunter Wars`
     // lands on `Boba Fett`), and this is the last place that can be noticed.
     if let Some(label) = candidate.label.as_deref() {
-        if surface_key(label) != surface_key(&entity.name) {
+        if normalize::comparable(label) != normalize::comparable(&entity.name) {
             return None;
         }
     }
@@ -181,6 +180,7 @@ pub(super) fn parse_title(
     // "one title, one article" then reads as identity. Sharing no word with our name is not an
     // identity, whatever the title said.
     let ours = content_tokens(&entity.name);
+    let ours_key = normalize::comparable(&entity.name);
     let titled: Vec<Candidate> = candidates
         .iter()
         .filter(|candidate| {
@@ -190,7 +190,7 @@ pub(super) fn parse_title(
             let Some(label) = candidate.label.as_deref() else {
                 return true;
             };
-            if near_surface(&surface_key(label), &surface_key(&entity.name)) {
+            if near_surface(&normalize::comparable(label), &ours_key) {
                 return true;
             }
             content_tokens(label)
@@ -213,14 +213,14 @@ pub(super) fn parse_search(
     request: &Request<Kind>,
     reason: &mut &'static str,
 ) -> Vec<Claim> {
-    let ours = surface_key(&entity.name);
+    let ours = normalize::comparable(&entity.name);
     let same: Vec<&Candidate> = candidates
         .iter()
         .filter(|candidate| {
             candidate
                 .label
                 .as_deref()
-                .is_some_and(|label| surface_key(label) == ours)
+                .is_some_and(|label| normalize::comparable(label) == ours)
         })
         .collect();
     // A matching surface is not enough — the description has to corroborate it, exactly as on
@@ -230,17 +230,10 @@ pub(super) fn parse_search(
     // Anything short of one corroborated surface falls through to the ranker: *zero* is a
     // spelling difference (`J.R.R.` vs `J. R. R.`), *several* is a shared title where only the
     // description can pick the referent.
-    if let [candidate] = same.as_slice() {
-        let weights = Weights::over(&candidates);
-        let theirs = content_tokens(candidate.description.as_deref().unwrap_or_default());
-        let ours = our_tokens(entity);
-        let fit = ours
-            .iter()
-            .map(|tokens| weights.fit(&theirs, tokens))
-            .fold(0.0f32, f32::max);
-        if fit > 0.0 {
-            return vec![answer::claim(candidate, "search_lookup", LOOKUP_CONFIDENCE)];
-        }
+    if let [candidate] = same.as_slice()
+        && fit_within(entity, candidate, &candidates) > 0.0
+    {
+        return vec![answer::claim(candidate, "search_lookup", LOOKUP_CONFIDENCE)];
     }
     // A candidate is admissible when it *is* our name, a trivial respelling of it, or one of the
     // two is a superset of the other's content words: `Tomb of Napoleon Bonaparte` vs `Tomb of
@@ -258,7 +251,7 @@ pub(super) fn parse_search(
             let Some(label) = candidate.label.as_deref() else {
                 return false;
             };
-            if near_surface(&surface_key(label), &ours) {
+            if near_surface(&normalize::comparable(label), &ours) {
                 return true;
             }
             // Our name is the label plus a qualifier the authority keeps elsewhere: `Andriivka,
@@ -266,8 +259,8 @@ pub(super) fn parse_search(
             // carry, not the authority's — and refusing here means the description never
             // gets to separate the six villages that share one name.
             let (name_flat, label_flat) = (
-                entity.name.trim().to_lowercase(),
-                label.trim().to_lowercase(),
+                normalize::comparable(&entity.name),
+                normalize::comparable(label),
             );
             if let Some(rest) = name_flat.strip_prefix(&label_flat) {
                 let rest = rest.trim_start();
@@ -324,6 +317,24 @@ mod tests {
         }
     }
 
+    /// The shared fold is the one that decides what "the same name" means: an accent is a spelling,
+    /// not a different article. `surface_key` used to keep the accent and miss this.
+    #[test]
+    fn the_shared_fold_sees_through_an_accent() {
+        let entity = stub_entity(1, "Pokemon", "unknown");
+        let candidates = vec![candidate("Q1", "Pokémon", None)];
+        let request = Request {
+            provider: "wikidata",
+            kind: Kind::Title,
+            shape: "test".to_string(),
+            query: "Pokemon".to_string(),
+        };
+        assert!(
+            surface_only(&entity, &candidates, &request).is_some(),
+            "a spelling difference is not a different article"
+        );
+    }
+
     /// The winner and the runner-up must be measured in one order.
     ///
     /// This is the case that exposed the split: the exact-label candidate wins the *blend* on its
@@ -359,7 +370,7 @@ mod tests {
             1,
             "the evidence supports a claim, not a refusal: {reason:?}"
         );
-        assert_eq!(claims[0].id, "Q207189");
+        assert_eq!(claims[0].external_id, "Q207189");
         assert_eq!(claims[0].method, "search_ranked");
     }
 }

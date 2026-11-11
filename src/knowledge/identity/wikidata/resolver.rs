@@ -1,12 +1,13 @@
 //! Wikidata as an evidence provider.
 //!
-//! Three request shapes, all identity:
+//! Four request shapes, all identity:
 //!
 //! | kind | how | batchable | why |
 //! | --- | --- | --- | --- |
 //! | `label` | SPARQL `VALUES` over the labels | yes | exact label → item, with descriptions and `P31` |
 //! | `handle:P…` | SPARQL `VALUES` over the handles | yes | a platform account *is* an identity (`P2002`, `P2003`, …) |
-//! | `search` | `wbsearchentities` | no | full-text fallback, only for entities the first stage missed |
+//! | `title` | Wikipedia `pageprops` → `wikibase_item` | yes | a page title is unique where a label is not |
+//! | `search` | MediaWiki full-text search (CirrusSearch) | no | fallback, only for entities the first stage missed |
 //!
 //! `plan` and `parse` are pure, so the whole decision can be tested from a fixture and re-run over
 //! cached payloads for free. Only `fetch` touches the network, and nothing here calls it directly:
@@ -14,7 +15,6 @@
 
 use std::collections::HashSet;
 
-use super::policy;
 use super::transport::Wire;
 use super::{Candidate, Kind, parse, plan};
 use crate::fetch::{Answers, Gateway, Request, Transport};
@@ -88,19 +88,18 @@ impl Wikidata {
         let mut claims = Vec::new();
         let mut resolved: HashSet<i32> = HashSet::new();
 
-        // Two stages, one loop. The boundary lives here because no other authority knows that search
-        // is the expensive route, and the fallback must run offline too: `resolve_requests` decides
-        // what to fetch, so it serves cached search answers and silently fetches nothing — skipping
-        // it once threw those answers away, and an offline rebuild then reproduced less than the
-        // cache held.
-        let stages = [plan::Rung::Corroborating, plan::Rung::Search];
-        for rung in stages {
+        // One step, one wave. The boundary lives here because no other authority knows that search
+        // is the expensive route, and every wave must run offline too: `resolve_requests` decides
+        // what to fetch, so it serves cached answers and silently fetches nothing — skipping a step
+        // once threw those answers away, and an offline rebuild then reproduced less than the cache
+        // held.
+        for step in plan::Step::ORDER {
             let plans: Vec<(usize, Request<Kind>)> = entities
                 .iter()
                 .enumerate()
                 .filter(|(_, entity)| !resolved.contains(&entity.id))
                 .flat_map(|(index, entity)| {
-                    plan::stage(rung, entity)
+                    plan::step(step, entity)
                         .into_iter()
                         .map(move |request| (index, request))
                 })
@@ -111,42 +110,28 @@ impl Wikidata {
             let requests: Vec<Request<Kind>> =
                 plans.iter().map(|(_, request)| request.clone()).collect();
             let answers = gateway.resolve_requests(transport, &requests).await;
-            self.collect(entities, &plans, &answers, &mut claims, &mut resolved);
-        }
 
-        // Last resort, after every corroborating question has been asked and refused: the article
-        // that bears this exact name. It is the weakest thing the ladder can say, so it speaks last.
-        let fallback: Vec<(usize, Request<Kind>)> = entities
-            .iter()
-            .enumerate()
-            .filter(|(_, entity)| !resolved.contains(&entity.id))
-            .flat_map(|(index, entity)| {
-                plan::stage(plan::Rung::SurfaceOnly, entity)
-                    .into_iter()
-                    .map(move |request| (index, request))
-            })
-            .collect();
-        if !fallback.is_empty() {
-            let requests: Vec<Request<Kind>> = fallback
-                .iter()
-                .map(|(_, request)| request.clone())
-                .collect();
-            let answers = gateway.resolve_requests(transport, &requests).await;
-            for (index, request) in fallback {
-                let entity = &entities[index];
-                if resolved.contains(&entity.id) {
-                    continue;
+            if step == plan::Step::SurfaceTitle {
+                // The last resort reuses the title answer: it does not rank, it takes the article
+                // bearing this exact name.
+                for (index, request) in plans {
+                    let entity = &entities[index];
+                    if resolved.contains(&entity.id) {
+                        continue;
+                    }
+                    let Some(raw) = answers.get(&request) else {
+                        continue;
+                    };
+                    let Ok(candidates) = parse::admit(entity, raw) else {
+                        continue;
+                    };
+                    if let Some(claim) = parse::surface_only(entity, &candidates, &request) {
+                        resolved.insert(entity.id);
+                        claims.push((entity.id, claim));
+                    }
                 }
-                let Some(raw) = answers.get(&request) else {
-                    continue;
-                };
-                let Ok(candidates) = parse::admit(entity, raw) else {
-                    continue;
-                };
-                if let Some(claim) = policy::surface_only(entity, &candidates, &request) {
-                    resolved.insert(entity.id);
-                    claims.push((entity.id, claim));
-                }
+            } else {
+                self.collect(entities, &plans, &answers, &mut claims, &mut resolved);
             }
         }
 
@@ -156,7 +141,7 @@ impl Wikidata {
 
 #[async_trait::async_trait]
 impl Resolver for Wikidata {
-    fn id(&self) -> &'static str {
+    fn provider(&self) -> &'static str {
         super::ID
     }
 
@@ -231,6 +216,19 @@ mod tests {
 
     fn engine() -> Wikidata {
         Wikidata::new().expect("client should build")
+    }
+
+    /// The provider on every request is the resolver's id; a drift would split cache and provenance.
+    #[test]
+    fn every_planned_request_carries_the_authority_id() {
+        let entity = entity("Train Dreams", Some("a 2011 novella"));
+        for (_, request) in plan::ladder(&entity) {
+            assert_eq!(request.provider, crate::knowledge::identity::wikidata::ID);
+        }
+        assert_eq!(
+            Resolver::provider(&engine()),
+            crate::knowledge::identity::wikidata::ID
+        );
     }
 
     /// A wire that answers from a table and records what it was asked: no client, no database.
@@ -334,7 +332,7 @@ mod tests {
             &ok,
         );
         assert_eq!(claims.len(), 1);
-        assert_eq!(claims[0].id, "Q16010557");
+        assert_eq!(claims[0].external_id, "Q16010557");
 
         // A title answer with no label is not a mismatch — the description still has to corroborate.
         let unlabelled = found(json!([{
@@ -351,7 +349,7 @@ mod tests {
             &unlabelled,
         );
         assert_eq!(claims.len(), 1, "a label-less answer can still be right");
-        assert_eq!(claims[0].id, "Q42574");
+        assert_eq!(claims[0].external_id, "Q42574");
     }
 
     #[test]
@@ -362,7 +360,7 @@ mod tests {
             &found(json!([{"id": "Q185971", "label": "Train Dreams", "description": "novella"}])),
         );
         assert_eq!(claims.len(), 1);
-        assert_eq!(claims[0].id, "Q185971");
+        assert_eq!(claims[0].external_id, "Q185971");
         assert_eq!(claims[0].method, "exact_label");
         // A unique exact label is identity even with nothing to corroborate it — but it does not
         // reach the confidence a description-backed claim gets.
@@ -481,7 +479,7 @@ mod tests {
             &found(candidates),
         );
         assert_eq!(claims.len(), 1, "{claims:?}");
-        assert_eq!(claims[0].id, "Q2");
+        assert_eq!(claims[0].external_id, "Q2");
         assert_eq!(claims[0].method, "exact_label");
         assert!(claims[0].confidence >= 0.80, "{:?}", claims[0]);
     }
@@ -506,7 +504,7 @@ mod tests {
             ])),
         );
         assert!(
-            claims.iter().all(|claim| claim.id != "Q79035760"),
+            claims.iter().all(|claim| claim.external_id != "Q79035760"),
             "a one-word match must not carry a claim: {claims:?}"
         );
     }
@@ -526,7 +524,7 @@ mod tests {
             ])),
         );
         assert_eq!(claims.len(), 1, "{claims:?}");
-        assert_eq!(claims[0].id, "Q1");
+        assert_eq!(claims[0].external_id, "Q1");
         assert_eq!(claims[0].method, "search_hint");
         assert!(claims[0].confidence <= 0.85, "hint claims are capped lower");
     }
@@ -574,7 +572,7 @@ mod tests {
             ])),
         );
         assert_eq!(claims.len(), 1, "{claims:?}");
-        assert_eq!(claims[0].id, "Q1");
+        assert_eq!(claims[0].external_id, "Q1");
         assert_eq!(claims[0].method, "exact_label");
     }
 
@@ -633,6 +631,39 @@ mod tests {
         assert_eq!(plans[1].query, "Commission of Tears");
     }
 
+    #[test]
+    fn a_platform_handle_uses_that_platforms_property() {
+        let mut target = entity("Ada", None);
+        target.platform = Some("threads".to_string());
+        target.platform_handle = Some("@ada".to_string());
+
+        let plans = plan::for_entity(&target);
+        assert_eq!(plans[0].kind, Kind::Handle("P11892"), "{plans:?}");
+        assert_eq!(plans[0].query, "@ada");
+    }
+
+    #[test]
+    fn a_reddit_subreddit_uses_the_subreddit_property() {
+        let mut target = entity("NFCWestMemeWar", None);
+        target.platform = Some("reddit".to_string());
+        target.platform_handle = Some("r/NFCWestMemeWar".to_string());
+
+        let plans = plan::for_entity(&target);
+        assert_eq!(plans[0].kind, Kind::Handle("P3984"), "{plans:?}");
+        assert_eq!(plans[0].query, "NFCWestMemeWar");
+    }
+
+    #[test]
+    fn a_reddit_user_uses_the_username_property() {
+        let mut target = entity("spez", None);
+        target.platform = Some("reddit".to_string());
+        target.platform_handle = Some("u/spez".to_string());
+
+        let plans = plan::for_entity(&target);
+        assert_eq!(plans[0].kind, Kind::Handle("P4265"), "{plans:?}");
+        assert_eq!(plans[0].query, "spez");
+    }
+
     /// A hint that only repeats the name is not a second request.
     #[test]
     fn a_hint_equal_to_the_label_is_not_asked_twice() {
@@ -656,7 +687,7 @@ mod tests {
             ])),
         );
         assert_eq!(claims.len(), 1, "{claims:?}");
-        assert_eq!(claims[0].id, "Q892");
+        assert_eq!(claims[0].external_id, "Q892");
         assert_eq!(claims[0].method, "search_lookup");
     }
 
@@ -676,7 +707,7 @@ mod tests {
             ])),
         );
         assert_eq!(claims.len(), 1, "{claims:?}");
-        assert_eq!(claims[0].id, "Q991");
+        assert_eq!(claims[0].external_id, "Q991");
     }
 
     /// The trap: an item whose *label* merely contains our name is a different referent, and its
@@ -723,7 +754,7 @@ mod tests {
             }])),
         );
         assert_eq!(claims.len(), 1, "{claims:?}");
-        assert_eq!(claims[0].id, "Q261122");
+        assert_eq!(claims[0].external_id, "Q261122");
         assert_eq!(claims[0].method, "wikipedia_title");
     }
 
@@ -824,7 +855,7 @@ mod tests {
 
         let ids: Vec<(i32, &str)> = claims
             .iter()
-            .map(|(id, claim)| (*id, claim.id.as_str()))
+            .map(|(id, claim)| (*id, claim.external_id.as_str()))
             .collect();
         assert_eq!(ids, vec![(1, "Q2"), (2, "Q892")], "{claims:?}");
         assert!(
@@ -833,7 +864,17 @@ mod tests {
         );
         assert!(
             !fake.asked(Kind::Search, "Train Dreams"),
-            "the resolved one is not"
+            "the resolved one is not searched"
+        );
+        assert!(
+            !fake.asked(Kind::Label, "Train Dreams"),
+            "the title resolved it, so the label wave never asks"
+        );
+        // Title × 2, label × 1 (Train Dreams dropped), search × 1 (Tolkien only).
+        assert_eq!(
+            fake.seen.lock().unwrap().len(),
+            4,
+            "the bundled pass would have asked five"
         );
     }
 
@@ -905,7 +946,7 @@ mod tests {
 
         let ids: Vec<(i32, &str)> = claims
             .iter()
-            .map(|(id, claim)| (*id, claim.id.as_str()))
+            .map(|(id, claim)| (*id, claim.external_id.as_str()))
             .collect();
         assert_eq!(ids, vec![(1, "Q200"), (2, "Q300")], "{claims:?}");
         assert!(

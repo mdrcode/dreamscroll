@@ -23,7 +23,7 @@ async fn seed_claim(db: &crate::database::DbHandle, name: &str, external_id: &st
         None => model::knowledge_identity::Entity::insert(model::knowledge_identity::ActiveModel {
             scheme: Set("wikidata".to_string()),
             external_id: Set(external_id.to_string()),
-            asserted_by: Set("wikidata".to_string()),
+            provider: Set("wikidata".to_string()),
             classes: Set(Vec::new()),
             ..Default::default()
         })
@@ -35,6 +35,8 @@ async fn seed_claim(db: &crate::database::DbHandle, name: &str, external_id: &st
         knowledge_entity_id: Set(entity_id),
         knowledge_identity_id: Set(identity.id),
         basis: Set(ClaimBasis::Text),
+        provider: Set(identity.provider.clone()),
+        method: Set(identity.method.clone()),
         ..Default::default()
     })
     .exec(&db.conn)
@@ -261,7 +263,7 @@ async fn a_veto_drops_the_score_that_claim_earned_and_no_more() {
         entity_id,
         "x_twitter",
         "nintendo",
-        "platform",
+        crate::knowledge::evidence::ILLUMINATOR,
         None,
         Some(0.7),
         ClaimBasis::Handle,

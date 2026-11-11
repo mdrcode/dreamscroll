@@ -69,6 +69,15 @@ pub struct Model {
     /// independence is a property of the evidence rather than of which provider answered.
     pub basis: ClaimBasis,
 
+    /// Who supplied this edge: a resolver's id, `illuminator` for a capture, `model` for a guess.
+    ///
+    /// Per edge, unlike the identity's `provider`, so two authorities may assert one identity and
+    /// both rows survive.
+    pub provider: String,
+    /// How this edge was reached: the ladder step, or `capture` for a platform link.
+    #[sea_orm(nullable)]
+    pub method: Option<String>,
+
     /// Provenance when the claim came off a capture: which observation, whose capture, when.
     #[sea_orm(nullable)]
     pub user_observed_entity_id: Option<i32>,

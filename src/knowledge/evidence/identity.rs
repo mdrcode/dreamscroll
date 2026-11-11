@@ -8,6 +8,10 @@ use super::claim::Claim;
 use crate::knowledge::normalize;
 use crate::model;
 
+/// The provider of an identity a capture showed: the illuminator produced the link, not the
+/// platform it names. Reserved — a resolver may never take this id.
+pub const ILLUMINATOR: &str = "illuminator";
+
 /// An identity's durable name: the pair a rebuild can reproduce.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IdentityKey {
@@ -36,8 +40,8 @@ impl IdentityKey {
 pub struct DraftIdentity {
     pub scheme: String,
     pub external_id: String,
-    /// Who asserted it: `platform` for a handle a capture showed, else the provider's own id.
-    pub asserted_by: String,
+    /// Who supplied it: [`ILLUMINATOR`] for a handle a capture showed, else the resolver's id.
+    pub provider: String,
     /// How it was answered, on the first answer only: `capture`, a Wikidata property (`P2002`, …) for
     /// a handle join, or the ladder step (`exact_label`, `search_ranked`, …).
     pub method: Option<String>,
@@ -53,7 +57,7 @@ impl DraftIdentity {
         Self {
             scheme: key.scheme.clone(),
             external_id: key.external_id.clone(),
-            asserted_by: "platform".to_string(),
+            provider: ILLUMINATOR.to_string(),
             method: Some("capture".to_string()),
             confidence: None,
             label: None,
@@ -63,11 +67,11 @@ impl DraftIdentity {
     }
 
     /// The answer an authority gave: it knows what the thing is, not which capture asked.
-    pub fn from_claim(claim: Claim, asserted_by: &str) -> Self {
+    pub fn from_claim(claim: Claim, provider: &str) -> Self {
         Self {
             scheme: claim.scheme,
-            external_id: claim.id,
-            asserted_by: asserted_by.to_string(),
+            external_id: claim.external_id,
+            provider: provider.to_string(),
             method: Some(claim.method),
             confidence: Some(claim.confidence),
             label: claim.label,

@@ -125,21 +125,32 @@ fn worth_merging(features: &Features) -> bool {
         && (features.type_match >= AGREEMENT_FLOOR || features.description >= AGREEMENT_FLOOR)
 }
 
-/// How substantiated an entity is: its best claim's score, plus a bonus per extra independent input
-/// (`text` and `handle` are the two). `None` when it holds no claim.
+/// How substantiated an entity is: its best claim's score, plus a bonus per extra independent input.
+///
+/// The handle chain is one input however many sources carry it — a capture's handle and an authority
+/// asked about that handle are the same fact. Text is one input per asserting authority: two
+/// authorities agreeing is corroboration, five claims from one agent is not.
 ///
 /// Aggregating by "best + corroboration" rather than a sum is deliberate: two weak confirmations of
 /// the same fact must not outrank one strong one.
-pub(in crate::knowledge) fn combine(claims: &[(ClaimBasis, Option<f32>)]) -> Option<f32> {
+pub(in crate::knowledge) fn combine(claims: &[(ClaimBasis, &str, Option<f32>)]) -> Option<f32> {
     if claims.is_empty() {
         return None;
     }
-    let bases: BTreeSet<&str> = claims.iter().map(|claim| claim.0.as_str()).collect();
+    let handle = claims
+        .iter()
+        .any(|claim| claim.0 == ClaimBasis::Handle);
+    let text_sources: BTreeSet<&str> = claims
+        .iter()
+        .filter(|claim| claim.0 == ClaimBasis::Text)
+        .map(|claim| claim.1)
+        .collect();
+    let inputs = usize::from(handle) + text_sources.len();
     let best = claims
         .iter()
-        .map(|claim| claim.1.unwrap_or(0.0))
+        .map(|claim| claim.2.unwrap_or(0.0))
         .fold(0.0f32, f32::max);
-    let extra = bases.len().saturating_sub(1) as f32 * CORROBORATION_BONUS;
+    let extra = inputs.saturating_sub(1) as f32 * CORROBORATION_BONUS;
     Some((best + extra).min(CONFIDENCE_CEILING))
 }
 
@@ -444,19 +455,39 @@ mod tests {
         assert_eq!(Some(0.5f32).total_cmp(&Some(0.5)), std::cmp::Ordering::Equal);
     }
 
-    /// Corroboration is a bonus on the best claim, not a sum.
+    /// Corroboration is a bonus on the best claim, not a sum. The handle chain is one input; text is
+    /// one per asserting authority.
     #[test]
-    fn combine_adds_one_bonus_per_extra_basis() {
-        let text = (ClaimBasis::Text, Some(0.8));
-        let handle = (ClaimBasis::Handle, Some(0.9));
+    fn combine_adds_one_bonus_per_independent_input() {
+        let text = |provider: &'static str| (ClaimBasis::Text, provider, Some(0.8));
+        let handle = |provider: &'static str| (ClaimBasis::Handle, provider, Some(0.9));
         assert_eq!(combine(&[]), None);
-        assert_eq!(combine(&[text]), Some(0.8));
-        assert_eq!(combine(&[text, handle]), Some(0.9 + CORROBORATION_BONUS));
-        // The same basis twice is not a second input.
-        assert_eq!(combine(&[text, text]), Some(0.8));
+        assert_eq!(combine(&[text("wikidata")]), Some(0.8));
+        assert_eq!(
+            combine(&[text("wikidata"), handle("illuminator")]),
+            Some(0.9 + CORROBORATION_BONUS)
+        );
+        // The same authority's repeated text claims are one input.
+        assert_eq!(
+            combine(&[text("wikidata"), text("wikidata")]),
+            Some(0.8)
+        );
+        // Two authorities agreeing is corroboration.
+        assert_eq!(
+            combine(&[text("wikidata"), text("imdb")]),
+            Some(0.8 + CORROBORATION_BONUS)
+        );
+        // The handle chain is one input however many sources carry it.
+        assert_eq!(
+            combine(&[handle("illuminator"), handle("wikidata")]),
+            Some(0.9)
+        );
         // …and the total is capped.
         assert_eq!(
-            combine(&[(ClaimBasis::Text, Some(1.0)), handle]),
+            combine(&[
+                (ClaimBasis::Text, "wikidata", Some(1.0)),
+                handle("illuminator")
+            ]),
             Some(CONFIDENCE_CEILING)
         );
     }

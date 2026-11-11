@@ -44,9 +44,8 @@ pub(crate) fn admit(
         return Err("the answer carried only a disambiguation page");
     }
     // `Dogma` the film against the concept, `Micah` the prophet against the given name.
-    let before = candidates.len();
     candidates.retain(|candidate| !types::incompatible(&entity.entity_type, &candidate.classes));
-    if before > 0 && candidates.is_empty() {
+    if candidates.is_empty() {
         return Err("every candidate is a different kind of thing");
     }
     Ok(candidates)

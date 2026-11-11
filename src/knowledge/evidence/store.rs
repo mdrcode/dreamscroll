@@ -20,7 +20,7 @@ use crate::model;
 
 /// The unique index that makes one entity's hold on one identity a single live claim. Both writers
 /// ask the same question, so the name is here once rather than in two match arms.
-const CLAIMS_UNIQUE: &str = "idx-knowledge_claims_entity_identity";
+const CLAIMS_UNIQUE: &str = "idx-knowledge_claims_entity_identity_provider";
 
 /// Claims and the identities they cite.
 ///
@@ -52,7 +52,7 @@ impl Evidence {
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "INSERT INTO knowledge_identities \
-                   (scheme, external_id, label, description, classes, asserted_by, method, confidence) \
+                   (scheme, external_id, label, description, classes, provider, method, confidence) \
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
                  ON CONFLICT (scheme, external_id) DO UPDATE SET \
                    label = COALESCE(EXCLUDED.label, knowledge_identities.label), \
@@ -61,8 +61,8 @@ impl Evidence {
                                   THEN EXCLUDED.classes ELSE knowledge_identities.classes END, \
                    method = COALESCE(EXCLUDED.method, knowledge_identities.method), \
                    confidence = COALESCE(EXCLUDED.confidence, knowledge_identities.confidence), \
-                   asserted_by = CASE WHEN EXCLUDED.label IS NOT NULL \
-                                 THEN EXCLUDED.asserted_by ELSE knowledge_identities.asserted_by END \
+                   provider = CASE WHEN EXCLUDED.method IS DISTINCT FROM 'capture' \
+                                 THEN EXCLUDED.provider ELSE knowledge_identities.provider END \
                  RETURNING id",
                 identity_values(identity),
             ))
@@ -81,7 +81,7 @@ impl Evidence {
             .query_one_raw(Statement::from_sql_and_values(
                 DatabaseBackend::Postgres,
                 "INSERT INTO knowledge_identities \
-                   (scheme, external_id, label, description, classes, asserted_by, method, confidence) \
+                   (scheme, external_id, label, description, classes, provider, method, confidence) \
                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
                  ON CONFLICT (scheme, external_id) DO UPDATE SET scheme = EXCLUDED.scheme \
                  RETURNING id",
@@ -113,7 +113,6 @@ impl Evidence {
         &self,
         sources: &[&str],
         limit: Option<usize>,
-        only: Option<i32>,
         newest_first: bool,
     ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
         use model::knowledge_entity as entity;
@@ -127,17 +126,6 @@ impl Evidence {
                 model::knowledge_claims::Column::KnowledgeEntityId,
             ))
             .from(model::knowledge_claims::Entity)
-            .inner_join(
-                model::knowledge_identity::Entity,
-                Expr::col((
-                    model::knowledge_claims::Entity,
-                    model::knowledge_claims::Column::KnowledgeIdentityId,
-                ))
-                .equals((
-                    model::knowledge_identity::Entity,
-                    model::knowledge_identity::Column::Id,
-                )),
-            )
             .and_where(
                 Expr::col((
                     model::knowledge_claims::Entity,
@@ -147,8 +135,8 @@ impl Evidence {
             )
             .and_where(
                 Expr::col((
-                    model::knowledge_identity::Entity,
-                    model::knowledge_identity::Column::AssertedBy,
+                    model::knowledge_claims::Entity,
+                    model::knowledge_claims::Column::Provider,
                 ))
                 .is_in(
                     sources
@@ -170,13 +158,34 @@ impl Evidence {
                     sea_orm::Order::Asc
                 },
             );
-        if let Some(knowledge_entity_id) = only {
-            query = query.filter(entity::Column::Id.eq(knowledge_entity_id));
-        }
         if let Some(limit) = limit {
             query = query.limit(limit as u64);
         }
         Ok(query.all(&self.conn).await?)
+    }
+
+    /// The entities in `entity_ids` this provider already holds a live claim on.
+    ///
+    /// The engine's selection: a resolver may still be asked about an entity another authority
+    /// answered; only its own prior claim removes it.
+    pub async fn claimed_by(
+        &self,
+        provider: &str,
+        entity_ids: &[i32],
+    ) -> anyhow::Result<HashSet<i32>> {
+        if entity_ids.is_empty() {
+            return Ok(HashSet::new());
+        }
+        let rows = model::knowledge_claims::Entity::find()
+            .select_only()
+            .column(model::knowledge_claims::Column::KnowledgeEntityId)
+            .filter(model::knowledge_claims::Column::Provider.eq(provider))
+            .filter(model::knowledge_claims::Column::RetractedAt.is_null())
+            .filter(model::knowledge_claims::Column::KnowledgeEntityId.is_in(entity_ids.to_vec()))
+            .into_tuple::<i32>()
+            .all(&self.conn)
+            .await?;
+        Ok(rows.into_iter().collect())
     }
 
     /// The identity this claim cites, if a row exists. Reads only; importing is the caller's job.
@@ -273,6 +282,8 @@ impl Evidence {
                 knowledge_entity_id: sea_orm::Set(draft.holder),
                 knowledge_identity_id: sea_orm::Set(draft.identity_id),
                 basis: sea_orm::Set(draft.basis),
+                provider: sea_orm::Set(draft.provider.to_string()),
+                method: sea_orm::Set(Some(draft.method.clone())),
                 surface: sea_orm::Set(draft.capture.and_then(|row| row.platform_handle.clone())),
                 user_observed_entity_id: sea_orm::Set(draft.capture.map(|row| row.id)),
                 source_user_id: sea_orm::Set(draft.capture.map(|row| row.user_id)),
@@ -307,7 +318,8 @@ impl Evidence {
             "DELETE FROM knowledge_claims l USING knowledge_claims w \
              WHERE l.knowledge_entity_id = $1 AND w.knowledge_entity_id = $2 \
                AND w.retracted_at IS NULL \
-               AND l.knowledge_identity_id = w.knowledge_identity_id",
+               AND l.knowledge_identity_id = w.knowledge_identity_id \
+               AND l.provider = w.provider",
             [loser.into(), winner.into()],
         ))
         .await?;
@@ -320,6 +332,50 @@ impl Evidence {
             .exec(conn)
             .await?;
         Ok(())
+    }
+
+    /// Retract this provider's live claims on `entity` that the run did not propose.
+    ///
+    /// Only the schemes the provider answered are touched: absence from a scheme it never asked is
+    /// not evidence. `keep` is the exact set it proposed.
+    pub(crate) async fn retract_unproposed(
+        &self,
+        entity_id: i32,
+        provider: &str,
+        schemes: &std::collections::BTreeSet<String>,
+        keep: &HashSet<(String, String)>,
+    ) -> anyhow::Result<usize> {
+        if schemes.is_empty() {
+            return Ok(0);
+        }
+        let rows = model::knowledge_claims::Entity::find()
+            .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(entity_id))
+            .filter(model::knowledge_claims::Column::Provider.eq(provider))
+            .filter(model::knowledge_claims::Column::RetractedAt.is_null())
+            .find_with_related(model::knowledge_identity::Entity)
+            .all(&self.conn)
+            .await?;
+        let mut retracted = 0;
+        for (claim, identities) in rows {
+            let Some(identity) = identities.into_iter().next() else {
+                continue;
+            };
+            if !schemes.contains(&identity.scheme)
+                || keep.contains(&(identity.scheme.clone(), identity.external_id.clone()))
+            {
+                continue;
+            }
+            model::knowledge_claims::Entity::update_many()
+                .col_expr(
+                    model::knowledge_claims::Column::RetractedAt,
+                    Expr::current_timestamp(),
+                )
+                .filter(model::knowledge_claims::Column::Id.eq(claim.id))
+                .exec(&self.conn)
+                .await?;
+            retracted += 1;
+        }
+        Ok(retracted)
     }
 
     /// Retract the live claim for `(entity, identity)`, if there is one.
@@ -357,7 +413,7 @@ fn identity_values(identity: &DraftIdentity) -> Vec<sea_orm::Value> {
         // `classes` is an array column; bind it as one, the way the blocking index binds its
         // key arrays.
         identity.classes.clone().into(),
-        sea_orm::Value::String(Some(identity.asserted_by.clone())),
+        sea_orm::Value::String(Some(identity.provider.clone())),
         sea_orm::Value::String(identity.method.clone()),
         sea_orm::Value::Float(identity.confidence),
     ]
@@ -458,7 +514,7 @@ mod tests {
             .upsert_identity(&DraftIdentity {
                 scheme: "x_twitter".to_string(),
                 external_id: "tsoding".to_string(),
-                asserted_by: "wikidata".to_string(),
+                provider: "wikidata".to_string(),
                 method: Some("P2002".to_string()),
                 confidence: Some(0.9),
                 label: Some("Alexey Kutepov".to_string()),
@@ -502,8 +558,50 @@ mod tests {
             Some("P2002"),
             "not downgraded to capture"
         );
-        assert_eq!(row.asserted_by, "wikidata");
+        assert_eq!(row.provider, "wikidata");
         assert_eq!(row.label.as_deref(), Some("Alexey Kutepov"));
+    }
+
+    /// The provider follows the answer, not merely the presence of a label: a model guess with no
+    /// label is replaced by the authority that actually answered.
+    #[tokio::test]
+    async fn an_answer_owns_the_provider_even_without_a_label() {
+        db_or_skip!(db);
+        let evidence = Evidence::from_handle(&db);
+        let id = evidence
+            .upsert_identity(&DraftIdentity {
+                scheme: "wikidata".to_string(),
+                external_id: "Q_PROVIDER_TEST".to_string(),
+                provider: "model".to_string(),
+                method: Some("guess".to_string()),
+                confidence: None,
+                label: None,
+                description: Some("a guess".to_string()),
+                classes: Vec::new(),
+            })
+            .await
+            .expect("a guess creates the identity");
+        evidence
+            .upsert_identity(&DraftIdentity {
+                scheme: "wikidata".to_string(),
+                external_id: "Q_PROVIDER_TEST".to_string(),
+                provider: "wikidata".to_string(),
+                method: Some("exact_label".to_string()),
+                confidence: Some(0.8),
+                label: None,
+                description: None,
+                classes: Vec::new(),
+            })
+            .await
+            .expect("the answer enriches it");
+
+        let row = model::knowledge_identity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.provider, "wikidata");
+        assert_eq!(row.description.as_deref(), Some("a guess"));
     }
 
     /// `classes` is an array column, and the round trip has to survive more than one element: every
@@ -515,7 +613,7 @@ mod tests {
         let draft = DraftIdentity {
             scheme: "wikidata".to_string(),
             external_id: "Q42".to_string(),
-            asserted_by: "wikidata".to_string(),
+            provider: "wikidata".to_string(),
             method: Some("exact_label".to_string()),
             confidence: Some(0.9),
             label: Some("Douglas Adams".to_string()),

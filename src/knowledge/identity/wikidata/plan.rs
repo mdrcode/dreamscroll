@@ -26,9 +26,10 @@ fn request(kind: Kind, query: &str) -> Request<Kind> {
 /// A platform account is an identity, and each platform is a different property. Adding one is a row
 /// in this table, not a new provider.
 ///
-/// Every property here was verified against Wikidata on 2026-10-31. Unmapped platforms (`threads`,
-/// `reddit`, `other`) are deliberate: a wrong property would produce confident, fabricated
-/// identities, which is worse than leaving the entity unresolved.
+/// Every property here was verified against Wikidata on 2026-11-10. `other` stays unmapped: a wrong
+/// property would produce confident, fabricated identities, which is worse than leaving the entity
+/// unresolved. Reddit has two properties — a username (`P4265`) and a subreddit (`P3984`) — chosen by
+/// the handle's `u/`/`r/` prefix in [`handle`].
 pub(super) fn handle_property(platform: &str) -> Option<&'static str> {
     match platform.to_ascii_lowercase().as_str() {
         "x" | "twitter" | "x_twitter" => Some("P2002"),
@@ -37,116 +38,154 @@ pub(super) fn handle_property(platform: &str) -> Option<&'static str> {
         "youtube" => Some("P2397"),
         "github" => Some("P2037"),
         "mastodon" => Some("P4033"),
+        "facebook" => Some("P2013"),
+        "linkedin" => Some("P6634"),
+        "threads" => Some("P11892"),
+        "bluesky" => Some("P12361"),
+        "reddit" => Some("P4265"),
         _ => None,
     }
 }
 
-/// A rung of the ladder, and which decision applies to its answer.
+/// One step of the ladder, and which decision applies to its answer.
 ///
-/// One definition, used by the resolver and by both eval replays: a rung that exists in one and not
-/// the others is how `eval` came to report claims the resolver would not make.
+/// The steps are request kinds, not bundled passes: the resolver asks one step across every
+/// unresolved entity, parses it, and only then plans the next. A title that resolves an entity
+/// removes its label and search questions entirely.
+///
+/// One definition, used by the resolver and by the eval replay: a step that exists in one and not
+/// the other is how `eval` came to report claims the resolver would not make.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Rung {
-    /// Handle, title and exact label — corroborating evidence, ranked by description.
-    Corroborating,
-    /// Full-text search over the hint and then the bare label.
-    Search,
-    /// The article bearing this exact name, after every rung above has refused. Claims through
-    /// [`super::policy::surface_only`], not through the ranking the other rungs use.
-    SurfaceOnly,
+pub(crate) enum Step {
+    /// A platform account property (`P2002`, …).
+    Handle,
+    /// A Wikipedia article title.
+    Title,
+    /// An exact Wikidata label.
+    Label,
+    /// Full-text search over the disambiguation hint.
+    SearchHint,
+    /// Full-text search over the bare label.
+    SearchLabel,
+    /// The article bearing this exact name, after every step above has refused. Claims through
+    /// [`super::parse::surface_only`], not through the ranking the other steps use.
+    SurfaceTitle,
+}
+
+impl Step {
+    /// The ladder's order. `SurfaceTitle` reuses the title answer after every other step refused.
+    pub(crate) const ORDER: [Self; 6] = [
+        Self::Handle,
+        Self::Title,
+        Self::Label,
+        Self::SearchHint,
+        Self::SearchLabel,
+        Self::SurfaceTitle,
+    ];
 }
 
 /// The whole ladder for one entity, in the order the resolver climbs it.
-pub(crate) fn ladder(entity: &model::knowledge_entity::Model) -> Vec<(Rung, Request<Kind>)> {
-    stage(Rung::Corroborating, entity)
+pub(crate) fn ladder(entity: &model::knowledge_entity::Model) -> Vec<(Step, Request<Kind>)> {
+    Step::ORDER
         .into_iter()
-        .map(|request| (Rung::Corroborating, request))
-        .chain(
-            stage(Rung::Search, entity)
+        .flat_map(|s| {
+            step(s, entity)
                 .into_iter()
-                .map(|request| (Rung::Search, request)),
-        )
-        .chain(
-            stage(Rung::SurfaceOnly, entity)
-                .into_iter()
-                .map(|request| (Rung::SurfaceOnly, request)),
-        )
+                .map(move |request| (s, request))
+        })
         .collect()
 }
 
-/// One rung's requests, for a caller that batches a whole entity set per rung.
-pub(crate) fn stage(rung: Rung, entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
-    match rung {
-        Rung::Corroborating => for_entity(entity),
-        Rung::Search => fallback(entity),
-        Rung::SurfaceOnly => title(entity).into_iter().collect(),
+/// One step's requests for one entity. Pure, so the order is testable without a network.
+pub(crate) fn step(step: Step, entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
+    match step {
+        Step::Handle => {
+            let Some(handle) = handle(entity) else {
+                return Vec::new();
+            };
+            vec![handle]
+        }
+        Step::Title | Step::SurfaceTitle => title(entity).into_iter().collect(),
+        Step::Label => label(entity).into_iter().collect(),
+        Step::SearchHint => search_hint(entity).into_iter().collect(),
+        Step::SearchLabel => search_label(entity).into_iter().collect(),
     }
 }
 
-/// The first pass: a handle, then a title, then an exact label. Pure, so the order is testable
-/// without a network — and reachable without one: the eval replays re-run the whole decision over
-/// cached payloads.
-pub(crate) fn for_entity(entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
-    let mut requests = Vec::new();
-    if let (Some(platform), Some(handle)) = (&entity.platform, &entity.platform_handle) {
-        // A capture that names a platform but no handle is a platform we cannot ask about: an
-        // empty `VALUES` literal would be a wasted call and a cached negative about nothing.
-        let handle = handle.trim();
-        if !handle.is_empty()
-            && let Some(property) = handle_property(platform)
-        {
-            requests.push(request(Kind::Handle(property), handle));
+fn handle(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
+    let (platform, handle) = (entity.platform.as_deref()?, entity.platform_handle.as_deref()?);
+    // A capture that names a platform but no handle is a platform we cannot ask about: an empty
+    // `VALUES` literal would be a wasted call and a cached negative about nothing.
+    let platform = platform.to_ascii_lowercase();
+    let handle = handle.trim();
+    if handle.is_empty() {
+        return None;
+    }
+    let (property, query) = if platform == "reddit" {
+        if let Some(subreddit) = handle.strip_prefix("r/") {
+            ("P3984", subreddit)
+        } else {
+            ("P4265", handle.strip_prefix("u/").unwrap_or(handle))
         }
+    } else {
+        (handle_property(&platform)?, handle)
+    };
+    if query.is_empty() {
+        return None;
     }
-    if let Some(title) = title(entity) {
-        // Title before label: a capture's name is often the *article* title
-        // (`Symphony No. 7 (Sibelius)`), and the item is labelled `Symphony No. 7`. The label
-        // lookup cannot see that; the title can.
-        requests.push(title);
-        requests.push(request(Kind::Label, &entity.name));
+    Some(request(Kind::Handle(property), query))
+}
+
+fn label(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
+    let label = entity.name.trim();
+    (!label.is_empty()).then(|| request(Kind::Label, label))
+}
+
+/// The bare label as a search fallback: Wikidata labels `J. R. R. Tolkien` with spaces, while the
+/// exact-label SPARQL is sent the capture's punctuation.
+fn search_label(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
+    let label = entity.name.trim();
+    (!label.is_empty()).then(|| request(Kind::Search, label))
+}
+
+/// The disambiguating hint, when it says something the name does not.
+///
+/// Search is a lookup, so the hint runs before the bare label. A hint that only repeats the name is
+/// not a second request.
+fn search_hint(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
+    let label = entity.name.trim();
+    let hint = entity.search_query.as_deref()?.trim();
+    if label.is_empty()
+        || hint.is_empty()
+        || normalize::comparable(hint) == normalize::comparable(label)
+    {
+        return None;
     }
-    requests
+    Some(request(Kind::Search, hint))
+}
+
+/// The old bundled first pass, kept for the planning tests.
+#[cfg(test)]
+pub(crate) fn for_entity(entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
+    [Step::Handle, Step::Title, Step::Label]
+        .into_iter()
+        .flat_map(|s| step(s, entity))
+        .collect()
 }
 
 /// The article whose exact name this is, when the name is not empty.
 ///
-/// Two callers: the second rung of the first pass, and the last resort after every corroborating
-/// question has been refused.
+/// Two steps: the title lookup, and the surface-only last resort that reuses its cached answer.
 pub(crate) fn title(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
     let label = entity.name.trim();
     (!label.is_empty()).then(|| request(Kind::Title, label))
 }
 
-/// The second pass: search for the **hint**, then the **bare label**, for entities the first pass
-/// left unresolved.
-///
-/// The hint goes first because it is the phrase that disambiguates, and until now it was only a
-/// *scoring* signal — consulted against candidates some other question had already produced. It is
-/// a lookup, though, and `wbsearchentities` matches labels and aliases rather than text, so a long
-/// hint (`Commission of Tears Antonio Lobo Antunes`) usually returns nothing. That is a limit of
-/// the endpoint, not a reason to withhold the question: over-fetching is the resolver's job, and
-/// refusing a wrong candidate is the decider's.
-///
-/// The bare label stays because it is a lookup fallback, not a ranking signal. Wikidata labels
-/// `J. R. R. Tolkien` and `D. H. Lawrence` *with spaces*; our exact-label SPARQL sends
-/// `J.R.R. Tolkien` and gets nothing, while search finds Q892 immediately. Measured on 20 random
-/// empty-label entities: 4 recoverable this way.
-///
-/// The pass boundary lives with the ladder, not in the engine: no other authority knows that search
-/// is the expensive route.
+/// The old bundled search pass, kept for the planning tests.
+#[cfg(test)]
 pub(crate) fn fallback(entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
-    let label = entity.name.trim();
-    if label.is_empty() {
-        return Vec::new();
-    }
-    let mut requests = Vec::new();
-    if let Some(hint) = entity.search_query.as_deref() {
-        let hint = hint.trim();
-        // A hint that only repeats the name is not a second request.
-        if !hint.is_empty() && normalize::comparable(hint) != normalize::comparable(label) {
-            requests.push(request(Kind::Search, hint));
-        }
-    }
-    requests.push(request(Kind::Search, label));
-    requests
+    [Step::SearchHint, Step::SearchLabel]
+        .into_iter()
+        .flat_map(|s| step(s, entity))
+        .collect()
 }

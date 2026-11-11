@@ -1,7 +1,7 @@
 //! Transport: the ways Wikidata answers a question, and nothing else.
 //!
 //! Every function here is one HTTP shape and its response walking — no ranking, no decisions, no
-//! knowledge of what a claim means. They live here so `wikidata.rs` can stay about policy.
+//! knowledge of what a claim means. They live here so `resolver.rs` can stay about the ladder.
 
 use std::collections::HashMap;
 

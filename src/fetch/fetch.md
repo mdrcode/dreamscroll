@@ -71,6 +71,13 @@ above, and it emptied the cache overnight so the next morning's replay had nothi
 The gateway groups the planned requests by `(provider, kind, shape)`, dedupes the queries, reads the
 group from the cache, and fetches only the misses in chunks of `Transport::batch_size`.
 
+**Batch membership is not in the key.** A batch is a chunk of cache misses, not a cache entity: the
+gateway reads one row per query before the call and writes one row per query after it. A batch of 50,
+a batch of 37, and a single-entity wave hit the same rows; `shape` covers how a query is built, not
+which other queries travelled with it. The contract assumes each query's answer is independent of the
+batch — a provider that ranked or limited *across* the batch would need that fact in `kind`/`shape`,
+or a different transport contract.
+
 Everything the door may *do* is three independent parameters:
 
 | run | `cache` | `allowance` | `fail_fast` |

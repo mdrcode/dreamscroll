@@ -6,7 +6,7 @@
 //! [`ClaimBasis`] lives with the column it fills (`model::knowledge_claims`) and is re-exported
 //! here, so the knowledge layer names the same type the model stores.
 
-use super::identity::IdentityKey;
+use super::identity::{ILLUMINATOR, IdentityKey};
 use crate::model;
 
 pub use crate::model::knowledge_claims::ClaimBasis;
@@ -15,7 +15,8 @@ pub use crate::model::knowledge_claims::ClaimBasis;
 #[derive(Debug, Clone, PartialEq)]
 pub struct Claim {
     pub scheme: String,
-    pub id: String,
+    /// The identifier inside the scheme — `Q42`, `tt0133093`, `@handle`.
+    pub external_id: String,
     pub label: Option<String>,
     pub description: Option<String>,
     pub classes: Vec<String>,
@@ -31,6 +32,11 @@ pub struct ClaimDraft<'a> {
     pub identity: &'a IdentityKey,
     pub identity_id: i32,
     pub basis: ClaimBasis,
+    /// Who supplied this edge. The engine sets it from `resolver.provider()`; a capture writes
+    /// [`ILLUMINATOR`].
+    pub provider: &'static str,
+    /// How the edge was reached: the ladder step, or `capture`.
+    pub method: String,
     /// The observation that asserted it, when a capture did. `None` when an authority answered:
     /// nothing user-visible asserted it, so there is no provenance to record.
     pub capture: Option<&'a model::user_observed_entity::Model>,
@@ -49,6 +55,8 @@ impl<'a> ClaimDraft<'a> {
             identity,
             identity_id,
             basis: ClaimBasis::Handle,
+            provider: ILLUMINATOR,
+            method: "capture".to_string(),
             capture: Some(observation),
         }
     }
@@ -59,12 +67,16 @@ impl<'a> ClaimDraft<'a> {
         identity: &'a IdentityKey,
         identity_id: i32,
         basis: ClaimBasis,
+        provider: &'static str,
+        method: String,
     ) -> Self {
         Self {
             holder,
             identity,
             identity_id,
             basis,
+            provider,
+            method,
             capture: None,
         }
     }

@@ -19,7 +19,7 @@ const MENUS: [&str; 2] = [
 pub(super) fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Claim {
     Claim {
         scheme: ID.to_string(),
-        id: candidate.id.clone(),
+        external_id: candidate.id.clone(),
         label: candidate.label.clone(),
         description: candidate.description.clone(),
         classes: candidate.classes.clone(),

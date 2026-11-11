@@ -28,5 +28,5 @@ pub mod identity;
 pub mod store;
 
 pub use claim::{Claim, ClaimBasis, ClaimDraft, Stored};
-pub use identity::{DraftIdentity, IdentityKey};
+pub use identity::{DraftIdentity, ILLUMINATOR, IdentityKey};
 pub use store::Evidence;

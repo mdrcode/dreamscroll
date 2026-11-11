@@ -15,6 +15,13 @@ pub mod wikidata;
 
 pub use engine::{DEFAULT_MAX_REQUESTS, Options, Report, ResolutionEngine};
 
+/// Provider ids the engine refuses from a resolver: they name our own pipeline, not an authority.
+///
+/// A resolver that took one of these would make `awaiting_authority` treat capture rows or model
+/// guesses as its own claims, and would make `stats` misattribute them. The check is at run time so
+/// adding a resolver cannot silently steal a reserved id.
+pub const RESERVED_PROVIDERS: &[&str] = &["illuminator", "platform", "model", "operator", "user"];
+
 use crate::fetch::Gateway;
 use crate::knowledge::evidence::Claim;
 use crate::model;
@@ -30,10 +37,15 @@ use crate::model;
 /// cache or the budget.
 #[async_trait::async_trait]
 pub trait Resolver: Send + Sync {
-    fn id(&self) -> &'static str;
+    /// The authority's id: the `provider` on every request it makes, the `provider` on every
+    /// identity it writes, and what `Resolver::provider` returns. It may not be one of
+    /// [`RESERVED_PROVIDERS`]; the engine refuses those at run time.
+    fn provider(&self) -> &'static str;
 
-    /// Claims about the entities it could resolve, each tagged with the entity it belongs to, in
-    /// priority order: the engine takes the first claim per entity that the graph accepts.
+    /// Claims about the entities it could resolve, each tagged with the entity it belongs to, in the
+    /// resolver's priority order. The engine writes every claim the graph accepts: several identities
+    /// for one entity are normal, and a later run skips only the entities this provider already
+    /// claimed.
     async fn resolve(
         &self,
         entities: &[model::knowledge_entity::Model],
