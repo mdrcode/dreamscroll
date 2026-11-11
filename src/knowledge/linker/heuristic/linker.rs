@@ -94,10 +94,10 @@ impl Linker for HeuristicLinker {
                 None => None,
             };
 
-            // `held_by_identity` returns the most substantiated first; the rest go to the scan.
+            // `holders_of_identity` returns the most substantiated first; the rest go to the scan.
             if let Some(identity_id) = identity
                 && let Some(best) = evidence
-                    .held_by_identity(identity_id)
+                    .holders_of_identity(identity_id)
                     .await?
                     .into_iter()
                     .next()

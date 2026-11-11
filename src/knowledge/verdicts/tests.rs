@@ -263,7 +263,7 @@ async fn a_veto_drops_the_score_that_claim_earned_and_no_more() {
         entity_id,
         "x_twitter",
         "nintendo",
-        crate::knowledge::evidence::ILLUMINATOR,
+        crate::knowledge::evidence::PLATFORM_LINK_PROVIDER_ID,
         None,
         Some(0.7),
         ClaimBasis::Handle,

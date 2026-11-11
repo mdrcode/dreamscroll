@@ -131,12 +131,12 @@ methods on the model, beside its columns.
 
 `link.rs` is the executor. It loads the rows, drives them through the blocker and linker, and applies
 the effects: decisions first, writes second. It knows nothing about identities or claims — the
-capture's handle is claimed afterwards, by `helper::write_capture_claims` (`claim_identity`, then a
-second projection), once the observations have homes. Every decision is made before any is applied,
-so the illumination's own claims are invisible to its own decisions: two observations that claim one
-previously unknown handle are both told to create, and become two entities holding
-one identity. `merge` refuses that pair (shared illumination), so the scan records it once and it
-stays open — the terminal state the merge-side rule produces everywhere.
+observation's handle is claimed afterwards, by `helper::write_observation_claims`
+(`claim_identity`, then a second projection), once the observations have homes. Every decision is
+made before any is applied, so the illumination's own claims are invisible to its own decisions: two
+observations that claim one previously unknown handle are both told to create, and become two
+entities holding one identity. `merge` refuses that pair (shared illumination), so the scan records
+it once and it stays open — the terminal state the merge-side rule produces everywhere.
 
 **The heuristic is one implementation of that chain — not the chain.** The chain is `scoring.rs`, and
 it is two verbs:
@@ -338,7 +338,7 @@ one.
 | `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), the corroboration bonus |
 | `graph/link.rs` | `link`: a batch of observations in, decisions applied and projected out — plus the `observation → entity` mapping and `LinkReport`. It knows nothing about identities or claims |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `evidence/` | the vocabulary — `PlatformLink`, `IdentityKey`, `IdentityDraft`, `IdentitySettlement`, `Claim`, `ClaimBasis`, `ClaimDraft`, `ClaimWrite`, `ClaimOutcome` — and the two phases of a claim in `store.rs`: `ensure_identity` (create only) and `enrich_identity` (fill gaps) settle the row, while `claim_identity` adds the edge and returns the claim id. `store.rs` also owns `move_claims` on a fold, `retract` on a veto, and `held_by_identity`; `selection.rs` owns the candidate reads (`awaiting_authority`, `claimed_by`) |
+| `evidence/` | the vocabulary — `PlatformLink`, `IdentityKey`, `IdentityDraft`, `Claim`, `ClaimBasis`, `ClaimOutcome` — and the write path in `store.rs`: `upsert_identity` settles the row, `claim_identity` adds the edge, and `ClaimOutcome` carries the ids. `store.rs` also owns `move_claims` on a fold, `retract` on a veto, and `holders_of_identity`; `selection.rs` owns the candidate reads (`awaiting_authority`, `claimed_by`) |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors (`new`, `with_linking`, `with_heuristic_linking`) and the operations that own a write path — link, merge, replay, reproject, the veto commands. It holds the connection, the blocker, the decider and the evidence — no policy of its own |
 | `graph/replay.rs` | the verdict effects: `replay` (merges, then withdrawals) and the withdrawal the veto command shares |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores. `reproject` repairs a scope of entities, with `Stale` the "live, no live claim" rule |

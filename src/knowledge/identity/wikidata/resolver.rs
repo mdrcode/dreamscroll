@@ -15,14 +15,35 @@
 
 use std::collections::HashSet;
 
+use super::answer::AuthorityClaim;
 use super::transport::Wire;
-use super::{Candidate, Kind, parse, plan};
+use super::{Candidate, ID, Kind, parse, plan};
 use crate::fetch::{Answers, Gateway, Request, Transport};
-use crate::knowledge::evidence::Claim;
+use crate::knowledge::evidence::{Claim, IdentityDraft, IdentityKey};
 use crate::knowledge::identity::Resolver;
 use crate::model;
 
 const USER_AGENT: &str = "dreamscroll-knowledge/0.1 (https://dreamscroll.ai)";
+
+/// Split a provider answer into the identity it describes and the claim edge to it.
+fn resolve_answer(holder: i32, answer: AuthorityClaim) -> (IdentityDraft, Claim) {
+    let key = IdentityKey {
+        scheme: answer.scheme.clone(),
+        external_id: answer.external_id.clone(),
+    };
+    let identity = IdentityDraft {
+        scheme: answer.scheme,
+        external_id: answer.external_id,
+        provider: ID.to_string(),
+        method: Some(answer.method.clone()),
+        confidence: Some(answer.confidence),
+        label: answer.label,
+        description: answer.description,
+        classes: answer.classes,
+    };
+    let claim = Claim::from_provider(holder, key, answer.basis, ID, answer.method);
+    (identity, claim)
+}
 
 /// One authority: the policy, and the wire it speaks through.
 pub struct Wikidata {
@@ -47,7 +68,7 @@ impl Wikidata {
         entities: &[model::knowledge_entity::Model],
         plans: &[(usize, Request<Kind>)],
         answers: &Answers<Kind, Vec<Candidate>>,
-        claims: &mut Vec<(i32, Claim)>,
+        claims: &mut Vec<(IdentityDraft, Claim)>,
         resolved: &mut HashSet<i32>,
     ) {
         for (index, request) in plans {
@@ -68,7 +89,11 @@ impl Wikidata {
                 continue;
             }
             resolved.insert(entity.id);
-            claims.extend(parsed.into_iter().map(|claim| (entity.id, claim)));
+            claims.extend(
+                parsed
+                    .into_iter()
+                    .map(|claim| resolve_answer(entity.id, claim)),
+            );
         }
     }
 }
@@ -84,7 +109,7 @@ impl Wikidata {
         transport: &T,
         entities: &[model::knowledge_entity::Model],
         gateway: &Gateway<'_>,
-    ) -> Vec<(i32, Claim)> {
+    ) -> Vec<(IdentityDraft, Claim)> {
         let mut claims = Vec::new();
         let mut resolved: HashSet<i32> = HashSet::new();
 
@@ -127,7 +152,7 @@ impl Wikidata {
                     };
                     if let Some(claim) = parse::surface_only(entity, &candidates, &request) {
                         resolved.insert(entity.id);
-                        claims.push((entity.id, claim));
+                        claims.push(resolve_answer(entity.id, claim));
                     }
                 }
             } else {
@@ -149,7 +174,7 @@ impl Resolver for Wikidata {
         &self,
         entities: &[model::knowledge_entity::Model],
         gateway: &Gateway<'_>,
-    ) -> Vec<(i32, Claim)> {
+    ) -> Vec<(IdentityDraft, Claim)> {
         self.ladder(&self.wire, entities, gateway).await
     }
 }
@@ -270,10 +295,11 @@ mod tests {
             &self,
             requests: &[Request<Kind>],
         ) -> Result<Vec<(String, Answer<Vec<Candidate>>)>, crate::fetch::FetchError> {
-            self.seen
-                .lock()
-                .unwrap()
-                .extend(requests.iter().map(|request| (request.kind, request.query.clone())));
+            self.seen.lock().unwrap().extend(
+                requests
+                    .iter()
+                    .map(|request| (request.kind, request.query.clone())),
+            );
             Ok(requests
                 .iter()
                 .map(|request| {
@@ -473,7 +499,9 @@ mod tests {
         let claims = parse::claims(
             &entity(
                 "Sunset Boulevard",
-                Some("1950 American film noir directed by Billy Wilder about a faded silent-screen star"),
+                Some(
+                    "1950 American film noir directed by Billy Wilder about a faded silent-screen star",
+                ),
             ),
             &request(Kind::Label, "Sunset Boulevard"),
             &found(candidates),
@@ -495,7 +523,9 @@ mod tests {
         let claims = parse::claims(
             &entity(
                 "George Washington",
-                Some("An American military general and statesman who served as the first president of the United States"),
+                Some(
+                    "An American military general and statesman who served as the first president of the United States",
+                ),
             ),
             &request(Kind::Label, "George Washington"),
             &found(json!([
@@ -611,7 +641,11 @@ mod tests {
         let plans = plan::for_entity(&entity);
 
         assert_eq!(plans.len(), 2, "{plans:?}");
-        assert!(plans.iter().all(|request| request.kind != Kind::Handle("P2002")));
+        assert!(
+            plans
+                .iter()
+                .all(|request| request.kind != Kind::Handle("P2002"))
+        );
         assert_eq!(plans[0].kind, Kind::Title);
         assert_eq!(plans[1].kind, Kind::Label);
     }
@@ -679,7 +713,10 @@ mod tests {
     #[test]
     fn a_search_answer_is_accepted_on_a_punctuation_variant() {
         let claims = parse::claims(
-            &entity("J.R.R. Tolkien", Some("English author, philologist, and academic")),
+            &entity(
+                "J.R.R. Tolkien",
+                Some("English author, philologist, and academic"),
+            ),
             &request(Kind::Search, "J.R.R. Tolkien"),
             &found(json!([
                 {"id": "Q892", "label": "J. R. R. Tolkien", "description": "English writer and philologist"},
@@ -698,7 +735,9 @@ mod tests {
         let claims = parse::claims(
             &entity(
                 "Fyodor Dostoevsky",
-                Some("19th-century Russian novelist and philosopher renowned for psychological mastery"),
+                Some(
+                    "19th-century Russian novelist and philosopher renowned for psychological mastery",
+                ),
             ),
             &request(Kind::Search, "Fyodor Dostoevsky"),
             &found(json!([
@@ -855,7 +894,7 @@ mod tests {
 
         let ids: Vec<(i32, &str)> = claims
             .iter()
-            .map(|(id, claim)| (*id, claim.external_id.as_str()))
+            .map(|(identity, claim)| (claim.holder, identity.external_id.as_str()))
             .collect();
         assert_eq!(ids, vec![(1, "Q2"), (2, "Q892")], "{claims:?}");
         assert!(
@@ -946,7 +985,7 @@ mod tests {
 
         let ids: Vec<(i32, &str)> = claims
             .iter()
-            .map(|(id, claim)| (*id, claim.external_id.as_str()))
+            .map(|(identity, claim)| (claim.holder, identity.external_id.as_str()))
             .collect();
         assert_eq!(ids, vec![(1, "Q200"), (2, "Q300")], "{claims:?}");
         assert!(

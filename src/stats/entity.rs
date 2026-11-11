@@ -26,11 +26,9 @@ pub struct ClaimRow {
     pub method: Option<String>,
     pub provider: String,
     pub basis: String,
-    pub surface: Option<String>,
     pub retracted_at: Option<DateTime<Utc>>,
     pub observed_at: DateTime<Utc>,
     pub user_observed_entity_id: Option<i32>,
-    pub source_user_id: Option<i32>,
 }
 
 pub async fn detail(db: &database::DbHandle, id: i32) -> anyhow::Result<Option<Detail>> {
@@ -68,11 +66,9 @@ pub async fn detail(db: &database::DbHandle, id: i32) -> anyhow::Result<Option<D
                 method: claim.method.clone(),
                 provider: claim.provider.clone(),
                 basis: claim.basis.as_str().to_string(),
-                surface: claim.surface,
                 retracted_at: claim.retracted_at,
                 observed_at: claim.observed_at,
                 user_observed_entity_id: claim.user_observed_entity_id,
-                source_user_id: claim.source_user_id,
             })
         })
         .collect();
@@ -93,6 +89,7 @@ impl Detail {
             .map(|member| {
                 serde_json::json!({
                     "id": member.id,
+                    "user_id": member.user_id,
                     "capture_id": member.capture_id,
                     "illumination_id": member.illumination_id,
                     "position": member.position,
@@ -122,11 +119,9 @@ impl Detail {
                     "method": claim.method,
                     "provider": claim.provider,
                     "basis": claim.basis,
-                    "surface": claim.surface,
                     "retracted_at": claim.retracted_at.map(|at| at.to_rfc3339()),
                     "observed_at": claim.observed_at.to_rfc3339(),
                     "user_observed_entity_id": claim.user_observed_entity_id,
-                    "source_user_id": claim.source_user_id,
                 })
             })
             .collect();

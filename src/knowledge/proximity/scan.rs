@@ -19,7 +19,7 @@ use super::Basis;
 /// `conn` must be the store's own connection: the replacement is committed on it, and the holders are
 /// read through it. `scoring` is the store's policy, passed in rather than read from a facade.
 pub async fn scan(conn: &DatabaseConnection, scoring: &Scoring) -> anyhow::Result<usize> {
-    let evidence = Evidence::new(conn.clone());
+    let evidence = Evidence::from_connection(conn.clone());
     let identities = identities_with_several_holders(conn).await?;
 
     // Derive off the pool: Postgres is READ COMMITTED, so a read inside the transaction would see the
@@ -29,7 +29,7 @@ pub async fn scan(conn: &DatabaseConnection, scoring: &Scoring) -> anyhow::Resul
     let mut seen: HashSet<(i32, i32)> = HashSet::new();
     for identity_id in identities {
         // Most substantiated first: the survivor, and the reading order.
-        let holders = evidence.held_by_identity(identity_id).await?;
+        let holders = evidence.holders_of_identity(identity_id).await?;
         let Some(holder) = holders.first() else {
             continue;
         };

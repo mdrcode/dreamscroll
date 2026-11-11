@@ -23,5 +23,10 @@ pub const DEFAULT_MAX_REQUESTS: usize = 200;
 const MAX_CLAIMS_PER_ENTITY: usize = 8;
 
 /// Provider ids the engine refuses from a resolver: they name our own pipeline, not an authority.
-pub const RESERVED_PROVIDER_IDS: &[&str] =
-    &["illuminator", "platform", "model", "operator", "user"];
+pub const RESERVED_PROVIDER_IDS: &[&str] = &[
+    crate::knowledge::evidence::PLATFORM_LINK_PROVIDER_ID,
+    "platform",
+    "model",
+    "operator",
+    "user",
+];

@@ -18,7 +18,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder
 use super::replay::ReplayReport;
 use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
-use crate::knowledge::evidence::{ClaimDraft, ClaimWrite, Evidence, IdentitySettlement};
+use crate::knowledge::evidence::{Claim, ClaimOutcome, Evidence, IdentityDraft};
 use crate::knowledge::linker::Linker;
 use crate::knowledge::verdicts::{Cause, VerdictStore, VetoReport};
 use crate::model;
@@ -104,13 +104,12 @@ impl KnowledgeGraph {
     /// Settle the identity and write the claim edge, unless a standing veto names it.
     pub async fn claim_identity(
         &self,
-        holder: i32,
-        identity: IdentitySettlement<'_>,
-        claim: ClaimDraft<'_>,
+        identity_draft: IdentityDraft,
+        claim: Claim,
         vetoes: &HashSet<(i32, String, String)>,
-    ) -> anyhow::Result<ClaimWrite> {
+    ) -> anyhow::Result<ClaimOutcome> {
         self.evidence
-            .claim_identity(holder, identity, claim, vetoes)
+            .claim_identity(identity_draft, claim, vetoes)
             .await
     }
 

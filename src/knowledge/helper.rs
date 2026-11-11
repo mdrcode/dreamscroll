@@ -17,7 +17,7 @@ use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use crate::database::DbHandle;
 use crate::fetch::FetchCache;
 use crate::knowledge::evidence::{
-    ClaimDraft, ClaimOutcome, ClaimSelection, IdentityDraft, IdentitySettlement, platform_link,
+    Claim, ClaimOutcome, ClaimSelection, IdentityDraft, platform_link,
 };
 use crate::knowledge::graph::{KnowledgeGraph, LinkReport};
 use crate::knowledge::identity::{ResolutionEngine, ResolutionReport};
@@ -43,7 +43,7 @@ pub async fn link_illumination(
         .collect();
 
     let (mut report, linked) = graph.link(&observations).await?;
-    report.vetoed = write_capture_claims(graph, &observations, &linked).await?;
+    report.vetoed = write_observation_claims(graph, &observations, &linked).await?;
     Ok(report)
 }
 
@@ -205,7 +205,7 @@ pub async fn resolve_all_pending(
 ///
 /// The only place a capture's identity and claim are written. Returns how many a standing veto
 /// refused.
-async fn write_capture_claims(
+async fn write_observation_claims(
     graph: &KnowledgeGraph,
     observations: &[model::user_observed_entity::Model],
     linked: &HashMap<i32, i32>,
@@ -219,15 +219,15 @@ async fn write_capture_claims(
         if let Some(link) = platform_link(observation)
             && let Ok(identity) = IdentityDraft::try_from(&link)
         {
+            let key = identity.key();
             let claimed = graph
                 .claim_identity(
-                    entity,
-                    IdentitySettlement::CreateOnly(&identity),
-                    ClaimDraft::capture(observation),
+                    identity,
+                    Claim::from_observation(entity, observation, key),
                     &vetoes,
                 )
                 .await?;
-            if claimed.outcome == ClaimOutcome::Vetoed {
+            if matches!(claimed, ClaimOutcome::Vetoed { .. }) {
                 vetoed += 1;
             }
         }
@@ -258,7 +258,7 @@ mod tests {
             &self,
             _entities: &[model::knowledge_entity::Model],
             _gateway: &Gateway<'_>,
-        ) -> Vec<(i32, Claim)> {
+        ) -> Vec<(IdentityDraft, Claim)> {
             Vec::new()
         }
     }

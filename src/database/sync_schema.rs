@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 35;
+const REQUIRED_SCHEMA_VERSION: i32 = 37;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -150,8 +150,6 @@ async fn retire_legacy_observation_tables<C: ConnectionTrait>(conn: &C) -> Resul
     Ok(())
 }
 
-
-
 /// Schema 31 renames `resolution_cache` to `fetch_cache`.
 ///
 /// The table belongs to `crate::fetch`, which knows nothing about knowledge entities: it stores one
@@ -256,6 +254,40 @@ async fn add_claim_provenance<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr>
               WHERE i.id = c.knowledge_identity_id; \
              UPDATE knowledge_claims SET provider = 'illuminator' WHERE provider IS NULL; \
              ALTER TABLE knowledge_claims ALTER COLUMN provider SET NOT NULL; \
+           END IF; \
+         END $sync$",
+    )
+    .await?;
+    Ok(())
+}
+
+/// Schema 36 removes `knowledge_claims.surface` and aligns the stored method with the vocabulary.
+///
+/// The raw handle is already on the observation; the claim only needs `(observation, user)`.
+async fn retire_claim_surface<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $sync$ \
+         BEGIN \
+           IF to_regclass('knowledge_claims') IS NOT NULL THEN \
+             ALTER TABLE knowledge_claims DROP COLUMN IF EXISTS surface; \
+             UPDATE knowledge_claims SET method = 'observation' WHERE method = 'capture'; \
+           END IF; \
+           IF to_regclass('knowledge_identities') IS NOT NULL THEN \
+             UPDATE knowledge_identities SET method = 'observation' WHERE method = 'capture'; \
+           END IF; \
+         END $sync$",
+    )
+    .await?;
+    Ok(())
+}
+
+/// Schema 37 removes the denormalized claim author; the observation link owns it.
+async fn retire_claim_source_user<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $sync$ \
+         BEGIN \
+           IF to_regclass('knowledge_claims') IS NOT NULL THEN \
+             ALTER TABLE knowledge_claims DROP COLUMN IF EXISTS source_user_id; \
            END IF; \
          END $sync$",
     )
@@ -425,6 +457,8 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             rename_stale_objects(transaction).await?;
             rename_identity_provider(transaction).await?;
             add_claim_provenance(transaction).await?;
+            retire_claim_surface(transaction).await?;
+            retire_claim_source_user(transaction).await?;
             drop_legacy_tables(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             indexes::knowledge::before_schema_sync(transaction).await?;
@@ -592,7 +626,11 @@ mod tests {
         let legacy: Option<String> = row.try_get_by_index(0).expect("legacy table name");
         let carried: Option<String> = row.try_get_by_index(1).expect("carried observation");
         assert!(legacy.is_none(), "the legacy table should be gone");
-        assert_eq!(carried.as_deref(), Some("Train Dreams"), "observations must survive");
+        assert_eq!(
+            carried.as_deref(),
+            Some("Train Dreams"),
+            "observations must survive"
+        );
 
         super::retire_legacy_observation_tables(conn)
             .await
@@ -620,7 +658,11 @@ mod tests {
         let missing_error = check_schema_version(conn)
             .await
             .expect_err("a missing schema marker must fail the startup check");
-        assert!(missing_error.to_string().contains("schema version is missing"));
+        assert!(
+            missing_error
+                .to_string()
+                .contains("schema version is missing")
+        );
     }
 
     #[tokio::test]

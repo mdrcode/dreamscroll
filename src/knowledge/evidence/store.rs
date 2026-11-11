@@ -1,16 +1,16 @@
 //! Where a claim becomes a row, and every way it changes.
 //!
-//! A capture's claim and an authority's claim are the same edge: one insert into `knowledge_claims`
-//! citing an identity row. Keeping every change to that table here — insert, reassign on a fold,
-//! retract on a veto — means the veto check, the uniqueness rule and the basis column are one thing
-//! to read, and the place a second authority inherits all three.
+//! An observation's claim and a provider's claim are the same edge: one insert into
+//! `knowledge_claims` citing an identity row. Keeping every change to that table here — insert,
+//! reassign on a fold, retract on a veto — means the veto check, the uniqueness rule and the basis
+//! column are one thing to read, and the place a second authority inherits all three.
 
 use std::collections::HashSet;
 
 use sea_orm::sea_query::Expr;
 use sea_orm::{ColumnTrait, ConnectionTrait, DatabaseBackend, EntityTrait, QueryFilter, Statement};
 
-use super::claim::ClaimDraft;
+use super::claim::Claim;
 use super::identity::{IdentityDraft, IdentityKey};
 use super::selection::ClaimSelection;
 use crate::knowledge::scoring::TotalCmp;
@@ -20,45 +20,16 @@ use crate::model;
 /// ask the same question, so the name is here once rather than in two match arms.
 const CLAIMS_UNIQUE: &str = "idx-knowledge_claims_entity_identity_provider";
 
-/// What one claim write returned.
-///
-/// `claim_id` is present when the row was written or already existed; it is absent when a veto
-/// refused the edge.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ClaimWrite {
-    pub identity_id: i32,
-    pub claim_id: Option<i32>,
-    pub outcome: ClaimOutcome,
-}
-
 /// What became of a claim write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ClaimOutcome {
     /// The edge was written.
-    Written,
+    Written { identity_id: i32, claim_id: i32 },
     /// An editor withdrew this claim.
-    Vetoed,
+    Vetoed { identity_id: i32 },
     /// This entity already claims the identity. A repeat is not a conflict: whether both holders are
     /// one thing is `proximity`'s question.
-    AlreadyClaimed,
-}
-
-/// How an identity row enters the store: create-only or fill-gaps.
-///
-/// The choice is the caller's; the store only knows the two storage behaviours.
-#[derive(Debug, Clone, Copy)]
-pub enum IdentitySettlement<'a> {
-    CreateOnly(&'a IdentityDraft),
-    Enrich(&'a IdentityDraft),
-}
-
-impl IdentitySettlement<'_> {
-    /// The durable key this settlement names.
-    pub fn key(&self) -> IdentityKey {
-        match self {
-            Self::CreateOnly(draft) | Self::Enrich(draft) => draft.key(),
-        }
-    }
+    AlreadyClaimed { identity_id: i32, claim_id: i32 },
 }
 
 /// Claims and the identities they cite.
@@ -72,25 +43,38 @@ pub struct Evidence {
 }
 
 impl Evidence {
-    pub fn new(conn: sea_orm::DatabaseConnection) -> Self {
+    pub fn from_connection(conn: sea_orm::DatabaseConnection) -> Self {
         Self { conn }
     }
 
     pub fn from_handle(db: &crate::database::DbHandle) -> Self {
-        Self::new(db.conn.clone())
+        Self::from_connection(db.conn.clone())
     }
 
     /// Candidate selection over the same pool. Reads only; kept out of the write surface.
     pub(crate) fn selection(&self) -> ClaimSelection<'_> {
-        ClaimSelection::new(&self.conn)
+        ClaimSelection::from_connection(&self.conn)
     }
 
     /// The identity's row, created if this is the first time we have seen it.
     ///
-    /// Upserts by filling gaps rather than overwriting: a handle first read off a capture has no
+    /// Upserts by filling gaps rather than overwriting: a handle first read off an observation has no
     /// label, and the first authority that answers for it supplies one. Nothing here clears a field
-    /// a previous answer set — an identity is a running record, not a latest-value cache.
-    pub async fn enrich_identity(&self, identity: &IdentityDraft) -> anyhow::Result<i32> {
+    /// a previous answer set — an identity is a running record, not a latest-value cache. An
+    /// observation answer never downgrades `method` or `provider`, so one upsert serves both sources.
+    pub async fn upsert_identity(&self, identity: &IdentityDraft) -> anyhow::Result<i32> {
+        // Bind order matches the INSERT column list.
+        let values = vec![
+            sea_orm::Value::String(Some(identity.scheme.clone())),
+            sea_orm::Value::String(Some(identity.external_id.clone())),
+            sea_orm::Value::String(identity.label.clone()),
+            sea_orm::Value::String(identity.description.clone()),
+            // `classes` is an array column; bind it as one.
+            identity.classes.clone().into(),
+            sea_orm::Value::String(Some(identity.provider.clone())),
+            sea_orm::Value::String(identity.method.clone()),
+            sea_orm::Value::Float(identity.confidence),
+        ];
         let row = self
             .conn
             .query_one_raw(Statement::from_sql_and_values(
@@ -103,34 +87,14 @@ impl Evidence {
                    description = COALESCE(EXCLUDED.description, knowledge_identities.description), \
                    classes = CASE WHEN cardinality(EXCLUDED.classes) > 0 \
                                   THEN EXCLUDED.classes ELSE knowledge_identities.classes END, \
-                   method = COALESCE(EXCLUDED.method, knowledge_identities.method), \
+                   method = CASE WHEN EXCLUDED.method = 'observation' \
+                                 THEN knowledge_identities.method \
+                                 ELSE COALESCE(EXCLUDED.method, knowledge_identities.method) END, \
                    confidence = COALESCE(EXCLUDED.confidence, knowledge_identities.confidence), \
-                   provider = CASE WHEN EXCLUDED.method IS DISTINCT FROM 'capture' \
+                   provider = CASE WHEN EXCLUDED.method IS DISTINCT FROM 'observation' \
                                  THEN EXCLUDED.provider ELSE knowledge_identities.provider END \
                  RETURNING id",
-                identity_values(identity),
-            ))
-            .await?
-            .ok_or_else(|| anyhow::anyhow!("identity insert returned no row"))?;
-        Ok(row.try_get_by_index::<i32>(0)?)
-    }
-
-    /// The identity row for this draft, created if this is the first sighting.
-    ///
-    /// Create-only: an existing row is left exactly as it is. Idempotent, so a re-link is free. The
-    /// no-op `DO UPDATE` is what lets one statement return the id whether the row was inserted or
-    /// already present.
-    pub async fn ensure_identity(&self, identity: &IdentityDraft) -> anyhow::Result<i32> {
-        let row = self
-            .conn
-            .query_one_raw(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "INSERT INTO knowledge_identities \
-                   (scheme, external_id, label, description, classes, provider, method, confidence) \
-                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
-                 ON CONFLICT (scheme, external_id) DO UPDATE SET scheme = EXCLUDED.scheme \
-                 RETURNING id",
-                identity_values(identity),
+                values,
             ))
             .await?
             .ok_or_else(|| anyhow::anyhow!("identity insert returned no row"))?;
@@ -153,7 +117,7 @@ impl Evidence {
     /// The ordering is [`TotalCmp`], asked here rather than written into the SQL: `merge` picks its
     /// survivor with the same function, and two spellings of "most substantiated" disagreed on
     /// `NULL` for as long as they existed.
-    pub async fn held_by_identity(
+    pub async fn holders_of_identity(
         &self,
         identity_id: i32,
     ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
@@ -196,24 +160,25 @@ impl Evidence {
     /// Settle an identity and write the claim edge in one operation.
     ///
     /// The two rows remain separate: an identity is shared and durable, a claim is this entity's
-    /// edge to it. What callers no longer do is orchestrate the pair themselves.
+    /// edge to it. The claim already names its holder and identity; this asserts they agree with the
+    /// identity being settled.
     pub async fn claim_identity(
         &self,
-        holder: i32,
-        identity: IdentitySettlement<'_>,
-        claim: ClaimDraft<'_>,
+        identity_draft: IdentityDraft,
+        claim: Claim,
         vetoes: &HashSet<(i32, String, String)>,
-    ) -> anyhow::Result<ClaimWrite> {
-        let key = identity.key();
-        let identity_id = match identity {
-            IdentitySettlement::CreateOnly(draft) => self.ensure_identity(draft).await?,
-            IdentitySettlement::Enrich(draft) => self.enrich_identity(draft).await?,
-        };
-        self.write_claim(holder, identity_id, &key, claim, vetoes)
-            .await
+    ) -> anyhow::Result<ClaimOutcome> {
+        anyhow::ensure!(
+            claim.identity == identity_draft.key(),
+            "claim identity `{}:{}` does not match the settled identity",
+            claim.identity.scheme,
+            claim.identity.external_id
+        );
+        let identity_id = self.upsert_identity(&identity_draft).await?;
+        self.write_claim(identity_id, claim, vetoes).await
     }
 
-    /// Write one edge: `holder` claims `identity`. The identity id must already be resolved.
+    /// Write one edge. The identity id must already be resolved.
     ///
     /// The veto is asked here, at the one place a claim becomes a row, so every writer inherits it.
     /// Idempotent per entity: claiming an identity twice is not a duplicate, and another entity
@@ -221,53 +186,44 @@ impl Evidence {
     /// thing is `proximity`'s question, not this call's.
     async fn write_claim(
         &self,
-        holder: i32,
         identity_id: i32,
-        identity: &IdentityKey,
-        draft: ClaimDraft<'_>,
+        claim: Claim,
         vetoes: &HashSet<(i32, String, String)>,
-    ) -> anyhow::Result<ClaimWrite> {
+    ) -> anyhow::Result<ClaimOutcome> {
         if vetoes.contains(&(
-            holder,
-            identity.scheme.clone(),
-            identity.external_id.clone(),
+            claim.holder,
+            claim.identity.scheme.clone(),
+            claim.identity.external_id.clone(),
         )) {
-            return Ok(ClaimWrite {
-                identity_id,
-                claim_id: None,
-                outcome: ClaimOutcome::Vetoed,
-            });
+            return Ok(ClaimOutcome::Vetoed { identity_id });
         }
         let insert =
             model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
-                knowledge_entity_id: sea_orm::Set(holder),
+                knowledge_entity_id: sea_orm::Set(claim.holder),
                 knowledge_identity_id: sea_orm::Set(identity_id),
-                basis: sea_orm::Set(draft.basis),
-                provider: sea_orm::Set(draft.provider.to_string()),
-                method: sea_orm::Set(Some(draft.method.clone())),
-                surface: sea_orm::Set(draft.capture.and_then(|row| row.platform_handle.clone())),
-                user_observed_entity_id: sea_orm::Set(draft.capture.map(|row| row.id)),
-                source_user_id: sea_orm::Set(draft.capture.map(|row| row.user_id)),
+                basis: sea_orm::Set(claim.basis),
+                provider: sea_orm::Set(claim.provider.to_string()),
+                method: sea_orm::Set(Some(claim.method.clone())),
+                user_observed_entity_id: sea_orm::Set(claim.observation_id),
                 ..Default::default()
             })
             .exec_with_returning(&self.conn)
             .await;
 
         match insert {
-            Ok(row) => Ok(ClaimWrite {
+            Ok(row) => Ok(ClaimOutcome::Written {
                 identity_id,
-                claim_id: Some(row.id),
-                outcome: ClaimOutcome::Written,
+                claim_id: row.id,
             }),
             Err(error) => match unique_violation(&error) {
                 Some(CLAIMS_UNIQUE) => {
                     let claim_id = self
-                        .find_claim_id(holder, identity_id, draft.provider)
-                        .await?;
-                    Ok(ClaimWrite {
+                        .find_claim_id(claim.holder, identity_id, claim.provider)
+                        .await?
+                        .ok_or_else(|| anyhow::anyhow!("unique violation without a live claim"))?;
+                    Ok(ClaimOutcome::AlreadyClaimed {
                         identity_id,
                         claim_id,
-                        outcome: ClaimOutcome::AlreadyClaimed,
                     })
                 }
                 _ => Err(error.into()),
@@ -395,22 +351,6 @@ impl Evidence {
     }
 }
 
-/// The binds an identity insert or upsert needs, in column order.
-fn identity_values(identity: &IdentityDraft) -> Vec<sea_orm::Value> {
-    vec![
-        sea_orm::Value::String(Some(identity.scheme.clone())),
-        sea_orm::Value::String(Some(identity.external_id.clone())),
-        sea_orm::Value::String(identity.label.clone()),
-        sea_orm::Value::String(identity.description.clone()),
-        // `classes` is an array column; bind it as one, the way the blocking index binds its
-        // key arrays.
-        identity.classes.clone().into(),
-        sea_orm::Value::String(Some(identity.provider.clone())),
-        sea_orm::Value::String(identity.method.clone()),
-        sea_orm::Value::Float(identity.confidence),
-    ]
-}
-
 /// The constraint a unique violation broke, if it was one. Postgres reports `23505`.
 fn unique_violation(error: &sea_orm::DbErr) -> Option<&str> {
     use sea_orm::RuntimeErr;
@@ -460,54 +400,58 @@ mod tests {
             .unwrap();
         let link = platform_link(&observation).expect("a platform link");
         let identity = IdentityDraft::try_from(&link).expect("a handle");
+        let key = identity.key();
 
         let vetoes = HashSet::new();
         let first_claim = evidence
             .claim_identity(
-                first,
-                IdentitySettlement::CreateOnly(&identity),
-                ClaimDraft::capture(&observation),
+                identity.clone(),
+                Claim::from_observation(first, &observation, key.clone()),
                 &vetoes,
             )
             .await
             .unwrap();
-        assert_eq!(first_claim.outcome, ClaimOutcome::Written);
-        assert!(first_claim.claim_id.is_some());
+        let (identity_id, claim_id) = match first_claim {
+            ClaimOutcome::Written {
+                identity_id,
+                claim_id,
+            } => (identity_id, claim_id),
+            other => panic!("expected Written, got {other:?}"),
+        };
 
         let repeat = evidence
             .claim_identity(
-                first,
-                IdentitySettlement::CreateOnly(&identity),
-                ClaimDraft::capture(&observation),
+                identity.clone(),
+                Claim::from_observation(first, &observation, key.clone()),
                 &vetoes,
             )
             .await
             .unwrap();
         assert_eq!(
-            repeat.outcome,
-            ClaimOutcome::AlreadyClaimed,
+            repeat,
+            ClaimOutcome::AlreadyClaimed {
+                identity_id,
+                claim_id
+            },
             "the same holder again is one claim, not a violation"
         );
-        assert_eq!(repeat.claim_id, first_claim.claim_id);
 
         let second_claim = evidence
             .claim_identity(
-                second,
-                IdentitySettlement::CreateOnly(&identity),
-                ClaimDraft::capture(&observation),
+                identity,
+                Claim::from_observation(second, &observation, key),
                 &vetoes,
             )
             .await
             .unwrap();
-        assert_eq!(
-            second_claim.outcome,
-            ClaimOutcome::Written,
-            "a second holder is not an error"
+        assert!(
+            matches!(second_claim, ClaimOutcome::Written { .. }),
+            "a second holder is not an error: {second_claim:?}"
         );
 
         assert_eq!(
             evidence
-                .held_by_identity(first_claim.identity_id)
+                .holders_of_identity(identity_id)
                 .await
                 .unwrap()
                 .len(),
@@ -532,7 +476,7 @@ mod tests {
         db_or_skip!(db);
         let evidence = Evidence::from_handle(&db);
         evidence
-            .enrich_identity(&IdentityDraft {
+            .upsert_identity(&IdentityDraft {
                 scheme: "x_twitter".to_string(),
                 external_id: "tsoding".to_string(),
                 provider: "wikidata".to_string(),
@@ -564,7 +508,7 @@ mod tests {
             .unwrap();
         let link = platform_link(&observation).expect("a platform link");
         let identity = IdentityDraft::try_from(&link).expect("a handle");
-        evidence.ensure_identity(&identity).await.unwrap();
+        evidence.upsert_identity(&identity).await.unwrap();
 
         let row = model::knowledge_identity::Entity::find()
             .filter(model::knowledge_identity::Column::Scheme.eq("x_twitter"))
@@ -600,12 +544,14 @@ mod tests {
             classes: Vec::new(),
         };
         let vetoes = HashSet::new();
+        let key = identity.key();
 
         let written = evidence
             .claim_identity(
-                entity,
-                IdentitySettlement::Enrich(&identity),
-                ClaimDraft::authority(
+                identity.clone(),
+                Claim::from_provider(
+                    entity,
+                    key.clone(),
                     crate::model::knowledge_claims::ClaimBasis::Text,
                     "wikidata",
                     "exact_label".to_string(),
@@ -614,14 +560,20 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(written.outcome, ClaimOutcome::Written);
-        assert!(written.claim_id.is_some());
+        let (identity_id, claim_id) = match written {
+            ClaimOutcome::Written {
+                identity_id,
+                claim_id,
+            } => (identity_id, claim_id),
+            other => panic!("expected Written, got {other:?}"),
+        };
 
         let repeat = evidence
             .claim_identity(
-                entity,
-                IdentitySettlement::Enrich(&identity),
-                ClaimDraft::authority(
+                identity,
+                Claim::from_provider(
+                    entity,
+                    key,
                     crate::model::knowledge_claims::ClaimBasis::Text,
                     "wikidata",
                     "exact_label".to_string(),
@@ -630,8 +582,13 @@ mod tests {
             )
             .await
             .unwrap();
-        assert_eq!(repeat.outcome, ClaimOutcome::AlreadyClaimed);
-        assert_eq!(repeat.claim_id, written.claim_id);
+        assert_eq!(
+            repeat,
+            ClaimOutcome::AlreadyClaimed {
+                identity_id,
+                claim_id
+            }
+        );
     }
 
     /// The provider follows the answer, not merely the presence of a label: a model guess with no
@@ -641,7 +598,7 @@ mod tests {
         db_or_skip!(db);
         let evidence = Evidence::from_handle(&db);
         let id = evidence
-            .enrich_identity(&IdentityDraft {
+            .upsert_identity(&IdentityDraft {
                 scheme: "wikidata".to_string(),
                 external_id: "Q_PROVIDER_TEST".to_string(),
                 provider: "model".to_string(),
@@ -654,7 +611,7 @@ mod tests {
             .await
             .expect("a guess creates the identity");
         evidence
-            .enrich_identity(&IdentityDraft {
+            .upsert_identity(&IdentityDraft {
                 scheme: "wikidata".to_string(),
                 external_id: "Q_PROVIDER_TEST".to_string(),
                 provider: "wikidata".to_string(),
@@ -692,7 +649,7 @@ mod tests {
             description: None,
             classes: vec!["Q5".to_string(), "Q36180".to_string()],
         };
-        let id = evidence.enrich_identity(&draft).await.unwrap();
+        let id = evidence.upsert_identity(&draft).await.unwrap();
 
         let row = model::knowledge_identity::Entity::find_by_id(id)
             .one(&db.conn)
@@ -707,7 +664,7 @@ mod tests {
 
         // A later answer that carried no classes leaves the accumulated ones alone.
         evidence
-            .enrich_identity(&IdentityDraft {
+            .upsert_identity(&IdentityDraft {
                 classes: Vec::new(),
                 label: None,
                 method: None,

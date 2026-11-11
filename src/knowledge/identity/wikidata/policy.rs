@@ -7,6 +7,7 @@
 //!
 //! Numbers live in `ranking.rs`; this file owns only the order and the admission rules.
 
+use super::AuthorityClaim as Claim;
 use super::answer;
 use super::ranking::{
     CLAIM_BAR, CLAIM_MARGIN, FIT_MARGIN, HINT_CEILING, HINT_MIN_SUPPORT, LONE_LABEL_CONFIDENCE,
@@ -15,7 +16,6 @@ use super::ranking::{
 };
 use super::{Candidate, Kind};
 use crate::fetch::Request;
-use crate::knowledge::evidence::Claim;
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::Rank;
 use crate::model;
@@ -100,10 +100,7 @@ pub(super) fn decide(
     // fit here refuses correct answers. Ambiguity is what the shortcut must not survive, and the
     // label rung already reports it as more than one candidate. This runs before `Rank`, whose job
     // is the corroborated candidates; a lone label needs no corroboration.
-    if request.kind == Kind::Label
-        && candidates.len() == 1
-        && exact_label(entity, &candidates[0])
-    {
+    if request.kind == Kind::Label && candidates.len() == 1 && exact_label(entity, &candidates[0]) {
         return vec![answer::claim(
             &candidates[0],
             method_for(&request.kind, true),

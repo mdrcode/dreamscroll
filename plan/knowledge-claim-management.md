@@ -35,32 +35,29 @@ not see them (they are always `handle`), and `Evidence::record` never consulted 
 Not a design: a protocol artefact. `Decision` carried an identity **id**, so the row had to exist
 before the decider ran — `import_identities` was the first phase of the capture path. The authority
 path needed no pre-pass because the engine held the answer, so it did identity upsert and edge insert
-in one function. The claim row also has capture-only columns (`surface`,
-`user_observed_entity_id`, `source_user_id`), so the capture path grew its own insert.
+in one function. The claim row also has an observation-only column
+(`user_observed_entity_id`; `surface` and `source_user_id` were later removed), so the observation
+path grew its own insert.
 
 Those functions then drifted: the veto was in one, the uniqueness match duplicated, the basis
 hardcoded in one, and the identity-upsert precedence was decided by execution order rather than by a
-rule (`method` is "newest non-null wins" while its doc says "first answer only" — a capture that
-arrives after an answer downgrades `method` to `capture`).
+rule (`method` is "newest non-null wins" while its doc says "first answer only" — an observation
+that arrives after an answer downgrades `method` to `observation`).
 
 ## The model
 
-**Two phases, one implementation of each.**
+**One write path.**
 
-1. **Settle** — identity rows.
-   - `Evidence::ensure_identity(draft)` creates if absent and leaves an existing row alone.
-     **Create only.**
-   - `Evidence::enrich_identity(draft)` fills gaps and may upgrade `provider`. **Enrich.**
-   - The caller chooses the mode; the store knows only those two behaviours.
-2. **Claim** — settle and write the edge in one operation:
-   `Evidence::claim_identity(holder, IdentitySettlement, ClaimDraft, vetoes) -> ClaimWrite`.
-   - `IdentitySettlement::CreateOnly(draft)` uses create-only;
-     `IdentitySettlement::Enrich(draft)` enriches.
+1. **Settle** — `Evidence::upsert_identity(draft)` creates or fills gaps. A capture draft has no
+   metadata, and the SQL never lets it downgrade an existing row's `method` or `provider`.
+2. **Claim** — `Evidence::claim_identity(identity_draft, claim, vetoes) -> ClaimOutcome`.
+   - `Claim` is the full edge: holder, identity key, basis, provider, method, and optional
+     observation provenance.
+   - `Claim::from_observation(observation, key)` and `Claim::from_provider(key, basis, provider,
+     method)` are constructors, not storage modes.
    - Asks the veto once, at the one place a claim becomes a row.
-   - Provenance is a value, not a code path: `ClaimDraft::capture(observation)` carries the
-     observation and the surface; `ClaimDraft::authority(basis, provider, method)` carries neither.
-   - Idempotent: a unique violation is `AlreadyClaimed`, not an error, and the existing claim id is
-     returned.
+   - Idempotent: a unique violation is `AlreadyClaimed`, not an error, and `ClaimOutcome` carries
+     the ids.
 
 The observation has no identity. Its optional `PlatformLink` maps to an `IdentityKey` when the link
 has a handle; the store never reads observation fields.
@@ -71,7 +68,7 @@ has a handle; the store never reads observation fields.
 KnowledgeGraph::link          a collection of observations in: decide, attach, project;
                               returns observation → entity
 helper::link_illumination     batches one illumination's observations, calls `link`, then
-                              write_capture_claims: for each pair with a platform link, claim_identity
+                              write_observation_claims: for each pair with a platform link, claim_identity
                               (settle on first sighting + write claim), then project again
 ```
 
@@ -97,7 +94,7 @@ durable name is the pairing, which the verdict already stores. A row id is a wit
 locator, and within a generation it is redundant: the unique index makes the pairing select at most
 one live row.
 
-`ClaimWrite` therefore returns the written row id for immediate callers, but it is not a durable
+`ClaimOutcome` therefore carries the written row id for immediate callers, but it is not a durable
 decision key.
 
 ## The veto rule
@@ -113,7 +110,7 @@ decision key.
 
 | file | change |
 | --- | --- |
-| `evidence/store.rs` | `IdentityKey`; `IdentityDraft`; `ensure_identity` (create-only), `enrich_identity`, `IdentitySettlement`; `ClaimDraft` + `claim_identity` (veto + edge). Deleted `record` and `store_claim`. |
+| `evidence/store.rs` | `IdentityKey`; `IdentityDraft`; `upsert_identity`; full `Claim` + `claim_identity` (veto + edge); `ClaimOutcome` with ids. Deleted `record`, `store_claim`, and the partial claim/write types. |
 | `evidence/mod.rs` | the "two writers" paragraph became the two phases; exports updated. |
 | `graph/link.rs` | `link`: decisions applied and projected, returning observation → entity; `LinkStats`. No illumination type in sight. |
 | `graph/knowledge_graph.rs` | `link(&[Observation])` is the only linking method. |
@@ -132,8 +129,8 @@ No schema change. Existing verdict rows already carry the key; nothing to backfi
 - A veto on a P2002/`handle` authority claim retracts it, and the entity returns to provisional.
 - A repeat replay reports `settled`, not a zero withdrawal.
 - Capturing a link never downgrades an answered identity (method stays `P2002`, label kept).
-- Negative controls: without the veto check the capture claim returns; with `enrich_identity` for a
-  capture the method becomes `capture`; with the old basis filter the P2002 claim survives.
+- Negative controls: without the veto check the capture claim returns; with a capture upsert the
+  method stays `P2002`; with the old basis filter the P2002 claim survives.
 
 ## Measured result
 
@@ -154,7 +151,7 @@ between builds — expired rows rose by exactly the 2,523 that left "with candid
 
 ## Deliberately not doing
 
-- **Durable claim ids.** `ClaimWrite` returns the row id for immediate callers; decisions still address
+- **Durable claim ids.** `ClaimOutcome` carries the row id for immediate callers; decisions still address
   the pairing, because reset recreates claims with new ids. See above.
 - **Conditional vetoes** ("distrust the authority's answer, keep the capture's"). With one claim per
   pair it would leave the pair claimed and change only the corroboration bonus. If a future schema

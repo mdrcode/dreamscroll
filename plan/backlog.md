@@ -118,7 +118,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   also writes a proximity (which would flag the established entity for a look); today
   "shares an identity" is a proximity, and diluting it is a separatee decision.
 - [ ] **Make `Evidence` transaction-scoped.** The two-phase write is now
-  `Evidence::claim_identity` returning `ClaimWrite { identity_id, claim_id, outcome }`, and candidate
+  `Evidence::claim_identity` returning `ClaimOutcome` with the ids, and candidate
   selection lives in `ClaimSelection`; callers no longer hand-roll the identity write and claim
   write.
   What remains is the connection: `Evidence` owns a `DatabaseConnection`, while `move_claims`
@@ -221,7 +221,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
      that is not the closest by the measure it uses. `plan/knowledge-resolution.md` reasons about
      margins in fit space, which assumes the fit order.
   3. ~~**Two orderings for "most substantiated".**~~ **Fixed by construction** (2026-11-04): the SQL
-     `ORDER BY` is gone, `held_by_identity` sorts with `Worth::order`, and `merge_open` asks the same
+     `ORDER BY` is gone, `holders_of_identity` sorts with `Worth::order`, and `merge_open` asks the same
      function — one comparator, no NULL rule to keep in sync.
   4. **The third holder's pair is never asked.** With three or more holders `scan` pairs every other
      holder against `holders.first()`, so `(h2, h3)` never becomes a proximity and that question is

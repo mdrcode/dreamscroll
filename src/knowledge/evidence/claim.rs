@@ -1,65 +1,67 @@
-//! One claim about an entity's identity: what was said, how sure, and what was asked.
+//! One claim about an entity's identity: who holds it, what identity, and how it was reached.
 //!
-//! The vocabulary every writer of `knowledge_claims` shares. A capture's observation and an
-//! authority's answer are both claims; only [`ClaimBasis`] and who filled the other fields differ.
+//! The vocabulary every writer of `knowledge_claims` shares. An observation and a provider answer
+//! are both claims; what differs is the provenance values, not the shape.
 //!
 //! [`ClaimBasis`] lives with the column it fills (`model::knowledge_claims`) and is re-exported
 //! here, so the knowledge layer names the same type the model stores.
 
-use super::identity::ILLUMINATOR;
+use super::PLATFORM_LINK_PROVIDER_ID;
+use super::identity::IdentityKey;
 use crate::model;
 
 pub use crate::model::knowledge_claims::ClaimBasis;
 
-/// One identity a provider is willing to claim for an entity.
+/// One entity's claim to one identity.
+///
+/// The identity's metadata lives in [`super::identity::IdentityDraft`]; this is only the edge. A
+/// provider may propose several claims for one entity, each with its own basis and method.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Claim {
-    pub scheme: String,
-    /// The identifier inside the scheme — `Q42`, `tt0133093`, `@handle`.
-    pub external_id: String,
-    pub label: Option<String>,
-    pub description: Option<String>,
-    pub classes: Vec<String>,
-    pub method: String,
-    pub confidence: f32,
-    /// What the provider was asked about. The resolver knows, because it chose the question.
+    pub holder: i32,
+    pub identity: IdentityKey,
     pub basis: ClaimBasis,
-}
-
-/// An edge about to be written: one entity claims one identity.
-///
-/// The identity is not here: it is settled by [`super::store::IdentitySettlement`], and the resolved
-/// id is supplied by the write operation.
-pub struct ClaimDraft<'a> {
-    pub basis: ClaimBasis,
-    /// Who supplied this edge. The engine sets it from `resolver.id()`; a capture writes
-    /// [`ILLUMINATOR`].
+    /// Who supplied this edge. The engine sets it from `resolver.id()`; an observation writes
+    /// [`PLATFORM_LINK_PROVIDER_ID`].
     pub provider: &'static str,
-    /// How the edge was reached: the ladder step, or `capture`.
+    /// How the edge was reached: the ladder step, or `observation`.
     pub method: String,
-    /// The observation that carried it, when a capture did. `None` when an authority answered:
-    /// nothing user-visible carried it, so there is no provenance to record.
-    pub capture: Option<&'a model::user_observed_entity::Model>,
+    /// The observation that carried it; `None` for a provider answer.
+    pub observation_id: Option<i32>,
 }
 
-impl<'a> ClaimDraft<'a> {
-    /// A capture's claim: the route is always the handle it showed.
-    pub fn capture(observation: &'a model::user_observed_entity::Model) -> Self {
+impl Claim {
+    /// A claim carried by an observation: the handle it showed is the route.
+    pub fn from_observation(
+        holder: i32,
+        observation: &model::user_observed_entity::Model,
+        identity: IdentityKey,
+    ) -> Self {
         Self {
+            holder,
+            identity,
             basis: ClaimBasis::Handle,
-            provider: ILLUMINATOR,
-            method: "capture".to_string(),
-            capture: Some(observation),
+            provider: PLATFORM_LINK_PROVIDER_ID,
+            method: "observation".to_string(),
+            observation_id: Some(observation.id),
         }
     }
 
-    /// An authority's claim: the basis is the route the answer came by.
-    pub fn authority(basis: ClaimBasis, provider: &'static str, method: String) -> Self {
+    /// A claim from a provider answer: the basis is the route the answer came by.
+    pub fn from_provider(
+        holder: i32,
+        identity: IdentityKey,
+        basis: ClaimBasis,
+        provider: &'static str,
+        method: String,
+    ) -> Self {
         Self {
+            holder,
+            identity,
             basis,
             provider,
             method,
-            capture: None,
+            observation_id: None,
         }
     }
 }

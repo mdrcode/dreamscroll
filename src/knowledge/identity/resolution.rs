@@ -8,9 +8,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use crate::fetch::{self, Allowance, FetchCache, Gateway, Refusal};
 use crate::knowledge::KnowledgeGraph;
-use crate::knowledge::evidence::{
-    Claim, ClaimDraft, ClaimOutcome, Evidence, IdentityDraft, IdentitySettlement,
-};
+use crate::knowledge::evidence::{Claim, ClaimOutcome, Evidence, IdentityDraft};
 use crate::model;
 
 use super::{MAX_CLAIMS_PER_ENTITY, RESERVED_PROVIDER_IDS};
@@ -26,12 +24,12 @@ pub trait Resolver: Send + Sync {
     /// ids are refused by [`ResolutionEngine::new`].
     fn id(&self) -> &'static str;
 
-    /// Discover and retrieve new identities for the entities, returning claims to link the two.
+    /// Discover identities for the entities, returning each identity and the claim to it.
     async fn resolve(
         &self,
         entities: &[model::knowledge_entity::Model],
         gateway: &Gateway<'_>,
-    ) -> Vec<(i32, Claim)>;
+    ) -> Vec<(IdentityDraft, Claim)>;
 }
 
 #[derive(Debug, Clone)]
@@ -161,7 +159,7 @@ struct ResolutionRun<'e, 'g, 'a> {
     vetoes: HashSet<(i32, String, String)>,
     report: ResolutionReport,
     provider_reports: Vec<ProviderReport>,
-    proposed: BTreeMap<i32, Vec<(usize, Claim)>>,
+    proposed: BTreeMap<i32, Vec<(usize, IdentityDraft, Claim)>>,
     resolved: HashSet<i32>,
     capped: HashSet<(usize, i32)>,
 }
@@ -225,7 +223,9 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
             };
             if !batch.is_empty() {
                 let mut per_entity: HashMap<i32, usize> = HashMap::new();
-                for (knowledge_entity_id, claim) in resolver.resolve(&batch, self.gateway).await {
+
+                for (identity_draft, claim) in resolver.resolve(&batch, self.gateway).await {
+                    let knowledge_entity_id = claim.holder;
                     if !batch_ids.contains(&knowledge_entity_id) {
                         tracing::warn!(
                             provider = resolver.id(),
@@ -234,6 +234,12 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                         );
                         continue;
                     }
+                    anyhow::ensure!(
+                        claim.provider == resolver.id(),
+                        "resolver `{}` returned a claim attributed to `{}`",
+                        resolver.id(),
+                        claim.provider
+                    );
                     let count = per_entity.entry(knowledge_entity_id).or_default();
                     if *count >= MAX_CLAIMS_PER_ENTITY {
                         report.dropped += 1;
@@ -243,10 +249,11 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                         continue;
                     }
                     *count += 1;
-                    self.proposed
-                        .entry(knowledge_entity_id)
-                        .or_default()
-                        .push((index, claim));
+                    self.proposed.entry(knowledge_entity_id).or_default().push((
+                        index,
+                        identity_draft,
+                        claim,
+                    ));
                 }
             }
             let after = self.gateway.stats();
@@ -266,35 +273,26 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
         let proposed = std::mem::take(&mut self.proposed);
         for (knowledge_entity_id, claims) in proposed {
             let mut keep_by_resolver: HashMap<usize, HashSet<(String, String)>> = HashMap::new();
-            for (resolver_index, claim) in claims {
-                let basis = claim.basis;
-                let method = claim.method.clone();
-                let provider = self.engine.resolvers[resolver_index].id();
-                let draft = IdentityDraft::from_claim(claim, provider);
-                let key = draft.key();
+            for (resolver_index, identity_draft, claim) in claims {
+                let key = identity_draft.key();
                 let claimed = self
                     .engine
                     .graph
-                    .claim_identity(
-                        knowledge_entity_id,
-                        IdentitySettlement::Enrich(&draft),
-                        ClaimDraft::authority(basis, provider, method),
-                        &self.vetoes,
-                    )
+                    .claim_identity(identity_draft, claim, &self.vetoes)
                     .await?;
-                match claimed.outcome {
-                    ClaimOutcome::Written => {
+                match claimed {
+                    ClaimOutcome::Written { .. } => {
                         self.report.claims_written += 1;
                         self.provider_reports[resolver_index].claims_written += 1;
                         self.resolved.insert(knowledge_entity_id);
                     }
-                    ClaimOutcome::Vetoed => {
+                    ClaimOutcome::Vetoed { .. } => {
                         self.report.claims_vetoed += 1;
                         self.provider_reports[resolver_index].claims_vetoed += 1;
                     }
-                    ClaimOutcome::AlreadyClaimed => {}
+                    ClaimOutcome::AlreadyClaimed { .. } => {}
                 }
-                if self.engine.options.replace && claimed.outcome != ClaimOutcome::Vetoed {
+                if self.engine.options.replace && !matches!(claimed, ClaimOutcome::Vetoed { .. }) {
                     keep_by_resolver
                         .entry(resolver_index)
                         .or_default()
@@ -347,7 +345,7 @@ mod tests {
     use crate::fetch::{
         Allowance, Answer, BATCH, FetchCache, FetchError, Outcome, Request, Transport,
     };
-    use crate::knowledge::evidence::Claim;
+    use crate::knowledge::evidence::{ClaimBasis, IdentityKey};
     use crate::knowledge::identity::DEFAULT_MAX_REQUESTS;
     use crate::model;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
@@ -458,6 +456,37 @@ mod tests {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    fn resolved(
+        holder: i32,
+        provider: &'static str,
+        scheme: &str,
+        external_id: &str,
+        label: Option<String>,
+        method: &str,
+        confidence: f32,
+        basis: crate::knowledge::evidence::ClaimBasis,
+    ) -> (IdentityDraft, Claim) {
+        let key = IdentityKey {
+            scheme: scheme.to_string(),
+            external_id: external_id.to_string(),
+        };
+        let identity_draft = IdentityDraft {
+            scheme: scheme.to_string(),
+            external_id: external_id.to_string(),
+            provider: provider.to_string(),
+            method: Some(method.to_string()),
+            confidence: Some(confidence),
+            label,
+            description: None,
+            classes: Vec::new(),
+        };
+        (
+            identity_draft,
+            Claim::from_provider(holder, key, basis, provider, method.to_string()),
+        )
+    }
+
     struct Fake {
         answers: HashMap<String, Answer<Vec<String>>>,
         calls: Arc<AtomicUsize>,
@@ -487,7 +516,7 @@ mod tests {
             &self,
             entities: &[model::knowledge_entity::Model],
             gateway: &Gateway<'_>,
-        ) -> Vec<(i32, Claim)> {
+        ) -> Vec<(IdentityDraft, Claim)> {
             let requests: Vec<Request<Probe>> = entities
                 .iter()
                 .map(|entity| fake_request(self.id(), entity))
@@ -498,18 +527,15 @@ mod tests {
                 .filter_map(|entity| {
                     let raw = answers.get(&fake_request(self.id(), entity))?;
                     let id = raw.body.as_ref()?.first()?.clone();
-                    Some((
+                    Some(resolved(
                         entity.id,
-                        Claim {
-                            scheme: "wikidata".to_string(),
-                            external_id: id,
-                            label: Some(entity.name.clone()),
-                            description: None,
-                            classes: Vec::new(),
-                            method: "exact_label".to_string(),
-                            confidence: 0.9,
-                            basis: crate::knowledge::evidence::ClaimBasis::Text,
-                        },
+                        self.id(),
+                        "wikidata",
+                        &id,
+                        Some(entity.name.clone()),
+                        "exact_label",
+                        0.9,
+                        ClaimBasis::Text,
                     ))
                 })
                 .collect()
@@ -529,22 +555,19 @@ mod tests {
             &self,
             entities: &[model::knowledge_entity::Model],
             _gateway: &Gateway<'_>,
-        ) -> Vec<(i32, Claim)> {
+        ) -> Vec<(IdentityDraft, Claim)> {
             entities
                 .iter()
                 .map(|entity| {
-                    (
+                    resolved(
                         entity.id,
-                        Claim {
-                            scheme: "imdb".to_string(),
-                            external_id: "tt1".to_string(),
-                            label: None,
-                            description: None,
-                            classes: Vec::new(),
-                            method: "title".to_string(),
-                            confidence: 0.8,
-                            basis: crate::knowledge::evidence::ClaimBasis::Text,
-                        },
+                        self.id(),
+                        "imdb",
+                        "tt1",
+                        None,
+                        "title",
+                        0.8,
+                        ClaimBasis::Text,
                     )
                 })
                 .collect()
@@ -564,23 +587,20 @@ mod tests {
             &self,
             entities: &[model::knowledge_entity::Model],
             _gateway: &Gateway<'_>,
-        ) -> Vec<(i32, Claim)> {
+        ) -> Vec<(IdentityDraft, Claim)> {
             entities
                 .iter()
                 .flat_map(|entity| {
                     (0..10).map(|index| {
-                        (
+                        resolved(
                             entity.id,
-                            Claim {
-                                scheme: "imdb".to_string(),
-                                external_id: format!("tt{index}"),
-                                label: None,
-                                description: None,
-                                classes: Vec::new(),
-                                method: "search".to_string(),
-                                confidence: 0.8,
-                                basis: crate::knowledge::evidence::ClaimBasis::Text,
-                            },
+                            self.id(),
+                            "imdb",
+                            &format!("tt{index}"),
+                            None,
+                            "search",
+                            0.8,
+                            ClaimBasis::Text,
                         )
                     })
                 })
@@ -1064,7 +1084,7 @@ mod tests {
             knowledge_entity_id,
             "x_twitter",
             "nintendo",
-            crate::knowledge::evidence::ILLUMINATOR,
+            crate::knowledge::evidence::PLATFORM_LINK_PROVIDER_ID,
             None,
             None,
             crate::model::knowledge_claims::ClaimBasis::Handle,
@@ -1096,7 +1116,7 @@ mod tests {
 
         for (source, method, scheme, external_id, confidence) in [
             (
-                crate::knowledge::evidence::ILLUMINATOR,
+                crate::knowledge::evidence::PLATFORM_LINK_PROVIDER_ID,
                 None,
                 "x_twitter",
                 "tsoding",
@@ -1152,7 +1172,7 @@ mod tests {
             &self,
             entities: &[model::knowledge_entity::Model],
             gateway: &Gateway<'_>,
-        ) -> Vec<(i32, Claim)> {
+        ) -> Vec<(IdentityDraft, Claim)> {
             let requests: Vec<Request<Probe>> = entities
                 .iter()
                 .map(|entity| fake_request(self.id(), entity))
@@ -1193,7 +1213,7 @@ mod tests {
             &self,
             entities: &[model::knowledge_entity::Model],
             gateway: &Gateway<'_>,
-        ) -> Vec<(i32, Claim)> {
+        ) -> Vec<(IdentityDraft, Claim)> {
             let requests: Vec<Request<Probe>> = entities
                 .iter()
                 .map(|entity| Request {
@@ -1214,18 +1234,15 @@ mod tests {
                         query: entity.name.clone(),
                     })?;
                     (raw.outcome == Outcome::Found).then(|| {
-                        (
+                        resolved(
                             entity.id,
-                            Claim {
-                                scheme: "wikidata".to_string(),
-                                external_id: format!("Q{}", entity.name.len()),
-                                label: Some(entity.name.clone()),
-                                description: None,
-                                classes: Vec::new(),
-                                method: "exact_label".to_string(),
-                                confidence: 0.9,
-                                basis: crate::knowledge::evidence::ClaimBasis::Text,
-                            },
+                            self.id(),
+                            "wikidata",
+                            &format!("Q{}", entity.name.len()),
+                            Some(entity.name.clone()),
+                            "exact_label",
+                            0.9,
+                            ClaimBasis::Text,
                         )
                     })
                 })
@@ -1388,7 +1405,7 @@ mod tests {
             earns_now,
             "x_twitter",
             "traindreams",
-            crate::knowledge::evidence::ILLUMINATOR,
+            crate::knowledge::evidence::PLATFORM_LINK_PROVIDER_ID,
             None,
             None,
             crate::model::knowledge_claims::ClaimBasis::Handle,
@@ -1547,7 +1564,7 @@ mod tests {
             &self,
             _entities: &[model::knowledge_entity::Model],
             _gateway: &Gateway<'_>,
-        ) -> Vec<(i32, Claim)> {
+        ) -> Vec<(IdentityDraft, Claim)> {
             Vec::new()
         }
     }

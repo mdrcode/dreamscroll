@@ -15,12 +15,12 @@ pub struct ClaimSelection<'a> {
 }
 
 impl<'a> ClaimSelection<'a> {
-    pub fn new(conn: &'a sea_orm::DatabaseConnection) -> Self {
+    pub fn from_connection(conn: &'a sea_orm::DatabaseConnection) -> Self {
         Self { conn }
     }
 
     pub fn from_handle(db: &'a DbHandle) -> Self {
-        Self::new(&db.conn)
+        Self::from_connection(&db.conn)
     }
 
     /// Entities no configured authority has claimed yet, in the order a run should ask them.
@@ -38,7 +38,7 @@ impl<'a> ClaimSelection<'a> {
     ) -> anyhow::Result<Vec<model::knowledge_entity::Model>> {
         use model::knowledge_entity as entity;
 
-        // Asked already: holds a claim an authority made, rather than only the capture's handle.
+        // Asked already: holds a claim an authority made, rather than only the observation's handle.
         let claimed = Query::select()
             .distinct()
             .column((

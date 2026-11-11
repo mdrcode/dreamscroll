@@ -1,5 +1,5 @@
-//! The identity vocabulary: an identity's durable name, a platform link a capture showed, and the
-//! draft an authority's answer becomes.
+//! The identity vocabulary: an identity's durable name, a platform link an observation showed, and
+//! the draft a provider's answer becomes.
 //!
 //! The row itself lives in `model::knowledge_identity`; these are the shapes `Evidence` writes it
 //! from, and the pair every durable reference uses.
@@ -8,11 +8,7 @@ use crate::illumination::v2::PlatformLink;
 use crate::knowledge::normalize;
 use crate::model;
 
-use super::claim::Claim;
-
-/// The provider of an identity a capture showed: the illuminator produced the link, not the
-/// platform it names. Reserved — a resolver may never take this id.
-pub const ILLUMINATOR: &str = "illuminator";
+use super::PLATFORM_LINK_PROVIDER_ID;
 
 /// The platform link an observation's flattened columns describe, if it has a platform.
 ///
@@ -57,10 +53,10 @@ impl TryFrom<&PlatformLink> for IdentityKey {
 pub struct IdentityDraft {
     pub scheme: String,
     pub external_id: String,
-    /// Who supplied it: [`ILLUMINATOR`] for a handle a capture showed, else the resolver's id.
+    /// Who supplied it: [`PLATFORM_LINK_PROVIDER_ID`] for an observed handle, else the resolver's id.
     pub provider: String,
-    /// How it was answered, on the first answer only: `capture`, a Wikidata property (`P2002`, …) for
-    /// a handle join, or the ladder step (`exact_label`, `search_ranked`, …).
+    /// How it was answered, on the first answer only: `observation`, a Wikidata property (`P2002`,
+    /// …) for a handle join, or the ladder step (`exact_label`, `search_ranked`, …).
     pub method: Option<String>,
     pub confidence: Option<f32>,
     pub label: Option<String>,
@@ -77,8 +73,8 @@ impl TryFrom<&PlatformLink> for IdentityDraft {
         Ok(Self {
             scheme: key.scheme,
             external_id: key.external_id,
-            provider: ILLUMINATOR.to_string(),
-            method: Some("capture".to_string()),
+            provider: PLATFORM_LINK_PROVIDER_ID.to_string(),
+            method: Some("observation".to_string()),
             confidence: None,
             label: None,
             description: None,
@@ -88,20 +84,6 @@ impl TryFrom<&PlatformLink> for IdentityDraft {
 }
 
 impl IdentityDraft {
-    /// The answer an authority gave: it knows what the thing is, not which capture asked.
-    pub fn from_claim(claim: Claim, provider: &str) -> Self {
-        Self {
-            scheme: claim.scheme,
-            external_id: claim.external_id,
-            provider: provider.to_string(),
-            method: Some(claim.method),
-            confidence: Some(claim.confidence),
-            label: claim.label,
-            description: claim.description,
-            classes: claim.classes,
-        }
-    }
-
     /// The durable name of the identity this draft describes.
     pub fn key(&self) -> IdentityKey {
         IdentityKey {

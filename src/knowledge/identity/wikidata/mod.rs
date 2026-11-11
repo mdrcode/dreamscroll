@@ -14,6 +14,7 @@ mod shape;
 mod transport;
 mod types;
 
+pub(crate) use answer::AuthorityClaim;
 pub use candidate::Candidate;
 pub use kind::Kind;
 pub use resolver::Wikidata;

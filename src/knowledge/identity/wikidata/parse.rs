@@ -3,13 +3,13 @@
 //! Pure: the same entity plus the same answer yields the same claims, so the whole decision can be
 //! re-run over cached payloads with no transport. Nothing here knows which wire produced the answer.
 
+use super::AuthorityClaim as Claim;
 use super::answer;
 use super::policy;
 use super::ranking::HANDLE_CONFIDENCE;
 use super::types;
 use super::{Candidate, Kind};
 use crate::fetch::{Answer, Request};
-use crate::knowledge::evidence::Claim;
 use crate::model;
 
 /// Turn an answer into claims. Pure: same entity plus same answer, same claims.

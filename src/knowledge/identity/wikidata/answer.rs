@@ -6,7 +6,19 @@
 use super::Candidate;
 use super::ID;
 use crate::knowledge::evidence::ClaimBasis;
-use crate::knowledge::evidence::Claim;
+
+/// A Wikidata answer before it becomes an identity and a claim edge.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct AuthorityClaim {
+    pub scheme: String,
+    pub external_id: String,
+    pub label: Option<String>,
+    pub description: Option<String>,
+    pub classes: Vec<String>,
+    pub method: String,
+    pub confidence: f32,
+    pub basis: ClaimBasis,
+}
 
 /// A menu, not a referent. Two classes because Wikidata's own hierarchy defeats equality: `Q22808320`
 /// ("Wikimedia human name disambiguation page") is a *subclass* of `Q4167410`, and every one of the 34
@@ -16,8 +28,8 @@ const MENUS: [&str; 2] = [
     "Q22808320", // Wikimedia human name disambiguation page
 ];
 
-pub(super) fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Claim {
-    Claim {
+pub(super) fn claim(candidate: &Candidate, method: &str, confidence: f32) -> AuthorityClaim {
+    AuthorityClaim {
         scheme: ID.to_string(),
         external_id: candidate.id.clone(),
         label: candidate.label.clone(),
@@ -32,7 +44,11 @@ pub(super) fn claim(candidate: &Candidate, method: &str, confidence: f32) -> Cla
 /// A property match: the item *is* the account. The basis is the handle, which is what stops the
 /// answer counting as a second, independent input beside the handle that produced it — however many
 /// platforms the property table grows.
-pub(super) fn handle_claim(candidate: &Candidate, property: &str, confidence: f32) -> Claim {
+pub(super) fn handle_claim(
+    candidate: &Candidate,
+    property: &str,
+    confidence: f32,
+) -> AuthorityClaim {
     let mut claim = claim(candidate, property, confidence);
     claim.basis = ClaimBasis::Handle;
     claim
@@ -53,4 +69,3 @@ pub(super) fn is_menu(candidate: &Candidate) -> bool {
             .as_deref()
             .is_some_and(|text| text.to_lowercase().contains("disambiguation"))
 }
-
