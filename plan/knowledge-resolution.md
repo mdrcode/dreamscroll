@@ -275,10 +275,12 @@ pub async fn resolve_all_pending(
     engine: &ResolutionEngine,
     cache: &FetchCache<'_>,
     allowance: Option<&Allowance>,
+    limit: Option<usize>,
+    newest_first: bool,
 ) -> anyhow::Result<ResolutionReport>;
 ```
 
-The engine exposes only `pub(crate)` accessors the helpers need: `options()` and `providers()`.
+The engine exposes only the `pub(crate)` accessor the helpers need: `providers()`.
 `Resolver` is unchanged: `provider()` and `resolve(&[Model], gateway)`.
 
 The caller owns the graph, cache and allowance. `ResolutionEngine::new` validates the
@@ -295,15 +297,14 @@ empty.
 
 - **`resolve(entities, cache, allowance)` is the primitive.** The slice is the scope: per-resolver
   selection, resolver-first fetch, entity-first apply. A resolver that already claimed an entity in
-  the slice is skipped, so a repeat is free. `Options.limit`/`newest_first` are not applied here; the
-  caller chose the set.
+  the slice is skipped, so a repeat is free. Selection policy is not here; the caller chose the set.
 - **`resolve_illumination`** gathers the distinct live entities linked from the illumination's
   observations and calls `resolve`. It requires `link` to have run; an unlinked observation is a
   pipeline error, not a silent skip. It is one call, not a loop over observations, so the resolver's
   wavefront can batch whatever the illumination contains.
 - **`resolve_all_pending`** builds the union of each resolver's `awaiting_authority` candidates,
-  applies `limit`/`newest_first`, and calls `resolve` once. It does **not** loop illuminations: one
-  call over the whole pending set is what preserves the 50-item waves.
+  applies its `limit`/`newest_first` parameters, and calls `resolve` once. It does **not** loop
+  illuminations: one call over the whole pending set is what preserves the 50-item waves.
 - **`run` disappears.** The CLI's `identity resolve` calls `helper::resolve_all_pending`; `--entity`
   loads the entity and calls `resolve(&[entity], &cache, allowance)` with the force flag from step 6.
 

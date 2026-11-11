@@ -163,6 +163,8 @@ pub async fn resolve_all_pending(
     engine: &ResolutionEngine,
     cache: &FetchCache<'_>,
     allowance: Option<&crate::fetch::Allowance>,
+    limit: Option<usize>,
+    newest_first: bool,
 ) -> anyhow::Result<ResolutionReport> {
     let evidence = Evidence::from_handle(db);
     // One provider's pending set, then the union: an entity Wikidata answered is still pending for
@@ -170,18 +172,18 @@ pub async fn resolve_all_pending(
     let mut pending: BTreeMap<i32, model::knowledge_entity::Model> = BTreeMap::new();
     for provider in engine.providers() {
         for entity in evidence
-            .awaiting_authority(&[provider], None, engine.options().newest_first)
+            .awaiting_authority(&[provider], None, newest_first)
             .await?
         {
             pending.entry(entity.id).or_insert(entity);
         }
     }
-    let mut entities: Vec<model::knowledge_entity::Model> = if engine.options().newest_first {
+    let mut entities: Vec<model::knowledge_entity::Model> = if newest_first {
         pending.into_values().rev().collect()
     } else {
         pending.into_values().collect()
     };
-    if let Some(limit) = engine.options().limit {
+    if let Some(limit) = limit {
         entities.truncate(limit);
     }
 

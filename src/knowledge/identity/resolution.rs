@@ -49,30 +49,19 @@ pub trait Resolver: Send + Sync {
 
 #[derive(Debug, Clone)]
 pub struct Options {
-    /// How many pending entities `resolve_all_pending` considers.
-    pub limit: Option<usize>,
     /// Ask every resolver even when it already claimed the entity. `resolve --entity` sets this;
     /// already-held identities are no-ops, new ones are added.
     pub force: bool,
     /// Retract this provider's old claims in the schemes it answered but did not re-propose.
     /// Requires `force`; `resolve --entity --replace` sets both.
     pub replace: bool,
-    /// Consider the newest pending entities first.
-    ///
-    /// The budget is finite, so *which* candidates it reaches decides what a short run achieves.
-    /// Ascending id is right for a rebuild (deterministic, and the oldest entities have waited
-    /// longest); newest-first is right when captures just arrived, because otherwise a run spends
-    /// its 200 requests on candidates that have failed every previous pass.
-    pub newest_first: bool,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Self {
-            limit: None,
             force: false,
             replace: false,
-            newest_first: false,
         }
     }
 }
@@ -149,10 +138,6 @@ impl ResolutionEngine {
             options,
             resolvers,
         })
-    }
-
-    pub(crate) fn options(&self) -> &Options {
-        &self.options
     }
 
     pub(crate) fn providers(&self) -> impl Iterator<Item = &'static str> + '_ {
@@ -419,8 +404,15 @@ mod tests {
             let allowance = online.then(|| {
                 crate::fetch::Allowance::new(DEFAULT_MAX_REQUESTS, std::time::Duration::ZERO)
             });
-            crate::knowledge::helper::resolve_all_pending(db, &self, &cache, allowance.as_ref())
-                .await
+            crate::knowledge::helper::resolve_all_pending(
+                db,
+                &self,
+                &cache,
+                allowance.as_ref(),
+                None,
+                false,
+            )
+            .await
         }
     }
 

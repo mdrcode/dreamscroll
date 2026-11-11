@@ -507,10 +507,8 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         (false, None) => knowledge::identity::DEFAULT_MAX_REQUESTS,
     };
     let options = knowledge::identity::Options {
-        limit: args.limit,
         force: args.entity.is_some(),
         replace: args.replace,
-        newest_first: args.newest,
     };
     let engine = knowledge::identity::ResolutionEngine::new(
         knowledge::KnowledgeGraph::new(db),
@@ -569,7 +567,17 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
             }
             report
         }
-        None => knowledge::resolve_all_pending(db, &engine, &cache, allowance.as_ref()).await?,
+        None => {
+            knowledge::resolve_all_pending(
+                db,
+                &engine,
+                &cache,
+                allowance.as_ref(),
+                args.limit,
+                args.newest,
+            )
+            .await?
+        }
     };
 
     if report.offline {
