@@ -334,17 +334,17 @@ impl Evidence {
         Ok(())
     }
 
-    /// Retract this provider's live claims on `entity` that the run did not propose.
+    /// Retract this provider's live claims on `entity` that the run did not keep.
     ///
-    /// Only the schemes the provider answered are touched: absence from a scheme it never asked is
-    /// not evidence. `keep` is the exact set it proposed.
+    /// `keep` is the exact set the provider got accepted this run. Its schemes are the schemes the
+    /// provider answered: absence from a scheme it never asked is not evidence.
     pub(crate) async fn retract_unproposed(
         &self,
         entity_id: i32,
         provider: &str,
-        schemes: &std::collections::BTreeSet<String>,
         keep: &HashSet<(String, String)>,
     ) -> anyhow::Result<usize> {
+        let schemes: HashSet<&str> = keep.iter().map(|(scheme, _)| scheme.as_str()).collect();
         if schemes.is_empty() {
             return Ok(0);
         }
@@ -360,7 +360,7 @@ impl Evidence {
             let Some(identity) = identities.into_iter().next() else {
                 continue;
             };
-            if !schemes.contains(&identity.scheme)
+            if !schemes.contains(identity.scheme.as_str())
                 || keep.contains(&(identity.scheme.clone(), identity.external_id.clone()))
             {
                 continue;

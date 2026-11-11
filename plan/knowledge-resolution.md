@@ -343,10 +343,13 @@ let extra = inputs.saturating_sub(1) as f32 * CORROBORATION_BONUS;
   is a demonstration, not a bypass: every rung is asked, the held answer is highlighted, and a new
   identity is written additively. Today the already-claimed filter silently returns zero candidates,
   which is the trap.
-- `--replace` retracts the live claims **owned by this resolver** (`claim.provider`) that the new
-  answer did not reproduce, only in the schemes the resolver actually answered this run, then writes
-  the new ones. If the provider refused or failed, nothing is retracted: absence is not evidence. It is
-  the repair path for a provider that improved.
+- `--replace` writes the new claims, then retracts the live claims **owned by this resolver**
+  (`claim.provider`) that the new answer did not reproduce, only in the schemes the resolver got
+  accepted this run. If the provider refused, failed, or only proposed vetoed/dropped claims, nothing
+  is retracted: absence is not evidence. A provider answer truncated by the per-entity cap or carrying
+  out-of-batch claims is incomplete, so replacement is skipped for that provider and entity. The kept
+  set is built during admission, not from raw proposals. It is the repair path for a provider that
+  improved.
 - `--replace` requires `--entity`; a corpus-wide replace is a rebuild, not a convenience flag.
 - `eval inspect <id>` remains the read-only replay: no writes, so it is the dry run.
 - Re-resolution is single-writer, like a rebuild: stop the link worker.

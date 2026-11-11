@@ -4,7 +4,7 @@
 //! its only door to the world: the gateway consults the cache first, paces the call and charges the
 //! budget. The engine selects the entities, gives each resolver a batch, and stores what comes back.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::RESERVED_PROVIDERS;
 use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
@@ -185,8 +185,8 @@ struct ResolutionRun<'e, 'g, 'a> {
     report: ResolutionReport,
     provider_reports: Vec<ProviderReport>,
     proposed: BTreeMap<i32, Vec<(usize, Claim)>>,
-    proposed_sets: HashMap<(usize, i32), (BTreeSet<String>, HashSet<(String, String)>)>,
     resolved: HashSet<i32>,
+    incomplete: HashSet<(usize, i32)>,
 }
 
 impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
@@ -210,8 +210,8 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
             },
             provider_reports: Vec::new(),
             proposed: BTreeMap::new(),
-            proposed_sets: HashMap::new(),
             resolved: HashSet::new(),
+            incomplete: HashSet::new(),
         })
     }
 
@@ -252,6 +252,7 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                 for (knowledge_entity_id, claim) in resolver.resolve(&batch, self.gateway).await {
                     if !batch_ids.contains(&knowledge_entity_id) {
                         per.dropped += 1;
+                        self.incomplete.insert((index, knowledge_entity_id));
                         tracing::warn!(
                             provider = resolver.provider(),
                             knowledge_entity_id,
@@ -262,15 +263,10 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                     let count = per_entity.entry(knowledge_entity_id).or_default();
                     if *count >= MAX_CLAIMS_PER_ENTITY {
                         per.dropped += 1;
+                        self.incomplete.insert((index, knowledge_entity_id));
                         continue;
                     }
                     *count += 1;
-                    let (schemes, keep) = self
-                        .proposed_sets
-                        .entry((index, knowledge_entity_id))
-                        .or_default();
-                    schemes.insert(claim.scheme.clone());
-                    keep.insert((claim.scheme.clone(), claim.external_id.clone()));
                     self.proposed
                         .entry(knowledge_entity_id)
                         .or_default()
@@ -293,6 +289,7 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
         // Entity-first apply: every authority's claims for an entity land before its projection.
         let proposed = std::mem::take(&mut self.proposed);
         for (knowledge_entity_id, claims) in proposed {
+            let mut keep_by_resolver: HashMap<usize, HashSet<(String, String)>> = HashMap::new();
             for (resolver_index, claim) in claims {
                 let basis = claim.basis;
                 let method = claim.method.clone();
@@ -300,7 +297,7 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                 let draft = DraftIdentity::from_claim(claim, provider);
                 let key = draft.key();
                 let identity_id = self.engine.graph.upsert_identity(&draft).await?;
-                match self
+                let stored = self
                     .engine
                     .graph
                     .assert(
@@ -314,8 +311,8 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                         ),
                         &self.vetoes,
                     )
-                    .await?
-                {
+                    .await?;
+                match stored {
                     Stored::Written => {
                         self.report.written += 1;
                         self.provider_reports[resolver_index].written += 1;
@@ -327,18 +324,26 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                     }
                     Stored::AlreadyClaimed => {}
                 }
+                if stored != Stored::Vetoed {
+                    keep_by_resolver
+                        .entry(resolver_index)
+                        .or_default()
+                        .insert((key.scheme, key.external_id));
+                }
             }
 
             if self.engine.options.replace && self.gateway.refusal().is_none() {
-                for (index, resolver) in self.engine.resolvers.iter().enumerate() {
-                    let Some((schemes, keep)) =
-                        self.proposed_sets.get(&(index, knowledge_entity_id))
-                    else {
+                for (index, keep) in keep_by_resolver {
+                    if self.incomplete.contains(&(index, knowledge_entity_id)) {
                         continue;
-                    };
+                    }
                     self.provider_reports[index].replaced += self
                         .evidence
-                        .retract_unproposed(knowledge_entity_id, resolver.provider(), schemes, keep)
+                        .retract_unproposed(
+                            knowledge_entity_id,
+                            self.engine.resolvers[index].provider(),
+                            &keep,
+                        )
                         .await?;
                 }
             }
@@ -820,6 +825,121 @@ mod tests {
                 .count(),
             1,
             "the old claim is retracted"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_vetoed_replacement_does_not_retract_the_old_claim() {
+        db_or_skip!(db);
+        let id = seed(&db, "Train Dreams").await;
+        crate::test_support::fixtures::claim(
+            &db,
+            id,
+            "imdb",
+            "tt999",
+            "imdb",
+            Some("title"),
+            Some(0.7),
+            crate::model::knowledge_claims::ClaimBasis::Text,
+        )
+        .await;
+        KnowledgeGraph::new(&db)
+            .veto(id, "imdb", "tt1", Some("reject the replacement"))
+            .await
+            .expect("record the veto");
+
+        let entity = model::knowledge_entity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        let engine = ResolutionEngine::new(
+            KnowledgeGraph::new(&db),
+            Options {
+                include_already_claimed: true,
+                replace: true,
+                ..Default::default()
+            },
+            Vec::new(),
+        )
+        .expect("engine")
+        .with(Box::new(Other));
+        let report = resolve_entities(engine, std::slice::from_ref(&entity))
+            .await
+            .expect("resolve");
+
+        assert_eq!(report.vetoed, 1, "{report:?}");
+        assert_eq!(report.written, 0, "{report:?}");
+        assert_eq!(report.by_provider[0].replaced, 0, "{report:?}");
+
+        let rows = model::knowledge_claims::Entity::find()
+            .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.len(),
+            1,
+            "the vetoed proposal was not written, so the old claim has no replacement"
+        );
+        assert!(
+            rows[0].retracted_at.is_none(),
+            "a vetoed proposal is not evidence that the old claim is stale"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_incomplete_answer_does_not_replace() {
+        db_or_skip!(db);
+        let id = seed(&db, "Train Dreams").await;
+        crate::test_support::fixtures::claim(
+            &db,
+            id,
+            "many",
+            "tt9",
+            "imdb",
+            Some("title"),
+            Some(0.7),
+            crate::model::knowledge_claims::ClaimBasis::Text,
+        )
+        .await;
+
+        let entity = model::knowledge_entity::Entity::find_by_id(id)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        let engine = ResolutionEngine::new(
+            KnowledgeGraph::new(&db),
+            Options {
+                include_already_claimed: true,
+                replace: true,
+                ..Default::default()
+            },
+            Vec::new(),
+        )
+        .expect("engine")
+        .with(Box::new(Many));
+        let report = resolve_entities(engine, std::slice::from_ref(&entity))
+            .await
+            .expect("resolve");
+
+        assert_eq!(report.by_provider[0].dropped, 2, "{report:?}");
+        assert_eq!(report.by_provider[0].replaced, 0, "{report:?}");
+
+        let rows = model::knowledge_claims::Entity::find()
+            .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(id))
+            .all(&db.conn)
+            .await
+            .unwrap();
+        assert_eq!(
+            rows.len(),
+            MAX_CLAIMS_PER_ENTITY + 1,
+            "the capped claims are not written, and the old claim is not retracted"
+        );
+        assert!(
+            rows.iter().all(|claim| claim.retracted_at.is_none()),
+            "a truncated answer cannot justify a retraction"
         );
     }
 
