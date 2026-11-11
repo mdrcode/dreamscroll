@@ -105,5 +105,5 @@ product, financial, brand, organization, online_community, social_media_account,
 and unknown.
 
 Supported platform values are: x_twitter, youtube, instagram, tiktok, facebook,
-linkedin, threads, bluesky, mastodon, reddit, and other.
+linkedin, threads, bluesky, mastodon, reddit, github, and other.
 "#;

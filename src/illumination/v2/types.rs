@@ -161,6 +161,7 @@ pub enum Platform {
     Bluesky,
     Mastodon,
     Reddit,
+    Github,
     Other,
 }
 
