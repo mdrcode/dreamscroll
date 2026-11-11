@@ -245,31 +245,51 @@ The core is one method; the compositions are free functions in `knowledge/helper
 `link_illumination` and `link_all_pending`:
 
 ```rust
-// resolution core — owns the resolvers, the options and the gateway
+// resolution core — owns the graph, the options and the resolvers
 impl ResolutionEngine {
-    async fn resolve(&self, entities: &[Model]) -> anyhow::Result<ResolutionReport>;
+    pub fn new(
+        graph: KnowledgeGraph,
+        options: Options,
+        resolvers: Vec<Box<dyn Resolver>>,
+    ) -> anyhow::Result<Self>;
+
+    async fn resolve(
+        &self,
+        entities: &[Model],
+        gateway: &Gateway<'_>,
+    ) -> anyhow::Result<ResolutionReport>;
 }
 
 // helper.rs — composition only; nothing here belongs on `Resolver` or the engine
 pub async fn resolve_illumination(
-    engine: &ResolutionEngine<'_>,
+    db: &DbHandle,
+    engine: &ResolutionEngine,
     illumination: &model::illumination::ModelEx,
+    gateway: &Gateway<'_>,
 ) -> anyhow::Result<ResolutionReport>;
 
 pub async fn resolve_all_pending(
-    engine: &ResolutionEngine<'_>,
+    db: &DbHandle,
+    engine: &ResolutionEngine,
+    cache: &FetchCache<'_>,
+    gateway: &Gateway<'_>,
 ) -> anyhow::Result<ResolutionReport>;
 ```
 
-The engine exposes only `pub(crate)` accessors the helpers need: `db()`, `options()`, `providers()`.
+The engine exposes only `pub(crate)` accessors the helpers need: `options()` and `providers()`.
 `Resolver` is unchanged: `provider()` and `resolve(&[Model], gateway)`.
+
+The caller owns every per-run object: graph, cache, allowance and gateway. `ResolutionEngine::new`
+validates the reserved-provider invariant and the `replace`/`force` pair once; `resolve` never repeats
+those checks. `Gateway` is passed to `resolve`, not stored, because its cache and budget are exactly
+a run long. `resolve_all_pending` takes the cache separately only for its one maintenance prune.
 
 Landed 2026-11-10: `run` and `Options.only` are gone; the two helpers exist; `ResolutionReport.by_provider`
 attributes batch, claims, vetoes, requests, cache hits and fetches to each provider call. The API,
 per-resolver selection, write-all semantics and entity-first apply are settled; the ordered queue is
 empty.
 
-- **`resolve(entities)` is the primitive.** The slice is the scope: per-resolver selection,
+- **`resolve(entities, gateway)` is the primitive.** The slice is the scope: per-resolver selection,
   resolver-first fetch, entity-first apply. A resolver that already claimed an entity in the slice is
   skipped, so a repeat is free. `Options.limit`/`newest_first` are not applied here; the caller chose
   the set.
@@ -281,7 +301,7 @@ empty.
   applies `limit`/`newest_first`, and calls `resolve` once. It does **not** loop illuminations: one
   call over the whole pending set is what preserves the 50-item waves.
 - **`run` disappears.** The CLI's `identity resolve` calls `helper::resolve_all_pending`; `--entity`
-  loads the entity and calls `resolve(&[entity])` with the force flag from step 6.
+  loads the entity and calls `resolve(&[entity], &gateway)` with the force flag from step 6.
 
 **Scheduling is outside the engine.** A live illumination can call `resolve_illumination` immediately for low latency, or enqueue a resolve task; a periodic worker can call `resolve_all_pending` with a limit every N minutes to amortize transport calls. The cache is per query, so batching changes call count and latency, not hit rate. Corpus runs (`resolve_all_pending`) remain single-writer; a live per-illumination resolve may run beside the link task, but a corpus drain must not.
 
@@ -334,7 +354,7 @@ let extra = inputs.saturating_sub(1) as f32 * CORROBORATION_BONUS;
 | 3 | ✅ `awaiting_authority` per resolver; engine selects per resolver, fetches resolver-first, applies entity-first | a second fake authority is offered an entity Wikidata already claimed; one entity's claims are applied together |
 | 4 | ✅ Engine writes every accepted claim; shared `resolved` set removed; per-entity cap | two identities from one resolver on one entity; overflow reported; both providers' claims live |
 | 5 | ✅ `combine` over `(basis, provider)` with the handle-chain rule | handle chain one input; text one per authority |
-| 6 | ✅ `resolve --entity` via `resolve(&[entity])` + held-identity markers; `--replace` | a resolved entity walks every rung; held claims marked `*`; replace retracts only that resolver's claims |
+| 6 | ✅ `resolve --entity` via `resolve(&[entity], &gateway)` + held-identity markers; `--replace` | a resolved entity walks every rung; held claims marked `*`; replace retracts only that resolver's claims |
 | 7 | ✅ Stats: claims per entity and confidence spread; re-measure the baseline | landed 2026-11-10; `knowledge.md` updated |
 
 ## Providers

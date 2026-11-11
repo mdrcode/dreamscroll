@@ -435,7 +435,10 @@ fn print_entity(detail: &stats::entity::Detail) {
     let entity = &detail.entity;
     println!(
         "entity {} · {} [{}] · {}",
-        entity.id, entity.name, entity.entity_type, entity.status.as_str()
+        entity.id,
+        entity.name,
+        entity.entity_type,
+        entity.status.as_str()
     );
     if let Some(origin) = entity.origin_observation_id {
         println!("  origin observation: {origin}");
@@ -449,10 +452,7 @@ fn print_entity(detail: &stats::entity::Detail) {
     if let Some(hint) = &entity.search_query {
         println!("  hint: {hint}");
     }
-    println!(
-        "  surfaces: {:?}",
-        entity.surfaces().collect::<Vec<_>>()
-    );
+    println!("  surfaces: {:?}", entity.surfaces().collect::<Vec<_>>());
     println!("  confidence: {:?}", entity.confidence);
 
     println!("\n-- members ({}) --", detail.members.len());
@@ -508,15 +508,24 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     };
     let options = knowledge::identity::Options {
         limit: args.limit,
-        max_requests,
         offline: args.offline,
         force: args.entity.is_some(),
         replace: args.replace,
-        min_interval: std::time::Duration::from_millis(args.min_interval_ms),
         newest_first: args.newest,
     };
-    let engine = knowledge::identity::ResolutionEngine::new(db, options)
-        .with(Box::new(knowledge::identity::wikidata::Wikidata::new()?));
+    let engine = knowledge::identity::ResolutionEngine::new(
+        knowledge::KnowledgeGraph::new(db),
+        options,
+        vec![Box::new(knowledge::identity::wikidata::Wikidata::new()?)],
+    )?;
+    let cache = dreamscroll::fetch::FetchCache::new(&db.conn);
+    let allowance = (!args.offline).then(|| {
+        dreamscroll::fetch::Allowance::new(
+            max_requests,
+            std::time::Duration::from_millis(args.min_interval_ms),
+        )
+    });
+    let gateway = dreamscroll::fetch::Gateway::new(Some(&cache), allowance.as_ref(), true);
     let report = match args.entity {
         Some(id) => {
             let Some(before) = stats::entity::detail(db, id).await? else {
@@ -526,8 +535,12 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
                 before.entity.merged_into_id.is_none(),
                 "knowledge entity {id} is a tombstone; resolve the live entity"
             );
-            let report = engine.resolve(std::slice::from_ref(&before.entity)).await?;
-            let after = stats::entity::detail(db, id).await?.expect("the entity exists");
+            let report = engine
+                .resolve(std::slice::from_ref(&before.entity), &gateway)
+                .await?;
+            let after = stats::entity::detail(db, id)
+                .await?
+                .expect("the entity exists");
             println!("entity {id} claims");
             let live: Vec<_> = after
                 .claims
@@ -554,7 +567,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
             }
             report
         }
-        None => knowledge::resolve_all_pending(&engine).await?,
+        None => knowledge::resolve_all_pending(db, &engine, &cache, &gateway).await?,
     };
 
     if report.offline {
@@ -740,13 +753,9 @@ async fn main() -> anyhow::Result<()> {
             }
             let cause = knowledge::verdicts::Cause::Repair;
             match store
-                .merge_with_note(
-                    args.loser,
-                    args.winner,
-                    cause,
-                    args.note.as_deref(),
-                )
-                .await? {
+                .merge_with_note(args.loser, args.winner, cause, args.note.as_deref())
+                .await?
+            {
                 knowledge::graph::merge::Outcome::Merged => {
                     report["outcome"] = serde_json::json!("merged");
                     if args.json {
@@ -816,7 +825,9 @@ async fn main() -> anyhow::Result<()> {
                 } else {
                     for row in &rows {
                         let decided = match row.kind.as_str() {
-                            "veto_identity" => format!("{}  \u{2298}  {}", row.subject, row.identity),
+                            "veto_identity" => {
+                                format!("{}  \u{2298}  {}", row.subject, row.identity)
+                            }
                             _ => format!("{}  \u{21c4}  {}", row.winner, row.loser),
                         };
                         println!(
@@ -871,9 +882,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 }
                 ProximityCommand::Distinct(args) => {
-                    let recorded = store
-                        .distinct(args.a, args.b, args.note.as_deref())
-                        .await?;
+                    let recorded = store.distinct(args.a, args.b, args.note.as_deref()).await?;
                     println!(
                         "{} · {} \u{21c4} {}",
                         if recorded {
@@ -900,8 +909,7 @@ async fn main() -> anyhow::Result<()> {
                         ),
                         (false, None) => None,
                     };
-                    let rows =
-                        stats::proximities::proximity_list(&db, args.limit, filter).await?;
+                    let rows = stats::proximities::proximity_list(&db, args.limit, filter).await?;
                     if args.json {
                         let values: Vec<serde_json::Value> =
                             rows.iter().map(|row| row.to_json()).collect();

@@ -10,8 +10,8 @@ use std::fmt::Display;
 
 use super::allowance::{Allowance, Refusal};
 use super::cache::FetchCache;
-use super::transport::{Answer, Answers, FetchError, Outcome, Request, Transport};
 use super::stats::{Counters, Stats};
+use super::transport::{Answer, Answers, FetchError, Outcome, Request, Transport};
 
 /// The one door.
 ///
@@ -57,6 +57,11 @@ impl<'a> Gateway<'a> {
     /// Everything the run has spent and found. One read, at the end.
     pub fn stats(&self) -> Stats {
         self.counters.snapshot()
+    }
+
+    /// Why the run stopped early, if its allowance refused a call.
+    pub fn refusal(&self) -> Option<Refusal> {
+        self.allowance.and_then(Allowance::refused)
     }
 
     /// Ask the transport: cache first, then only what is missing, in batches, paced and budgeted.
@@ -179,7 +184,8 @@ impl<'a> Gateway<'a> {
                 Ok(results) => {
                     for (query, answer) in results {
                         if let Some(cache) = self.cache
-                            && let Err(error) = cache.put(provider, kind, shape, &query, &answer).await
+                            && let Err(error) =
+                                cache.put(provider, kind, shape, &query, &answer).await
                         {
                             tracing::warn!(%error, "could not write the cache");
                         }
@@ -207,7 +213,8 @@ impl<'a> Gateway<'a> {
                     for query in chunk {
                         let answer = Answer::<T::Payload>::nothing(Outcome::Failed);
                         if let Some(cache) = self.cache
-                            && let Err(error) = cache.put(provider, kind, shape, query, &answer).await
+                            && let Err(error) =
+                                cache.put(provider, kind, shape, query, &answer).await
                         {
                             tracing::warn!(%error, "could not write the cache");
                         }
@@ -227,7 +234,6 @@ impl<'a> Gateway<'a> {
         }
         Ok(())
     }
-
 }
 
 /// Group planned requests by what a provider can answer in one call, deduped.
@@ -485,7 +491,11 @@ mod tests {
         let answers = gateway.resolve_requests(&doubled, &requests).await;
 
         assert_eq!(answers.len(), 2, "one batch of two, then refused");
-        assert_eq!(gateway.stats().fetched, 2, "two HTTP requests, not one call");
+        assert_eq!(
+            gateway.stats().fetched,
+            2,
+            "two HTTP requests, not one call"
+        );
         assert_eq!(allowance.refused(), Some(Refusal::Budget));
     }
 
@@ -523,7 +533,11 @@ mod tests {
             .await;
 
         assert!(answers.is_empty());
-        assert_eq!(allowance.refused(), Some(Refusal::Budget), "the refusal is recorded");
+        assert_eq!(
+            allowance.refused(),
+            Some(Refusal::Budget),
+            "the refusal is recorded"
+        );
         assert_eq!(gateway.stats().fetched, 0);
         assert!(fake.seen().is_empty());
     }

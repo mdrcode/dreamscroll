@@ -108,8 +108,10 @@ pub async fn link_all_pending(db: &DbHandle) -> anyhow::Result<LinkAllReport> {
 /// The illumination is already linked; an unlinked observation is a pipeline error, not a silent
 /// skip. The engine receives one batch so a resolver's wavefront can span the whole illumination.
 pub async fn resolve_illumination(
-    engine: &ResolutionEngine<'_>,
+    db: &DbHandle,
+    engine: &ResolutionEngine,
     illumination: &model::illumination::ModelEx,
+    gateway: &crate::fetch::Gateway<'_>,
 ) -> anyhow::Result<ResolutionReport> {
     anyhow::ensure!(
         illumination.observations.is_loaded(),
@@ -133,13 +135,13 @@ pub async fn resolve_illumination(
         .collect::<Result<_, _>>()?;
 
     if ids.is_empty() {
-        return engine.resolve(&[]).await;
+        return engine.resolve(&[], gateway).await;
     }
 
     let entities = model::knowledge_entity::Entity::find()
         .filter(model::knowledge_entity::Column::Id.is_in(ids.iter().copied()))
         .filter(model::knowledge_entity::Column::MergedIntoId.is_null())
-        .all(&engine.db().conn)
+        .all(&db.conn)
         .await?;
     anyhow::ensure!(
         entities.len() == ids.len(),
@@ -148,15 +150,20 @@ pub async fn resolve_illumination(
         ids.len(),
         entities.len()
     );
-    engine.resolve(&entities).await
+    engine.resolve(&entities, gateway).await
 }
 
 /// Resolve every entity still pending for any configured provider.
 ///
 /// The engine receives the whole pending set in one call, so the wavefront still fills its batches.
 /// This is the rebuild/drain path; a live capture should call [`resolve_illumination`].
-pub async fn resolve_all_pending(engine: &ResolutionEngine<'_>) -> anyhow::Result<ResolutionReport> {
-    let evidence = Evidence::from_handle(engine.db());
+pub async fn resolve_all_pending(
+    db: &DbHandle,
+    engine: &ResolutionEngine,
+    cache: &FetchCache<'_>,
+    gateway: &crate::fetch::Gateway<'_>,
+) -> anyhow::Result<ResolutionReport> {
+    let evidence = Evidence::from_handle(db);
     // One provider's pending set, then the union: an entity Wikidata answered is still pending for
     // IMDb. The limit is global, so a second resolver does not silently double the run.
     let mut pending: BTreeMap<i32, model::knowledge_entity::Model> = BTreeMap::new();
@@ -180,14 +187,13 @@ pub async fn resolve_all_pending(engine: &ResolutionEngine<'_>) -> anyhow::Resul
     // An online corpus pass is the maintenance moment: drop answers that aged out long ago. A
     // per-illumination resolve does not do this — it must stay quick.
     if !engine.options().offline {
-        let cache = FetchCache::new(&engine.db().conn);
         let pruned = cache.prune().await?;
         if pruned > 0 {
             tracing::info!(pruned, "Pruned expired fetch cache rows");
         }
     }
 
-    engine.resolve(&entities).await
+    engine.resolve(&entities, gateway).await
 }
 
 /// Assert the handle each linked observation showed, and project where it landed.
@@ -250,8 +256,13 @@ mod tests {
         }
     }
 
-    fn engine(db: &DbHandle) -> ResolutionEngine<'_> {
-        ResolutionEngine::new(db, Options::default()).with(Box::new(Empty))
+    fn engine(db: &DbHandle) -> ResolutionEngine {
+        ResolutionEngine::new(
+            KnowledgeGraph::new(db),
+            Options::default(),
+            vec![Box::new(Empty)],
+        )
+        .expect("the fake provider is not reserved")
     }
 
     async fn loaded_illumination(db: &DbHandle, id: i32) -> model::illumination::ModelEx {
@@ -285,7 +296,10 @@ mod tests {
             .expect("link");
 
         let illumination = loaded_illumination(&db, capture.illumination_id).await;
-        let report = resolve_illumination(&engine(&db), &illumination)
+        let cache = FetchCache::new(&db.conn);
+        let allowance = crate::fetch::Allowance::new(10, std::time::Duration::ZERO);
+        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
+        let report = resolve_illumination(&db, &engine(&db), &illumination, &gateway)
             .await
             .expect("resolve");
 
@@ -298,20 +312,13 @@ mod tests {
     async fn resolve_illumination_refuses_unlinked_observations() {
         db_or_skip!(db);
         let capture = fixtures::Capture::new(&db, "resolve_unlinked").await;
-        fixtures::observe(
-            &db,
-            &capture,
-            0,
-            "Train Dreams",
-            None,
-            "book",
-            None,
-            None,
-        )
-        .await;
+        fixtures::observe(&db, &capture, 0, "Train Dreams", None, "book", None, None).await;
 
         let illumination = loaded_illumination(&db, capture.illumination_id).await;
-        let error = resolve_illumination(&engine(&db), &illumination)
+        let cache = FetchCache::new(&db.conn);
+        let allowance = crate::fetch::Allowance::new(10, std::time::Duration::ZERO);
+        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
+        let error = resolve_illumination(&db, &engine(&db), &illumination, &gateway)
             .await
             .expect_err("an unlinked observation must be refused");
 
@@ -329,8 +336,11 @@ mod tests {
             .unwrap()
             .unwrap();
 
+        let cache = FetchCache::new(&db.conn);
+        let allowance = crate::fetch::Allowance::new(10, std::time::Duration::ZERO);
+        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
         let report = engine(&db)
-            .resolve(std::slice::from_ref(&entity))
+            .resolve(std::slice::from_ref(&entity), &gateway)
             .await
             .expect("resolve");
 

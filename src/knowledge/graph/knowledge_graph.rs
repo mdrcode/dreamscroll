@@ -16,14 +16,13 @@ use std::sync::Arc;
 use sea_orm::sea_query::{Expr, Query};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, Set};
 
+use super::replay::ReplayReport;
 use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
 use crate::knowledge::evidence::{ClaimDraft, DraftIdentity, Evidence, IdentityKey, Stored};
 use crate::knowledge::linker::Linker;
-use super::replay::ReplayReport;
 use crate::knowledge::verdicts::{Cause, VerdictStore, VetoReport};
 use crate::model;
-
 
 /// The knowledge graph, as seen by anyone who writes to it.
 ///
@@ -66,6 +65,15 @@ impl KnowledgeGraph {
             blocker: Some(blocker.into()),
             ..Self::new(db)
         }
+    }
+
+    pub(crate) fn evidence(&self) -> &Evidence {
+        &self.evidence
+    }
+
+    #[cfg(test)]
+    pub(crate) fn db(&self) -> &DbHandle {
+        &self.db
     }
 
     /// The default wiring: the index blocker and today's heuristic linker.
@@ -137,8 +145,12 @@ impl KnowledgeGraph {
             .verdicts
             .veto(generation, entity_id, scheme, external_id, note)
             .await?;
-        let withdrawn = super::replay::withdraw_entity(self, entity_id, scheme, external_id).await?;
-        Ok(VetoReport { recorded, withdrawn })
+        let withdrawn =
+            super::replay::withdraw_entity(self, entity_id, scheme, external_id).await?;
+        Ok(VetoReport {
+            recorded,
+            withdrawn,
+        })
     }
 
     /// Lift a veto. The next resolve may claim the identity again.
@@ -181,7 +193,10 @@ impl KnowledgeGraph {
     pub async fn link(
         &self,
         observations: &[model::user_observed_entity::Model],
-    ) -> anyhow::Result<(crate::knowledge::LinkReport, std::collections::HashMap<i32, i32>)> {
+    ) -> anyhow::Result<(
+        crate::knowledge::LinkReport,
+        std::collections::HashMap<i32, i32>,
+    )> {
         super::link::link(self, observations).await
     }
 
@@ -198,10 +213,7 @@ impl KnowledgeGraph {
 
     /// Recompute projections for a scope: `Stale` repairs what a retraction left behind, `All` is
     /// what a change to the projection rule needs.
-    pub async fn reproject(
-        &self,
-        scope: super::ReprojectScope,
-    ) -> anyhow::Result<usize> {
+    pub async fn reproject(&self, scope: super::ReprojectScope) -> anyhow::Result<usize> {
         super::project::reproject(&self.db.conn, scope).await
     }
 
