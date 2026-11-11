@@ -32,7 +32,7 @@ pub struct ClaimDraft<'a> {
     pub identity: &'a IdentityKey,
     pub identity_id: i32,
     pub basis: ClaimBasis,
-    /// Who supplied this edge. The engine sets it from `resolver.provider()`; a capture writes
+    /// Who supplied this edge. The engine sets it from `resolver.id()`; a capture writes
     /// [`ILLUMINATOR`].
     pub provider: &'static str,
     /// How the edge was reached: the ladder step, or `capture`.

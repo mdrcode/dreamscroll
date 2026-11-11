@@ -284,7 +284,7 @@ mod tests {
     async fn proximity(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
         let claimant = fixtures::knowledge_entity_with_member(db, "a claimant").await;
         let identity = crate::knowledge::evidence::Evidence::from_handle(db)
-            .upsert_identity(&crate::knowledge::evidence::DraftIdentity {
+            .upsert_identity(&crate::knowledge::evidence::IdentityDraft {
                 scheme: scheme.to_string(),
                 external_id: value.to_string(),
                 provider: "test".to_string(),

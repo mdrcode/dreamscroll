@@ -97,13 +97,14 @@ let gateway = Gateway::new(Some(&cache), None, false);
 - **`allowance: None`** never fetches, so nothing can be refused — the cache-only run.
 - **`cache: None`** asks the provider for every query and stores nothing. Safe only because the
   allowance bounds the calls.
-- **`fail_fast`** decides what a refusal does: `true` ends the walk, `false` keeps reading the
+- **`fail_fast`** decides what a spent budget does: `true` ends the walk, `false` keeps reading the
   remaining groups' caches and fetches nothing more. The cache is durable, so the groups a stopped run
   skips are read by the next run at no network cost — which is why ending is the default. Harvesting
-  costs one wide `IN (…)` per remaining group.
+  costs one wide `IN (…)` per remaining group. A provider's `429` stops that provider regardless.
 
-A `429` latches the allowance the same way a spent budget does, so it stops every later batch, stage
-and provider. A `429` is never cached as a fact; a transport failure is cached briefly and counted.
+A `429` latches against that provider, so it stops every later batch and stage for that provider only;
+independent providers continue. A `429` is never cached as a fact; a transport failure is cached
+briefly and counted.
 
 ## Where the numbers are
 

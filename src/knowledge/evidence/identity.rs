@@ -37,7 +37,7 @@ impl IdentityKey {
 /// The authority's label, description and classes are properties of the identity, not of any one
 /// claim: an album's article describes the album whether one entity claims it or five do.
 #[derive(Debug, Clone, PartialEq)]
-pub struct DraftIdentity {
+pub struct IdentityDraft {
     pub scheme: String,
     pub external_id: String,
     /// Who supplied it: [`ILLUMINATOR`] for a handle a capture showed, else the resolver's id.
@@ -51,7 +51,7 @@ pub struct DraftIdentity {
     pub classes: Vec<String>,
 }
 
-impl DraftIdentity {
+impl IdentityDraft {
     /// An identity known only from a capture: the handle, and nothing about it.
     pub fn from_capture(key: &IdentityKey) -> Self {
         Self {

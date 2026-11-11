@@ -9,12 +9,12 @@
 //! here, one `Allowance` is built per run and passed into [`crate::fetch::Gateway`], and the gateway
 //! asks it before every transport call and never looks inside it.
 //!
-//! One type rather than two pieces of state because both refusals are the same question —
-//! *may I make another call?* — with different reasons. Keeping them apart is how a 429 ended up
-//! with no check inside the door and only one between providers.
+//! One type because both answer *may I make another call?*: the budget is run-wide, while a `429`
+//! closes only the provider that sent it.
 
+use std::collections::HashMap;
 use std::mem;
-use std::sync::OnceLock;
+use std::sync::Mutex as StdMutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -40,15 +40,15 @@ impl Refusal {
     }
 }
 
-/// One run's permission to call: paced, budgeted, and revocable by the provider.
+/// One run's permission to call: paced, budgeted, and revocable per provider.
 pub struct Allowance {
     pacer: Mutex<Pacer>,
     remaining_calls: Mutex<usize>,
     /// Set once the budget is gone, so [`Self::refused`] can answer without a lock.
     is_spent: AtomicBool,
-    /// The provider's `429`, latched for the rest of the run. The inner `None` is "it gave no
-    /// `Retry-After`"; the outer one is "no `429` has happened".
-    rate_limit: OnceLock<Option<u64>>,
+    /// Each provider's `429`, latched for the rest of the run. The inner `None` is "it gave no
+    /// `Retry-After`"; the map entry is the fact that it refused.
+    rate_limits: StdMutex<HashMap<String, Option<u64>>>,
 }
 
 impl Allowance {
@@ -58,20 +58,21 @@ impl Allowance {
             pacer: Mutex::new(Pacer::new(min_interval)),
             remaining_calls: Mutex::new(max_calls),
             is_spent: AtomicBool::new(false),
-            rate_limit: OnceLock::new(),
+            rate_limits: StdMutex::new(HashMap::new()),
         }
     }
 
-    /// One batch, paid for: waits out the floor, then decrements the budget by what the batch costs.
+    /// One batch for `provider`, paid for: waits out the floor, then decrements the budget by what
+    /// the batch costs.
     ///
     /// All or nothing. A batch that fans out into two HTTP requests costs two, and a batch that
     /// cannot be afforded is refused *before* anything is spent — otherwise a run one unit short
     /// would have paid for a call it never made and reported a budget it had not finished.
     ///
-    /// Every refusal is sticky, so a `429` on one batch stops every later stage rather than being
-    /// rediscovered call by call — which is what the provider's ban rule punishes.
-    pub async fn take(&self, calls: usize) -> Result<(), Refusal> {
-        if let Some(refusal) = self.refused() {
+    /// A provider's `429` is sticky for that provider, so later stages do not ask it again. Other
+    /// providers are independent services and keep their own permission.
+    pub async fn take_for(&self, provider: &str, calls: usize) -> Result<(), Refusal> {
+        if let Some(refusal) = self.refused_for(provider) {
             return Err(refusal);
         }
         {
@@ -86,22 +87,52 @@ impl Allowance {
         Ok(())
     }
 
-    /// Whether the run is over, and why. Asked before every call, and once more at the end to say
-    /// what a run ran into.
-    pub fn refused(&self) -> Option<Refusal> {
-        if let Some(retry_after_secs) = self.rate_limit.get() {
+    /// Whether this provider is refused, and why. The run-wide budget applies to every provider.
+    pub fn refused_for(&self, provider: &str) -> Option<Refusal> {
+        if self.is_spent.load(Ordering::Relaxed) {
+            return Some(Refusal::Budget);
+        }
+        if let Some(retry_after_secs) = self
+            .rate_limits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(provider)
+        {
             return Some(Refusal::RateLimited {
                 retry_after_secs: *retry_after_secs,
             });
         }
-        self.is_spent
-            .load(Ordering::Relaxed)
-            .then_some(Refusal::Budget)
+        None
     }
 
-    /// The provider asked us to stop. Sticky for the rest of the run, and never cached as a fact.
-    pub fn rate_limited(&self, retry_after_secs: Option<u64>) {
-        let _ = self.rate_limit.set(retry_after_secs);
+    /// Whether the run is over, and why. This is the aggregate: the shared budget, or any provider's
+    /// `429`. Used for the run report; callers deciding whether to ask a specific provider should
+    /// use [`Self::refused_for`].
+    pub fn refused(&self) -> Option<Refusal> {
+        if self.is_spent.load(Ordering::Relaxed) {
+            return Some(Refusal::Budget);
+        }
+        if let Some((_, retry_after_secs)) = self
+            .rate_limits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .iter()
+            .next()
+        {
+            return Some(Refusal::RateLimited {
+                retry_after_secs: *retry_after_secs,
+            });
+        }
+        None
+    }
+
+    /// `provider` asked us to stop. Sticky for that provider, and never cached as a fact.
+    pub fn rate_limited(&self, provider: &str, retry_after_secs: Option<u64>) {
+        self.rate_limits
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .entry(provider.to_string())
+            .or_insert(retry_after_secs);
     }
 }
 
@@ -146,9 +177,9 @@ mod tests {
         let allowance = Allowance::new(2, Duration::ZERO);
 
         assert_eq!(allowance.refused(), None);
-        assert_eq!(allowance.take(1).await, Ok(()));
-        assert_eq!(allowance.take(1).await, Ok(()));
-        assert_eq!(allowance.take(1).await, Err(Refusal::Budget));
+        assert_eq!(allowance.take_for("test", 1).await, Ok(()));
+        assert_eq!(allowance.take_for("test", 1).await, Ok(()));
+        assert_eq!(allowance.take_for("test", 1).await, Err(Refusal::Budget));
         assert_eq!(allowance.refused(), Some(Refusal::Budget));
     }
 
@@ -158,30 +189,46 @@ mod tests {
     async fn a_batch_is_charged_whole() {
         let allowance = Allowance::new(3, Duration::ZERO);
 
-        assert_eq!(allowance.take(3).await, Ok(()), "exactly affordable");
-        assert_eq!(allowance.take(1).await, Err(Refusal::Budget));
+        assert_eq!(
+            allowance.take_for("test", 3).await,
+            Ok(()),
+            "exactly affordable"
+        );
+        assert_eq!(allowance.take_for("test", 1).await, Err(Refusal::Budget));
     }
 
     #[tokio::test]
     async fn a_batch_that_costs_more_than_the_budget_can_never_run() {
         let allowance = Allowance::new(1, Duration::ZERO);
 
-        assert_eq!(allowance.take(2).await, Err(Refusal::Budget), "one left, two needed");
+        assert_eq!(
+            allowance.take_for("test", 2).await,
+            Err(Refusal::Budget),
+            "one left, two needed"
+        );
         assert_eq!(allowance.refused(), Some(Refusal::Budget));
     }
 
-    /// A 429 is an instruction for the rest of the run, not a fact about one call.
+    /// A 429 is an instruction for that provider, not a fact about one call.
     #[tokio::test]
-    async fn a_rate_limit_refuses_every_later_call() {
+    async fn a_rate_limit_refuses_every_later_call_to_that_provider() {
         let allowance = Allowance::new(10, Duration::ZERO);
-        allowance.rate_limited(Some(30));
+        allowance.rate_limited("wikidata", Some(30));
 
         assert_eq!(
-            allowance.take(1).await,
+            allowance.take_for("wikidata", 1).await,
             Err(Refusal::RateLimited {
                 retry_after_secs: Some(30)
             })
         );
+        assert_eq!(
+            allowance.refused_for("wikidata"),
+            Some(Refusal::RateLimited {
+                retry_after_secs: Some(30)
+            })
+        );
+        assert_eq!(allowance.refused_for("imdb"), None);
+        assert_eq!(allowance.take_for("imdb", 1).await, Ok(()));
         assert_eq!(
             allowance.refused(),
             Some(Refusal::RateLimited {
@@ -198,20 +245,26 @@ mod tests {
         assert_eq!(Refusal::Budget.retry_after_secs(), None);
     }
 
-    /// A `429` without a `Retry-After` still stops the run: the provider refused, it just did not say
-    /// for how long. Only the time is unknown, not the refusal.
+    /// A `429` without a `Retry-After` still stops that provider: it refused, it just did not say for
+    /// how long. Only the time is unknown, not the refusal.
     #[tokio::test]
     async fn a_rate_limit_without_a_retry_after_still_latches() {
         let allowance = Allowance::new(10, Duration::ZERO);
-        allowance.rate_limited(None);
+        allowance.rate_limited("wikidata", None);
 
         assert_eq!(
-            allowance.refused(),
+            allowance.refused_for("wikidata"),
             Some(Refusal::RateLimited {
                 retry_after_secs: None
             })
         );
-        assert_eq!(allowance.take(1).await, Err(Refusal::RateLimited { retry_after_secs: None }));
+        assert_eq!(
+            allowance.take_for("wikidata", 1).await,
+            Err(Refusal::RateLimited {
+                retry_after_secs: None
+            })
+        );
+        assert_eq!(allowance.take_for("imdb", 1).await, Ok(()));
         assert_eq!(
             Refusal::RateLimited {
                 retry_after_secs: None
@@ -228,14 +281,17 @@ mod tests {
         let allowance = Allowance::new(3, Duration::from_millis(60));
 
         let start = Instant::now();
-        allowance.take(1).await.expect("the first call");
+        allowance.take_for("test", 1).await.expect("the first call");
         assert!(
             start.elapsed() < Duration::from_millis(60),
             "the first call waits for nothing: {:?}",
             start.elapsed()
         );
 
-        allowance.take(1).await.expect("the second call");
+        allowance
+            .take_for("test", 1)
+            .await
+            .expect("the second call");
         assert!(
             start.elapsed() >= Duration::from_millis(60),
             "the second call waits the floor: {:?}",

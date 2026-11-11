@@ -19,7 +19,7 @@ use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder
 use super::replay::ReplayReport;
 use crate::database::DbHandle;
 use crate::knowledge::blocker::Blocker;
-use crate::knowledge::evidence::{ClaimDraft, DraftIdentity, Evidence, IdentityKey, Stored};
+use crate::knowledge::evidence::{ClaimDraft, IdentityDraft, Evidence, IdentityKey, Stored};
 use crate::knowledge::linker::Linker;
 use crate::knowledge::verdicts::{Cause, VerdictStore, VetoReport};
 use crate::model;
@@ -111,7 +111,7 @@ impl KnowledgeGraph {
     }
 
     /// Record an authority's answer for an identity, filling gaps in an existing row.
-    pub async fn upsert_identity(&self, draft: &DraftIdentity) -> anyhow::Result<i32> {
+    pub async fn upsert_identity(&self, draft: &IdentityDraft) -> anyhow::Result<i32> {
         self.evidence.upsert_identity(draft).await
     }
 

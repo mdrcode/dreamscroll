@@ -29,7 +29,7 @@ trait Transport {
 
 // src/knowledge/identity — knows what a knowledge entity is.
 trait Resolver {
-    fn provider(&self) -> &'static str;
+    fn id(&self) -> &'static str;
     async fn resolve(&self, entities: &[Model], gateway: &fetch::Gateway<'_>)
         -> Vec<(i32, Claim)>;
 }
@@ -125,13 +125,13 @@ The resolver contract does not need a declaration:
 
 ```rust
 trait Resolver {
-    fn provider(&self) -> &'static str;                    // the provider id: identity, budget, logs
+    fn id(&self) -> &'static str;                    // the provider id: identity, budget, logs
     async fn resolve(...) -> Vec<(i32, Claim)>;      // zero, one, or many per entity
 }
 ```
 
 - A claim carries its own `scheme` and `external_id`; the engine sets `provider` from
-  `resolver.provider()`, never from the claim. A resolver may answer in several schemes — a web-search
+  `resolver.id()`, never from the claim. A resolver may answer in several schemes — a web-search
   agent can find an IMDb page and an official site — and each claim says which one.
 - **No per-resolver scheme whitelist.** A getter would be self-certification: the same resolver that
   returns the claim also declares what it may return, so a bug or a lie satisfies both. Validating
@@ -281,7 +281,7 @@ pub async fn resolve_all_pending(
 ```
 
 The engine exposes only the `pub(crate)` accessor the helpers need: `providers()`.
-`Resolver` is unchanged: `provider()` and `resolve(&[Model], gateway)`.
+`Resolver` exposes `id()` and `resolve(&[Model], gateway)`.
 
 The caller owns the graph, cache and allowance. `ResolutionEngine::new` validates the
 reserved-provider invariant and the `replace`/`include_already_claimed` pair once; `resolve` never
@@ -346,10 +346,9 @@ let extra = inputs.saturating_sub(1) as f32 * CORROBORATION_BONUS;
 - `--replace` writes the new claims, then retracts the live claims **owned by this resolver**
   (`claim.provider`) that the new answer did not reproduce, only in the schemes the resolver got
   accepted this run. If the provider refused, failed, or only proposed vetoed/dropped claims, nothing
-  is retracted: absence is not evidence. A provider answer truncated by the per-entity cap or carrying
-  out-of-batch claims is incomplete, so replacement is skipped for that provider and entity. The kept
-  set is built during admission, not from raw proposals. It is the repair path for a provider that
-  improved.
+  is retracted: absence is not evidence. A provider answer truncated by the per-entity cap is
+  capped, so replacement is skipped for that provider and entity. The kept set is built during
+  admission, not from raw proposals. It is the repair path for a provider that improved.
 - `--replace` requires `--entity`; a corpus-wide replace is a rebuild, not a convenience flag.
 - `eval inspect <id>` remains the read-only replay: no writes, so it is the dry run.
 - Re-resolution is single-writer, like a rebuild: stop the link worker.
@@ -1132,7 +1131,7 @@ WDQS publishes its limits in the
 | 5 parallel queries per IP | one request in flight; the gateway is sequential |
 | 60 s of processing time per 60 s per client | 50 labels per query, so a batch is milliseconds of processing |
 | 30 error queries per minute | a run stops at the first transport failure that is not a rate limit, rather than retrying into it |
-| 429 with `Retry-After`, and a temporary ban for ignoring it | **the run stops**, caches nothing, and reports the interval. A 429 is never recorded as an answer — it is an instruction |
+| 429 with `Retry-After`, and a temporary ban for ignoring it | **that provider stops**, caches nothing from the refusal, and reports the interval; other providers continue. A 429 is never recorded as an answer — it is an instruction |
 | 60 s query deadline | queries are bounded by the `VALUES` list |
 
 On top of the published rules:

@@ -38,7 +38,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   many-to-one, so sharing an identity is a candidate rather than a verdict; `proximity.rs` split into a
   scan that records and a merge pass that decides; and the `contested` status went, because it was a
   derived boolean stored beside substantiation.
-  Read in this order: the four model files, `evidence.rs` (`Claim`, `DraftIdentity`, `Basis`, `holders`),
+  Read in this order: the four model files, `evidence.rs` (`Claim`, `IdentityDraft`, `Basis`, `holders`),
   `proximity.rs` (`raise`, `settle`, scan + merge), `merge.rs` (which now *settles* a proximity instead of
   deleting it), `project`'s status (two values), then `database/indexes/knowledge.rs` and the migration
   in `sync_schema.rs` — both contain workarounds worth knowing about.

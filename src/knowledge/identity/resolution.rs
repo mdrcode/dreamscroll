@@ -6,32 +6,25 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use super::{MAX_CLAIMS_PER_ENTITY, RESERVED_PROVIDERS};
-use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
+use crate::fetch::{self, Allowance, FetchCache, Gateway, Refusal};
 use crate::knowledge::KnowledgeGraph;
-use crate::knowledge::evidence::{Claim, ClaimDraft, DraftIdentity, Evidence, Stored};
+use crate::knowledge::evidence::{Claim, ClaimDraft, Evidence, IdentityDraft, Stored};
 use crate::model;
 
-/// One authority, and the strategy for asking it.
+use super::{MAX_CLAIMS_PER_ENTITY, RESERVED_PROVIDER_IDS};
+
+/// One authority and its strategy for identifying entities.
 ///
 /// `resolve` takes a *batch* of entities rather than one: batching across entities is the difference
 /// between a hundred transport calls for a corpus walk and five thousand, and only the resolver knows
 /// how to group its own requests.
-///
-/// Request, answer and transport shapes are deliberately *not* here — they belong to [`crate::fetch`],
-/// which knows nothing about knowledge entities. This trait knows nothing about the network, the
-/// cache or the budget.
 #[async_trait::async_trait]
 pub trait Resolver: Send + Sync {
-    /// The authority's id: the `provider` on every request it makes, the `provider` on every
-    /// identity it writes, and what `Resolver::provider` returns. It may not be one of
-    /// [`RESERVED_PROVIDERS`]; [`ResolutionEngine::new`] refuses those when the run is built.
-    fn provider(&self) -> &'static str;
+    /// The authority's id: the `provider` on every request and every identity it writes. Reserved
+    /// ids are refused by [`ResolutionEngine::new`].
+    fn id(&self) -> &'static str;
 
-    /// Claims about the entities it could resolve, each tagged with the entity it belongs to, in the
-    /// resolver's priority order. The engine writes every claim the graph accepts: several identities
-    /// for one entity are normal, and a later run skips only the entities this provider already
-    /// claimed.
+    /// Discover and retrieve new identities for the entities, returning claims to link the two.
     async fn resolve(
         &self,
         entities: &[model::knowledge_entity::Model],
@@ -41,9 +34,8 @@ pub trait Resolver: Send + Sync {
 
 #[derive(Debug, Clone)]
 pub struct Options {
-    /// Ask every resolver even when it already claimed the entity. `resolve --entity` sets this;
-    /// without it, the per-provider claimed filter makes an entity-scoped run empty. Already-held
-    /// identities are no-ops; new ones are added.
+    /// Ask a resolver again even when it already has a live claim for the entity. `--entity` sets
+    /// this; without it, the per-provider claimed filter makes an entity-scoped run empty.
     pub include_already_claimed: bool,
     /// Retract this provider's old claims in the schemes it answered but did not re-propose.
     /// Requires `include_already_claimed`; `resolve --entity --replace` sets both.
@@ -62,45 +54,37 @@ impl Default for Options {
 /// One resolution run.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct ResolutionReport {
-    /// Entities in scope after the tombstone and duplicate filter.
-    pub considered: usize,
-    /// What the run asked, what the cache answered, and what it fetched.
-    pub traffic: crate::fetch::Stats,
-    /// Claims the graph accepted.
-    pub written: usize,
-    /// Distinct entities that gained at least one claim.
-    pub entities_resolved: usize,
-    /// Claims an editor's veto kept out of the graph.
-    pub vetoed: usize,
-    /// One entry per provider called, so a failure or a silent provider is attributable.
-    pub by_provider: Vec<ProviderReport>,
-    /// Why the run stopped early, if it did: the budget, or the provider's `429`.
-    pub refusal: Option<Refusal>,
     pub offline: bool,
+
+    pub considered: usize,
+    pub fetch_traffic: fetch::Stats,
+
+    pub entities_resolved: usize,
+    pub claims_written: usize,
+    pub claims_vetoed: usize,
+
+    pub by_provider: Vec<ProviderReport>,
+    /// The run-wide budget refusal, or a provider's rate limit, for the report.
+    pub refusal: Option<Refusal>,
 }
 
 /// What one provider did in one run.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
 pub struct ProviderReport {
     pub provider: String,
-    /// Entities handed to this provider after its own selection.
     pub batch: usize,
-    /// Claims this provider got written.
-    pub written: usize,
-    pub vetoed: usize,
-    /// Claims refused by the per-entity cap or returned outside the batch.
+    pub fetch_traffic: fetch::Stats,
+
+    pub claims_written: usize,
+    pub claims_vetoed: usize,
+
+    /// Claims refused by the per-entity cap.
     pub dropped: usize,
     /// Old claims this provider owned that the re-resolve did not re-propose.
     pub replaced: usize,
-    /// This provider's share of [`ResolutionReport::traffic`].
-    pub traffic: crate::fetch::Stats,
 }
 
-/// The harness: it holds the resolvers, gives them a context, and stores what they return.
-///
-/// It knows nothing about stages, tiers or ladders. A resolver that wants two passes takes them; the
-/// engine only orders resolvers and merges their claims.
-
+/// The harness: it holds the resolvers, invokes them, and stores their output.
 pub struct ResolutionEngine {
     graph: KnowledgeGraph,
     options: Options,
@@ -108,9 +92,6 @@ pub struct ResolutionEngine {
 }
 
 impl ResolutionEngine {
-    /// Build a run. Both checks are construction invariants: a reserved provider or a replace
-    /// without include_already_claimed is a wiring error, not something to rediscover on every
-    /// `resolve`.
     pub fn new(
         graph: KnowledgeGraph,
         options: Options,
@@ -120,11 +101,17 @@ impl ResolutionEngine {
             !options.replace || options.include_already_claimed,
             "replace requires include_already_claimed"
         );
+        let mut ids = HashSet::new();
         for resolver in &resolvers {
             anyhow::ensure!(
-                !RESERVED_PROVIDERS.contains(&resolver.provider()),
+                !RESERVED_PROVIDER_IDS.contains(&resolver.id()),
                 "resolver id `{}` is reserved; it names our own pipeline, not an authority",
-                resolver.provider()
+                resolver.id()
+            );
+            anyhow::ensure!(
+                ids.insert(resolver.id()),
+                "resolver id `{}` is used twice; provider-scoped state assumes one resolver each",
+                resolver.id()
             );
         }
         Ok(Self {
@@ -135,23 +122,19 @@ impl ResolutionEngine {
     }
 
     pub(crate) fn providers(&self) -> impl Iterator<Item = &'static str> + '_ {
-        self.resolvers.iter().map(|resolver| resolver.provider())
+        self.resolvers.iter().map(|resolver| resolver.id())
     }
 
     /// Resolve exactly the entities in scope; selection is the caller's job.
-    ///
-    /// The helper layer composes the scopes: one illumination, or the pending world. The caller owns
-    /// the cache and the allowance; this method builds the ephemeral gateway from them. A shared
-    /// `Allowance` therefore caps several runs, while a fresh one gives each run its own budget.
     pub async fn resolve(
         &self,
-        entities: &[crate::model::knowledge_entity::Model],
+        entities: &[model::knowledge_entity::Model],
         cache: &FetchCache<'_>,
         allowance: Option<&Allowance>,
     ) -> anyhow::Result<ResolutionReport> {
         // The caller may hand in a tombstone or a duplicate; neither is a question to ask.
         let mut seen = HashSet::new();
-        let entities: Vec<crate::model::knowledge_entity::Model> = entities
+        let entities: Vec<model::knowledge_entity::Model> = entities
             .iter()
             .filter(|entity| entity.merged_into_id.is_none() && seen.insert(entity.id))
             .cloned()
@@ -165,7 +148,7 @@ impl ResolutionEngine {
     }
 }
 
-/// The mutable state of one `resolve`: what was asked, what came back, and what was written.
+/// The mutable state of one engine-level `resolve`.
 ///
 /// It borrows the engine and the caller's gateway; neither outlives the call. Keeping the counters
 /// and proposals here is what lets `resolve` read as three steps instead of one long loop.
@@ -178,7 +161,7 @@ struct ResolutionRun<'e, 'g, 'a> {
     provider_reports: Vec<ProviderReport>,
     proposed: BTreeMap<i32, Vec<(usize, Claim)>>,
     resolved: HashSet<i32>,
-    incomplete: HashSet<(usize, i32)>,
+    capped: HashSet<(usize, i32)>,
 }
 
 impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
@@ -203,7 +186,7 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
             provider_reports: Vec::new(),
             proposed: BTreeMap::new(),
             resolved: HashSet::new(),
-            incomplete: HashSet::new(),
+            capped: HashSet::new(),
         })
     }
 
@@ -211,31 +194,27 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
         let entity_ids: Vec<i32> = entities.iter().map(|entity| entity.id).collect();
 
         for (index, resolver) in self.engine.resolvers.iter().enumerate() {
-            // A provider that told us to stop gets no further questions.
-            if matches!(self.gateway.refusal(), Some(Refusal::RateLimited { .. })) {
-                break;
+            match self.gateway.refusal_for(resolver.id()) {
+                Some(Refusal::Budget) => break,
+                Some(Refusal::RateLimited { .. }) => continue,
+                None => {}
             }
 
-            // This resolver's own claims, not any authority's: an entity Wikidata answered remains a
-            // candidate for IMDb. The batch is computed before any writes, so a claim written below
-            // cannot hide the entity from the next resolver.
-            let claimed = if self.engine.options.include_already_claimed {
+            let already_claimed = if self.engine.options.include_already_claimed {
                 HashSet::new()
             } else {
-                self.evidence
-                    .claimed_by(resolver.provider(), &entity_ids)
-                    .await?
+                self.evidence.claimed_by(resolver.id(), &entity_ids).await?
             };
             let batch: Vec<model::knowledge_entity::Model> = entities
                 .iter()
-                .filter(|entity| !claimed.contains(&entity.id))
+                .filter(|entity| !already_claimed.contains(&entity.id))
                 .cloned()
                 .collect();
             let batch_ids: HashSet<i32> = batch.iter().map(|entity| entity.id).collect();
 
             let before = self.gateway.stats();
-            let mut per = ProviderReport {
-                provider: resolver.provider().to_string(),
+            let mut report = ProviderReport {
+                provider: resolver.id().to_string(),
                 batch: batch.len(),
                 ..Default::default()
             };
@@ -243,10 +222,8 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                 let mut per_entity: HashMap<i32, usize> = HashMap::new();
                 for (knowledge_entity_id, claim) in resolver.resolve(&batch, self.gateway).await {
                     if !batch_ids.contains(&knowledge_entity_id) {
-                        per.dropped += 1;
-                        self.incomplete.insert((index, knowledge_entity_id));
                         tracing::warn!(
-                            provider = resolver.provider(),
+                            provider = resolver.id(),
                             knowledge_entity_id,
                             "resolver returned a claim outside its batch"
                         );
@@ -254,8 +231,10 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                     }
                     let count = per_entity.entry(knowledge_entity_id).or_default();
                     if *count >= MAX_CLAIMS_PER_ENTITY {
-                        per.dropped += 1;
-                        self.incomplete.insert((index, knowledge_entity_id));
+                        report.dropped += 1;
+                        if self.engine.options.replace {
+                            self.capped.insert((index, knowledge_entity_id));
+                        }
                         continue;
                     }
                     *count += 1;
@@ -266,13 +245,13 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                 }
             }
             let after = self.gateway.stats();
-            per.traffic = crate::fetch::Stats {
+            report.fetch_traffic = fetch::Stats {
                 requested: after.requested.saturating_sub(before.requested),
                 cache_hits: after.cache_hits.saturating_sub(before.cache_hits),
                 fetched: after.fetched.saturating_sub(before.fetched),
                 failed: after.failed.saturating_sub(before.failed),
             };
-            self.provider_reports.push(per);
+            self.provider_reports.push(report);
         }
         Ok(())
     }
@@ -285,8 +264,8 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
             for (resolver_index, claim) in claims {
                 let basis = claim.basis;
                 let method = claim.method.clone();
-                let provider = self.engine.resolvers[resolver_index].provider();
-                let draft = DraftIdentity::from_claim(claim, provider);
+                let provider = self.engine.resolvers[resolver_index].id();
+                let draft = IdentityDraft::from_claim(claim, provider);
                 let key = draft.key();
                 let identity_id = self.engine.graph.upsert_identity(&draft).await?;
                 let stored = self
@@ -306,17 +285,17 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                     .await?;
                 match stored {
                     Stored::Written => {
-                        self.report.written += 1;
-                        self.provider_reports[resolver_index].written += 1;
+                        self.report.claims_written += 1;
+                        self.provider_reports[resolver_index].claims_written += 1;
                         self.resolved.insert(knowledge_entity_id);
                     }
                     Stored::Vetoed => {
-                        self.report.vetoed += 1;
-                        self.provider_reports[resolver_index].vetoed += 1;
+                        self.report.claims_vetoed += 1;
+                        self.provider_reports[resolver_index].claims_vetoed += 1;
                     }
                     Stored::AlreadyClaimed => {}
                 }
-                if stored != Stored::Vetoed {
+                if self.engine.options.replace && stored != Stored::Vetoed {
                     keep_by_resolver
                         .entry(resolver_index)
                         .or_default()
@@ -324,18 +303,18 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                 }
             }
 
-            if self.engine.options.replace && self.gateway.refusal().is_none() {
+            if self.engine.options.replace {
                 for (index, keep) in keep_by_resolver {
-                    if self.incomplete.contains(&(index, knowledge_entity_id)) {
+                    if self.capped.contains(&(index, knowledge_entity_id)) {
+                        continue;
+                    }
+                    let provider = self.engine.resolvers[index].id();
+                    if self.gateway.refusal_for(provider).is_some() {
                         continue;
                     }
                     self.provider_reports[index].replaced += self
                         .evidence
-                        .retract_unproposed(
-                            knowledge_entity_id,
-                            self.engine.resolvers[index].provider(),
-                            &keep,
-                        )
+                        .retract_unproposed(knowledge_entity_id, provider, &keep)
                         .await?;
                 }
             }
@@ -355,7 +334,7 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
         // `proximity scan` and `proximity auto-merge`, which are separate commands run after this one.
         self.report.entities_resolved = self.resolved.len();
         self.report.by_provider = std::mem::take(&mut self.provider_reports);
-        self.report.traffic = self.gateway.stats();
+        self.report.fetch_traffic = self.gateway.stats();
         self.report.refusal = self.gateway.refusal();
         self.report
     }
@@ -485,9 +464,12 @@ mod tests {
         calls: Arc<AtomicUsize>,
     }
 
-    fn fake_request(entity: &model::knowledge_entity::Model) -> Request<Probe> {
+    fn fake_request(
+        provider: &'static str,
+        entity: &model::knowledge_entity::Model,
+    ) -> Request<Probe> {
         Request {
-            provider: "fake",
+            provider,
             kind: Probe::Text,
             shape: "v1".to_string(),
             query: entity.name.clone(),
@@ -498,7 +480,7 @@ mod tests {
     impl Resolver for Fake {
         // The scheme and source the projection counts as text evidence, so a fake resolve produces
         // the same claims a real one would.
-        fn provider(&self) -> &'static str {
+        fn id(&self) -> &'static str {
             "wikidata"
         }
 
@@ -507,12 +489,15 @@ mod tests {
             entities: &[model::knowledge_entity::Model],
             gateway: &Gateway<'_>,
         ) -> Vec<(i32, Claim)> {
-            let requests: Vec<Request<Probe>> = entities.iter().map(fake_request).collect();
+            let requests: Vec<Request<Probe>> = entities
+                .iter()
+                .map(|entity| fake_request(self.id(), entity))
+                .collect();
             let answers = gateway.resolve_requests(self, &requests).await;
             entities
                 .iter()
                 .filter_map(|entity| {
-                    let raw = answers.get(&fake_request(entity))?;
+                    let raw = answers.get(&fake_request(self.id(), entity))?;
                     let id = raw.body.as_ref()?.first()?.clone();
                     Some((
                         entity.id,
@@ -537,7 +522,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Resolver for Other {
-        fn provider(&self) -> &'static str {
+        fn id(&self) -> &'static str {
             "imdb"
         }
 
@@ -572,7 +557,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Resolver for Many {
-        fn provider(&self) -> &'static str {
+        fn id(&self) -> &'static str {
             "many"
         }
 
@@ -662,12 +647,12 @@ mod tests {
             .resolve_pending()
             .await
             .expect("resolve");
-        assert_eq!(first.written, 1, "{first:?}");
-        assert_eq!(first.traffic.fetched, 1, "{first:?}");
+        assert_eq!(first.claims_written, 1, "{first:?}");
+        assert_eq!(first.fetch_traffic.fetched, 1, "{first:?}");
         assert_eq!(first.by_provider.len(), 1, "{first:?}");
         assert_eq!(first.by_provider[0].provider, "wikidata");
-        assert_eq!(first.by_provider[0].written, 1);
-        assert_eq!(first.by_provider[0].traffic.fetched, 1);
+        assert_eq!(first.by_provider[0].claims_written, 1);
+        assert_eq!(first.by_provider[0].fetch_traffic.fetched, 1);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
 
         let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
@@ -713,7 +698,7 @@ mod tests {
                 .with(Box::new(Other));
         let report = engine.resolve_pending().await.expect("resolve");
 
-        assert_eq!(report.written, 2, "{report:?}");
+        assert_eq!(report.claims_written, 2, "{report:?}");
         assert_eq!(report.by_provider.len(), 2, "{report:?}");
         assert_eq!(report.by_provider[0].provider, "wikidata");
         assert_eq!(report.by_provider[1].provider, "imdb");
@@ -753,7 +738,7 @@ mod tests {
             .await
             .expect("resolve");
 
-        assert_eq!(report.written, MAX_CLAIMS_PER_ENTITY, "{report:?}");
+        assert_eq!(report.claims_written, MAX_CLAIMS_PER_ENTITY, "{report:?}");
         assert_eq!(report.by_provider[0].dropped, 2, "{report:?}");
         assert_eq!(
             model::knowledge_claims::Entity::find()
@@ -803,7 +788,7 @@ mod tests {
             .await
             .expect("resolve");
 
-        assert_eq!(report.written, 1, "{report:?}");
+        assert_eq!(report.claims_written, 1, "{report:?}");
         assert_eq!(report.by_provider[0].replaced, 1, "{report:?}");
 
         let rows = model::knowledge_claims::Entity::find()
@@ -861,8 +846,8 @@ mod tests {
             .await
             .expect("resolve");
 
-        assert_eq!(report.vetoed, 1, "{report:?}");
-        assert_eq!(report.written, 0, "{report:?}");
+        assert_eq!(report.claims_vetoed, 1, "{report:?}");
+        assert_eq!(report.claims_written, 0, "{report:?}");
         assert_eq!(report.by_provider[0].replaced, 0, "{report:?}");
 
         let rows = model::knowledge_claims::Entity::find()
@@ -882,7 +867,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn an_incomplete_answer_does_not_replace() {
+    async fn a_capped_answer_does_not_replace() {
         db_or_skip!(db);
         let id = seed(&db, "Train Dreams").await;
         crate::test_support::fixtures::claim(
@@ -952,8 +937,8 @@ mod tests {
             .resolve_pending()
             .await
             .expect("resolve");
-        assert_eq!(first.traffic.fetched, 1, "{first:?}");
-        assert_eq!(first.written, 0);
+        assert_eq!(first.fetch_traffic.fetched, 1, "{first:?}");
+        assert_eq!(first.claims_written, 0);
 
         // The entity is still a candidate (no claim), but the negative answer is cached.
         let second =
@@ -967,8 +952,8 @@ mod tests {
                 .await
                 .expect("resolve");
         assert_eq!(second.considered, 1, "{second:?}");
-        assert_eq!(second.traffic.fetched, 0, "{second:?}");
-        assert_eq!(second.traffic.cache_hits, 1, "{second:?}");
+        assert_eq!(second.fetch_traffic.fetched, 0, "{second:?}");
+        assert_eq!(second.fetch_traffic.cache_hits, 1, "{second:?}");
         assert_eq!(
             calls.load(Ordering::SeqCst),
             1,
@@ -999,7 +984,7 @@ mod tests {
         // The answer a previous online run would have left behind.
         FetchCache::new(&db.conn)
             .put(
-                "fake",
+                "wikidata",
                 &Probe::Text,
                 "v1",
                 "Train Dreams",
@@ -1026,10 +1011,10 @@ mod tests {
             0,
             "offline never touches the transport"
         );
-        assert_eq!(report.traffic.fetched, 0);
-        assert_eq!(report.traffic.cache_hits, 1);
+        assert_eq!(report.fetch_traffic.fetched, 0);
+        assert_eq!(report.fetch_traffic.cache_hits, 1);
         assert_eq!(
-            report.written, 1,
+            report.claims_written, 1,
             "only the cached one resolves: {report:?}"
         );
 
@@ -1160,7 +1145,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Resolver for Limited {
-        fn provider(&self) -> &'static str {
+        fn id(&self) -> &'static str {
             "limited"
         }
 
@@ -1169,7 +1154,10 @@ mod tests {
             entities: &[model::knowledge_entity::Model],
             gateway: &Gateway<'_>,
         ) -> Vec<(i32, Claim)> {
-            let requests: Vec<Request<Probe>> = entities.iter().map(fake_request).collect();
+            let requests: Vec<Request<Probe>> = entities
+                .iter()
+                .map(|entity| fake_request(self.id(), entity))
+                .collect();
             gateway.resolve_requests(self, &requests).await;
             Vec::new()
         }
@@ -1198,7 +1186,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Resolver for Flaky {
-        fn provider(&self) -> &'static str {
+        fn id(&self) -> &'static str {
             "flaky"
         }
 
@@ -1300,17 +1288,17 @@ mod tests {
             "{report:?}"
         );
         assert_eq!(
-            report.traffic.fetched, 2,
+            report.fetch_traffic.fetched, 2,
             "one successful batch, then the 429: {report:?}"
         );
         assert_eq!(
-            report.written, BATCH,
+            report.claims_written, BATCH,
             "claims from the first batch survive: {report:?}"
         );
     }
 
     #[tokio::test]
-    async fn a_rate_limit_stops_the_run_and_is_not_cached() {
+    async fn a_rate_limit_stops_that_provider_and_is_not_cached() {
         db_or_skip!(db);
         seed(&db, "Train Dreams").await;
 
@@ -1329,8 +1317,8 @@ mod tests {
             }),
             "{report:?}"
         );
-        assert_eq!(report.traffic.fetched, 1, "{report:?}");
-        assert_eq!(report.written, 0, "{report:?}");
+        assert_eq!(report.fetch_traffic.fetched, 1, "{report:?}");
+        assert_eq!(report.claims_written, 0, "{report:?}");
         assert_eq!(
             model::fetch_cache::Entity::find()
                 .count(&db.conn)
@@ -1339,6 +1327,35 @@ mod tests {
             0,
             "a rate limit must not be recorded as an answer"
         );
+    }
+
+    #[tokio::test]
+    async fn a_rate_limit_on_one_provider_does_not_stop_the_next() {
+        db_or_skip!(db);
+        seed(&db, "Train Dreams").await;
+
+        let report =
+            ResolutionEngine::new(KnowledgeGraph::new(&db), Options::default(), Vec::new())
+                .expect("engine")
+                .with(Box::new(Limited))
+                .with(Box::new(Other))
+                .resolve_pending()
+                .await
+                .expect("resolve");
+
+        assert_eq!(
+            report.refusal,
+            Some(Refusal::RateLimited {
+                retry_after_secs: Some(30)
+            }),
+            "{report:?}"
+        );
+        assert_eq!(report.by_provider.len(), 2, "{report:?}");
+        assert_eq!(report.by_provider[0].provider, "limited");
+        assert_eq!(report.by_provider[0].claims_written, 0);
+        assert_eq!(report.by_provider[1].provider, "imdb");
+        assert_eq!(report.by_provider[1].claims_written, 1);
+        assert_eq!(report.claims_written, 1, "the second provider still ran");
     }
 
     /// Substantiation is a *projected* column, and the merge phase picks a survivor by it. So an
@@ -1452,7 +1469,7 @@ mod tests {
                 .await
                 .expect("resolve");
 
-        assert_eq!(report.written, 2, "{report:?}");
+        assert_eq!(report.claims_written, 2, "{report:?}");
 
         // The proximity passes now run after resolve as separate commands; drive them explicitly so
         // the assertion is about `merge` refusing a pair, not about an empty batch.
@@ -1523,7 +1540,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Resolver for Reserved {
-        fn provider(&self) -> &'static str {
+        fn id(&self) -> &'static str {
             "illuminator"
         }
 
@@ -1547,5 +1564,18 @@ mod tests {
         .err()
         .expect("the reserved id must be refused");
         assert!(error.to_string().contains("reserved"), "{error}");
+    }
+
+    #[tokio::test]
+    async fn a_resolver_id_must_be_unique() {
+        db_or_skip!(db);
+        let error = ResolutionEngine::new(
+            KnowledgeGraph::new(&db),
+            Options::default(),
+            vec![Box::new(Other), Box::new(Other)],
+        )
+        .err()
+        .expect("a repeated id must be refused");
+        assert!(error.to_string().contains("used twice"), "{error}");
     }
 }

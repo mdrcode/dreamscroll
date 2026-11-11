@@ -141,7 +141,7 @@ impl Wikidata {
 
 #[async_trait::async_trait]
 impl Resolver for Wikidata {
-    fn provider(&self) -> &'static str {
+    fn id(&self) -> &'static str {
         super::ID
     }
 
@@ -226,7 +226,7 @@ mod tests {
             assert_eq!(request.provider, crate::knowledge::identity::wikidata::ID);
         }
         assert_eq!(
-            Resolver::provider(&engine()),
+            Resolver::id(&engine()),
             crate::knowledge::identity::wikidata::ID
         );
     }

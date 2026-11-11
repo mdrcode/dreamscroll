@@ -587,26 +587,26 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     }
     println!(
         "considered {} · requested {} · cache hits {}",
-        report.considered, report.traffic.requested, report.traffic.cache_hits
+        report.considered, report.fetch_traffic.requested, report.fetch_traffic.cache_hits
     );
     println!(
         "fetched {} · failed {} · claims {} · entities resolved {} · vetoed {}",
-        report.traffic.fetched,
-        report.traffic.failed,
-        report.written,
+        report.fetch_traffic.fetched,
+        report.fetch_traffic.failed,
+        report.claims_written,
         report.entities_resolved,
-        report.vetoed
+        report.claims_vetoed
     );
     for provider in &report.by_provider {
         println!(
             "  {:<16} batch {:>5} · requested {:>5} · cache {:>5} · fetched {:>4} · claims {:>4} · vetoed {} · replaced {}",
             provider.provider,
             provider.batch,
-            provider.traffic.requested,
-            provider.traffic.cache_hits,
-            provider.traffic.fetched,
-            provider.written,
-            provider.vetoed,
+            provider.fetch_traffic.requested,
+            provider.fetch_traffic.cache_hits,
+            provider.fetch_traffic.fetched,
+            provider.claims_written,
+            provider.claims_vetoed,
             provider.replaced
         );
     }
@@ -618,12 +618,12 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         Some(dreamscroll::fetch::Refusal::RateLimited { retry_after_secs }) => {
             match retry_after_secs {
                 Some(seconds) => println!(
-                    "rate limited by the provider — stopped; retry in {seconds}s \
-                     (or lower --min-interval-ms / --max-requests)"
+                    "a provider rate limited us — it stopped; retry it in {seconds}s \
+                     (or lower --min-interval-ms / --max-requests); other providers continued"
                 ),
                 None => println!(
-                    "rate limited by the provider — stopped; it gave no retry time \
-                     (or lower --min-interval-ms / --max-requests)"
+                    "a provider rate limited us — it stopped; it gave no retry time \
+                     (or lower --min-interval-ms / --max-requests); other providers continued"
                 ),
             }
         }

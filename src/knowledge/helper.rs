@@ -246,7 +246,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl Resolver for Empty {
-        fn provider(&self) -> &'static str {
+        fn id(&self) -> &'static str {
             "fake"
         }
 

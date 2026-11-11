@@ -14,7 +14,7 @@ use sea_orm::{
 };
 
 use super::claim::{ClaimDraft, Stored};
-use super::identity::{DraftIdentity, IdentityKey};
+use super::identity::{IdentityDraft, IdentityKey};
 use crate::knowledge::scoring::TotalCmp;
 use crate::model;
 
@@ -46,7 +46,7 @@ impl Evidence {
     /// Upserts by filling gaps rather than overwriting: a handle first read off a capture has no
     /// label, and the first authority that answers for it supplies one. Nothing here clears a field
     /// a previous answer set — an identity is a running record, not a latest-value cache.
-    pub async fn upsert_identity(&self, identity: &DraftIdentity) -> anyhow::Result<i32> {
+    pub async fn upsert_identity(&self, identity: &IdentityDraft) -> anyhow::Result<i32> {
         let row = self
             .conn
             .query_one_raw(Statement::from_sql_and_values(
@@ -75,7 +75,7 @@ impl Evidence {
     ///
     /// The no-op `DO UPDATE` is what lets one statement return the id either way. This is the only
     /// writer a capture uses: a screenshot knows a handle exists, not what the thing is.
-    async fn create_identity(&self, identity: &DraftIdentity) -> anyhow::Result<i32> {
+    async fn create_identity(&self, identity: &IdentityDraft) -> anyhow::Result<i32> {
         let row = self
             .conn
             .query_one_raw(Statement::from_sql_and_values(
@@ -97,7 +97,7 @@ impl Evidence {
     /// A capture may create an identity, never enrich one: it knows a handle exists, not what the
     /// thing is. Idempotent, so a re-link is free.
     pub async fn identity_for_link(&self, key: &IdentityKey) -> anyhow::Result<i32> {
-        self.create_identity(&DraftIdentity::from_capture(key))
+        self.create_identity(&IdentityDraft::from_capture(key))
             .await
     }
 
@@ -404,7 +404,7 @@ impl Evidence {
 }
 
 /// The binds an identity insert or upsert needs, in column order.
-fn identity_values(identity: &DraftIdentity) -> Vec<sea_orm::Value> {
+fn identity_values(identity: &IdentityDraft) -> Vec<sea_orm::Value> {
     vec![
         sea_orm::Value::String(Some(identity.scheme.clone())),
         sea_orm::Value::String(Some(identity.external_id.clone())),
@@ -511,7 +511,7 @@ mod tests {
         db_or_skip!(db);
         let evidence = Evidence::from_handle(&db);
         evidence
-            .upsert_identity(&DraftIdentity {
+            .upsert_identity(&IdentityDraft {
                 scheme: "x_twitter".to_string(),
                 external_id: "tsoding".to_string(),
                 provider: "wikidata".to_string(),
@@ -569,7 +569,7 @@ mod tests {
         db_or_skip!(db);
         let evidence = Evidence::from_handle(&db);
         let id = evidence
-            .upsert_identity(&DraftIdentity {
+            .upsert_identity(&IdentityDraft {
                 scheme: "wikidata".to_string(),
                 external_id: "Q_PROVIDER_TEST".to_string(),
                 provider: "model".to_string(),
@@ -582,7 +582,7 @@ mod tests {
             .await
             .expect("a guess creates the identity");
         evidence
-            .upsert_identity(&DraftIdentity {
+            .upsert_identity(&IdentityDraft {
                 scheme: "wikidata".to_string(),
                 external_id: "Q_PROVIDER_TEST".to_string(),
                 provider: "wikidata".to_string(),
@@ -610,7 +610,7 @@ mod tests {
     async fn identity_classes_round_trip_and_a_later_answer_does_not_erase_them() {
         db_or_skip!(db);
         let evidence = Evidence::from_handle(&db);
-        let draft = DraftIdentity {
+        let draft = IdentityDraft {
             scheme: "wikidata".to_string(),
             external_id: "Q42".to_string(),
             provider: "wikidata".to_string(),
@@ -635,7 +635,7 @@ mod tests {
 
         // A later answer that carried no classes leaves the accumulated ones alone.
         evidence
-            .upsert_identity(&DraftIdentity {
+            .upsert_identity(&IdentityDraft {
                 classes: Vec::new(),
                 label: None,
                 method: None,

@@ -30,9 +30,10 @@ impl<'a> Gateway<'a> {
     /// `allowance` — permission to call. `None` never fetches, so nothing can be refused: a cache-only
     /// run, which is how the graph is built locally.
     ///
-    /// `fail_fast` — what a refusal does. `true` ends the walk (the cache is durable, so the groups it
-    /// skips are read by the next run at no network cost); `false` keeps reading the remaining groups'
-    /// caches and fetches nothing more.
+    /// `fail_fast` — whether a spent budget stops the whole walk. `true` ends it (the cache is
+    /// durable, so the groups it skips are read by the next run at no network cost); `false` keeps
+    /// reading the remaining groups' caches and fetches nothing more. A provider's `429` always stops
+    /// only that provider; other providers are independent services.
     ///
     /// The three are independent: with no allowance nothing exhausts, so `fail_fast` is moot; with no
     /// cache nothing can be harvested, so it is moot there too.
@@ -59,9 +60,15 @@ impl<'a> Gateway<'a> {
         self.counters.snapshot()
     }
 
-    /// Why the run stopped early, if its allowance refused a call.
+    /// Why the run stopped early, if any provider's allowance refused a call.
     pub fn refusal(&self) -> Option<Refusal> {
         self.allowance.and_then(Allowance::refused)
+    }
+
+    /// Whether this provider is refused, and why.
+    pub fn refusal_for(&self, provider: &str) -> Option<Refusal> {
+        self.allowance
+            .and_then(|allowance| allowance.refused_for(provider))
     }
 
     /// A gateway without an allowance is cache-only.
@@ -71,10 +78,8 @@ impl<'a> Gateway<'a> {
 
     /// Ask the transport: cache first, then only what is missing, in batches, paced and budgeted.
     ///
-    /// Returns whatever it has, and stops at the first refusal. The cache is durable, so a group not
-    /// read this run is read by the next one at no network cost: carrying on would only add a wide
-    /// query per remaining group to a run that has already spent what it may, and blur the report
-    /// that says the budget was the limit.
+    /// A spent budget stops the run. A provider's `429` stops only that provider: its remaining
+    /// groups are skipped, while other providers still read their caches and fetch.
     pub async fn resolve_requests<T: Transport>(
         &self,
         transport: &T,
@@ -87,6 +92,13 @@ impl<'a> Gateway<'a> {
         self.counters.count_requested(requests.len());
 
         for ((provider, kind, shape), queries) in plan_groups(requests) {
+            // A provider that already sent a 429 is not asked again.
+            if matches!(
+                self.refusal_for(provider),
+                Some(Refusal::RateLimited { .. })
+            ) {
+                continue;
+            }
             let uncached = self
                 .uncached_queries(provider, &kind, &shape, queries, &mut answers)
                 .await;
@@ -98,10 +110,8 @@ impl<'a> Gateway<'a> {
                 .await
             {
                 Ok(()) => {}
-                // Refused: the run is over. The cache is durable, so the groups skipped here are read
-                // by the next run at no network cost, and the report can say the budget was the limit.
-                Err(_) if self.fail_fast => break,
-                // Refused, but not stopping: read the rest of the cache and fetch nothing more.
+                // The budget is run-wide; one provider's 429 is not.
+                Err(Refusal::Budget) if self.fail_fast => break,
                 Err(_) => continue,
             }
         }
@@ -173,7 +183,7 @@ impl<'a> Gateway<'a> {
         let cost = transport.cost(kind);
         for chunk in misses.chunks(transport.batch_size(kind)) {
             // Paced once per batch, and charged for every request the batch will make.
-            allowance.take(cost).await?;
+            allowance.take_for(provider, cost).await?;
             let batch: Vec<Request<T::Kind>> = chunk
                 .iter()
                 .map(|query| Request {
@@ -207,9 +217,9 @@ impl<'a> Gateway<'a> {
                 }
                 Err(FetchError::RateLimited { retry_after_secs }) => {
                     // An instruction, not a fact. Do not cache it, do not retry: latch it on the
-                    // allowance, so no later batch, stage or provider asks again. One query endpoint
-                    // temporarily bans clients that keep requesting after a 429.
-                    allowance.rate_limited(retry_after_secs);
+                    // allowance for this provider, so no later batch or stage asks it again. Other
+                    // providers are independent services and keep their own permission.
+                    allowance.rate_limited(provider, retry_after_secs);
                     return Err(Refusal::RateLimited { retry_after_secs });
                 }
                 Err(FetchError::Failed(_)) => {
@@ -450,6 +460,44 @@ mod tests {
             })
         );
         assert_eq!(answers.len(), 2, "the first batch survives");
+    }
+
+    /// A provider that sends a 429 does not close the door for an independent provider.
+    #[tokio::test]
+    async fn a_rate_limit_on_one_provider_does_not_stop_another() {
+        db_or_skip!(db);
+        let cache = FetchCache::new(&db.conn);
+        let allowance = Allowance::new(8, std::time::Duration::ZERO);
+        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
+        let fake = Fake::new(vec![Err(FetchError::RateLimited {
+            retry_after_secs: Some(30),
+        })]);
+        let requests = vec![
+            Request {
+                provider: "alpha",
+                kind: Probe::Alpha,
+                shape: "v1".to_string(),
+                query: "alpha-query".to_string(),
+            },
+            Request {
+                provider: "beta",
+                kind: Probe::Beta,
+                shape: "v1".to_string(),
+                query: "beta-query".to_string(),
+            },
+        ];
+
+        let answers = gateway.resolve_requests(&fake, &requests).await;
+
+        assert_eq!(gateway.stats().fetched, 2, "both providers were attempted");
+        assert_eq!(answers.len(), 1, "beta still answered");
+        assert!(matches!(
+            allowance.refused_for("alpha"),
+            Some(Refusal::RateLimited {
+                retry_after_secs: Some(30)
+            })
+        ));
+        assert_eq!(allowance.refused_for("beta"), None);
     }
 
     /// A failure is not a fact about the world, so it is cached briefly: the next caller in the same

@@ -19,7 +19,7 @@ pub use kind::Kind;
 pub use resolver::Wikidata;
 
 /// This authority's id: the `provider` on every request, the `scheme` on every claim, and what
-/// `Resolver::provider` returns. One spelling, because all three are compared.
+/// `Resolver::id` returns. One spelling, because all three are compared.
 pub(crate) const ID: &str = "wikidata";
 
 /// The language every request is pinned to: the label `VALUES`, the label service, and the shape

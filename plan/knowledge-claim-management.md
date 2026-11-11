@@ -106,7 +106,7 @@ one live row.
 
 | file | change |
 | --- | --- |
-| `evidence/store.rs` | `IdentityKey`; `DraftIdentity::{key, from_claim}`; `identity_for_link` (create-only) and `create_identity`; `ClaimDraft` + `assert` (veto + edge). Deleted `record` and `store_claim`. |
+| `evidence/store.rs` | `IdentityKey`; `IdentityDraft::{key, from_claim}`; `identity_for_link` (create-only) and `create_identity`; `ClaimDraft` + `assert` (veto + edge). Deleted `record` and `store_claim`. |
 | `evidence/mod.rs` | the "two writers" paragraph became the two phases; exports updated. |
 | `graph/link.rs` | `link`: decisions applied and projected, returning observation → entity; `LinkStats`. No illumination type in sight. |
 | `graph/knowledge_graph.rs` | `link(&[Observation])` is the only linking method. |

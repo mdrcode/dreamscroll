@@ -23,8 +23,5 @@ pub const DEFAULT_MAX_REQUESTS: usize = 200;
 const MAX_CLAIMS_PER_ENTITY: usize = 8;
 
 /// Provider ids the engine refuses from a resolver: they name our own pipeline, not an authority.
-///
-/// A resolver that took one of these would make `awaiting_authority` treat capture rows or model
-/// guesses as its own claims, and would make `stats` misattribute them. The check is at run time so
-/// adding a resolver cannot silently steal a reserved id.
-pub const RESERVED_PROVIDERS: &[&str] = &["illuminator", "platform", "model", "operator", "user"];
+pub const RESERVED_PROVIDER_IDS: &[&str] =
+    &["illuminator", "platform", "model", "operator", "user"];

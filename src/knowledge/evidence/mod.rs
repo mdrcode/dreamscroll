@@ -2,7 +2,7 @@
 //!
 //! - an [`IdentityKey`] is the durable name — `(scheme, external_id)`, both folded — that survives a
 //!   rebuild; a capture's platform handle is one source of it.
-//! - a [`DraftIdentity`] is a row of `knowledge_identities` before it has an id: that key, plus
+//! - an [`IdentityDraft`] is a row of `knowledge_identities` before it has an id: that key, plus
 //!   whoever answered and what they said.
 //! - a [`Claim`] is an entity's assertion of an identity — the edge of the many-to-many, carrying
 //!   what the question was about ([`ClaimBasis`]) and which capture asked.
@@ -28,5 +28,5 @@ pub mod identity;
 pub mod store;
 
 pub use claim::{Claim, ClaimBasis, ClaimDraft, Stored};
-pub use identity::{DraftIdentity, ILLUMINATOR, IdentityKey};
+pub use identity::{IdentityDraft, ILLUMINATOR, IdentityKey};
 pub use store::Evidence;
