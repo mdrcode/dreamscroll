@@ -123,8 +123,10 @@ Shipped together:
    import). HEIC/HEIF — which `infer` reports as `image/heif` — is refused with
    415, and the refusal explains itself in the log:
    `Refused 1153433 bytes of image/heif: no browser outside Safari renders it`.
-   Surfacing that reason *to the user* is USER_FACING_LOGGING (see
-   `plan/backlog.md`), not this change.
+   Surfacing that reason *from the server* is USER_FACING_LOGGING (see
+   `plan/backlog.md`), not this change. **2026-11-10:** the client now pre-checks
+   the extension/type and explains HEIC before the request; option C (server
+   normalization) remains deferred, triggered by the 415 count.
 2. **Unidentified bytes are 415, not 500.** Previously an unrecognised format
    fell through `From<anyhow::Error>` to a 500, blaming the server for a file it
    simply did not support. This was the whitelist's one genuine benefit, captured
