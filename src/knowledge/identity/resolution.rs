@@ -1,14 +1,15 @@
-//! The engine: it selects candidates, gives each resolver a context, and stores what comes back.
+//! Resolution: the authority contract, and the run loop that drives it.
 //!
-//! `Gateway` is the only door to the world. A resolver cannot fetch, only resolve
-//! requests; the context consults the cache first, paces the call and charges the budget.
+//! A resolver owns its strategy — one request or a ladder of them, one pass or several. `Gateway` is
+//! its only door to the world: the gateway consults the cache first, paces the call and charges the
+//! budget. The engine selects the entities, gives each resolver a batch, and stores what comes back.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
-use super::{RESERVED_PROVIDERS, Resolver};
+use super::RESERVED_PROVIDERS;
+use crate::database;
 use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
 use crate::knowledge::evidence::{Claim, ClaimDraft, DraftIdentity, Evidence, Stored};
-use crate::database;
 use crate::model;
 
 /// Transport calls a plain resolve is allowed to make. Exists so that omitting the budget does real
@@ -18,6 +19,33 @@ pub const DEFAULT_MAX_REQUESTS: usize = 200;
 /// Claims one resolver may assert for one entity in a run. An agentic authority must not inflate a
 /// confidence by returning a hundred URLs.
 const MAX_CLAIMS_PER_ENTITY: usize = 8;
+
+/// One authority, and the strategy for asking it.
+///
+/// `resolve` takes a *batch* of entities rather than one: batching across entities is the difference
+/// between a hundred transport calls for a corpus walk and five thousand, and only the resolver knows
+/// how to group its own requests.
+///
+/// Request, answer and transport shapes are deliberately *not* here — they belong to [`crate::fetch`],
+/// which knows nothing about knowledge entities. This trait knows nothing about the network, the
+/// cache or the budget.
+#[async_trait::async_trait]
+pub trait Resolver: Send + Sync {
+    /// The authority's id: the `provider` on every request it makes, the `provider` on every
+    /// identity it writes, and what `Resolver::provider` returns. It may not be one of
+    /// [`RESERVED_PROVIDERS`]; the engine refuses those at run time.
+    fn provider(&self) -> &'static str;
+
+    /// Claims about the entities it could resolve, each tagged with the entity it belongs to, in the
+    /// resolver's priority order. The engine writes every claim the graph accepts: several identities
+    /// for one entity are normal, and a later run skips only the entities this provider already
+    /// claimed.
+    async fn resolve(
+        &self,
+        entities: &[model::knowledge_entity::Model],
+        gateway: &Gateway<'_>,
+    ) -> Vec<(i32, Claim)>;
+}
 
 #[derive(Debug, Clone)]
 pub struct Options {
