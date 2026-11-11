@@ -46,7 +46,7 @@ observation.
 | **observation** | `UserObservedEntity` | `user_observed_entities` | `id`, `user_id`, `capture_id`, `illumination_id`, `position`, `created_at`, `name`, `entity_type`, `description`, `search_query`, `platform`, `platform_handle`, `platform_display_name`, `knowledge_entity_id` |
 | **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `status`, `confidence`, `merged_into_id`, timestamps |
 | **identity** (schema 23) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `scheme`, `external_id`, `label`, `description`, `classes`, `provider`, `method`, `confidence`, `first_seen` |
-| **claim** | `KnowledgeClaim` | `knowledge_claims` | `id`, `knowledge_entity_id`, `knowledge_identity_id`, `basis`, `provider`, `method`, `user_observed_entity_id`, `retracted_at`, `observed_at` |
+| **claim** | `KnowledgeClaim` | `knowledge_claims` | `id`, `knowledge_entity_id`, `knowledge_identity_id`, `provider`, `method`, `user_observed_entity_id`, `retracted_at`, `observed_at` |
 | **merge** | `KnowledgeVerdict` | `knowledge_verdicts` | `id`, `generation`, `cause`, `winner_origin`, `loser_origin`, `winner_label`, `loser_label`, `at` |
 | **proximity** | `KnowledgeProximity` | `knowledge_proximities` | `id`, `holder_id`, `counterpart_id`, `knowledge_identity_id`, `basis`, `score`, `verdict`, `raised_at`, `settled_at` |
 
@@ -98,8 +98,12 @@ per-kind index.
 | `knowledge_verdicts` | a mutation of our data: one thing folded into another, what decided it (`repair`, `proximity_auto`, `replayed`), and which generation — a log, keyed by origin so it survives a rebuild | `resolve`, the repair command, and `verdicts replay` |
 
 `enrichment` and `rejection` remain reserved kinds in the vocabulary, not tables: enrichment is the
-authority's description, names and types — it rides on the claim today as `label`/`description`/
-`classes`, and `project` does not read it yet.
+authority's answer about an identity — its `label`, `description`, and `classes` — and it lives on
+`knowledge_identities`, not on the claim. `project` does not read it yet.
+
+An identity is owned by one provider at a time. Its metadata is that provider's answer, not a
+reconciliation of several; a provider answer may take the row over from another. Claims keep their
+own `provider`, so takeover changes the identity without rewriting edge history.
 
 ## Status
 

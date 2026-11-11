@@ -25,7 +25,6 @@ pub struct ClaimRow {
     pub confidence: Option<f32>,
     pub method: Option<String>,
     pub provider: String,
-    pub basis: String,
     pub retracted_at: Option<DateTime<Utc>>,
     pub observed_at: DateTime<Utc>,
     pub user_observed_entity_id: Option<i32>,
@@ -65,7 +64,6 @@ pub async fn detail(db: &database::DbHandle, id: i32) -> anyhow::Result<Option<D
                 confidence: identity.confidence,
                 method: claim.method.clone(),
                 provider: claim.provider.clone(),
-                basis: claim.basis.as_str().to_string(),
                 retracted_at: claim.retracted_at,
                 observed_at: claim.observed_at,
                 user_observed_entity_id: claim.user_observed_entity_id,
@@ -118,7 +116,6 @@ impl Detail {
                     "confidence": claim.confidence,
                     "method": claim.method,
                     "provider": claim.provider,
-                    "basis": claim.basis,
                     "retracted_at": claim.retracted_at.map(|at| at.to_rfc3339()),
                     "observed_at": claim.observed_at.to_rfc3339(),
                     "user_observed_entity_id": claim.user_observed_entity_id,
@@ -169,7 +166,6 @@ mod tests {
             "wikidata",
             Some("exact_label"),
             Some(0.9),
-            model::knowledge_claims::ClaimBasis::Text,
         )
         .await;
 
@@ -179,7 +175,6 @@ mod tests {
         assert_eq!(detail.claims.len(), 1);
         assert_eq!(detail.claims[0].scheme, "wikidata");
         assert_eq!(detail.claims[0].external_id, "Q1");
-        assert_eq!(detail.claims[0].basis, "text");
 
         let json = detail.to_json();
         assert_eq!(

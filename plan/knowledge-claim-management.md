@@ -26,6 +26,9 @@ The third population is an authority cross-reference that arrived through a hand
 `basis = 'text'` excluded it: `identity veto 245622 wikidata Q317521` (`Elon Musk`, P2002) wrote the
 decision, retracted **0** rows, and printed `withdrawn 0` — which reads as success.
 
+`basis` itself was removed in schema 38. The census above is historical: the veto now matches the
+pairing alone, and confidence is the best claim's score.
+
 The same mismatch had a second face: capture claims were exempt from vetoes twice. `withdraw` could
 not see them (they are always `handle`), and `Evidence::record` never consulted `vetoed()` the way
 `store_claim` did, so the next `link` re-claimed them.
@@ -51,10 +54,10 @@ that arrives after an answer downgrades `method` to `observation`).
 1. **Settle** — `Evidence::upsert_identity(draft)` creates or fills gaps. A capture draft has no
    metadata, and the SQL never lets it downgrade an existing row's `method` or `provider`.
 2. **Claim** — `Evidence::claim_identity(identity_draft, claim, vetoes) -> ClaimOutcome`.
-   - `Claim` is the full edge: holder, identity key, basis, provider, method, and optional
-     observation provenance.
-   - `Claim::from_observation(observation, key)` and `Claim::from_provider(key, basis, provider,
-     method)` are constructors, not storage modes.
+   - `Claim` is the full edge: holder, identity key, provider, method, and optional observation
+     provenance.
+   - `Claim::from_observation(observation, key)` and `Claim::from_provider(key, provider, method)`
+     are constructors, not storage modes.
    - Asks the veto once, at the one place a claim becomes a row.
    - Idempotent: a unique violation is `AlreadyClaimed`, not an error, and `ClaimOutcome` carries
      the ids.
@@ -117,11 +120,12 @@ decision key.
 | `helper.rs` | the illumination composition and the claim post-pass. |
 | `linker/mod.rs`, `linker/heuristic/linker.rs` | `Decision` no longer carries an identity — it is observation data, not a decision. |
 | `identity/resolution.rs` | `claim_identity`, the same operation the capture path uses. |
-| `verdicts.rs` | `withdraw` drops the basis filter; `ReplayReport.settled`. |
+| `verdicts.rs` | `withdraw` matches the pairing alone; `ReplayReport.settled`. |
 | `bin/dreamscroll_knowledge.rs` | `link` prints `vetoed`; `verdicts replay` prints `settled`. |
 | `knowledge.md` | the evidence row, the veto row, `LinkStats`. |
 
-No schema change. Existing verdict rows already carry the key; nothing to backfill.
+No schema change at the time. Existing verdict rows already carried the key; nothing to backfill.
+Schema 38 later removed `knowledge_claims.basis`.
 
 ## Tests
 
@@ -130,7 +134,7 @@ No schema change. Existing verdict rows already carry the key; nothing to backfi
 - A repeat replay reports `settled`, not a zero withdrawal.
 - Capturing a link never downgrades an answered identity (method stays `P2002`, label kept).
 - Negative controls: without the veto check the capture claim returns; with a capture upsert the
-  method stays `P2002`; with the old basis filter the P2002 claim survives.
+  method stays `P2002`.
 
 ## Measured result
 
@@ -154,8 +158,8 @@ between builds — expired rows rose by exactly the 2,523 that left "with candid
 - **Durable claim ids.** `ClaimOutcome` carries the row id for immediate callers; decisions still address
   the pairing, because reset recreates claims with new ids. See above.
 - **Conditional vetoes** ("distrust the authority's answer, keep the capture's"). With one claim per
-  pair it would leave the pair claimed and change only the corroboration bonus. If a future schema
-  allows several claims per pair, the key grows by `(basis, source)` — still not an id.
+  pair it would leave the pair claimed. If a future schema allows several claims per pair, the key
+  grows by `(provider, source)` — still not an id.
 - **An event log.** Claim writes and retractions are symmetric at the row level (`insert` /
   `retracted_at`); the verdict table is the durable reason.
 - **Per-generation retractions.** The `generation` column exists, but a veto is a standing decision.

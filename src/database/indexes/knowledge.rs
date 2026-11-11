@@ -149,28 +149,7 @@ END;
 $sync$;
 "#;
 
-/// A claim records what the *question* was about (`basis`), which the projection counts instead of
-/// guessing from the provider's name. No backfill: every existing claim predates the fact, the column
-/// is `NOT NULL`, and the table regenerates from `link` + `resolve` — so drop it and let the registry
-/// create it.
-const RETIRE_CLAIMS_WITHOUT_BASIS: &str = r#"
-DO $sync$
-BEGIN
-    IF to_regclass('knowledge_claims') IS NOT NULL
-       AND NOT EXISTS (
-           SELECT 1 FROM information_schema.columns
-            WHERE table_schema = current_schema()
-              AND table_name = 'knowledge_claims'
-              AND column_name = 'basis')
-    THEN
-        DROP TABLE knowledge_claims;
-    END IF;
-END;
-$sync$;
-"#;
-
 pub async fn before_schema_sync<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
-    conn.execute_unprepared(RETIRE_CLAIMS_WITHOUT_BASIS).await?;
     conn.execute_unprepared(BACKFILL_ALT_SEARCH_QUERIES).await?;
     conn.execute_unprepared(DROP_BEFORE_SYNC).await?;
     conn.execute_unprepared(MIGRATE_PROXIMITY_BASIS).await?;

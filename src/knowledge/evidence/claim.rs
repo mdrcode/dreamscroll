@@ -2,25 +2,19 @@
 //!
 //! The vocabulary every writer of `knowledge_claims` shares. An observation and a provider answer
 //! are both claims; what differs is the provenance values, not the shape.
-//!
-//! [`ClaimBasis`] lives with the column it fills (`model::knowledge_claims`) and is re-exported
-//! here, so the knowledge layer names the same type the model stores.
 
 use super::PLATFORM_LINK_PROVIDER_ID;
 use super::identity::IdentityKey;
 use crate::model;
 
-pub use crate::model::knowledge_claims::ClaimBasis;
-
 /// One entity's claim to one identity.
 ///
 /// The identity's metadata lives in [`super::identity::IdentityDraft`]; this is only the edge. A
-/// provider may propose several claims for one entity, each with its own basis and method.
+/// provider may propose several claims for one entity, each with its own method.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Claim {
     pub holder: i32,
     pub identity: IdentityKey,
-    pub basis: ClaimBasis,
     /// Who supplied this edge. The engine sets it from `resolver.id()`; an observation writes
     /// [`PLATFORM_LINK_PROVIDER_ID`].
     pub provider: &'static str,
@@ -40,25 +34,22 @@ impl Claim {
         Self {
             holder,
             identity,
-            basis: ClaimBasis::Handle,
             provider: PLATFORM_LINK_PROVIDER_ID,
             method: "observation".to_string(),
             observation_id: Some(observation.id),
         }
     }
 
-    /// A claim from a provider answer: the basis is the route the answer came by.
+    /// A claim from a provider answer.
     pub fn from_provider(
         holder: i32,
         identity: IdentityKey,
-        basis: ClaimBasis,
         provider: &'static str,
         method: String,
     ) -> Self {
         Self {
             holder,
             identity,
-            basis,
             provider,
             method,
             observation_id: None,

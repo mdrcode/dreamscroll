@@ -471,11 +471,10 @@ fn print_entity(detail: &stats::entity::Detail) {
     println!("\n-- claims ({}) --", detail.claims.len());
     for claim in &detail.claims {
         println!(
-            "  {}:{}  {}  basis {} · provider {} · confidence {:?} · {}{}",
+            "  {}:{}  {}  provider {} · confidence {:?} · {}{}",
             claim.scheme,
             claim.external_id,
             claim.label.as_deref().unwrap_or("(no label)"),
-            claim.basis,
             claim.provider,
             claim.confidence,
             claim.method.as_deref().unwrap_or("-"),

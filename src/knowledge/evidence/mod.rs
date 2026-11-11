@@ -7,8 +7,8 @@
 //!   rebuild.
 //! - an [`IdentityDraft`] is a row of `knowledge_identities` before it has an id: that key, plus
 //!   whoever answered and what they said.
-//! - a [`Claim`] is an entity's claim to an identity — the edge of the many-to-many, carrying what
-//!   the question was about ([`ClaimBasis`]), who asserted it, and which observation carried it.
+//! - a [`Claim`] is an entity's claim to an identity — the edge of the many-to-many, carrying who
+//!   asserted it and which observation carried it.
 //!
 //! One operation: [`Evidence::claim_identity`] upserts the identity and writes the edge, returning
 //! [`ClaimOutcome`] with the ids. The identity upsert is observation-safe, so there is no
@@ -29,7 +29,7 @@ pub mod identity;
 pub mod selection;
 pub mod store;
 
-pub use claim::{Claim, ClaimBasis};
+pub use claim::Claim;
 pub use identity::{IdentityDraft, IdentityKey, MissingHandle, platform_link};
 pub use selection::ClaimSelection;
 pub use store::{ClaimOutcome, Evidence};

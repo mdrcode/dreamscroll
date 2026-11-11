@@ -113,6 +113,19 @@ impl KnowledgeGraph {
             .await
     }
 
+    /// Reproject every live holder of an identity. Used when a shared identity changes: the entity
+    /// that wrote the answer is projected by the resolver, the other holders are not.
+    pub(crate) async fn reproject_identity_holders(
+        &self,
+        identity_id: i32,
+    ) -> anyhow::Result<usize> {
+        let holders = self.evidence.holders_of_identity(identity_id).await?;
+        for holder in &holders {
+            self.update_projection(holder.id).await?;
+        }
+        Ok(holders.len())
+    }
+
     /// Apply the recorded decisions to a rebuilt graph. See [`crate::knowledge::verdicts`].
     pub async fn replay_verdicts(&self) -> anyhow::Result<ReplayReport> {
         super::replay::replay(self).await

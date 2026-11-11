@@ -11,14 +11,11 @@
 //! stays visible on the proximity list even though it will never be folded.
 //!
 //! Not here: the confidence scale for authority answers (that is the authority's own calibration,
-//! in `resolve/wikidata/ranking.rs`), the aggregate over claims (`combine`, arithmetic), and the
-//! order of two confidences (`scoring::TotalCmp`).
-
-use std::collections::BTreeSet;
+//! in `resolve/wikidata/ranking.rs`), the best claim over a set (`best_confidence`), and the order
+//! of two confidences (`scoring::TotalCmp`).
 
 use crate::model;
 
-use crate::knowledge::evidence::ClaimBasis;
 use crate::knowledge::normalize;
 use crate::knowledge::scoring::{Entity, Observation, Rank, Scoring, Similarity};
 
@@ -39,10 +36,6 @@ const NAME_TOKEN_MATCH: f32 = 0.9;
 
 /// Two types agreeing when one is `unknown`: an absence of information, not a disagreement.
 const TYPE_UNKNOWN_MATCH: f32 = 0.5;
-
-/// What an extra independent input is worth on top of the best claim's score.
-pub const CORROBORATION_BONUS: f32 = 0.1;
-pub const CONFIDENCE_CEILING: f32 = 1.0;
 
 /// The heuristic policy, as one value. Stateless: every number is a constant above.
 #[derive(Debug, Default, Clone, Copy)]
@@ -125,33 +118,11 @@ fn worth_merging(features: &Features) -> bool {
         && (features.type_match >= AGREEMENT_FLOOR || features.description >= AGREEMENT_FLOOR)
 }
 
-/// How substantiated an entity is: its best claim's score, plus a bonus per extra independent input.
+/// How substantiated an entity is: its best claim's score.
 ///
-/// The handle chain is one input however many sources carry it — a capture's handle and an authority
-/// asked about that handle are the same fact. Text is one input per asserting authority: two
-/// authorities agreeing is corroboration, five claims from one agent is not.
-///
-/// Aggregating by "best + corroboration" rather than a sum is deliberate: two weak confirmations of
-/// the same fact must not outrank one strong one.
-pub(in crate::knowledge) fn combine(claims: &[(ClaimBasis, &str, Option<f32>)]) -> Option<f32> {
-    if claims.is_empty() {
-        return None;
-    }
-    let handle = claims
-        .iter()
-        .any(|claim| claim.0 == ClaimBasis::Handle);
-    let text_sources: BTreeSet<&str> = claims
-        .iter()
-        .filter(|claim| claim.0 == ClaimBasis::Text)
-        .map(|claim| claim.1)
-        .collect();
-    let inputs = usize::from(handle) + text_sources.len();
-    let best = claims
-        .iter()
-        .map(|claim| claim.2.unwrap_or(0.0))
-        .fold(0.0f32, f32::max);
-    let extra = inputs.saturating_sub(1) as f32 * CORROBORATION_BONUS;
-    Some((best + extra).min(CONFIDENCE_CEILING))
+/// A claim without a confidence cannot substantiate anything; the best known confidence wins.
+pub(in crate::knowledge) fn best_confidence(claims: &[Option<f32>]) -> Option<f32> {
+    claims.iter().filter_map(|claim| *claim).max_by(f32::total_cmp)
 }
 
 /// The observation being compared, with its normalized forms precomputed.
@@ -455,41 +426,14 @@ mod tests {
         assert_eq!(Some(0.5f32).total_cmp(&Some(0.5)), std::cmp::Ordering::Equal);
     }
 
-    /// Corroboration is a bonus on the best claim, not a sum. The handle chain is one input; text is
-    /// one per asserting authority.
+    /// Confidence is the best claim, not a sum or a bonus.
     #[test]
-    fn combine_adds_one_bonus_per_independent_input() {
-        let text = |provider: &'static str| (ClaimBasis::Text, provider, Some(0.8));
-        let handle = |provider: &'static str| (ClaimBasis::Handle, provider, Some(0.9));
-        assert_eq!(combine(&[]), None);
-        assert_eq!(combine(&[text("wikidata")]), Some(0.8));
-        assert_eq!(
-            combine(&[text("wikidata"), handle("illuminator")]),
-            Some(0.9 + CORROBORATION_BONUS)
-        );
-        // The same authority's repeated text claims are one input.
-        assert_eq!(
-            combine(&[text("wikidata"), text("wikidata")]),
-            Some(0.8)
-        );
-        // Two authorities agreeing is corroboration.
-        assert_eq!(
-            combine(&[text("wikidata"), text("imdb")]),
-            Some(0.8 + CORROBORATION_BONUS)
-        );
-        // The handle chain is one input however many sources carry it.
-        assert_eq!(
-            combine(&[handle("illuminator"), handle("wikidata")]),
-            Some(0.9)
-        );
-        // …and the total is capped.
-        assert_eq!(
-            combine(&[
-                (ClaimBasis::Text, "wikidata", Some(1.0)),
-                handle("illuminator")
-            ]),
-            Some(CONFIDENCE_CEILING)
-        );
+    fn confidence_is_the_best_claim() {
+        assert_eq!(best_confidence(&[]), None);
+        assert_eq!(best_confidence(&[None]), None);
+        assert_eq!(best_confidence(&[Some(0.8)]), Some(0.8));
+        assert_eq!(best_confidence(&[Some(0.8), Some(0.9)]), Some(0.9));
+        assert_eq!(best_confidence(&[Some(0.8), None, Some(0.5)]), Some(0.8));
     }
 
     /// A handle is settled *before* measuring; folding it into the name is how a handle and a real

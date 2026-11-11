@@ -22,8 +22,6 @@ pub struct Model {
     /// The identifier in its comparable form — `Q104919`, `bandy1803`.
     pub external_id: String,
 
-    /// What the authority said about it. Null when the identity came from an observation, which knows
-    /// only the handle.
     #[sea_orm(nullable)]
     pub label: Option<String>,
     #[sea_orm(nullable)]
@@ -39,8 +37,6 @@ pub struct Model {
     /// How the current answer was reached: `observation` when an observation showed the handle, a Wikidata
     /// property (`P2002`, `P2003`, …) when the answer came from a handle join, or the ladder step
     /// (`exact_label`, `wikipedia_title`, `search_lookup`, `search_ranked`, `search_hint`, `ranked`).
-    /// What the *claim* asked is `knowledge_claims.basis`: per edge, because the same identity can be
-    /// reached by text for one entity and by handle for another.
     #[sea_orm(nullable)]
     pub method: Option<String>,
     #[sea_orm(nullable)]

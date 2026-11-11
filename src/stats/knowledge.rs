@@ -394,7 +394,6 @@ mod tests {
                 "wikidata",
                 Some("exact_label"),
                 Some(0.9),
-                crate::model::knowledge_claims::ClaimBasis::Text,
             )
             .await;
         }

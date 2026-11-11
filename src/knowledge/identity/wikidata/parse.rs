@@ -85,7 +85,7 @@ pub(crate) fn explained(
     match request.kind {
         // A property match *is* the identity: an item claiming this handle is the account itself.
         Kind::Handle(property) => match candidates.first() {
-            Some(candidate) => vec![answer::handle_claim(candidate, property, HANDLE_CONFIDENCE)],
+            Some(candidate) => vec![answer::claim(candidate, property, HANDLE_CONFIDENCE)],
             None => {
                 *reason = "the handle answer carried no item";
                 Vec::new()

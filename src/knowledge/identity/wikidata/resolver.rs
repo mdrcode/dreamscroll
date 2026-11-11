@@ -41,7 +41,7 @@ fn resolve_answer(holder: i32, answer: AuthorityClaim) -> (IdentityDraft, Claim)
         description: answer.description,
         classes: answer.classes,
     };
-    let claim = Claim::from_provider(holder, key, answer.basis, ID, answer.method);
+    let claim = Claim::from_provider(holder, key, ID, answer.method);
     (identity, claim)
 }
 

@@ -2,9 +2,9 @@
 //!
 //! One function writes `name`, `alt_names`, `description`, `alt_descriptions`, `search_query`,
 //! `alt_search_queries`, `platform`, `platform_handle`, `platform_display_name`, `status` and
-//! `confidence`, and nothing else does. The confidence comes from the store's [`Worth`]: how good a
-//! claim is, and how much an extra independent input adds, is policy, not projection. It reads the entity's members and its evidence and derives
-//! every column from them, so it is safe to run at any time and twice in a row.
+//! `confidence`, and nothing else does. Confidence is the best claim's confidence; how good a claim
+//! is belongs to its provider, not to projection. It reads the entity's members and its evidence and
+//! derives every column from them, so it is safe to run at any time and twice in a row.
 //!
 //! The entity **wears the values of its origin** — the member it was created from — and every other
 //! member contributes alternatives. That is what makes a merge safe: the winner keeps its own surface
@@ -22,8 +22,6 @@ use sea_orm::{
 };
 
 use crate::model;
-
-use crate::knowledge::evidence::ClaimBasis;
 
 /// Recompute the columns that are a function of the members and of the evidence — the only writer of
 /// them after `create`.
@@ -126,8 +124,8 @@ pub(super) async fn project<C: ConnectionTrait>(
         ),
     };
 
-    // A claim is the edge; who asserted it is on the edge, and how surely, on the identity.
-    let claims: Vec<(ClaimBasis, String, Option<f32>)> = model::knowledge_claims::Entity::find()
+    // A claim is the edge; how surely, on the identity.
+    let claims: Vec<Option<f32>> = model::knowledge_claims::Entity::find()
         .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(knowledge_entity_id))
         .filter(model::knowledge_claims::Column::RetractedAt.is_null())
         .join(
@@ -135,10 +133,8 @@ pub(super) async fn project<C: ConnectionTrait>(
             model::knowledge_claims::Relation::KnowledgeIdentity.def(),
         )
         .select_only()
-        .column(model::knowledge_claims::Column::Basis)
-        .column(model::knowledge_claims::Column::Provider)
         .column(model::knowledge_identity::Column::Confidence)
-        .into_tuple::<(ClaimBasis, String, Option<f32>)>()
+        .into_tuple::<Option<f32>>()
         .all(conn)
         .await?;
     // Status is one axis: how well substantiated the entity is. Whether it shares an identity with
@@ -146,11 +142,7 @@ pub(super) async fn project<C: ConnectionTrait>(
     // granularity — a third status value conflated the two and had to be re-projected on every scan.
     let status = model::knowledge_entity::Status::of(claims.len());
 
-    let claim_inputs: Vec<(ClaimBasis, &str, Option<f32>)> = claims
-        .iter()
-        .map(|(basis, provider, confidence)| (*basis, provider.as_str(), *confidence))
-        .collect();
-    let confidence = crate::knowledge::linker::heuristic::scoring::combine(&claim_inputs);
+    let confidence = crate::knowledge::linker::heuristic::scoring::best_confidence(&claims);
 
     let updated = model::knowledge_entity::Entity::update(model::knowledge_entity::ActiveModel {
         id: Set(knowledge_entity_id),
@@ -278,17 +270,7 @@ mod tests {
     }
 
     async fn claim(db: &DbHandle, id: i32, scheme: &str, value: &str) {
-        fixtures::claim(
-            db,
-            id,
-            scheme,
-            value,
-            "test",
-            None,
-            None,
-            model::knowledge_claims::ClaimBasis::Text,
-        )
-        .await;
+        fixtures::claim(db, id, scheme, value, "test", None, None).await;
     }
 
     async fn proximity(db: &DbHandle, holder: i32, scheme: &str, value: &str) {
@@ -512,7 +494,10 @@ mod tests {
 
         let entity = load(&db, id).await;
         assert_eq!(entity.status, model::knowledge_entity::Status::Identified);
-        assert!(entity.confidence.is_some(), "a claim carries a confidence");
+        assert_eq!(
+            entity.confidence, None,
+            "a claim without a confidence does not invent one"
+        );
     }
 
     /// Sharing an identity with another entity is a separate question from how well substantiated

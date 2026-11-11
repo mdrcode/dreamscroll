@@ -270,6 +270,9 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
 
     async fn apply(&mut self) -> anyhow::Result<()> {
         // Entity-first apply: every authority's claims for an entity land before its projection.
+        // A shared identity's confidence is an input to every holder's projection. The entity that
+        // wrote the answer is projected below; these are the identities whose holders need it.
+        let mut touched_identities: HashSet<i32> = HashSet::new();
         let proposed = std::mem::take(&mut self.proposed);
         for (knowledge_entity_id, claims) in proposed {
             let mut keep_by_resolver: HashMap<usize, HashSet<(String, String)>> = HashMap::new();
@@ -280,6 +283,12 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                     .graph
                     .claim_identity(identity_draft, claim, &self.vetoes)
                     .await?;
+                let identity_id = match claimed {
+                    ClaimOutcome::Written { identity_id, .. }
+                    | ClaimOutcome::Vetoed { identity_id }
+                    | ClaimOutcome::AlreadyClaimed { identity_id, .. } => identity_id,
+                };
+                touched_identities.insert(identity_id);
                 match claimed {
                     ClaimOutcome::Written { .. } => {
                         self.report.claims_written += 1;
@@ -323,6 +332,12 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                 .update_projection(knowledge_entity_id)
                 .await?;
         }
+        for identity_id in touched_identities {
+            self.engine
+                .graph
+                .reproject_identity_holders(identity_id)
+                .await?;
+        }
         Ok(())
     }
 
@@ -345,7 +360,7 @@ mod tests {
     use crate::fetch::{
         Allowance, Answer, BATCH, FetchCache, FetchError, Outcome, Request, Transport,
     };
-    use crate::knowledge::evidence::{ClaimBasis, IdentityKey};
+    use crate::knowledge::evidence::IdentityKey;
     use crate::knowledge::identity::DEFAULT_MAX_REQUESTS;
     use crate::model;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
@@ -465,7 +480,6 @@ mod tests {
         label: Option<String>,
         method: &str,
         confidence: f32,
-        basis: crate::knowledge::evidence::ClaimBasis,
     ) -> (IdentityDraft, Claim) {
         let key = IdentityKey {
             scheme: scheme.to_string(),
@@ -483,7 +497,7 @@ mod tests {
         };
         (
             identity_draft,
-            Claim::from_provider(holder, key, basis, provider, method.to_string()),
+            Claim::from_provider(holder, key, provider, method.to_string()),
         )
     }
 
@@ -535,7 +549,6 @@ mod tests {
                         Some(entity.name.clone()),
                         "exact_label",
                         0.9,
-                        ClaimBasis::Text,
                     ))
                 })
                 .collect()
@@ -558,18 +571,7 @@ mod tests {
         ) -> Vec<(IdentityDraft, Claim)> {
             entities
                 .iter()
-                .map(|entity| {
-                    resolved(
-                        entity.id,
-                        self.id(),
-                        "imdb",
-                        "tt1",
-                        None,
-                        "title",
-                        0.8,
-                        ClaimBasis::Text,
-                    )
-                })
+                .map(|entity| resolved(entity.id, self.id(), "imdb", "tt1", None, "title", 0.8))
                 .collect()
         }
     }
@@ -600,7 +602,6 @@ mod tests {
                             None,
                             "search",
                             0.8,
-                            ClaimBasis::Text,
                         )
                     })
                 })
@@ -783,7 +784,6 @@ mod tests {
             "imdb",
             Some("title"),
             Some(0.7),
-            crate::model::knowledge_claims::ClaimBasis::Text,
         )
         .await;
         let entity = model::knowledge_entity::Entity::find_by_id(id)
@@ -837,7 +837,6 @@ mod tests {
             "imdb",
             Some("title"),
             Some(0.7),
-            crate::model::knowledge_claims::ClaimBasis::Text,
         )
         .await;
         KnowledgeGraph::new(&db)
@@ -897,7 +896,6 @@ mod tests {
             "imdb",
             Some("title"),
             Some(0.7),
-            crate::model::knowledge_claims::ClaimBasis::Text,
         )
         .await;
 
@@ -1062,9 +1060,9 @@ mod tests {
         );
     }
 
-    /// Two *independent inputs* — a text match and an account link — raise confidence.
+    /// Confidence is the best claim; a second claim does not add a bonus.
     #[tokio::test]
-    async fn corroboration_counts_independent_inputs() {
+    async fn confidence_is_the_best_claim() {
         db_or_skip!(db);
         let knowledge_entity_id = seed(&db, "Nintendo").await;
 
@@ -1076,7 +1074,6 @@ mod tests {
             "wikidata",
             Some("exact_label"),
             Some(0.8),
-            crate::model::knowledge_claims::ClaimBasis::Text,
         )
         .await;
         crate::test_support::fixtures::claim(
@@ -1087,7 +1084,6 @@ mod tests {
             crate::knowledge::evidence::PLATFORM_LINK_PROVIDER_ID,
             None,
             None,
-            crate::model::knowledge_claims::ClaimBasis::Handle,
         )
         .await;
 
@@ -1102,61 +1098,67 @@ mod tests {
             .unwrap()
             .unwrap();
         assert!(
-            (entity.confidence.unwrap() - 0.9).abs() < 1e-6,
+            (entity.confidence.unwrap() - 0.8).abs() < 1e-6,
             "{entity:?}"
         );
     }
 
-    /// A handle from a capture and an authority asked about that handle are one chain, however many
-    /// providers and schemes they name — the claim's basis says so, so nothing has to infer it.
+    /// A shared identity's confidence is an input to every holder's projection. Resolving one holder
+    /// must reproject the others, or `auto_merge` reads a stale survivor.
     #[tokio::test]
-    async fn a_handle_basis_claim_is_not_corroboration() {
+    async fn a_shared_identity_change_reprojects_every_holder() {
         db_or_skip!(db);
-        let knowledge_entity_id = seed(&db, "Tsoding").await;
+        let first =
+            crate::test_support::fixtures::knowledge_entity_with_member(&db, "First Holder").await;
+        let second =
+            crate::test_support::fixtures::knowledge_entity_with_member(&db, "Second Holder").await;
 
-        for (source, method, scheme, external_id, confidence) in [
-            (
-                crate::knowledge::evidence::PLATFORM_LINK_PROVIDER_ID,
-                None,
-                "x_twitter",
-                "tsoding",
-                None,
-            ),
-            (
-                "wikidata",
-                Some("p2002"),
-                "wikidata",
-                "Q123737256",
-                Some(0.95),
-            ),
-        ] {
+        for entity in [first, second] {
             crate::test_support::fixtures::claim(
                 &db,
-                knowledge_entity_id,
-                scheme,
-                external_id,
-                source,
-                method,
-                confidence,
-                crate::knowledge::evidence::ClaimBasis::Handle,
+                entity,
+                "wikidata",
+                "Q42",
+                "wikidata",
+                Some("exact_label"),
+                Some(0.5),
             )
             .await;
         }
 
-        crate::knowledge::KnowledgeGraph::new(&db)
-            .update_projection(knowledge_entity_id)
-            .await
-            .unwrap();
+        let store = KnowledgeGraph::new(&db);
+        store.update_projection(first).await.unwrap();
+        store.update_projection(second).await.unwrap();
+        assert!((store.get(first).await.unwrap().confidence.unwrap() - 0.5).abs() < 1e-6);
+        assert!((store.get(second).await.unwrap().confidence.unwrap() - 0.5).abs() < 1e-6);
 
-        let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
+        let entity = model::knowledge_entity::Entity::find_by_id(second)
             .one(&db.conn)
             .await
             .unwrap()
             .unwrap();
-        assert!(
-            (entity.confidence.unwrap() - 0.95).abs() < 1e-6,
-            "one chain must not be paid twice: {entity:?}"
-        );
+        let engine = ResolutionEngine::new(
+            KnowledgeGraph::new(&db),
+            Options {
+                include_already_claimed: true,
+                ..Default::default()
+            },
+            Vec::new(),
+        )
+        .expect("engine")
+        .with(Box::new(Fake {
+            answers: HashMap::from([("Second Holder".to_string(), identified("Q42"))]),
+            calls: Arc::new(AtomicUsize::new(0)),
+        }));
+        resolve_entities(engine, &[entity]).await.expect("resolve");
+
+        for entity_id in [first, second] {
+            let entity = store.get(entity_id).await.unwrap();
+            assert!(
+                (entity.confidence.unwrap() - 0.9).abs() < 1e-6,
+                "every holder takes the new identity confidence: {entity:?}"
+            );
+        }
     }
 
     /// A 429 is an instruction, not a fact: stop, cache nothing, and report the Retry-After.
@@ -1242,7 +1244,6 @@ mod tests {
                             Some(entity.name.clone()),
                             "exact_label",
                             0.9,
-                            ClaimBasis::Text,
                         )
                     })
                 })
@@ -1372,91 +1373,6 @@ mod tests {
         assert_eq!(report.by_provider[1].provider, "imdb");
         assert_eq!(report.by_provider[1].claims_written, 1);
         assert_eq!(report.claims_written, 1, "the second provider still ran");
-    }
-
-    /// Substantiation is a *projected* column, and the merge phase picks a survivor by it. So an
-    /// entity that earned its authority claim in this run must be projected before `merge` folds
-    /// it — otherwise it still reads as the weaker side and is the one tombstoned.
-    #[tokio::test]
-    async fn the_side_that_earned_a_claim_this_run_survives_the_fold() {
-        db_or_skip!(db);
-
-        // One name, two entities, different illuminations, so a fold is allowed at all.
-        let resolved_before =
-            crate::test_support::fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-        let earns_now =
-            crate::test_support::fixtures::knowledge_entity_with_member(&db, "Train Dreams").await;
-
-        // One already holds the authority claim; the other has only a handle, which is what makes it
-        // a candidate — and a second independent input once the claim arrives.
-        crate::test_support::fixtures::claim(
-            &db,
-            resolved_before,
-            "wikidata",
-            "Q42",
-            "wikidata",
-            Some("exact_label"),
-            Some(0.9),
-            crate::model::knowledge_claims::ClaimBasis::Text,
-        )
-        .await;
-        crate::test_support::fixtures::claim(
-            &db,
-            earns_now,
-            "x_twitter",
-            "traindreams",
-            crate::knowledge::evidence::PLATFORM_LINK_PROVIDER_ID,
-            None,
-            None,
-            crate::model::knowledge_claims::ClaimBasis::Handle,
-        )
-        .await;
-
-        // The state a resolve starts from: both projected, so the claimless one reads as 0.0.
-        let store = crate::knowledge::KnowledgeGraph::new(&db);
-        store.update_projection(resolved_before).await.unwrap();
-        store.update_projection(earns_now).await.unwrap();
-
-        let claim = identified("Q42");
-        ResolutionEngine::new(KnowledgeGraph::new(&db), Options::default(), Vec::new())
-            .expect("engine")
-            .with(Box::new(Fake {
-                answers: HashMap::from([("Train Dreams".to_string(), claim)]),
-                calls: Arc::new(AtomicUsize::new(0)),
-            }))
-            .resolve_pending()
-            .await
-            .expect("resolve");
-
-        // The passes are separate commands now, so the ordering guarantee is exercised the way the
-        // CLI runs it: resolve projects, then scan raises the pair, then merge folds it.
-        let scoring = crate::knowledge::linker::heuristic::Heuristic::scoring();
-        crate::knowledge::proximity::scan(&db.conn, &scoring)
-            .await
-            .expect("scan");
-        let folded = crate::knowledge::proximity::auto_merge(&db.conn, &store, &scoring, true)
-            .await
-            .expect("merge");
-        assert_eq!(folded.merged, 1, "{folded:?}");
-        let survivor = model::knowledge_entity::Entity::find_by_id(earns_now)
-            .one(&db.conn)
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(
-            survivor.merged_into_id.is_none(),
-            "the side with two inputs survives: {survivor:?}"
-        );
-        let folded = model::knowledge_entity::Entity::find_by_id(resolved_before)
-            .one(&db.conn)
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(
-            folded.merged_into_id,
-            Some(earns_now),
-            "the single-input side is the one folded in"
-        );
     }
 
     /// Two entities resolving to the same QID are a *candidate* for one thing, not a verdict: an

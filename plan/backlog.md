@@ -38,19 +38,11 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   many-to-one, so sharing an identity is a candidate rather than a verdict; `proximity.rs` split into a
   scan that records and a merge pass that decides; and the `contested` status went, because it was a
   derived boolean stored beside substantiation.
-  Read in this order: the four model files, `evidence.rs` (`Claim`, `IdentityDraft`, `Basis`, `holders`),
+  Read in this order: the four model files, `evidence.rs` (`Claim`, `IdentityDraft`, `holders`),
   `proximity.rs` (`raise`, `settle`, scan + merge), `merge.rs` (which now *settles* a proximity instead of
   deleting it), `project`'s status (two values), then `database/indexes/knowledge.rs` and the migration
   in `sync_schema.rs` — both contain workarounds worth knowing about.
   The old vocabulary is gone: `contested`, `collisions`, `shared_identity`, `ClaimOutcome::HeldBy`.
-- [ ] **Revisit/rename `ClaimBasis`.** The name reads like the basis of belief — evidence, citation,
-  source — but it only records what the claim was reached *from*: `Handle` or `Text`. Its one consumer
-  is confidence aggregation (`combine`), where a handle chain must count once no matter how many
-  providers carry it, while text counts once per claiming authority. Candidate names:
-  `ClaimInput`, `ClaimQuestion`, `ClaimModality`; `modality` is plausible but may imply media types
-  (text/image/audio), which this is not. Decide the concept first, then rename the Rust type; the DB
-  column and value strings need not move with it. Do not fold into the attestation work — references
-  are not claim inputs. Tracked at user request 2026-11-11.
 - [ ] **Refuse a merge between incompatible types.** `merge` is driven by identity equality alone:
   `resolve` finds two entities holding the same `(scheme, id)` and folds them, with no check that they
   agree about what kind of thing they are. Six of the eight live collisions are exactly that — a

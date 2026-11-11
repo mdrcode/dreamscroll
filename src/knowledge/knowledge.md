@@ -60,8 +60,7 @@ entity_type / alt_types     the chosen type, and every other one asserted
 description / alt_*         same shape: one selected, the rest kept for matching
 search_query / alt_*        the disambiguation hint, projected the same way
 platform / platform_*       the presence one member carried, so the resolver can ask by handle
-confidence                  best claim's score + 0.1 per independent input
-                            (handle chain once; text once per asserting authority)
+confidence                  the best claim's score; null when no claim has one
 status                      provisional → identified
 merged_into_id              set when this entity was folded into another
 ```
@@ -150,15 +149,14 @@ a rejected pair still reports its score: `Nintendo [organization] ⇄ Nintendo [
 pair that must never merge, and the number is how a person sees why.
 
 Everything else is not a verb. The scan stores the number and `merge` asks `Rank` for the verdict; the
-linker asks `Rank` and applies the answer; `project` calls `combine`, which is arithmetic over claim
-scores; `merge` and the holder order ask `TotalCmp`, a convention about `NULL`. The linker **holds** its
+linker asks `Rank` and applies the answer; `project` takes the best claim's confidence; `merge` and
+the holder order ask `TotalCmp`, a convention about `NULL`. The linker **holds** its
 `Scoring`; the proximity passes are **handed** one; the store holds none. Choosing one policy for both
 sides is the composition root's job — it constructs the linker and passes the same `Scoring` to `scan`
 and `merge` — because a store that owned one would let a caller swap the merge side without swapping
 the link side, silently.
 
-`linker/heuristic/scoring.rs` is today's only answer: normalized keys, weights, the merge rule, the
-corroboration bonus. `linker/heuristic/linker.rs` is the **procedure** — the best qualifying candidate,
+`linker/heuristic/scoring.rs` is today's only answer: normalized keys, weights, and the merge rule. `linker/heuristic/linker.rs` is the **procedure** — the best qualifying candidate,
 else create — and holds the policy it applies, but no numbers of its own. `blocker/sql.rs` is recall:
 every folded surface and its word-order-insensitive form, probed out of `knowledge_blocking_index` —
 nothing scored. A platform handle is a surface too, so a capture that named an account only by its
@@ -212,8 +210,7 @@ the same gateway by convention, and it is expected to fail at that rather than t
 Identities **accumulate**. Wikidata supplies a QID, a capture's handle sits beside it as a separate
 identity, and a second authority may claim the same or another identity. The engine selects
 candidates per resolver, writes every claim the graph accepts, and applies an entity's claims before
-projecting it. The confidence counts the handle chain once and each text authority once — the
-multi-authority contract is in `plan/knowledge-resolution.md`.
+projecting it. Confidence is the best claim's score; a claim without one contributes nothing.
 
 `plan` and `parse` inside `Wikidata` are pure, so its whole decision can be re-run over cached
 payloads for free — that is what the resolver's tests and `eval inspect` do.
@@ -226,9 +223,9 @@ Four tables, because they answer four different questions:
 knowledge_identities   the thing the world names: scheme + external id, and the answer its
                        provider gave (label, description, classes, method, confidence);
                        provider is a resolver id, `illuminator`, or `model`
-knowledge_claims       this entity is that thing — the edge, with `basis` (text or handle),
-                       `provider` and `method`; several entities may claim one identity, and
-                       several providers may claim one identity on one entity
+knowledge_claims       this entity is that thing — the edge, with `provider` and `method`;
+                       several entities may claim one identity, and several providers may claim
+                       one identity on one entity
 knowledge_proximities  two entities the graph considers close, with the score that a pass
                        computed — one scan's batch, replaced wholesale by the next
 knowledge_verdicts     a person's decision, and what decided it — the modification log: a
@@ -300,8 +297,9 @@ The order is not a preference:
   account for all 26 multi-holder claims. A scan before resolution raises nothing.
 - **`auto-merge` after `scan`**, because it answers the batch the scan wrote.
 
-`identity resolve` reprojects every entity it gives a claim to before returning: a later
-`auto-merge` reads that confidence, so leaving it stale would fold the wrong side.
+`identity resolve` reprojects every entity it gives a claim to, and every other live holder of an
+identity it touched, before returning: a later `auto-merge` reads that confidence, so leaving it
+stale would fold the wrong side.
 
 **A rebuild is a single-writer operation. Stop the link worker first.** Running these commands
 against a live queue has produced both failures it can produce: a link task attaching to an entity a
@@ -335,13 +333,13 @@ one.
 | `blocker/index.rs` | `knowledge_blocking_index`: the folded forms a blocker matches on — `rebuild`, `check`, `write`, `forget` |
 | `linker/mod.rs` | the `Linker` trait: one batch of observations in, decisions out. A `&Scoring` argument is deliberately absent — the implementation holds its policy. Everything upstream is recall, everything downstream is effect; the caller decides how the batch was assembled |
 | `linker/heuristic/linker.rs` | `HeuristicLinker`: the procedure over the heuristic's `Scoring` — best candidate that clears the bar, else create |
-| `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), the corroboration bonus |
+| `linker/heuristic/scoring.rs` | the only `Scoring` today: weights, the merge rule (a name match plus one corroborating signal), and the best-claim confidence |
 | `graph/link.rs` | `link`: a batch of observations in, decisions applied and projected out — plus the `observation → entity` mapping and `LinkReport`. It knows nothing about identities or claims |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
-| `evidence/` | the vocabulary — `PlatformLink`, `IdentityKey`, `IdentityDraft`, `Claim`, `ClaimBasis`, `ClaimOutcome` — and the write path in `store.rs`: `upsert_identity` settles the row, `claim_identity` adds the edge, and `ClaimOutcome` carries the ids. `store.rs` also owns `move_claims` on a fold, `retract` on a veto, and `holders_of_identity`; `selection.rs` owns the candidate reads (`awaiting_authority`, `claimed_by`) |
+| `evidence/` | the vocabulary — `PlatformLink`, `IdentityKey`, `IdentityDraft`, `Claim`, `ClaimOutcome` — and the write path in `store.rs`: `upsert_identity` settles the row, `claim_identity` adds the edge, and `ClaimOutcome` carries the ids. `store.rs` also owns `move_claims` on a fold, `retract` on a veto, and `holders_of_identity`; `selection.rs` owns the candidate reads (`awaiting_authority`, `claimed_by`) |
 | `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors (`new`, `with_linking`, `with_heuristic_linking`) and the operations that own a write path — link, merge, replay, reproject, the veto commands. It holds the connection, the blocker, the decider and the evidence — no policy of its own |
 | `graph/replay.rs` | the verdict effects: `replay` (merges, then withdrawals) and the withdrawal the veto command shares |
-| `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is `combine`, arithmetic over claim scores. `reproject` repairs a scope of entities, with `Stale` the "live, no live claim" rule |
+| `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is the best claim's score. `reproject` repairs a scope of entities, with `Stale` the "live, no live claim" rule |
 | `graph/merge.rs` | fold one entity into another |
 | `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Scoring` as arguments |
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |

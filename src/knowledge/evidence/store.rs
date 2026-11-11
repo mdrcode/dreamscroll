@@ -2,8 +2,8 @@
 //!
 //! An observation's claim and a provider's claim are the same edge: one insert into
 //! `knowledge_claims` citing an identity row. Keeping every change to that table here — insert,
-//! reassign on a fold, retract on a veto — means the veto check, the uniqueness rule and the basis
-//! column are one thing to read, and the place a second authority inherits all three.
+//! reassign on a fold, retract on a veto — means the veto check and the uniqueness rule are one
+//! thing to read, and the place a second authority inherits both.
 
 use std::collections::HashSet;
 
@@ -201,7 +201,6 @@ impl Evidence {
             model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
                 knowledge_entity_id: sea_orm::Set(claim.holder),
                 knowledge_identity_id: sea_orm::Set(identity_id),
-                basis: sea_orm::Set(claim.basis),
                 provider: sea_orm::Set(claim.provider.to_string()),
                 method: sea_orm::Set(Some(claim.method.clone())),
                 user_observed_entity_id: sea_orm::Set(claim.observation_id),
@@ -549,13 +548,7 @@ mod tests {
         let written = evidence
             .claim_identity(
                 identity.clone(),
-                Claim::from_provider(
-                    entity,
-                    key.clone(),
-                    crate::model::knowledge_claims::ClaimBasis::Text,
-                    "wikidata",
-                    "exact_label".to_string(),
-                ),
+                Claim::from_provider(entity, key.clone(), "wikidata", "exact_label".to_string()),
                 &vetoes,
             )
             .await
@@ -571,13 +564,7 @@ mod tests {
         let repeat = evidence
             .claim_identity(
                 identity,
-                Claim::from_provider(
-                    entity,
-                    key,
-                    crate::model::knowledge_claims::ClaimBasis::Text,
-                    "wikidata",
-                    "exact_label".to_string(),
-                ),
+                Claim::from_provider(entity, key, "wikidata", "exact_label".to_string()),
                 &vetoes,
             )
             .await

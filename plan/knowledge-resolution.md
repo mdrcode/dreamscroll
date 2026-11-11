@@ -312,29 +312,12 @@ empty.
 
 **Scheduling is outside the engine.** A live illumination can call `resolve_illumination` immediately for low latency, or enqueue a resolve task; a periodic worker can call `resolve_all_pending` with a limit every N minutes to amortize transport calls. The cache is per query, so batching changes call count and latency, not hit rate. Corpus runs (`resolve_all_pending`) remain single-writer; a live per-illumination resolve may run beside the link task, but a corpus drain must not.
 
-### Confidence counts independent inputs, not rows
+### Confidence is the best claim
 
-Replace `combine`'s distinct-`basis` count with:
-
-```
-handle: one input, however many claims carry it
-text:   one input per asserting authority
-```
-
-Capture handle + Wikidata text = 2. Wikidata text + web-search text = 2. Five text claims from one agent
-= 1. A Wikidata handle-join + the capture's handle = 1 (the same chain). This is the current behaviour
-with one authority and stays honest with several:
-
-```rust
-let handle = claims.iter().any(|claim| claim.basis == ClaimBasis::Handle);
-let text_sources: BTreeSet<&str> = claims
-    .iter()
-    .filter(|claim| claim.basis == ClaimBasis::Text)
-    .map(|claim| claim.provider.as_str())
-    .collect();
-let inputs = usize::from(handle) + text_sources.len();
-let extra = inputs.saturating_sub(1) as f32 * CORROBORATION_BONUS;
-```
+`project` takes the highest identity confidence among the entity's live claims. There is no
+independent-input count and no route classification: `knowledge_claims.basis` was removed in schema
+38. A claim with no confidence cannot substantiate anything; if no live claim has one, the entity's
+confidence is `None`.
 
 ### Re-resolution is per entity and per authority
 
@@ -362,7 +345,7 @@ let extra = inputs.saturating_sub(1) as f32 * CORROBORATION_BONUS;
 | 2 | ✅ Schema 35: `knowledge_claims.provider` + `method`, backfilled; unique index `(entity, identity, provider)`; provider selection index; non-empty `scheme`/`external_id` `CHECK` | landed 2026-11-10; two providers can assert one identity |
 | 3 | ✅ `awaiting_authority` per resolver; engine selects per resolver, fetches resolver-first, applies entity-first | a second fake authority is offered an entity Wikidata already claimed; one entity's claims are applied together |
 | 4 | ✅ Engine writes every accepted claim; shared `resolved` set removed; per-entity cap | two identities from one resolver on one entity; overflow reported; both providers' claims live |
-| 5 | ✅ `combine` over `(basis, provider)` with the handle-chain rule | handle chain one input; text one per authority |
+| 5 | ✅ Superseded: confidence is the best claim; `ClaimBasis` removed in schema 38 | no route classification; best confidence wins |
 | 6 | ✅ `resolve --entity` via `resolve(&[entity], &cache, allowance)` + held-identity markers; `--replace` | a resolved entity walks every rung; held claims marked `*`; replace retracts only that resolver's claims |
 | 7 | ✅ Stats: claims per entity and confidence spread; re-measure the baseline | landed 2026-11-10; `knowledge.md` updated |
 

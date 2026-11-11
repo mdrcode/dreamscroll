@@ -1,6 +1,5 @@
 use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
-use crate::knowledge::evidence::ClaimBasis;
 use crate::knowledge::graph::{KnowledgeGraph, ReplayReport};
 use crate::model;
 use crate::model::knowledge_verdicts::Kind;
@@ -34,7 +33,6 @@ async fn seed_claim(db: &crate::database::DbHandle, name: &str, external_id: &st
     model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
         knowledge_entity_id: Set(entity_id),
         knowledge_identity_id: Set(identity.id),
-        basis: Set(ClaimBasis::Text),
         provider: Set(identity.provider.clone()),
         method: Set(identity.method.clone()),
         ..Default::default()
@@ -93,8 +91,8 @@ async fn a_veto_withdraws_only_the_pairing_it_names() {
     );
 }
 
-/// A veto names a pairing, so it retracts the claim whatever route produced it — including one an
-/// authority reached through a handle (P2002), which a `basis = 'text'` filter used to miss.
+/// A veto names a pairing, so it retracts the claim whatever route produced it — including an
+/// authority that reached it through a handle (P2002).
 #[tokio::test]
 async fn a_veto_retracts_a_claim_that_arrived_by_handle() {
     db_or_skip!(db);
@@ -108,7 +106,6 @@ async fn a_veto_retracts_a_claim_that_arrived_by_handle() {
         "wikidata",
         Some("P2002"),
         Some(0.9),
-        ClaimBasis::Handle,
     )
     .await;
     store.update_projection(entity_id).await.unwrap();
@@ -216,7 +213,6 @@ async fn a_veto_reprojects_the_entity_it_empties() {
         "wikidata",
         Some("exact_label"),
         Some(0.9),
-        ClaimBasis::Text,
     )
     .await;
     store.update_projection(entity_id).await.unwrap();
@@ -240,8 +236,7 @@ async fn a_veto_reprojects_the_entity_it_empties() {
     assert_eq!(entity.confidence, None);
 }
 
-/// The projection recomputes from what is left: the withdrawn claim's score and its corroboration
-/// bonus go, the other input stays.
+/// The projection recomputes from what is left: the withdrawn claim's score goes, the other stays.
 #[tokio::test]
 async fn a_veto_drops_the_score_that_claim_earned_and_no_more() {
     db_or_skip!(db);
@@ -255,7 +250,6 @@ async fn a_veto_drops_the_score_that_claim_earned_and_no_more() {
         "wikidata",
         Some("exact_label"),
         Some(0.9),
-        ClaimBasis::Text,
     )
     .await;
     fixtures::claim(
@@ -266,12 +260,11 @@ async fn a_veto_drops_the_score_that_claim_earned_and_no_more() {
         crate::knowledge::evidence::PLATFORM_LINK_PROVIDER_ID,
         None,
         Some(0.7),
-        ClaimBasis::Handle,
     )
     .await;
     store.update_projection(entity_id).await.unwrap();
-    // Best claim 0.9, plus one corroborating basis.
-    assert!((store.get(entity_id).await.unwrap().confidence.unwrap() - 1.0).abs() < 1e-6);
+    // The best claim's score.
+    assert!((store.get(entity_id).await.unwrap().confidence.unwrap() - 0.9).abs() < 1e-6);
 
     store
         .veto(entity_id, "wikidata", "Q8093", None)

@@ -5,7 +5,7 @@ use sea_orm::{
 use super::indexes;
 
 // Bump for model or manual-index changes that require an explicit schema sync.
-const REQUIRED_SCHEMA_VERSION: i32 = 37;
+const REQUIRED_SCHEMA_VERSION: i32 = 38;
 
 /// Schema 23 reshapes claims into an edge — entity plus identity — and keys collisions by identity.
 ///
@@ -295,6 +295,21 @@ async fn retire_claim_source_user<C: ConnectionTrait>(conn: &C) -> Result<(), Db
     Ok(())
 }
 
+/// Schema 38 removes the claim's route. Confidence is the best claim's score; nothing reads the
+/// distinction between a handle and a text claim any more.
+async fn retire_claim_basis<C: ConnectionTrait>(conn: &C) -> Result<(), DbErr> {
+    conn.execute_unprepared(
+        "DO $sync$ \
+         BEGIN \
+           IF to_regclass('knowledge_claims') IS NOT NULL THEN \
+             ALTER TABLE knowledge_claims DROP COLUMN IF EXISTS basis; \
+           END IF; \
+         END $sync$",
+    )
+    .await?;
+    Ok(())
+}
+
 /// Schema 33 finishes the object renames left behind by schemas 30–32, and drops the two legacy
 /// tables that no model or command reads.
 ///
@@ -459,6 +474,7 @@ pub async fn sync_schema(conn: &DatabaseConnection) -> anyhow::Result<()> {
             add_claim_provenance(transaction).await?;
             retire_claim_surface(transaction).await?;
             retire_claim_source_user(transaction).await?;
+            retire_claim_basis(transaction).await?;
             drop_legacy_tables(transaction).await?;
             indexes::task_run::before_schema_sync(transaction).await?;
             indexes::knowledge::before_schema_sync(transaction).await?;

@@ -147,7 +147,6 @@ pub async fn illumination(db: &DbHandle, user_id: i32, capture_id: i32) -> i32 {
 /// The shape projection and discard both operate on: a row whose columns are derived from its
 /// members, and one member to derive them from.
 /// A claim, the shape the resolver or a capture writes: the identity, then the edge to it.
-#[allow(clippy::too_many_arguments)]
 pub async fn claim(
     db: &DbHandle,
     knowledge_entity_id: i32,
@@ -156,7 +155,6 @@ pub async fn claim(
     provider: &str,
     method: Option<&str>,
     confidence: Option<f32>,
-    basis: model::knowledge_claims::ClaimBasis,
 ) {
     let identity = crate::knowledge::evidence::Evidence::from_handle(db)
         .upsert_identity(&crate::knowledge::evidence::IdentityDraft {
@@ -174,7 +172,6 @@ pub async fn claim(
     model::knowledge_claims::Entity::insert(model::knowledge_claims::ActiveModel {
         knowledge_entity_id: sea_orm::Set(knowledge_entity_id),
         knowledge_identity_id: sea_orm::Set(identity),
-        basis: sea_orm::Set(basis),
         provider: sea_orm::Set(provider.to_string()),
         method: sea_orm::Set(method.map(str::to_string)),
         ..Default::default()
