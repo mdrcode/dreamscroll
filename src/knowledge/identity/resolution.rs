@@ -86,39 +86,41 @@ impl Default for Options {
     }
 }
 
+/// One resolution run.
 #[derive(Debug, Default, PartialEq, Eq)]
-pub struct Report {
-    pub candidates: usize,
+pub struct ResolutionReport {
+    /// Entities in scope after the tombstone and duplicate filter.
+    pub considered: usize,
     /// What the run asked, what the cache answered, and what it fetched.
-    pub stats: crate::fetch::Stats,
-    pub claims: usize,
-    /// Entities that gained at least one claim.
+    pub traffic: crate::fetch::Stats,
+    /// Claims the graph accepted.
+    pub written: usize,
+    /// Distinct entities that gained at least one claim.
     pub entities_resolved: usize,
     /// Claims an editor's veto kept out of the graph.
     pub vetoed: usize,
-    /// One entry per resolver called, so a failure or a silent provider is attributable.
-    pub by_resolver: Vec<ResolverReport>,
-    /// Why the run stopped early, if it did: the budget, or the provider's `429`. The caller prints
-    /// what it needs from it, instead of this report carrying three derived answers to one question.
+    /// One entry per provider called, so a failure or a silent provider is attributable.
+    pub by_provider: Vec<ProviderReport>,
+    /// Why the run stopped early, if it did: the budget, or the provider's `429`.
     pub refusal: Option<Refusal>,
     pub offline: bool,
 }
 
-/// What one resolver did in one run.
+/// What one provider did in one run.
 #[derive(Debug, Default, Clone, PartialEq, Eq)]
-pub struct ResolverReport {
+pub struct ProviderReport {
     pub provider: String,
-    pub candidates: usize,
-    pub claims: usize,
+    /// Entities handed to this provider after its own selection.
+    pub batch: usize,
+    /// Claims this provider got written.
+    pub written: usize,
     pub vetoed: usize,
     /// Claims refused by the per-entity cap or returned outside the batch.
     pub dropped: usize,
     /// Old claims this provider owned that the forced run did not re-propose.
     pub replaced: usize,
-    /// Deltas around this resolver's `resolve` call; the global counters remain on [`Report`].
-    pub requested: usize,
-    pub cache_hits: usize,
-    pub fetched: usize,
+    /// This provider's share of [`ResolutionReport::traffic`].
+    pub traffic: crate::fetch::Stats,
 }
 
 /// The harness: it holds the resolvers, gives them a context, and stores what they return.
@@ -166,7 +168,7 @@ impl<'a> ResolutionEngine<'a> {
     pub async fn resolve(
         &self,
         entities: &[crate::model::knowledge_entity::Model],
-    ) -> anyhow::Result<Report> {
+    ) -> anyhow::Result<ResolutionReport> {
         // A resolver may not take an id that names our own pipeline: selection and stats compare
         // this string to the identity's `provider`, so a collision would misattribute rows.
         anyhow::ensure!(
@@ -201,13 +203,13 @@ impl<'a> ResolutionEngine<'a> {
         });
         let gateway = Gateway::new(Some(&cache), allowance.as_ref(), true);
         let evidence = Evidence::from_handle(self.db);
-        let mut report = Report {
-            candidates: entities.len(),
+        let mut report = ResolutionReport {
+            considered: entities.len(),
             offline: self.options.offline,
             ..Default::default()
         };
         let entity_ids: Vec<i32> = entities.iter().map(|entity| entity.id).collect();
-        let mut resolver_reports: Vec<ResolverReport> = Vec::new();
+        let mut provider_reports: Vec<ProviderReport> = Vec::new();
         let mut proposed: BTreeMap<i32, Vec<(usize, Claim)>> = BTreeMap::new();
         let mut proposed_sets: HashMap<
             (usize, i32),
@@ -239,9 +241,9 @@ impl<'a> ResolutionEngine<'a> {
             let batch_ids: HashSet<i32> = batch.iter().map(|entity| entity.id).collect();
 
             let before = gateway.stats();
-            let mut per = ResolverReport {
+            let mut per = ProviderReport {
                 provider: resolver.provider().to_string(),
-                candidates: batch.len(),
+                batch: batch.len(),
                 ..Default::default()
             };
             if !batch.is_empty() {
@@ -274,10 +276,13 @@ impl<'a> ResolutionEngine<'a> {
                 }
             }
             let after = gateway.stats();
-            per.requested = after.requested.saturating_sub(before.requested);
-            per.cache_hits = after.cache_hits.saturating_sub(before.cache_hits);
-            per.fetched = after.fetched.saturating_sub(before.fetched);
-            resolver_reports.push(per);
+            per.traffic = crate::fetch::Stats {
+                requested: after.requested.saturating_sub(before.requested),
+                cache_hits: after.cache_hits.saturating_sub(before.cache_hits),
+                fetched: after.fetched.saturating_sub(before.fetched),
+                failed: after.failed.saturating_sub(before.failed),
+            };
+            provider_reports.push(per);
         }
 
         // Entity-first apply: every authority's claims for an entity land before its projection.
@@ -305,13 +310,13 @@ impl<'a> ResolutionEngine<'a> {
                     .await?
                 {
                     Stored::Written => {
-                        report.claims += 1;
-                        resolver_reports[resolver_index].claims += 1;
+                        report.written += 1;
+                        provider_reports[resolver_index].written += 1;
                         resolved.insert(knowledge_entity_id);
                     }
                     Stored::Vetoed => {
                         report.vetoed += 1;
-                        resolver_reports[resolver_index].vetoed += 1;
+                        provider_reports[resolver_index].vetoed += 1;
                     }
                     Stored::AlreadyClaimed => {}
                 }
@@ -326,7 +331,7 @@ impl<'a> ResolutionEngine<'a> {
                     else {
                         continue;
                     };
-                    resolver_reports[index].replaced += evidence
+                    provider_reports[index].replaced += evidence
                         .retract_unproposed(
                             knowledge_entity_id,
                             resolver.provider(),
@@ -345,8 +350,8 @@ impl<'a> ResolutionEngine<'a> {
         // Resolving stops at evidence. Which holders of an identity are one thing belongs to
         // `proximity scan` and `proximity auto-merge`, which are separate commands run after this one.
         report.entities_resolved = resolved.len();
-        report.by_resolver = resolver_reports;
-        report.stats = gateway.stats();
+        report.by_provider = provider_reports;
+        report.traffic = gateway.stats();
         report.refusal = allowance.as_ref().and_then(Allowance::refused);
         Ok(report)
     }
@@ -371,7 +376,7 @@ mod tests {
     /// operation, and the primitive is `resolve`.
     #[cfg(test)]
     impl ResolutionEngine<'_> {
-        async fn resolve_pending(self) -> anyhow::Result<Report> {
+        async fn resolve_pending(self) -> anyhow::Result<ResolutionReport> {
             crate::knowledge::helper::resolve_all_pending(&self).await
         }
     }
@@ -612,12 +617,12 @@ mod tests {
             .resolve_pending()
             .await
             .expect("resolve");
-        assert_eq!(first.claims, 1, "{first:?}");
-        assert_eq!(first.stats.fetched, 1, "{first:?}");
-        assert_eq!(first.by_resolver.len(), 1, "{first:?}");
-        assert_eq!(first.by_resolver[0].provider, "wikidata");
-        assert_eq!(first.by_resolver[0].claims, 1);
-        assert_eq!(first.by_resolver[0].fetched, 1);
+        assert_eq!(first.written, 1, "{first:?}");
+        assert_eq!(first.traffic.fetched, 1, "{first:?}");
+        assert_eq!(first.by_provider.len(), 1, "{first:?}");
+        assert_eq!(first.by_provider[0].provider, "wikidata");
+        assert_eq!(first.by_provider[0].written, 1);
+        assert_eq!(first.by_provider[0].traffic.fetched, 1);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
 
         let entity = model::knowledge_entity::Entity::find_by_id(knowledge_entity_id)
@@ -637,7 +642,7 @@ mod tests {
             .resolve_pending()
             .await
             .expect("resolve");
-        assert_eq!(second.candidates, 0, "{second:?}");
+        assert_eq!(second.considered, 0, "{second:?}");
         assert_eq!(calls.load(Ordering::SeqCst), 1, "no second fetch");
     }
 
@@ -656,12 +661,12 @@ mod tests {
             .with(Box::new(Other));
         let report = engine.resolve_pending().await.expect("resolve");
 
-        assert_eq!(report.claims, 2, "{report:?}");
-        assert_eq!(report.by_resolver.len(), 2, "{report:?}");
-        assert_eq!(report.by_resolver[0].provider, "wikidata");
-        assert_eq!(report.by_resolver[1].provider, "imdb");
+        assert_eq!(report.written, 2, "{report:?}");
+        assert_eq!(report.by_provider.len(), 2, "{report:?}");
+        assert_eq!(report.by_provider[0].provider, "wikidata");
+        assert_eq!(report.by_provider[1].provider, "imdb");
         assert_eq!(
-            report.by_resolver[1].candidates, 1,
+            report.by_provider[1].batch, 1,
             "the second authority is asked"
         );
 
@@ -694,8 +699,8 @@ mod tests {
             .await
             .expect("resolve");
 
-        assert_eq!(report.claims, MAX_CLAIMS_PER_ENTITY, "{report:?}");
-        assert_eq!(report.by_resolver[0].dropped, 2, "{report:?}");
+        assert_eq!(report.written, MAX_CLAIMS_PER_ENTITY, "{report:?}");
+        assert_eq!(report.by_provider[0].dropped, 2, "{report:?}");
         assert_eq!(
             model::knowledge_claims::Entity::find()
                 .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(id))
@@ -742,8 +747,8 @@ mod tests {
         .await
         .expect("resolve");
 
-        assert_eq!(report.claims, 1, "{report:?}");
-        assert_eq!(report.by_resolver[0].replaced, 1, "{report:?}");
+        assert_eq!(report.written, 1, "{report:?}");
+        assert_eq!(report.by_provider[0].replaced, 1, "{report:?}");
 
         let rows = model::knowledge_claims::Entity::find()
             .filter(model::knowledge_claims::Column::KnowledgeEntityId.eq(id))
@@ -775,8 +780,8 @@ mod tests {
             .resolve_pending()
             .await
             .expect("resolve");
-        assert_eq!(first.stats.fetched, 1, "{first:?}");
-        assert_eq!(first.claims, 0);
+        assert_eq!(first.traffic.fetched, 1, "{first:?}");
+        assert_eq!(first.written, 0);
 
         // The entity is still a candidate (no claim), but the negative answer is cached.
         let second = ResolutionEngine::new(&db, Options::default())
@@ -787,9 +792,9 @@ mod tests {
             .resolve_pending()
             .await
             .expect("resolve");
-        assert_eq!(second.candidates, 1, "{second:?}");
-        assert_eq!(second.stats.fetched, 0, "{second:?}");
-        assert_eq!(second.stats.cache_hits, 1, "{second:?}");
+        assert_eq!(second.considered, 1, "{second:?}");
+        assert_eq!(second.traffic.fetched, 0, "{second:?}");
+        assert_eq!(second.traffic.cache_hits, 1, "{second:?}");
         assert_eq!(
             calls.load(Ordering::SeqCst),
             1,
@@ -848,9 +853,9 @@ mod tests {
             0,
             "offline never touches the transport"
         );
-        assert_eq!(report.stats.fetched, 0);
-        assert_eq!(report.stats.cache_hits, 1);
-        assert_eq!(report.claims, 1, "only the cached one resolves: {report:?}");
+        assert_eq!(report.traffic.fetched, 0);
+        assert_eq!(report.traffic.cache_hits, 1);
+        assert_eq!(report.written, 1, "only the cached one resolves: {report:?}");
 
         let entity = model::knowledge_entity::Entity::find_by_id(cached)
             .one(&db.conn)
@@ -1109,11 +1114,11 @@ mod tests {
             "{report:?}"
         );
         assert_eq!(
-            report.stats.fetched, 2,
+            report.traffic.fetched, 2,
             "one successful batch, then the 429: {report:?}"
         );
         assert_eq!(
-            report.claims, BATCH,
+            report.written, BATCH,
             "claims from the first batch survive: {report:?}"
         );
     }
@@ -1136,8 +1141,8 @@ mod tests {
             }),
             "{report:?}"
         );
-        assert_eq!(report.stats.fetched, 1, "{report:?}");
-        assert_eq!(report.claims, 0, "{report:?}");
+        assert_eq!(report.traffic.fetched, 1, "{report:?}");
+        assert_eq!(report.written, 0, "{report:?}");
         assert_eq!(
             model::fetch_cache::Entity::find()
                 .count(&db.conn)
@@ -1256,7 +1261,7 @@ mod tests {
             .await
             .expect("resolve");
 
-        assert_eq!(report.claims, 2, "{report:?}");
+        assert_eq!(report.written, 2, "{report:?}");
 
         // The proximity passes now run after resolve as separate commands; drive them explicitly so
         // the assertion is about `merge` refusing a pair, not about an empty batch.

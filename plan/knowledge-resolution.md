@@ -168,7 +168,7 @@ The contract around the two methods:
 The unique index becomes `(entity, identity, provider) WHERE retracted_at IS NULL`; the engine stops
 first-wins:
 
-- **Every accepted claim is written.** `Report.entities_resolved` becomes distinct entities with at
+- **Every accepted claim is written.** `ResolutionReport.entities_resolved` becomes distinct entities with at
   least one `Stored::Written`.
 - **Two providers may assert one identity.** The index includes `provider`; otherwise the second
   authority's claim on `wikidata:Q42` would hit `AlreadyClaimed` and disappear. `Stored::AlreadyClaimed`
@@ -247,27 +247,27 @@ The core is one method; the compositions are free functions in `knowledge/helper
 ```rust
 // resolution core — owns the resolvers, the options and the gateway
 impl ResolutionEngine {
-    async fn resolve(&self, entities: &[Model]) -> anyhow::Result<Report>;
+    async fn resolve(&self, entities: &[Model]) -> anyhow::Result<ResolutionReport>;
 }
 
 // helper.rs — composition only; nothing here belongs on `Resolver` or the engine
 pub async fn resolve_illumination(
     engine: &ResolutionEngine<'_>,
     illumination: &model::illumination::ModelEx,
-) -> anyhow::Result<Report>;
+) -> anyhow::Result<ResolutionReport>;
 
 pub async fn resolve_all_pending(
     engine: &ResolutionEngine<'_>,
-) -> anyhow::Result<Report>;
+) -> anyhow::Result<ResolutionReport>;
 ```
 
 The engine exposes only `pub(crate)` accessors the helpers need: `db()`, `options()`, `providers()`.
-`Resolver` is unchanged: `id()` and `resolve(&[Model], gateway)`.
+`Resolver` is unchanged: `provider()` and `resolve(&[Model], gateway)`.
 
-Landed 2026-11-10: `run` and `Options.only` are gone; the two helpers exist; `Report.by_resolver`
-attributes candidates, claims, vetoes, requests, cache hits and fetches to each resolver call. The
-remaining engine work is the phase-2 semantics (per-resolver selection, every claim written,
-entity-first apply), not the API.
+Landed 2026-11-10: `run` and `Options.only` are gone; the two helpers exist; `ResolutionReport.by_provider`
+attributes batch, claims, vetoes, requests, cache hits and fetches to each provider call. The API,
+per-resolver selection, write-all semantics and entity-first apply are settled; the ordered queue is
+empty.
 
 - **`resolve(entities)` is the primitive.** The slice is the scope: per-resolver selection,
   resolver-first fetch, entity-first apply. A resolver that already claimed an entity in the slice is

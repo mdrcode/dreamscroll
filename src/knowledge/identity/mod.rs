@@ -12,7 +12,9 @@
 pub mod resolution;
 pub mod wikidata;
 
-pub use resolution::{DEFAULT_MAX_REQUESTS, Options, Report, ResolutionEngine, Resolver};
+pub use resolution::{
+    DEFAULT_MAX_REQUESTS, Options, ProviderReport, ResolutionEngine, ResolutionReport, Resolver,
+};
 
 /// Provider ids the engine refuses from a resolver: they name our own pipeline, not an authority.
 ///

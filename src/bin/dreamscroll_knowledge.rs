@@ -563,28 +563,28 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
         println!("budget {max_requests} requests");
     }
     println!(
-        "candidates {} · requested {} · cache hits {}",
-        report.candidates, report.stats.requested, report.stats.cache_hits
+        "considered {} · requested {} · cache hits {}",
+        report.considered, report.traffic.requested, report.traffic.cache_hits
     );
     println!(
         "fetched {} · failed {} · claims {} · entities resolved {} · vetoed {}",
-        report.stats.fetched,
-        report.stats.failed,
-        report.claims,
+        report.traffic.fetched,
+        report.traffic.failed,
+        report.written,
         report.entities_resolved,
         report.vetoed
     );
-    for resolver in &report.by_resolver {
+    for provider in &report.by_provider {
         println!(
-            "  {:<16} candidates {:>5} · requested {:>5} · cache {:>5} · fetched {:>4} · claims {:>4} · vetoed {} · replaced {}",
-            resolver.provider,
-            resolver.candidates,
-            resolver.requested,
-            resolver.cache_hits,
-            resolver.fetched,
-            resolver.claims,
-            resolver.vetoed,
-            resolver.replaced
+            "  {:<16} batch {:>5} · requested {:>5} · cache {:>5} · fetched {:>4} · claims {:>4} · vetoed {} · replaced {}",
+            provider.provider,
+            provider.batch,
+            provider.traffic.requested,
+            provider.traffic.cache_hits,
+            provider.traffic.fetched,
+            provider.written,
+            provider.vetoed,
+            provider.replaced
         );
     }
     match report.refusal {

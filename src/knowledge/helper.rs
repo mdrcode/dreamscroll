@@ -18,7 +18,7 @@ use crate::database::DbHandle;
 use crate::fetch::FetchCache;
 use crate::knowledge::evidence::{ClaimDraft, Evidence, IdentityKey, Stored};
 use crate::knowledge::graph::{KnowledgeGraph, LinkReport};
-use crate::knowledge::identity::{Report, ResolutionEngine};
+use crate::knowledge::identity::{ResolutionEngine, ResolutionReport};
 use crate::model;
 
 /// Link one illumination: its observations become entities, then their handles become claims.
@@ -110,7 +110,7 @@ pub async fn link_all_pending(db: &DbHandle) -> anyhow::Result<LinkAllReport> {
 pub async fn resolve_illumination(
     engine: &ResolutionEngine<'_>,
     illumination: &model::illumination::ModelEx,
-) -> anyhow::Result<Report> {
+) -> anyhow::Result<ResolutionReport> {
     anyhow::ensure!(
         illumination.observations.is_loaded(),
         "illumination {} was handed to resolve_illumination with no observations loaded; fetch it \
@@ -155,7 +155,7 @@ pub async fn resolve_illumination(
 ///
 /// The engine receives the whole pending set in one call, so the wavefront still fills its batches.
 /// This is the rebuild/drain path; a live capture should call [`resolve_illumination`].
-pub async fn resolve_all_pending(engine: &ResolutionEngine<'_>) -> anyhow::Result<Report> {
+pub async fn resolve_all_pending(engine: &ResolutionEngine<'_>) -> anyhow::Result<ResolutionReport> {
     let evidence = Evidence::from_handle(engine.db());
     // One provider's pending set, then the union: an entity Wikidata answered is still pending for
     // IMDb. The limit is global, so a second resolver does not silently double the run.
@@ -289,7 +289,7 @@ mod tests {
             .await
             .expect("resolve");
 
-        assert_eq!(report.candidates, 1, "{report:?}");
+        assert_eq!(report.considered, 1, "{report:?}");
         assert_eq!(report.offline, false);
     }
 
@@ -334,6 +334,6 @@ mod tests {
             .await
             .expect("resolve");
 
-        assert_eq!(report.candidates, 1, "{report:?}");
+        assert_eq!(report.considered, 1, "{report:?}");
     }
 }
