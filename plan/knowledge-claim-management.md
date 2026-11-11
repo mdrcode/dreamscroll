@@ -13,11 +13,14 @@ A veto records `(subject_origin, scheme, external_id)` — a **pairing** — and
 claim to retract with an extra predicate, `basis = 'text'`. `basis` records the **route**, not the
 writer, and a census of the live graph (2026-11-09, 1,967 live claims) showed three populations:
 
-| basis | `asserted_by` | live claims | written then by | means |
+| basis | `provider` | live claims | written then by | means |
 | --- | --- | --- | --- | --- |
 | `text` | `wikidata` | 1,595 | `store_claim` | "this entity is Q42", reached by title/label/search |
 | `handle` | `platform` | 345 | `Evidence::record` | "the screenshot showed `@handle` on this entity" |
 | `handle` | `wikidata` | 27 | `store_claim` | "this entity is Q42", reached **through** the handle (P2002) |
+
+The census predates schema 34: the column was `asserted_by` (now `provider`), and the capture value
+was `platform` (now `illuminator`).
 
 The third population is an authority cross-reference that arrived through a handle, so
 `basis = 'text'` excluded it: `identity veto 245622 wikidata Q317521` (`Elon Musk`, P2002) wrote the
@@ -47,7 +50,7 @@ arrives after an answer downgrades `method` to `capture`).
 1. **Ingest** — settle identity rows.
    - `Evidence::identity_for_link(link)` for a capture: the identity a link asserts, created if this
      is its first sighting. **Create only.**
-   - `Evidence::upsert_identity(draft)` for an answer: fills gaps and may upgrade `asserted_by`.
+   - `Evidence::upsert_identity(draft)` for an answer: fills gaps and may upgrade `provider`.
      **Enrich.**
    - The rule: *a capture may create an identity; only an answer may enrich one.* A screenshot knows
      a handle exists, not what the thing is.

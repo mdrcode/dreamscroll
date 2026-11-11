@@ -1,7 +1,9 @@
 # Resolution — cache first, providers second
 
-**Status:** Implemented (current schema 32). `dreamscroll_knowledge identity resolve` runs manually;
-there is no scheduled trigger and no enrichment yet. Wikidata is the first provider.
+**Status:** Implemented (current schema 33). `dreamscroll_knowledge identity resolve` runs manually;
+there is no scheduled trigger and no enrichment yet. Wikidata is the first provider. The next slice —
+multiple authorities, multiple claims per authority, per-entity re-resolution — is designed below and
+not implemented.
 
 **See also:** [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md) (the graph this feeds),
 [knowledge-evidence-prototype.md](archive/knowledge-evidence-prototype.md) (the measured prototype, and the
@@ -27,7 +29,7 @@ trait Transport {
 
 // src/knowledge/identity — knows what a knowledge entity is.
 trait Resolver {
-    fn id(&self) -> &'static str;
+    fn provider(&self) -> &'static str;
     async fn resolve(&self, entities: &[Model], gateway: &fetch::Gateway<'_>)
         -> Vec<(i32, Claim)>;
 }
@@ -85,25 +87,259 @@ warm query costs nothing.
 ## Many authorities, one claim edge
 
 Today Wikidata is the only provider, and the claim model must not know that. What is authority-neutral
-already: `knowledge_identities.scheme` names the namespace, `asserted_by` records who asserted it, and a
-veto is keyed by `(scheme, external_id)` rather than by a QID. The target is **at least one claim per
-entity**, from whichever authorities recognise it.
+already: `knowledge_identities.scheme` names the namespace, `provider` records who supplied the row,
+and a veto is keyed by `(scheme, external_id)` rather than by a QID. The target is **at least one
+claim per entity**, from whichever authorities recognise it.
 
 Two things were made authority-aware on 2026-11-07, both behaviour-identical with one provider:
 
-- **Planning asks "has *this* provider claimed it?"** — `Evidence::awaiting_authority` (then `candidates()`)
-  filtered `asserted_by != 'platform'`, which means "any authority". With a second authority, an IMDb
-  claim would silently stop Wikidata resolving that entity. It now filters on the configured
-  providers' ids.
+- **Planning filters on provenance, but not yet per provider.** `Evidence::awaiting_authority` used to
+  filter out the capture's own rows (`asserted_by != 'platform'` before schema 34; `provider !=
+  'illuminator'` now), which means "any authority". It now filters on the configured providers' ids —
+  but the engine passes *all* of them, so the effect is still "any authority": a second provider would
+  not be asked about an entity the first had claimed. Per-resolver selection is the first task in the
+  next slice, below.
 - **A veto is enforced at the claim write** (`assert`), not inside the Wikidata parser, so a new
   provider inherits the rule without knowing it exists.
 
-Baseline to hold the line against: **0.89 claims per live entity, 0.86 authority claims per identified
-entity** (2026-11-07).
+Baseline to hold the line against, measured 2026-11-10: **2,253 live entities, 1,652 with an authority
+claim (0.73 per live entity, 0.86 per identified), 334 provisional, 10 proximity candidates.** The
+breakdown: **1,647 `wikidata/wikidata` identities (1,652 claims) and 346 `illuminator/*` identities
+across 7 schemes (345 entities), 0 retracted.**
+
+## Next: many authorities, many claims
+
+Trigger: a second authority — IMDb, OpenLibrary, or a `web_search` agent that reads pages and decides
+whether they corroborate. The current engine stops at the first claim an entity receives; the schema
+does not need to.
+
+### The identity key stays two-part
+
+An identity is **`(namespace, external_id)`** — the thing the world names. A resolver's id is
+*provenance*, not identity: if Wikidata and a web-search agent both name `wikidata:Q42`, they corroborate
+one identity. A three-tuple `(resolver, namespace, external_id)` would create two rows and defeat
+`proximity`, which asks whether entities sharing an identity are one thing. Two authorities disagreeing
+about one namespace is evidence about the namespace, not a second identity.
+
+The resolver contract does not need a declaration:
+
+```rust
+trait Resolver {
+    fn provider(&self) -> &'static str;                    // the provider id: identity, budget, logs
+    async fn resolve(...) -> Vec<(i32, Claim)>;      // zero, one, or many per entity
+}
+```
+
+- A claim carries its own `scheme` and `external_id`; the engine sets `provider` from
+  `resolver.provider()`, never from the claim. A resolver may answer in several schemes — a web-search
+  agent can find an IMDb page and an official site — and each claim says which one.
+- **No per-resolver scheme whitelist.** A getter would be self-certification: the same resolver that
+  returns the claim also declares what it may return, so a bug or a lie satisfies both. Validating
+  against it buys no trust the caller can use.
+- What the engine does enforce is shape, not vocabulary: `scheme` and `external_id` are non-empty (a
+  DB `CHECK`), and `provider` is the resolver id. `stats` shows the schemes actually emitted, so a
+  typo is visible without a declaration to drift.
+- `provider` is the source of the row (`wikidata`, `illuminator`, `model`, a future `web_search`);
+  `scheme` is the namespace. For an authority it is the same id `Request::provider` uses;
+  `illuminator` and `model` never appear in `fetch_cache`. One resolver keeps one `provider` and
+  varies `scheme` per claim.
+- The capture path stays outside the trait: `provider = "illuminator"`, scheme = the platform.
+- `knowledge_identities.scheme` keeps its name; it is the namespace. Renaming to `namespace` is an
+  optional later migration.
+
+The contract around the two methods:
+
+- **Claims are proposals, not writes.** The resolver returns them; the engine upserts identities, asks
+  the veto, and writes the edges. A resolver that returns nothing is indistinguishable from one that
+  found nothing — provider failures are counted by the gateway, not returned as errors.
+- **Several claims per entity are normal.** The resolver may return one identity or several, in its own
+  priority order. The engine writes every claim the graph accepts; order is preference, not a
+  first-wins rule. `Stored::AlreadyClaimed` becomes per provider once the claim index includes it.
+- **The provider on every `Request` must equal `id()`.** The engine sets the identity's `provider` from
+  `id()`; a mismatch would split cache and provenance.
+- **Claims are only for the entities handed in.** The engine selected them; a claim for anything else
+  is a contract violation to reject and log.
+- **Shape is the engine's check.** Non-empty `scheme`/`external_id`; no per-resolver vocabulary list.
+- **The resolver owns its wavefront.** No `plan`, `warm`, `identity_schemes` or `applies` methods on the
+  trait; those are the resolver's internals or a later capability, not the seam.
+
+### Claims accumulate per entity
+
+The unique index becomes `(entity, identity, provider) WHERE retracted_at IS NULL`; the engine stops
+first-wins:
+
+- **Every accepted claim is written.** `Report.entities_resolved` becomes distinct entities with at
+  least one `Stored::Written`.
+- **Two providers may assert one identity.** The index includes `provider`; otherwise the second
+  authority's claim on `wikidata:Q42` would hit `AlreadyClaimed` and disappear. `Stored::AlreadyClaimed`
+  then means "this provider already said it", not "someone did". `move_claims` dedupes on the same
+  three columns.
+- **Selection is per resolver.** An entity is a candidate for a resolver when it has no live claim whose
+  `provider` is that resolver. `awaiting_authority` takes one resolver's id, not the union of all
+  configured ids. The namespace is not the selection key: two resolvers may both assert `imdb`, and that
+  is corroboration. Filling a gap in one namespace of an already-answered resolver is a later refinement.
+- **Provenance moves to the claim.** `knowledge_claims` gains `provider` (resolver id, or `platform`)
+  and `method` (the rung). Without it, two authorities citing one identity share the identity row's
+  last-writer-wins `provider`, so the confidence cannot tell them apart and `--replace` cannot tell
+  whose claim to retract.
+- **A cap.** At most `MAX_CLAIMS_PER_ENTITY` (start 8) per `(entity, resolver)`; the overflow is
+  reported, not silently dropped. An agentic authority must not inflate a confidence by returning a
+  hundred URLs.
+
+**Fetch is resolver-first; apply is entity-first.** `Resolver::resolve` takes a batch because batching
+is the difference between a handful of transport calls and thousands; calling it once per entity would
+undo that. The engine therefore collects each resolver's claims for the selected entity set, groups them
+by entity, and applies every authority's claims before projecting that entity:
+
+```
+select:  for each resolver: its candidates
+fetch:   for each resolver: resolve(its batch)        // network batching preserved
+apply:   for each entity:   every resolver's claims   // one projection, all authorities seen
+```
+
+The observable rule is entity-first: one entity gets every available resolver before its projection,
+and no resolver's write can hide the entity from a later resolver. The only thing that can make a
+resolver unavailable is its own selection (it already claimed the entity), the budget, or a refusal.
+
+**The ladder is a wavefront, not a total plan.** Policy is per entity; transport is per wave. A
+resolver should ask only the next question for each entity still unresolved, batch that question across
+entities, inspect the answers, and then decide the next question for whatever is left. That is
+per-entity adaptivity *and* batching, and it is the same code path for one entity and a corpus.
+
+This is **inside `Resolver::resolve`**, not a new trait method. The resolver receives the entity batch,
+plans one step across the unresolved ones, calls `gateway.resolve_requests`, parses, and repeats. The
+engine sees only the final claims; the gateway sees the requests because it is the only door. The trait
+stays `resolve(&[entities], gateway) -> Vec<(i32, Claim)>`; `plan` remains provider-internal and the
+`Transport::Kind`/`Payload` types never leak into the engine.
+
+Wikidata's measured resolution (1,647 identities, 2026-11-10) shows why the current bundling is wrong:
+
+| rung | identities | share |
+| --- | ---: | ---: |
+| `wikipedia_title` | 1,232 | 74.8% |
+| `exact_label` | 285 | 17.3% |
+| `search_*` | 103 | 6.3% |
+| handle property (`P2002`) | 27 | 1.6% |
+
+`plan::for_entity` emits handle + title + label for every entity, so most label values are speculative:
+title alone resolves three quarters. The ladder should be ordered **steps** — handle → title → label →
+search hint → search label → surface title — with each step planning only for entities the previous
+step left unresolved. `fallback` has the same defect: it fetches both the hint search and the bare-label
+search for every unresolved entity, although either one can resolve it and search is one call per query.
+
+A pre-warm sidecar is the wrong layer: it pre-generates requests before any answer, which is exactly the
+over-fetch the wavefront removes; if it runs the ladder, it *is* the resolver. The cache remains the
+sidecar. The batch call is not one optimization either: it is network calls, WDQS's processing-time
+budget, and cache reads at once. Keep it behind `Resolver::resolve`, which already owns the wavefront.
+
+Wavefront work, independent of the provider split:
+
+- [x] Split `plan::for_entity` into handle, title and label steps; `fallback` into hint and label search.
+- [x] Loop steps over unresolved entities; each step calls `resolve_requests` and parses before the next.
+- [x] Count requests before/after: the title-resolved entity no longer triggers its label or search wave
+  (the resolver test pins 4 requests where the bundled pass asked 5).
+
+### Engine API: one primitive, free helpers
+
+The core is one method; the compositions are free functions in `knowledge/helper.rs`, beside
+`link_illumination` and `link_all_pending`:
+
+```rust
+// resolution core — owns the resolvers, the options and the gateway
+impl ResolutionEngine {
+    async fn resolve(&self, entities: &[Model]) -> anyhow::Result<Report>;
+}
+
+// helper.rs — composition only; nothing here belongs on `Resolver` or the engine
+pub async fn resolve_illumination(
+    engine: &ResolutionEngine<'_>,
+    illumination: &model::illumination::ModelEx,
+) -> anyhow::Result<Report>;
+
+pub async fn resolve_all_pending(
+    engine: &ResolutionEngine<'_>,
+) -> anyhow::Result<Report>;
+```
+
+The engine exposes only `pub(crate)` accessors the helpers need: `db()`, `options()`, `providers()`.
+`Resolver` is unchanged: `id()` and `resolve(&[Model], gateway)`.
+
+Landed 2026-11-10: `run` and `Options.only` are gone; the two helpers exist; `Report.by_resolver`
+attributes candidates, claims, vetoes, requests, cache hits and fetches to each resolver call. The
+remaining engine work is the phase-2 semantics (per-resolver selection, every claim written,
+entity-first apply), not the API.
+
+- **`resolve(entities)` is the primitive.** The slice is the scope: per-resolver selection,
+  resolver-first fetch, entity-first apply. A resolver that already claimed an entity in the slice is
+  skipped, so a repeat is free. `Options.limit`/`newest_first` are not applied here; the caller chose
+  the set.
+- **`resolve_illumination`** gathers the distinct live entities linked from the illumination's
+  observations and calls `resolve`. It requires `link` to have run; an unlinked observation is a
+  pipeline error, not a silent skip. It is one call, not a loop over observations, so the resolver's
+  wavefront can batch whatever the illumination contains.
+- **`resolve_all_pending`** builds the union of each resolver's `awaiting_authority` candidates,
+  applies `limit`/`newest_first`, and calls `resolve` once. It does **not** loop illuminations: one
+  call over the whole pending set is what preserves the 50-item waves.
+- **`run` disappears.** The CLI's `identity resolve` calls `helper::resolve_all_pending`; `--entity`
+  loads the entity and calls `resolve(&[entity])` with the force flag from step 6.
+
+**Scheduling is outside the engine.** A live illumination can call `resolve_illumination` immediately for low latency, or enqueue a resolve task; a periodic worker can call `resolve_all_pending` with a limit every N minutes to amortize transport calls. The cache is per query, so batching changes call count and latency, not hit rate. Corpus runs (`resolve_all_pending`) remain single-writer; a live per-illumination resolve may run beside the link task, but a corpus drain must not.
+
+### Confidence counts independent inputs, not rows
+
+Replace `combine`'s distinct-`basis` count with:
+
+```
+handle: one input, however many claims carry it
+text:   one input per asserting authority
+```
+
+Capture handle + Wikidata text = 2. Wikidata text + web-search text = 2. Five text claims from one agent
+= 1. A Wikidata handle-join + the capture's handle = 1 (the same chain). This is the current behaviour
+with one authority and stays honest with several:
+
+```rust
+let handle = claims.iter().any(|claim| claim.basis == ClaimBasis::Handle);
+let text_sources: BTreeSet<&str> = claims
+    .iter()
+    .filter(|claim| claim.basis == ClaimBasis::Text)
+    .map(|claim| claim.provider.as_str())
+    .collect();
+let inputs = usize::from(handle) + text_sources.len();
+let extra = inputs.saturating_sub(1) as f32 * CORROBORATION_BONUS;
+```
+
+### Re-resolution is per entity and per authority
+
+- `identity resolve --entity <id>` runs the **full ladder** for that entity even when it already holds
+  a claim, and marks the currently held identity (or identities) with `*` in the per-entity output. It
+  is a demonstration, not a bypass: every rung is asked, the held answer is highlighted, and a new
+  identity is written additively. Today the already-claimed filter silently returns zero candidates,
+  which is the trap.
+- `--replace` retracts the live claims **owned by this resolver** (`claim.provider`) that the new
+  answer did not reproduce, only in the schemes the resolver actually answered this run, then writes
+  the new ones. If the provider refused or failed, nothing is retracted: absence is not evidence. It is
+  the repair path for a provider that improved.
+- `--replace` requires `--entity`; a corpus-wide replace is a rebuild, not a convenience flag.
+- `eval inspect <id>` remains the read-only replay: no writes, so it is the dry run.
+- Re-resolution is single-writer, like a rebuild: stop the link worker.
+
+### Ordered work
+
+| # | Change | Acceptance |
+| --- | --- | --- |
+| 0 | ✅ `stats`: identities and claims by `(provider, scheme)` | landed 2026-11-10; re-run after each step |
+| 1 | ✅ Schema 34: `knowledge_identities.asserted_by` → `provider`; `platform` → `illuminator`; reserved provider ids | landed; stats show `illuminator/*` |
+| 2 | ✅ Schema 35: `knowledge_claims.provider` + `method`, backfilled; unique index `(entity, identity, provider)`; provider selection index; non-empty `scheme`/`external_id` `CHECK` | landed 2026-11-10; two providers can assert one identity |
+| 3 | ✅ `awaiting_authority` per resolver; engine selects per resolver, fetches resolver-first, applies entity-first | a second fake authority is offered an entity Wikidata already claimed; one entity's claims are applied together |
+| 4 | ✅ Engine writes every accepted claim; shared `resolved` set removed; per-entity cap | two identities from one resolver on one entity; overflow reported; both providers' claims live |
+| 5 | ✅ `combine` over `(basis, provider)` with the handle-chain rule | handle chain one input; text one per authority |
+| 6 | ✅ `resolve --entity` via `resolve(&[entity])` + held-identity markers; `--replace` | a resolved entity walks every rung; held claims marked `*`; replace retracts only that resolver's claims |
+| 7 | ✅ Stats: claims per entity and confidence spread; re-measure the baseline | landed 2026-11-10; `knowledge.md` updated |
 
 ## Providers
 
-An authority is a namespace, so a provider is a trait implementation, not a schema change. `applies` is
+An authority is a namespace, so adding one is a trait implementation, not a schema change. `applies` is
 not even needed yet — but `plan` returns nothing when a provider has nothing to ask, which is the same
 seam: TMDB will simply refuse knowledge entities that are not films.
 
@@ -843,9 +1079,10 @@ both it. It is the highest-yield policy change left.
 
 `status` and `confidence` are written by `project()`, and by nothing else:
 
-- `identified` when any live identity claim exists, `contested` when a live collision does.
-- `confidence` = the best claim's confidence **+ 0.1 for a second independent *input***, capped at
-  1.0, where a claim's own confidence is `0.50 + 0.45 · score` (0.75 for a lone exact label).
+- `identified` when any live identity claim exists, `provisional` otherwise.
+- `confidence` = the best claim's confidence **+ 0.1 per extra independent *input***, capped at
+  1.0, where a claim's own confidence is `0.50 + 0.45 · score` (0.75 for a lone exact label). The
+  handle chain is one input however many sources carry it; text is one input per asserting authority.
 
   Inputs, not scheme labels. A `p2002` claim is derived *from* the handle — the resolver asked
   Wikidata which item owns that account — so pairing it with the handle's own `claim` row is

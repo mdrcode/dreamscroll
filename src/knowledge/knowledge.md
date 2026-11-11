@@ -60,7 +60,8 @@ entity_type / alt_types     the chosen type, and every other one asserted
 description / alt_*         same shape: one selected, the rest kept for matching
 search_query / alt_*        the disambiguation hint, projected the same way
 platform / platform_*       the presence one member carried, so the resolver can ask by handle
-confidence                  best claim's score + 0.1 per independent input (text, handle)
+confidence                  best claim's score + 0.1 per independent input
+                            (handle chain once; text once per asserting authority)
 status                      provisional → identified
 merged_into_id              set when this entity was folded into another
 ```
@@ -176,7 +177,7 @@ Resolving is the opposite kind of work: network, cached, and only ever through o
 
 ```rust
 trait Resolver {                              // src/knowledge/identity
-    fn id(&self) -> &'static str;
+    fn provider(&self) -> &'static str;
     async fn resolve(&self, entities: &[Model], gateway: &fetch::Gateway<'_>)
         -> Vec<(i32, Claim)>;                 // claims, each tagged with its entity
 }
@@ -194,11 +195,12 @@ trait Transport {
 hundred transport calls for a corpus walk and five thousand, and only the resolver knows how to
 group its own requests.
 
-How a resolver gets to its claims is its own business. `Wikidata` uses a ladder — handles, titles
-and exact labels first, then full-text search, then the bare title as a last resort — but that shape
-is internal to it, not vocabulary the engine knows about. `Kind` is the *provider's* enum, so
-**adding an authority means writing one `Resolver` plus one `Transport`**, and a resolver is free to
-make one request or a dozen.
+How a resolver gets to its claims is its own business. `Wikidata` climbs one step at a time — handle,
+title, label, search hint, search label, surface title — and each step asks only the entities still
+unresolved, batched across them. A title that resolves an entity drops its label and search questions.
+That shape is internal to the provider, not vocabulary the engine knows about. `Kind` is the
+*provider's* enum, so **adding an authority means writing one `Resolver` plus one `Transport`**, and a
+resolver is free to make one request or a dozen.
 
 The one thing a resolver cannot do is fetch. Its only route to the world is
 `Gateway::resolve_requests`, which consults the cache first, charges the budget and paces the call —
@@ -207,9 +209,11 @@ is `crate::fetch` and knows nothing about knowledge entities at all; see `src/fe
 agentic resolver, whose tool calls happen inside a provider's runtime, is the one exception: it uses
 the same gateway by convention, and it is expected to fail at that rather than to pretend.)
 
-Resolvers **accumulate**. Wikidata supplies a QID, and a second resolver might supply an IMDb id;
-they answer different questions, so both are kept. The promise is not "the answer" but *independent
-external evidence that this identity is true*.
+Identities **accumulate**. Wikidata supplies a QID, a capture's handle sits beside it as a separate
+identity, and a second authority may assert the same or another identity. The engine selects
+candidates per resolver, writes every claim the graph accepts, and applies an entity's claims before
+projecting it. The confidence counts the handle chain once and each text authority once — the
+multi-authority contract is in `plan/knowledge-resolution.md`.
 
 `plan` and `parse` inside `Wikidata` are pure, so its whole decision can be re-run over cached
 payloads for free — that is what the resolver's tests and `eval inspect` do.
@@ -219,11 +223,12 @@ payloads for free — that is what the resolver's tests and `eval inspect` do.
 Four tables, because they answer four different questions:
 
 ```
-knowledge_identities   the thing the world names: scheme + external id, and the answer
-                       whoever gave it (label, description, classes, method, confidence)
-knowledge_claims       this entity is that thing — the edge, with `basis` (text or handle)
-                       naming what the question was; several entities may claim one identity,
-                       because an album's article covers its songs
+knowledge_identities   the thing the world names: scheme + external id, and the answer its
+                       provider gave (label, description, classes, method, confidence);
+                       provider is a resolver id, `illuminator`, or `model`
+knowledge_claims       this entity is that thing — the edge, with `basis` (text or handle),
+                       `provider` and `method`; several entities may claim one identity, and
+                       several providers may assert one identity on one entity
 knowledge_proximities  two entities the graph considers close, with the score that a pass
                        computed — one scan's batch, replaced wholesale by the next
 knowledge_verdicts     a person's decision, and what decided it — the modification log: a
@@ -341,7 +346,7 @@ one.
 | `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Scoring` as arguments |
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
 |`identity/`|`mod.rs` (the `Resolver` trait a provider implements) · `engine` (the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The claim it returns, and where it becomes a row, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
-| `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates in `policy.rs` · answer parsing in `answer.rs` · the ladder and its request shapes in `resolver.rs` · candidate scoring in `ranking.rs` · HTTP in `transport.rs` |
+| `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates and decision order in `policy.rs` · answer parsing in `answer.rs` · the ladder in `resolver.rs` · request planning in `plan.rs` · query text in `query.rs` · candidate scoring in `ranking.rs`, as the graph's `Rank` verb · shape keys in `shape.rs` · class filtering in `types.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
 | `eval/` | offline diagnostics: `eval inspect` walks one entity through blocking, ranking and the ladder; `eval blocker` measures recall |
 

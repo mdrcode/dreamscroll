@@ -45,7 +45,7 @@ observation.
 | --- | --- | --- | --- |
 | **observation** | `UserObservedEntity` | `user_observed_entities` | `id`, `user_id`, `capture_id`, `illumination_id`, `position`, `created_at`, `name`, `entity_type`, `description`, `search_query`, `platform`, `platform_handle`, `platform_display_name`, `knowledge_entity_id` |
 | **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `status`, `confidence`, `merged_into_id`, timestamps |
-| **identity** (schema 23) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `scheme`, `external_id`, `label`, `description`, `classes`, `asserted_by`, `method`, `confidence`, `first_seen` |
+| **identity** (schema 23) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `scheme`, `external_id`, `label`, `description`, `classes`, `provider`, `method`, `confidence`, `first_seen` |
 | **claim** | `KnowledgeClaim` | `knowledge_claims` | `id`, `knowledge_entity_id`, `knowledge_identity_id`, `surface`, `basis`, `user_observed_entity_id`, `source_user_id`, `retracted_at`, `observed_at` |
 | **merge** | `KnowledgeVerdict` | `knowledge_verdicts` | `id`, `generation`, `cause`, `winner_origin`, `loser_origin`, `winner_label`, `loser_label`, `at` |
 | **proximity** | `KnowledgeProximity` | `knowledge_proximities` | `id`, `holder_id`, `counterpart_id`, `knowledge_identity_id`, `basis`, `score`, `verdict`, `raised_at`, `settled_at` |
@@ -130,7 +130,12 @@ against the codebase first; this table is the record.
 | *knowledge_id* | names a layer, not a thing; there is no `knowledge` table, and `knowledge_evidence` invites the wrong join |
 | *oracle* (for a provider, or for `Request::provider`) | already this project's word for the measurement ground truth — *"an exhaustive scan over a corpus is the oracle"* (`plan/archive/knowledge-blocking.md`), and the deleted in-memory blocker was *the parity oracle*. It also connotes infallibility, which is the opposite of the stance: `found` means candidates came back, not that one is the referent. Kept `provider` |
 | *quota* (for what a run may spend) | already the provider's limit, in code: `"vertex: quota exceeded"`. A quota is granted by someone else; `max_calls` is our own anti-spam budget, and the provider's real quota is what a `429` reports. One word for both would erase the distinction `Refusal::RateLimited` exists to draw. Kept `Allowance`, whose two refusals are `Budget` and `RateLimited` |
-| *provider* (for `knowledge_identities.asserted_by`) | `provider` is already the thing a `Transport` asks — `Request::provider`, `cached.provider`, and *"an authority is a namespace, so a provider is a trait implementation"* — while the column is not only providers: a handle read off a capture records `platform`, and a guess records `model`. `provider = 'platform'` would claim the platform answered a question nobody asked it. Kept `asserted_by`: it names the act, and the actor can be any of the three |
+Schema 34 renamed `knowledge_identities.asserted_by` to `provider` and changed the capture value from
+`platform` to `illuminator`. The old objection to `provider` was the *value* `platform`: the platform
+answered nothing. `provider` is now the source of the row and a **superset** of `Request::provider` —
+for an authority it is the same id; `illuminator` and `model` never appear in `fetch_cache`. The
+reserved ids are `illuminator`, `platform`, `model`, `operator` and `user`; the engine refuses a
+resolver that takes one.
 
 ## Rename map (schema 16)
 
@@ -148,7 +153,7 @@ against the codebase first; this table is the record.
 | `user_entity_id` | `user_observed_entity_id` |
 | `label` / `alt_labels` | `name` / `alt_names` |
 | `superseded_by_id` | `merged_into_id` |
-| kind `ontology` + `platform_link` | kind `claim` (differing only in the identity's `asserted_by`) |
+| kind `ontology` + `platform_link` | kind `claim` (differing only in the identity's `provider`) |
 | kinds `description` / `identity_rejection` / `identity_claim` | `enrichment` / `rejection` / deleted |
 | `build_core` | `link` |
 | `merge_core_entities` | `merge` |
