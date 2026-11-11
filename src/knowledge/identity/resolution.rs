@@ -6,19 +6,11 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use super::RESERVED_PROVIDERS;
+use super::{MAX_CLAIMS_PER_ENTITY, RESERVED_PROVIDERS};
 use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
 use crate::knowledge::KnowledgeGraph;
 use crate::knowledge::evidence::{Claim, ClaimDraft, DraftIdentity, Evidence, Stored};
 use crate::model;
-
-/// Transport calls a plain resolve is allowed to make when the caller does not choose a budget.
-/// Exists so that omitting the budget does real work instead of quietly resolving nothing.
-pub const DEFAULT_MAX_REQUESTS: usize = 200;
-
-/// Claims one resolver may assert for one entity in a run. An agentic authority must not inflate a
-/// confidence by returning a hundred URLs.
-const MAX_CLAIMS_PER_ENTITY: usize = 8;
 
 /// One authority, and the strategy for asking it.
 ///
@@ -378,6 +370,7 @@ mod tests {
         Allowance, Answer, BATCH, FetchCache, FetchError, Outcome, Request, Transport,
     };
     use crate::knowledge::evidence::Claim;
+    use crate::knowledge::identity::DEFAULT_MAX_REQUESTS;
     use crate::model;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::sync::Arc;
