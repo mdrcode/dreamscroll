@@ -64,6 +64,11 @@ impl<'a> Gateway<'a> {
         self.allowance.and_then(Allowance::refused)
     }
 
+    /// A gateway without an allowance is cache-only.
+    pub fn offline(&self) -> bool {
+        self.allowance.is_none()
+    }
+
     /// Ask the transport: cache first, then only what is missing, in batches, paced and budgeted.
     ///
     /// Returns whatever it has, and stops at the first refusal. The cache is durable, so a group not

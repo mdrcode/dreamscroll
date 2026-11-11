@@ -111,7 +111,8 @@ pub async fn resolve_illumination(
     db: &DbHandle,
     engine: &ResolutionEngine,
     illumination: &model::illumination::ModelEx,
-    gateway: &crate::fetch::Gateway<'_>,
+    cache: &FetchCache<'_>,
+    allowance: Option<&crate::fetch::Allowance>,
 ) -> anyhow::Result<ResolutionReport> {
     anyhow::ensure!(
         illumination.observations.is_loaded(),
@@ -135,7 +136,7 @@ pub async fn resolve_illumination(
         .collect::<Result<_, _>>()?;
 
     if ids.is_empty() {
-        return engine.resolve(&[], gateway).await;
+        return engine.resolve(&[], cache, allowance).await;
     }
 
     let entities = model::knowledge_entity::Entity::find()
@@ -150,7 +151,7 @@ pub async fn resolve_illumination(
         ids.len(),
         entities.len()
     );
-    engine.resolve(&entities, gateway).await
+    engine.resolve(&entities, cache, allowance).await
 }
 
 /// Resolve every entity still pending for any configured provider.
@@ -161,7 +162,7 @@ pub async fn resolve_all_pending(
     db: &DbHandle,
     engine: &ResolutionEngine,
     cache: &FetchCache<'_>,
-    gateway: &crate::fetch::Gateway<'_>,
+    allowance: Option<&crate::fetch::Allowance>,
 ) -> anyhow::Result<ResolutionReport> {
     let evidence = Evidence::from_handle(db);
     // One provider's pending set, then the union: an entity Wikidata answered is still pending for
@@ -186,14 +187,14 @@ pub async fn resolve_all_pending(
 
     // An online corpus pass is the maintenance moment: drop answers that aged out long ago. A
     // per-illumination resolve does not do this — it must stay quick.
-    if !engine.options().offline {
+    if allowance.is_some() {
         let pruned = cache.prune().await?;
         if pruned > 0 {
             tracing::info!(pruned, "Pruned expired fetch cache rows");
         }
     }
 
-    engine.resolve(&entities, gateway).await
+    engine.resolve(&entities, cache, allowance).await
 }
 
 /// Assert the handle each linked observation showed, and project where it landed.
@@ -298,10 +299,10 @@ mod tests {
         let illumination = loaded_illumination(&db, capture.illumination_id).await;
         let cache = FetchCache::new(&db.conn);
         let allowance = crate::fetch::Allowance::new(10, std::time::Duration::ZERO);
-        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
-        let report = resolve_illumination(&db, &engine(&db), &illumination, &gateway)
-            .await
-            .expect("resolve");
+        let report =
+            resolve_illumination(&db, &engine(&db), &illumination, &cache, Some(&allowance))
+                .await
+                .expect("resolve");
 
         assert_eq!(report.considered, 1, "{report:?}");
         assert_eq!(report.offline, false);
@@ -317,10 +318,10 @@ mod tests {
         let illumination = loaded_illumination(&db, capture.illumination_id).await;
         let cache = FetchCache::new(&db.conn);
         let allowance = crate::fetch::Allowance::new(10, std::time::Duration::ZERO);
-        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
-        let error = resolve_illumination(&db, &engine(&db), &illumination, &gateway)
-            .await
-            .expect_err("an unlinked observation must be refused");
+        let error =
+            resolve_illumination(&db, &engine(&db), &illumination, &cache, Some(&allowance))
+                .await
+                .expect_err("an unlinked observation must be refused");
 
         assert!(error.to_string().contains("unlinked"), "{error}");
     }
@@ -338,9 +339,8 @@ mod tests {
 
         let cache = FetchCache::new(&db.conn);
         let allowance = crate::fetch::Allowance::new(10, std::time::Duration::ZERO);
-        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
         let report = engine(&db)
-            .resolve(std::slice::from_ref(&entity), &gateway)
+            .resolve(std::slice::from_ref(&entity), &cache, Some(&allowance))
             .await
             .expect("resolve");
 

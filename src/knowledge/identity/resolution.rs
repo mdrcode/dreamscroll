@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use super::RESERVED_PROVIDERS;
-use crate::fetch::{Gateway, Refusal};
+use crate::fetch::{Allowance, FetchCache, Gateway, Refusal};
 use crate::knowledge::KnowledgeGraph;
 use crate::knowledge::evidence::{Claim, ClaimDraft, DraftIdentity, Evidence, Stored};
 use crate::model;
@@ -51,7 +51,6 @@ pub trait Resolver: Send + Sync {
 pub struct Options {
     /// How many pending entities `resolve_all_pending` considers.
     pub limit: Option<usize>,
-    pub offline: bool,
     /// Ask every resolver even when it already claimed the entity. `resolve --entity` sets this;
     /// already-held identities are no-ops, new ones are added.
     pub force: bool,
@@ -71,7 +70,6 @@ impl Default for Options {
     fn default() -> Self {
         Self {
             limit: None,
-            offline: false,
             force: false,
             replace: false,
             newest_first: false,
@@ -163,13 +161,14 @@ impl ResolutionEngine {
 
     /// Resolve exactly the entities in scope; selection is the caller's job.
     ///
-    /// The helper layer composes the scopes: one illumination, or the pending world. The caller also
-    /// owns the per-run [`Gateway`], so its cache and budget live exactly as long as the run. This
-    /// method owns the apply: vetoes, the entity-first ordering, and the projection.
+    /// The helper layer composes the scopes: one illumination, or the pending world. The caller owns
+    /// the cache and the allowance; this method builds the ephemeral gateway from them. A shared
+    /// `Allowance` therefore caps several runs, while a fresh one gives each run its own budget.
     pub async fn resolve(
         &self,
         entities: &[crate::model::knowledge_entity::Model],
-        gateway: &Gateway<'_>,
+        cache: &FetchCache<'_>,
+        allowance: Option<&Allowance>,
     ) -> anyhow::Result<ResolutionReport> {
         // The caller may hand in a tombstone or a duplicate; neither is a question to ask.
         let mut seen = HashSet::new();
@@ -179,7 +178,8 @@ impl ResolutionEngine {
             .cloned()
             .collect();
 
-        let mut run = ResolutionRun::new(self, &entities, gateway).await?;
+        let gateway = Gateway::new(Some(cache), allowance, true);
+        let mut run = ResolutionRun::new(self, &entities, &gateway).await?;
         run.collect(&entities).await?;
         run.apply().await?;
         Ok(run.finish())
@@ -218,7 +218,7 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
             vetoes,
             report: ResolutionReport {
                 considered: entities.len(),
-                offline: engine.options.offline,
+                offline: gateway.offline(),
                 ..Default::default()
             },
             provider_reports: Vec::new(),
@@ -406,13 +406,21 @@ mod tests {
         }
 
         async fn resolve_pending(self) -> anyhow::Result<ResolutionReport> {
+            self.resolve_pending_with(true).await
+        }
+
+        async fn resolve_pending_offline(self) -> anyhow::Result<ResolutionReport> {
+            self.resolve_pending_with(false).await
+        }
+
+        async fn resolve_pending_with(self, online: bool) -> anyhow::Result<ResolutionReport> {
             let db = self.graph.db();
             let cache = crate::fetch::FetchCache::new(&db.conn);
-            let allowance = (!self.options.offline).then(|| {
+            let allowance = online.then(|| {
                 crate::fetch::Allowance::new(DEFAULT_MAX_REQUESTS, std::time::Duration::ZERO)
             });
-            let gateway = Gateway::new(Some(&cache), allowance.as_ref(), true);
-            crate::knowledge::helper::resolve_all_pending(db, &self, &cache, &gateway).await
+            crate::knowledge::helper::resolve_all_pending(db, &self, &cache, allowance.as_ref())
+                .await
         }
     }
 
@@ -425,8 +433,7 @@ mod tests {
         let cache = crate::fetch::FetchCache::new(&db.conn);
         let allowance =
             crate::fetch::Allowance::new(DEFAULT_MAX_REQUESTS, std::time::Duration::ZERO);
-        let gateway = Gateway::new(Some(&cache), Some(&allowance), true);
-        engine.resolve(entities, &gateway).await
+        engine.resolve(entities, &cache, Some(&allowance)).await
     }
 
     /// Which candidates a finite budget reaches is a policy, so pin both orders.
@@ -895,22 +902,16 @@ mod tests {
             .expect("seed the cache");
 
         let calls = Arc::new(AtomicUsize::new(0));
-        let report = ResolutionEngine::new(
-            KnowledgeGraph::new(&db),
-            Options {
-                offline: true,
-                ..Default::default()
-            },
-            Vec::new(),
-        )
-        .expect("engine")
-        .with(Box::new(Fake {
-            answers: HashMap::new(),
-            calls: calls.clone(),
-        }))
-        .resolve_pending()
-        .await
-        .expect("resolve");
+        let report =
+            ResolutionEngine::new(KnowledgeGraph::new(&db), Options::default(), Vec::new())
+                .expect("engine")
+                .with(Box::new(Fake {
+                    answers: HashMap::new(),
+                    calls: calls.clone(),
+                }))
+                .resolve_pending_offline()
+                .await
+                .expect("resolve");
 
         assert!(report.offline, "the run says it was cache-only");
         assert_eq!(

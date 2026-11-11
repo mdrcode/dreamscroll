@@ -508,7 +508,6 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
     };
     let options = knowledge::identity::Options {
         limit: args.limit,
-        offline: args.offline,
         force: args.entity.is_some(),
         replace: args.replace,
         newest_first: args.newest,
@@ -525,7 +524,6 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
             std::time::Duration::from_millis(args.min_interval_ms),
         )
     });
-    let gateway = dreamscroll::fetch::Gateway::new(Some(&cache), allowance.as_ref(), true);
     let report = match args.entity {
         Some(id) => {
             let Some(before) = stats::entity::detail(db, id).await? else {
@@ -536,7 +534,11 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
                 "knowledge entity {id} is a tombstone; resolve the live entity"
             );
             let report = engine
-                .resolve(std::slice::from_ref(&before.entity), &gateway)
+                .resolve(
+                    std::slice::from_ref(&before.entity),
+                    &cache,
+                    allowance.as_ref(),
+                )
                 .await?;
             let after = stats::entity::detail(db, id)
                 .await?
@@ -567,7 +569,7 @@ async fn resolve_identity(db: &database::DbHandle, args: ResolveArgs) -> anyhow:
             }
             report
         }
-        None => knowledge::resolve_all_pending(db, &engine, &cache, &gateway).await?,
+        None => knowledge::resolve_all_pending(db, &engine, &cache, allowance.as_ref()).await?,
     };
 
     if report.offline {
