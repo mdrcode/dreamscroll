@@ -379,6 +379,66 @@ mod tests {
         );
     }
 
+    /// A fold joins two descriptions of one thing whose types disagree, and the projection turns
+    /// that into agreement: the survivor wears the origin's type and the loser's becomes an
+    /// alternative. Without it a merge of two differently-typed readings would keep half the
+    /// evidence in a tombstone nobody reads.
+    #[tokio::test]
+    async fn the_losers_type_becomes_an_alternative() {
+        db_or_skip!(db);
+        let winner = entity_with(&db, "Tomb of Napoleon").await;
+        let loser = entity_with(&db, "Tomb of Napoleon Bonaparte").await;
+
+        let winner_capture = fixtures::Capture::new(&db, "merge_types_winner").await;
+        fixtures::attached(
+            &db,
+            &winner_capture,
+            0,
+            "Tomb of Napoleon",
+            None,
+            "place",
+            winner,
+        )
+        .await;
+        let loser_capture = fixtures::Capture::new(&db, "merge_types_loser").await;
+        fixtures::attached(
+            &db,
+            &loser_capture,
+            0,
+            "Tomb of Napoleon Bonaparte",
+            None,
+            "art_work",
+            loser,
+        )
+        .await;
+
+        assert_eq!(
+            merge(
+                &db.conn,
+                &Evidence::from_handle(&db),
+                &VerdictStore::from_handle(&db),
+                loser,
+                winner,
+                Cause::Repair
+            )
+            .await
+            .expect("merge"),
+            Outcome::Merged
+        );
+
+        let survivor = entity::Entity::find_by_id(winner)
+            .one(&db.conn)
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(survivor.entity_type, "place", "the origin's type is worn");
+        assert_eq!(
+            survivor.alt_types,
+            vec!["art_work".to_string()],
+            "the loser's type survives as an alternative"
+        );
+    }
+
     /// Two entities that both have an observation in one capture cannot be one referent. The veto
     /// decided that at link time; a merge must not contradict it.
     #[tokio::test]
