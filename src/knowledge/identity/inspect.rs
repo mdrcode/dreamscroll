@@ -218,7 +218,13 @@ async fn walk(
                         None
                     }
                 },
-                _ => decision::decide(entity, request.kind, &raw, &mut refusal),
+                _ => match decision::decide(entity, request.kind, &raw) {
+                    Ok(identity) => Some(identity),
+                    Err(why) => {
+                        refusal = why;
+                        None
+                    }
+                },
             };
             identity.map(|identity| {
                 vetoed = vetoes.contains(&(

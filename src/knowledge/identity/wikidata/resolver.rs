@@ -128,9 +128,8 @@ fn accumulate(
         let Some(raw) = answers.get(request) else {
             continue;
         };
-        // The refusal reason is `inspect`'s business; the resolver only needs the outcome.
-        let mut ignored = "";
-        let Some(identity) = decision::decide(entity, request.kind, raw, &mut ignored) else {
+        // The refusal is `inspect`'s business; the resolver only needs the identity.
+        let Ok(identity) = decision::decide(entity, request.kind, raw) else {
             // Not wrong, just not usable here: a disambiguation page, a different kind of
             // thing, or a name with no item. The answer is still a fact about the provider, so
             // it keeps its full life in the cache — only a new `shape` may re-ask it.
