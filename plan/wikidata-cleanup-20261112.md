@@ -201,8 +201,8 @@ and the fix that closed them. Status values: `pending`, `done`.
 | --- | --- | --- | --- |
 | 1 | `resolver.rs` | done | R1–R11: free functions, `accumulate` / `last_resort`, the vocabulary sweep. Open: no precedence test, the `Canned` footgun |
 | 2 | `plan.rs` | done | P1 `plan::all_steps`, P2 `trim()` measured. Open: `Handle(&'static str)` drops `PropertyId` |
-| 3 | `decision.rs` | done | M1–M6: one entry, `choose` private, dead guards, method vocabulary, name tests measured. Open: three scorers / two axes, the `reason` out-param |
-| 4 | `ranking.rs` | pending | the two-fits defect (options A/B/C), `terse_and_rare`, hand-rolled `stem`, 4 tests for 347 lines |
+| 3 | `decision.rs` | done | M1–M8: one entry, `choose` private, dead guards, method vocabulary, `Result` refusals, both score questions measured. Open: file size only |
+| 4 | `ranking.rs` | next | the two-fits defect (options A/B/C), `terse_and_rare`, hand-rolled `stem`, 4 tests for 347 lines |
 | 5 | `types.rs` | pending | best quality-per-line; arms enumerate forbidden families inline |
 | 6 | `transport.rs` | pending | `search` mixes three concerns; `sparql` picks its query from `first.kind`; no degraded-branch test |
 | 7 | `property_query.rs` | pending | clean; only its coupling to `WikidataKind::Handle` |
@@ -317,23 +317,22 @@ Left open on purpose when `plan.rs` was signed off:
   So the divergence is load-bearing in both directions: a Wikipedia *article title* can be our name
   while the *item label* is not, and a text-search result set carries no such guarantee. Code
   unchanged; the file header now states the reason with the measurement behind it.
+- **M7 — the refusal was written through an out-param.** `reason: &mut &'static str` ran through six
+  functions and made `resolver` carry a scratch variable it ignored. `decision` now returns
+  `Result<Identity, &'static str>` — `Ok` the identity, `Err` the reason a stage closed — and `?`
+  replaces the `*reason = …; return None` pairs. `handle` cannot fail (`admit` guarantees a candidate),
+  so it returns `Identity`. The lone-exact-label shortcut moved out of `choose` into `label`, where its
+  rung is; the shared tail no longer holds a kind-specific decision, and `kind` reaches it only to name
+  the method that won. `admit`'s doc now says what it returns as well as what it rejects.
+- **M8 — the hint's score: measured, and left alone.** The hint scored itself as
+  `NAME_WEIGHT + SUPPORT_WEIGHT × support`, assuming full name credit, while `choose` uses the real
+  `blend`. Switching it to `blend` cost five identities (six hint claims lost, one gained): the
+  assumption is the point, because the hint runs only after the name test failed and weighting name
+  agreement again would double-count that failure. Reverted, and the doc now says so with the
+  measurement.
 
 Left open on purpose when `decision.rs` was reviewed:
 
-- **Three scorers, two axes.** `choose` ranks by IDF-weighted description `fit` then `blend`; `by_hint`
-  ranks by the proportion of hint tokens a description accounts for. M5 documented that they are
-  different quantities and that `HINT_CEILING` keeps them from competing — but both still land on the
-  same `Identity.confidence` axis, and nothing stops a future edit from treating them as comparable.
-  Reconciling them means scoring the hint through the same machinery, which moves the corpus and needs
-  a labelled sample.
-- **`reason: &mut &'static str` threads through six functions** (`decide`, `handle`, `title`, `search`,
-  `choose`, `by_hint`). It is the cheapest "why not" that allocates nothing, but it lengthens every
-  signature and forces `resolver` to carry a scratch variable it ignores (`&mut ignored`). An
-  `Outcome { identity, reason }` return would read better and allocate nothing extra; not done because
-  it touches every call site for no behaviour change.
-- **The lone-label shortcut lives in `choose`**, the shared tail — the only place the tail reads
-  `kind` for a *decision* rather than a name. Moving it into `label()` would put it where its rung is,
-  but `choose` still needs `kind` for `method_for`, so the parameter would not disappear.
 - **The file is 1,040 lines** (392 impl / 648 test). Accepted as the price of one entry plus four
   sibling rungs (M4); the thing to watch if it keeps growing.
 

@@ -313,9 +313,12 @@ fn choose(
 /// text echoing back, so its identities are capped lower ([`HINT_CEILING`]). The `Sunset Boulevard`
 /// hint once lifted the musical above the 1950 film; the ordering is what prevents a repeat.
 ///
-/// **Its score is not the blend.** [`choose`] ranks by IDF-weighted description fit; this ranks by
-/// the proportion of hint tokens a candidate's description accounts for — a different quantity on a
-/// different range. The ceiling is what keeps them from competing, not comparability.
+/// **Its score is not [`blend`].** `choose` ranks by IDF-weighted description fit; this ranks by the
+/// proportion of hint tokens a candidate's description accounts for, and it deliberately assumes full
+/// name credit. That is not an oversight: this function runs only after the name test failed, and the
+/// hint *is* the evidence in that case — weighting name agreement here would double-count the failure
+/// that brought us here. Measured 2026-11-12: switching it to the real blend lost five identities, all
+/// `search_hint`. The ceiling is what keeps the two scales from competing.
 ///
 /// `candidates` is non-empty. From [`choose`] it is the admitted set; from [`search`] it is the
 /// *unadmitted* one, because the hint is scored against descriptions and the name test must not be
