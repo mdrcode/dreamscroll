@@ -12,6 +12,18 @@
 //! 3. **Choice** ([`choose`]) — corroboration, margin, hint fallback. Shared by every rung, so
 //!    tuning it moves them together.
 //!
+//! Each rung has exactly one early exit, matched to what its query guarantees. `label` enumerates
+//! every holder of the string, so a lone exact label is identity. `search` may return anything, so
+//! one exact surface counts only with corroboration. `title` *is* our exact name, so an exact surface
+//! proves nothing there and it has no early exit at all — it must corroborate, which is why
+//! `Orthodoxy` cannot claim on its article alone. `handle` needs no decision: the property match is
+//! the identity.
+//!
+//! Admission follows the same logic. `title` admits on any shared content word because its query is
+//! already our exact name; `search` demands near-surface, a qualifier suffix or a content-word subset
+//! because its result set is text search and will happily embed our name in something else
+//! (`Royal Navy fleet aircraft carrier fleet`).
+//!
 //! [`surface_only`] is outside the ladder: the deferred exact-surface rule, applied by the resolver
 //! after every rung refused. Everything here is pure, a refusal records *which* stage closed so
 //! `identity inspect` reports it rather than guessing, and the numbers live in `ranking.rs`.
@@ -62,7 +74,7 @@ pub(crate) fn decide(
         }
     };
     match kind {
-        WikidataKind::Handle(property) => handle(&candidates, property, reason),
+        WikidataKind::Handle(property) => handle(&candidates, property),
         WikidataKind::Label => label(entity, &candidates, reason),
         WikidataKind::Title => title(entity, &candidates, reason),
         WikidataKind::Search => search(entity, &candidates, reason),
@@ -70,19 +82,16 @@ pub(crate) fn decide(
 }
 
 /// A property match *is* the identity: an item claiming this handle is the account itself. No
-/// admission, no ranking — the handle space is the property's, and it answered.
-fn handle(
-    candidates: &[WikidataCandidate],
-    property: &'static str,
-    reason: &mut &'static str,
-) -> Option<Identity> {
-    match candidates.first() {
-        Some(candidate) => Some(answer::identity(candidate, property, HANDLE_CONFIDENCE)),
-        None => {
-            *reason = "the handle answer carried no item";
-            None
-        }
-    }
+/// admission rule, no ranking — the handle space belongs to the property, and it answered.
+///
+/// `candidates` is non-empty because [`admit`] refuses an answer that carried nothing, so there is
+/// no "no item" branch to write.
+fn handle(candidates: &[WikidataCandidate], property: &'static str) -> Option<Identity> {
+    Some(answer::identity(
+        &candidates[0],
+        property,
+        HANDLE_CONFIDENCE,
+    ))
 }
 
 /// No admission rule, on purpose: the label query enumerates *every* holder of the string, so the
@@ -314,15 +323,19 @@ fn choose(
 /// have both refused — so it can never overrule a description that resolved the case. It is our own
 /// text echoing back, so its identities are capped lower ([`HINT_CEILING`]). The `Sunset Boulevard`
 /// hint once lifted the musical above the 1950 film; the ordering is what prevents a repeat.
+///
+/// **Its score is not the blend.** [`choose`] ranks by IDF-weighted description fit; this ranks by
+/// the proportion of hint tokens a candidate's description accounts for — a different quantity on a
+/// different range. The ceiling is what keeps them from competing, not comparability.
+///
+/// `candidates` is non-empty. From [`choose`] it is the admitted set; from [`search`] it is the
+/// *unadmitted* one, because the hint is scored against descriptions and the name test must not be
+/// allowed to veto it.
 fn by_hint(
     entity: &model::knowledge_entity::Model,
     candidates: &[WikidataCandidate],
     reason: &mut &'static str,
 ) -> Option<Identity> {
-    if candidates.is_empty() {
-        *reason = "the answer carried no candidate";
-        return None;
-    }
     let Some(hint) = hint_tokens(entity) else {
         *reason = "no disambiguation hint to fall back on";
         return None;

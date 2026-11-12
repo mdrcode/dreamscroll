@@ -260,6 +260,15 @@ each hold at most one question.
   `interpret.rs` is gone; `admit` and `surface_only` live beside the entry. Adding a rung is now one
   exhaustive match next to the four procedures, instead of an edit in one file plus a function in
   another. Cost: a 1008-line file (392 impl / 616 test).
+- **M5 — dead guards, and the invariant nobody had written down.** `admit` guarantees a non-empty
+  candidate set, so `handle`'s "the handle answer carried no item" branch and `by_hint`'s empty-set
+  return could never fire — an affordance in the code claiming a failure is possible when it isn't.
+  Both deleted (and `handle` lost its `reason` parameter). `by_hint`'s score is now documented as a
+  *different axis* from `choose`'s blend — support proportion, not IDF-weighted fit — with the
+  ceiling as the guard, plus its two call contracts (admitted set from `choose`, unadmitted from
+  `search`). The file header finally states the per-rung invariant: each rung has exactly one early
+  exit, matched to what its query guarantees, which is also why `title` admits generously and
+  `search` strictly.
 
 ### 2. `plan.rs` — done 2026-11-12
 
