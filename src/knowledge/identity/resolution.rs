@@ -45,9 +45,12 @@ pub struct Options {
     pub dry_run: bool,
 }
 
-/// One identity a dry run would write.
+/// One identity a dry run would write, as the report's wording: entity, provider and key.
+///
+/// Not `Identity`: that is the resolver's input and carries the full metadata, no entity or
+/// provider, and an `f32` confidence. This is the minimal `Eq` row a report can hold.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreviewIdentity {
+pub struct DryRunIdentity {
     pub entity_id: i32,
     pub provider: String,
     pub scheme: String,
@@ -73,7 +76,7 @@ pub struct ResolutionReport {
 
     pub by_provider: Vec<ProviderReport>,
     /// What a dry run would write; empty for a real run.
-    pub preview: Vec<PreviewIdentity>,
+    pub preview: Vec<DryRunIdentity>,
     /// The run-wide budget refusal, or a provider's rate limit, for the report.
     pub refusal: Option<Refusal>,
 }
@@ -327,7 +330,7 @@ impl<'e, 'g, 'a> ResolutionRun<'e, 'g, 'a> {
                 }
                 self.report
                     .preview
-                    .extend(keep.into_iter().map(|identity| PreviewIdentity {
+                    .extend(keep.into_iter().map(|identity| DryRunIdentity {
                         entity_id,
                         provider: provider.to_string(),
                         scheme: identity.scheme,

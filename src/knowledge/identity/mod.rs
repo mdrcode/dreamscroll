@@ -17,7 +17,7 @@ pub mod resolution;
 pub mod wikidata;
 
 pub use resolution::{
-    Options, PreviewIdentity, ProviderReport, ResolutionEngine, ResolutionReport, Resolver,
+    DryRunIdentity, Options, ProviderReport, ResolutionEngine, ResolutionReport, Resolver,
 };
 
 /// Transport calls a plain resolve is allowed to make when the caller does not choose a budget.
