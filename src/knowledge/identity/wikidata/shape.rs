@@ -23,3 +23,45 @@ pub(super) fn of(kind: &Kind) -> String {
         Kind::Search => format!("wikidata/v3-search|lang={LANGUAGE}|limit={SEARCH_LIMIT}"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::BTreeSet;
+
+    /// A shape belongs to one kind: its own version prefix, carrying only the constants that kind's
+    /// construction reads. Sharing a prefix made a change to one invalidate another, and appending a
+    /// limit no kind sent made changing `SEARCH_LIMIT` throw away every label, title and handle
+    /// answer for nothing — a cache miss that looks like a rate-limit problem.
+    #[test]
+    fn each_kind_owns_its_shape() {
+        let label = of(&Kind::Label);
+        let title = of(&Kind::Title);
+        let search = of(&Kind::Search);
+        let handle = of(&Kind::Handle("P2002"));
+
+        assert!(search.contains("limit="), "{search}");
+        for (kind, shape) in [("label", &label), ("title", &title), ("handle", &handle)] {
+            assert!(!shape.contains("limit="), "{kind} sends no limit: {shape}");
+        }
+        assert!(
+            !handle.contains("lang="),
+            "a handle query reads no labels: {handle}"
+        );
+        assert_eq!(
+            of(&Kind::Handle("P2003")),
+            handle,
+            "another property is another kind, not another shape"
+        );
+
+        let prefixes: BTreeSet<&str> = [&label, &title, &search, &handle]
+            .iter()
+            .filter_map(|shape| shape.split('|').next())
+            .collect();
+        assert_eq!(
+            prefixes.len(),
+            4,
+            "each kind has to be bumpable on its own: {prefixes:?}"
+        );
+    }
+}

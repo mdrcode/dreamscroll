@@ -13,15 +13,16 @@ use crate::fetch::{Answer, BATCH, FetchError, Outcome, Request, Transport};
 
 /// MediaWiki's API: search, entities and page lookups.
 const SEARCH_ENDPOINT: &str = "https://www.wikidata.org/w/api.php";
-/// Article-title reconciliation. A Wikipedia title is unique where a Wikidata label is not: 213
+/// The article-title reconciliation. A Wikipedia title is unique where a Wikidata label is not: 213
 /// items are labelled `Paris`, but only one page is titled `Paris`.
 const WIKIPEDIA_ENDPOINT: &str = "https://en.wikipedia.org/w/api.php";
 
+/// One answer per query, which is what a transport hands a batch back as.
+type Batched = Vec<(String, Answer<Vec<Candidate>>)>;
+
 /// The wire: one client, and the four ways this authority answers a question.
 ///
-/// Everything here is an HTTP shape and its response walking — no ranking, no decisions, no
-/// knowledge of what a claim means. The door (`crate::fetch`) owns the cache, the pace and the
-/// budget; this type only speaks.
+/// The door (`crate::fetch`) owns the cache, the pace and the budget; this type only speaks.
 pub(super) struct Wire {
     client: reqwest::Client,
 }
@@ -56,6 +57,46 @@ fn candidate_from_row(row: &Value) -> Option<(String, Candidate)> {
                 .unwrap_or_default(),
         },
     ))
+}
+
+/// One `wbgetentities` item as a candidate: the English label and description, and the `P31` classes
+/// the kind gate reads.
+///
+/// `classes` is the field a silent failure would cost the most: empty is a legal answer, so a wrong
+/// path through `claims` would not fail — it would turn the gate off for every search and title
+/// answer and let a wrong QID be claimed.
+fn entity_candidate(qid: &str, item: &Value) -> Candidate {
+    let language = |key: &str| {
+        item.get(key)
+            .and_then(|values| values.get(LANGUAGE))
+            .and_then(|value| value.get("value"))
+            .and_then(Value::as_str)
+    };
+    let classes = item
+        .get("claims")
+        .and_then(|claims| claims.get("P31"))
+        .and_then(Value::as_array)
+        .map(|claims| {
+            claims
+                .iter()
+                .filter_map(|claim| {
+                    claim
+                        .get("mainsnak")
+                        .and_then(|snak| snak.get("datavalue"))
+                        .and_then(|value| value.get("value"))
+                        .and_then(|value| value.get("id"))
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    Candidate {
+        id: qid.to_string(),
+        label: language("labels").map(str::to_string),
+        description: language("descriptions").map(str::to_string),
+        classes,
+    }
 }
 
 /// MediaWiki reports a failure inside a `200` body, and a body missing the key it must have is just
@@ -196,6 +237,14 @@ impl Wire {
         } else {
             Outcome::Degraded
         };
+        // What "no results" means here: a fact about the corpus only when the backend answered.
+        let negative = || {
+            Answer::nothing(if reached_backend {
+                Outcome::Empty
+            } else {
+                Outcome::Degraded
+            })
+        };
         let ids: Vec<String> = query
             .get("search")
             .and_then(Value::as_array)
@@ -215,22 +264,14 @@ impl Wire {
             // Zero results is exactly what a degraded backend returns. If CirrusSearch never saw the
             // query, "nothing found" is not a fact about the corpus — it is a failed request wearing
             // a 200. Only a search that actually reached the backend may cache a negative.
-            return Ok(Answer::nothing(if reached_backend {
-                Outcome::Empty
-            } else {
-                Outcome::Degraded
-            }));
+            return Ok(negative());
         }
 
         let items = self.items(&ids).await?;
         let candidates: Vec<Candidate> =
             ids.iter().filter_map(|id| items.get(id).cloned()).collect();
         if candidates.is_empty() {
-            return Ok(Answer::nothing(if reached_backend {
-                Outcome::Empty
-            } else {
-                Outcome::Degraded
-            }));
+            return Ok(negative());
         }
         Ok(Answer {
             outcome,
@@ -238,15 +279,13 @@ impl Wire {
         })
     }
 
-    /// Labels, descriptions and types for a set of items, 50 per call.
+    /// Labels, descriptions and types for a set of items, [`BATCH`] per call.
     pub(super) async fn items(
         &self,
         ids: &[String],
-    ) -> Result<std::collections::HashMap<String, Candidate>, FetchError> {
-        use std::collections::HashMap;
-
+    ) -> Result<HashMap<String, Candidate>, FetchError> {
         let mut details: HashMap<String, Candidate> = HashMap::new();
-        for chunk in ids.chunks(50) {
+        for chunk in ids.chunks(BATCH) {
             let response = self
                 .client
                 .get(SEARCH_ENDPOINT)
@@ -267,44 +306,7 @@ impl Wire {
                 .map_err(|error| FetchError::Failed(error.to_string()))?;
             let entities = api_result(&body, "wikidata entities", "entities")?;
             for (qid, item) in entities.as_object().into_iter().flatten() {
-                let label = item
-                    .get("labels")
-                    .and_then(|labels| labels.get(LANGUAGE))
-                    .and_then(|label| label.get("value"))
-                    .and_then(Value::as_str);
-                let description = item
-                    .get("descriptions")
-                    .and_then(|descriptions| descriptions.get(LANGUAGE))
-                    .and_then(|description| description.get("value"))
-                    .and_then(Value::as_str);
-                let classes: Vec<String> = item
-                    .get("claims")
-                    .and_then(|claims| claims.get("P31"))
-                    .and_then(Value::as_array)
-                    .map(|claims| {
-                        claims
-                            .iter()
-                            .filter_map(|claim| {
-                                claim
-                                    .get("mainsnak")
-                                    .and_then(|snak| snak.get("datavalue"))
-                                    .and_then(|value| value.get("value"))
-                                    .and_then(|value| value.get("id"))
-                                    .and_then(Value::as_str)
-                                    .map(str::to_string)
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                details.insert(
-                    qid.clone(),
-                    Candidate {
-                        id: qid.clone(),
-                        label: label.map(str::to_string),
-                        description: description.map(str::to_string),
-                        classes,
-                    },
-                );
+                details.insert(qid.clone(), entity_candidate(qid, item));
             }
         }
         Ok(details)
@@ -312,12 +314,7 @@ impl Wire {
 
     /// `enwiki title -> item`, following normalisation and redirects, then one batched read for
     /// the labels, descriptions and types the caller needs.
-    pub(super) async fn titles(
-        &self,
-        requests: &[Request<Kind>],
-    ) -> Result<Vec<(String, Answer<Vec<Candidate>>)>, FetchError> {
-        use std::collections::HashMap;
-
+    pub(super) async fn titles(&self, requests: &[Request<Kind>]) -> Result<Batched, FetchError> {
         let titles: Vec<String> = requests
             .iter()
             .map(|request| request.query.trim().to_string())
@@ -377,10 +374,7 @@ impl Wire {
                         body: Some(vec![candidate.clone()]),
                     },
                 ),
-                None => (
-                    request.query.clone(),
-                    Answer::nothing(Outcome::Empty),
-                ),
+                None => (request.query.clone(), Answer::nothing(Outcome::Empty)),
             });
         }
         Ok(answers)
@@ -394,10 +388,7 @@ const SPARQL_ENDPOINT: &str = "https://query.wikidata.org/sparql";
 /// A body we cannot read is an error, never a batch of empty answers: every `Empty` leaving here
 /// becomes a cached negative, so a refused or malformed response would claim for a week that the item
 /// does not exist. `search` guards its body for the same reason.
-fn answers_from_sparql(
-    requests: &[Request<Kind>],
-    body: &Value,
-) -> Result<Vec<(String, Answer<Vec<Candidate>>)>, FetchError> {
+fn answers_from_sparql(requests: &[Request<Kind>], body: &Value) -> Result<Batched, FetchError> {
     let results = api_result(body, "sparql", "results")?;
     let Some(rows) = results.get("bindings").and_then(Value::as_array) else {
         return Err(FetchError::Failed(format!(
@@ -407,7 +398,7 @@ fn answers_from_sparql(
 
     // Every requested query gets an answer, found or empty — so the cache records the negative
     // instead of the executor asking again next run.
-    let mut answers: Vec<(String, Answer<Vec<Candidate>>)> = requests
+    let mut answers: Batched = requests
         .iter()
         .map(|request| (request.query.clone(), Answer::nothing(Outcome::Empty)))
         .collect();
@@ -417,7 +408,10 @@ fn answers_from_sparql(
             continue;
         };
         let entry = grouped.entry(query).or_default();
-        match entry.iter_mut().find(|existing| existing.id == candidate.id) {
+        match entry
+            .iter_mut()
+            .find(|existing| existing.id == candidate.id)
+        {
             Some(existing) => existing.classes.extend(candidate.classes),
             None => entry.push(candidate),
         }
@@ -436,10 +430,7 @@ fn answers_from_sparql(
 
 impl Wire {
     /// SPARQL over `VALUES`: the batched label and handle lookups.
-    pub(super) async fn sparql(
-        &self,
-        requests: &[Request<Kind>],
-    ) -> Result<Vec<(String, Answer<Vec<Candidate>>)>, FetchError> {
+    pub(super) async fn sparql(&self, requests: &[Request<Kind>]) -> Result<Batched, FetchError> {
         let Some(first) = requests.first() else {
             return Ok(Vec::new());
         };
@@ -548,6 +539,44 @@ mod tests {
         assert!(candidate_from_row(&serde_json::json!({"query": {"value": "x"}})).is_none());
     }
 
+    /// The classes a search or title answer carries come from here, and an empty list silently
+    /// disables the kind gate — a wrong QID would then be claimed. Both reads are asserted: the
+    /// English text, and every `P31` value that is an item reference.
+    #[test]
+    fn an_entity_reads_its_english_text_and_its_classes() {
+        let item = serde_json::json!({
+            "labels": {"en": {"value": "Dune"}, "fr": {"value": "Dune (roman)"}},
+            "descriptions": {"en": {"value": "1965 novel by Frank Herbert"}},
+            "claims": {"P31": [
+                {"mainsnak": {"datavalue": {"value": {"id": "Q571"}}}},
+                {"mainsnak": {"datavalue": {"value": {"id": "Q7725634"}}}},
+                // A `novalue` snak asserts the item has no P31, and names no class.
+                {"mainsnak": {"snaktype": "novalue"}},
+            ]},
+        });
+
+        let candidate = entity_candidate("Q190192", &item);
+
+        assert_eq!(candidate.id, "Q190192");
+        assert_eq!(candidate.label.as_deref(), Some("Dune"));
+        assert_eq!(
+            candidate.description.as_deref(),
+            Some("1965 novel by Frank Herbert")
+        );
+        assert_eq!(candidate.classes, vec!["Q571", "Q7725634"]);
+    }
+
+    /// An item with no label, description or claims is a candidate with an id: absent is not empty,
+    /// and it is not an error.
+    #[test]
+    fn an_entity_with_nothing_but_an_id_still_reads() {
+        let candidate = entity_candidate("Q1", &serde_json::json!({}));
+        assert_eq!(candidate.id, "Q1");
+        assert_eq!(candidate.label, None);
+        assert_eq!(candidate.description, None);
+        assert!(candidate.classes.is_empty());
+    }
+
     #[test]
     fn pages_without_an_item_or_that_are_missing_are_skipped() {
         let body = serde_json::json!({"query": {"pages": {
@@ -630,7 +659,11 @@ mod tests {
         let answers = answers_from_sparql(&[labels("Nobody"), labels("Nobody Here")], &body)
             .expect("a well-formed empty answer");
         assert_eq!(answers.len(), 2);
-        assert!(answers.iter().all(|(_, answer)| answer.outcome == Outcome::Empty));
+        assert!(
+            answers
+                .iter()
+                .all(|(_, answer)| answer.outcome == Outcome::Empty)
+        );
         assert!(answers.iter().all(|(_, answer)| answer.body.is_none()));
     }
 

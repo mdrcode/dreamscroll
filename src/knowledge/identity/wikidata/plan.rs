@@ -3,10 +3,10 @@
 //! Pure and stateless — no client, no `self`. The ladder in `resolver` decides *when* to ask and
 //! what an answer means; this decides only *what*.
 
+use super::ID;
+use super::Kind;
 use super::property_query::platform_link_queries;
 use super::shape;
-use super::Kind;
-use super::ID;
 use crate::fetch::Request;
 use crate::illumination::v2::PlatformLink;
 use crate::knowledge::normalize;
@@ -66,10 +66,10 @@ impl Step {
 pub(crate) fn ladder(entity: &model::knowledge_entity::Model) -> Vec<(Step, Request<Kind>)> {
     Step::ORDER
         .into_iter()
-        .flat_map(|s| {
-            step(s, entity)
+        .flat_map(|rung| {
+            step(rung, entity)
                 .into_iter()
-                .map(move |request| (s, request))
+                .map(move |request| (rung, request))
         })
         .collect()
 }
@@ -131,28 +131,126 @@ fn search_hint(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>>
     Some(request(Kind::Search, hint))
 }
 
-/// The old bundled first pass, kept for the planning tests.
-#[cfg(test)]
-pub(crate) fn for_entity(entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
-    [Step::Handle, Step::Title, Step::Label]
-        .into_iter()
-        .flat_map(|s| step(s, entity))
-        .collect()
-}
-
 /// The article whose exact name this is, when the name is not empty.
 ///
 /// Two steps: the title lookup, and the surface-only last resort that reuses its cached answer.
-pub(crate) fn title(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
+fn title(entity: &model::knowledge_entity::Model) -> Option<Request<Kind>> {
     let label = entity.name.trim();
     (!label.is_empty()).then(|| request(Kind::Title, label))
 }
 
-/// The old bundled search pass, kept for the planning tests.
 #[cfg(test)]
-pub(crate) fn fallback(entity: &model::knowledge_entity::Model) -> Vec<Request<Kind>> {
-    [Step::SearchHint, Step::SearchLabel]
-        .into_iter()
-        .flat_map(|s| step(s, entity))
-        .collect()
+mod tests {
+    use super::*;
+    use crate::test_support::fixtures::stub_entity;
+
+    fn entity(label: &str) -> model::knowledge_entity::Model {
+        stub_entity(1, label, "unknown")
+    }
+
+    /// The order is the policy: a handle is stronger than a name, a title is unique where a label is
+    /// not, and the last resort re-asks the title question so it can be answered from the cache.
+    #[test]
+    fn the_ladder_asks_a_handle_then_a_title_then_a_label_then_search() {
+        let mut entity = stub_entity(1, "Alexey Kutepov", "real_person");
+        entity.search_query = Some("Tsoding".to_string());
+        entity.platform = Some("x_twitter".to_string());
+        entity.platform_handle = Some("tsoding".to_string());
+
+        let asked: Vec<(Step, Kind, String)> = ladder(&entity)
+            .into_iter()
+            .map(|(step, request)| (step, request.kind, request.query))
+            .collect();
+
+        assert_eq!(
+            asked,
+            vec![
+                (Step::Handle, Kind::Handle("P2002"), "tsoding".to_string()),
+                (Step::Title, Kind::Title, "Alexey Kutepov".to_string()),
+                (Step::Label, Kind::Label, "Alexey Kutepov".to_string()),
+                (Step::SearchHint, Kind::Search, "Tsoding".to_string()),
+                (
+                    Step::SearchLabel,
+                    Kind::Search,
+                    "Alexey Kutepov".to_string()
+                ),
+                (
+                    Step::SurfaceTitle,
+                    Kind::Title,
+                    "Alexey Kutepov".to_string()
+                ),
+            ]
+        );
+    }
+
+    /// A capture can name the platform and not the handle. Asking `VALUES { "" }` spends a call to
+    /// cache a negative about nobody, so the rung is skipped and the name rungs still run.
+    #[test]
+    fn a_platform_without_a_handle_asks_nothing() {
+        let mut entity = stub_entity(1, "Alexey Kutepov", "real_person");
+        entity.platform = Some("x_twitter".to_string());
+        entity.platform_handle = Some("   ".to_string());
+
+        assert!(step(Step::Handle, &entity).is_empty());
+        assert_eq!(step(Step::Title, &entity).len(), 1);
+        assert_eq!(step(Step::Label, &entity).len(), 1);
+    }
+
+    /// The database string is the seam that fails silently: a platform spelled differently parses to
+    /// `Platform::Other` and asks nothing at all, which is indistinguishable from "not on Wikidata".
+    /// The property and its value form are `property_query`'s; this is the string reaching it.
+    #[test]
+    fn every_platform_string_reaches_the_property_that_holds_its_handle() {
+        for (platform, handle, property) in [
+            ("x_twitter", "tsoding", Kind::Handle("P2002")),
+            ("youtube", "@MeatCanyon", Kind::Handle("P11245")),
+            ("youtube", "UC_x5XG1OV2P6uZZ5FSM9Ttw", Kind::Handle("P2397")),
+            ("reddit", "r/NFCWestMemeWar", Kind::Handle("P3984")),
+            ("reddit", "u/spez", Kind::Handle("P4265")),
+            ("threads", "@ada", Kind::Handle("P11892")),
+            ("mastodon", "@user@mastodon.social", Kind::Handle("P4033")),
+        ] {
+            let mut entity = entity("someone");
+            entity.platform = Some(platform.to_string());
+            entity.platform_handle = Some(handle.to_string());
+
+            let asked = step(Step::Handle, &entity);
+            assert!(
+                asked.iter().any(|request| request.kind == property),
+                "{platform}/{handle}: {asked:?}"
+            );
+        }
+
+        // An unmapped platform asks nothing rather than borrowing another platform's property.
+        let mut unknown = entity("someone");
+        unknown.platform = Some("myspace".to_string());
+        unknown.platform_handle = Some("tom".to_string());
+        assert!(step(Step::Handle, &unknown).is_empty());
+    }
+
+    /// The hint is a *query*, not only a scoring signal: `Commission of Tears` alone finds meniscal
+    /// tears, and the author in the hint is what would find the novel.
+    #[test]
+    fn the_hint_is_searched_before_the_bare_label() {
+        let mut target = entity("Commission of Tears");
+        target.search_query = Some("Commission of Tears Antonio Lobo Antunes".to_string());
+
+        let hints = step(Step::SearchHint, &target);
+        assert_eq!(hints.len(), 1);
+        assert_eq!(hints[0].query, "Commission of Tears Antonio Lobo Antunes");
+        assert_eq!(
+            step(Step::SearchLabel, &target)[0].query,
+            "Commission of Tears"
+        );
+    }
+
+    /// A hint that only repeats the name is not a second request.
+    #[test]
+    fn a_hint_equal_to_the_label_is_not_asked_twice() {
+        let mut target = entity("Tsoding");
+        target.search_query = Some("  TSODING ".to_string());
+
+        assert!(step(Step::SearchHint, &target).is_empty());
+        assert_eq!(step(Step::SearchLabel, &target)[0].query, "Tsoding");
+    }
 }

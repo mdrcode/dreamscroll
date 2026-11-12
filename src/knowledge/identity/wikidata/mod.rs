@@ -1,5 +1,5 @@
-//! One authority: the policy in `resolver`, the wire in `transport`, and its own vocabulary in
-//! `kind` and `candidate`.
+//! One authority: its request kinds (`kind`) and the item it offers (`candidate`), what to ask
+//! (`plan`), what an answer means (`parse`, `policy`), and the wire it speaks through (`transport`).
 
 mod answer;
 mod candidate;
@@ -15,7 +15,6 @@ mod shape;
 mod transport;
 mod types;
 
-pub(crate) use answer::AuthorityIdentity;
 pub use candidate::Candidate;
 pub use kind::Kind;
 pub use resolver::Wikidata;

@@ -4,13 +4,13 @@
 //! be re-run over cached payloads with no transport. Nothing here knows which wire produced the
 //! answer.
 
-use super::AuthorityIdentity as Identity;
 use super::answer;
 use super::policy;
 use super::ranking::HANDLE_CONFIDENCE;
 use super::types;
 use super::{Candidate, Kind};
 use crate::fetch::{Answer, Request};
+use crate::knowledge::evidence::Identity;
 use crate::model;
 
 /// Turn an answer into identities. Pure: same entity plus same answer, same identities.
@@ -93,7 +93,7 @@ pub(crate) fn explained(
             }
         },
         Kind::Title => policy::parse_title(entity, &candidates, request, reason),
-        Kind::Search => policy::parse_search(entity, candidates, request, reason),
+        Kind::Search => policy::parse_search(entity, &candidates, request, reason),
         // A label is a ranking question.
         Kind::Label => policy::decide(entity, &candidates, request, reason),
     }

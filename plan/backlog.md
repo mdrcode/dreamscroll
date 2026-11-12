@@ -183,19 +183,19 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   shrinking uploads instead. See MEDIA_TRANSCODE in `plan/upload-formats.md`.
 
 - [ ] **Make the scoring agree with itself.** An audit of `src/knowledge` (2026-11-04) found four
-  places where a function contradicts its own rule. None of them changes the corpus today — a rebuild
-  is identical either way — so each needs a before/after diff
+  places where a function contradicts its own rule. Item 2 is fixed; item 1 needs a before/after diff
   (`reset` → `link` → `identity resolve --offline` → `compare`) to prove it moves, not just a unit test.
 
-  1. **Two fits for one candidate.** `wikidata/resolver.rs::parse_search` builds IDF weights over all
+  1. **Two fits for one candidate.** `wikidata/policy.rs::parse_search` builds IDF weights over all
      of the answer's candidates; `decide` builds them over the *admitted* subset. One candidate is
      therefore scored against two weight sets inside one `parse`, so a search answer can be accepted
-     on one fit and ranked on another.
-  2. **The margin guards the wrong competitor.** `rank` sorts by blended `score`, then `decide` takes
-     `runner_up` as the next entry *in that order* while comparing its `fit`. On the `title` and
-     `search_ranked` paths those orders differ, so the ambiguity rule is measured against a candidate
-     that is not the closest by the measure it uses. `plan/archive/knowledge-resolution.md` reasons about
-     margins in fit space, which assumes the fit order.
+     on one fit and ranked on another. `ranking.rs`'s own doc says the corpus is "the answers the
+     question returned", which sides with `parse_search` — so the fix is for `decide` to rank the
+     admitted subset against the full answer's weights, not for `parse_search` to narrow its corpus.
+  2. ~~**The margin guards the wrong competitor.**~~ **Fixed** (2026-11-12): `Ranking::rank` sorts
+     by `fit` and lets the blend break ties only, so `decide`'s `runner_up` is the closest competitor
+     *by the measure it margins*. Locked by
+     `policy::tests::the_runner_up_is_measured_in_the_same_order_as_the_winner`.
   3. ~~**Two orderings for "most substantiated".**~~ **Fixed by construction** (2026-11-04): the SQL
      `ORDER BY` is gone, `holders_of_identity` sorts with `Worth::order`, and `merge_open` asks the same
      function — one comparator, no NULL rule to keep in sync.
@@ -203,10 +203,11 @@ this file (git history keeps it) and recorded in `plan/archive/`.
      holder against `holders.first()`, so `(h2, h3)` never becomes a proximity and that question is
      invisible in `proximity list`. The corpus never exceeds two holders, so nothing is missing yet.
 
-  Settle 1 and 2 by choosing which weight set and which ordering is authoritative — both are ranker
-  policy and belong with the resolver, not the linker. Note that the scoring split (`scoring.rs` verbs,
-  `linker/heuristic/scoring.rs` policy) makes 1 cheaper to state: `parse_search` builds `Weights` itself
-  instead of asking the policy, which is now the visible oddity rather than a hidden one.
+  1 is ranker policy and belongs with the resolver, not the linker. Full statement, options and the
+  rebuild recipe: [wikidata-cleanup-20261112.md](wikidata-cleanup-20261112.md). Note that the scoring
+  split (`scoring.rs` verbs, `linker/heuristic/scoring.rs` policy) makes it cheaper to state:
+  `parse_search` builds `Weights` itself instead of asking the policy, which is the visible oddity
+  rather than a hidden one.
 
 - [ ] **Decide how admin privilege reaches the common APIs.** Today an admin can do a thing only if a
   route was written for it. `POST /api/queues/illuminate` resolves the capture through the caller's own

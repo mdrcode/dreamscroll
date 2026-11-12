@@ -228,7 +228,9 @@ async fn ladder(
                     identity.scheme.clone(),
                     identity.external_id.clone(),
                 ));
-                (identity.external_id, identity.method)
+                // Every provider claim names its method; `None` is the stored type's allowance for a
+                // capture's own handle annotation, not something a resolver can return.
+                (identity.external_id, identity.method.unwrap_or_default())
             })
         } else {
             None

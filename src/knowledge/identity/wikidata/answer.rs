@@ -1,22 +1,12 @@
-//! What a Wikidata answer looks like, and what in it is a referent rather than a menu.
+//! What a Wikidata answer becomes, and what in it is a referent rather than a menu.
 //!
 //! Pure JSON in, candidates or a claim out. Nothing here fetches, and nothing here knows the
-//! request that produced the answer.
+//! request that produced the answer. A claim is the stored [`Identity`] itself, so a decided answer
+//! needs no second pass to become an annotation.
 
 use super::Candidate;
 use super::ID;
-
-/// A Wikidata answer before it becomes an identity annotation.
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct AuthorityIdentity {
-    pub scheme: String,
-    pub external_id: String,
-    pub label: Option<String>,
-    pub description: Option<String>,
-    pub classes: Vec<String>,
-    pub method: String,
-    pub confidence: f32,
-}
+use crate::knowledge::evidence::Identity;
 
 /// A menu, not a referent. Two classes because Wikidata's own hierarchy defeats equality: `Q22808320`
 /// ("Wikimedia human name disambiguation page") is a *subclass* of `Q4167410`, and every one of the 34
@@ -26,15 +16,18 @@ const MENUS: [&str; 2] = [
     "Q22808320", // Wikimedia human name disambiguation page
 ];
 
-pub(super) fn identity(candidate: &Candidate, method: &str, confidence: f32) -> AuthorityIdentity {
-    AuthorityIdentity {
+/// The annotation a decided candidate becomes: the authority's id, its method, and its confidence.
+pub(super) fn identity(candidate: &Candidate, method: &str, confidence: f32) -> Identity {
+    Identity {
         scheme: ID.to_string(),
         external_id: candidate.id.clone(),
+        method: Some(method.to_string()),
+        confidence: Some(confidence),
         label: candidate.label.clone(),
         description: candidate.description.clone(),
         classes: candidate.classes.clone(),
-        method: method.to_string(),
-        confidence,
+        // A provider answer is not a capture: no observation carried it.
+        observation_id: None,
     }
 }
 

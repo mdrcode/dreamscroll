@@ -115,7 +115,9 @@ pub(super) fn incompatible(entity_type: &str, classes: &[String]) -> bool {
     if found.is_empty() {
         return false;
     }
-    let every = |allowed: fn(Family) -> bool| found.iter().copied().all(allowed);
+    // Every arm below names a family this entity cannot be; the candidate is rejected only when
+    // *every* recognised class falls in that set.
+    let every_class_is = |families: fn(Family) -> bool| found.iter().copied().all(families);
     match entity_type {
         // A person is a human. A surname, a work, a concept or an organization is another kind of
         // thing — this is what caught `Kabugo` (a family name) and `Micah` (a given name).
@@ -123,7 +125,7 @@ pub(super) fn incompatible(entity_type: &str, classes: &[String]) -> bool {
         // A created work is not a person, a place, a concept, a word, a creature or a program.
         // Organization and event are left out on purpose — see above.
         "movie" | "book" | "art_work" | "music" | "television_series" | "television_show" => {
-            every(|family| {
+            every_class_is(|family| {
                 matches!(
                     family,
                     Family::Person
@@ -138,7 +140,7 @@ pub(super) fn incompatible(entity_type: &str, classes: &[String]) -> bool {
         }
         // A character is not a phenomenon, and not the work it appears in: `Irene` the character
         // against the hurricane, `Billy Costigan` against *The Departed*.
-        "fictional_character" => every(|family| {
+        "fictional_character" => every_class_is(|family| {
             matches!(
                 family,
                 Family::Nature
@@ -158,10 +160,10 @@ pub(super) fn incompatible(entity_type: &str, classes: &[String]) -> bool {
         // *2019 Boeing B-17 Flying Fortress crash* because "heavy bomber" appears in a crash
         // report. Nothing else is mapped here — a product's own classes are broad and unmapped,
         // and the rule only has to catch a kind of thing a product cannot be.
-        "product" => every(|family| matches!(family, Family::Event | Family::Person)),
+        "product" => every_class_is(|family| matches!(family, Family::Event | Family::Person)),
         // A brand is not a word. `Westinghouse` claimed a family-name page (`Q110089588`, P31
         // `Q101352`) — the only thing that item asserts is that the word is a surname.
-        "brand" => found.iter().all(|family| *family == Family::Name),
+        "brand" => every_class_is(|family| family == Family::Name),
         _ => false,
     }
 }
