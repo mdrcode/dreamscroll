@@ -23,7 +23,7 @@ signal that linking stopped being deterministic, before anything is lost.
 of why that table read as dead weight.
 
 > **See also:** `plan/archive/knowledge-canonical-entities.md` (observation → entity → evidence),
-> `plan/knowledge-resolution.md` (claims from authorities), `src/knowledge/knowledge.md` (the
+> `plan/archive/knowledge-resolution.md` (claims from authorities), `src/knowledge/knowledge.md` (the
 > modules as they stand), `plan/lexicon.md` (the vocabulary).
 
 ## The problem

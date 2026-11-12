@@ -1,14 +1,18 @@
 # Resolution — cache first, providers second
 
-**Status:** Implemented (current schema 39). `dreamscroll_knowledge identity resolve` runs manually;
-there is no scheduled trigger and no enrichment yet. Wikidata is the first provider. Schema 39
-removed the claim edge: a resolver returns an entity's identities and the engine replaces that
-provider's set — see [knowledge-identity-annotations.md](knowledge-identity-annotations.md). Sections
-below that describe claims are kept for the rationale; read "claim" there as the edge that no longer
-exists.
+**Status:** Implemented, archived 2026-11-12. `dreamscroll_knowledge identity resolve` runs manually;
+there is no scheduled trigger. Wikidata is the first provider. Schema 39 removed the claim edge: a
+resolver returns an entity's identities and the engine replaces that provider's set — see
+[knowledge-identity-annotations.md](knowledge-identity-annotations.md). Sections below that describe
+claims are kept for the rationale; read "claim" there as the edge that no longer exists.
 
-**See also:** [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md) (the graph this feeds),
-[knowledge-evidence-prototype.md](archive/knowledge-evidence-prototype.md) (the measured prototype, and the
+This is the measured record of how resolution got here — the ladder, the gates and what each change
+bought. The model as built is `src/knowledge/knowledge.md` and the fetch door is `src/fetch/fetch.md`;
+what is still open (type as an input, enrichment, the gold-set harness) is tracked in
+`plan/backlog.md`.
+
+**See also:** [knowledge-canonical-entities.md](knowledge-canonical-entities.md) (the graph this feeds),
+[knowledge-evidence-prototype.md](knowledge-evidence-prototype.md) (the measured prototype, and the
 failure catalogue this design answers).
 
 ## The rule
@@ -1096,9 +1100,13 @@ both it. It is the highest-yield policy change left.
 
 ## Confidence and status
 
-`status` and `confidence` are written by `project()`, and by nothing else:
+`status` and `confidence` are written by `project()`, and by nothing else. **Schema 39 changed the
+aggregation**: `confidence` is now the best annotation's own confidence (`best_confidence`), with no
+per-input bonus — corroboration survives as a second annotation row, not as a higher number. The
+claim-era rule and its reasoning are kept below because they are what the per-annotation confidences
+still encode.
 
-- `identified` when any live identity claim exists, `provisional` otherwise.
+- `identified` when any live identity annotation exists, `provisional` otherwise.
 - `confidence` = the best claim's confidence **+ 0.1 per extra independent *input***, capped at
   1.0, where a claim's own confidence is `0.50 + 0.45 · score` (0.75 for a lone exact label). The
   handle chain is one input however many sources carry it; text is one input per asserting authority.

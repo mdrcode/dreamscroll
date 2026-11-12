@@ -146,7 +146,7 @@ pub(super) async fn preview<C: ConnectionTrait>(
 /// Two entities that both appear in one *illumination* cannot be folded: one extractor emitting both
 /// is its own statement that they are two things, and a merge must not contradict it. The unit is the
 /// illumination, not the capture — re-illuminating an image makes a separate one, whose names may
-/// legitimately join. See `plan/knowledge-illumination-history.md`.
+/// legitimately join. See `plan/archive/knowledge-illumination-history.md`.
 async fn merge(
     conn: &DatabaseConnection,
     evidence: &Evidence,

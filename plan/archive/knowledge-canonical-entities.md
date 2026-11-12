@@ -564,7 +564,7 @@ are in the payload.
 ## Resolution
 
 Implemented as a cache-first provider pipeline — see
-[knowledge-resolution.md](../knowledge-resolution.md) for the cache table, the `Engine` seam and the TTLs.
+[knowledge-resolution.md](knowledge-resolution.md) for the cache table, the `Engine` seam and the TTLs.
 The shape below is the target; only identity (`label`, `handle`, `search`) exists today.
 
 Three sources, merged rather than ordered:

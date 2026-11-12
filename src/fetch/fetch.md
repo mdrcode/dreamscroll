@@ -22,9 +22,13 @@ trait Transport: Send + Sync {
     async fn fetch(&self, requests: &[Request<Self::Kind>])
         -> Result<Vec<(String, Answer<Self::Payload>)>, FetchError>;
 
-    fn batch_size(&self, kind: &Self::Kind) -> usize;
+    fn batch_size(&self, kind: &Self::Kind) -> usize;   // queries per call; default 50
+    fn cost(&self, kind: &Self::Kind) -> usize;         // worst-case HTTP calls per `fetch`; default 1
 }
 ```
+
+`cost` is what the budget charges, because a `fetch` is not always one request: a title lookup reads
+the page and then the items it names, so charging one per call would under-bill a batch that fans out.
 
 Both are associated types on purpose. This module stores a kind as a string in the cache, groups a
 batch by it, and hands the payload back untouched — so it can never grow a vocabulary that a second
@@ -59,6 +63,10 @@ Four decisions worth naming:
 | `empty` | 7 d | a niche name may gain an item next week |
 | `degraded` | 1 h | usually still true, just not what a healthy backend would have said |
 | `failed` | 10 min | a provider that is down is not a fact about the world |
+
+Expiry is not deletion. An expired row is read as a miss and kept 30 days longer, so recent staleness
+stays inspectable and `Tally` can tell a stale answer from an absent one; only then does `prune` drop
+it.
 
 An answer's TTL is fixed by its outcome when it is written, and nothing revises it afterwards.
 Demoting an "unproductive" answer to 6 h once the caller's stages found nothing usable was tried and

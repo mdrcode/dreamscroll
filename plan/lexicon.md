@@ -5,7 +5,7 @@ tables, columns and verbs. The map from the previous names is at the end, and so
 that were considered and rejected — read that before proposing a rename.
 
 **See also:** [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md) (the model),
-[knowledge-resolution.md](knowledge-resolution.md) (the resolver).
+[knowledge-resolution.md](archive/knowledge-resolution.md) (the resolver).
 
 ## The sentence
 
@@ -44,9 +44,9 @@ observation.
 | Noun | Rust | Table | Columns |
 | --- | --- | --- | --- |
 | **observation** | `UserObservedEntity` | `user_observed_entities` | `id`, `user_id`, `capture_id`, `illumination_id`, `position`, `created_at`, `name`, `entity_type`, `description`, `search_query`, `platform`, `platform_handle`, `platform_display_name`, `knowledge_entity_id` |
-| **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `status`, `confidence`, `merged_into_id`, timestamps |
+| **knowledge entity** | `KnowledgeEntity` | `knowledge_entities` | `id`, `created_at`, `updated_at`, `name`, `alt_names`, `entity_type`, `alt_types`, `description`, `alt_descriptions`, `search_query`, `alt_search_queries`, `platform`, `platform_handle`, `platform_display_name`, `status`, `confidence`, `merged_into_id`, `origin_observation_id` |
 | **identity** (schema 39) | `KnowledgeIdentity` | `knowledge_identities` | `id`, `knowledge_entity_id`, `scheme`, `external_id`, `label`, `description`, `classes`, `provider`, `method`, `confidence`, `user_observed_entity_id`, `observed_at` |
-| **merge** | `KnowledgeVerdict` | `knowledge_verdicts` | `id`, `generation`, `cause`, `winner_origin`, `loser_origin`, `winner_label`, `loser_label`, `at` |
+| **merge** | `KnowledgeVerdict` | `knowledge_verdicts` | `id`, `generation`, `kind`, `cause`, `winner_origin`, `loser_origin`, `subject_origin`, `identity_scheme`, `identity_external_id`, `winner_label`, `loser_label`, `decided_at`, `note` |
 | **proximity** | `KnowledgeProximity` | `knowledge_proximities` | `id`, `holder_id`, `counterpart_id`, `scheme`, `external_id`, `basis`, `score`, `scanned_at` |
 
 Two things have no table: an **identity key** is `(scheme, external_id)`, which one or more entity
@@ -69,10 +69,10 @@ annotations may carry, and a **snapshot** is what `reset` saves and `compare` di
 > **Resolve** asks *what can the authorities tell us about this thing?* — it records the answers as
 > evidence.
 
-Resolution emits claims, and also two things that are **about the graph rather than the world**: a
-collision (two entities holding one identity that cannot be merged, awaiting a decision) and a merge
-(a mutation, recorded for whoever reverses it). Those live in their own tables — see below — because
-one table answering three questions needs a `kind` discriminator, three payload shapes and a
+Resolution writes identity annotations, and the graph records two things that are **about the graph
+rather than the world**: a proximity (two entities that hold one identity, awaiting a decision) and a
+merge (a mutation, recorded for whoever reverses it). Those live in their own tables — see below —
+because one table answering two questions needs a `kind` discriminator, two payload shapes and a
 per-kind index.
 
 ## Verbs
@@ -93,8 +93,8 @@ per-kind index.
 | Table | Is | Written by |
 | --- | --- | --- |
 | `knowledge_identities` | a fact about the world: this entity is named `(scheme, external_id)` by this provider | `link` (a capture's handle), `resolve` (an authority's complete answer) |
-| `knowledge_proximities` | a judgement about our data: two entities look close enough to ask about, and what was decided — a record, never deleted | `proximity::scan`, when a merge is refused; a human, with a verdict |
-| `knowledge_verdicts` | a mutation of our data: one thing folded into another, what decided it (`repair`, `proximity_auto`, `replayed`), and which generation — a log, keyed by origin so it survives a rebuild | `resolve`, the repair command, and `verdicts replay` |
+| `knowledge_proximities` | a judgement about our data: two entities looked close enough to ask about at the last scan, and the score that pass gave them — one scan's batch, replaced wholesale | `proximity::scan`, and nothing else |
+| `knowledge_verdicts` | a mutation of our data: one thing folded into another (`kind` = `merge`), an entity declared not an identity (`veto_identity`), or two origins declared separate (`distinct`) — what decided it (`repair`, `proximity_auto`, `replayed`), and which generation; a log, keyed by origin so it survives a rebuild | `proximity auto-merge`, `merge`, the veto commands, and `verdicts replay` |
 
 `enrichment` and `rejection` remain reserved kinds in the vocabulary, not tables: enrichment is the
 authority's answer about an identity — its `label`, `description`, and `classes` — and it lives on

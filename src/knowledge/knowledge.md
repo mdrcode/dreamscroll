@@ -52,7 +52,7 @@ An entity is the thing itself, shared by every user, in `knowledge_entities`. It
 is **recomputed**: every derived column is a function of the entity's observations and its evidence, so
 a merge or a fresh link simply recomputes them. After `create`, `update_projection()` is the only writer of `name`, `alt_names`,
 `entity_type`, `alt_types`, `description`, `alt_descriptions`, `search_query`, `alt_search_queries`,
-`status` and `confidence`.
+`platform`, `platform_handle`, `platform_display_name`, `status` and `confidence`.
 
 ```
 name / alt_names            the chosen surface, and every other one seen
@@ -80,12 +80,10 @@ not an independent event.
 ```rust
 trait Blocker {                  // recall: find candidates, over-generate
     async fn candidates(&self, observation: &Observation) -> Vec<Entity>;
-    fn changed(&self, entity: &Entity);          // an in-memory blocker only; a no-op otherwise
-    fn forget(&self, id: i32);                   // discarded or tombstoned; ditto
 }
 
-// All three take `&self`, so the store holds one `Arc<dyn Blocker>` and no lock: an implementation
-// that keeps an index owns its own mutex, and nobody holds a guard across a `candidates` call.
+// `&self`, so the graph holds one `Arc<dyn Blocker>` and no lock. The SQL blocker keeps no state to
+// invalidate: it reads the index every projection already updates.
 
 trait Linker {              // the procedure: decide, and nothing else
     // The policy is a member of the implementation, not an argument.
@@ -152,12 +150,12 @@ Everything else is not a verb. The scan stores the number and `merge` asks `Rank
 linker asks `Rank` and applies the answer; `project` takes the best identity's confidence; `merge` and
 the holder order ask `TotalCmp`, a convention about `NULL`. The linker **holds** its
 `Scoring`; the proximity passes are **handed** one; the store holds none. Choosing one policy for both
-sides is the composition root's job — it constructs the linker and passes the same `Scoring` to `scan`
-and `merge` — because a store that owned one would let a caller swap the merge side without swapping
-the link side, silently.
+sides is the composition root's job — it builds the linker and a `Scoring` from the same policy, and
+passes that to `proximity scan` and `auto-merge` — because a store that owned one would let a caller
+swap the merge side without swapping the link side, silently.
 
-`linker/heuristic/scoring.rs` is today's only answer: normalized keys, weights, and the merge rule. `linker/heuristic/linker.rs` is the **procedure** — the best qualifying candidate,
-else create — and holds the policy it applies, but no numbers of its own. `blocker/sql.rs` is recall:
+`linker/heuristic/scoring.rs` is today's only answer: normalized keys, weights, and the merge rule. `linker/heuristic/linker.rs` is the **procedure** — a handle the graph already holds settles the
+observation before any scoring, else the best qualifying candidate, else create — and holds the policy it applies, but no numbers of its own. `blocker/sql.rs` is recall:
 every folded surface and its word-order-insensitive form, probed out of `knowledge_blocking_index` —
 nothing scored. A platform handle is a surface too, so a capture that named an account only by its
 handle still finds the entity another capture named by hand. The
@@ -335,14 +333,14 @@ one.
 | `graph/link.rs` | `link`: a batch of observations in, decisions applied and projected out — plus the `observation → entity` mapping and `LinkReport`. It knows nothing about identities |
 | `snapshot/` | take a copy of the projection, empty it, diff two copies |
 | `evidence/` | the vocabulary — `PlatformLink`, `IdentityKey`, `Identity` — and the write path in `store.rs`: `replace_provider_identities` rewrites a provider's set for one entity, `add_identity` appends a capture's handle, `query_identities` and `query_entities_for_identity` answer the reads. `store.rs` also owns `move_identities` on a fold and `delete_identity` on a veto; `selection.rs` owns the candidate reads (`awaiting_authority`, `annotated_by`) |
-| `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors (`new`, `with_linking`, `with_heuristic_linking`) and the operations that own a write path — link, merge, replay, reproject, the veto commands. It holds the connection, the blocker, the decider and the evidence — no policy of its own |
+| `graph/knowledge_graph.rs` | the facade: `KnowledgeGraph`, its constructors (`new`, `with_linking`, `with_heuristic_linking`) and the operations that own a write path — link, merge, replay, reproject, the veto commands. It holds the connection, the blocker, the decider, the evidence and the verdict register — no policy of its own |
 | `graph/replay.rs` | the verdict effects: `replay` (merges, then withdrawals) and the withdrawal the veto command shares |
 | `graph/project.rs` | `project`: the only writer of derived columns — including the entity's `knowledge_blocking_index` row — with `gather`/`select`/`surfaces`; confidence is the best identity's score. `reproject` repairs a scope of entities, with `Stale` the "live, no identity annotation" rule |
 | `graph/merge.rs` | fold one entity into another |
 | `proximity/` | the derived batch of look-alike pairs, and the two passes: `mod.rs` is declarations and the `Basis` vocabulary; `scan.rs` derives the batch (one transaction replaces the table); `auto_merge.rs` folds what it can on its own and leaves the rest. Both take the connection and the `Scoring` as arguments |
 | `verdicts/` | the register: the modification log and the standing vetoes, held by `KnowledgeGraph`. `store.rs` is the type, its connection, `record` (the one write that takes the caller's transaction, so a merge's row commits with the fold) and the reads the replay and `stats` share; `veto.rs` holds `veto`/`unveto`/`vetoed`; `origin.rs` turns an origin into the entity it names now. Applying the log is the graph's command (`graph/replay.rs`), exposed as `KnowledgeGraph::replay_verdicts`; `pair_key` is shared with `stats` |
 |`identity/`|`mod.rs` (module declarations) · `resolution` (the `Resolver` trait a provider implements, the run loop, candidate selection, vetoes) · `wikidata/` (today's only authority). The identities it returns, and where they become rows, are `evidence` — the cache, the pace and the budget are `crate::fetch`|
-| `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the gates and decision order in `policy.rs` · answer parsing in `answer.rs` · the ladder in `resolver.rs` · request planning in `plan.rs` · query text in `query.rs` · candidate scoring in `ranking.rs`, as the graph's `Rank` verb · shape keys in `shape.rs` · class filtering in `types.rs` · HTTP in `transport.rs` |
+| `identity/wikidata/` | one authority, entirely in its own vocabulary: `kind` (its request kinds) and `candidate` (the item it offers) · the ladder in `resolver.rs` · request planning in `plan.rs` · query text in `query.rs` · a platform link turned into the property and value form to ask (`property_query.rs`) · shape keys in `shape.rs` · the wire shape parsed into candidates in `answer.rs` · the gates and their order in `policy.rs` · one answer's candidates decided rung by rung in `parse.rs` · candidate scoring in `ranking.rs`, as the graph's `Rank` verb · class filtering in `types.rs` · HTTP in `transport.rs` |
 |`../fetch/`|the only door to a third party — see `src/fetch/fetch.md`: `transport` (the trait, and the request and answer it speaks, generic over a provider's kind and payload) · `cache` (answers keyed by `(provider, kind, shape, query)`, and their TTLs) · `stats` (a run's counters, and the table's tally) · `gateway` (cache first, then a paced, budgeted fetch)|
 | `identity/inspect.rs` | `identity inspect`: walks one entity through blocking, ranking and the ladder, read-only |
 | `eval/` | offline diagnostics: `eval blocker` measures recall |
@@ -357,5 +355,5 @@ rebuilt graph. The graph's health counters are a report over the tables rather t
 they live in `crate::stats::knowledge_stats`.
 
 The vocabulary — and the names we rejected — is in `plan/lexicon.md`. The design history, including
-the failures that produced these rules, is in `plan/knowledge-illumination-history.md` and
+the failures that produced these rules, is in `plan/archive/knowledge-illumination-history.md` and
 `plan/archive/knowledge-canonical-entities.md`.

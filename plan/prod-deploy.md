@@ -682,8 +682,9 @@ Implementation details worth not rediscovering:
 
 1. Should `--check` distinguish "manifest ahead of prod" (uncommitted intent)
    from "prod ahead of manifest" (out-of-band change)? Today both are one diff.
-2. When should the renamed legacy tables be dropped or moved to a `legacy`
-   schema? They are inert for sync but still occupy `public`.
+2. ~~When should the renamed legacy tables be dropped or moved to a `legacy`
+   schema?~~ Open, but tracked: `plan/backlog.md` carries "Dispose of the renamed
+   legacy tables". They are inert for sync but still occupy `public`.
 3. Fold the sync into the web release automatically, or keep the explicit
    `--apply --db` then `--apply --web` step? Deferred until sync stops
    rebuilding the hand-written index.

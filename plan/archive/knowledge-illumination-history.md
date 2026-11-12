@@ -1,10 +1,11 @@
 # Illumination history — the graph keeps every reading, the view keeps one
 
-**Status:** Implemented (2026-11-01). `link` links every observation, including those from
-superseded illuminations; the user's view is anchored on each capture's current illumination. The
-change was triggered by a measured failure, not a hunch.
+**Status:** Implemented (2026-11-01), archived 2026-11-12. `link` links every observation, including
+those from superseded illuminations; the user's view is anchored on each capture's current
+illumination. The change was triggered by a measured failure, not a hunch. Every item that was left
+open is tracked in `plan/backlog.md`; the doc is kept for the rationale behind the rule.
 
-**See also:** [lexicon.md](lexicon.md) (vocabulary), [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md)
+**See also:** [lexicon.md](../lexicon.md) (vocabulary), [knowledge-canonical-entities.md](knowledge-canonical-entities.md)
 (the model).
 
 ## The trigger
@@ -94,6 +95,9 @@ observations and drops everything derived, so the rebuild is cheap: 12 seconds f
 `resolve --offline`, no network.
 
 ## Still open
+
+Tracked in `plan/backlog.md` since 2026-11-12 (retries, the ghost set, and pinning the current
+reading); kept here as the record of what the rule cost.
 
 - **There is no arbiter for which reading is right.** `current` is `max(illumination_id)` — recency,
   not quality, and nothing in the system pretends otherwise. In the three re-reads examined closely

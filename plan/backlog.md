@@ -194,7 +194,7 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   2. **The margin guards the wrong competitor.** `rank` sorts by blended `score`, then `decide` takes
      `runner_up` as the next entry *in that order* while comparing its `fit`. On the `title` and
      `search_ranked` paths those orders differ, so the ambiguity rule is measured against a candidate
-     that is not the closest by the measure it uses. `plan/knowledge-resolution.md` reasons about
+     that is not the closest by the measure it uses. `plan/archive/knowledge-resolution.md` reasons about
      margins in fit space, which assumes the fit order.
   3. ~~**Two orderings for "most substantiated".**~~ **Fixed by construction** (2026-11-04): the SQL
      `ORDER BY` is gone, `holders_of_identity` sorts with `Worth::order`, and `merge_open` asks the same
@@ -242,6 +242,27 @@ this file (git history keeps it) and recorded in `plan/archive/`.
   the parent is empty and `cargo test --lib` proves it. Then add `cargo fmt --check` to whatever runs
   before a merge, or the same drift starts again the next day.
 
+- [ ] **Make illumination retries append rather than replace.** `insert_illumination` upserts by
+  `task_run_id`, then deletes and re-inserts its observations, so a retry of one run discards the
+  previous attempt before `link` ever sees it — the graph's "every reading survives" rule silently
+  loses the reading. A re-illumination from a *new* run is unaffected. This is the supersede change
+  and the only part of the illumination-history work that touches ingest.
+
+- [ ] **Surface the ghost set.** "Every member of this entity is superseded" is a one-line query and a
+  decent drift signal, and nothing reports it; `knowledge_stats` is where it belongs.
+
+- [ ] **Rebuild the resolution gold-set harness.** The 13 verified rows survive in
+  `localdev/analysis/entity-promotion/evidence/resolve-gold.tsv`, but the harness that scored them
+  (`examples/eval_resolve`) went with the replay driver. Without it a scoring change is measured on
+  the whole corpus only, so a regression on a specifically hard case stays invisible until it moves
+  a claim count.
+
+- [ ] **Fetch enrichment for an identity.** `enrichment` is reserved vocabulary on
+  `knowledge_identities` (label, description, classes) and an authority fills them on the way past,
+  but nothing reads them and no pass fetches them by identity alone. Decide whether it is a request
+  kind in the resolver ladder or a separate pass over identified entities. `project` is where a
+  reader would appear.
+
 ## Deferred — already scoped
 
 Promote an item into **Next** when its trigger fires or it becomes the focus.
@@ -269,6 +290,11 @@ Promote an item into **Next** when its trigger fires or it becomes the focus.
 
 Carried forward from `plan/archive/devlog.md`; each needs a design pass before it becomes a task.
 
+- **Pin which illumination of a capture is current.** The view shows `max(illumination_id)` — recency,
+  not quality, and in all three re-reads examined the newer reading was the worse one (captures 683,
+  697 and 684). A capture-level pointer to the chosen reading is the natural home, and it would be
+  the first labelled data in the system: every pinned reading says which run was right, which is the
+  only way to answer whether re-illumination helps.
 - **Bifurcate the app loop** into `LearnMoreAbout`, `MoreLikeThis`, and `GoBeyond`.
 - **Entity pages, and permanent redirects from tombstones.** One page per knowledge entity, and a
   merged entity answers `301` to its canonical one: `merged_into_id` is a permanent forwarding

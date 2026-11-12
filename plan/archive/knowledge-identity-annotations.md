@@ -1,10 +1,10 @@
 # Identity annotations — delete the claim edge
 
-**Status:** Implemented 2026-11-11, schema 39. `knowledge_claims` is gone; an identity is an
-annotation on one entity.
+**Status:** Implemented 2026-11-11, schema 39; archived 2026-11-12. `knowledge_claims` is gone; an
+identity is an annotation on one entity. The day-to-day model is `src/knowledge/knowledge.md`.
 
-**See also:** [lexicon.md](lexicon.md) (vocabulary), [knowledge-resolution.md](knowledge-resolution.md)
-(the resolver contract), [knowledge-claim-management.md](archive/knowledge-claim-management.md) (the claim
+**See also:** [lexicon.md](../lexicon.md) (vocabulary), [knowledge-resolution.md](knowledge-resolution.md)
+(the resolver contract), [knowledge-claim-management.md](knowledge-claim-management.md) (the claim
 model being removed), `src/knowledge/knowledge.md` (the model as built).
 
 ## The insight

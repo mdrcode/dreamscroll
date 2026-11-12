@@ -5,7 +5,7 @@
 everything below is history; an identity is now an annotation on one entity. Kept for the rationale
 behind the veto's pairing address and the two-phase write it replaced.
 
-**See also:** [lexicon.md](lexicon.md) (vocabulary), [knowledge-canonical-entities.md](archive/knowledge-canonical-entities.md)
+**See also:** [lexicon.md](../lexicon.md) (vocabulary), [knowledge-canonical-entities.md](knowledge-canonical-entities.md)
 (evidence as an append-only edge), `src/knowledge/knowledge.md` (the model as built).
 
 ## The trigger
